@@ -17,6 +17,7 @@
 - [Data Models](#data-models)
 - [CLI Shape](#cli-shape)
 - [Flow Enforcement](#flow-enforcement)
+- [Implementation Plan Maintenance](#implementation-plan-maintenance)
 - [Agent Prompt Contracts](#agent-prompt-contracts)
 - [Stage Implementation Phases](#stage-implementation-phases)
 - [Recommended Initial Milestone](#recommended-initial-milestone)
@@ -382,6 +383,34 @@ Change-control commands classify the earliest affected baseline and invalidate
 downstream gates that depended on the old baseline. The pipeline then resumes
 from the reopened stage and advances through the normal gate sequence.
 
+## Implementation Plan Maintenance
+
+`docs/implementation-plan.md` is the review baseline for implementation work.
+The coding agent, code review agent, and test review agent evaluate active
+phase work against that document. When development changes the agreed phase
+scope, sequence, acceptance criteria, required tests, dependency order, or
+documentation impact, the plan is updated before review continues.
+
+This rule supports iterative development without falling back into waterfall.
+Requirements and design can evolve, and implementation discoveries can refine
+the phase plan. The pipeline keeps those refinements explicit so reviewers
+evaluate code against a current artifact instead of an outdated discussion.
+
+The orchestrator distinguishes plan drift from ordinary implementation detail.
+Small choices that stay inside the active phase scope are recorded in review
+comments or commits. Changes that alter what the phase means require a
+`docs/implementation-plan.md` update, approval, and a new plan snapshot.
+
+Implementation-plan maintenance adds these checks:
+
+- Code review blocks when the active phase is not described by the current
+  implementation plan.
+- Test review blocks when required tests or acceptance criteria have changed
+  but the implementation plan has not.
+- Commit blocks when accepted phase-scope changes are not reflected in the
+  implementation plan.
+- Change control reopens Stage 5 for plan-only changes.
+
 ## Agent Prompt Contracts
 
 Every agent invocation receives a role prompt, a context bundle, and a response
@@ -467,6 +496,7 @@ Scope:
 - Requirements gate.
 - Stage order gate.
 - Change-control gate.
+- Implementation-plan currency gate.
 - Design gate.
 - Human design acceptance gate.
 - Implementation gate.
@@ -484,6 +514,7 @@ Acceptance criteria:
 - Unit tests cover pass and fail cases.
 - Tests prove that later stages cannot start before predecessor gates pass.
 - Tests prove that reopened baselines invalidate downstream gates.
+- Tests prove that phase-scope changes block review until the plan is updated.
 
 ### Phase 4. Runtime Adapter Interface
 
@@ -569,6 +600,7 @@ Scope:
 - Track human approval.
 - Track Design Author Agent confirmation.
 - Verify phase-to-requirement traceability.
+- Support plan updates discovered during implementation.
 - Snapshot the approved plan.
 
 Acceptance criteria:
@@ -577,6 +609,8 @@ Acceptance criteria:
 - Planning cannot start until human design acceptance passes.
 - Every phase references relevant requirements.
 - The human operator sees and approves the phase plan.
+- Plan changes discovered during development are recorded before review
+  continues.
 - The activity log records plan approval and snapshot events.
 
 ### Phase 8. Phase Implementation Loop
@@ -591,6 +625,7 @@ Scope:
 - Iterate until code review passes.
 - Invoke phase test review agent.
 - Iterate until phase test review passes.
+- Detect active-phase drift from `docs/implementation-plan.md`.
 - Commit verified phase.
 - Update `phase-status.json`.
 
@@ -598,6 +633,7 @@ Acceptance criteria:
 
 - Each phase is committed independently.
 - Code review and phase test review issues block commits.
+- Phase-scope drift blocks review and commit until the plan is updated.
 - Test commands and outputs are stored in the activity log.
 - Phase changes are limited to the active phase scope.
 
@@ -732,7 +768,7 @@ project needs tighter control than configured CLI adapters provide.
 Baseline verification commands:
 
 ```bash
-python -m pytest
+python -m unittest discover -s tests
 python -m ai_pipeline --help
 python -m ai_pipeline status
 python -m ai_pipeline gate requirements

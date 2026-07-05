@@ -500,12 +500,19 @@ The basic loop is:
 
 The next phase starts only after the current phase commit exists.
 
+If development changes phase scope, sequencing, acceptance criteria, required
+tests, or documentation impact, the coding agent stops implementation work and
+opens a plan update. `docs/implementation-plan.md` is updated before code
+review, test review, or commit proceeds. Review agents use the current
+implementation plan as the baseline for evaluating the active phase.
+
 Exit criteria for each phase:
 
 - All blocker and major code review issues are resolved.
 - All blocker and major test review issues are resolved.
 - Required tests pass.
 - The implementation matches the phase acceptance criteria.
+- `docs/implementation-plan.md` reflects any approved phase-scope changes.
 - Documentation touched by the phase is updated when needed.
 - The phase commit is created with a clear commit message.
 
@@ -627,8 +634,8 @@ Authority:
 - Edits `docs/requirements.md` during requirements definition.
 - Edits `docs/detailed-design.md`.
 - Edits `docs/implementation-plan.md` during implementation planning.
-- Proposes updates to `docs/implementation-plan.md` when a later design change
-  affects phase structure.
+- Proposes updates to `docs/implementation-plan.md` when later design,
+  validation, or implementation findings affect phase structure.
 - Does not edit production code during design review.
 - Does not change the approved implementation plan after coding begins unless
   the orchestrator returns to the implementation strategy stage.
@@ -1037,6 +1044,8 @@ Implementation gate:
 Code review gate:
 
 - The implementation gate has passed.
+- `docs/implementation-plan.md` describes the active phase being reviewed.
+- No accepted phase-scope change is missing from `docs/implementation-plan.md`.
 - Code review has no unresolved blocker or major issues for the active phase.
 - Code review has checked the active phase against relevant requirements.
 - Rejected code review issues have reviewer verification or human waiver.
@@ -1052,6 +1061,7 @@ Phase test review gate:
 Commit gate:
 
 - The implementation gate has passed.
+- The current implementation plan covers the committed phase scope.
 - Working tree changes belong to the active phase.
 - Code review and phase test review gates pass.
 - Commit message identifies the phase and the completed objective.
@@ -1094,6 +1104,7 @@ decision record. The request identifies the earliest affected baseline:
 - Requirements update reopens Stage 1.
 - Design-only update reopens Stage 2.
 - Implementation-plan update reopens Stage 5.
+- Active-phase plan drift reopens Stage 5 before review or commit continues.
 - Implementation defect reopens the relevant Stage 6 phase or creates a new
   corrective phase.
 - Documentation-only correction stays in Stage 8.
@@ -1117,6 +1128,8 @@ Iteration rules:
 - The detailed design is updated before dependent implementation-plan changes.
 - Implementation resumes only after the new requirements, design, and plan
   gates pass.
+- Code review and test review use the current implementation plan as their
+  review baseline.
 - Validation testing and documentation review run again after affected code or
   public behavior changes.
 
