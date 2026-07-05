@@ -195,6 +195,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser("plan-approve", help="approve implementation plan")
 
+    code = subparsers.add_parser("code", help="start or resume implementation")
+    code.add_argument("--reason", help="reason for reopening implementation")
+    document = subparsers.add_parser(
+        "document",
+        help="start or resume documentation review",
+    )
+    document.add_argument("--reason", help="reason for reopening documentation")
+    subparsers.add_parser("code-approve", help="approve completed pipeline")
+
     report = subparsers.add_parser("report", help="generate pipeline reports")
     report_subparsers = report.add_subparsers(dest="report_command", required=True)
     report_summary = report_subparsers.add_parser("summary", help="summarize run")
@@ -387,6 +396,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 engine,
                 _stage_args(STAGE_PLAN, human=True, author=True),
             )
+        if args.command == "code":
+            return _cmd_code(store, engine, args)
+        if args.command == "document":
+            return _cmd_document(store, engine, args)
+        if args.command == "code-approve":
+            return _cmd_code_approve(store, engine)
         if args.command == "report":
             return _cmd_report(store, engine, args)
         if args.command == "stage":
@@ -563,6 +578,223 @@ def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
     return _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
 
 
+def _cmd_code(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
+    manifest = store.load_current_manifest()
+    if manifest.active_stage == STAGE_VALIDATION:
+        _print_progress("validation", "implementation phases are complete")
+        print("next: run validation commands or use `ai-pipeline document` after validation")
+        return 0
+    if manifest.active_stage == STAGE_DOCS_REVIEW:
+        _print_progress("documentation", "validation has passed")
+        print("next: ai-pipeline document")
+        return 0
+    if manifest.active_stage == STAGE_COMPLETE:
+        _print_progress("complete", "pipeline implementation is complete")
+        print("next: ai-pipeline code-approve")
+        return 0
+    if manifest.active_stage != STAGE_IMPLEMENTATION:
+        order = engine.stage_order(STAGE_IMPLEMENTATION, manifest)
+        _print_gate_failure(order.messages or ["implementation stage is not active"])
+        return 1
+    if not manifest.has_gate(GATE_IMPLEMENTATION):
+        _print_gate_failure(["implementation gate has not passed"])
+        return 1
+
+    phase_status = store.load_phase_status()
+    if phase_status.active_phase is not None:
+        phase = phase_status.active_phase
+        _print_progress("implementation", f"resuming phase {phase}")
+        store.append_activity(
+            ActivityEvent(
+                actor="orchestrator",
+                stage=STAGE_IMPLEMENTATION,
+                phase=phase,
+                action="code-resumed",
+                summary=f"Resumed implementation phase {phase}.",
+            )
+        )
+        print(f"active phase: {phase}")
+        code = _run_phase_agent_loop(store, phase)
+        print("next: commit the phase after reviewing repository changes")
+        return code
+
+    next_phase = _next_uncommitted_phase(store)
+    if next_phase is None:
+        _print_progress("implementation", "all planned phases are committed")
+        return _cmd_stage(store, engine, _stage_args(STAGE_IMPLEMENTATION))
+
+    phase_status.active_phase = next_phase
+    phase = phase_status.phases.setdefault(str(next_phase), {})
+    phase.update(
+        {
+            "status": "active",
+            "objective": _phase_objective(store.root, next_phase),
+            "plan_current": True,
+        }
+    )
+    store.save_phase_status(phase_status)
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            phase=next_phase,
+            action="code-phase-started",
+            summary=f"Started implementation phase {next_phase}.",
+        )
+    )
+    _print_progress("implementation", f"started phase {next_phase}")
+    code = _run_phase_agent_loop(store, next_phase)
+    print(f"active phase: {next_phase}")
+    print("next: commit the phase after reviewing repository changes")
+    if getattr(args, "reason", None):
+        print(f"reason: {args.reason}")
+    return code
+
+
+def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
+    status = store.load_phase_status()
+    phase = status.phases.setdefault(str(phase_number), {})
+    coding_result, coding_event, _coding_issue_file = _invoke_agent_role(
+        store,
+        role="coding",
+        prompt=f"Implement phase {phase_number} from docs/implementation-plan.md.",
+        context_paths=[
+            "docs/requirements.md",
+            "docs/detailed-design.md",
+            "docs/implementation-plan.md",
+        ],
+    )
+    phase["coding_event"] = coding_event
+    store.save_phase_status(status)
+    if not coding_result.ok:
+        print(
+            coding_result.final_message,
+            end="" if coding_result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+
+    review_result, review_event, review_issue_file = _invoke_agent_role(
+        store,
+        role="code_review",
+        prompt=f"Review implementation phase {phase_number}.",
+        context_paths=[
+            "docs/requirements.md",
+            "docs/detailed-design.md",
+            "docs/implementation-plan.md",
+        ],
+    )
+    if not review_result.ok:
+        print(
+            review_result.final_message,
+            end="" if review_result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    if review_issue_file and _blocking_issues(store, review_issue_file):
+        _print_gate_failure([f"blocking review issues remain in {review_issue_file}"])
+        return 1
+    status = store.load_phase_status()
+    phase = status.phases.setdefault(str(phase_number), {})
+    phase["code_review"] = "passed"
+    phase["code_review_event"] = review_event
+    store.save_phase_status(status)
+
+    test_result, test_event, test_issue_file = _invoke_agent_role(
+        store,
+        role="test_review",
+        prompt=f"Review tests for implementation phase {phase_number}.",
+        context_paths=[
+            "docs/requirements.md",
+            "docs/detailed-design.md",
+            "docs/implementation-plan.md",
+        ],
+    )
+    if not test_result.ok:
+        print(
+            test_result.final_message,
+            end="" if test_result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    if test_issue_file and _blocking_issues(store, test_issue_file):
+        _print_gate_failure([f"blocking review issues remain in {test_issue_file}"])
+        return 1
+    status = store.load_phase_status()
+    phase = status.phases.setdefault(str(phase_number), {})
+    phase["test_review"] = "passed"
+    phase["test_review_event"] = test_event
+    phase["test_commands"] = list(test_result.commands)
+    store.save_phase_status(status)
+    return 0
+
+
+def _cmd_document(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
+    if getattr(args, "reason", None):
+        store.append_activity(
+            ActivityEvent(
+                actor="human-operator",
+                stage=STAGE_DOCS_REVIEW,
+                action="documentation-iteration-requested",
+                summary=args.reason,
+            )
+        )
+    result, _event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="documentation",
+        prompt="Review final documentation against the completed codebase.",
+        context_paths=[
+            "docs/requirements.md",
+            "docs/detailed-design.md",
+            "docs/implementation-plan.md",
+            "README.md",
+            "docs/api.md",
+        ],
+    )
+    if not result.ok:
+        print(result.final_message, end="" if result.final_message.endswith("\n") else "\n")
+        return 1
+    _print_progress("documentation", "running documentation review")
+    return _cmd_docs_review(store, engine)
+
+
+def _cmd_code_approve(store: StateStore, engine: GateEngine) -> int:
+    manifest = store.load_current_manifest()
+    result = engine.evaluate(GATE_DOCUMENTATION, manifest)
+    if not result.passed or manifest.active_stage != STAGE_COMPLETE:
+        messages = result.messages or ["documentation review has not completed"]
+        _print_gate_failure(messages)
+        return 1
+    if not _has_approval(store, STAGE_COMPLETE, "human-completion-approval"):
+        approval = ApprovalRecord(
+            approval_id=f"APP-{len(store.read_approvals()) + 1:04d}",
+            stage=STAGE_COMPLETE,
+            actor="human-operator",
+            approval_type="human-completion-approval",
+            artifact_path=None,
+            summary="Human operator approved completed pipeline output.",
+        )
+        store.append_approval(approval)
+        store.append_activity(
+            ActivityEvent(
+                actor="human-operator",
+                stage=STAGE_COMPLETE,
+                gate=GATE_DOCUMENTATION,
+                action="completion-approved",
+                status="pass",
+                summary=approval.summary,
+                outputs=["approvals.jsonl"],
+            )
+        )
+    print("completion approval: recorded")
+    return 0
+
+
 def _stage_args(
     stage: str,
     human: bool = False,
@@ -583,6 +815,15 @@ def _authoring_inputs(stage: str) -> list[str]:
     if stage == STAGE_PLAN:
         return ["docs/requirements.md", "docs/detailed-design.md"]
     return []
+
+
+def _print_progress(label: str, message: str) -> None:
+    try:
+        from rich.console import Console
+    except Exception:
+        print(f"{label}: {message}")
+        return
+    Console().print(f"[bold]{label}[/bold]: {message}")
 
 
 def _cmd_report(
@@ -819,11 +1060,7 @@ def _cmd_phase(
         store.save_phase_status(status)
         store.append_activity(
             ActivityEvent(
-                actor=(
-                    "code-review-agent"
-                    if args.phase_command == "review"
-                    else "test-review-agent"
-                ),
+                actor="human-operator",
                 stage=manifest.active_stage,
                 phase=args.phase,
                 action=f"phase-{args.phase_command}",
@@ -844,6 +1081,7 @@ def _cmd_phase(
         phase = status.phases.setdefault(str(args.phase), {})
         phase["plan_current"] = False
         phase["plan_drift_reason"] = args.reason
+        _clear_phase_review_evidence(phase)
         store.save_phase_status(status)
         store.append_activity(
             ActivityEvent(
@@ -873,7 +1111,18 @@ def _cmd_phase(
         if not _git_commit_exists(store.root, args.sha):
             print(f"error: commit does not exist: {args.sha}", file=sys.stderr)
             return 1
+        if not _git_commit_reachable_from_head(store.root, args.sha):
+            print(f"error: commit is not reachable from HEAD: {args.sha}", file=sys.stderr)
+            return 1
         phase = status.phases.setdefault(str(args.phase), {})
+        message_error = _phase_commit_message_error(store.root, args.sha, args.phase, phase)
+        if message_error:
+            print(f"error: {message_error}", file=sys.stderr)
+            return 1
+        scope_error = _phase_commit_scope_error(store.root, args.sha, args.phase)
+        if scope_error:
+            print(f"error: {scope_error}", file=sys.stderr)
+            return 1
         phase["status"] = "committed"
         phase["commit"] = args.sha
         phase["commit_gate"] = "passed"
@@ -2165,8 +2414,22 @@ def _uncommitted_planned_phases(store: StateStore) -> list[int]:
     return missing
 
 
+def _next_uncommitted_phase(store: StateStore) -> int | None:
+    phases = _uncommitted_planned_phases(store)
+    if not phases:
+        return None
+    return min(phases)
+
+
+def _phase_objective(root: Path, phase_number: int) -> str:
+    for phase in planned_phases(root):
+        if phase.number == phase_number:
+            return phase.heading
+    return f"Phase {phase_number}"
+
+
 def _git_commit_exists(root: Path, sha: str) -> bool:
-    if not (root / ".git").exists():
+    if not _is_git_worktree(root):
         return False
     completed = subprocess.run(
         ["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
@@ -2175,6 +2438,157 @@ def _git_commit_exists(root: Path, sha: str) -> bool:
         check=False,
     )
     return completed.returncode == 0
+
+
+def _git_commit_reachable_from_head(root: Path, sha: str) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def _phase_commit_message_error(
+    root: Path,
+    sha: str,
+    phase_number: int,
+    phase: dict[str, object],
+) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "log", "-1", "--format=%B", sha],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return "commit message could not be read"
+    message = completed.stdout.lower()
+    if f"phase {phase_number}" not in message and f"phase-{phase_number}" not in message:
+        return f"commit message must identify phase {phase_number}"
+    objective = str(phase.get("objective") or "").strip().lower()
+    if objective and not _message_mentions_objective(message, objective, phase_number):
+        return "commit message must identify the active phase objective"
+    return None
+
+
+def _message_mentions_objective(
+    message: str,
+    objective: str,
+    phase_number: int,
+) -> bool:
+    prefix = f"phase {phase_number}"
+    detail = objective
+    if detail.startswith(prefix):
+        detail = detail[len(prefix):].strip(" .:-")
+    if not detail:
+        return True
+    return detail in message
+
+
+def _phase_commit_scope_error(root: Path, sha: str, phase_number: int) -> str | None:
+    planned_phase = next(
+        (phase for phase in planned_phases(root) if phase.number == phase_number),
+        None,
+    )
+    if planned_phase is None:
+        return None
+    if not planned_phase.paths:
+        return f"phase {phase_number} has no Paths line for commit scope validation"
+    allowed_paths = [_normalize_repo_path(path) for path in planned_phase.paths]
+    if "*" in allowed_paths or "." in allowed_paths:
+        return None
+    changed_paths = _git_commit_changed_paths(root, sha)
+    if not changed_paths:
+        return "commit has no changed files"
+    out_of_scope = [
+        path
+        for path in changed_paths
+        if not any(_path_is_within(path, allowed) for allowed in allowed_paths)
+    ]
+    if out_of_scope:
+        return (
+            f"commit changes are outside phase {phase_number} scope: "
+            + ", ".join(out_of_scope)
+        )
+    return None
+
+
+def _git_commit_changed_paths(root: Path, sha: str) -> list[str]:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            sha,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return []
+    return [
+        _normalize_repo_path(path)
+        for path in completed.stdout.splitlines()
+        if path.strip()
+    ]
+
+
+def _normalize_repo_path(path: str) -> str:
+    return path.strip().strip("/").strip("`") or "."
+
+
+def _path_is_within(path: str, allowed: str) -> bool:
+    return path == allowed or path.startswith(f"{allowed}/")
+
+
+def _clear_phase_review_evidence(phase: dict[str, object]) -> None:
+    for key in [
+        "code_review",
+        "code_review_event",
+        "test_review",
+        "test_review_event",
+        "test_commands",
+    ]:
+        phase.pop(key, None)
+
+
+def _open_validation_fix_phase(store: StateStore, manifest) -> None:
+    status = store.load_phase_status()
+    existing = [int(phase) for phase in status.phases if str(phase).isdigit()]
+    planned = [phase.number for phase in planned_phases(store.root)]
+    phase_number = max(existing + planned + [0]) + 1
+    status.active_phase = phase_number
+    phase = status.phases.setdefault(str(phase_number), {})
+    phase.update(
+        {
+            "status": "active",
+            "objective": "Address validation findings",
+            "plan_current": True,
+            "validation_fix": True,
+        }
+    )
+    store.save_phase_status(status)
+    manifest.set_active_stage(STAGE_IMPLEMENTATION)
+    store.save_manifest(manifest)
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            phase=phase_number,
+            action="validation-fix-phase-started",
+            summary=f"Started validation-fix phase {phase_number}.",
+        )
+    )
 
 
 def _failed_agent_result(error: str) -> AgentResult:

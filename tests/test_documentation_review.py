@@ -101,6 +101,41 @@ class DocumentationReviewTests(unittest.TestCase):
                 activity[-1]["artifact_snapshot_refs"],
             )
 
+    def test_document_command_runs_documentation_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.prepare_docs_review_run(root)
+            write_docs(root, include_api=True)
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "document"])
+
+            manifest = store.load_current_manifest()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("documentation review: passed", stdout)
+        self.assertEqual(manifest.active_stage, STAGE_COMPLETE)
+
+    def test_code_approve_requires_documentation_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.prepare_docs_review_run(root)
+            write_docs(root, include_api=True)
+            write_manual_runtime(root)
+
+            blocked, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-approve"]
+            )
+            self.assertEqual(self.run_cli(["--root", str(root), "document"])[0], 0)
+            passed, stdout, _stderr = self.run_cli(
+                ["--root", str(root), "code-approve"]
+            )
+
+        self.assertEqual(blocked, 1)
+        self.assertIn("documentation review has not been recorded", stderr)
+        self.assertEqual(passed, 0)
+        self.assertIn("completion approval: recorded", stdout)
+
 
 def write_docs(root: Path, include_api: bool) -> None:
     write_file(root / "docs" / "requirements.md", "# Requirements\n")
@@ -125,6 +160,30 @@ def write_docs(root: Path, include_api: bool) -> None:
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def write_manual_runtime(root: Path) -> None:
+    write_file(root / "agent-response.md", "accepted\n")
+    write_file(
+        root / "agent-pipeline.toml",
+        """
+[runtime]
+default = "manual"
+
+[runtimes.manual]
+adapter = "manual"
+command = "manual"
+response_file = "agent-response.md"
+
+[roles]
+design_author = "manual"
+design_review = "manual"
+coding = "manual"
+code_review = "manual"
+test_review = "manual"
+documentation = "manual"
+""".lstrip(),
+    )
 
 
 if __name__ == "__main__":
