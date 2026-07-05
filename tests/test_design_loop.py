@@ -26,6 +26,8 @@ class DesignLoopTests(unittest.TestCase):
             root = Path(tmp)
             write_file(root / "docs" / "requirements.md", "# Requirements\n")
             self.assertEqual(self.run_cli(["--root", str(root), "init"])[0], 0)
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
 
             code, _stdout, stderr = self.run_cli(
                 [
@@ -51,6 +53,8 @@ class DesignLoopTests(unittest.TestCase):
             write_file(root / "docs" / "requirements.md", "# Requirements\n")
             write_file(root / "docs" / "detailed-design.md", "# Design\n")
             self.assertEqual(self.run_cli(["--root", str(root), "init"])[0], 0)
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
             self.assertEqual(
                 self.run_cli(
                     [
@@ -125,6 +129,30 @@ class DesignLoopTests(unittest.TestCase):
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def write_manual_runtime(root: Path) -> None:
+    write_file(root / "agent-response.md", "accepted\n")
+    write_file(
+        root / "agent-pipeline.toml",
+        """
+[runtime]
+default = "manual"
+
+[runtimes.manual]
+adapter = "manual"
+command = "manual"
+response_file = "agent-response.md"
+
+[roles]
+design_author = "manual"
+design_review = "manual"
+coding = "manual"
+code_review = "manual"
+test_review = "manual"
+documentation = "manual"
+""".lstrip(),
+    )
 
 
 if __name__ == "__main__":

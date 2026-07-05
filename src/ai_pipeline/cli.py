@@ -173,6 +173,28 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("resume", help="show the stage to resume")
     subparsers.add_parser("deactivate", help="leave an activated pipeline project")
 
+    requirements = subparsers.add_parser(
+        "requirements",
+        help="author or resume requirements definition",
+    )
+    requirements.add_argument("--reason", help="reason for reopening requirements")
+    subparsers.add_parser("requirements-approve", help="approve requirements")
+
+    design = subparsers.add_parser("design", help="author or resume design")
+    design.add_argument("--reason", help="reason for reopening design")
+    subparsers.add_parser("design-review", help="run design review")
+    subparsers.add_parser("design-approve", help="approve reviewed design")
+
+    implementation_plan = subparsers.add_parser(
+        "implementation-plan",
+        help="author or resume implementation planning",
+    )
+    implementation_plan.add_argument(
+        "--reason",
+        help="reason for reopening implementation planning",
+    )
+    subparsers.add_parser("plan-approve", help="approve implementation plan")
+
     report = subparsers.add_parser("report", help="generate pipeline reports")
     report_subparsers = report.add_subparsers(dest="report_command", required=True)
     report_summary = report_subparsers.add_parser("summary", help="summarize run")
@@ -339,6 +361,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_resume(store, engine)
         if args.command == "deactivate":
             return _cmd_deactivate(store)
+        if args.command == "requirements":
+            return _cmd_authoring_stage(store, engine, args, STAGE_REQUIREMENTS)
+        if args.command == "requirements-approve":
+            return _cmd_stage(
+                store,
+                engine,
+                _stage_args(STAGE_REQUIREMENTS, human=True, author=True),
+            )
+        if args.command == "design":
+            return _cmd_authoring_stage(store, engine, args, STAGE_DESIGN)
+        if args.command == "design-review":
+            return _cmd_design_review(store, engine)
+        if args.command == "design-approve":
+            return _cmd_stage(
+                store,
+                engine,
+                _stage_args(STAGE_DESIGN_ACCEPTANCE, human=True),
+            )
+        if args.command == "implementation-plan":
+            return _cmd_authoring_stage(store, engine, args, STAGE_PLAN)
+        if args.command == "plan-approve":
+            return _cmd_stage(
+                store,
+                engine,
+                _stage_args(STAGE_PLAN, human=True, author=True),
+            )
         if args.command == "report":
             return _cmd_report(store, engine, args)
         if args.command == "stage":
@@ -445,6 +493,96 @@ def _cmd_deactivate(store: StateStore) -> int:
         )
     print("pipeline project deactivated")
     return 0
+
+
+def _cmd_authoring_stage(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+    stage: str,
+) -> int:
+    manifest = store.load_current_manifest()
+    order = engine.stage_order(stage, manifest)
+    if not order.passed:
+        _print_gate_failure(order.messages)
+        return 1
+
+    ArtifactManager(store.root).init_templates()
+    artifact = STAGE_REQUIRED_FILES.get(stage)
+    reason = getattr(args, "reason", None)
+    prompt = f"Work with the operator on the {stage} artifact."
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="design_author",
+        prompt=prompt,
+        context_paths=_authoring_inputs(stage),
+    )
+    if not result.ok:
+        print(result.final_message, end="" if result.final_message.endswith("\n") else "\n")
+        return 1
+    summary = f"Started or resumed {stage} authoring."
+    if reason:
+        summary = f"{summary} Reason: {reason}"
+    store.append_activity(
+        ActivityEvent(
+            actor="design-author-agent",
+            stage=stage,
+            action="authoring-session-recorded",
+            summary=summary,
+            inputs=_authoring_inputs(stage),
+            outputs=[artifact] if artifact else [],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print(f"authoring stage: {stage}")
+    if artifact:
+        print(f"artifact: {artifact}")
+    print("next: review the artifact, then run the approval command")
+    return 0
+
+
+def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
+    manifest = store.load_current_manifest()
+    if manifest.active_stage == STAGE_DESIGN:
+        code = _cmd_stage(
+            store,
+            engine,
+            _stage_args(STAGE_DESIGN, human=True),
+        )
+        if code != 0:
+            return code
+    result, _event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="design_review",
+        prompt="Review docs/detailed-design.md against docs/requirements.md.",
+        context_paths=["docs/requirements.md", "docs/detailed-design.md"],
+    )
+    if not result.ok:
+        print(result.final_message, end="" if result.final_message.endswith("\n") else "\n")
+        return 1
+    return _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
+
+
+def _stage_args(
+    stage: str,
+    human: bool = False,
+    author: bool = False,
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        stage=stage,
+        human_approved=human,
+        author_confirmed=author,
+    )
+
+
+def _authoring_inputs(stage: str) -> list[str]:
+    if stage == STAGE_REQUIREMENTS:
+        return []
+    if stage == STAGE_DESIGN:
+        return ["docs/requirements.md"]
+    if stage == STAGE_PLAN:
+        return ["docs/requirements.md", "docs/detailed-design.md"]
+    return []
 
 
 def _cmd_report(
@@ -1720,6 +1858,13 @@ def _record_stage_approvals(
         if not flag_set:
             errors.append(f"approval is missing: {stage} {approval_type}")
             continue
+        if approval_type == "author-confirmation" and not _has_successful_agent_event(
+            store,
+            "design_author",
+            stage,
+        ):
+            errors.append(f"agent confirmation is missing: {stage} design_author")
+            continue
         approval = ApprovalRecord(
             approval_id=f"APP-{len(store.read_approvals()) + 1:04d}",
             stage=stage,
@@ -1739,6 +1884,16 @@ def _record_stage_approvals(
             )
         )
     return errors
+
+
+def _has_successful_agent_event(store: StateStore, role: str, stage: str) -> bool:
+    return any(
+        event.get("actor") == role
+        and event.get("stage") == stage
+        and event.get("action") == "agent-invoked"
+        and event.get("status") == "pass"
+        for event in store.read_activity()
+    )
 
 
 def _has_approval(store: StateStore, stage: str, approval_type: str) -> bool:
