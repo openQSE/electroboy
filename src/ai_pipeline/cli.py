@@ -6,6 +6,7 @@ import argparse
 import sys
 from typing import Sequence
 
+from .artifacts import ArtifactError, ArtifactManager
 from .gates import GateEngine
 from .models import (
     ActivityEvent,
@@ -70,6 +71,27 @@ def build_parser() -> argparse.ArgumentParser:
     gate = subparsers.add_parser("gate", help="evaluate a named gate")
     gate.add_argument("gate")
 
+    artifacts = subparsers.add_parser("artifacts", help="manage artifacts")
+    artifact_subparsers = artifacts.add_subparsers(
+        dest="artifact_command",
+        required=True,
+    )
+    artifact_init = artifact_subparsers.add_parser(
+        "init",
+        help="create missing artifact templates",
+    )
+    artifact_init.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="overwrite existing artifact files",
+    )
+    snapshot = artifact_subparsers.add_parser(
+        "snapshot",
+        help="snapshot one artifact or all artifacts",
+    )
+    snapshot.add_argument("path", nargs="?", help="artifact path to snapshot")
+    snapshot.add_argument("--all", action="store_true", help="snapshot all artifacts")
+
     change = subparsers.add_parser("change", help="manage change-control state")
     change_subparsers = change.add_subparsers(dest="change_command", required=True)
     change_subparsers.add_parser("status", help="list change-control requests")
@@ -101,9 +123,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_stage(store, engine, args.stage)
         if args.command == "gate":
             return _cmd_gate(store, engine, args.gate)
+        if args.command == "artifacts":
+            return _cmd_artifacts(store, args)
         if args.command == "change":
             return _cmd_change(store, args)
     except StateError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    except ArtifactError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
@@ -179,6 +206,35 @@ def _cmd_gate(store: StateStore, engine: GateEngine, gate: str) -> int:
     for message in result.messages:
         print(f"  - {message}")
     return 0 if result.passed else 1
+
+
+def _cmd_artifacts(store: StateStore, args: argparse.Namespace) -> int:
+    manager = ArtifactManager(store.root)
+    if args.artifact_command == "init":
+        written = manager.init_templates(overwrite=args.overwrite)
+        if written:
+            for path in written:
+                print(f"created artifact template: {path}")
+        else:
+            print("artifact templates already exist")
+        return 0
+
+    if args.artifact_command == "snapshot":
+        manifest = store.load_current_manifest()
+        event_id = f"snapshot-{len(manifest.completed_gates) + 1}"
+        if args.all:
+            snapshots = manager.snapshot_all(manifest.run_id, event_id)
+        elif args.path:
+            snapshots = [manager.snapshot(manifest.run_id, args.path, event_id)]
+        else:
+            print("error: provide an artifact path or --all", file=sys.stderr)
+            return 2
+        for snapshot in snapshots:
+            store.append_artifact_snapshot(snapshot)
+            print(f"snapshot: {snapshot.artifact_path} -> {snapshot.snapshot_path}")
+        return 0
+
+    return 2
 
 
 def _cmd_change(store: StateStore, args: argparse.Namespace) -> int:

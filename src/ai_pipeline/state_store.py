@@ -7,7 +7,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from .models import ActivityEvent, RunManifest, utc_now
+from .models import ActivityEvent, ArtifactSnapshot, RunManifest, utc_now
 
 
 class StateError(RuntimeError):
@@ -79,6 +79,11 @@ class StateStore:
     def append_change_request(self, data: dict[str, object]) -> None:
         manifest = self.load_current_manifest()
         self.append_jsonl(self.run_dir(manifest.run_id) / "change-requests.jsonl", data)
+
+    def append_artifact_snapshot(self, snapshot: ArtifactSnapshot) -> None:
+        manifest = self.load_current_manifest()
+        path = self.run_dir(manifest.run_id) / "artifact-snapshots.jsonl"
+        self.append_jsonl(path, snapshot)
 
     def read_change_requests(self) -> list[dict[str, object]]:
         manifest = self.load_current_manifest()

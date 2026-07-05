@@ -152,3 +152,25 @@ class ActivityEvent:
             "action": self.action,
             "summary": self.summary,
         }
+
+
+@dataclass
+class ArtifactSnapshot:
+    """Snapshot metadata for an approved pipeline artifact."""
+
+    artifact_path: str
+    snapshot_path: str
+    checksum: str
+    event_id: str
+    schema_version: int = SCHEMA_VERSION
+    created_at: str = field(default_factory=utc_now)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "artifact_path": self.artifact_path,
+            "snapshot_path": self.snapshot_path,
+            "checksum": self.checksum,
+            "event_id": self.event_id,
+            "created_at": self.created_at,
+        }
