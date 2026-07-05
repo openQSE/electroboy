@@ -159,3 +159,22 @@ Verification:
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
+
+## Phase 8. Phase Implementation Loop
+
+Implemented:
+
+- Added `ai-pipeline phase start` to activate an implementation phase.
+- Added `ai-pipeline phase review --pass` for code review completion.
+- Added `ai-pipeline phase test --pass` for phase test review completion.
+- Added `ai-pipeline phase drift` for active-phase plan drift.
+- Added `ai-pipeline phase commit` with commit-gate enforcement.
+- Made plan updates restore active-phase plan currency.
+- Added tests for review-gated phase commits and plan-drift blocking.
+
+Verification:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+```

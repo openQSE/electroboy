@@ -16,10 +16,13 @@ from .models import (
     GATE_IMPLEMENTATION,
     GATE_REQUIREMENTS,
     NEXT_STAGE,
+    GATE_COMMIT,
+    PhaseStatus,
     ReviewIssue,
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
     STAGE_DESIGN_REVIEW,
+    STAGE_IMPLEMENTATION,
     STAGE_PLAN,
     STAGE_REQUIREMENTS,
     utc_now,
@@ -81,6 +84,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     gate = subparsers.add_parser("gate", help="evaluate a named gate")
     gate.add_argument("gate")
+
+    phase = subparsers.add_parser("phase", help="manage implementation phases")
+    phase_subparsers = phase.add_subparsers(dest="phase_command", required=True)
+    phase_start = phase_subparsers.add_parser("start", help="start a phase")
+    phase_start.add_argument("phase", type=int)
+    phase_start.add_argument("--objective", default="")
+    phase_review = phase_subparsers.add_parser("review", help="mark code review")
+    phase_review.add_argument("phase", type=int)
+    phase_review.add_argument("--pass", dest="passed", action="store_true")
+    phase_test = phase_subparsers.add_parser("test", help="mark phase test review")
+    phase_test.add_argument("phase", type=int)
+    phase_test.add_argument("--pass", dest="passed", action="store_true")
+    phase_commit = phase_subparsers.add_parser("commit", help="record phase commit")
+    phase_commit.add_argument("phase", type=int)
+    phase_commit.add_argument("--sha", default="")
+    phase_drift = phase_subparsers.add_parser("drift", help="record plan drift")
+    phase_drift.add_argument("phase", type=int)
+    phase_drift.add_argument("--reason", required=True)
 
     plan = subparsers.add_parser("plan", help="manage implementation plan")
     plan_subparsers = plan.add_subparsers(dest="plan_command", required=True)
@@ -162,6 +183,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_stage(store, engine, args.stage)
         if args.command == "gate":
             return _cmd_gate(store, engine, args.gate)
+        if args.command == "phase":
+            return _cmd_phase(store, engine, args)
         if args.command == "plan":
             return _cmd_plan(store, args)
         if args.command == "issues":
@@ -312,6 +335,71 @@ def _cmd_plan(store: StateStore, args: argparse.Namespace) -> int:
             )
         )
         print("recorded implementation plan update")
+        return 0
+
+    return 2
+
+
+def _cmd_phase(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
+    if args.phase_command == "start":
+        manifest = store.load_current_manifest()
+        if manifest.active_stage != STAGE_IMPLEMENTATION:
+            print("error: active stage is not implementation", file=sys.stderr)
+            return 1
+        if not manifest.has_gate(GATE_IMPLEMENTATION):
+            print("error: implementation gate has not passed", file=sys.stderr)
+            return 1
+        status = store.load_phase_status()
+        status.active_phase = args.phase
+        phase = status.phases.setdefault(str(args.phase), {})
+        phase.update(
+            {
+                "status": "active",
+                "objective": args.objective,
+                "plan_current": True,
+            }
+        )
+        store.save_phase_status(status)
+        print(f"started phase: {args.phase}")
+        return 0
+
+    if args.phase_command in {"review", "test"}:
+        status = store.load_phase_status()
+        phase = status.phases.setdefault(str(args.phase), {})
+        key = "code_review" if args.phase_command == "review" else "test_review"
+        phase[key] = "passed" if args.passed else "pending"
+        store.save_phase_status(status)
+        print(f"phase {args.phase} {key}: {phase[key]}")
+        return 0
+
+    if args.phase_command == "drift":
+        status = store.load_phase_status()
+        phase = status.phases.setdefault(str(args.phase), {})
+        phase["plan_current"] = False
+        phase["plan_drift_reason"] = args.reason
+        store.save_phase_status(status)
+        print(f"phase {args.phase} plan drift recorded")
+        return 0
+
+    if args.phase_command == "commit":
+        status = store.load_phase_status()
+        if status.active_phase != args.phase:
+            print("error: requested phase is not active", file=sys.stderr)
+            return 1
+        result = engine.evaluate(GATE_COMMIT, store.load_current_manifest())
+        if not result.passed:
+            _print_gate_failure(result.messages)
+            return 1
+        phase = status.phases.setdefault(str(args.phase), {})
+        phase["status"] = "committed"
+        phase["commit"] = args.sha
+        status.active_phase = None
+        store.save_phase_status(status)
+        print(f"committed phase: {args.phase}")
         return 0
 
     return 2
