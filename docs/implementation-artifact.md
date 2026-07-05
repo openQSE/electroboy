@@ -141,3 +141,21 @@ Verification:
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
+
+## Phase 7. Implementation Planning
+
+Implemented:
+
+- Added `ai-pipeline plan check` for phase-to-requirement traceability.
+- Added `ai-pipeline plan update` to record implementation-plan changes.
+- Blocked plan-stage approval when traceability is missing.
+- Snapshotted the implementation plan when plan updates are recorded.
+- Added implementation-plan command entries to `docs/implementation-plan.md`.
+- Added plan tests for traceability checks and update recording.
+
+Verification:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+```

@@ -347,6 +347,8 @@ ai-pipeline phase commit <n>
 ai-pipeline validate
 ai-pipeline docs-review
 ai-pipeline gate <name>
+ai-pipeline plan check
+ai-pipeline plan update
 ai-pipeline change open
 ai-pipeline change classify <id>
 ai-pipeline change reopen <id>

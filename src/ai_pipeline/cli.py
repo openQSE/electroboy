@@ -10,6 +10,7 @@ from .artifacts import ArtifactError, ArtifactManager
 from .gates import GateEngine
 from .models import (
     ActivityEvent,
+    DecisionRecord,
     GATE_DESIGN,
     GATE_HUMAN_DESIGN_ACCEPTANCE,
     GATE_IMPLEMENTATION,
@@ -80,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     gate = subparsers.add_parser("gate", help="evaluate a named gate")
     gate.add_argument("gate")
+
+    plan = subparsers.add_parser("plan", help="manage implementation plan")
+    plan_subparsers = plan.add_subparsers(dest="plan_command", required=True)
+    plan_subparsers.add_parser("check", help="check plan traceability")
+    plan_update = plan_subparsers.add_parser("update", help="record plan update")
+    plan_update.add_argument("--reason", required=True)
 
     issues = subparsers.add_parser("issues", help="manage review issues")
     issue_subparsers = issues.add_subparsers(dest="issue_command", required=True)
@@ -155,6 +162,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_stage(store, engine, args.stage)
         if args.command == "gate":
             return _cmd_gate(store, engine, args.gate)
+        if args.command == "plan":
+            return _cmd_plan(store, args)
         if args.command == "issues":
             return _cmd_issues(store, args)
         if args.command == "agent":
@@ -212,6 +221,9 @@ def _cmd_stage(store: StateStore, engine: GateEngine, stage: str) -> int:
         if not file_result.passed:
             _print_gate_failure(file_result.messages)
             return 1
+    if stage == STAGE_PLAN and not _plan_has_traceability(store.root):
+        _print_gate_failure(["implementation plan lacks requirements traceability"])
+        return 1
 
     completed_gate = STAGE_COMPLETED_GATES.get(stage)
     if stage == STAGE_DESIGN_REVIEW:
@@ -255,6 +267,54 @@ def _cmd_gate(store: StateStore, engine: GateEngine, gate: str) -> int:
     for message in result.messages:
         print(f"  - {message}")
     return 0 if result.passed else 1
+
+
+def _cmd_plan(store: StateStore, args: argparse.Namespace) -> int:
+    if args.plan_command == "check":
+        if _plan_has_traceability(store.root):
+            print("implementation plan traceability: pass")
+            return 0
+        print("implementation plan traceability: blocked")
+        return 1
+
+    if args.plan_command == "update":
+        manifest = store.load_current_manifest()
+        phase_status = store.load_phase_status()
+        if phase_status.active_phase is not None:
+            phase = phase_status.phases.setdefault(str(phase_status.active_phase), {})
+            phase["plan_current"] = True
+            store.save_phase_status(phase_status)
+        decision = DecisionRecord(
+            decision_id=f"PLAN-{len(store.read_decisions()) + 1:04d}",
+            stage=manifest.active_stage,
+            summary="Implementation plan updated",
+            rationale=args.reason,
+        )
+        store.append_decision(decision)
+        snapshot = ArtifactManager(store.root).snapshot(
+            manifest.run_id,
+            "docs/implementation-plan.md",
+            "plan-updated",
+        )
+        store.append_artifact_snapshot(snapshot)
+        store.append_activity(
+            ActivityEvent(
+                actor="orchestrator",
+                stage=manifest.active_stage,
+                action="plan-updated",
+                summary=f"{args.reason} Decision: {decision.decision_id}.",
+                artifact_snapshot_refs=[snapshot.snapshot_path],
+                outputs=[
+                    "docs/implementation-plan.md",
+                    "decisions.jsonl",
+                    snapshot.snapshot_path,
+                ],
+            )
+        )
+        print("recorded implementation plan update")
+        return 0
+
+    return 2
 
 
 def _cmd_issues(store: StateStore, args: argparse.Namespace) -> int:
@@ -433,6 +493,14 @@ def _blocking_issues(store: StateStore, file_name: str) -> list[dict[str, object
         if issue.get("status") in {"open", "accepted"}
         and issue.get("severity") in {"blocker", "major"}
     ]
+
+
+def _plan_has_traceability(root: Path) -> bool:
+    plan = root / "docs" / "implementation-plan.md"
+    if not plan.exists():
+        return False
+    text = plan.read_text(encoding="utf-8").lower()
+    return "phase" in text and "requirement" in text
 
 
 if __name__ == "__main__":
