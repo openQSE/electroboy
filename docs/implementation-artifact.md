@@ -42,3 +42,21 @@ Verification:
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
+
+## Phase 2. State Store
+
+Implemented:
+
+- Added structured models for review issues, decisions, and phase status.
+- Added JSONL helpers for review issue files and decision records.
+- Added phase status persistence in `.agent-pipeline/phase-status.json`.
+- Added message and raw runtime stream writers.
+- Added recursive redaction for JSON-compatible state records.
+- Added tests for review issue, phase status, decision, and raw-event state.
+
+Verification:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+```
