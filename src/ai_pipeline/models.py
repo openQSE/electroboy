@@ -32,17 +32,29 @@ STAGES = [
 ]
 
 GATE_REQUIREMENTS = "requirements"
+GATE_STAGE_ORDER = "stage-order"
+GATE_CHANGE_CONTROL = "change-control"
+GATE_PLAN_CURRENCY = "implementation-plan-currency"
 GATE_DESIGN = "design"
 GATE_HUMAN_DESIGN_ACCEPTANCE = "human-design-acceptance"
 GATE_IMPLEMENTATION = "implementation"
+GATE_CODE_REVIEW = "code-review"
+GATE_PHASE_TEST_REVIEW = "phase-test-review"
+GATE_COMMIT = "commit"
 GATE_VALIDATION_TESTING = "validation-testing"
 GATE_DOCUMENTATION = "documentation"
 
 GATES = [
     GATE_REQUIREMENTS,
+    GATE_STAGE_ORDER,
+    GATE_CHANGE_CONTROL,
+    GATE_PLAN_CURRENCY,
     GATE_DESIGN,
     GATE_HUMAN_DESIGN_ACCEPTANCE,
     GATE_IMPLEMENTATION,
+    GATE_CODE_REVIEW,
+    GATE_PHASE_TEST_REVIEW,
+    GATE_COMMIT,
     GATE_VALIDATION_TESTING,
     GATE_DOCUMENTATION,
 ]

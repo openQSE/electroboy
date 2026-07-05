@@ -60,3 +60,26 @@ Verification:
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
+
+## Phase 3. Gate Engine
+
+Implemented:
+
+- Added gate constants for stage order, change control, plan currency, code
+  review, phase test review, and commit readiness.
+- Added change-control gate checks that block stage transitions while change
+  requests remain open.
+- Added implementation-plan currency checks for active phase drift.
+- Added code review and phase test review gates based on phase status and
+  blocking review issues.
+- Added commit gate composition across implementation, plan currency, code
+  review, and phase test review gates.
+- Added gate tests for open change requests, plan drift, blocking review
+  issues, and commit readiness.
+
+Verification:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+```
