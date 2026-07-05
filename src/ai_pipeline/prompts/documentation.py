@@ -1,0 +1,1 @@
+"""Documentation prompt placeholders."""

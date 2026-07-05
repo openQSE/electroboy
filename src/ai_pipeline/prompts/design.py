@@ -1,0 +1,1 @@
+"""Design-stage prompt placeholders."""
