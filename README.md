@@ -26,10 +26,11 @@ source path/to/project/bin/activate
 ai-pipeline status
 ```
 
-`new` initializes the target directory as a GitHub-ready git repository,
+`new` creates or enters the target directory. If the directory is not already
+inside a Git worktree, it initializes a GitHub-ready repository. Existing
+repositories are reused instead of nesting a new repository. The command also
 creates the standard pipeline artifacts, creates `.agent-pipeline/`, and
-installs `path/to/project/bin/activate`. After activation, `ai-pipeline`
-commands run inside that project context.
+installs `path/to/project/bin/activate`.
 
 Define and approve requirements with ElectroBoy:
 
@@ -58,16 +59,23 @@ final approval:
 
 ```bash
 ai-pipeline code
+ai-pipeline phase commit <phase> --sha <commit-sha>
+ai-pipeline code
+ai-pipeline validate
 ai-pipeline document
 ai-pipeline code-approve
 ```
 
-`code` implements each phase, runs code review, runs test review, commits each
-verified phase, and runs validation testing. `document` runs the documentation
-refinement and review phase. It gives the Documentation Agent the final
-codebase, requirements, design, implementation plan, validation report, and
-review history. If a review or validation issue needs human input, the command
-records the escalation and stops at a resumable checkpoint.
+`code` starts or resumes one implementation phase, invokes the configured
+coding agent, invokes code review, invokes test review, and records the agent
+evidence required by the phase commit gate. After reviewing the resulting git
+commit, record it with `phase commit`. Repeat `code` and `phase commit` until
+all phases are complete, then run validation. Validation always runs the full
+test suite plus artifact-declared validation commands. If validation fails, the
+pipeline opens a validation-fix phase and returns to `code`. `document` runs
+the documentation refinement and review phase. If a review or validation issue
+needs human input, the command records the escalation and stops at a resumable
+checkpoint.
 
 Resume an interrupted run from the same project:
 
@@ -126,16 +134,22 @@ It helps by:
 
 ## Current Status
 
-The repository contains a local runnable orchestrator prototype. The workflow
-above is the target operator surface. `docs/implementation-plan.md` tracks the
-remaining implementation work needed to align the prototype with that surface.
+The repository contains a local runnable orchestrator prototype with the
+operator-facing workflow described above.
 
-Prototype capabilities:
+Implemented capabilities:
 
 - Python package and CLI entry point.
-- JSON-backed run state under `.agent-pipeline/`.
+- `ai-pipeline` and `electroboy` command entrypoints.
+- `ai-pipeline new <path>` project creation.
+- Generated project activation scripts under `<project>/bin/activate`.
+- `ai-pipeline deactivate` shell-safe deactivation.
+- JSON-backed shared state under `.agent-pipeline/shared/`.
+- Local runtime state under `.agent-pipeline/local/`.
 - Ordered stage gates for requirements, design, planning, implementation,
   validation, and documentation review.
+- Primary stage commands for requirements, design, implementation planning,
+  code, documentation, and final approval.
 - Explicit human approvals and Design Author confirmations for required
   baseline gates.
 - Artifact snapshots, approval records, decisions, review issues, change
@@ -144,21 +158,14 @@ Prototype capabilities:
 - Phase start, review, test review, drift, and commit commands.
 - Final validation and documentation review gates.
 - Change-control classify, approve, and reopen behavior.
+- Public stage commands that reopen earlier baselines with `--reason`.
 - Summary and trace reports.
+- Rich-compatible progress output for automatic implementation commands, with
+  plain text fallback when Rich is unavailable.
 - Runtime adapter scaffolding for manual, generic CLI, Codex exec, and Codex
   SDK runtimes.
 - Unit tests for pipeline state, gates, runtime adapters, phase flow,
   validation, documentation review, change control, and reporting.
-
-Planned workflow alignment:
-
-- `ai-pipeline new <path>` project creation.
-- `source <project>/bin/activate` project activation.
-- `ai-pipeline deactivate` shell-safe deactivation.
-- Primary stage commands for requirements, design, implementation planning,
-  code, documentation, and final approval.
-- Shared and local `.agent-pipeline/` state separation.
-- Rich progress indicators during automatic implementation.
 
 Extension points:
 
@@ -235,8 +242,9 @@ be restarted. The next invocation rebuilds context from repository artifacts,
 shared pipeline state, decisions, review issues, and activity events.
 
 `code` resumes from the last durable checkpoint. It implements one phase at a
-time, runs code review and test review, commits verified phases, runs final
-validation testing, and stops before the documentation finesse pass.
+time and runs code review and test review. `phase commit` records the reviewed
+git commit for that phase. After all phase commits are recorded, validation
+testing runs before the documentation finesse pass.
 `document` completes documentation review before `code-approve` can pass.
 
 ## Flow Enforcement

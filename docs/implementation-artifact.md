@@ -6,6 +6,7 @@ review agents a stable phase-by-phase baseline for implementation review.
 ## Phase 0. Repository Foundation
 
 Commit: `363a278 pipeline: add initial CLI foundation`
+Follow-up commit: `8d21012 phase 0: add project environment entrypoints`
 
 Implemented:
 
@@ -15,6 +16,23 @@ Implemented:
   commands.
 - Added early JSON state handling and ordered-flow tests.
 - Added README usage guidance and Python ignore rules.
+- Added `./ai-pipeline` and `./electroboy` source checkout wrappers.
+- Added the `electroboy` console-script alias.
+- Added `ai-pipeline new <path>` for project creation.
+- Added generated project activation scripts under `<project>/bin/activate`.
+- Added `ai-pipeline deactivate` shell-safe project deactivation.
+- Added Rich as the terminal progress dependency for the target workflow.
+- Added project environment tests for creation, activation files, and
+  deactivation records.
+- Generated project wrappers set `PYTHONPATH` to the pipeline source so
+  `ai-pipeline` and `electroboy` work outside the source checkout.
+- Generated wrappers now use project-local runtime code instead of embedding
+  the creator's absolute checkout path.
+- `ai-pipeline new <path>` now reuses an existing Git worktree and initializes
+  a repository only when the target is not already inside one.
+- Runtime config loading now prefers `.agent-pipeline/project.toml` and keeps
+  root-level `agent-pipeline.toml` as a compatibility fallback.
+- Project config parsing accepts the documented `[environment]` section.
 
 Verification:
 
@@ -46,6 +64,8 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 
 ## Phase 2. State Store
 
+Follow-up commit: `070c8bd phase 2: split shared and local state`
+
 Implemented:
 
 - Added structured models for review issues, decisions, and phase status.
@@ -58,6 +78,11 @@ Implemented:
 - Added message and raw runtime stream writers.
 - Added recursive redaction for JSON-compatible state records.
 - Added tests for review issue, phase status, decision, and raw-event state.
+- Moved committed run state under `.agent-pipeline/shared/`.
+- Moved local raw runtime streams under `.agent-pipeline/local/`.
+- Preserved legacy read paths while writing new state to the shared layout.
+- Updated artifact snapshots to use the shared run directory.
+- Updated tests for the shared and local state split.
 
 Verification:
 
@@ -79,6 +104,8 @@ Implemented:
 - Added implementation-plan currency checks for active phase drift.
 - Added code review and phase test review gates based on phase status and
   blocking review issues.
+- Required code review and test review gates to have runtime-backed agent
+  invocation evidence before a phase commit can pass.
 - Added commit gate composition across implementation, plan currency, code
   review, and phase test review gates.
 - Added gate tests for open change requests, plan drift, blocking review
@@ -99,6 +126,7 @@ Implemented:
 - Added runtime selection by role with a default Codex runtime.
 - Expanded `AgentInvocation` and `AgentResult` to carry schema, event,
   command, changed-file, and error data.
+- Added explicit runtime environment allowlists.
 - Added runtime factory functions for manual, generic CLI, Codex exec, and
   Codex SDK adapters.
 - Implemented manual runtime completion from a configured response file.
@@ -126,6 +154,9 @@ Implemented:
 - Added explicit Codex sandbox selection for read-only review roles and
   workspace-write coding roles.
 - Stored structured agent issues in the mapped review issue files.
+- Normalized structured Codex `ok: false` final messages as failed agent
+  results.
+- Runtime subprocesses now receive only the configured environment allowlist.
 
 Verification:
 
@@ -135,6 +166,8 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
 
 ## Phase 6. Requirements And Design Loops
+
+Follow-up commit: `b297058 phase 6: add authoring stage commands`
 
 Implemented:
 
@@ -149,6 +182,17 @@ Implemented:
   remain.
 - Preserved design review issue records in run JSONL files.
 - Added tests for requirements snapshots and design review issue iteration.
+- Added public `requirements` and `requirements-approve` commands.
+- Added public `design`, `design-review`, and `design-approve` commands.
+- Added resumable authoring activity records for requirements and design.
+- Routed public requirements, design, and implementation-plan commands through
+  the configured Design Author Agent runtime before recording authoring state.
+- Routed public design review through the configured Design Review Agent
+  runtime before completing the design-review gate.
+- Required Design Author Agent confirmation to come from a successful
+  runtime-backed authoring event before requirements or plan approval.
+- Reused existing approval and design-review gates from the public commands.
+- Added tests for public requirements authoring and design review flow.
 
 Verification:
 
@@ -167,8 +211,14 @@ Implemented:
   validation against `docs/requirements.md`.
 - Blocked plan-stage approval when structured traceability is missing.
 - Snapshotted the implementation plan when plan updates are recorded.
+- Added activity-log records for implementation-plan update decisions and
+  plan snapshots.
 - Added implementation-plan command entries to `docs/implementation-plan.md`.
 - Added plan tests for traceability checks and update recording.
+- Added public `implementation-plan` and `plan-approve` commands.
+- Reused the existing plan traceability and approval gates from the public
+  commands.
+- Added tests for public plan approval through the traceability gate.
 
 Verification:
 
@@ -178,6 +228,8 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
 
 ## Phase 8. Phase Implementation Loop
+
+Follow-up commit: `14ad0a6 phase 8: add implementation workflow commands`
 
 Implemented:
 
@@ -191,6 +243,22 @@ Implemented:
 - Required phase commits to reference an existing git commit SHA.
 - Made plan updates restore active-phase plan currency.
 - Added tests for review-gated phase commits and plan-drift blocking.
+- Added public `ai-pipeline code` for starting or resuming implementation.
+- Made `code` start the next uncommitted planned phase.
+- Made `code` resume an already active phase from durable phase status.
+- Made `code` invoke the configured coding, code review, and test review
+  agent runtimes for the active phase.
+- Persisted coding, code review, and test review event ids in phase status.
+- Required phase commit gates to use runtime-backed review evidence instead of
+  manual pass flags alone.
+- Attributed manual phase review and test markers to the human operator.
+- Cleared active-phase review evidence when phase-plan drift is recorded.
+- Required phase commit SHAs to be reachable from `HEAD`.
+- Required phase commit messages to identify the active phase and objective.
+- Checked phase commit changed paths against implementation-plan `Paths:`
+  metadata when a planned phase declares scope paths.
+- Added Rich-compatible progress output with a plain text fallback.
+- Added tests for public `code` phase startup.
 
 Verification:
 
@@ -205,11 +273,19 @@ Implemented:
 
 - Added `ai-pipeline validate` for final validation testing.
 - Added support for one or more validation commands through `--command`.
-- Added a default validation command that runs the unit test suite.
+- Added artifact-backed validation commands parsed from `Validation:` lines in
+  `docs/requirements.md` and `docs/detailed-design.md`.
+- Failed validation when required artifact-backed validation commands are
+  missing.
+- Added a required validation command that runs the full unit test suite.
+- Returned validation failures to a validation-fix implementation phase.
 - Ran validation commands as argument vectors unless explicit shell mode is
   requested.
+- Normalized missing validation executables into failed validation results
+  instead of uncaught subprocess errors.
 - Wrote validation output to the run artifact
   `artifacts/validation-report.md`.
+- Recorded validation command sources in the validation report.
 - Stored raw validation command results in the run raw-event log.
 - Added blocking `validation-review.jsonl` issues when validation fails.
 - Blocked validation success while open blocker or major validation issues
@@ -230,6 +306,8 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 
 ## Phase 10. Documentation Review
 
+Follow-up commit: `14ad0a6 phase 8: add implementation workflow commands`
+
 Implemented:
 
 - Added `ai-pipeline docs-review` for final documentation verification.
@@ -241,11 +319,21 @@ Implemented:
   restored.
 - Added deterministic content checks for README usage, tests, and public CLI
   documentation.
+- Checked `docs/api.md` against the actual top-level CLI parser commands.
 - Blocked documentation review while open blocker or major documentation
   review issues remain.
 - Snapshotted final documentation artifacts when documentation review passes.
+- Stored documentation review activity with artifact snapshot refs instead of
+  only source artifact paths.
 - Completed the documentation gate and advanced the run to `complete`.
 - Added documentation review tests for missing-file and passing-doc paths.
+- Added public `ai-pipeline document` for documentation refinement and review.
+- Routed public `document` through the configured Documentation Agent runtime
+  before deterministic documentation checks.
+- Added public `ai-pipeline code-approve` for final human completion approval.
+- Blocked final approval until documentation review passes.
+- Stored final human completion approval in `approvals.jsonl`.
+- Added tests for `document` and `code-approve`.
 
 Verification:
 
@@ -255,6 +343,8 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
 
 ## Phase 11. Change Control And Iteration
+
+Follow-up commit: `3847e8d phase 11: reopen stages from public commands`
 
 Implemented:
 
@@ -273,6 +363,12 @@ Implemented:
   behavior.
 - Added change-control tests for classified blockers and downstream gate
   invalidation.
+- Added public `--reason` reopen behavior for earlier stage commands.
+- Recorded public reopen commands as change requests, decisions, activity
+  events, and baseline invalidations.
+- Invalidated downstream gates when public commands reopen a baseline.
+- Required `--reason` when an earlier public stage command moves backward.
+- Added tests for public stage reopening and missing-reason blockers.
 
 Verification:
 

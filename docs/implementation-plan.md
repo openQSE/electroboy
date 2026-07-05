@@ -336,10 +336,13 @@ resumes.
 
 ## Project Environment Activation
 
-`ai-pipeline new <path>` creates the project environment. It creates the target
-directory when needed, initializes a GitHub-ready git repository when one is
-not already present, writes the standard artifact templates, creates
-`.agent-pipeline/`, and installs `<path>/bin/activate`.
+`ai-pipeline new <path>` creates or enters the project environment. It creates
+the target directory when needed. If the target is not already inside a Git
+worktree, it initializes a GitHub-ready repository. Existing repositories are
+reused instead of nesting a new repository. The command writes standard
+artifact templates, creates `.agent-pipeline/`, installs
+`<path>/bin/activate`, and writes project-local runtime code under ignored
+local state.
 
 The activation script sets project-specific environment variables and wraps the
 `ai-pipeline` command so the current shell has a project context. It also
@@ -539,6 +542,9 @@ or manually waived.
 ### Phase 0. Repository Foundation
 
 Requirements: REQ-1, REQ-14
+Paths: README.md, ai-pipeline, electroboy, pyproject.toml
+Paths: src/ai_pipeline
+Paths: tests
 
 Create the package skeleton, test harness, formatter configuration, CLI entry
 point, project-environment commands, and terminal presentation dependency.
@@ -572,6 +578,8 @@ Acceptance criteria:
 ### Phase 1. Artifact Templates
 
 Requirements: REQ-3, REQ-5
+Paths: src/ai_pipeline/artifacts.py
+Paths: tests/test_artifacts.py
 
 Create templates for the core pipeline artifacts.
 
@@ -592,6 +600,9 @@ Acceptance criteria:
 ### Phase 2. State Store
 
 Requirements: REQ-4, REQ-5, REQ-13, REQ-14
+Paths: src/ai_pipeline/state_store.py
+Paths: src/ai_pipeline/models.py
+Paths: tests/test_state_store.py
 
 Implement durable JSON and JSONL state handling.
 
@@ -623,6 +634,9 @@ Acceptance criteria:
 ### Phase 3. Gate Engine
 
 Requirements: REQ-1, REQ-2, REQ-3, REQ-5, REQ-9
+Paths: src/ai_pipeline/gates.py
+Paths: src/ai_pipeline/models.py
+Paths: tests/test_gates.py
 
 Implement deterministic gate checks.
 
@@ -658,6 +672,9 @@ Acceptance criteria:
 ### Phase 4. Runtime Adapter Interface
 
 Requirements: REQ-6, REQ-7
+Paths: src/ai_pipeline/runtime.py, src/ai_pipeline/config.py
+Paths: src/ai_pipeline/adapters
+Paths: tests/test_runtime_config.py
 
 Implement the adapter boundary that lets the orchestrator call agents without
 knowing whether the agent is manual, Codex-backed, Claude-backed, SDK-backed,
@@ -686,6 +703,9 @@ Acceptance criteria:
 ### Phase 5. CLI Runtime Adapters
 
 Requirements: REQ-5, REQ-6, REQ-7
+Paths: src/ai_pipeline/adapters
+Paths: src/ai_pipeline/cli.py
+Paths: tests/test_runtime_adapters.py
 
 Implement automated agent invocation through the generic CLI adapter and the
 default Codex exec adapter.
@@ -717,6 +737,8 @@ Acceptance criteria:
 ### Phase 6. Requirements And Design Loops
 
 Requirements: REQ-1, REQ-2, REQ-3, REQ-4, REQ-5
+Paths: src/ai_pipeline/cli.py
+Paths: tests/test_cli.py, tests/test_design_loop.py
 
 Implement the human/ElectroBoy requirements and design stages.
 
@@ -749,6 +771,9 @@ Acceptance criteria:
 ### Phase 7. Implementation Planning
 
 Requirements: REQ-2, REQ-3, REQ-5, REQ-9
+Paths: src/ai_pipeline/planning.py
+Paths: src/ai_pipeline/cli.py
+Paths: tests/test_plan.py
 
 Implement collaborative implementation-plan generation and approval.
 
@@ -773,6 +798,7 @@ Acceptance criteria:
 - Every phase references relevant requirements.
 - Traceability is parsed from phase `Requirements:` lines and checked against
   requirement ids from `docs/requirements.md`.
+- Phase scope is parsed from one or more `Paths:` lines under each phase.
 - The human operator sees and approves the phase plan.
 - Plan changes discovered during development are recorded before review
   continues.
@@ -781,6 +807,9 @@ Acceptance criteria:
 ### Phase 8. Phase Implementation Loop
 
 Requirements: REQ-4, REQ-5, REQ-8, REQ-9
+Paths: src/ai_pipeline/cli.py
+Paths: src/ai_pipeline/gates.py
+Paths: tests/test_phase_loop.py
 
 Implement one-phase-at-a-time coding, review, test review, and commit flow.
 
@@ -794,7 +823,7 @@ Scope:
 - Invoke phase test review agent.
 - Iterate until phase test review passes.
 - Detect active-phase drift from `docs/implementation-plan.md`.
-- Commit verified phase.
+- Record the verified phase commit.
 - Update `phase-status.json`.
 - Persist checkpoints before and after each agent turn.
 - Render stage, phase, review, test, validation, and escalation progress with
@@ -804,12 +833,17 @@ Acceptance criteria:
 
 - `ai-pipeline code` resumes after interruption from the last durable
   checkpoint.
-- Each phase is committed independently.
+- Each phase records an independent git commit.
 - A new phase cannot start while another phase is active.
 - Phase review and test review can update only the active phase.
-- Phase commits require an existing git commit SHA.
+- Phase commits require an existing git commit SHA reachable from `HEAD`.
+- Phase commit messages identify the active phase and objective.
+- Phase commit changed paths must match the planned phase `Paths:` metadata.
+- Phase commits require code review and test review agent evidence.
+- Manual review and test flags do not replace agent invocation evidence.
 - Code review and phase test review issues block commits.
-- Phase-scope drift blocks review and commit until the plan is updated.
+- Phase-scope drift clears review evidence and blocks commit until the plan is
+  updated and review agents run again.
 - Test commands and outputs are stored in the activity log.
 - Phase changes are limited to the active phase scope.
 - Rich output clearly identifies the active stage, active phase, blocking
@@ -818,6 +852,8 @@ Acceptance criteria:
 ### Phase 9. Validation Testing
 
 Requirements: REQ-5, REQ-10, REQ-11
+Paths: src/ai_pipeline/cli.py
+Paths: tests/test_validation.py
 
 Implement final validation of the completed codebase.
 
@@ -839,11 +875,18 @@ Acceptance criteria:
   requested.
 - Validation issues return work to the coding agent.
 - Validation fixes go through code review and phase test review.
+- Validation failures open a validation-fix phase and return the active stage
+  to implementation.
+- The configured full test-suite command always runs and fails closed when the
+  suite cannot be run.
 - Validation report is stored as a run artifact.
 
 ### Phase 10. Documentation Review
 
 Requirements: REQ-5, REQ-12
+Paths: src/ai_pipeline/cli.py
+Paths: tests/test_documentation_review.py
+Paths: README.md, docs/api.md
 
 Implement final documentation verification.
 
@@ -873,6 +916,8 @@ Acceptance criteria:
 ### Phase 11. Change Control And Iteration
 
 Requirements: REQ-5, REQ-13
+Paths: src/ai_pipeline/cli.py
+Paths: tests/test_change_control.py
 
 Implement controlled reopening of requirements, design, planning, or
 implementation work.
@@ -902,6 +947,8 @@ Acceptance criteria:
 ### Phase 12. Resume And Reporting
 
 Requirements: REQ-5, REQ-14
+Paths: src/ai_pipeline/cli.py
+Paths: tests/test_reporting.py
 
 Implement restart-safe resume behavior and human-readable reporting.
 
@@ -969,6 +1016,7 @@ project needs tighter control than configured CLI adapters provide.
 - Treat saved CLI authentication files as secrets.
 - Store CI credentials in the CI secret store.
 - Pass runtime credentials only to the process that needs them.
+- Runtime subprocesses receive only the configured environment allowlist.
 - Do not set provider API keys as job-level environment variables in jobs that
   run repository-controlled code.
 

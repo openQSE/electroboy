@@ -257,8 +257,9 @@ stateDiagram-v2
 
 Each project has an activatable pipeline environment. The environment is
 created with `ai-pipeline new <path>`, which initializes the project directory,
-initializes a GitHub-ready git repository when one is not already present,
-writes the standard pipeline files, and creates `<path>/bin/activate`.
+initializes a GitHub-ready git repository when the target is not already
+inside a Git worktree, reuses existing repositories, writes the standard
+pipeline files, and creates `<path>/bin/activate`.
 
 The activation script behaves like a Python virtual environment activation
 script from the operator's perspective:
@@ -933,7 +934,7 @@ Issue fields:
   "artifact": "docs/detailed-design.md",
   "location": "Section name or file:line",
   "summary": "The design does not define how review loops terminate.",
-  "rationale": "Without exit criteria the automated pipeline cycles indefinitely.",
+  "rationale": "Without exit criteria the pipeline can cycle indefinitely.",
   "requested_change": "Add loop termination criteria for each review stage.",
   "response": null,
   "verification": null
@@ -1167,6 +1168,7 @@ Code review gate:
 - No accepted phase-scope change is missing from `docs/implementation-plan.md`.
 - Code review has no unresolved blocker or major issues for the active phase.
 - Code review has checked the active phase against relevant requirements.
+- Code review has a recorded runtime-backed agent invocation event.
 - Rejected code review issues have reviewer verification or human waiver.
 
 Phase test review gate:
@@ -1175,6 +1177,7 @@ Phase test review gate:
 - Required tests pass.
 - Test review has no unresolved blocker or major issues for the active phase.
 - Test review has checked coverage of relevant requirements.
+- Test review has a recorded runtime-backed agent invocation event.
 - Missing coverage findings are fixed, deferred, or escalated.
 
 Commit gate:
@@ -1182,8 +1185,11 @@ Commit gate:
 - The implementation gate has passed.
 - The current implementation plan covers the committed phase scope.
 - Working tree changes belong to the active phase.
+- `Paths:` metadata in the implementation plan defines the allowed commit
+  scope for each planned phase.
 - Code review and phase test review gates pass.
 - Commit message identifies the phase and the completed objective.
+- The commit SHA exists and is reachable from `HEAD`.
 
 Validation testing gate:
 
@@ -1191,6 +1197,8 @@ Validation testing gate:
 - The commit gate has passed for every planned phase.
 - Each planned phase has a verified git commit SHA.
 - The full test suite passes.
+- Validation opens a validation-fix phase when blocker or major findings are
+  created, and fixes return through code review and test review.
 - Validation testing has checked the completed codebase against
   `docs/requirements.md`.
 - Validation testing has checked integrated behavior and architecture against
