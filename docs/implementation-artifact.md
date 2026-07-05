@@ -178,3 +178,27 @@ Verification:
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
+
+## Phase 9. Validation Testing
+
+Implemented:
+
+- Added `ai-pipeline validate` for final validation testing.
+- Added support for one or more validation commands through `--command`.
+- Added a default validation command that runs the unit test suite.
+- Wrote validation output to the run artifact
+  `artifacts/validation-report.md`.
+- Stored raw validation command results in the run raw-event log.
+- Added blocking `validation-review.jsonl` issues when validation fails.
+- Advanced the run from validation to documentation review when validation
+  passes.
+- Allowed the implementation stage to transition into validation after all
+  active phase work is committed.
+- Added validation tests for pass and fail outcomes.
+
+Verification:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+```

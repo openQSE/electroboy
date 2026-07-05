@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from .artifacts import ArtifactError, ArtifactManager
@@ -15,6 +18,7 @@ from .models import (
     GATE_HUMAN_DESIGN_ACCEPTANCE,
     GATE_IMPLEMENTATION,
     GATE_REQUIREMENTS,
+    GATE_VALIDATION_TESTING,
     NEXT_STAGE,
     GATE_COMMIT,
     PhaseStatus,
@@ -22,9 +26,11 @@ from .models import (
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
     STAGE_DESIGN_REVIEW,
+    STAGE_DOCS_REVIEW,
     STAGE_IMPLEMENTATION,
     STAGE_PLAN,
     STAGE_REQUIREMENTS,
+    STAGE_VALIDATION,
     utc_now,
 )
 from .adapters.base import AgentInvocation
@@ -79,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
             STAGE_DESIGN_REVIEW,
             STAGE_DESIGN_ACCEPTANCE,
             STAGE_PLAN,
+            STAGE_IMPLEMENTATION,
         ],
     )
 
@@ -102,6 +109,22 @@ def build_parser() -> argparse.ArgumentParser:
     phase_drift = phase_subparsers.add_parser("drift", help="record plan drift")
     phase_drift.add_argument("phase", type=int)
     phase_drift.add_argument("--reason", required=True)
+
+    validate = subparsers.add_parser("validate", help="run validation testing")
+    validate.add_argument(
+        "--command",
+        action="append",
+        default=[],
+        dest="validation_commands",
+        help="quoted validation command; may be provided more than once",
+    )
+    validate.add_argument(
+        "--shell-command",
+        action="append",
+        default=[],
+        dest="validation_shell_commands",
+        help="explicit shell validation command; may be provided more than once",
+    )
 
     plan = subparsers.add_parser("plan", help="manage implementation plan")
     plan_subparsers = plan.add_subparsers(dest="plan_command", required=True)
@@ -185,6 +208,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_gate(store, engine, args.gate)
         if args.command == "phase":
             return _cmd_phase(store, engine, args)
+        if args.command == "validate":
+            return _cmd_validate(store, args)
         if args.command == "plan":
             return _cmd_plan(store, args)
         if args.command == "issues":
@@ -247,6 +272,11 @@ def _cmd_stage(store: StateStore, engine: GateEngine, stage: str) -> int:
     if stage == STAGE_PLAN and not _plan_has_traceability(store.root):
         _print_gate_failure(["implementation plan lacks requirements traceability"])
         return 1
+    if stage == STAGE_IMPLEMENTATION:
+        phase_status = store.load_phase_status()
+        if phase_status.active_phase is not None:
+            _print_gate_failure(["active implementation phase is not committed"])
+            return 1
 
     completed_gate = STAGE_COMPLETED_GATES.get(stage)
     if stage == STAGE_DESIGN_REVIEW:
@@ -403,6 +433,69 @@ def _cmd_phase(
         return 0
 
     return 2
+
+
+def _cmd_validate(store: StateStore, args: argparse.Namespace) -> int:
+    manifest = store.load_current_manifest()
+    if manifest.active_stage != STAGE_VALIDATION:
+        print("error: active stage is not validation", file=sys.stderr)
+        return 1
+
+    commands = _validation_commands(store.root, args)
+    results = [
+        _run_validation_command(store.root, command, shell=shell)
+        for command, shell, _source in commands
+    ]
+    for result, (_command, _shell, source) in zip(results, commands, strict=True):
+        result["source"] = source
+    report_path = _write_validation_report(store, results)
+    store.write_raw_event("validation-results", results)
+
+    failures = [result for result in results if result["returncode"] != 0]
+    if failures:
+        existing = store.read_review_issues("validation-review.jsonl")
+        for offset, result in enumerate(failures, start=1):
+            issue = ReviewIssue(
+                issue_id=f"VAL-{len(existing) + offset:04d}",
+                source="validation-testing",
+                severity="blocker",
+                status="open",
+                summary=f"Validation command failed: {result['command']}",
+            )
+            store.append_review_issue("validation-review.jsonl", issue)
+        store.append_activity(
+            ActivityEvent(
+                actor="test-review-agent",
+                stage=STAGE_VALIDATION,
+                action="validation-failed",
+                summary=f"Validation failed; report written to {report_path}.",
+            )
+        )
+        print("validation: failed")
+        print(f"report: {report_path}")
+        _open_validation_fix_phase(store, manifest)
+        return 1
+
+    if _blocking_issues(store, "validation-review.jsonl"):
+        _print_gate_failure(["blocking validation review issues remain"])
+        return 1
+
+    manifest.complete_gate(GATE_VALIDATION_TESTING)
+    manifest.set_active_stage(STAGE_DOCS_REVIEW)
+    store.save_manifest(manifest)
+    store.append_activity(
+        ActivityEvent(
+            actor="test-review-agent",
+            stage=STAGE_VALIDATION,
+            gate=GATE_VALIDATION_TESTING,
+            action="validation-passed",
+            summary=f"Validation passed; report written to {report_path}.",
+        )
+    )
+    print("validation: passed")
+    print(f"active stage: {manifest.active_stage}")
+    print(f"report: {report_path}")
+    return 0
 
 
 def _cmd_issues(store: StateStore, args: argparse.Namespace) -> int:
@@ -581,6 +674,385 @@ def _blocking_issues(store: StateStore, file_name: str) -> list[dict[str, object
         if issue.get("status") in {"open", "accepted"}
         and issue.get("severity") in {"blocker", "major"}
     ]
+
+
+def _record_stage_approvals(
+    store: StateStore,
+    stage: str,
+    args: argparse.Namespace,
+) -> list[str]:
+    requirements = STAGE_APPROVAL_REQUIREMENTS.get(stage, [])
+    errors: list[str] = []
+    for approval_type, actor in requirements:
+        if _has_approval(store, stage, approval_type):
+            continue
+        flag_set = (
+            approval_type == "human-approval"
+            and getattr(args, "human_approved", False)
+        ) or (
+            approval_type == "author-confirmation"
+            and getattr(args, "author_confirmed", False)
+        )
+        if not flag_set:
+            errors.append(f"approval is missing: {stage} {approval_type}")
+            continue
+        approval = ApprovalRecord(
+            approval_id=f"APP-{len(store.read_approvals()) + 1:04d}",
+            stage=stage,
+            actor=actor,
+            approval_type=approval_type,
+            artifact_path=STAGE_REQUIRED_FILES.get(stage),
+            summary=f"{actor} recorded {approval_type} for {stage}.",
+        )
+        store.append_approval(approval)
+        store.append_activity(
+            ActivityEvent(
+                actor=actor,
+                stage=stage,
+                action="approval-recorded",
+                summary=approval.summary,
+                outputs=["approvals.jsonl"],
+            )
+        )
+    return errors
+
+
+def _has_approval(store: StateStore, stage: str, approval_type: str) -> bool:
+    return any(
+        approval.get("stage") == stage
+        and approval.get("approval_type") == approval_type
+        for approval in store.read_approvals()
+    )
+
+
+def _transition_issue(
+    store: StateStore,
+    file_name: str,
+    issue_id: str,
+    status: str,
+    response: str | None,
+    verification: str | None,
+) -> bool:
+    issue = _find_issue(store, file_name, issue_id)
+    if issue is None:
+        print(f"error: issue not found: {issue_id}", file=sys.stderr)
+        return False
+    updated = dict(issue)
+    updated.update(
+        {
+            "status": status,
+            "response": response if response is not None else issue.get("response"),
+            "verification": (
+                verification
+                if verification is not None
+                else issue.get("verification")
+            ),
+            "updated_at": utc_now(),
+        }
+    )
+    store.append_review_issue(file_name, ReviewIssue.from_dict(updated))
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            action="issue-transitioned",
+            summary=f"Transitioned issue {issue_id} to {status}.",
+            phase=updated.get("phase"),
+            linked_issue_ids=[issue_id],
+            outputs=[file_name],
+        )
+    )
+    return True
+
+
+def _find_issue(
+    store: StateStore,
+    file_name: str,
+    issue_id: str,
+) -> dict[str, object] | None:
+    for issue in store.read_review_issues(file_name):
+        if issue.get("issue_id") == issue_id:
+            return issue
+    return None
+
+
+def _append_missing_documentation_issues(
+    store: StateStore,
+    missing: list[str],
+) -> None:
+    existing = store.read_review_issues("documentation-review.jsonl")
+    open_summaries = {
+        str(issue.get("summary"))
+        for issue in existing
+        if issue.get("status") in BLOCKING_ISSUE_STATUSES
+    }
+    next_index = len(existing) + 1
+    for relative_path in missing:
+        summary = f"Required documentation file is missing: {relative_path}"
+        if summary in open_summaries:
+            continue
+        issue = ReviewIssue(
+            issue_id=f"DOC-{next_index:04d}",
+            source="documentation-agent",
+            severity="blocker",
+            status="open",
+            summary=summary,
+            stage=STAGE_DOCS_REVIEW,
+            artifact=relative_path,
+            requested_change=f"Create {relative_path}.",
+        )
+        store.append_review_issue("documentation-review.jsonl", issue)
+        next_index += 1
+
+
+def _verify_restored_documentation_files(
+    store: StateStore,
+    missing: list[str],
+) -> None:
+    missing_set = set(missing)
+    for issue in store.read_review_issues("documentation-review.jsonl"):
+        artifact = str(issue.get("artifact") or "")
+        if not artifact or artifact in missing_set:
+            continue
+        if not (store.root / artifact).exists():
+            continue
+        summary = str(issue.get("summary", ""))
+        if not summary.startswith("Required documentation file is missing:"):
+            continue
+        if issue.get("status") not in BLOCKING_ISSUE_STATUSES:
+            continue
+        _transition_issue(
+            store,
+            "documentation-review.jsonl",
+            str(issue["issue_id"]),
+            status="verified",
+            response="Documentation file restored.",
+            verification=f"{artifact} exists.",
+        )
+
+
+def _append_documentation_content_issues(
+    store: StateStore,
+    errors: list[str],
+) -> None:
+    existing = store.read_review_issues("documentation-review.jsonl")
+    existing_summaries = {str(issue.get("summary")) for issue in existing}
+    next_index = len(existing) + 1
+    for error in errors:
+        if error in existing_summaries:
+            continue
+        issue = ReviewIssue(
+            issue_id=f"DOC-{next_index:04d}",
+            source="documentation-agent",
+            severity="major",
+            status="open",
+            summary=error,
+            stage=STAGE_DOCS_REVIEW,
+            requested_change="Update documentation to match public behavior.",
+        )
+        store.append_review_issue("documentation-review.jsonl", issue)
+        next_index += 1
+
+
+def _documentation_semantic_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    api = (root / "docs" / "api.md").read_text(encoding="utf-8")
+    for command in [
+        "init",
+        "status",
+        "resume",
+        "report",
+        "stage",
+        "gate",
+        "phase",
+        "validate",
+        "docs-review",
+        "plan",
+        "issues",
+        "agent",
+        "artifacts",
+        "change",
+    ]:
+        if command not in api:
+            errors.append(f"docs/api.md does not document `{command}`")
+    if "PYTHONPATH=src" not in readme and "pip install -e ." not in readme:
+        errors.append("README.md does not describe how to run the CLI")
+    if "test" not in readme.lower():
+        errors.append("README.md does not describe how to run tests")
+    return errors
+
+
+def _find_change_request(
+    store: StateStore,
+    request_id: str,
+) -> dict[str, object] | None:
+    for request in store.read_change_requests():
+        if request.get("id") == request_id:
+            return request
+    return None
+
+
+def _validation_commands(
+    root: Path,
+    args: argparse.Namespace,
+) -> list[tuple[list[str] | str, bool, str]]:
+    commands: list[tuple[list[str] | str, bool, str]] = []
+    artifact_commands = _artifact_validation_commands(root)
+    for command in artifact_commands:
+        commands.append((shlex.split(command), False, "artifact"))
+    if not artifact_commands:
+        commands.append(
+            (
+                ["validation-specification-missing"],
+                False,
+                "missing-specification",
+            )
+        )
+    for command in args.validation_commands:
+        commands.append((shlex.split(command), False, "operator"))
+    for command in args.validation_shell_commands:
+        commands.append((command, True, "operator-shell"))
+    commands.append(
+        (
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
+            False,
+            "test-suite",
+        )
+    )
+    return commands
+
+
+def _artifact_validation_commands(root: Path) -> list[str]:
+    commands: list[str] = []
+    for relative_path in ["docs/requirements.md", "docs/detailed-design.md"]:
+        path = root / relative_path
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("Validation:"):
+                continue
+            command = stripped.split(":", 1)[1].strip()
+            if command:
+                commands.append(command)
+    return commands
+
+
+def _run_validation_command(
+    root: Path,
+    command: list[str] | str,
+    shell: bool,
+) -> dict[str, object]:
+    env = os.environ.copy()
+    src_path = str(root / "src")
+    if env.get("PYTHONPATH"):
+        env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = src_path
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            env=env,
+            shell=shell,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        return {
+            "command": command if isinstance(command, str) else " ".join(command),
+            "shell": shell,
+            "returncode": 127,
+            "stdout": "",
+            "stderr": str(error),
+        }
+    return {
+        "command": command,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
+def _write_validation_report(
+    store: StateStore,
+    results: list[dict[str, object]],
+) -> Path:
+    manifest = store.load_current_manifest()
+    report_path = (
+        store.run_dir(manifest.run_id) / "artifacts" / "validation-report.md"
+    )
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Validation Report",
+        "",
+        f"Run: {manifest.run_id}",
+        f"Generated: {utc_now()}",
+        "",
+        "Validation sources:",
+        "",
+        *_markdown_list(_validation_source_lines(results)),
+        "",
+        "## Commands",
+        "",
+    ]
+    for index, result in enumerate(results, start=1):
+        status = "pass" if result["returncode"] == 0 else "fail"
+        lines.extend(
+            [
+                f"### Command {index}: {status}",
+                "",
+                "```bash",
+                str(result["command"]),
+                "```",
+                "",
+                f"Source: {result.get('source', 'unknown')}",
+                "",
+                f"Exit code: {result['returncode']}",
+                "",
+            ]
+        )
+        if result["stdout"]:
+            lines.extend(
+                [
+                    "Stdout:",
+                    "",
+                    "```text",
+                    str(result["stdout"]).rstrip(),
+                    "```",
+                    "",
+                ]
+            )
+        if result["stderr"]:
+            lines.extend(
+                [
+                    "Stderr:",
+                    "",
+                    "```text",
+                    str(result["stderr"]).rstrip(),
+                    "```",
+                    "",
+                ]
+            )
+    report_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return report_path
+
+
+def _validation_source_lines(results: list[dict[str, object]]) -> list[str]:
+    sources = {str(result.get("source", "unknown")) for result in results}
+    lines: list[str] = []
+    if "artifact" in sources:
+        lines.append("artifact validation commands from requirements or design")
+    if "operator" in sources:
+        lines.append("operator supplied validation command")
+    if "operator-shell" in sources:
+        lines.append("operator supplied shell validation command")
+    if "missing-specification" in sources:
+        lines.append("missing artifact validation specification")
+    if "test-suite" in sources:
+        lines.append("configured full test-suite command")
+    return lines
 
 
 def _plan_has_traceability(root: Path) -> bool:
