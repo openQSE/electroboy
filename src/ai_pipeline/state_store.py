@@ -135,6 +135,20 @@ class StateStore:
         manifest = self.load_current_manifest()
         return self.read_jsonl(self.run_dir(manifest.run_id) / file_name)
 
+    def replace_review_issues(
+        self,
+        file_name: str,
+        issues: list[dict[str, object]],
+    ) -> None:
+        manifest = self.load_current_manifest()
+        path = self.run_dir(manifest.run_id) / file_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = "".join(
+            json.dumps(self._to_jsonable(issue), sort_keys=True) + "\n"
+            for issue in issues
+        )
+        path.write_text(text, encoding="utf-8")
+
     def append_decision(self, decision: DecisionRecord) -> None:
         self.append_jsonl(self.state_dir / "decisions.jsonl", decision)
 

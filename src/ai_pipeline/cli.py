@@ -15,6 +15,7 @@ from .models import (
     GATE_IMPLEMENTATION,
     GATE_REQUIREMENTS,
     NEXT_STAGE,
+    ReviewIssue,
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
     STAGE_DESIGN_REVIEW,
@@ -39,6 +40,13 @@ STAGE_COMPLETED_GATES = {
     STAGE_DESIGN_REVIEW: GATE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE: GATE_HUMAN_DESIGN_ACCEPTANCE,
     STAGE_PLAN: GATE_IMPLEMENTATION,
+}
+
+STAGE_SNAPSHOT_ARTIFACTS = {
+    STAGE_REQUIREMENTS: "docs/requirements.md",
+    STAGE_DESIGN_REVIEW: "docs/detailed-design.md",
+    STAGE_DESIGN_ACCEPTANCE: "docs/detailed-design.md",
+    STAGE_PLAN: "docs/implementation-plan.md",
 }
 
 
@@ -72,6 +80,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     gate = subparsers.add_parser("gate", help="evaluate a named gate")
     gate.add_argument("gate")
+
+    issues = subparsers.add_parser("issues", help="manage review issues")
+    issue_subparsers = issues.add_subparsers(dest="issue_command", required=True)
+    issue_add = issue_subparsers.add_parser("add", help="add a review issue")
+    issue_add.add_argument("file")
+    issue_add.add_argument("--id", required=True)
+    issue_add.add_argument("--source", required=True)
+    issue_add.add_argument("--severity", required=True)
+    issue_add.add_argument("--summary", required=True)
+    issue_add.add_argument("--phase", type=int)
+    issue_add.add_argument("--owner")
+    issue_subparsers.add_parser("list", help="list review issues").add_argument("file")
+    issue_resolve = issue_subparsers.add_parser("resolve", help="resolve issue")
+    issue_resolve.add_argument("file")
+    issue_resolve.add_argument("id")
 
     agent = subparsers.add_parser("agent", help="invoke configured agent runtimes")
     agent_subparsers = agent.add_subparsers(dest="agent_command", required=True)
@@ -132,6 +155,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_stage(store, engine, args.stage)
         if args.command == "gate":
             return _cmd_gate(store, engine, args.gate)
+        if args.command == "issues":
+            return _cmd_issues(store, args)
         if args.command == "agent":
             return _cmd_agent(store, args)
         if args.command == "artifacts":
@@ -189,6 +214,11 @@ def _cmd_stage(store: StateStore, engine: GateEngine, stage: str) -> int:
             return 1
 
     completed_gate = STAGE_COMPLETED_GATES.get(stage)
+    if stage == STAGE_DESIGN_REVIEW:
+        blocking = _blocking_issues(store, "design-review.jsonl")
+        if blocking:
+            _print_gate_failure(["blocking design review issues remain"])
+            return 1
     if completed_gate:
         manifest.complete_gate(completed_gate)
 
@@ -196,6 +226,14 @@ def _cmd_stage(store: StateStore, engine: GateEngine, stage: str) -> int:
     if next_stage:
         manifest.set_active_stage(next_stage)
     store.save_manifest(manifest)
+    snapshot_artifact = STAGE_SNAPSHOT_ARTIFACTS.get(stage)
+    if snapshot_artifact:
+        snapshot = ArtifactManager(store.root).snapshot(
+            manifest.run_id,
+            snapshot_artifact,
+            f"{stage}-approved",
+        )
+        store.append_artifact_snapshot(snapshot)
     store.append_activity(
         ActivityEvent(
             actor="orchestrator",
@@ -217,6 +255,45 @@ def _cmd_gate(store: StateStore, engine: GateEngine, gate: str) -> int:
     for message in result.messages:
         print(f"  - {message}")
     return 0 if result.passed else 1
+
+
+def _cmd_issues(store: StateStore, args: argparse.Namespace) -> int:
+    if args.issue_command == "add":
+        issue = ReviewIssue(
+            issue_id=args.id,
+            source=args.source,
+            severity=args.severity,
+            status="open",
+            summary=args.summary,
+            phase=args.phase,
+            owner=args.owner,
+        )
+        store.append_review_issue(args.file, issue)
+        print(f"added issue: {args.id}")
+        return 0
+
+    if args.issue_command == "list":
+        issues = store.read_review_issues(args.file)
+        print(f"issues: {len(issues)}")
+        for issue in issues:
+            print(f"  - {issue['issue_id']}: {issue['status']} {issue['summary']}")
+        return 0
+
+    if args.issue_command == "resolve":
+        issues = store.read_review_issues(args.file)
+        found = False
+        for issue in issues:
+            if issue.get("issue_id") == args.id:
+                issue["status"] = "resolved"
+                found = True
+        if not found:
+            print(f"error: issue not found: {args.id}", file=sys.stderr)
+            return 1
+        store.replace_review_issues(args.file, issues)
+        print(f"resolved issue: {args.id}")
+        return 0
+
+    return 2
 
 
 def _cmd_agent(store: StateStore, args: argparse.Namespace) -> int:
@@ -347,6 +424,15 @@ def _print_gate_failure(messages: list[str]) -> None:
     print("blocked:", file=sys.stderr)
     for message in messages:
         print(f"  - {message}", file=sys.stderr)
+
+
+def _blocking_issues(store: StateStore, file_name: str) -> list[dict[str, object]]:
+    return [
+        issue
+        for issue in store.read_review_issues(file_name)
+        if issue.get("status") in {"open", "accepted"}
+        and issue.get("severity") in {"blocker", "major"}
+    ]
 
 
 if __name__ == "__main__":

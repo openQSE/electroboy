@@ -122,3 +122,22 @@ Verification:
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 ```
+
+## Phase 6. Requirements And Design Loops
+
+Implemented:
+
+- Added artifact snapshots when requirements, design review, design
+  acceptance, or implementation planning stages complete.
+- Added `ai-pipeline issues add`, `issues list`, and `issues resolve`.
+- Blocked design-review completion while open blocker or major design issues
+  remain.
+- Preserved design review issue records in run JSONL files.
+- Added tests for requirements snapshots and design review issue iteration.
+
+Verification:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+```
