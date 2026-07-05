@@ -517,6 +517,13 @@ def _cmd_authoring_stage(
     stage: str,
 ) -> int:
     manifest = store.load_current_manifest()
+    if _maybe_reopen_from_public_command(
+        store,
+        manifest,
+        stage,
+        getattr(args, "reason", None),
+    ):
+        manifest = store.load_current_manifest()
     order = engine.stage_order(stage, manifest)
     if not order.passed:
         _print_gate_failure(order.messages)
@@ -584,6 +591,13 @@ def _cmd_code(
     args: argparse.Namespace,
 ) -> int:
     manifest = store.load_current_manifest()
+    if _maybe_reopen_from_public_command(
+        store,
+        manifest,
+        STAGE_IMPLEMENTATION,
+        getattr(args, "reason", None),
+    ):
+        manifest = store.load_current_manifest()
     if manifest.active_stage == STAGE_VALIDATION:
         _print_progress("validation", "implementation phases are complete")
         print("next: run validation commands or use `ai-pipeline document` after validation")
@@ -735,13 +749,22 @@ def _cmd_document(
     engine: GateEngine,
     args: argparse.Namespace,
 ) -> int:
-    if getattr(args, "reason", None):
+    manifest = store.load_current_manifest()
+    reason = getattr(args, "reason", None)
+    if _maybe_reopen_from_public_command(
+        store,
+        manifest,
+        STAGE_DOCS_REVIEW,
+        reason,
+    ):
+        manifest = store.load_current_manifest()
+    if reason:
         store.append_activity(
             ActivityEvent(
                 actor="human-operator",
-                stage=STAGE_DOCS_REVIEW,
+                stage=manifest.active_stage,
                 action="documentation-iteration-requested",
-                summary=args.reason,
+                summary=reason,
             )
         )
     result, _event_id, _issue_file = _invoke_agent_role(
@@ -815,6 +838,99 @@ def _authoring_inputs(stage: str) -> list[str]:
     if stage == STAGE_PLAN:
         return ["docs/requirements.md", "docs/detailed-design.md"]
     return []
+
+
+PUBLIC_STAGE_BASELINES = {
+    STAGE_REQUIREMENTS: "requirements",
+    STAGE_DESIGN: "design",
+    STAGE_PLAN: "plan",
+    STAGE_IMPLEMENTATION: "implementation",
+    STAGE_DOCS_REVIEW: "documentation",
+}
+
+
+PUBLIC_STAGE_ORDER = [
+    STAGE_REQUIREMENTS,
+    STAGE_DESIGN,
+    STAGE_DESIGN_REVIEW,
+    STAGE_DESIGN_ACCEPTANCE,
+    STAGE_PLAN,
+    STAGE_IMPLEMENTATION,
+    STAGE_VALIDATION,
+    STAGE_DOCS_REVIEW,
+    STAGE_COMPLETE,
+]
+
+
+def _maybe_reopen_from_public_command(
+    store: StateStore,
+    manifest,
+    target_stage: str,
+    reason: str | None,
+) -> bool:
+    if not _is_backward_stage_request(manifest.active_stage, target_stage):
+        return False
+    if not reason:
+        raise StateError("reopen reason is required")
+    baseline = PUBLIC_STAGE_BASELINES[target_stage]
+    request_id = f"CR-{len(store.read_change_requests()) + 1:04d}"
+    request = ChangeRequest(
+        request_id=request_id,
+        run_id=manifest.run_id,
+        baseline=baseline,
+        reason=reason,
+        status="reopened",
+        event="reopened",
+        human_approved=True,
+        reopened_stage=target_stage,
+        invalidated_gates=list(CHANGE_BASELINE_INVALIDATED_GATES[baseline]),
+    )
+    store.append_change_request(request)
+    invalidated = CHANGE_BASELINE_INVALIDATED_GATES[baseline]
+    for gate in invalidated:
+        if gate not in manifest.invalidated_gates:
+            manifest.invalidated_gates.append(gate)
+    manifest.set_active_stage(target_stage)
+    store.save_manifest(manifest)
+    invalidated_snapshots = _invalidated_snapshot_refs(store, invalidated)
+    store.append_baseline_invalidation(
+        BaselineInvalidation(
+            invalidation_id=f"INV-{len(store.read_baseline_invalidations()) + 1:04d}",
+            change_request_id=request_id,
+            baseline=baseline,
+            invalidated_gates=list(invalidated),
+            invalidated_snapshot_refs=invalidated_snapshots,
+        )
+    )
+    store.append_decision(
+        DecisionRecord(
+            decision_id=f"CHANGE-{len(store.read_decisions()) + 1:04d}",
+            stage=target_stage,
+            summary=f"Reopened {baseline} baseline",
+            rationale=reason,
+        )
+    )
+    store.append_activity(
+        ActivityEvent(
+            actor="human-operator",
+            stage=target_stage,
+            action="public-stage-reopened",
+            summary=f"Reopened {baseline} through public stage command.",
+            outputs=["change-requests.jsonl", "baseline-invalidations.jsonl"],
+        )
+    )
+    print(f"reopened baseline: {baseline}")
+    print(f"active stage: {target_stage}")
+    return True
+
+
+def _is_backward_stage_request(active_stage: str, target_stage: str) -> bool:
+    try:
+        active_index = PUBLIC_STAGE_ORDER.index(active_stage)
+        target_index = PUBLIC_STAGE_ORDER.index(target_stage)
+    except ValueError:
+        return False
+    return target_index < active_index
 
 
 def _print_progress(label: str, message: str) -> None:
