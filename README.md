@@ -94,6 +94,7 @@ final approval:
 ```bash
 electroboy code
 electroboy validate
+electroboy validation-approve
 electroboy document
 electroboy code-approve
 ```
@@ -111,9 +112,12 @@ agent fails, an unresolved review issue blocks progress, phase scope changes,
 git cannot create a valid commit, or the agents need human input.
 
 After `code` completes, run `validate`. Validation always runs the full test
-suite plus artifact-declared validation commands. If validation fails, the
-pipeline opens a validation-fix phase and returns to `code`. `document` runs
-the documentation refinement and review phase. If a review or validation issue
+suite plus artifact-declared validation commands and writes
+`docs/validation-report.md`. If validation fails, the pipeline opens a
+validation-fix phase and returns to `code`. After validation passes, run
+`validation-approve` to commit the implementation log, implementation report,
+and validation report before documentation review. `document` runs the
+documentation refinement and review phase. If a review or validation issue
 needs human input, the command records the escalation and stops at a resumable
 checkpoint.
 

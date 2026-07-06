@@ -423,6 +423,7 @@ electroboy implementation-plan [--reason <text>]
 electroboy plan-approve
 electroboy code [--reason <text>] [--phased]
 electroboy validate
+electroboy validation-approve
 electroboy document [--reason <text>]
 electroboy code-approve
 electroboy deactivate
@@ -451,6 +452,9 @@ active phase, code review, test review, escalations, and resumable checkpoints.
 complete. It runs the full test suite and the validation commands declared by
 the artifacts. If validation finds blocker or major issues, the orchestrator
 opens a validation-fix implementation phase and returns the run to `code`.
+When validation passes, `validation-approve` commits
+`docs/implementation-log.md`, `docs/implementation-report.md`, and
+`docs/validation-report.md`, then advances to documentation review.
 
 `document` starts or resumes the documentation finesse pass. It gives the
 Documentation Agent the final codebase, requirements, design, implementation
@@ -876,7 +880,7 @@ Scope:
 - Check integrated behavior against `docs/requirements.md`.
 - Check architecture and behavior against `docs/detailed-design.md`.
 - Write `validation-review.jsonl`.
-- Write `validation-report.md`.
+- Write `docs/validation-report.md`.
 
 Acceptance criteria:
 
@@ -1059,7 +1063,7 @@ blocked forward movement must produce actionable errors.
 - Whether the package is named `electroboy`, `agent_pipeline`, or something
   project-specific.
 - Whether to use Pydantic or standard-library dataclasses for state models.
-- Whether `validation-report.md` is written by the Test Review Agent or by the
+- Whether `docs/validation-report.md` is written by the Test Review Agent or by the
   orchestrator from validation events.
 - How detailed downstream invalidation reporting should be.
 - Which agent CLI runtimes are supported by the initial generic adapter.

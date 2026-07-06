@@ -109,7 +109,7 @@ sequenceDiagram
         O->>DR: Review design against requirements
         DR-->>DA: Return structured review issues
         O->>S: Store review comments and step event
-        O->>S: Write and commit docs/design-review.md
+        O->>S: Write docs/design-review.md
         DA-->>O: Update design or record rationale
         O->>S: Store response and artifact update event
         O->>DR: Verify issue resolution
@@ -126,6 +126,7 @@ sequenceDiagram
     end
 
     H->>O: Approve reviewed design for planning
+    O->>S: Commit approved design baseline and review summary
     O->>S: Snapshot approved design artifact
 
     O->>DA: Start implementation planning
@@ -506,9 +507,8 @@ agent updates the document or responds with a rejection rationale.
 
 The orchestrator shows visible progress while the stage runs. In an interactive
 terminal it uses Rich status spinners for long-running work such as invoking
-the review agent, writing the review summary, committing review artifacts, and
-completing the gate. In non-interactive output it prints the same steps as
-plain text.
+the review agent, writing the review summary, and completing the gate. In
+non-interactive output it prints the same steps as plain text.
 
 At the end of each review pass the orchestrator writes `docs/design-review.md`.
 This markdown artifact summarizes the run id, review event, reviewed artifacts,
@@ -516,12 +516,9 @@ review findings, agent-reported file changes, open issues, and current approval
 state. The JSONL review issue file remains the machine-readable gate input; the
 markdown file is the human-readable audit artifact.
 
-ElectroBoy, not the agent, owns repository commits. The design review agent may
-report `changed_files`, `created_files`, and a suggested `commit_message`, but
-it must not run git commands. The orchestrator stages only
-`docs/design-review.md` and agent-reported files, refuses to include unrelated
-already-staged paths, creates the commit, and records the commit SHA in the run
-activity log.
+The review stage does not commit the summary. `electroboy design-approve`
+commits `docs/detailed-design.md` and `docs/design-review.md` together after
+the human operator accepts the reviewed design baseline.
 
 The loop continues until every required issue is verified, downgraded, or
 escalated to the human operator.
@@ -533,8 +530,6 @@ Exit criteria:
 - Any disputed design decisions are recorded in
   `.electroboy/decisions.jsonl`.
 - `docs/design-review.md` records the latest review pass.
-- Design review artifacts are committed by the orchestrator when the project is
-  in a git worktree.
 - The reviewed design is ready for human acceptance.
 
 ### Stage 4. Human Design Acceptance
@@ -647,7 +642,7 @@ the active phase.
 Validation testing covers full workflows, cross-phase integration, public
 behavior, error paths, configuration behavior, and requirement-level success
 criteria. The validation pass produces `validation-review.jsonl` findings and
-a `validation-report.md` artifact for the run.
+`docs/validation-report.md`.
 
 When validation finds a blocker or major issue, the orchestrator returns work
 to the coding agent. Validation fixes go through code review and test review
@@ -661,7 +656,9 @@ Exit criteria:
 - Integrated behavior and architecture match `docs/detailed-design.md`.
 - No blocker or major validation review issues remain.
 - Validation commands, results, and findings are stored in the activity log.
-- `validation-review.jsonl` and `validation-report.md` are stored for the run.
+- `validation-review.jsonl` and `docs/validation-report.md` are stored.
+- `electroboy validation-approve` commits the implementation log,
+  implementation report, and validation report before documentation review.
 
 ### Stage 8. Final Documentation Review
 
@@ -1240,7 +1237,9 @@ Validation testing gate:
 - Validation commands run as argument vectors unless the operator explicitly
   requests shell mode.
 - Validation commands, results, and findings are stored in the activity log.
-- `validation-review.jsonl` and `validation-report.md` are stored for the run.
+- `validation-review.jsonl` and `docs/validation-report.md` are stored.
+- Validation handoff reports are approved and committed before documentation
+  review starts.
 
 Documentation gate:
 
@@ -1318,15 +1317,16 @@ Iteration rules:
 
 ## Commit Strategy
 
-ElectroBoy owns repository commits that are part of orchestration. Agents
-produce changes and report the files they created or modified, but they do not
-stage or commit those changes. This keeps git state management deterministic
-and avoids spending agent time on repository bookkeeping.
+Baseline documentation commits happen at human approval points. The
+requirements approval commits `docs/requirements.md`. Design approval commits
+`docs/detailed-design.md` and `docs/design-review.md`. Plan approval commits
+`docs/implementation-plan.md`. Validation approval commits
+`docs/implementation-log.md`, `docs/implementation-report.md`, and
+`docs/validation-report.md`.
 
-During design review, the orchestrator commits `docs/design-review.md` and any
-agent-reported design-review files with the agent-provided commit message when
-one is available. If no message is provided, ElectroBoy uses a deterministic
-design-review summary message. The commit SHA is recorded in the activity log.
+ElectroBoy creates those approval-time baseline commits, verifies that the
+expected artifacts are present in the commit history, and records the commit
+SHA in the activity log before advancing the stage.
 
 The coding agent creates one commit per completed phase. Additional commits are
 reserved for phases that the implementation plan explicitly splits into
@@ -1529,15 +1529,18 @@ explicit.
 - Approved pipeline artifacts are stored as snapshots under
   `.electroboy/shared/runs/<run-id>/artifacts/`.
 - Design review summaries are stored in `docs/design-review.md` and committed
-  by the orchestrator.
+  during design approval.
+- Implementation logs and implementation reports are stored in
+  `docs/implementation-log.md` and `docs/implementation-report.md`.
+- Validation results are stored in `docs/validation-report.md`.
 - Shared pipeline state is committed; local session, raw runtime, credential,
   and shell activation state is ignored.
 - Change-control requests reopen the earliest affected baseline and invalidate
   downstream gates that depended on the old baseline.
 - Phase status is stored in `.electroboy/shared/phase-status.json`.
 - Cross-stage decisions are stored in `.electroboy/shared/decisions.jsonl`.
-- Design review commits are created by the orchestrator after each review pass
-  when design-review artifacts changed.
+- Approval-time baseline commits are created for requirements, design,
+  implementation planning, and validation handoff artifacts.
 - Phase commits are created on the active working branch after gates pass.
 - Human approval is required for requirements acceptance, reviewed design
   acceptance, implementation plan acceptance, escalated decisions, and final

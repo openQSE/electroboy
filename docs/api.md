@@ -23,6 +23,8 @@ Operator workflow commands:
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
 - `validate` runs final validation commands and writes a validation report.
+- `validation-approve` approves validation and commits implementation handoff
+  reports.
 - `document [--reason <text>]` runs documentation review and refinement.
 - `code-approve` records final human completion approval.
 - `deactivate` leaves an activated project shell environment.
@@ -108,8 +110,12 @@ Use `--shell-command` only when shell behavior is required.
 electroboy validate --shell-command "python -m unittest discover -s tests"
 ```
 
-Validation writes `validation-report.md` under the run artifact directory and
-stores failures in `validation-review.jsonl`.
+Validation writes `docs/validation-report.md`, stores a copy under the run
+artifact directory, and stores failures in `validation-review.jsonl`.
+
+`validation-approve` commits `docs/implementation-log.md`,
+`docs/implementation-report.md`, and `docs/validation-report.md`, then advances
+the active stage to documentation review.
 
 ## Documentation Commands
 
