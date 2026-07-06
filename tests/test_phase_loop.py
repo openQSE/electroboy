@@ -11,14 +11,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.artifacts import ArtifactManager  # noqa: E402
-from ai_pipeline.cli import main  # noqa: E402
-from ai_pipeline.models import (  # noqa: E402
+from electroboy.artifacts import ArtifactManager  # noqa: E402
+from electroboy.cli import main  # noqa: E402
+from electroboy.models import (  # noqa: E402
     GATE_IMPLEMENTATION,
     STAGE_IMPLEMENTATION,
     STAGE_VALIDATION,
 )
-from ai_pipeline.state_store import StateStore  # noqa: E402
+from electroboy.state_store import StateStore  # noqa: E402
 
 
 class PhaseLoopTests(unittest.TestCase):
@@ -276,7 +276,7 @@ def write_file(path: Path, text: str) -> None:
 def write_manual_runtime(root: Path) -> None:
     write_file(root / "agent-response.md", "accepted\n")
     write_file(
-        root / "agent-pipeline.toml",
+        root / "electroboy.toml",
         """
 [runtime]
 default = "manual"
@@ -320,7 +320,7 @@ print(json.dumps({"ok": True, "final_message": "accepted"}))
 """.lstrip(),
     )
     write_file(
-        root / "agent-pipeline.toml",
+        root / "electroboy.toml",
         f"""
 [runtime]
 default = "agent"

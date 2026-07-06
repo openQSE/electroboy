@@ -27,11 +27,12 @@ class StateError(RuntimeError):
 
 
 class StateStore:
-    """Read and write `.agent-pipeline` state for one repository."""
+    """Read and write `.electroboy` state for one repository."""
 
     def __init__(self, root: Path | str = ".") -> None:
         self.root = Path(root).resolve()
-        self.state_dir = self.root / ".agent-pipeline"
+        self.state_dir = self.root / ".electroboy"
+        self.legacy_state_dir = self.root / ".agent-pipeline"
         self.shared_dir = self.state_dir / "shared"
         self.local_dir = self.state_dir / "local"
         self.runs_dir = self.shared_dir / "runs"
@@ -66,38 +67,47 @@ class StateStore:
     def load_current_manifest(self) -> RunManifest:
         run_id = self.current_run_id()
         if not run_id:
-            raise StateError("no pipeline run exists; run `ai-pipeline init` first")
+            raise StateError("no ElectroBoy run exists; run `electroboy init` first")
         return self.load_manifest(run_id)
 
     def current_run_id(self) -> str | None:
-        current_run_file = self.current_run_file
-        if not current_run_file.exists():
-            legacy_file = self.state_dir / "current-run"
-            if legacy_file.exists():
-                current_run_file = legacy_file
-            else:
-                return None
+        candidates = [
+            self.current_run_file,
+            self.state_dir / "current-run",
+            self.legacy_state_dir / "shared" / "current-run",
+            self.legacy_state_dir / "current-run",
+        ]
+        current_run_file = next((path for path in candidates if path.exists()), None)
+        if current_run_file is None:
+            return None
         run_id = current_run_file.read_text(encoding="utf-8").strip()
         return run_id or None
 
-    def _legacy_run_dir(self, run_id: str) -> Path:
-        return self.state_dir / "runs" / run_id
+    def _legacy_run_dirs(self, run_id: str) -> list[Path]:
+        return [
+            self.state_dir / "runs" / run_id,
+            self.legacy_state_dir / "shared" / "runs" / run_id,
+            self.legacy_state_dir / "runs" / run_id,
+        ]
 
     def _resolve_run_dir(self, run_id: str) -> Path:
         run_dir = self.run_dir(run_id)
         if run_dir.exists():
             return run_dir
-        legacy_run_dir = self._legacy_run_dir(run_id)
-        if legacy_run_dir.exists():
-            return legacy_run_dir
+        for legacy_run_dir in self._legacy_run_dirs(run_id):
+            if legacy_run_dir.exists():
+                return legacy_run_dir
         return run_dir
 
     def _shared_path(self, relative_path: str) -> Path:
         path = self.shared_dir / relative_path
-        legacy_path = self.state_dir / relative_path
-        if path.exists() or not legacy_path.exists():
-            return path
-        return legacy_path
+        candidates = [
+            path,
+            self.state_dir / relative_path,
+            self.legacy_state_dir / "shared" / relative_path,
+            self.legacy_state_dir / relative_path,
+        ]
+        return next((candidate for candidate in candidates if candidate.exists()), path)
 
     def _writable_shared_path(self, relative_path: str) -> Path:
         return self.shared_dir / relative_path

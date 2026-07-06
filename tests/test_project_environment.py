@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.cli import main  # noqa: E402
+from electroboy.cli import main  # noqa: E402
 
 
 class ProjectEnvironmentTests(unittest.TestCase):
@@ -40,20 +40,20 @@ class ProjectEnvironmentTests(unittest.TestCase):
             self.assertTrue(
                 (
                     root
-                    / ".agent-pipeline"
+                    / ".electroboy"
                     / "local"
                     / "runtime"
                     / "src"
-                    / "ai_pipeline"
+                    / "electroboy"
                 ).exists()
             )
-            self.assertTrue((root / ".agent-pipeline" / "project.toml").exists())
+            self.assertTrue((root / ".electroboy" / "project.toml").exists())
             self.assertTrue(
-                (root / ".agent-pipeline" / "shared" / "current-run").exists()
+                (root / ".electroboy" / "shared" / "current-run").exists()
             )
             self.assertTrue((root / "docs" / "requirements.md").exists())
             self.assertIn(
-                ".agent-pipeline/local/",
+                ".electroboy/local/",
                 (root / ".gitignore").read_text(encoding="utf-8"),
             )
 
@@ -65,7 +65,7 @@ class ProjectEnvironmentTests(unittest.TestCase):
             env.pop("PYTHONPATH", None)
 
             completed = subprocess.run(
-                [str(root / "bin" / "ai-pipeline"), "--help"],
+                [str(root / "bin" / "electroboy"), "--help"],
                 cwd=root,
                 env=env,
                 text=True,
@@ -73,10 +73,10 @@ class ProjectEnvironmentTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 check=False,
             )
-            wrapper = (root / "bin" / "ai-pipeline").read_text(encoding="utf-8")
+            wrapper = (root / "bin" / "electroboy").read_text(encoding="utf-8")
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("usage: ai-pipeline", completed.stdout)
+        self.assertIn("usage: electroboy", completed.stdout)
         self.assertNotIn(str(ROOT), wrapper)
 
     def test_new_reuses_existing_git_worktree(self) -> None:

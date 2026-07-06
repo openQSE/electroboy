@@ -1,4 +1,4 @@
-"""Module entry point for ``python -m ai_pipeline``."""
+"""Module entry point for ``python -m electroboy``."""
 
 from .cli import main
 

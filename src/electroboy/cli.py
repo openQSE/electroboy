@@ -152,7 +152,7 @@ CHANGE_BASELINE_INVALIDATED_GATES = {
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ai-pipeline")
+    parser = argparse.ArgumentParser(prog="electroboy")
     parser.add_argument(
         "--root",
         default=".",
@@ -605,15 +605,15 @@ def _cmd_code(
         manifest = store.load_current_manifest()
     if manifest.active_stage == STAGE_VALIDATION:
         _print_progress("validation", "implementation phases are complete")
-        print("next: run validation commands or use `ai-pipeline document` after validation")
+        print("next: run validation commands or use `electroboy document` after validation")
         return 0
     if manifest.active_stage == STAGE_DOCS_REVIEW:
         _print_progress("documentation", "validation has passed")
-        print("next: ai-pipeline document")
+        print("next: electroboy document")
         return 0
     if manifest.active_stage == STAGE_COMPLETE:
         _print_progress("complete", "pipeline implementation is complete")
-        print("next: ai-pipeline code-approve")
+        print("next: electroboy code-approve")
         return 0
     if manifest.active_stage != STAGE_IMPLEMENTATION:
         order = engine.stage_order(STAGE_IMPLEMENTATION, manifest)
@@ -1876,7 +1876,7 @@ def _is_git_worktree(project_root: Path) -> bool:
 
 
 def _write_project_config(project_root: Path) -> None:
-    path = project_root / ".agent-pipeline" / "project.toml"
+    path = project_root / ".electroboy" / "project.toml"
     if path.exists():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1913,14 +1913,14 @@ def _write_project_gitignore(project_root: Path) -> None:
     lines = []
     if path.exists():
         lines = path.read_text(encoding="utf-8").splitlines()
-    required = ".agent-pipeline/local/"
+    required = ".electroboy/local/"
     if required in lines:
         return
     if lines and lines[-1] != "":
         lines.append("")
     lines.extend(
         [
-            "# AI Pipeline local runtime state",
+            "# ElectroBoy local runtime state",
             required,
         ]
     )
@@ -1933,16 +1933,16 @@ def _write_project_bin(project_root: Path) -> None:
     activate = bin_dir / "activate"
     activate.write_text(_activation_script(project_root), encoding="utf-8")
     activate.chmod(0o755)
-    for name in ("ai-pipeline", "electroboy"):
+    for name in ("electroboy", "ai-pipeline"):
         path = bin_dir / name
         path.write_text(_project_entrypoint_script(), encoding="utf-8")
         path.chmod(0o755)
 
 
 def _write_project_runtime(project_root: Path) -> None:
-    source = _module_search_path() / "ai_pipeline"
-    target = project_root / ".agent-pipeline" / "local" / "runtime" / "src"
-    package_target = target / "ai_pipeline"
+    source = _module_search_path() / "electroboy"
+    target = project_root / ".electroboy" / "local" / "runtime" / "src"
+    package_target = target / "electroboy"
     if package_target.exists():
         shutil.rmtree(package_target)
     target.mkdir(parents=True, exist_ok=True)
@@ -1955,74 +1955,87 @@ def _write_project_runtime(project_root: Path) -> None:
 
 def _activation_script(project_root: Path) -> str:
     quoted_root = shlex.quote(str(project_root))
-    return f"""# AI Pipeline project activation script.
+    return f"""# ElectroBoy project activation script.
 # Source this file from a POSIX-compatible shell.
 
-_AI_PIPELINE_ACTIVATED_ROOT={quoted_root}
-_AI_PIPELINE_PREVIOUS_PATH="${{PATH:-}}"
-_AI_PIPELINE_PREVIOUS_PROJECT_ROOT="${{AI_PIPELINE_PROJECT_ROOT:-}}"
-_AI_PIPELINE_PREVIOUS_VIRTUAL_ENV="${{VIRTUAL_ENV:-}}"
-export _AI_PIPELINE_ACTIVATED_ROOT
-export _AI_PIPELINE_PREVIOUS_PATH
-export _AI_PIPELINE_PREVIOUS_PROJECT_ROOT
-export _AI_PIPELINE_PREVIOUS_VIRTUAL_ENV
+_ELECTROBOY_ACTIVATED_ROOT={quoted_root}
+_ELECTROBOY_PREVIOUS_PATH="${{PATH:-}}"
+_ELECTROBOY_PREVIOUS_PROJECT_ROOT="${{ELECTROBOY_PROJECT_ROOT:-}}"
+_ELECTROBOY_PREVIOUS_AI_PIPELINE_ROOT="${{AI_PIPELINE_PROJECT_ROOT:-}}"
+_ELECTROBOY_PREVIOUS_VIRTUAL_ENV="${{VIRTUAL_ENV:-}}"
+export _ELECTROBOY_ACTIVATED_ROOT
+export _ELECTROBOY_PREVIOUS_PATH
+export _ELECTROBOY_PREVIOUS_PROJECT_ROOT
+export _ELECTROBOY_PREVIOUS_AI_PIPELINE_ROOT
+export _ELECTROBOY_PREVIOUS_VIRTUAL_ENV
 
-AI_PIPELINE_PROJECT_ROOT="$_AI_PIPELINE_ACTIVATED_ROOT"
-PATH="$AI_PIPELINE_PROJECT_ROOT/bin:$PATH"
-export AI_PIPELINE_PROJECT_ROOT
+ELECTROBOY_PROJECT_ROOT="$_ELECTROBOY_ACTIVATED_ROOT"
+PATH="$ELECTROBOY_PROJECT_ROOT/bin:$PATH"
+export ELECTROBOY_PROJECT_ROOT
 export PATH
 
-_AI_PIPELINE_PROJECT_CONFIG="$AI_PIPELINE_PROJECT_ROOT/.agent-pipeline/project.toml"
-if [ -f "$_AI_PIPELINE_PROJECT_CONFIG" ] && \\
+_ELECTROBOY_PROJECT_CONFIG="$ELECTROBOY_PROJECT_ROOT/.electroboy/project.toml"
+if [ ! -f "$_ELECTROBOY_PROJECT_CONFIG" ] && \\
+    [ -f "$ELECTROBOY_PROJECT_ROOT/.agent-pipeline/project.toml" ]; then
+    _ELECTROBOY_PROJECT_CONFIG="$ELECTROBOY_PROJECT_ROOT/.agent-pipeline/project.toml"
+fi
+if [ -f "$_ELECTROBOY_PROJECT_CONFIG" ] && \\
     grep -Eq '^[[:space:]]*activate_python[[:space:]]*=[[:space:]]*true' \\
-        "$_AI_PIPELINE_PROJECT_CONFIG"; then
-    _AI_PIPELINE_PYTHON_ACTIVATE=$(sed -n \\
+        "$_ELECTROBOY_PROJECT_CONFIG"; then
+    _ELECTROBOY_PYTHON_ACTIVATE=$(sed -n \\
         's/^[[:space:]]*python_activate[[:space:]]*=[[:space:]]*"\\(.*\\)".*/\\1/p' \\
-        "$_AI_PIPELINE_PROJECT_CONFIG" | tail -n 1)
-    if [ -z "$_AI_PIPELINE_PYTHON_ACTIVATE" ]; then
-        _AI_PIPELINE_PYTHON_ACTIVATE=".venv/bin/activate"
+        "$_ELECTROBOY_PROJECT_CONFIG" | tail -n 1)
+    if [ -z "$_ELECTROBOY_PYTHON_ACTIVATE" ]; then
+        _ELECTROBOY_PYTHON_ACTIVATE=".venv/bin/activate"
     fi
-    if [ -f "$AI_PIPELINE_PROJECT_ROOT/$_AI_PIPELINE_PYTHON_ACTIVATE" ]; then
-        . "$AI_PIPELINE_PROJECT_ROOT/$_AI_PIPELINE_PYTHON_ACTIVATE"
-        if [ -z "$_AI_PIPELINE_PREVIOUS_VIRTUAL_ENV" ] && [ -n "${{VIRTUAL_ENV:-}}" ]; then
-            _AI_PIPELINE_OWNS_PYTHON_ENV=1
-            export _AI_PIPELINE_OWNS_PYTHON_ENV
+    if [ -f "$ELECTROBOY_PROJECT_ROOT/$_ELECTROBOY_PYTHON_ACTIVATE" ]; then
+        . "$ELECTROBOY_PROJECT_ROOT/$_ELECTROBOY_PYTHON_ACTIVATE"
+        if [ -z "$_ELECTROBOY_PREVIOUS_VIRTUAL_ENV" ] && [ -n "${{VIRTUAL_ENV:-}}" ]; then
+            _ELECTROBOY_OWNS_PYTHON_ENV=1
+            export _ELECTROBOY_OWNS_PYTHON_ENV
         fi
     fi
 fi
 
-ai-pipeline() {{
+electroboy() {{
     if [ "${{1:-}}" = "deactivate" ]; then
-        command ai-pipeline --root "$AI_PIPELINE_PROJECT_ROOT" deactivate
-        if [ "${{_AI_PIPELINE_OWNS_PYTHON_ENV:-0}}" = "1" ] && \\
+        command electroboy --root "$ELECTROBOY_PROJECT_ROOT" deactivate
+        if [ "${{_ELECTROBOY_OWNS_PYTHON_ENV:-0}}" = "1" ] && \\
             command -v deactivate >/dev/null 2>&1; then
             deactivate
         fi
-        PATH="${{_AI_PIPELINE_PREVIOUS_PATH:-$PATH}}"
-        if [ -n "${{_AI_PIPELINE_PREVIOUS_PROJECT_ROOT:-}}" ]; then
-            AI_PIPELINE_PROJECT_ROOT="$_AI_PIPELINE_PREVIOUS_PROJECT_ROOT"
+        PATH="${{_ELECTROBOY_PREVIOUS_PATH:-$PATH}}"
+        if [ -n "${{_ELECTROBOY_PREVIOUS_PROJECT_ROOT:-}}" ]; then
+            ELECTROBOY_PROJECT_ROOT="$_ELECTROBOY_PREVIOUS_PROJECT_ROOT"
+            export ELECTROBOY_PROJECT_ROOT
+        else
+            unset ELECTROBOY_PROJECT_ROOT
+        fi
+        if [ -n "${{_ELECTROBOY_PREVIOUS_AI_PIPELINE_ROOT:-}}" ]; then
+            AI_PIPELINE_PROJECT_ROOT="$_ELECTROBOY_PREVIOUS_AI_PIPELINE_ROOT"
             export AI_PIPELINE_PROJECT_ROOT
         else
             unset AI_PIPELINE_PROJECT_ROOT
         fi
         export PATH
-        unset _AI_PIPELINE_ACTIVATED_ROOT
-        unset _AI_PIPELINE_PREVIOUS_PATH
-        unset _AI_PIPELINE_PREVIOUS_PROJECT_ROOT
-        unset _AI_PIPELINE_PREVIOUS_VIRTUAL_ENV
-        unset _AI_PIPELINE_OWNS_PYTHON_ENV
-        unset -f ai-pipeline
+        unset _ELECTROBOY_ACTIVATED_ROOT
+        unset _ELECTROBOY_PREVIOUS_PATH
+        unset _ELECTROBOY_PREVIOUS_PROJECT_ROOT
+        unset _ELECTROBOY_PREVIOUS_AI_PIPELINE_ROOT
+        unset _ELECTROBOY_PREVIOUS_VIRTUAL_ENV
+        unset _ELECTROBOY_OWNS_PYTHON_ENV
         unset -f electroboy
+        unset -f ai-pipeline
         return 0
     fi
-    command ai-pipeline --root "$AI_PIPELINE_PROJECT_ROOT" "$@"
+    command electroboy --root "$ELECTROBOY_PROJECT_ROOT" "$@"
 }}
 
-electroboy() {{
-    ai-pipeline "$@"
+ai-pipeline() {{
+    electroboy "$@"
 }}
 
-ai-pipeline status
+electroboy status
 """
 
 
@@ -2034,20 +2047,25 @@ def _project_entrypoint_script() -> str:
     return f"""#!/usr/bin/env sh
 set -eu
 
-if [ -n "${{AI_PIPELINE_PROJECT_ROOT:-}}" ]; then
+if [ -n "${{ELECTROBOY_PROJECT_ROOT:-}}" ]; then
+    PROJECT_ROOT="$ELECTROBOY_PROJECT_ROOT"
+elif [ -n "${{AI_PIPELINE_PROJECT_ROOT:-}}" ]; then
     PROJECT_ROOT="$AI_PIPELINE_PROJECT_ROOT"
 else
     SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
     PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 fi
 
-RUNTIME_SRC="$PROJECT_ROOT/.agent-pipeline/local/runtime/src"
-if [ -d "$RUNTIME_SRC/ai_pipeline" ]; then
+RUNTIME_SRC="$PROJECT_ROOT/.electroboy/local/runtime/src"
+if [ ! -d "$RUNTIME_SRC" ] && [ -d "$PROJECT_ROOT/.agent-pipeline/local/runtime/src" ]; then
+    RUNTIME_SRC="$PROJECT_ROOT/.agent-pipeline/local/runtime/src"
+fi
+if [ -d "$RUNTIME_SRC/electroboy" ]; then
     PYTHONPATH="$RUNTIME_SRC${{PYTHONPATH:+:$PYTHONPATH}}"
     export PYTHONPATH
 fi
 
-exec python3 -m ai_pipeline --root "$PROJECT_ROOT" "$@"
+exec python3 -m electroboy --root "$PROJECT_ROOT" "$@"
 """
 
 
@@ -2774,7 +2792,7 @@ def _phase_commit_message(
     objective = _phase_commit_objective(phase_number, phase)
     return (
         f"phase {phase_number}: {objective}",
-        f"Automated phase {phase_number} commit created by ai-pipeline code.",
+        f"Automated phase {phase_number} commit created by electroboy code.",
     )
 
 
@@ -2923,7 +2941,12 @@ def _phase_paths_scope_error(
 
 
 def _is_pipeline_internal_path(path: str) -> bool:
-    return path == ".agent-pipeline" or path.startswith(".agent-pipeline/")
+    return (
+        path == ".electroboy"
+        or path.startswith(".electroboy/")
+        or path == ".agent-pipeline"
+        or path.startswith(".agent-pipeline/")
+    )
 
 
 def _git_commit_changed_paths(root: Path, sha: str) -> list[str]:

@@ -7,38 +7,43 @@ review agents a stable phase-by-phase baseline for implementation review.
 
 Commit: `363a278 pipeline: add initial CLI foundation`
 Follow-up commit: `8d21012 phase 0: add project environment entrypoints`
+Follow-up change: rename project identity and package to ElectroBoy
 
 Implemented:
 
 - Added Python project metadata and package skeleton.
-- Added `ai-pipeline` CLI entry point.
+- Added `electroboy` CLI entry point.
 - Added basic run initialization, status, stage, gate, resume, and change
   commands.
 - Added early JSON state handling and ordered-flow tests.
 - Added README usage guidance and Python ignore rules.
-- Added `./ai-pipeline` and `./electroboy` source checkout wrappers.
-- Added the `electroboy` console-script alias.
-- Added `ai-pipeline new <path>` for project creation.
+- Added `./electroboy` and `./ai-pipeline` source checkout wrappers.
+- Added the `ai-pipeline` console-script alias.
+- Added `electroboy new <path>` for project creation.
 - Added generated project activation scripts under `<project>/bin/activate`.
-- Added `ai-pipeline deactivate` shell-safe project deactivation.
+- Added `electroboy deactivate` shell-safe project deactivation.
 - Added Rich as the terminal progress dependency for the target workflow.
 - Added project environment tests for creation, activation files, and
   deactivation records.
 - Generated project wrappers set `PYTHONPATH` to the pipeline source so
-  `ai-pipeline` and `electroboy` work outside the source checkout.
+  `electroboy` and `ai-pipeline` work outside the source checkout.
 - Generated wrappers now use project-local runtime code instead of embedding
   the creator's absolute checkout path.
-- `ai-pipeline new <path>` now reuses an existing Git worktree and initializes
+- `electroboy new <path>` now reuses an existing Git worktree and initializes
   a repository only when the target is not already inside one.
-- Runtime config loading now prefers `.agent-pipeline/project.toml` and keeps
-  root-level `agent-pipeline.toml` as a compatibility fallback.
+- Runtime config loading now prefers `.electroboy/project.toml` and keeps
+  root-level `electroboy.toml` as a compatibility fallback.
 - Project config parsing accepts the documented `[environment]` section.
+- Renamed the Python package from `ai_pipeline` to `electroboy`.
+- Renamed generated run state from `.agent-pipeline/` to `.electroboy/`.
+- Kept legacy `.agent-pipeline/` and `agent-pipeline.toml` reads for existing
+  projects.
 
 Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 1. Artifact Templates
@@ -50,7 +55,7 @@ Implemented:
 - Added `ArtifactManager` helpers for creating missing artifacts without
   overwriting existing files.
 - Added artifact snapshot support with SHA-256 checksums.
-- Added `ai-pipeline artifacts init` and `ai-pipeline artifacts snapshot`.
+- Added `electroboy artifacts init` and `electroboy artifacts snapshot`.
 - Added artifact snapshot records under the active run.
 - Added activity-log events for manual artifact snapshots.
 - Added artifact tests for template safety and snapshot creation.
@@ -59,7 +64,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 2. State Store
@@ -74,12 +79,12 @@ Implemented:
 - Added JSONL helpers for review issue files and decision records.
 - Made review issue reads collapse append-only lifecycle records to the latest
   issue state.
-- Added phase status persistence in `.agent-pipeline/phase-status.json`.
+- Added phase status persistence in `.electroboy/phase-status.json`.
 - Added message and raw runtime stream writers.
 - Added recursive redaction for JSON-compatible state records.
 - Added tests for review issue, phase status, decision, and raw-event state.
-- Moved committed run state under `.agent-pipeline/shared/`.
-- Moved local raw runtime streams under `.agent-pipeline/local/`.
+- Moved committed run state under `.electroboy/shared/`.
+- Moved local raw runtime streams under `.electroboy/local/`.
 - Preserved legacy read paths while writing new state to the shared layout.
 - Updated artifact snapshots to use the shared run directory.
 - Updated tests for the shared and local state split.
@@ -88,7 +93,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 3. Gate Engine
@@ -115,14 +120,14 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 4. Runtime Adapter Interface
 
 Implemented:
 
-- Added `PipelineConfig` loading for `agent-pipeline.toml`.
+- Added `PipelineConfig` loading for `electroboy.toml`.
 - Added runtime selection by role with a default Codex runtime.
 - Expanded `AgentInvocation` and `AgentResult` to carry schema, event,
   command, changed-file, and error data.
@@ -137,7 +142,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 5. CLI Runtime Adapters
@@ -148,7 +153,7 @@ Implemented:
 - Added prompt construction with role context paths.
 - Added stdout parsing for plain text and JSON agent results.
 - Implemented Codex JSONL parsing for final messages and raw events.
-- Added `ai-pipeline agent run` for configured role invocation.
+- Added `electroboy agent run` for configured role invocation.
 - Stored agent prompts, responses, raw runtime events, and activity events.
 - Added runtime adapter tests for generic JSON output and Codex JSONL output.
 - Added explicit Codex sandbox selection for read-only review roles and
@@ -162,7 +167,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 6. Requirements And Design Loops
@@ -173,7 +178,7 @@ Implemented:
 
 - Added artifact snapshots when requirements, design review, design
   acceptance, or implementation planning stages complete.
-- Added `ai-pipeline issues add`, `issues list`, and `issues resolve`.
+- Added `electroboy issues add`, `issues list`, and `issues resolve`.
 - Added explicit stage approval records for requirements, design, design
   acceptance, and planning.
 - Made issue resolution append a verified lifecycle transition instead of
@@ -198,15 +203,15 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 7. Implementation Planning
 
 Implemented:
 
-- Added `ai-pipeline plan check` for phase-to-requirement traceability.
-- Added `ai-pipeline plan update` to record implementation-plan changes.
+- Added `electroboy plan check` for phase-to-requirement traceability.
+- Added `electroboy plan update` to record implementation-plan changes.
 - Replaced substring traceability checks with phase parsing and REQ-id
   validation against `docs/requirements.md`.
 - Blocked plan-stage approval when structured traceability is missing.
@@ -224,7 +229,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 8. Phase Implementation Loop
@@ -234,17 +239,17 @@ Follow-up commit: `661157a pipeline: automate code phase commits`
 
 Implemented:
 
-- Added `ai-pipeline phase start` to activate an implementation phase.
-- Added `ai-pipeline phase review --pass` for code review completion.
-- Added `ai-pipeline phase test --pass` for phase test review completion.
-- Added `ai-pipeline phase drift` for active-phase plan drift.
-- Added `ai-pipeline phase commit` with commit-gate enforcement.
+- Added `electroboy phase start` to activate an implementation phase.
+- Added `electroboy phase review --pass` for code review completion.
+- Added `electroboy phase test --pass` for phase test review completion.
+- Added `electroboy phase drift` for active-phase plan drift.
+- Added `electroboy phase commit` with commit-gate enforcement.
 - Blocked a second active phase from overwriting an uncommitted phase.
 - Required review and test review commands to target the active phase.
 - Required phase commits to reference an existing git commit SHA.
 - Made plan updates restore active-phase plan currency.
 - Added tests for review-gated phase commits and plan-drift blocking.
-- Added public `ai-pipeline code` for starting or resuming implementation.
+- Added public `electroboy code` for starting or resuming implementation.
 - Made `code` start the next uncommitted planned phase.
 - Made `code` resume an already active phase from durable phase status.
 - Made `code` invoke the configured coding, code review, and test review
@@ -270,14 +275,14 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 9. Validation Testing
 
 Implemented:
 
-- Added `ai-pipeline validate` for final validation testing.
+- Added `electroboy validate` for final validation testing.
 - Added support for one or more validation commands through `--command`.
 - Added artifact-backed validation commands parsed from `Validation:` lines in
   `docs/requirements.md` and `docs/detailed-design.md`.
@@ -307,7 +312,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 10. Documentation Review
@@ -316,7 +321,7 @@ Follow-up commit: `14ad0a6 phase 8: add implementation workflow commands`
 
 Implemented:
 
-- Added `ai-pipeline docs-review` for final documentation verification.
+- Added `electroboy docs-review` for final documentation verification.
 - Required `docs/requirements.md`, `docs/detailed-design.md`, `README.md`,
   and `docs/api.md` before the documentation gate can pass.
 - Added blocking `documentation-review.jsonl` issues for missing required
@@ -333,10 +338,10 @@ Implemented:
   only source artifact paths.
 - Completed the documentation gate and advanced the run to `complete`.
 - Added documentation review tests for missing-file and passing-doc paths.
-- Added public `ai-pipeline document` for documentation refinement and review.
+- Added public `electroboy document` for documentation refinement and review.
 - Routed public `document` through the configured Documentation Agent runtime
   before deterministic documentation checks.
-- Added public `ai-pipeline code-approve` for final human completion approval.
+- Added public `electroboy code-approve` for final human completion approval.
 - Blocked final approval until documentation review passes.
 - Stored final human completion approval in `approvals.jsonl`.
 - Added tests for `document` and `code-approve`.
@@ -345,7 +350,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 11. Change Control And Iteration
@@ -357,9 +362,9 @@ Implemented:
 - Added latest-state reads for append-only `change-requests.jsonl` events.
 - Kept classified change requests blocking until they are reopened.
 - Added baseline validation for change-control commands.
-- Implemented `ai-pipeline change classify <id> [--baseline <baseline>]`.
-- Implemented `ai-pipeline change approve <id> --human-approved`.
-- Implemented `ai-pipeline change reopen <id>`.
+- Implemented `electroboy change classify <id> [--baseline <baseline>]`.
+- Implemented `electroboy change approve <id> --human-approved`.
+- Implemented `electroboy change reopen <id>`.
 - Required classification and human approval before reopening.
 - Invalidated downstream gates when a baseline is reopened.
 - Recorded invalidated artifact snapshot refs in baseline invalidation records.
@@ -380,7 +385,7 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```
 
 ## Phase 12. Resume And Reporting
@@ -388,12 +393,12 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
 Implemented:
 
 - Added StateStore readers for activity events and artifact snapshots.
-- Expanded `ai-pipeline status` to show active phase, invalidated gates, open
+- Expanded `electroboy status` to show active phase, invalidated gates, open
   change requests, open review issues, and blocked gates.
-- Expanded `ai-pipeline resume` to show the resumed stage, active phase, open
+- Expanded `electroboy resume` to show the resumed stage, active phase, open
   blockers, and blocked gates.
-- Added `ai-pipeline report summary` for human-readable run summaries.
-- Added `ai-pipeline report trace` for activity-log trace reports.
+- Added `electroboy report summary` for human-readable run summaries.
+- Added `electroboy report trace` for activity-log trace reports.
 - Expanded reports with decisions, phase commits, snapshots, and baseline
   invalidations.
 - Added `--output` support for writing generated reports to files.
@@ -405,5 +410,5 @@ Verification:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m ai_pipeline --help
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 ```

@@ -29,7 +29,7 @@ electroboy status
 `new` creates or enters the target directory. If the directory is not already
 inside a Git worktree, it initializes a GitHub-ready repository. Existing
 repositories are reused instead of nesting a new repository. The command also
-creates the standard pipeline artifacts, creates `.agent-pipeline/`, and
+creates the standard pipeline artifacts, creates `.electroboy/`, and
 installs `path/to/project/bin/activate`.
 
 Define and approve requirements:
@@ -170,8 +170,8 @@ Implemented capabilities:
 - `./electroboy new <path>` project creation.
 - Generated project activation scripts under `<project>/bin/activate`.
 - `electroboy deactivate` shell-safe deactivation.
-- JSON-backed shared state under `.agent-pipeline/shared/`.
-- Local runtime state under `.agent-pipeline/local/`.
+- JSON-backed shared state under `.electroboy/shared/`.
+- Local runtime state under `.electroboy/local/`.
 - Ordered stage gates for requirements, design, planning, implementation,
   validation, and documentation review.
 - Primary stage commands for requirements, design, implementation planning,
@@ -291,7 +291,7 @@ commit for the active phase before the next `code --phased` run starts.
 ## Flow Enforcement
 
 The CLI records one active stage in
-`.agent-pipeline/shared/runs/<run-id>/manifest.json`. Mutating commands must
+`.electroboy/shared/runs/<run-id>/manifest.json`. Mutating commands must
 match that active stage, move backward through change control, or pass
 predecessor gates.
 
@@ -388,30 +388,30 @@ owns that activation.
 
 ## State Files
 
-Pipeline state is stored under `.agent-pipeline/`.
+Pipeline state is stored under `.electroboy/`.
 
 Shared files are committed to git:
 
-- `.agent-pipeline/project.toml` stores project configuration.
-- `.agent-pipeline/shared/current-run` stores the active run id.
-- `.agent-pipeline/shared/runs/<run-id>/manifest.json` stores active stage and
+- `.electroboy/project.toml` stores project configuration.
+- `.electroboy/shared/current-run` stores the active run id.
+- `.electroboy/shared/runs/<run-id>/manifest.json` stores active stage and
   completed gates.
-- `.agent-pipeline/shared/runs/<run-id>/activity-log.jsonl` stores run events.
-- `.agent-pipeline/shared/runs/<run-id>/change-requests.jsonl` stores
+- `.electroboy/shared/runs/<run-id>/activity-log.jsonl` stores run events.
+- `.electroboy/shared/runs/<run-id>/change-requests.jsonl` stores
   change-control requests.
-- `.agent-pipeline/shared/runs/<run-id>/approvals.jsonl` stores human and
+- `.electroboy/shared/runs/<run-id>/approvals.jsonl` stores human and
   agent approvals.
-- `.agent-pipeline/shared/runs/<run-id>/*-review.jsonl` stores append-only
+- `.electroboy/shared/runs/<run-id>/*-review.jsonl` stores append-only
   issue lifecycle records.
-- `.agent-pipeline/shared/runs/<run-id>/artifact-snapshots.jsonl` stores
+- `.electroboy/shared/runs/<run-id>/artifact-snapshots.jsonl` stores
   approved artifact snapshots.
 
 Local files are ignored by git:
 
-- `.agent-pipeline/local/activation.json` stores shell activation state.
-- `.agent-pipeline/local/sessions/` stores provider session references.
-- `.agent-pipeline/local/raw/` stores redacted raw runtime streams.
-- `.agent-pipeline/local/logs/` stores local diagnostic logs.
+- `.electroboy/local/activation.json` stores shell activation state.
+- `.electroboy/local/sessions/` stores provider session references.
+- `.electroboy/local/raw/` stores redacted raw runtime streams.
+- `.electroboy/local/logs/` stores local diagnostic logs.
 
 Secrets are never written to shared or local state.
 

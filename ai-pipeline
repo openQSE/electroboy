@@ -5,4 +5,4 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 
-exec python3 -m ai_pipeline "$@"
+exec python3 -m electroboy "$@"

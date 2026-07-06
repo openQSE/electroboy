@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.cli import main  # noqa: E402
+from electroboy.cli import main  # noqa: E402
 
 
 class ReportingTests(unittest.TestCase):

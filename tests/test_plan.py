@@ -10,9 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.cli import main  # noqa: E402
-from ai_pipeline.planning import planned_phases  # noqa: E402
-from ai_pipeline.state_store import StateStore  # noqa: E402
+from electroboy.cli import main  # noqa: E402
+from electroboy.planning import planned_phases  # noqa: E402
+from electroboy.state_store import StateStore  # noqa: E402
 
 
 class PlanTests(unittest.TestCase):
@@ -87,14 +87,14 @@ class PlanTests(unittest.TestCase):
                 "# Plan\n\n"
                 "## Phase 1. First Work\n\n"
                 "Requirements: REQ-1\n"
-                "Paths: src/ai_pipeline\n"
+                "Paths: src/electroboy\n"
                 "Paths: tests\n",
             )
 
             phases = planned_phases(root)
 
         self.assertEqual(phases[0].heading, "Phase 1. First Work")
-        self.assertEqual(phases[0].paths, ["src/ai_pipeline", "tests"])
+        self.assertEqual(phases[0].paths, ["src/electroboy", "tests"])
 
 
 def write_file(path: Path, text: str) -> None:

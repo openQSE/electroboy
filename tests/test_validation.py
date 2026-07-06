@@ -10,14 +10,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.cli import main  # noqa: E402
-from ai_pipeline.models import (  # noqa: E402
+from electroboy.cli import main  # noqa: E402
+from electroboy.models import (  # noqa: E402
     GATE_IMPLEMENTATION,
     GATE_VALIDATION_TESTING,
     STAGE_DOCS_REVIEW,
     STAGE_VALIDATION,
 )
-from ai_pipeline.state_store import StateStore  # noqa: E402
+from electroboy.state_store import StateStore  # noqa: E402
 
 
 class ValidationTests(unittest.TestCase):
@@ -132,7 +132,7 @@ class ValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             store = self.prepare_validation_run(root)
-            command = "definitely-missing-ai-pipeline-command"
+            command = "definitely-missing-electroboy-command"
             write_file(root / "docs" / "requirements.md", f"Validation: {command}\n")
 
             code, stdout, stderr = self.run_cli(

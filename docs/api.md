@@ -2,14 +2,14 @@
 
 ## Public CLI
 
-The public interface is the `ai-pipeline` command. `electroboy` is an alias for
-the same CLI. Source checkouts include `./ai-pipeline` and `./electroboy`
+The public interface is the `electroboy` command. `ai-pipeline` is an alias
+for the same CLI. Source checkouts include `./electroboy` and `./ai-pipeline`
 wrappers.
 
 Operator workflow commands:
 
 - `new <path>` creates a GitHub-ready project, initializes artifacts, creates
-  `.agent-pipeline/`, and installs `<path>/bin/activate`.
+  `.electroboy/`, and installs `<path>/bin/activate`.
 - `status` prints active stage, active phase, completed gates, invalidated
   gates, open requests, open issues, and blocked gates.
 - `requirements [--reason <text>]` starts or resumes requirements authoring.
@@ -28,7 +28,7 @@ Operator workflow commands:
 
 Lower-level commands:
 
-- `init` creates a run under `.agent-pipeline/shared/`.
+- `init` creates a run under `.electroboy/shared/`.
 - `resume` prints the state needed to continue an interrupted run.
 - `stage` completes the active pipeline stage when approvals and gates pass.
 - `gate` evaluates a deterministic gate and records the result.
@@ -51,12 +51,12 @@ the reopened stage.
 Stage commands enforce the ordered pipeline.
 
 ```bash
-ai-pipeline stage requirements --human-approved --author-confirmed
-ai-pipeline stage design --human-approved
-ai-pipeline stage design-review
-ai-pipeline stage design-acceptance --human-approved
-ai-pipeline stage plan --human-approved --author-confirmed
-ai-pipeline stage implementation
+electroboy stage requirements --human-approved --author-confirmed
+electroboy stage design --human-approved
+electroboy stage design-review
+electroboy stage design-acceptance --human-approved
+electroboy stage plan --human-approved --author-confirmed
+electroboy stage implementation
 ```
 
 `requirements`, `design`, `design-acceptance`, and `plan` require explicit
@@ -65,39 +65,39 @@ approval flags unless the approval records already exist for the run.
 ## Project Environment Commands
 
 ```bash
-./ai-pipeline new path/to/project
+./electroboy new path/to/project
 source path/to/project/bin/activate
-ai-pipeline status
-ai-pipeline deactivate
+electroboy status
+electroboy deactivate
 ```
 
 `new` creates the target directory when needed. If the target is not already
 inside a Git worktree, it initializes a repository. Existing repositories are
-reused. Activation exports `AI_PIPELINE_PROJECT_ROOT`, prepends
-`<project>/bin` to `PATH`, and defines shell functions for `ai-pipeline` and
-`electroboy`. The generated wrappers pass `--root <project>` to the Python
+reused. Activation exports `ELECTROBOY_PROJECT_ROOT`, prepends
+`<project>/bin` to `PATH`, and defines shell functions for `electroboy` and
+`ai-pipeline`. The generated wrappers pass `--root <project>` to the Python
 module and use project-local runtime code when available.
 
-If `.agent-pipeline/project.toml` enables Python activation, the activation
+If `.electroboy/project.toml` enables Python activation, the activation
 script sources the configured Python environment. It only deactivates that
 Python environment when the pipeline owns that activation.
 
 ## Phase Commands
 
-`ai-pipeline code` is the normal implementation command. By default, it runs
+`electroboy code` is the normal implementation command. By default, it runs
 each remaining planned phase, invokes coding, code review, and test review
 agents, creates a valid phase commit, records that commit, and continues until
 the implementation stage is complete.
 
-`ai-pipeline code --phased` is the explicit manual checkpoint mode. It runs one
+`electroboy code --phased` is the explicit manual checkpoint mode. It runs one
 phase and leaves commit creation or commit recording to the operator.
 
 ```bash
-ai-pipeline phase start <n>
-ai-pipeline phase review <n> --pass
-ai-pipeline phase test <n> --pass
-ai-pipeline phase drift <n> --reason <text>
-ai-pipeline phase commit <n> --sha <commit-sha>
+electroboy phase start <n>
+electroboy phase review <n> --pass
+electroboy phase test <n> --pass
+electroboy phase drift <n> --reason <text>
+electroboy phase commit <n> --sha <commit-sha>
 ```
 
 Only one implementation phase can be active. Review and test review commands
@@ -116,13 +116,13 @@ artifact validation commands declared with `Validation:` lines and any quoted
 operator commands passed with `--command`.
 
 ```bash
-ai-pipeline validate --command "python -m unittest discover -s tests"
+electroboy validate --command "python -m unittest discover -s tests"
 ```
 
 Use `--shell-command` only when shell behavior is required.
 
 ```bash
-ai-pipeline validate --shell-command "python -m unittest discover -s tests"
+electroboy validate --shell-command "python -m unittest discover -s tests"
 ```
 
 Validation writes `validation-report.md` under the run artifact directory and
@@ -131,9 +131,9 @@ stores failures in `validation-review.jsonl`.
 ## Documentation Commands
 
 ```bash
-ai-pipeline document
-ai-pipeline document --reason "Improve API examples"
-ai-pipeline code-approve
+electroboy document
+electroboy document --reason "Improve API examples"
+electroboy code-approve
 ```
 
 `document` wraps the final documentation review gate. It requires validation
@@ -143,11 +143,11 @@ documentation gate to pass before it records final human completion approval.
 ## Change Control Commands
 
 ```bash
-ai-pipeline change open --baseline requirements --reason <text>
-ai-pipeline change classify CR-0001 --baseline requirements
-ai-pipeline change approve CR-0001 --human-approved
-ai-pipeline change reopen CR-0001
-ai-pipeline change status
+electroboy change open --baseline requirements --reason <text>
+electroboy change classify CR-0001 --baseline requirements
+electroboy change approve CR-0001 --human-approved
+electroboy change reopen CR-0001
+electroboy change status
 ```
 
 `reopen` requires a classified and human-approved request. It invalidates
@@ -156,11 +156,11 @@ downstream gates and records affected artifact snapshot refs.
 ## Issue Commands
 
 ```bash
-ai-pipeline issues add <file> --id <id> --source <agent> \
+electroboy issues add <file> --id <id> --source <agent> \
   --severity major --summary <text>
-ai-pipeline issues transition <file> <id> --status fixed
-ai-pipeline issues resolve <file> <id>
-ai-pipeline issues list <file>
+electroboy issues transition <file> <id> --status fixed
+electroboy issues resolve <file> <id>
+electroboy issues list <file>
 ```
 
 Review issue files are append-only JSONL logs. Reads collapse lifecycle events
@@ -168,7 +168,7 @@ to the latest state for each issue id.
 
 ## Runtime Configuration
 
-`agent-pipeline.toml` selects agent runtimes.
+`electroboy.toml` selects agent runtimes.
 
 ```toml
 [runtime]
@@ -189,11 +189,11 @@ sets an explicit sandbox option.
 
 ## Public Python Modules
 
-- `ai_pipeline.cli` contains the CLI parser and command handlers.
-- `ai_pipeline.models` contains versioned state models.
-- `ai_pipeline.state_store` reads and writes `.agent-pipeline` state.
-- `ai_pipeline.gates` evaluates deterministic gates.
-- `ai_pipeline.artifacts` creates templates and snapshots artifacts.
-- `ai_pipeline.planning` parses requirement and phase traceability.
-- `ai_pipeline.runtime` selects configured agent runtimes.
-- `ai_pipeline.adapters.*` implements runtime adapter contracts.
+- `electroboy.cli` contains the CLI parser and command handlers.
+- `electroboy.models` contains versioned state models.
+- `electroboy.state_store` reads and writes `.electroboy` state.
+- `electroboy.gates` evaluates deterministic gates.
+- `electroboy.artifacts` creates templates and snapshots artifacts.
+- `electroboy.planning` parses requirement and phase traceability.
+- `electroboy.runtime` selects configured agent runtimes.
+- `electroboy.adapters.*` implements runtime adapter contracts.

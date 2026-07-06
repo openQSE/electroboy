@@ -122,7 +122,7 @@ class ArtifactManager:
         if not source.exists():
             raise ArtifactError(f"artifact does not exist: {relative_path}")
 
-        snapshot_path = self.root / ".agent-pipeline" / "shared" / "runs" / run_id
+        snapshot_path = self.root / ".electroboy" / "shared" / "runs" / run_id
         snapshot_path = snapshot_path / "artifacts" / relative_path
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, snapshot_path)

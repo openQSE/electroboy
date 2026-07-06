@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.cli import main  # noqa: E402
+from electroboy.cli import main  # noqa: E402
 
 
 class CliTests(unittest.TestCase):
@@ -202,7 +202,7 @@ def write_file(path: Path, text: str) -> None:
 def write_manual_runtime(root: Path) -> None:
     write_file(root / "agent-response.md", "accepted\n")
     write_file(
-        root / "agent-pipeline.toml",
+        root / "electroboy.toml",
         """
 [runtime]
 default = "manual"

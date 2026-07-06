@@ -2,8 +2,8 @@
 
 ## Purpose
 
-The AI Agent Pipeline provides a local orchestration layer for disciplined
-AI-assisted software development. It preserves iterative human design work while
+ElectroBoy provides a local orchestration layer for disciplined AI-assisted
+software development. It preserves iterative human design work while
 enforcing ordered implementation, review, validation, documentation, and change
 control.
 
@@ -44,7 +44,7 @@ control.
 ## Acceptance Criteria
 
 - `python -m unittest discover -s tests` passes.
-- `python -m ai_pipeline --help` loads.
+- `PYTHONPATH=src python -m electroboy --help` loads from a checkout.
 - A run cannot skip requirements, design, implementation planning, validation,
   or documentation review.
 - A later finding can reopen an earlier baseline only through change control.

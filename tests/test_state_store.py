@@ -8,8 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.models import DecisionRecord, PhaseStatus, ReviewIssue  # noqa: E402
-from ai_pipeline.state_store import StateStore  # noqa: E402
+from electroboy.models import DecisionRecord, PhaseStatus, ReviewIssue  # noqa: E402
+from electroboy.state_store import StateStore  # noqa: E402
 
 
 class StateStoreTests(unittest.TestCase):
@@ -62,11 +62,11 @@ class StateStoreTests(unittest.TestCase):
             message = path.read_text(encoding="utf-8")
             raw_text = raw_path.read_text(encoding="utf-8")
             decisions_path = (
-                Path(tmp) / ".agent-pipeline" / "shared" / "decisions.jsonl"
+                Path(tmp) / ".electroboy" / "shared" / "decisions.jsonl"
             )
 
             self.assertTrue(decisions_path.exists())
-            self.assertIn(".agent-pipeline/local/raw/run-1", str(raw_path.parent))
+            self.assertIn(".electroboy/local/raw/run-1", str(raw_path.parent))
 
         self.assertEqual(decisions[0]["decision_id"], "DEC-1")
         self.assertIn("OPENAI_API_KEY=<redacted>", message)

@@ -73,13 +73,14 @@ def load_pipeline_config(root: Path | str = ".") -> PipelineConfig:
     """Load project runtime configuration or return the default config."""
 
     root_path = Path(root)
-    project_path = root_path / ".agent-pipeline" / "project.toml"
-    legacy_path = root_path / "agent-pipeline.toml"
-    if project_path.exists():
-        path = project_path
-    elif legacy_path.exists():
-        path = legacy_path
-    else:
+    candidates = [
+        root_path / ".electroboy" / "project.toml",
+        root_path / "electroboy.toml",
+        root_path / ".agent-pipeline" / "project.toml",
+        root_path / "agent-pipeline.toml",
+    ]
+    path = next((candidate for candidate in candidates if candidate.exists()), None)
+    if path is None:
         return DEFAULT_CONFIG
     return parse_pipeline_config(path.read_text(encoding="utf-8"))
 

@@ -1,4 +1,4 @@
-# AI Agent Pipeline Detailed Design
+# ElectroBoy Detailed Design
 
 ## Table of Contents
 
@@ -87,13 +87,13 @@ sequenceDiagram
     participant G as Git Repository
     participant S as Agent State
 
-    H->>O: ai-pipeline new <project>
+    H->>O: electroboy new <project>
     O->>G: Initialize project repository
     O->>S: Create project environment and pipeline state
     H->>O: source <project>/bin/activate
     O-->>H: Show active stage and next command
 
-    H->>DA: Explore requirements with ElectroBoy
+    H->>DA: Draft requirements with Design Author
     DA-->>H: Draft docs/requirements.md
     O->>S: Record requirements draft event
     H->>O: Approve requirements baseline
@@ -181,7 +181,7 @@ sequenceDiagram
 
     O->>S: Snapshot validation report
 
-    H->>O: ai-pipeline document
+    H->>O: electroboy document
     O->>DOC: Review final documentation
     DOC-->>O: Return documentation issues
     O->>S: Store documentation review comments
@@ -189,7 +189,7 @@ sequenceDiagram
     O->>DOC: Verify documentation fixes
     O->>S: Store final docs snapshots and event
     O->>H: Present final implementation report
-    H->>O: ai-pipeline code-approve
+    H->>O: electroboy code-approve
     O->>S: Record final human completion approval
     O-->>H: Report completed pipeline
 
@@ -242,7 +242,7 @@ stateDiagram-v2
     DocumentationReview --> PhaseImplementation: implementation conflict
     DocumentationReview --> ChangeControl: requirements or design drift
     DocumentationReview --> HumanCompletionApproval: documentation verified
-    HumanCompletionApproval: Human records ai-pipeline code-approve
+    HumanCompletionApproval: Human records electroboy code-approve
     HumanCompletionApproval --> Complete: final completion approved
     Complete --> ChangeControl: new iteration requested
 
@@ -256,7 +256,7 @@ stateDiagram-v2
 ## Project Environment
 
 Each project has an activatable pipeline environment. The environment is
-created with `ai-pipeline new <path>`, which initializes the project directory,
+created with `electroboy new <path>`, which initializes the project directory,
 initializes a GitHub-ready git repository when the target is not already
 inside a Git worktree, reuses existing repositories, writes the standard
 pipeline files, and creates `<path>/bin/activate`.
@@ -271,10 +271,10 @@ source path/to/project/bin/activate
 After activation, commands run in that project context:
 
 ```bash
-ai-pipeline status
-ai-pipeline requirements
-ai-pipeline code
-ai-pipeline document
+electroboy status
+electroboy requirements
+electroboy code
+electroboy document
 ```
 
 The activation script sets the active project path, run id, state directory,
@@ -284,26 +284,26 @@ lets a project use its normal runtime environment without making the pipeline
 environment and Python environment the same artifact.
 
 The pipeline does not claim the bare `deactivate` command. Activated shells use
-`ai-pipeline deactivate` so the pipeline can restore only the variables and
+`electroboy deactivate` so the pipeline can restore only the variables and
 wrappers that it installed. When activation also entered a Python environment,
 the pipeline deactivates that Python environment only when it created or owns
 that activation. A Python environment that was active before project activation
 is preserved.
 
-`electroboy` is an alias for `ai-pipeline`. Repository checkouts provide
-`./ai-pipeline` and `./electroboy`, and installed environments expose both
-`ai-pipeline` and `electroboy` as equivalent commands.
+`ai-pipeline` is an alias for `electroboy`. Repository checkouts provide
+`./electroboy` and `./ai-pipeline`, and installed environments expose both
+`electroboy` and `ai-pipeline` as equivalent commands.
 
 Activation is resumable. If the shell closes during implementation, the
-operator can activate the same project again, run `ai-pipeline status`, and
+operator can activate the same project again, run `electroboy status`, and
 continue with the active stage command. The orchestrator reads durable state
 from the project environment rather than relying on shell history or hidden
 agent session ids.
 
 ## Goals
 
-- Preserve the human-led design process with ElectroBoy as the primary design
-  collaborator.
+- Preserve the human-led requirements and design process with the configured
+  Design Author Agent.
 - Capture system requirements in `docs/requirements.md` before the design is
   finalized.
 - Enforce an ordered pipeline so implementation cannot begin before
@@ -374,7 +374,7 @@ points, and stable behavior guarantees.
 
 ### Agent State Directory
 
-The pipeline stores machine-readable state under `.agent-pipeline/`. The
+The pipeline stores machine-readable state under `.electroboy/`. The
 directory has a shared portion that is committed to git and a local portion
 that is ignored. Shared records let collaborators review the same pipeline
 history. Local records keep machine-specific and credential-adjacent data out
@@ -383,7 +383,7 @@ of the repository.
 Directory layout:
 
 ```text
-.agent-pipeline/
+.electroboy/
   project.toml
   shared/
     current-run
@@ -452,7 +452,7 @@ Change control records baseline invalidations that link reopened baselines to
 the downstream gates and artifact snapshot refs that no longer authorize later
 stages.
 
-Project configuration in `.agent-pipeline/project.toml` records the shared
+Project configuration in `.electroboy/project.toml` records the shared
 state policy, default agent runtimes, stage commands, and optional Python
 environment integration. The file is committed so collaborators activate the
 same pipeline behavior.
@@ -466,9 +466,9 @@ stage active without the required earlier approvals and snapshots.
 
 ### Stage 1. Requirements Definition
 
-The human operator works with the Design Author Agent, ElectroBoy, to define
-the system requirements. The output is `docs/requirements.md`, which captures
-target usage, required behavior, constraints, non-goals, and acceptance-level
+The human operator works with the Design Author Agent to define the system
+requirements. The output is `docs/requirements.md`, which captures target
+usage, required behavior, constraints, non-goals, and acceptance-level
 expectations.
 
 This stage remains collaborative. Requirements become the baseline used to
@@ -484,9 +484,10 @@ Exit criteria:
 
 ### Stage 2. Human-Led Design Exploration
 
-The human operator works with ElectroBoy to explore the design. This stage
-remains interactive and intentionally flexible. The output is a coherent draft
-of `docs/detailed-design.md` that satisfies `docs/requirements.md`.
+The human operator works with the Design Author Agent to explore the design.
+This stage remains interactive and intentionally flexible. The output is a
+coherent draft of `docs/detailed-design.md` that satisfies
+`docs/requirements.md`.
 
 Exit criteria:
 
@@ -510,7 +511,7 @@ Exit criteria:
 - No open blocker or major design review issues remain.
 - Minor issues are either fixed or explicitly deferred.
 - Any disputed design decisions are recorded in
-  `.agent-pipeline/decisions.jsonl`.
+  `.electroboy/decisions.jsonl`.
 - The reviewed design is ready for human acceptance.
 
 ### Stage 4. Human Design Acceptance
@@ -541,10 +542,10 @@ and accepted design into `docs/implementation-plan.md`. The plan divides work
 into small phases that are coded, reviewed, tested, and committed
 independently.
 
-This stage remains collaborative. ElectroBoy and the human operator iterate on
-phase boundaries, acceptance criteria, dependencies, test expectations, and
-documentation impact until both agree that the plan is ready for automated
-implementation.
+This stage remains collaborative. The Design Author Agent and human operator
+iterate on phase boundaries, acceptance criteria, dependencies, test
+expectations, and documentation impact until both agree that the plan is ready
+for automated implementation.
 
 The human operator reviews the completed phase plan before the coding agent
 starts. This review gives the human operator a concrete understanding of the
@@ -593,8 +594,8 @@ The basic loop is:
 
 The next phase starts only after the current phase commit exists.
 
-By default, `ai-pipeline code` runs this loop for every remaining planned
-phase. `ai-pipeline code --phased` runs one phase and leaves commit creation
+By default, `electroboy code` runs this loop for every remaining planned
+phase. `electroboy code --phased` runs one phase and leaves commit creation
 or commit recording to the operator before the next phase can start.
 
 If development changes phase scope, sequencing, acceptance criteria, required
@@ -642,10 +643,10 @@ Exit criteria:
 ### Stage 8. Final Documentation Review
 
 The documentation agent reviews the completed codebase and documentation.
-The user-facing command is `ai-pipeline document`. This command starts or
+The user-facing command is `electroboy document`. This command starts or
 resumes the documentation finesse pass after validation testing has passed.
 After the documentation gate passes, the human operator records final
-completion with `ai-pipeline code-approve`. This approval marks the automated
+completion with `electroboy code-approve`. This approval marks the automated
 implementation run complete and confirms that the operator accepts the final
 requirements, design, code, validation, and documentation state.
 
@@ -663,8 +664,8 @@ Exit criteria:
 - Public API documentation matches the code.
 - The README is complete enough for a new contributor to follow successfully.
 - Design documentation reflects the final implementation.
-- The `ai-pipeline document` command has completed the documentation gate.
-- The human operator records final completion with `ai-pipeline code-approve`.
+- The `electroboy document` command has completed the documentation gate.
+- The human operator records final completion with `electroboy code-approve`.
 
 ## Flow Control
 
@@ -687,9 +688,9 @@ User-facing stage commands follow stable transition rules:
   invalidates dependent downstream gates after the operator records a reason.
 - Running a later stage command is rejected until every predecessor gate has
   passed.
-- Running `ai-pipeline code` after interruption resumes the active phase or the
+- Running `electroboy code` after interruption resumes the active phase or the
   next uncommitted phase from durable state.
-- Running `ai-pipeline document` resumes the documentation stage after
+- Running `electroboy document` resumes the documentation stage after
   validation testing passes.
 - Running a stage command after pipeline completion starts a new controlled
   iteration from that stage.
@@ -728,8 +729,8 @@ participates in a specific part of the stage flow.
 
 ### A. Design Author Agent
 
-The design author agent is the original design collaborator. In this project
-that role is ElectroBoy.
+The Design Author Agent is the configured authoring runtime for requirements,
+design, and implementation-plan collaboration.
 
 This agent leads artifact authoring in Stage 1, Stage 2, and Stage 5,
 responds to review findings during Stage 3, and supports human design
@@ -889,9 +890,9 @@ order and preserve state.
 
 Responsibilities:
 
-- Create project environments with `ai-pipeline new <path>`.
+- Create project environments with `electroboy new <path>`.
 - Provide activation metadata used by `<project>/bin/activate`.
-- Restore pipeline activation state through `ai-pipeline deactivate`.
+- Restore pipeline activation state through `electroboy deactivate`.
 - Assign the active stage and active implementation phase.
 - Reject commands that do not match the active stage or allowed transition.
 - Provide each agent with the correct context bundle.
@@ -1045,7 +1046,7 @@ state to avoid contradictory work.
 - Current `docs/detailed-design.md`.
 - Current `docs/implementation-plan.md` during implementation planning.
 - Open design review issues.
-- Relevant decisions from `.agent-pipeline/decisions.jsonl`.
+- Relevant decisions from `.electroboy/decisions.jsonl`.
 - Implementation plan approval status.
 - Human instructions and constraints.
 
@@ -1236,11 +1237,11 @@ For operator-driven iteration, the user-facing path is to run the earliest
 affected stage command with a reason:
 
 ```bash
-ai-pipeline requirements --reason "New installation workflow discovered"
-ai-pipeline design --reason "Architecture needs to account for queued runs"
-ai-pipeline implementation-plan --reason "Phase split needs to change"
-ai-pipeline code --reason "Need another implementation pass"
-ai-pipeline document --reason "Improve API examples"
+electroboy requirements --reason "New installation workflow discovered"
+electroboy design --reason "Architecture needs to account for queued runs"
+electroboy implementation-plan --reason "Phase split needs to change"
+electroboy code --reason "Need another implementation pass"
+electroboy document --reason "Improve API examples"
 ```
 
 The orchestrator turns that command into a change-control request, records the
@@ -1441,12 +1442,12 @@ explicit.
 
 1. Define the requirements, design, implementation-plan, and review issue
    templates.
-2. Implement `ai-pipeline new <path>` and project activation scripts.
+2. Implement `electroboy new <path>` and project activation scripts.
 3. Implement a minimal orchestrator that runs the requirements and design
    loops.
 4. Add ordered stage transition enforcement.
 5. Add human design acceptance and implementation-plan approval gates.
-6. Add shared and local `.agent-pipeline/` state handling.
+6. Add shared and local `.electroboy/` state handling.
 7. Add approved artifact snapshots under each run directory.
 8. Add change-control reopening and downstream gate invalidation.
 9. Add implementation phase tracking and phase gate checks.
@@ -1454,15 +1455,15 @@ explicit.
 11. Add validation testing against requirements and design.
 12. Add commit automation after gates pass.
 13. Add the final documentation review pass, `document`, and `code-approve`.
-14. Add resume support from `.agent-pipeline/` state.
+14. Add resume support from `.electroboy/` state.
 
 ## Design Decisions
 
 - The baseline orchestrator is a local CLI workflow.
 - Projects are entered through `source <project>/bin/activate`.
-- The pipeline provides `ai-pipeline deactivate` instead of claiming the shell's
+- The pipeline provides `electroboy deactivate` instead of claiming the shell's
   bare `deactivate` command.
-- `electroboy` is an alias for `ai-pipeline`.
+- `ai-pipeline` is an alias for `electroboy`.
 - Project activation can also activate a configured Python environment.
 - The orchestrator enforces an ordered state machine for all mutating stage
   commands.
@@ -1482,19 +1483,19 @@ explicit.
   repository state and run records.
 - The Design Author Agent keeps richer conversational continuity during
   human-led design and implementation planning.
-- Review issues are stored as shared JSONL records under `.agent-pipeline/`.
+- Review issues are stored as shared JSONL records under `.electroboy/`.
 - Agent actions are stored in append-only activity logs under each run
   directory.
 - Full agent-facing messages are stored under
-  `.agent-pipeline/shared/runs/<run-id>/messages/`.
+  `.electroboy/shared/runs/<run-id>/messages/`.
 - Approved pipeline artifacts are stored as snapshots under
-  `.agent-pipeline/shared/runs/<run-id>/artifacts/`.
+  `.electroboy/shared/runs/<run-id>/artifacts/`.
 - Shared pipeline state is committed; local session, raw runtime, credential,
   and shell activation state is ignored.
 - Change-control requests reopen the earliest affected baseline and invalidate
   downstream gates that depended on the old baseline.
-- Phase status is stored in `.agent-pipeline/shared/phase-status.json`.
-- Cross-stage decisions are stored in `.agent-pipeline/shared/decisions.jsonl`.
+- Phase status is stored in `.electroboy/shared/phase-status.json`.
+- Cross-stage decisions are stored in `.electroboy/shared/decisions.jsonl`.
 - Phase commits are created on the active working branch after gates pass.
 - Human approval is required for requirements acceptance, reviewed design
   acceptance, implementation plan acceptance, escalated decisions, and final

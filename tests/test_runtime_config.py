@@ -8,9 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.adapters.base import AgentInvocation  # noqa: E402
-from ai_pipeline.config import load_pipeline_config, parse_pipeline_config  # noqa: E402
-from ai_pipeline.runtime import runtime_for_role  # noqa: E402
+from electroboy.adapters.base import AgentInvocation  # noqa: E402
+from electroboy.config import load_pipeline_config, parse_pipeline_config  # noqa: E402
+from electroboy.runtime import runtime_for_role  # noqa: E402
 
 
 class RuntimeConfigTests(unittest.TestCase):
@@ -41,7 +41,7 @@ class RuntimeConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "response.md").write_text("accepted\n", encoding="utf-8")
-            (root / "agent-pipeline.toml").write_text(
+            (root / "electroboy.toml").write_text(
                 """
                 [runtime]
                 default = "manual"
@@ -65,7 +65,7 @@ class RuntimeConfigTests(unittest.TestCase):
     def test_project_config_path_supports_environment_section(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            config_dir = root / ".agent-pipeline"
+            config_dir = root / ".electroboy"
             config_dir.mkdir()
             (config_dir / "project.toml").write_text(
                 """

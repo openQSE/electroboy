@@ -8,8 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.gates import GateEngine  # noqa: E402
-from ai_pipeline.models import (  # noqa: E402
+from electroboy.gates import GateEngine  # noqa: E402
+from electroboy.models import (  # noqa: E402
     GATE_CODE_REVIEW,
     GATE_COMMIT,
     GATE_IMPLEMENTATION,
@@ -17,7 +17,7 @@ from ai_pipeline.models import (  # noqa: E402
     PhaseStatus,
     ReviewIssue,
 )
-from ai_pipeline.state_store import StateStore  # noqa: E402
+from electroboy.state_store import StateStore  # noqa: E402
 
 
 class GateTests(unittest.TestCase):

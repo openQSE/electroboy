@@ -10,14 +10,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ai_pipeline.cli import main  # noqa: E402
-from ai_pipeline.models import (  # noqa: E402
+from electroboy.cli import main  # noqa: E402
+from electroboy.models import (  # noqa: E402
     GATE_DOCUMENTATION,
     GATE_VALIDATION_TESTING,
     STAGE_COMPLETE,
     STAGE_DOCS_REVIEW,
 )
-from ai_pipeline.state_store import StateStore  # noqa: E402
+from electroboy.state_store import StateStore  # noqa: E402
 
 
 class DocumentationReviewTests(unittest.TestCase):
@@ -97,7 +97,7 @@ class DocumentationReviewTests(unittest.TestCase):
             self.assertTrue(api_snapshot.exists())
             self.assertTrue(readme_snapshot.exists())
             self.assertIn(
-                ".agent-pipeline/shared/runs/run-1/artifacts/README.md",
+                ".electroboy/shared/runs/run-1/artifacts/README.md",
                 activity[-1]["artifact_snapshot_refs"],
             )
 
@@ -142,7 +142,7 @@ def write_docs(root: Path, include_api: bool) -> None:
     write_file(root / "docs" / "detailed-design.md", "# Detailed Design\n")
     write_file(
         root / "README.md",
-        "# Project\n\nRun with `PYTHONPATH=src python -m ai_pipeline --help`.\n"
+        "# Project\n\nRun with `PYTHONPATH=src python -m electroboy --help`.\n"
         "Run tests with `python -m unittest discover -s tests`.\n",
     )
     if include_api:
@@ -165,7 +165,7 @@ def write_file(path: Path, text: str) -> None:
 def write_manual_runtime(root: Path) -> None:
     write_file(root / "agent-response.md", "accepted\n")
     write_file(
-        root / "agent-pipeline.toml",
+        root / "electroboy.toml",
         """
 [runtime]
 default = "manual"

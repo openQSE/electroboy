@@ -1,4 +1,4 @@
-# AI Agent Pipeline Implementation Plan
+# ElectroBoy Implementation Plan
 
 ## Table of Contents
 
@@ -75,10 +75,10 @@ belongs in a configured agent runtime.
 The selected implementation uses Python for orchestration and an adapter-backed
 agent CLI for execution.
 
-The CLI is exposed through two equivalent command names. `ai-pipeline` is the
-neutral tool name, and `electroboy` is the operator-friendly alias. Repository
-checkouts provide `./ai-pipeline` and `./electroboy`; installed environments
-provide `ai-pipeline` and `electroboy`.
+The CLI is exposed through two equivalent command names. `electroboy` is the
+primary tool name, and `ai-pipeline` is the plain compatibility alias.
+Repository checkouts provide `./electroboy` and `./ai-pipeline`; installed
+environments provide `electroboy` and `ai-pipeline`.
 
 ## CLI Configuration And Credentials
 
@@ -144,7 +144,7 @@ variable as an invocation-time credential, not as repository configuration.
 The same rule applies to credentials for any other CLI.
 
 The implementation must never store API keys in repository files,
-`.agent-pipeline/`, prompts, logs, activity events, review issues, or generated
+`.electroboy/`, prompts, logs, activity events, review issues, or generated
 reports. Environment snapshots written by the orchestrator must redact known
 secret variables.
 
@@ -229,7 +229,7 @@ the manual, generic CLI, and Codex exec adapters.
 The implementation uses this layout:
 
 ```text
-src/ai_pipeline/
+src/electroboy/
   __init__.py
   cli.py
   config.py
@@ -274,11 +274,11 @@ adapters separate.
 
 ## State And Artifact Storage
 
-The orchestrator stores run state under `.agent-pipeline/`. The directory is
+The orchestrator stores run state under `.electroboy/`. The directory is
 split into committed shared state and ignored local state.
 
 ```text
-.agent-pipeline/
+.electroboy/
   project.toml
   shared/
     current-run
@@ -336,16 +336,16 @@ resumes.
 
 ## Project Environment Activation
 
-`ai-pipeline new <path>` creates or enters the project environment. It creates
+`electroboy new <path>` creates or enters the project environment. It creates
 the target directory when needed. If the target is not already inside a Git
 worktree, it initializes a GitHub-ready repository. Existing repositories are
 reused instead of nesting a new repository. The command writes standard
-artifact templates, creates `.agent-pipeline/`, installs
+artifact templates, creates `.electroboy/`, installs
 `<path>/bin/activate`, and writes project-local runtime code under ignored
 local state.
 
 The activation script sets project-specific environment variables and wraps the
-`ai-pipeline` command so the current shell has a project context. It also
+`electroboy` command so the current shell has a project context. It also
 prints the active stage, blocked gate when applicable, and next useful command.
 
 The activation script can enter a configured Python environment:
@@ -357,17 +357,17 @@ python_activate = ".venv/bin/activate"
 python_managed_by_pipeline = false
 ```
 
-When `python_managed_by_pipeline` is true, `ai-pipeline deactivate` deactivates
+When `python_managed_by_pipeline` is true, `electroboy deactivate` deactivates
 that Python environment while restoring pipeline variables. When the Python
 environment was active before project activation, the pipeline leaves it in
 place. The activation script does not define or override bare `deactivate`.
 
-`ai-pipeline deactivate` is implemented as an activated-shell wrapper around
+`electroboy deactivate` is implemented as an activated-shell wrapper around
 the CLI. The wrapper can restore environment variables in the current shell,
 while the Python process records the deactivation event in local state.
 
 Activation is restart-safe. If the shell closes during a code run, the operator
-can run `source <project>/bin/activate` and then `ai-pipeline code`. The
+can run `source <project>/bin/activate` and then `electroboy code`. The
 orchestrator resumes from shared run state, phase status, issue records,
 artifact snapshots, and any safe local checkpoint data.
 
@@ -402,23 +402,23 @@ state files safely as the design evolves.
 The primary CLI exposes commands that match the operator workflow.
 
 ```text
-ai-pipeline new <path>
+electroboy new <path>
 source <path>/bin/activate
-ai-pipeline status
-ai-pipeline requirements [--reason <text>]
-ai-pipeline requirements-approve
-ai-pipeline design [--reason <text>]
-ai-pipeline design-review
-ai-pipeline design-approve
-ai-pipeline implementation-plan [--reason <text>]
-ai-pipeline plan-approve
-ai-pipeline code [--reason <text>] [--phased]
-ai-pipeline validate
-ai-pipeline document [--reason <text>]
-ai-pipeline code-approve
-ai-pipeline deactivate
-ai-pipeline report summary
-ai-pipeline report trace
+electroboy status
+electroboy requirements [--reason <text>]
+electroboy requirements-approve
+electroboy design [--reason <text>]
+electroboy design-review
+electroboy design-approve
+electroboy implementation-plan [--reason <text>]
+electroboy plan-approve
+electroboy code [--reason <text>] [--phased]
+electroboy validate
+electroboy document [--reason <text>]
+electroboy code-approve
+electroboy deactivate
+electroboy report summary
+electroboy report trace
 ```
 
 `requirements`, `design`, and `implementation-plan` invoke the configured
@@ -457,13 +457,13 @@ The implementation can still expose lower-level commands for debugging,
 testing, and CI automation:
 
 ```text
-ai-pipeline debug gate <name>
-ai-pipeline debug phase start <n>
-ai-pipeline debug phase review <n> --pass
-ai-pipeline debug phase test <n> --pass
-ai-pipeline debug phase commit <n> --sha <commit-sha>
-ai-pipeline debug validate [--command <argv>...]
-ai-pipeline debug change status
+electroboy debug gate <name>
+electroboy debug phase start <n>
+electroboy debug phase review <n> --pass
+electroboy debug phase test <n> --pass
+electroboy debug phase commit <n> --sha <commit-sha>
+electroboy debug validate [--command <argv>...]
+electroboy debug change status
 ```
 
 Those commands use the same gate engine and activity log as the primary CLI.
@@ -551,8 +551,8 @@ or manually waived.
 ### Phase 0. Repository Foundation
 
 Requirements: REQ-1, REQ-14
-Paths: README.md, ai-pipeline, electroboy, pyproject.toml
-Paths: src/ai_pipeline
+Paths: README.md, electroboy, ai-pipeline, pyproject.toml
+Paths: src/electroboy
 Paths: tests
 
 Create the package skeleton, test harness, formatter configuration, CLI entry
@@ -562,32 +562,33 @@ Scope:
 
 - Add `pyproject.toml`.
 - Add the `rich` dependency for stage indicators and progress output.
-- Add `src/ai_pipeline/`.
+- Add `src/electroboy/`.
 - Add `tests/`.
 - Add basic CLI command parsing.
-- Add `ai-pipeline new <path>`.
+- Add `electroboy new <path>`.
 - Add GitHub-ready repository initialization for new projects.
-- Add `electroboy` as an alias for the same CLI entrypoint.
+- Add `ai-pipeline` as an alias for the same CLI entrypoint.
 - Add activation-script template generation.
-- Add `ai-pipeline deactivate` shell-wrapper contract.
+- Add `electroboy deactivate` shell-wrapper contract.
 - Add README setup placeholders if needed.
 
 Acceptance criteria:
 
-- `python -m ai_pipeline --help` or the configured console script runs.
-- `ai-pipeline new <path>` creates a project directory and git repository.
+- `PYTHONPATH=src python -m electroboy --help` or the configured console
+  script runs.
+- `electroboy new <path>` creates a project directory and git repository.
 - New repositories include GitHub-oriented defaults for collaboration.
-- `./ai-pipeline --help` and `./electroboy --help` expose the same command set.
+- `./electroboy --help` and `./ai-pipeline --help` expose the same command set.
 - `<path>/bin/activate` sets project context for the active shell.
 - The activation script does not define bare `deactivate`.
-- `ai-pipeline deactivate` restores pipeline-owned shell state.
+- `electroboy deactivate` restores pipeline-owned shell state.
 - Unit tests run locally.
 - The package imports without side effects.
 
 ### Phase 1. Artifact Templates
 
 Requirements: REQ-3, REQ-5
-Paths: src/ai_pipeline/artifacts.py
+Paths: src/electroboy/artifacts.py
 Paths: tests/test_artifacts.py
 
 Create templates for the core pipeline artifacts.
@@ -609,8 +610,8 @@ Acceptance criteria:
 ### Phase 2. State Store
 
 Requirements: REQ-4, REQ-5, REQ-13, REQ-14
-Paths: src/ai_pipeline/state_store.py
-Paths: src/ai_pipeline/models.py
+Paths: src/electroboy/state_store.py
+Paths: src/electroboy/models.py
 Paths: tests/test_state_store.py
 
 Implement durable JSON and JSONL state handling.
@@ -627,7 +628,7 @@ Scope:
 - Append `decisions.jsonl`.
 - Store message files and raw runtime streams.
 - Enforce shared state and local state separation.
-- Generate `.gitignore` entries for `.agent-pipeline/local/`.
+- Generate `.gitignore` entries for `.electroboy/local/`.
 
 Acceptance criteria:
 
@@ -643,8 +644,8 @@ Acceptance criteria:
 ### Phase 3. Gate Engine
 
 Requirements: REQ-1, REQ-2, REQ-3, REQ-5, REQ-9
-Paths: src/ai_pipeline/gates.py
-Paths: src/ai_pipeline/models.py
+Paths: src/electroboy/gates.py
+Paths: src/electroboy/models.py
 Paths: tests/test_gates.py
 
 Implement deterministic gate checks.
@@ -681,8 +682,8 @@ Acceptance criteria:
 ### Phase 4. Runtime Adapter Interface
 
 Requirements: REQ-6, REQ-7
-Paths: src/ai_pipeline/runtime.py, src/ai_pipeline/config.py
-Paths: src/ai_pipeline/adapters
+Paths: src/electroboy/runtime.py, src/electroboy/config.py
+Paths: src/electroboy/adapters
 Paths: tests/test_runtime_config.py
 
 Implement the adapter boundary that lets the orchestrator call agents without
@@ -712,8 +713,8 @@ Acceptance criteria:
 ### Phase 5. CLI Runtime Adapters
 
 Requirements: REQ-5, REQ-6, REQ-7
-Paths: src/ai_pipeline/adapters
-Paths: src/ai_pipeline/cli.py
+Paths: src/electroboy/adapters
+Paths: src/electroboy/cli.py
 Paths: tests/test_runtime_adapters.py
 
 Implement automated agent invocation through the generic CLI adapter and the
@@ -746,18 +747,18 @@ Acceptance criteria:
 ### Phase 6. Requirements And Design Loops
 
 Requirements: REQ-1, REQ-2, REQ-3, REQ-4, REQ-5
-Paths: src/ai_pipeline/cli.py
+Paths: src/electroboy/cli.py
 Paths: tests/test_cli.py, tests/test_design_loop.py
 
-Implement the human/ElectroBoy requirements and design stages.
+Implement the human and Design Author Agent requirements and design stages.
 
 Scope:
 
-- Add `ai-pipeline requirements`.
-- Add `ai-pipeline requirements-approve`.
-- Add `ai-pipeline design`.
-- Add `ai-pipeline design-review`.
-- Add `ai-pipeline design-approve`.
+- Add `electroboy requirements`.
+- Add `electroboy requirements-approve`.
+- Add `electroboy design`.
+- Add `electroboy design-review`.
+- Add `electroboy design-approve`.
 - Invoke the configured Design Author Agent for interactive authoring.
 - Rebuild authoring context from artifacts and shared run state.
 - Requirements definition stage.
@@ -780,16 +781,16 @@ Acceptance criteria:
 ### Phase 7. Implementation Planning
 
 Requirements: REQ-2, REQ-3, REQ-5, REQ-9
-Paths: src/ai_pipeline/planning.py
-Paths: src/ai_pipeline/cli.py
+Paths: src/electroboy/planning.py
+Paths: src/electroboy/cli.py
 Paths: tests/test_plan.py
 
 Implement collaborative implementation-plan generation and approval.
 
 Scope:
 
-- Add `ai-pipeline implementation-plan`.
-- Add `ai-pipeline plan-approve`.
+- Add `electroboy implementation-plan`.
+- Add `electroboy plan-approve`.
 - Invoke the configured Design Author Agent with the approved requirements and
   reviewed design context.
 - Generate or update `docs/implementation-plan.md`.
@@ -816,16 +817,16 @@ Acceptance criteria:
 ### Phase 8. Phase Implementation Loop
 
 Requirements: REQ-4, REQ-5, REQ-8, REQ-9
-Paths: src/ai_pipeline/cli.py
-Paths: src/ai_pipeline/gates.py
+Paths: src/electroboy/cli.py
+Paths: src/electroboy/gates.py
 Paths: tests/test_phase_loop.py
 
 Implement one-phase-at-a-time coding, review, test review, and commit flow.
 
 Scope:
 
-- Add `ai-pipeline code`.
-- Add `ai-pipeline code --phased` for explicit one-phase checkpoint mode.
+- Add `electroboy code`.
+- Add `electroboy code --phased` for explicit one-phase checkpoint mode.
 - Start active phase.
 - Invoke coding agent.
 - Invoke code review agent.
@@ -841,10 +842,10 @@ Scope:
 
 Acceptance criteria:
 
-- `ai-pipeline code` resumes after interruption from the last durable
+- `electroboy code` resumes after interruption from the last durable
   checkpoint.
-- `ai-pipeline code` automates every remaining planned phase by default.
-- `ai-pipeline code --phased` runs only the active phase and waits for manual
+- `electroboy code` automates every remaining planned phase by default.
+- `electroboy code --phased` runs only the active phase and waits for manual
   commit recording.
 - Each phase records an independent git commit before the next phase starts.
 - A new phase cannot start while another phase is active.
@@ -865,7 +866,7 @@ Acceptance criteria:
 ### Phase 9. Validation Testing
 
 Requirements: REQ-5, REQ-10, REQ-11
-Paths: src/ai_pipeline/cli.py
+Paths: src/electroboy/cli.py
 Paths: tests/test_validation.py
 
 Implement final validation of the completed codebase.
@@ -897,7 +898,7 @@ Acceptance criteria:
 ### Phase 10. Documentation Review
 
 Requirements: REQ-5, REQ-12
-Paths: src/ai_pipeline/cli.py
+Paths: src/electroboy/cli.py
 Paths: tests/test_documentation_review.py
 Paths: README.md, docs/api.md
 
@@ -905,8 +906,8 @@ Implement final documentation verification.
 
 Scope:
 
-- Add `ai-pipeline document`.
-- Add `ai-pipeline code-approve`.
+- Add `electroboy document`.
+- Add `electroboy code-approve`.
 - Verify `docs/requirements.md`.
 - Verify `docs/detailed-design.md`.
 - Verify `README.md`.
@@ -929,7 +930,7 @@ Acceptance criteria:
 ### Phase 11. Change Control And Iteration
 
 Requirements: REQ-5, REQ-13
-Paths: src/ai_pipeline/cli.py
+Paths: src/electroboy/cli.py
 Paths: tests/test_change_control.py
 
 Implement controlled reopening of requirements, design, planning, or
@@ -960,7 +961,7 @@ Acceptance criteria:
 ### Phase 12. Resume And Reporting
 
 Requirements: REQ-5, REQ-14
-Paths: src/ai_pipeline/cli.py
+Paths: src/electroboy/cli.py
 Paths: tests/test_reporting.py
 
 Implement restart-safe resume behavior and human-readable reporting.
@@ -989,7 +990,7 @@ Acceptance criteria:
 
 The initial useful milestone is a local, single-repo prototype:
 
-1. Create a project with `ai-pipeline new <path>`.
+1. Create a project with `electroboy new <path>`.
 2. Activate it with `source <path>/bin/activate`.
 3. Run interactive requirements and design stages through the configured
    Design Author Agent.
@@ -1000,9 +1001,9 @@ The initial useful milestone is a local, single-repo prototype:
 7. Approve design and implementation plan manually.
 8. Run one small implementation phase through the coding, review, and test
    loop.
-9. Interrupt `ai-pipeline code` and verify that it resumes after activation.
-10. Run `ai-pipeline document` after validation testing passes.
-11. Reopen requirements with `ai-pipeline requirements --reason <text>`.
+9. Interrupt `electroboy code` and verify that it resumes after activation.
+10. Run `electroboy document` after validation testing passes.
+11. Reopen requirements with `electroboy requirements --reason <text>`.
 12. Verify downstream gate invalidation.
 
 This milestone proves the hard parts of the process without requiring a full
@@ -1039,16 +1040,16 @@ Baseline verification commands:
 
 ```bash
 python -m unittest discover -s tests
-python -m ai_pipeline --help
-ai-pipeline new /tmp/example-pipeline-project
+PYTHONPATH=src python -m electroboy --help
+electroboy new /tmp/example-pipeline-project
 source /tmp/example-pipeline-project/bin/activate
-ai-pipeline status
-ai-pipeline requirements
-ai-pipeline requirements-approve
-ai-pipeline design
-ai-pipeline code
-ai-pipeline document
-ai-pipeline deactivate
+electroboy status
+electroboy requirements
+electroboy requirements-approve
+electroboy design
+electroboy code
+electroboy document
+electroboy deactivate
 ```
 
 Provider-specific invocation details can change as adapters mature. The
@@ -1058,7 +1059,7 @@ blocked forward movement must produce actionable errors.
 
 ## Open Implementation Decisions
 
-- Whether the package is named `ai_pipeline`, `agent_pipeline`, or something
+- Whether the package is named `electroboy`, `agent_pipeline`, or something
   project-specific.
 - Whether to use Pydantic or standard-library dataclasses for state models.
 - Whether `validation-report.md` is written by the Test Review Agent or by the

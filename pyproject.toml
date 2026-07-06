@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai-agent-pipeline"
+name = "electroboy"
 version = "0.1.0"
-description = "Local orchestrator for an AI-agent software pipeline."
+description = "AI agent pipeline for disciplined software development."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -17,8 +17,8 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-pipeline = "ai_pipeline.cli:main"
-electroboy = "ai_pipeline.cli:main"
+ai-pipeline = "electroboy.cli:main"
+electroboy = "electroboy.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
