@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,7 +37,7 @@ class ValidationTests(unittest.TestCase):
         store.save_manifest(manifest)
         return store
 
-    def test_validation_passes_and_advances_to_documentation_review(self) -> None:
+    def test_validation_passes_and_stays_ready_for_approval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             store = self.prepare_validation_run(root)
@@ -48,20 +49,45 @@ class ValidationTests(unittest.TestCase):
             )
 
             manifest = store.load_current_manifest()
-            report = (
-                store.run_dir(manifest.run_id)
-                / "artifacts"
-                / "validation-report.md"
-            )
+            report = root / "docs" / "validation-report.md"
             report_text = report.read_text(encoding="utf-8")
 
             self.assertEqual(code, 0, stderr)
             self.assertIn("validation: passed", stdout)
-            self.assertEqual(manifest.active_stage, STAGE_DOCS_REVIEW)
+            self.assertIn("next: run `electroboy validation-approve`", stdout)
+            self.assertEqual(manifest.active_stage, STAGE_VALIDATION)
             self.assertTrue(manifest.has_gate(GATE_VALIDATION_TESTING))
             self.assertIn("validation ok", report_text)
             self.assertIn("artifact validation commands", report_text)
             self.assertIn("configured full test-suite command", report_text)
+
+    def test_validation_approve_commits_reports_and_advances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            configure_git_identity(root)
+            store = self.prepare_validation_run(root)
+            write_file(root / "docs" / "implementation-log.md", "# Log\n")
+            write_file(root / "docs" / "implementation-report.md", "# Report\n")
+            write_test_suite(root)
+            command = f"{sys.executable} -c \"print('validation ok')\""
+            write_file(root / "docs" / "requirements.md", f"Validation: {command}\n")
+            self.assertEqual(
+                self.run_cli(["--root", str(root), "validate", "--command", command])[0],
+                0,
+            )
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "validation-approve"]
+            )
+            manifest = store.load_current_manifest()
+            committed_files = git_show_names(root)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("validation approved", stdout)
+        self.assertEqual(manifest.active_stage, STAGE_DOCS_REVIEW)
+        self.assertIn("docs/implementation-log.md", committed_files)
+        self.assertIn("docs/implementation-report.md", committed_files)
+        self.assertIn("docs/validation-report.md", committed_files)
 
     def test_validation_failure_records_blocking_issue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -149,6 +175,38 @@ class ValidationTests(unittest.TestCase):
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def configure_git_identity(root: Path) -> None:
+    subprocess.run(
+        ["git", "-C", str(root), "init"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "Test User"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def git_show_names(root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "show", "--name-only", "--format=", "HEAD"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return completed.stdout
 
 
 def write_test_suite(root: Path) -> None:

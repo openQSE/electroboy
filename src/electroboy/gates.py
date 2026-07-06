@@ -275,7 +275,7 @@ class GateEngine:
             messages.append("validation testing has not been recorded")
         if self._blocking_issues("validation-review.jsonl"):
             messages.append("blocking validation review issues remain")
-        report = self.store.run_dir(manifest.run_id) / "artifacts" / "validation-report.md"
+        report = self.root / "docs" / "validation-report.md"
         if manifest.has_gate(GATE_VALIDATION_TESTING) and not report.exists():
             messages.append("validation report is missing")
         if messages:

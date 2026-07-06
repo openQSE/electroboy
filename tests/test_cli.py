@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -214,6 +215,7 @@ class temp_project:
     def __enter__(self) -> Path:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
+        initialize_git_repo(self.root)
         return self.root
 
     def __exit__(self, *args: object) -> None:
@@ -223,6 +225,27 @@ class temp_project:
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def initialize_git_repo(root: Path) -> None:
+    subprocess.run(
+        ["git", "-C", str(root), "init"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "Test User"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
 
 def write_manual_runtime(root: Path) -> None:

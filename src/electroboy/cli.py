@@ -77,6 +77,23 @@ DESIGN_REVIEW_CONTEXT_PATHS = [
     "docs/requirements.md",
     "docs/detailed-design.md",
 ]
+IMPLEMENTATION_LOG_PATH = "docs/implementation-log.md"
+IMPLEMENTATION_REPORT_PATH = "docs/implementation-report.md"
+VALIDATION_REPORT_PATH = "docs/validation-report.md"
+
+APPROVAL_BASELINE_ARTIFACTS = {
+    STAGE_REQUIREMENTS: ["docs/requirements.md"],
+    STAGE_DESIGN_ACCEPTANCE: [
+        "docs/detailed-design.md",
+        DESIGN_REVIEW_SUMMARY_PATH,
+    ],
+    STAGE_PLAN: ["docs/implementation-plan.md"],
+    STAGE_VALIDATION: [
+        IMPLEMENTATION_LOG_PATH,
+        IMPLEMENTATION_REPORT_PATH,
+        VALIDATION_REPORT_PATH,
+    ],
+}
 
 STAGE_APPROVAL_REQUIREMENTS = {
     STAGE_REQUIREMENTS: [
@@ -243,6 +260,10 @@ def build_parser() -> argparse.ArgumentParser:
         dest="validation_shell_commands",
         help="explicit shell validation command; may be provided more than once",
     )
+    subparsers.add_parser(
+        "validation-approve",
+        help="approve validation and commit implementation handoff reports",
+    )
 
     return parser
 
@@ -300,6 +321,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_phase(store, engine, args)
         if args.command == "validate":
             return _cmd_validate(store, args)
+        if args.command == "validation-approve":
+            return _cmd_validation_approve(store)
     except StateError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -464,24 +487,8 @@ def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
             event_id,
             issue_file or "design-review.jsonl",
             outcome,
-        )
+    )
     print(f"summary: {summary_path}")
-
-    if _is_git_worktree(store.root):
-        with _progress_step("design-review", "committing review artifacts"):
-            commit_sha, commit_error = _commit_design_review_artifacts(
-                store,
-                result,
-            )
-        if commit_error:
-            print(f"error: {commit_error}", file=sys.stderr)
-            return 1
-        if commit_sha:
-            print(f"design-review commit: {commit_sha}")
-        else:
-            print("design-review commit: no changes")
-    else:
-        print("design-review commit: skipped; repository is not a git worktree")
 
     if not result.ok:
         print(result.final_message, end="" if result.final_message.endswith("\n") else "\n")
@@ -490,7 +497,10 @@ def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
         _print_gate_failure(["blocking design review issues remain"])
         return 1
     with _progress_step("design-review", "completing design-review gate"):
-        return _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
+        code = _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
+    if code == 0:
+        print("next: run `electroboy design-approve` to commit the design baseline")
+    return code
 
 
 def _cmd_code(
@@ -508,7 +518,7 @@ def _cmd_code(
         manifest = store.load_current_manifest()
     if manifest.active_stage == STAGE_VALIDATION:
         _print_progress("validation", "implementation phases are complete")
-        print("next: run validation commands or use `electroboy document` after validation")
+        print("next: run validation commands, then `electroboy validation-approve`")
         return 0
     if manifest.active_stage == STAGE_DOCS_REVIEW:
         _print_progress("documentation", "validation has passed")
@@ -557,7 +567,7 @@ def _cmd_code_phased(
     next_phase = _next_uncommitted_phase(store)
     if next_phase is None:
         _print_progress("implementation", "all planned phases are committed")
-        return _cmd_stage(store, engine, _stage_args(STAGE_IMPLEMENTATION))
+        return _complete_implementation_stage(store, engine)
 
     phase_status.active_phase = next_phase
     phase = phase_status.phases.setdefault(str(next_phase), {})
@@ -599,7 +609,7 @@ def _cmd_code_automated(
             next_phase = _next_uncommitted_phase(store)
             if next_phase is None:
                 _print_progress("implementation", "all planned phases are committed")
-                return _cmd_stage(store, engine, _stage_args(STAGE_IMPLEMENTATION))
+                return _complete_implementation_stage(store, engine)
             _start_code_phase(store, next_phase)
             phase = next_phase
             _print_progress("implementation", f"started phase {phase}")
@@ -1078,6 +1088,19 @@ def _cmd_stage(
             )
             return 1
 
+    baseline_paths = APPROVAL_BASELINE_ARTIFACTS.get(stage)
+    if baseline_paths:
+        with _progress_step(stage, "committing approved baseline artifacts"):
+            commit_sha, commit_error = _commit_approval_baseline(
+                store,
+                stage,
+                baseline_paths,
+            )
+        if commit_error:
+            print(f"error: {commit_error}", file=sys.stderr)
+            return 1
+        print(f"baseline commit: {commit_sha}")
+
     completed_gate = STAGE_COMPLETED_GATES.get(stage)
     if stage == STAGE_DESIGN_REVIEW:
         blocking = _blocking_issues(store, "design-review.jsonl")
@@ -1211,7 +1234,7 @@ def _cmd_validate(store: StateStore, args: argparse.Namespace) -> int:
                 status="open",
                 summary=f"Validation command failed: {result['command']}",
                 stage=STAGE_VALIDATION,
-                artifact="validation-report.md",
+                artifact=VALIDATION_REPORT_PATH,
                 requested_change="Fix the failing validation command.",
             )
             store.append_review_issue("validation-review.jsonl", issue)
@@ -1236,7 +1259,6 @@ def _cmd_validate(store: StateStore, args: argparse.Namespace) -> int:
         return 1
 
     manifest.complete_gate(GATE_VALIDATION_TESTING)
-    manifest.set_active_stage(STAGE_DOCS_REVIEW)
     store.save_manifest(manifest)
     store.append_activity(
         ActivityEvent(
@@ -1253,6 +1275,51 @@ def _cmd_validate(store: StateStore, args: argparse.Namespace) -> int:
     print("validation: passed")
     print(f"active stage: {manifest.active_stage}")
     print(f"report: {report_path}")
+    print("next: run `electroboy validation-approve`")
+    return 0
+
+
+def _cmd_validation_approve(store: StateStore) -> int:
+    manifest = store.load_current_manifest()
+    if manifest.active_stage != STAGE_VALIDATION:
+        print("error: active stage is not validation", file=sys.stderr)
+        return 1
+    if not manifest.has_gate(GATE_VALIDATION_TESTING):
+        _print_gate_failure(["validation testing has not passed"])
+        return 1
+    blocking = _blocking_issues(store, "validation-review.jsonl")
+    if blocking:
+        _print_gate_failure(["blocking validation review issues remain"])
+        return 1
+
+    baseline_paths = APPROVAL_BASELINE_ARTIFACTS[STAGE_VALIDATION]
+    with _progress_step("validation", "committing validation reports"):
+        commit_sha, commit_error = _commit_approval_baseline(
+            store,
+            STAGE_VALIDATION,
+            baseline_paths,
+        )
+    if commit_error:
+        print(f"error: {commit_error}", file=sys.stderr)
+        return 1
+
+    manifest.set_active_stage(STAGE_DOCS_REVIEW)
+    store.save_manifest(manifest)
+    store.append_activity(
+        ActivityEvent(
+            actor="human-operator",
+            stage=STAGE_VALIDATION,
+            gate=GATE_VALIDATION_TESTING,
+            action="validation-approved",
+            summary="Human operator approved validation handoff artifacts.",
+            status="pass",
+            outputs=baseline_paths,
+            commit=commit_sha,
+        )
+    )
+    print("validation approved")
+    print(f"baseline commit: {commit_sha}")
+    print(f"active stage: {manifest.active_stage}")
     return 0
 
 
@@ -1502,37 +1569,251 @@ def _agent_reported_files(result: AgentResult) -> list[str]:
     )
 
 
-def _commit_design_review_artifacts(
+def _commit_approval_baseline(
     store: StateStore,
-    result: AgentResult,
+    stage: str,
+    paths: list[str],
 ) -> tuple[str | None, str | None]:
-    paths = [DESIGN_REVIEW_SUMMARY_PATH, *_agent_reported_files(result)]
-    message = _design_review_commit_message(result)
+    missing = [
+        path
+        for path in paths
+        if not (store.root / path).exists()
+    ]
+    if missing:
+        return None, "approval baseline artifacts are missing: " + ", ".join(missing)
+    if not _is_git_worktree(store.root):
+        return None, "repository is not a git worktree"
+
+    message = _approval_commit_message(stage)
     commit_sha, error = _create_artifact_commit(store.root, paths, message)
-    if commit_sha:
-        store.append_activity(
-            ActivityEvent(
-                actor="orchestrator",
-                stage=STAGE_DESIGN_REVIEW,
-                action="design-review-artifacts-committed",
-                summary="Committed design review artifacts.",
-                outputs=paths,
-                commit=commit_sha,
+    if error:
+        return None, error
+    if commit_sha is None:
+        commit_sha = _git_current_head(store.root)
+        if commit_sha is None:
+            return None, "approval baseline artifacts are not committed"
+        untracked = _git_paths_missing_from_head(store.root, paths)
+        if untracked:
+            return (
+                None,
+                "approval baseline artifacts are not committed: "
+                + ", ".join(untracked),
             )
+
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=stage,
+            action="approval-baseline-committed",
+            summary=f"Committed approved baseline artifacts for {stage}.",
+            outputs=paths,
+            commit=commit_sha,
         )
-    return commit_sha, error
+    )
+    return commit_sha, None
 
 
-def _design_review_commit_message(result: AgentResult) -> str:
-    if isinstance(result.commit_message, str) and result.commit_message.strip():
-        return result.commit_message.strip()
+def _approval_commit_message(stage: str) -> str:
+    subjects = {
+        STAGE_REQUIREMENTS: "requirements: approve baseline",
+        STAGE_DESIGN_ACCEPTANCE: "design: approve baseline",
+        STAGE_PLAN: "plan: approve implementation baseline",
+        STAGE_VALIDATION: "validation: approve implementation reports",
+    }
+    subject = subjects.get(stage, f"{stage}: approve baseline")
     return "\n".join(
         [
-            "design-review: record review summary",
+            subject,
             "",
-            "Record the design review summary generated by ElectroBoy.",
+            f"Record approved {stage} artifacts created by ElectroBoy.",
         ]
     )
+
+
+def _complete_implementation_stage(store: StateStore, engine: GateEngine) -> int:
+    with _progress_step("implementation", "writing implementation reports"):
+        paths = _write_implementation_artifacts(store)
+    for path in paths:
+        print(f"artifact: {path}")
+    return _cmd_stage(store, engine, _stage_args(STAGE_IMPLEMENTATION))
+
+
+def _write_implementation_artifacts(store: StateStore) -> list[str]:
+    log_path = store.root / IMPLEMENTATION_LOG_PATH
+    report_path = store.root / IMPLEMENTATION_REPORT_PATH
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(_format_implementation_log(store), encoding="utf-8")
+    report_path.write_text(_format_implementation_report(store), encoding="utf-8")
+    outputs = [IMPLEMENTATION_LOG_PATH, IMPLEMENTATION_REPORT_PATH]
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            action="implementation-reports-written",
+            summary="Wrote implementation log and report.",
+            outputs=outputs,
+            artifact_changes=outputs,
+        )
+    )
+    return outputs
+
+
+def _format_implementation_log(store: StateStore) -> str:
+    manifest = store.load_current_manifest()
+    phase_status = store.load_phase_status()
+    lines = [
+        "# Implementation Log",
+        "",
+        f"Run ID: {manifest.run_id}",
+        f"Generated: {utc_now()}",
+        "",
+        "## Phase Timeline",
+        "",
+    ]
+    phase_numbers = sorted(phase_status.phases, key=int)
+    if not phase_numbers:
+        lines.append("- none")
+    for phase_number in phase_numbers:
+        phase = phase_status.phases[phase_number]
+        lines.extend(
+            [
+                f"### Phase {phase_number}",
+                "",
+                f"- Status: {phase.get('status', 'unknown')}",
+                f"- Objective: {phase.get('objective', 'unknown')}",
+                f"- Coding event: {phase.get('coding_event', 'none')}",
+                f"- Code review event: {phase.get('code_review_event', 'none')}",
+                f"- Test review event: {phase.get('test_review_event', 'none')}",
+                f"- Commit: {phase.get('commit', 'none')}",
+                "",
+                "Code review findings:",
+                "",
+                *_markdown_list(
+                    _review_issue_summary_lines(
+                        store,
+                        f"phase-{phase_number}-code-review.jsonl",
+                    )
+                ),
+                "",
+                "Test review findings:",
+                "",
+                *_markdown_list(
+                    _review_issue_summary_lines(
+                        store,
+                        f"phase-{phase_number}-test-review.jsonl",
+                    )
+                ),
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## Implementation Activity",
+            "",
+            *_markdown_list(_implementation_activity_lines(store)),
+            "",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _format_implementation_report(store: StateStore) -> str:
+    manifest = store.load_current_manifest()
+    phase_status = store.load_phase_status()
+    phase_numbers = sorted(phase_status.phases, key=int)
+    commits = _phase_commit_lines(phase_status)
+    open_issues: list[str] = []
+    for phase_number in phase_numbers:
+        open_issues.extend(
+            _review_issue_summary_lines(
+                store,
+                f"phase-{phase_number}-code-review.jsonl",
+                blocking_only=True,
+            )
+        )
+        open_issues.extend(
+            _review_issue_summary_lines(
+                store,
+                f"phase-{phase_number}-test-review.jsonl",
+                blocking_only=True,
+            )
+        )
+    lines = [
+        "# Implementation Report",
+        "",
+        f"Run ID: {manifest.run_id}",
+        f"Generated: {utc_now()}",
+        "",
+        "## Current Implementation State",
+        "",
+        "Implementation phases are complete and ready for validation.",
+        "",
+        "## Completed Phases",
+        "",
+        *_markdown_list(commits),
+        "",
+        "## Notable Review Notes",
+        "",
+        *_markdown_list(_implementation_review_note_lines(store)),
+        "",
+        "## Open Implementation Issues",
+        "",
+        *_markdown_list(open_issues),
+        "",
+        "## Validation",
+        "",
+        "Validation results are recorded separately in docs/validation-report.md.",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _implementation_activity_lines(store: StateStore) -> list[str]:
+    lines: list[str] = []
+    for event in store.read_activity():
+        if event.get("stage") != STAGE_IMPLEMENTATION:
+            continue
+        action = event.get("action", "unknown")
+        summary = event.get("summary", "")
+        event_id = event.get("id", "unknown")
+        phase = event.get("phase")
+        phase_text = f" phase {phase}" if phase is not None else ""
+        lines.append(f"{event_id}:{phase_text} {action} - {summary}")
+    return lines
+
+
+def _implementation_review_note_lines(store: StateStore) -> list[str]:
+    notes: list[str] = []
+    phase_status = store.load_phase_status()
+    for phase_number in sorted(phase_status.phases, key=int):
+        for issue_file in [
+            f"phase-{phase_number}-code-review.jsonl",
+            f"phase-{phase_number}-test-review.jsonl",
+        ]:
+            notes.extend(_review_issue_summary_lines(store, issue_file))
+    return notes
+
+
+def _review_issue_summary_lines(
+    store: StateStore,
+    issue_file: str,
+    blocking_only: bool = False,
+) -> list[str]:
+    issues = store.read_review_issues(issue_file)
+    if blocking_only:
+        issues = [
+            issue
+            for issue in issues
+            if issue.get("status") in BLOCKING_ISSUE_STATUSES
+        ]
+    return [
+        (
+            f"{issue_file}: {issue.get('issue_id')} "
+            f"{issue.get('severity')} {issue.get('status')} - "
+            f"{issue.get('summary')}"
+        )
+        for issue in issues
+    ]
 
 
 def _init_git_repository(project_root: Path) -> None:
@@ -2415,7 +2696,7 @@ def _create_artifact_commit(
     if outside_staged:
         return (
             None,
-            "staged changes are outside the design-review commit: "
+            "staged changes are outside the artifact commit: "
             + ", ".join(outside_staged),
         )
     if not stage_paths and not staged_paths:
@@ -2434,7 +2715,7 @@ def _create_artifact_commit(
     if outside_staged:
         return (
             None,
-            "staged changes are outside the design-review commit: "
+            "staged changes are outside the artifact commit: "
             + ", ".join(outside_staged),
         )
     if not any(path in staged_paths for path in allowed_paths):
@@ -2461,11 +2742,11 @@ def _commit_message_parts(message: str) -> tuple[str, str]:
     lines = [line.rstrip() for line in message.strip().splitlines()]
     subject = next((line for line in lines if line.strip()), "")
     if not subject:
-        subject = "design-review: record review summary"
+        subject = "artifacts: record generated output"
     subject_index = lines.index(subject) if subject in lines else 0
     body = "\n".join(lines[subject_index + 1 :]).strip()
     if not body:
-        body = "Automated design-review artifact commit created by ElectroBoy."
+        body = "Automated artifact commit created by ElectroBoy."
     return subject, body
 
 
@@ -2599,6 +2880,20 @@ def _git_current_head(root: Path) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout.strip()
+
+
+def _git_paths_missing_from_head(root: Path, paths: list[str]) -> list[str]:
+    missing: list[str] = []
+    for path in paths:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"HEAD:{path}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode != 0:
+            missing.append(path)
+    return missing
 
 
 def _phase_commit_message(
@@ -2906,10 +3201,12 @@ def _write_validation_report(
     results: list[dict[str, object]],
 ) -> Path:
     manifest = store.load_current_manifest()
-    report_path = (
+    report_path = store.root / VALIDATION_REPORT_PATH
+    artifact_report_path = (
         store.run_dir(manifest.run_id) / "artifacts" / "validation-report.md"
     )
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_report_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# Validation Report",
         "",
@@ -2961,7 +3258,9 @@ def _write_validation_report(
                     "",
                 ]
             )
-    report_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    text = "\n".join(lines).rstrip() + "\n"
+    report_path.write_text(text, encoding="utf-8")
+    artifact_report_path.write_text(text, encoding="utf-8")
     return report_path
 
 

@@ -117,10 +117,18 @@ class PhaseLoopTests(unittest.TestCase):
             status = store.load_phase_status()
             phase1_exists = (root / "src" / "phase1" / "output.txt").exists()
             phase2_exists = (root / "src" / "phase2" / "output.txt").exists()
+            implementation_log = root / "docs" / "implementation-log.md"
+            implementation_report = root / "docs" / "implementation-report.md"
+            implementation_log_text = implementation_log.read_text(encoding="utf-8")
+            implementation_report_text = implementation_report.read_text(
+                encoding="utf-8"
+            )
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("committed phase: 1", stdout)
         self.assertIn("committed phase: 2", stdout)
+        self.assertIn("artifact: docs/implementation-log.md", stdout)
+        self.assertIn("artifact: docs/implementation-report.md", stdout)
         self.assertEqual(manifest.active_stage, STAGE_VALIDATION)
         self.assertIsNone(status.active_phase)
         self.assertEqual(status.phases["1"]["status"], "committed")
@@ -129,6 +137,8 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertTrue(status.phases["2"]["commit"])
         self.assertTrue(phase1_exists)
         self.assertTrue(phase2_exists)
+        self.assertIn("Phase 1", implementation_log_text)
+        self.assertIn("ready for validation", implementation_report_text)
 
     def test_phase_commit_requires_phase_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

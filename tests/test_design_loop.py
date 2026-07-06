@@ -27,6 +27,7 @@ class DesignLoopTests(unittest.TestCase):
     def test_requirements_stage_snapshots_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            configure_git_identity(root)
             write_file(root / "docs" / "requirements.md", "# Requirements\n")
             StateStore(root).init_run(run_id="run-1")
             write_manual_runtime(root)
@@ -46,6 +47,7 @@ class DesignLoopTests(unittest.TestCase):
     def test_design_review_blocks_until_issue_resolved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            configure_git_identity(root)
             write_file(root / "docs" / "requirements.md", "# Requirements\n")
             write_file(root / "docs" / "detailed-design.md", "# Design\n")
             store = StateStore(root)
@@ -113,11 +115,11 @@ class DesignLoopTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertIn("design-review: running design review agent", stdout)
         self.assertIn("summary: docs/design-review.md", stdout)
-        self.assertIn("design-review commit:", stdout)
+        self.assertIn("next: run `electroboy design-approve`", stdout)
         self.assertIn("Run ID: run-1", summary)
         self.assertIn("Stage result: passed", summary)
         self.assertIn("docs/detailed-design.md", summary)
-        self.assertIn("docs/design-review.md", committed_files)
+        self.assertNotIn("docs/design-review.md", committed_files)
 
 
 def write_file(path: Path, text: str) -> None:
@@ -126,6 +128,12 @@ def write_file(path: Path, text: str) -> None:
 
 
 def configure_git_identity(root: Path) -> None:
+    subprocess.run(
+        ["git", "-C", str(root), "init"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     subprocess.run(
         ["git", "-C", str(root), "config", "user.email", "test@example.com"],
         check=True,
