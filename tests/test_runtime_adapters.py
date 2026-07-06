@@ -154,6 +154,27 @@ class RuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(result.issues[0]["issue_id"], "CR-1")
 
+    def test_codex_exec_extracts_change_report(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        result = runtime._parse_stdout(
+            '{"message": "{\\"ok\\": true, \\"final_message\\": '
+            '\\"done\\", \\"changed_files\\": [\\"docs/a.md\\"], '
+            '\\"created_files\\": [\\"docs/b.md\\"], '
+            '\\"commit_message\\": \\"docs: record review\\"}"}\n'
+        )
+
+        self.assertEqual(result.changed_files, ["docs/a.md"])
+        self.assertEqual(result.created_files, ["docs/b.md"])
+        self.assertEqual(result.commit_message, "docs: record review")
+
     def test_codex_exec_honors_structured_failure(self) -> None:
         runtime = CodexExecRuntime(
             RuntimeConfig(

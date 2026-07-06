@@ -79,7 +79,9 @@ class CodexExecRuntime(GenericCliRuntime):
                 raw_events=events,
                 issues=issues,
                 changed_files=structured.changed_files,
+                created_files=structured.created_files,
                 commands=structured.commands,
+                commit_message=structured.commit_message,
                 error=structured.error,
             )
         return AgentResult(
@@ -127,12 +129,17 @@ class CodexExecRuntime(GenericCliRuntime):
         issues = parsed.get("issues")
         if not isinstance(issues, list):
             issues = []
+        commit_message = parsed.get("commit_message")
         return AgentResult(
             ok=bool(parsed.get("ok", True)),
             final_message=str(parsed.get("final_message", parsed.get("message", ""))),
             issues=[issue for issue in issues if isinstance(issue, dict)],
             raw_events=[parsed],
             changed_files=list(parsed.get("changed_files", [])),
+            created_files=list(parsed.get("created_files", [])),
             commands=list(parsed.get("commands", [])),
+            commit_message=(
+                commit_message if isinstance(commit_message, str) else None
+            ),
             error=parsed.get("error"),
         )

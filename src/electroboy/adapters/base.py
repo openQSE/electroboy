@@ -24,7 +24,9 @@ class AgentResult:
     issues: list[dict[str, object]] = field(default_factory=list)
     raw_events: list[dict[str, object]] = field(default_factory=list)
     changed_files: list[str] = field(default_factory=list)
+    created_files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
+    commit_message: str | None = None
     error: str | None = None
 
 

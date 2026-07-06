@@ -76,13 +76,18 @@ class GenericCliRuntime(AgentRuntime):
         except json.JSONDecodeError:
             return AgentResult(ok=True, final_message=stdout)
         if isinstance(parsed, dict):
+            commit_message = parsed.get("commit_message")
             return AgentResult(
                 ok=bool(parsed.get("ok", True)),
                 final_message=str(parsed.get("final_message", parsed.get("message", ""))),
                 issues=list(parsed.get("issues", [])),
                 raw_events=[parsed],
                 changed_files=list(parsed.get("changed_files", [])),
+                created_files=list(parsed.get("created_files", [])),
                 commands=list(parsed.get("commands", [])),
+                commit_message=(
+                    commit_message if isinstance(commit_message, str) else None
+                ),
                 error=parsed.get("error"),
             )
         return AgentResult(ok=True, final_message=stdout, raw_events=[{"value": parsed}])
