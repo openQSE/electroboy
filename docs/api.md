@@ -32,6 +32,7 @@ Operator workflow commands:
 - `report trace` writes or prints the activity trace.
 - `stage <stage> --force --reason <text>` forces the active stage for expert
   recovery and existing-project adoption.
+- `completion bash` prints the Bash completion script.
 
 Earlier operator workflow commands reopen baselines when `--reason` is
 provided and the requested stage is behind the active stage. The orchestrator
@@ -66,9 +67,10 @@ electroboy deactivate
 inside a Git worktree, it initializes a repository. Existing repositories are
 reused. Activation exports `ELECTROBOY_PROJECT_ROOT`, prepends
 `<project>/bin` to `PATH`, prefixes the shell prompt with the project name,
-and defines shell functions for `electroboy` and `ai-pipeline`. The generated
-wrappers pass `--root <project>` to the Python module and use project-local
-runtime code when available.
+defines an `electroboy` shell function, and registers Bash completion when Bash
+is available. The generated wrappers pass `--root <project>` to the Python
+module and use project-local runtime code when available, including the
+`ai-pipeline` wrapper.
 
 If `.electroboy/project.toml` enables Python activation, the activation
 script sources the configured Python environment. It only deactivates that

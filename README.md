@@ -42,6 +42,12 @@ Run directly from a checkout:
 ./electroboy new /tmp/example-pipeline-project
 ```
 
+Bash completion can be enabled from a checkout:
+
+```bash
+source <(./electroboy completion bash)
+```
+
 ## Workflow
 
 Create a pipeline project and enter its project environment:
@@ -176,7 +182,8 @@ name, and can also enter a configured Python environment. The pipeline uses
 prompt and does not conflict with Python virtual environment behavior.
 
 After activation, use `electroboy` without `./` so the project environment
-selects the active project.
+selects the active project. In Bash, activation also registers command and
+option tab completion for `electroboy` and `ai-pipeline`.
 
 The `./ai-pipeline` command is an alias.
 

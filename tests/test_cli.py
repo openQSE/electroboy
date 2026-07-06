@@ -210,6 +210,68 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("stage changes require --reason", stderr)
 
+    def test_completion_bash_completes_commands(self) -> None:
+        with temp_project() as root:
+            code, script, stderr = self.run_cli(["completion", "bash"])
+            script_path = root / "completion.bash"
+            write_file(script_path, script)
+
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    (
+                        'source "$SCRIPT"\n'
+                        "COMP_WORDS=(./electroboy imple)\n"
+                        "COMP_CWORD=1\n"
+                        "__electroboy_complete\n"
+                        'printf "%s\\n" "${COMPREPLY[@]}"\n'
+                    ),
+                ],
+                env={"SCRIPT": str(script_path), "PATH": "/usr/bin:/bin"},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.splitlines(), ["implementation-plan"])
+
+    def test_completion_bash_completes_stage_choices(self) -> None:
+        with temp_project() as root:
+            code, script, stderr = self.run_cli(["completion", "bash"])
+            script_path = root / "completion.bash"
+            write_file(script_path, script)
+
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    (
+                        'source "$SCRIPT"\n'
+                        "COMP_WORDS=(electroboy stage imple)\n"
+                        "COMP_CWORD=2\n"
+                        "__electroboy_complete\n"
+                        'printf "%s\\n" "${COMPREPLY[@]}"\n'
+                    ),
+                ],
+                env={"SCRIPT": str(script_path), "PATH": "/usr/bin:/bin"},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.splitlines(), ["implementation"])
+
 
 class temp_project:
     def __enter__(self) -> Path:

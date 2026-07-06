@@ -264,6 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
         "validation-approve",
         help="approve validation and commit implementation handoff reports",
     )
+    completion = subparsers.add_parser(
+        "completion",
+        help="generate shell completion script",
+    )
+    completion.add_argument("shell", choices=["bash"])
 
     return parser
 
@@ -271,6 +276,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "completion":
+        return _cmd_completion(args)
+
     store = StateStore(args.root)
     engine = GateEngine(args.root)
 
@@ -332,6 +340,260 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.print_help(sys.stderr)
     return 2
+
+
+def _cmd_completion(args: argparse.Namespace) -> int:
+    if args.shell == "bash":
+        print(_bash_completion_script(), end="")
+        return 0
+    print(f"error: unsupported completion shell: {args.shell}", file=sys.stderr)
+    return 2
+
+
+def _bash_completion_script() -> str:
+    parser = build_parser()
+    subparsers = _subparser_action(parser)
+    command_parsers = subparsers.choices if subparsers else {}
+    nested_subcommands: dict[str, list[str]] = {}
+    nested_options: dict[str, list[str]] = {}
+
+    for command, command_parser in command_parsers.items():
+        nested = _subparser_action(command_parser)
+        if not nested:
+            continue
+        nested_subcommands[command] = sorted(nested.choices)
+        for subcommand, subcommand_parser in nested.choices.items():
+            nested_options[f"{command}:{subcommand}"] = _option_strings(
+                subcommand_parser
+            )
+
+    command_options = {
+        command: _option_strings(command_parser)
+        for command, command_parser in command_parsers.items()
+    }
+    value_options = sorted(
+        set(
+            _options_requiring_value(parser)
+            + [
+                option
+                for command_parser in command_parsers.values()
+                for option in _options_requiring_value(command_parser)
+            ]
+            + [
+                option
+                for command_parser in command_parsers.values()
+                for nested in [_subparser_action(command_parser)]
+                if nested
+                for subcommand_parser in nested.choices.values()
+                for option in _options_requiring_value(subcommand_parser)
+            ]
+        )
+    )
+
+    replacements = {
+        "__COMMANDS__": _shell_words(sorted(command_parsers)),
+        "__GLOBAL_OPTIONS__": _shell_words(_option_strings(parser)),
+        "__STAGE_CHOICES__": _shell_words(STAGES),
+        "__COMPLETION_SHELLS__": "bash",
+        "__COMMAND_OPTIONS_CASES__": _bash_case_entries(command_options),
+        "__SUBCOMMAND_CASES__": _bash_case_entries(nested_subcommands),
+        "__NESTED_OPTIONS_CASES__": _bash_case_entries(nested_options),
+        "__VALUE_OPTION_CASE__": _bash_case_pattern(value_options),
+    }
+    script = _BASH_COMPLETION_TEMPLATE
+    for placeholder, value in replacements.items():
+        script = script.replace(placeholder, value)
+    return script
+
+
+def _subparser_action(
+    parser: argparse.ArgumentParser,
+) -> argparse._SubParsersAction | None:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _option_strings(parser: argparse.ArgumentParser) -> list[str]:
+    options: list[str] = []
+    for action in parser._actions:
+        options.extend(action.option_strings)
+    return sorted(options)
+
+
+def _options_requiring_value(parser: argparse.ArgumentParser) -> list[str]:
+    options: list[str] = []
+    for action in parser._actions:
+        if not action.option_strings:
+            continue
+        if isinstance(action, (argparse._HelpAction, argparse._StoreTrueAction)):
+            continue
+        if action.nargs == 0:
+            continue
+        options.extend(action.option_strings)
+    return options
+
+
+def _shell_words(words: Sequence[str]) -> str:
+    return " ".join(shlex.quote(word) for word in words)
+
+
+def _bash_case_entries(mapping: dict[str, list[str]]) -> str:
+    lines: list[str] = []
+    for key, words in sorted(mapping.items()):
+        lines.append(
+            f"        {shlex.quote(key)}) printf '%s\\n' "
+            f"{shlex.quote(_shell_words(words))} ;;"
+        )
+    return "\n".join(lines)
+
+
+def _bash_case_pattern(words: Sequence[str]) -> str:
+    if not words:
+        return "__electroboy_no_value_options__"
+    return "|".join(shlex.quote(word) for word in words)
+
+
+_BASH_COMPLETION_TEMPLATE = """# bash completion for ElectroBoy.
+
+__electroboy_commands='__COMMANDS__'
+__electroboy_global_options='__GLOBAL_OPTIONS__'
+__electroboy_stage_choices='__STAGE_CHOICES__'
+__electroboy_completion_shells='__COMPLETION_SHELLS__'
+
+__electroboy_command_options() {
+    case "$1" in
+__COMMAND_OPTIONS_CASES__
+        *) printf '%s\\n' "" ;;
+    esac
+}
+
+__electroboy_subcommands() {
+    case "$1" in
+__SUBCOMMAND_CASES__
+        *) printf '%s\\n' "" ;;
+    esac
+}
+
+__electroboy_nested_options() {
+    case "$1:$2" in
+__NESTED_OPTIONS_CASES__
+        *) printf '%s\\n' "" ;;
+    esac
+}
+
+__electroboy_option_expects_value() {
+    case "$1" in
+        __VALUE_OPTION_CASE__) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+__electroboy_complete() {
+    local cur prev command subcommand word options subcommands
+    local command_index i have_stage
+
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    if [ "$prev" = "--root" ]; then
+        COMPREPLY=( $(compgen -d -- "$cur") )
+        return 0
+    fi
+    if __electroboy_option_expects_value "$prev"; then
+        return 0
+    fi
+
+    command=""
+    subcommand=""
+    command_index=0
+    for ((i = 1; i < COMP_CWORD; i++)); do
+        word="${COMP_WORDS[i]}"
+        if __electroboy_option_expects_value "$word"; then
+            ((i++))
+            continue
+        fi
+        if [[ "$word" == -* ]]; then
+            continue
+        fi
+        if [ -z "$command" ]; then
+            command="$word"
+            command_index="$i"
+            continue
+        fi
+        if [ -z "$subcommand" ]; then
+            subcommands="$(__electroboy_subcommands "$command")"
+            case " $subcommands " in
+                *" $word "*) subcommand="$word" ;;
+            esac
+        fi
+    done
+
+    if [ -z "$command" ]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=( $(compgen -W "$__electroboy_global_options" -- "$cur") )
+        else
+            COMPREPLY=( $(compgen -W "$__electroboy_commands $__electroboy_global_options" -- "$cur") )
+        fi
+        return 0
+    fi
+
+    subcommands="$(__electroboy_subcommands "$command")"
+    if [ -n "$subcommands" ] && [ -z "$subcommand" ]; then
+        if [[ "$cur" == -* ]]; then
+            options="$(__electroboy_command_options "$command")"
+            COMPREPLY=( $(compgen -W "$options" -- "$cur") )
+        else
+            COMPREPLY=( $(compgen -W "$subcommands" -- "$cur") )
+        fi
+        return 0
+    fi
+
+    if [ -n "$subcommand" ]; then
+        options="$(__electroboy_nested_options "$command" "$subcommand")"
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=( $(compgen -W "$options" -- "$cur") )
+        fi
+        return 0
+    fi
+
+    if [ "$command" = "stage" ]; then
+        have_stage=0
+        for ((i = command_index + 1; i < COMP_CWORD; i++)); do
+            word="${COMP_WORDS[i]}"
+            if __electroboy_option_expects_value "$word"; then
+                ((i++))
+                continue
+            fi
+            if [[ "$word" == -* ]]; then
+                continue
+            fi
+            have_stage=1
+        done
+        if [ "$have_stage" = "0" ] && [[ "$cur" != -* ]]; then
+            COMPREPLY=( $(compgen -W "$__electroboy_stage_choices" -- "$cur") )
+            return 0
+        fi
+    fi
+
+    if [ "$command" = "completion" ] && [[ "$cur" != -* ]]; then
+        COMPREPLY=( $(compgen -W "$__electroboy_completion_shells" -- "$cur") )
+        return 0
+    fi
+
+    options="$(__electroboy_command_options "$command")"
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "$options" -- "$cur") )
+    fi
+    return 0
+}
+
+if [ -n "${BASH_VERSION:-}" ] && command -v complete >/dev/null 2>&1; then
+    complete -o default -F __electroboy_complete electroboy ai-pipeline ./electroboy ./ai-pipeline
+fi
+"""
 
 
 def _cmd_new(args: argparse.Namespace) -> int:
@@ -2021,6 +2283,15 @@ electroboy() {{
             unset PS1
         fi
         export PATH
+        if [ -n "${{BASH_VERSION:-}}" ] && \\
+            command -v complete >/dev/null 2>&1; then
+            complete -r electroboy ai-pipeline ./electroboy ./ai-pipeline 2>/dev/null || true
+        fi
+        unset -f __electroboy_complete 2>/dev/null || true
+        unset -f __electroboy_command_options 2>/dev/null || true
+        unset -f __electroboy_subcommands 2>/dev/null || true
+        unset -f __electroboy_nested_options 2>/dev/null || true
+        unset -f __electroboy_option_expects_value 2>/dev/null || true
         unset _ELECTROBOY_ACTIVATED_ROOT
         unset _ELECTROBOY_PROJECT_PROMPT
         unset _ELECTROBOY_PREVIOUS_PATH
@@ -2031,15 +2302,19 @@ electroboy() {{
         unset _ELECTROBOY_HAD_PS1
         unset _ELECTROBOY_OWNS_PYTHON_ENV
         unset -f electroboy
-        unset -f ai-pipeline
         return 0
     fi
     command electroboy --root "$ELECTROBOY_PROJECT_ROOT" "$@"
 }}
 
-ai-pipeline() {{
-    electroboy "$@"
-}}
+if [ -n "${{BASH_VERSION:-}}" ]; then
+    _ELECTROBOY_COMPLETION_SCRIPT=$(command electroboy \\
+        --root "$ELECTROBOY_PROJECT_ROOT" completion bash 2>/dev/null)
+    if [ -n "$_ELECTROBOY_COMPLETION_SCRIPT" ]; then
+        eval "$_ELECTROBOY_COMPLETION_SCRIPT"
+    fi
+    unset _ELECTROBOY_COMPLETION_SCRIPT
+fi
 
 electroboy status
 """

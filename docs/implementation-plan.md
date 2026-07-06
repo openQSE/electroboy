@@ -430,6 +430,7 @@ electroboy deactivate
 electroboy report summary
 electroboy report trace
 electroboy stage <stage> --force --reason <text>
+electroboy completion bash
 ```
 
 `requirements`, `design`, and `implementation-plan` invoke the configured

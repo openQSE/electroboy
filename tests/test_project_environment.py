@@ -115,6 +115,39 @@ class ProjectEnvironmentTests(unittest.TestCase):
             ["active=(test-proj) #> ", "restored=#> "],
         )
 
+    def test_activation_registers_bash_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "test-proj"
+            self.assertEqual(self.run_cli(["new", str(root)])[0], 0)
+            env = os.environ.copy()
+            env["ACTIVATE"] = str(root / "bin" / "activate")
+
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    (
+                        'PS1="#> "\n'
+                        '. "$ACTIVATE" >/dev/null\n'
+                        "COMP_WORDS=(electroboy imple)\n"
+                        "COMP_CWORD=1\n"
+                        "__electroboy_complete\n"
+                        'printf "%s\\n" "${COMPREPLY[@]}"\n'
+                    ),
+                ],
+                cwd=root,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.splitlines(), ["implementation-plan"])
+
     def test_new_reuses_existing_git_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
