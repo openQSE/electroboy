@@ -31,6 +31,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("active stage: requirements", stdout)
+        self.assertIn("next-stage: design", stdout)
         self.assertIn("completed gates:", stdout)
 
     def test_rejects_design_before_requirements(self) -> None:
@@ -55,10 +56,16 @@ class CliTests(unittest.TestCase):
             code, stdout, stderr = self.run_cli(
                 ["--root", str(root), "requirements-approve"]
             )
+            status_code, status_stdout, status_stderr = self.run_cli(
+                ["--root", str(root), "status"]
+            )
             manifest = StateStore(root).load_current_manifest()
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("active stage: design", stdout)
+        self.assertEqual(status_code, 0, status_stderr)
+        self.assertIn("active stage: design", status_stdout)
+        self.assertIn("next-stage: design-review", status_stdout)
         self.assertTrue(manifest.has_gate("requirements"))
 
     def test_public_requirements_command_records_authoring(self) -> None:

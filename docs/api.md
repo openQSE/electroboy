@@ -10,8 +10,8 @@ Operator workflow commands:
 
 - `new <path>` creates a GitHub-ready project, initializes artifacts, creates
   `.electroboy/`, and installs `<path>/bin/activate`.
-- `status` prints active stage, active phase, completed gates, invalidated
-  gates, open requests, open issues, and blocked gates.
+- `status` prints active stage, next stage, active phase, completed gates,
+  invalidated gates, open requests, open issues, and blocked gates.
 - `requirements [--reason <text>]` starts or resumes requirements authoring.
 - `requirements-approve` records human and Design Author approval.
 - `design [--reason <text>]` starts or resumes design authoring.

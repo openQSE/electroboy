@@ -327,6 +327,7 @@ def _cmd_status(store: StateStore, engine: GateEngine) -> int:
     manifest = store.load_current_manifest()
     print(f"run id: {manifest.run_id}")
     print(f"active stage: {manifest.active_stage}")
+    print(f"next-stage: {NEXT_STAGE.get(manifest.active_stage, 'none')}")
     phase_status = store.load_phase_status()
     if phase_status.active_phase is None:
         print("active phase: none")
