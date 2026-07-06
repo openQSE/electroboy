@@ -197,6 +197,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     code = subparsers.add_parser("code", help="start or resume implementation")
     code.add_argument("--reason", help="reason for reopening implementation")
+    code.add_argument(
+        "--phased",
+        action="store_true",
+        help="run one phase and leave commit recording to the operator",
+    )
     document = subparsers.add_parser(
         "document",
         help="start or resume documentation review",
@@ -618,6 +623,16 @@ def _cmd_code(
         _print_gate_failure(["implementation gate has not passed"])
         return 1
 
+    if getattr(args, "phased", False):
+        return _cmd_code_phased(store, engine, args)
+    return _cmd_code_automated(store, engine, args)
+
+
+def _cmd_code_phased(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
     phase_status = store.load_phase_status()
     if phase_status.active_phase is not None:
         phase = phase_status.active_phase
@@ -667,6 +682,69 @@ def _cmd_code(
     if getattr(args, "reason", None):
         print(f"reason: {args.reason}")
     return code
+
+
+def _cmd_code_automated(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
+    printed_reason = False
+    while True:
+        phase_status = store.load_phase_status()
+        if phase_status.active_phase is None:
+            next_phase = _next_uncommitted_phase(store)
+            if next_phase is None:
+                _print_progress("implementation", "all planned phases are committed")
+                return _cmd_stage(store, engine, _stage_args(STAGE_IMPLEMENTATION))
+            _start_code_phase(store, next_phase)
+            phase = next_phase
+            _print_progress("implementation", f"started phase {phase}")
+        else:
+            phase = phase_status.active_phase
+            _print_progress("implementation", f"resuming phase {phase}")
+            store.append_activity(
+                ActivityEvent(
+                    actor="orchestrator",
+                    stage=STAGE_IMPLEMENTATION,
+                    phase=phase,
+                    action="code-resumed",
+                    summary=f"Resumed implementation phase {phase}.",
+                )
+            )
+
+        if getattr(args, "reason", None) and not printed_reason:
+            print(f"reason: {args.reason}")
+            printed_reason = True
+        code = _run_phase_agent_loop(store, phase)
+        if code != 0:
+            return code
+        commit_code = _commit_active_phase_automatically(store, engine, phase)
+        if commit_code != 0:
+            return commit_code
+
+
+def _start_code_phase(store: StateStore, phase_number: int) -> None:
+    phase_status = store.load_phase_status()
+    phase_status.active_phase = phase_number
+    phase = phase_status.phases.setdefault(str(phase_number), {})
+    phase.update(
+        {
+            "status": "active",
+            "objective": _phase_objective(store.root, phase_number),
+            "plan_current": True,
+        }
+    )
+    store.save_phase_status(phase_status)
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            phase=phase_number,
+            action="code-phase-started",
+            summary=f"Started implementation phase {phase_number}.",
+        )
+    )
 
 
 def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
@@ -741,6 +819,45 @@ def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
     phase["test_review_event"] = test_event
     phase["test_commands"] = list(test_result.commands)
     store.save_phase_status(status)
+    return 0
+
+
+def _commit_active_phase_automatically(
+    store: StateStore,
+    engine: GateEngine,
+    phase_number: int,
+) -> int:
+    manifest = store.load_current_manifest()
+    result = engine.evaluate(GATE_COMMIT, manifest)
+    if not result.passed:
+        _print_gate_failure(result.messages)
+        return 1
+
+    status = store.load_phase_status()
+    if status.active_phase != phase_number:
+        print("error: requested phase is not active", file=sys.stderr)
+        return 1
+    phase = status.phases.setdefault(str(phase_number), {})
+    commit_sha, error = _create_phase_commit(store.root, phase_number, phase)
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    if commit_sha is None:
+        print("error: phase commit was not created", file=sys.stderr)
+        return 1
+    validation_error = _phase_commit_validation_error(
+        store.root,
+        commit_sha,
+        phase_number,
+        phase,
+    )
+    if validation_error:
+        print(f"error: {validation_error}", file=sys.stderr)
+        return 1
+
+    _record_phase_commit(store, manifest, phase_number, commit_sha)
+    print(f"committed phase: {phase_number}")
+    print(f"commit: {commit_sha}")
     return 0
 
 
@@ -1224,38 +1341,17 @@ def _cmd_phase(
         if not args.sha:
             print("error: --sha is required", file=sys.stderr)
             return 1
-        if not _git_commit_exists(store.root, args.sha):
-            print(f"error: commit does not exist: {args.sha}", file=sys.stderr)
-            return 1
-        if not _git_commit_reachable_from_head(store.root, args.sha):
-            print(f"error: commit is not reachable from HEAD: {args.sha}", file=sys.stderr)
-            return 1
         phase = status.phases.setdefault(str(args.phase), {})
-        message_error = _phase_commit_message_error(store.root, args.sha, args.phase, phase)
-        if message_error:
-            print(f"error: {message_error}", file=sys.stderr)
-            return 1
-        scope_error = _phase_commit_scope_error(store.root, args.sha, args.phase)
-        if scope_error:
-            print(f"error: {scope_error}", file=sys.stderr)
-            return 1
-        phase["status"] = "committed"
-        phase["commit"] = args.sha
-        phase["commit_gate"] = "passed"
-        status.active_phase = None
-        store.save_phase_status(status)
-        store.append_activity(
-            ActivityEvent(
-                actor="coding-agent",
-                stage=manifest.active_stage,
-                phase=args.phase,
-                gate=GATE_COMMIT,
-                action="phase-committed",
-                status="pass",
-                summary=f"Committed implementation phase {args.phase}.",
-                commit=args.sha,
-            )
+        error = _phase_commit_validation_error(
+            store.root,
+            args.sha,
+            args.phase,
+            phase,
         )
+        if error:
+            print(f"error: {error}", file=sys.stderr)
+            return 1
+        _record_phase_commit(store, manifest, args.phase, args.sha)
         print(f"committed phase: {args.phase}")
         return 0
 
@@ -2556,6 +2652,189 @@ def _git_commit_exists(root: Path, sha: str) -> bool:
     return completed.returncode == 0
 
 
+def _create_phase_commit(
+    root: Path,
+    phase_number: int,
+    phase: dict[str, object],
+) -> tuple[str | None, str | None]:
+    if not _is_git_worktree(root):
+        return None, "repository is not a git worktree"
+    changed_paths = _git_worktree_changed_paths(root)
+    if not changed_paths:
+        return None, "phase produced no repository changes to commit"
+    scope_error = _phase_paths_scope_error(root, phase_number, changed_paths)
+    if scope_error:
+        return None, scope_error
+    stage_paths = _phase_stage_paths(root, phase_number, changed_paths)
+    add_error = _git_add_paths(root, stage_paths)
+    if add_error:
+        return None, add_error
+    if _git_staged_diff_is_empty(root):
+        return None, "phase produced no staged changes to commit"
+    message = _phase_commit_message(phase_number, phase)
+    completed = subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", message[0], "-m", message[1]],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        return None, f"git commit failed: {detail}"
+    sha = _git_current_head(root)
+    if sha is None:
+        return None, "git commit succeeded but HEAD could not be read"
+    return sha, None
+
+
+def _git_worktree_changed_paths(root: Path) -> list[str]:
+    commands = [
+        ["git", "-C", str(root), "diff", "--name-only"],
+        ["git", "-C", str(root), "diff", "--name-only", "--cached"],
+        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard"],
+    ]
+    paths: set[str] = set()
+    for command in commands:
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode != 0:
+            continue
+        for path in completed.stdout.splitlines():
+            normalized = _normalize_repo_path(path)
+            if not _is_pipeline_internal_path(normalized):
+                paths.add(normalized)
+    return sorted(paths)
+
+
+def _phase_stage_paths(
+    root: Path,
+    phase_number: int,
+    changed_paths: list[str],
+) -> list[str]:
+    planned_phase = next(
+        (phase for phase in planned_phases(root) if phase.number == phase_number),
+        None,
+    )
+    if planned_phase is None:
+        return changed_paths
+    allowed_paths = [_normalize_repo_path(path) for path in planned_phase.paths]
+    if "*" in allowed_paths or "." in allowed_paths:
+        return changed_paths
+    return allowed_paths
+
+
+def _git_add_paths(root: Path, paths: list[str]) -> str | None:
+    if not paths:
+        return "phase produced no repository changes to stage"
+    completed = subprocess.run(
+        ["git", "-C", str(root), "add", "-A", "--", *paths],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode == 0:
+        return None
+    return completed.stderr.strip() or completed.stdout.strip() or "git add failed"
+
+
+def _git_staged_diff_is_empty(root: Path) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "diff", "--cached", "--quiet"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def _git_current_head(root: Path) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def _phase_commit_message(
+    phase_number: int,
+    phase: dict[str, object],
+) -> tuple[str, str]:
+    objective = _phase_commit_objective(phase_number, phase)
+    return (
+        f"phase {phase_number}: {objective}",
+        f"Automated phase {phase_number} commit created by ai-pipeline code.",
+    )
+
+
+def _phase_commit_objective(
+    phase_number: int,
+    phase: dict[str, object],
+) -> str:
+    objective = str(phase.get("objective") or "").strip()
+    if not objective:
+        return f"Phase {phase_number}"
+    prefix = f"Phase {phase_number}"
+    if objective.lower().startswith(prefix.lower()):
+        detail = objective[len(prefix):].strip(" .:-")
+        return detail or prefix
+    return objective
+
+
+def _phase_commit_validation_error(
+    root: Path,
+    sha: str,
+    phase_number: int,
+    phase: dict[str, object],
+) -> str | None:
+    if not _git_commit_exists(root, sha):
+        return f"commit does not exist: {sha}"
+    if not _git_commit_reachable_from_head(root, sha):
+        return f"commit is not reachable from HEAD: {sha}"
+    message_error = _phase_commit_message_error(root, sha, phase_number, phase)
+    if message_error:
+        return message_error
+    return _phase_commit_scope_error(root, sha, phase_number)
+
+
+def _record_phase_commit(
+    store: StateStore,
+    manifest,
+    phase_number: int,
+    sha: str,
+) -> None:
+    status = store.load_phase_status()
+    phase = status.phases.setdefault(str(phase_number), {})
+    phase["status"] = "committed"
+    phase["commit"] = sha
+    phase["commit_gate"] = "passed"
+    status.active_phase = None
+    store.save_phase_status(status)
+    store.append_activity(
+        ActivityEvent(
+            actor="coding-agent",
+            stage=manifest.active_stage,
+            phase=phase_number,
+            gate=GATE_COMMIT,
+            action="phase-committed",
+            status="pass",
+            summary=f"Committed implementation phase {phase_number}.",
+            commit=sha,
+        )
+    )
+
+
 def _git_commit_reachable_from_head(root: Path, sha: str) -> bool:
     completed = subprocess.run(
         ["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
@@ -2605,6 +2884,18 @@ def _message_mentions_objective(
 
 
 def _phase_commit_scope_error(root: Path, sha: str, phase_number: int) -> str | None:
+    return _phase_paths_scope_error(
+        root,
+        phase_number,
+        _git_commit_changed_paths(root, sha),
+    )
+
+
+def _phase_paths_scope_error(
+    root: Path,
+    phase_number: int,
+    changed_paths: list[str],
+) -> str | None:
     planned_phase = next(
         (phase for phase in planned_phases(root) if phase.number == phase_number),
         None,
@@ -2616,9 +2907,8 @@ def _phase_commit_scope_error(root: Path, sha: str, phase_number: int) -> str | 
     allowed_paths = [_normalize_repo_path(path) for path in planned_phase.paths]
     if "*" in allowed_paths or "." in allowed_paths:
         return None
-    changed_paths = _git_commit_changed_paths(root, sha)
     if not changed_paths:
-        return "commit has no changed files"
+        return "phase produced no repository changes"
     out_of_scope = [
         path
         for path in changed_paths
@@ -2630,6 +2920,10 @@ def _phase_commit_scope_error(root: Path, sha: str, phase_number: int) -> str | 
             + ", ".join(out_of_scope)
         )
     return None
+
+
+def _is_pipeline_internal_path(path: str) -> bool:
+    return path == ".agent-pipeline" or path.startswith(".agent-pipeline/")
 
 
 def _git_commit_changed_paths(root: Path, sha: str) -> list[str]:
