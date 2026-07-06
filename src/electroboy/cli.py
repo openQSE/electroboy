@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import os
 import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Iterator, Sequence
 
 from .artifacts import ArtifactError, ArtifactManager
 from .gates import GateEngine
@@ -70,6 +71,12 @@ STAGE_SNAPSHOT_ARTIFACTS = {
     STAGE_DESIGN_ACCEPTANCE: "docs/detailed-design.md",
     STAGE_PLAN: "docs/implementation-plan.md",
 }
+
+DESIGN_REVIEW_SUMMARY_PATH = "docs/design-review.md"
+DESIGN_REVIEW_CONTEXT_PATHS = [
+    "docs/requirements.md",
+    "docs/detailed-design.md",
+]
 
 STAGE_APPROVAL_REQUIREMENTS = {
     STAGE_REQUIREMENTS: [
@@ -417,23 +424,73 @@ def _cmd_authoring_stage(
 def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
     manifest = store.load_current_manifest()
     if manifest.active_stage == STAGE_DESIGN:
-        code = _cmd_stage(
-            store,
-            engine,
-            _stage_args(STAGE_DESIGN, human=True),
-        )
+        with _progress_step("design-review", "recording design baseline"):
+            code = _cmd_stage(
+                store,
+                engine,
+                _stage_args(STAGE_DESIGN, human=True),
+            )
         if code != 0:
             return code
-    result, _event_id, _issue_file = _invoke_agent_role(
-        store,
-        role="design_review",
-        prompt="Review docs/detailed-design.md against docs/requirements.md.",
-        context_paths=["docs/requirements.md", "docs/detailed-design.md"],
+
+    manifest = store.load_current_manifest()
+    readiness_errors = _stage_readiness_errors(
+        engine,
+        manifest,
+        STAGE_DESIGN_REVIEW,
     )
+    if readiness_errors:
+        _print_gate_failure(readiness_errors)
+        return 1
+
+    with _progress_step("design-review", "running design review agent"):
+        result, event_id, issue_file = _invoke_agent_role(
+            store,
+            role="design_review",
+            prompt=_design_review_prompt(),
+            context_paths=DESIGN_REVIEW_CONTEXT_PATHS,
+        )
+    _print_progress(
+        "design-review",
+        f"agent completed with {len(result.issues)} reported issue(s)",
+    )
+
+    blocking = _blocking_issues(store, issue_file or "design-review.jsonl")
+    outcome = _design_review_outcome(result, blocking)
+    with _progress_step("design-review", "writing review summary"):
+        summary_path = _write_design_review_summary(
+            store,
+            result,
+            event_id,
+            issue_file or "design-review.jsonl",
+            outcome,
+        )
+    print(f"summary: {summary_path}")
+
+    if _is_git_worktree(store.root):
+        with _progress_step("design-review", "committing review artifacts"):
+            commit_sha, commit_error = _commit_design_review_artifacts(
+                store,
+                result,
+            )
+        if commit_error:
+            print(f"error: {commit_error}", file=sys.stderr)
+            return 1
+        if commit_sha:
+            print(f"design-review commit: {commit_sha}")
+        else:
+            print("design-review commit: no changes")
+    else:
+        print("design-review commit: skipped; repository is not a git worktree")
+
     if not result.ok:
         print(result.final_message, end="" if result.final_message.endswith("\n") else "\n")
         return 1
-    return _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
+    if blocking:
+        _print_gate_failure(["blocking design review issues remain"])
+        return 1
+    with _progress_step("design-review", "completing design-review gate"):
+        return _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
 
 
 def _cmd_code(
@@ -905,6 +962,25 @@ def _print_progress(label: str, message: str) -> None:
     Console().print(f"[bold]{label}[/bold]: {message}")
 
 
+@contextmanager
+def _progress_step(label: str, message: str) -> Iterator[None]:
+    try:
+        from rich.console import Console
+    except Exception:
+        print(f"{label}: {message}")
+        yield
+        return
+
+    console = Console()
+    if not console.is_terminal:
+        console.print(f"[bold]{label}[/bold]: {message}")
+        yield
+        return
+
+    with console.status(f"[bold]{label}[/bold]: {message}", spinner="dots"):
+        yield
+
+
 def _cmd_report(
     store: StateStore,
     engine: GateEngine,
@@ -1046,6 +1122,22 @@ def _cmd_stage(
     print(f"completed stage: {stage}")
     print(f"active stage: {manifest.active_stage}")
     return 0
+
+
+def _stage_readiness_errors(
+    engine: GateEngine,
+    manifest,
+    stage: str,
+) -> list[str]:
+    order = engine.stage_order(stage, manifest)
+    if not order.passed:
+        return order.messages
+    required_file = STAGE_REQUIRED_FILES.get(stage)
+    if required_file:
+        file_result = engine.require_file(required_file)
+        if not file_result.passed:
+            return file_result.messages
+    return []
 
 
 def _cmd_phase(
@@ -1271,11 +1363,176 @@ def _invoke_agent_role(
             linked_issue_ids=linked_issue_ids,
             inputs=list(invocation.context_paths),
             outputs=[issue_file] if issue_file and linked_issue_ids else [],
+            artifact_changes=_agent_reported_files(result),
             commands=list(result.commands),
             message_ref=f"messages/{event_id}-response.md",
         )
     )
     return result, event_id, issue_file
+
+
+def _design_review_prompt() -> str:
+    return "\n".join(
+        [
+            "Review docs/detailed-design.md against docs/requirements.md.",
+            "",
+            "Report blocker and major findings as structured review issues.",
+            "If you create or modify files, report them in changed_files or",
+            "created_files and provide a concise commit_message. Do not run",
+            "git add or git commit; ElectroBoy owns repository commits.",
+        ]
+    )
+
+
+def _design_review_outcome(
+    result: AgentResult,
+    blocking: list[dict[str, object]],
+) -> str:
+    if not result.ok:
+        return "failed"
+    if blocking:
+        return "blocked"
+    return "passed"
+
+
+def _write_design_review_summary(
+    store: StateStore,
+    result: AgentResult,
+    event_id: str,
+    issue_file: str,
+    outcome: str,
+) -> str:
+    manifest = store.load_current_manifest()
+    issues = store.read_review_issues(issue_file)
+    blocking = _blocking_issues(store, issue_file)
+    reported_files = _agent_reported_files(result)
+    summary = result.final_message.strip() or "No narrative review summary returned."
+    lines = [
+        "# Design Review",
+        "",
+        f"Run ID: {manifest.run_id}",
+        f"Review event: {event_id}",
+        f"Review issue file: {issue_file}",
+        f"Stage result: {outcome}",
+        f"Active stage when written: {manifest.active_stage}",
+        "",
+        "## Reviewed Artifacts",
+        "",
+        *_markdown_list(DESIGN_REVIEW_CONTEXT_PATHS),
+        "",
+        "## Summary",
+        "",
+        *summary.splitlines(),
+        "",
+        "## Review Findings",
+        "",
+        *_markdown_list(_design_review_issue_lines(issues)),
+        "",
+        "## Changes Made",
+        "",
+        *_markdown_list(_design_review_change_lines(reported_files)),
+        "",
+        "## Orchestrator Artifacts",
+        "",
+        f"- {DESIGN_REVIEW_SUMMARY_PATH}",
+        "",
+        "## Open Issues",
+        "",
+        *_markdown_list(_design_review_issue_lines(blocking)),
+        "",
+        "## Approval State",
+        "",
+        _design_review_approval_state(outcome),
+    ]
+    path = store.root / DESIGN_REVIEW_SUMMARY_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_DESIGN_REVIEW,
+            action="design-review-summary-written",
+            summary=f"Wrote {DESIGN_REVIEW_SUMMARY_PATH}.",
+            outputs=[DESIGN_REVIEW_SUMMARY_PATH],
+            artifact_changes=[DESIGN_REVIEW_SUMMARY_PATH],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    return DESIGN_REVIEW_SUMMARY_PATH
+
+
+def _design_review_issue_lines(issues: list[dict[str, object]]) -> list[str]:
+    return [
+        (
+            f"{issue.get('issue_id')}: {issue.get('severity')} "
+            f"{issue.get('status')} - {issue.get('summary')}"
+        )
+        for issue in issues
+    ]
+
+
+def _design_review_change_lines(paths: list[str]) -> list[str]:
+    if not paths:
+        return ["No agent-reported file changes."]
+    return paths
+
+
+def _design_review_approval_state(outcome: str) -> str:
+    if outcome == "passed":
+        return "Design review has no blocking findings and may complete."
+    if outcome == "blocked":
+        return "Design review is blocked by open blocker or major findings."
+    return "Design review did not complete because the review agent failed."
+
+
+def _agent_reported_files(result: AgentResult) -> list[str]:
+    paths = [
+        *result.changed_files,
+        *result.created_files,
+    ]
+    normalized = {
+        _normalize_repo_path(str(path))
+        for path in paths
+        if str(path).strip()
+    }
+    return sorted(
+        path
+        for path in normalized
+        if path != "." and not _is_pipeline_internal_path(path)
+    )
+
+
+def _commit_design_review_artifacts(
+    store: StateStore,
+    result: AgentResult,
+) -> tuple[str | None, str | None]:
+    paths = [DESIGN_REVIEW_SUMMARY_PATH, *_agent_reported_files(result)]
+    message = _design_review_commit_message(result)
+    commit_sha, error = _create_artifact_commit(store.root, paths, message)
+    if commit_sha:
+        store.append_activity(
+            ActivityEvent(
+                actor="orchestrator",
+                stage=STAGE_DESIGN_REVIEW,
+                action="design-review-artifacts-committed",
+                summary="Committed design review artifacts.",
+                outputs=paths,
+                commit=commit_sha,
+            )
+        )
+    return commit_sha, error
+
+
+def _design_review_commit_message(result: AgentResult) -> str:
+    if isinstance(result.commit_message, str) and result.commit_message.strip():
+        return result.commit_message.strip()
+    return "\n".join(
+        [
+            "design-review: record review summary",
+            "",
+            "Record the design review summary generated by ElectroBoy.",
+        ]
+    )
 
 
 def _init_git_repository(project_root: Path) -> None:
@@ -2128,6 +2385,90 @@ def _git_commit_exists(root: Path, sha: str) -> bool:
     return completed.returncode == 0
 
 
+def _create_artifact_commit(
+    root: Path,
+    paths: list[str],
+    message: str,
+) -> tuple[str | None, str | None]:
+    allowed_paths = sorted(
+        {
+            _normalize_repo_path(path)
+            for path in paths
+            if path.strip() and not _is_pipeline_internal_path(path)
+        }
+    )
+    if not allowed_paths:
+        return None, None
+
+    changed_paths = _git_worktree_changed_paths(root)
+    stage_paths = [
+        path
+        for path in allowed_paths
+        if path in changed_paths
+    ]
+    staged_paths = _git_staged_changed_paths(root)
+    outside_staged = [
+        path
+        for path in staged_paths
+        if path not in allowed_paths
+    ]
+    if outside_staged:
+        return (
+            None,
+            "staged changes are outside the design-review commit: "
+            + ", ".join(outside_staged),
+        )
+    if not stage_paths and not staged_paths:
+        return None, None
+
+    if stage_paths:
+        add_error = _git_add_paths(root, stage_paths)
+        if add_error:
+            return None, add_error
+    staged_paths = _git_staged_changed_paths(root)
+    outside_staged = [
+        path
+        for path in staged_paths
+        if path not in allowed_paths
+    ]
+    if outside_staged:
+        return (
+            None,
+            "staged changes are outside the design-review commit: "
+            + ", ".join(outside_staged),
+        )
+    if not any(path in staged_paths for path in allowed_paths):
+        return None, None
+
+    subject, body = _commit_message_parts(message)
+    completed = subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", subject, "-m", body],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        return None, f"git commit failed: {detail}"
+    sha = _git_current_head(root)
+    if sha is None:
+        return None, "git commit succeeded but HEAD could not be read"
+    return sha, None
+
+
+def _commit_message_parts(message: str) -> tuple[str, str]:
+    lines = [line.rstrip() for line in message.strip().splitlines()]
+    subject = next((line for line in lines if line.strip()), "")
+    if not subject:
+        subject = "design-review: record review summary"
+    subject_index = lines.index(subject) if subject in lines else 0
+    body = "\n".join(lines[subject_index + 1 :]).strip()
+    if not body:
+        body = "Automated design-review artifact commit created by ElectroBoy."
+    return subject, body
+
+
 def _create_phase_commit(
     root: Path,
     phase_number: int,
@@ -2186,6 +2527,23 @@ def _git_worktree_changed_paths(root: Path) -> list[str]:
             if not _is_pipeline_internal_path(normalized):
                 paths.add(normalized)
     return sorted(paths)
+
+
+def _git_staged_changed_paths(root: Path) -> list[str]:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "diff", "--name-only", "--cached"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return []
+    return [
+        _normalize_repo_path(path)
+        for path in completed.stdout.splitlines()
+        if path.strip()
+    ]
 
 
 def _phase_stage_paths(

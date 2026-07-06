@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -87,17 +88,72 @@ class DesignLoopTests(unittest.TestCase):
         self.assertIn("blocking design review issues remain", stderr)
         self.assertEqual(passed, 0)
 
+    def test_design_review_writes_summary_and_commits_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            self.assertEqual(self.run_cli(["new", str(root), "--run-id", "run-1"])[0], 0)
+            configure_git_identity(root)
+            write_manual_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
+            self.assertEqual(
+                self.run_cli(["--root", str(root), "requirements-approve"])[0],
+                0,
+            )
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "design-review"]
+            )
+            summary = (root / "docs" / "design-review.md").read_text(
+                encoding="utf-8"
+            )
+            committed_files = git_show_names(root)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("design-review: running design review agent", stdout)
+        self.assertIn("summary: docs/design-review.md", stdout)
+        self.assertIn("design-review commit:", stdout)
+        self.assertIn("Run ID: run-1", summary)
+        self.assertIn("Stage result: passed", summary)
+        self.assertIn("docs/detailed-design.md", summary)
+        self.assertIn("docs/design-review.md", committed_files)
+
 
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
 
+def configure_git_identity(root: Path) -> None:
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "Test User"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def git_show_names(root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "show", "--name-only", "--format=", "HEAD"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return completed.stdout
+
+
 def write_manual_runtime(root: Path) -> None:
     write_file(root / "agent-response.md", "accepted\n")
-    write_file(
-        root / "electroboy.toml",
-        """
+    config = """
 [runtime]
 default = "manual"
 
@@ -113,8 +169,10 @@ coding = "manual"
 code_review = "manual"
 test_review = "manual"
 documentation = "manual"
-""".lstrip(),
-    )
+""".lstrip()
+    write_file(root / "electroboy.toml", config)
+    if (root / ".electroboy").exists():
+        write_file(root / ".electroboy" / "project.toml", config)
 
 
 if __name__ == "__main__":
