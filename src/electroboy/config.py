@@ -58,6 +58,21 @@ DEFAULT_CONFIG = PipelineConfig(
                 "OPENAI_API_KEY",
             ],
         ),
+        "codex-interactive": RuntimeConfig(
+            name="codex-interactive",
+            adapter="codex_interactive",
+            command="codex",
+            env=[
+                "PATH",
+                "HOME",
+                "LANG",
+                "LC_ALL",
+                "TERM",
+                "TMPDIR",
+                "CODEX_HOME",
+                "OPENAI_API_KEY",
+            ],
+        ),
         "manual": RuntimeConfig(
             name="manual",
             adapter="manual",
@@ -65,7 +80,7 @@ DEFAULT_CONFIG = PipelineConfig(
             env=["PATH"],
         ),
     },
-    roles={},
+    roles={"design_author": "codex-interactive"},
 )
 
 

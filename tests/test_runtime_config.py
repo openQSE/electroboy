@@ -14,6 +14,16 @@ from electroboy.runtime import runtime_for_role  # noqa: E402
 
 
 class RuntimeConfigTests(unittest.TestCase):
+    def test_default_config_uses_interactive_codex_for_authoring(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_pipeline_config(Path(tmp))
+
+        self.assertEqual(
+            config.runtime_for_role("design_author").adapter,
+            "codex_interactive",
+        )
+        self.assertEqual(config.runtime_for_role("design_review").adapter, "codex_exec")
+
     def test_parse_runtime_config_selects_role_runtime(self) -> None:
         config = parse_pipeline_config(
             """

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -13,6 +14,7 @@ from electroboy.adapters.base import AgentInvocation  # noqa: E402
 from electroboy.config import RuntimeConfig  # noqa: E402
 from electroboy.adapters.codex_exec import CodexExecRuntime  # noqa: E402
 from electroboy.adapters.generic_cli import GenericCliRuntime  # noqa: E402
+from electroboy.adapters.interactive_cli import CodexInteractiveRuntime  # noqa: E402
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -81,6 +83,60 @@ class RuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(review[-2:], ["--sandbox", "read-only"])
         self.assertEqual(coding[-2:], ["--sandbox", "workspace-write"])
+
+    def test_codex_interactive_strips_exec_args_and_adds_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = CodexInteractiveRuntime(
+                RuntimeConfig(
+                    name="codex",
+                    adapter="codex_interactive",
+                    command="codex",
+                    args=["exec", "--json"],
+                ),
+                tmp,
+            )
+
+            command = runtime._command(
+                AgentInvocation(role="design_author", prompt="p")
+            )
+
+        self.assertNotIn("exec", command)
+        self.assertNotIn("--json", command)
+        self.assertIn("--cd", command)
+        self.assertIn("--sandbox", command)
+        self.assertEqual(command[-1], "workspace-write")
+
+    def test_codex_exec_uses_interactive_runtime_for_design_author(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            argv_path = root / "argv.json"
+            script = (
+                "import json, pathlib, sys; "
+                f"pathlib.Path({str(argv_path)!r}).write_text("
+                "json.dumps(sys.argv[1:]), encoding='utf-8')"
+            )
+            runtime = CodexExecRuntime(
+                RuntimeConfig(
+                    name="codex",
+                    adapter="codex_exec",
+                    command=sys.executable,
+                    args=["-c", script, "exec", "--json"],
+                    env=["PATH"],
+                ),
+                root,
+            )
+
+            result = runtime.invoke(
+                AgentInvocation(role="design_author", prompt="author requirements")
+            )
+            argv = json.loads(argv_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(result.ok)
+        self.assertNotIn("exec", argv)
+        self.assertNotIn("--json", argv)
+        self.assertIn("--cd", argv)
+        self.assertIn("--sandbox", argv)
+        self.assertEqual(argv[-1], "author requirements")
 
     def test_codex_exec_extracts_structured_issues(self) -> None:
         runtime = CodexExecRuntime(

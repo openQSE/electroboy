@@ -8,6 +8,7 @@ from .adapters.base import AgentRuntime
 from .adapters.codex_exec import CodexExecRuntime
 from .adapters.codex_sdk import CodexSdkRuntime
 from .adapters.generic_cli import GenericCliRuntime
+from .adapters.interactive_cli import CodexInteractiveRuntime, InteractiveCliRuntime
 from .adapters.manual import ManualRuntime
 from .config import PipelineConfig, RuntimeConfig, load_pipeline_config
 
@@ -15,7 +16,9 @@ from .config import PipelineConfig, RuntimeConfig, load_pipeline_config
 RUNTIME_CLASSES = {
     "manual": ManualRuntime,
     "generic_cli": GenericCliRuntime,
+    "interactive_cli": InteractiveCliRuntime,
     "codex_exec": CodexExecRuntime,
+    "codex_interactive": CodexInteractiveRuntime,
     "codex_sdk": CodexSdkRuntime,
 }
 

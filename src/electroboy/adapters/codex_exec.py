@@ -7,11 +7,17 @@ from pathlib import Path
 
 from .base import AgentInvocation, AgentResult, AgentRuntime
 from .generic_cli import GenericCliRuntime
+from .interactive_cli import CodexInteractiveRuntime
 from ..config import RuntimeConfig
 
 
 class CodexExecRuntime(GenericCliRuntime):
     """Runtime for `codex exec --json` agent turns."""
+
+    INTERACTIVE_ROLES = {
+        "design_author",
+        "design-author",
+    }
 
     READ_ONLY_ROLES = {
         "design_review",
@@ -30,6 +36,11 @@ class CodexExecRuntime(GenericCliRuntime):
     def __init__(self, config: RuntimeConfig, root: Path | str = ".") -> None:
         self.config = config
         self.root = Path(root).resolve()
+
+    def invoke(self, invocation: AgentInvocation) -> AgentResult:
+        if invocation.role in self.INTERACTIVE_ROLES:
+            return CodexInteractiveRuntime(self.config, self.root).invoke(invocation)
+        return super().invoke(invocation)
 
     def _command(self, invocation: AgentInvocation) -> list[str]:
         command = [self.config.command, *self.config.args]

@@ -106,6 +106,10 @@ command = "codex"
 args = ["exec", "--json"]
 structured_output = "json_schema"
 
+[runtimes.codex-interactive]
+adapter = "codex_interactive"
+command = "codex"
+
 [runtimes.claude]
 adapter = "generic_cli"
 command = "claude"
@@ -113,7 +117,7 @@ args = ["<non-interactive-args>"]
 structured_output = "prompt_contract"
 
 [roles]
-design_author = "codex"
+design_author = "codex-interactive"
 design_review = "codex"
 coding = "codex"
 code_review = "claude"
@@ -133,6 +137,9 @@ A CLI runtime is compatible when it can:
 - Restrict or document filesystem write behavior.
 - Return a final response that can be parsed into `AgentResult`.
 - Keep credentials outside repository files and durable run state.
+
+The default design-author role uses the interactive Codex CLI. Review and
+automation roles continue to use non-interactive runtimes.
 
 Credentials depend on the selected runtime. An API key is needed only when the
 selected CLI authentication path requires one. Codex can authenticate through

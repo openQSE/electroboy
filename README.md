@@ -312,6 +312,10 @@ command = "codex"
 args = ["exec", "--json"]
 structured_output = "json_schema"
 
+[runtimes.codex-interactive]
+adapter = "codex_interactive"
+command = "codex"
+
 [runtimes.claude]
 adapter = "generic_cli"
 command = "claude"
@@ -319,7 +323,7 @@ args = ["--print"]
 structured_output = "prompt_contract"
 
 [roles]
-design_author = "codex"
+design_author = "codex-interactive"
 design_review = "codex"
 coding = "codex"
 code_review = "claude"
@@ -332,9 +336,11 @@ python_activate = ".venv/bin/activate"
 python_managed_by_pipeline = false
 ```
 
-Codex review roles run with `--sandbox read-only` by default. Coding and
-documentation-writing roles run with `--sandbox workspace-write` unless the
-runtime configuration supplies an explicit sandbox option.
+The design-author role opens the interactive Codex CLI for requirements,
+design, and implementation-plan authoring. Codex review roles run with
+`--sandbox read-only` by default. Coding and documentation-writing roles run
+with `--sandbox workspace-write` unless the runtime configuration supplies an
+explicit sandbox option.
 
 If `activate_python` is true, `source path/to/project/bin/activate` also
 enters the configured Python environment. `electroboy deactivate` restores the

@@ -136,13 +136,19 @@ adapter = "codex_exec"
 command = "codex"
 args = ["exec", "--json"]
 
+[runtimes.codex-interactive]
+adapter = "codex_interactive"
+command = "codex"
+
 [roles]
+design_author = "codex-interactive"
 code_review = "codex"
 ```
 
-Codex review roles run in `read-only` sandbox mode by default. Coding and
-documentation-writing roles run in `workspace-write` mode unless the runtime
-sets an explicit sandbox option.
+The design-author role opens the interactive Codex CLI. Codex review roles run
+in `read-only` sandbox mode by default. Coding and documentation-writing roles
+run in `workspace-write` mode unless the runtime sets an explicit sandbox
+option.
 
 ## Public Python Modules
 

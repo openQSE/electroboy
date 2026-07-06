@@ -1331,8 +1331,13 @@ args = ["exec", "--json"]
 env = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "CODEX_HOME", "OPENAI_API_KEY"]
 structured_output = "json_schema"
 
+[runtimes.codex-interactive]
+adapter = "codex_interactive"
+command = "codex"
+env = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "CODEX_HOME", "OPENAI_API_KEY"]
+
 [roles]
-design_author = "codex"
+design_author = "codex-interactive"
 design_review = "codex"
 coding = "codex"
 code_review = "codex"
