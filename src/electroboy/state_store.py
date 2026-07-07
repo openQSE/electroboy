@@ -50,6 +50,7 @@ class StateStore:
         (run_dir / "artifacts").mkdir(exist_ok=True)
         (run_dir / "messages").mkdir(exist_ok=True)
         (self.local_dir / "raw" / run_id).mkdir(parents=True, exist_ok=True)
+        (self.local_dir / "sessions" / run_id).mkdir(parents=True, exist_ok=True)
 
         manifest = RunManifest(run_id=run_id)
         self.save_manifest(manifest)
@@ -245,6 +246,38 @@ class StateStore:
             text = json.dumps(self._to_jsonable(content), sort_keys=True)
         path.write_text(text.rstrip() + "\n", encoding="utf-8")
         return path
+
+    def read_session_record(self, stage: str, role: str) -> dict[str, object] | None:
+        manifest = self.load_current_manifest()
+        path = self.session_record_path(manifest.run_id, stage, role)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def write_session_record(
+        self,
+        stage: str,
+        role: str,
+        record: dict[str, object],
+    ) -> Path:
+        manifest = self.load_current_manifest()
+        path = self.session_record_path(manifest.run_id, stage, role)
+        self._write_json(path, record)
+        return path
+
+    def session_record_path(self, run_id: str, stage: str, role: str) -> Path:
+        return self.local_dir / "sessions" / run_id / stage / f"{role}.json"
+
+    def read_session_summary(self, stage: str, role: str) -> str | None:
+        manifest = self.load_current_manifest()
+        path = (
+            self._resolve_run_dir(manifest.run_id)
+            / "session-summaries"
+            / f"{stage}-{role}.md"
+        )
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8")
 
     def read_change_requests(self) -> list[dict[str, object]]:
         manifest = self.load_current_manifest()

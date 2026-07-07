@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,53 @@ class CliTests(unittest.TestCase):
         self.assertIn("Read only docs/requirements.md if it exists.", prompt)
         self.assertIn("Do not explore the working directory", prompt)
         self.assertIn("Update only docs/requirements.md", prompt)
+
+    def test_requirements_authoring_records_local_session(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_manual_runtime(root)
+
+            code, _stdout, stderr = self.run_cli(["--root", str(root), "requirements"])
+            session_path = (
+                root
+                / ".electroboy"
+                / "local"
+                / "sessions"
+                / "run-1"
+                / "requirements"
+                / "design_author.json"
+            )
+            session = json.loads(session_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(session["stage"], "requirements")
+        self.assertEqual(session["role"], "design_author")
+        self.assertEqual(session["run_id"], "run-1")
+        self.assertEqual(session["status"], "completed")
+        self.assertEqual(session["artifact"], "docs/requirements.md")
+
+    def test_requirements_authoring_uses_recovery_context_without_session_id(
+        self,
+    ) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_file(root / "docs" / "requirements.md", "# Requirements\n\nREQ-1\n")
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
+
+            code, _stdout, stderr = self.run_cli(["--root", str(root), "requirements"])
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("Session recovery context:", prompt)
+        self.assertIn("Previous local session record:", prompt)
+        self.assertIn("Current docs/requirements.md:", prompt)
+        self.assertIn("REQ-1", prompt)
 
     def test_requirements_approval_requires_design_author_event(self) -> None:
         with temp_project() as root:

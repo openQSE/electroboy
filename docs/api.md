@@ -47,6 +47,14 @@ orchestrator detects the changed artifact after the session, reopens the
 earliest affected stage, invalidates downstream gates, and prints the next
 approval command.
 
+Authoring commands also maintain local provider session records under
+`.electroboy/local/sessions/<run-id>/<stage>/<role>.json`. When a record
+contains a provider session id and the configured runtime supports resume,
+ElectroBoy passes that id back to the runtime. Codex interactive sessions use
+`codex resume <session-id>`. When no provider session id is available,
+ElectroBoy starts a new session with recovery context from the local session
+record, shared session summary when present, and the current stage artifact.
+
 ## Stage Commands
 
 The normal workflow advances through stage-specific commands such as

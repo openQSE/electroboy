@@ -13,6 +13,7 @@ class AgentInvocation:
     prompt: str
     context_paths: list[str] = field(default_factory=list)
     output_schema: dict[str, object] | None = None
+    provider_session_id: str | None = None
 
 
 @dataclass
@@ -28,6 +29,9 @@ class AgentResult:
     commands: list[str] = field(default_factory=list)
     commit_message: str | None = None
     error: str | None = None
+    provider: str | None = None
+    provider_session_id: str | None = None
+    resumed_session: bool = False
 
 
 class AgentRuntime:

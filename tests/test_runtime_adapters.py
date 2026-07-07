@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -137,6 +138,84 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertIn("--cd", argv)
         self.assertIn("--sandbox", argv)
         self.assertEqual(argv[-1], "author requirements")
+
+    def test_codex_interactive_resumes_provider_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = CodexInteractiveRuntime(
+                RuntimeConfig(
+                    name="codex",
+                    adapter="codex_interactive",
+                    command="codex",
+                ),
+                tmp,
+            )
+
+            command = runtime._command(
+                AgentInvocation(
+                    role="design_author",
+                    prompt="p",
+                    provider_session_id="019f3cb6-60c3-7320-896b-e5eb9a6a8dd2",
+                )
+            )
+
+        self.assertIn("resume", command)
+        self.assertIn("019f3cb6-60c3-7320-896b-e5eb9a6a8dd2", command)
+
+    def test_codex_interactive_discovers_new_session_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            root.mkdir()
+            codex_home = Path(tmp) / "codex-home"
+            session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"
+            script = textwrap.dedent(
+                f"""
+                import json
+                import os
+                import pathlib
+                import sys
+
+                root = sys.argv[sys.argv.index("--cd") + 1]
+                session = pathlib.Path(os.environ["CODEX_HOME"])
+                session = session / "sessions" / "2026" / "07" / "07"
+                session.mkdir(parents=True, exist_ok=True)
+                path = session / "rollout-2026-07-07T09-13-33-{session_id}.jsonl"
+                record = {{
+                    "type": "session_meta",
+                    "payload": {{
+                        "session_id": "{session_id}",
+                        "cwd": root,
+                    }},
+                }}
+                path.write_text(json.dumps(record) + "\\n", encoding="utf-8")
+                """
+            )
+            previous_home = os.environ.get("CODEX_HOME")
+            os.environ["CODEX_HOME"] = str(codex_home)
+            try:
+                runtime = CodexInteractiveRuntime(
+                    RuntimeConfig(
+                        name="codex",
+                        adapter="codex_interactive",
+                        command=sys.executable,
+                        args=["-c", script],
+                        env=["PATH", "CODEX_HOME"],
+                    ),
+                    root,
+                )
+
+                result = runtime.invoke(
+                    AgentInvocation(role="design_author", prompt="author")
+                )
+            finally:
+                if previous_home is None:
+                    os.environ.pop("CODEX_HOME", None)
+                else:
+                    os.environ["CODEX_HOME"] = previous_home
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.provider, "codex")
+        self.assertEqual(result.provider_session_id, session_id)
+        self.assertFalse(result.resumed_session)
 
     def test_codex_exec_extracts_structured_issues(self) -> None:
         runtime = CodexExecRuntime(

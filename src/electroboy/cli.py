@@ -693,6 +693,8 @@ def _cmd_authoring_stage(
         role="design_author",
         prompt=_authoring_prompt(stage),
         context_paths=_authoring_inputs(stage),
+        session_stage=stage,
+        session_artifact=artifact,
     )
     changed_artifacts = _changed_authoring_artifacts(store.root, artifact_snapshot)
     if not result.ok:
@@ -1830,19 +1832,46 @@ def _invoke_agent_role(
     role: str,
     prompt: str,
     context_paths: list[str],
+    session_stage: str | None = None,
+    session_artifact: str | None = None,
 ) -> tuple[AgentResult, str, str | None]:
     manifest = store.load_current_manifest()
     event_id = f"agent-{len(store.read_activity()) + 1:05d}"
+    session_record = (
+        store.read_session_record(session_stage, role) if session_stage else None
+    )
+    provider_session_id = _session_provider_session_id(session_record)
+    if session_stage and session_record and not provider_session_id:
+        prompt = _prompt_with_session_recovery(
+            store,
+            prompt,
+            session_stage,
+            role,
+            session_artifact,
+            session_record,
+        )
     invocation = AgentInvocation(
         role=role,
         prompt=prompt,
         context_paths=context_paths,
+        provider_session_id=provider_session_id,
     )
     try:
         runtime = runtime_for_role(role, store.root)
         result = runtime.invoke(invocation)
     except Exception as error:
         result = _failed_agent_result(str(error))
+    if session_stage:
+        _write_agent_session_record(
+            store,
+            session_stage,
+            role,
+            session_artifact,
+            event_id,
+            invocation,
+            result,
+            session_record,
+        )
     store.write_message(f"{event_id}-prompt", invocation.prompt)
     store.write_message(f"{event_id}-response", result.final_message)
     store.write_raw_event(event_id, result.raw_events)
@@ -1871,6 +1900,104 @@ def _invoke_agent_role(
         )
     )
     return result, event_id, issue_file
+
+
+def _session_provider_session_id(record: dict[str, object] | None) -> str | None:
+    if not record:
+        return None
+    value = record.get("session_id") or record.get("provider_session_id")
+    return value if isinstance(value, str) and value else None
+
+
+def _prompt_with_session_recovery(
+    store: StateStore,
+    prompt: str,
+    stage: str,
+    role: str,
+    artifact: str | None,
+    session_record: dict[str, object] | None,
+) -> str:
+    lines = [prompt.rstrip(), "", "Session recovery context:"]
+    summary = store.read_session_summary(stage, role)
+    if summary:
+        lines.extend(["", "Last shared session summary:", summary.strip()])
+    if session_record:
+        lines.extend(
+            [
+                "",
+                "Previous local session record:",
+                f"- status: {session_record.get('status', 'unknown')}",
+                f"- last seen: {session_record.get('last_seen_at', 'unknown')}",
+                f"- last event: {session_record.get('last_event_id', 'unknown')}",
+            ]
+        )
+    artifact_text = _session_recovery_artifact_text(store.root, artifact)
+    if artifact_text:
+        lines.extend(["", f"Current {artifact}:", artifact_text])
+    lines.extend(
+        [
+            "",
+            "Continue the authoring work from this context. Promote any",
+            "project-relevant decisions into the target artifact before asking",
+            "for approval.",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _session_recovery_artifact_text(root: Path, artifact: str | None) -> str:
+    if not artifact:
+        return ""
+    path = root / artifact
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8").strip()
+    if len(text) > 4000:
+        return f"{text[:4000]}\n[truncated]"
+    return text
+
+
+def _write_agent_session_record(
+    store: StateStore,
+    stage: str,
+    role: str,
+    artifact: str | None,
+    event_id: str,
+    invocation: AgentInvocation,
+    result: AgentResult,
+    previous: dict[str, object] | None,
+) -> None:
+    now = utc_now()
+    session_id = result.provider_session_id or invocation.provider_session_id
+    provider = result.provider
+    if provider is None and previous:
+        previous_provider = previous.get("provider")
+        provider = previous_provider if isinstance(previous_provider, str) else None
+    started_at = now
+    if previous and previous.get("session_id") == session_id:
+        previous_started = previous.get("started_at")
+        if isinstance(previous_started, str):
+            started_at = previous_started
+    manifest = store.load_current_manifest()
+    store.write_session_record(
+        stage,
+        role,
+        {
+            "provider": provider,
+            "session_id": session_id,
+            "stage": stage,
+            "role": role,
+            "run_id": manifest.run_id,
+            "status": "completed" if result.ok else "interrupted",
+            "started_at": started_at,
+            "last_seen_at": now,
+            "cwd": str(store.root),
+            "artifact": artifact,
+            "last_event_id": event_id,
+            "message_ref": f"messages/{event_id}-response.md",
+            "resumed_session": result.resumed_session,
+        },
+    )
 
 
 def _design_review_prompt() -> str:

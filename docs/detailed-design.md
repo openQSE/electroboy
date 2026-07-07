@@ -31,6 +31,7 @@
 - [Test Review Expectations](#test-review-expectations)
 - [Documentation Expectations](#documentation-expectations)
 - [Operational Model](#operational-model)
+- [Feature Proposals](#feature-proposals)
 - [Build Milestones](#build-milestones)
 - [Design Decisions](#design-decisions)
 
@@ -1490,6 +1491,118 @@ The architecture includes extension points for a service layer, dashboard,
 queue, and GitHub integration. Those extensions preserve the same core model.
 Agents remain specialized, artifacts remain durable, and phase gates remain
 explicit.
+
+## Feature Proposals
+
+<details>
+<summary>RESUME SESSIONS</summary>
+
+### Purpose
+
+Requirements, design, and implementation-planning sessions can contain long
+human-agent discussions. A killed terminal or interrupted agent process should
+not force the operator to rebuild that context from memory. ElectroBoy should
+resume the stage and, when possible, resume the underlying provider session.
+
+Approved artifacts remain authoritative. Session context helps the operator and
+agent continue work, but durable project truth still belongs in
+`docs/requirements.md`, `docs/detailed-design.md`, implementation plans,
+decisions, snapshots, commits, and review records.
+
+### Storage Model
+
+Provider-owned session data stays in the provider's normal local store. For
+Codex, that store is typically under `~/.codex/`. ElectroBoy should not copy or
+move that internal data into the project.
+
+ElectroBoy stores a project-local session index under:
+
+```text
+<project>/.electroboy/local/sessions/
+```
+
+This index records the provider reference needed to resume a session. For
+Codex, the provider reference is the session UUID accepted by:
+
+```bash
+codex resume <session-id>
+```
+
+A session record should include enough metadata for reliable lookup:
+
+```json
+{
+  "provider": "codex",
+  "session_id": "uuid-here",
+  "stage": "requirements",
+  "role": "design_author",
+  "run_id": "run-1",
+  "status": "interrupted",
+  "started_at": "...",
+  "last_seen_at": "...",
+  "cwd": "/path/to/project",
+  "artifact": "docs/requirements.md"
+}
+```
+
+Local session records are ignored by Git because they can contain machine
+paths, provider references, and sensitive discussion context.
+
+Portable project memory belongs in shared summaries:
+
+```text
+<project>/.electroboy/shared/runs/<run-id>/session-summaries/
+```
+
+These summaries should be redacted and intentionally written. They preserve
+project-relevant decisions, unresolved questions, and recovery notes for other
+machines or collaborators.
+
+### Resume Behavior
+
+When the operator runs an authoring command such as:
+
+```bash
+electroboy requirements
+```
+
+ElectroBoy checks the latest `requirements` and `design_author` session record
+for the active run. If the provider session is available, ElectroBoy resumes it
+with the project root and configured sandbox policy. For Codex, the command is
+equivalent to:
+
+```bash
+codex resume <session-id> --cd <project-root> --sandbox workspace-write
+```
+
+If the provider session is unavailable, expired, archived, or stored only on a
+different machine, ElectroBoy starts a new agent session with a recovery prompt.
+That prompt uses the last shared session summary, the current stage artifact,
+the original authoring prompt, and any recorded activity events.
+
+### Stage Scope
+
+Session context is scoped by run, stage, and role. A requirements authoring
+session can survive movement into design or implementation planning. If change
+control later reopens requirements, `electroboy requirements` can resume the
+latest requirements authoring session or recover from its summary.
+
+This model keeps conversations durable across stage changes without making a
+hidden chat transcript the source of truth for approved behavior.
+
+### Approval Guard
+
+Before approving requirements, design, or implementation planning, ElectroBoy
+should check for unresolved or unpromoted session notes. If the latest session
+summary contains decisions or open questions that are not reflected in the
+artifact, approval should warn the operator.
+
+The operator can then update the artifact, create an explicit decision record,
+or dismiss the session note. This keeps rich conversational context useful
+without allowing important requirements or tradeoffs to remain only in chat
+history.
+
+</details>
 
 ## Build Milestones
 

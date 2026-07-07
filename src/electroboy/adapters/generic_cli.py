@@ -77,6 +77,8 @@ class GenericCliRuntime(AgentRuntime):
             return AgentResult(ok=True, final_message=stdout)
         if isinstance(parsed, dict):
             commit_message = parsed.get("commit_message")
+            provider = parsed.get("provider")
+            provider_session_id = parsed.get("provider_session_id")
             return AgentResult(
                 ok=bool(parsed.get("ok", True)),
                 final_message=str(parsed.get("final_message", parsed.get("message", ""))),
@@ -89,5 +91,12 @@ class GenericCliRuntime(AgentRuntime):
                     commit_message if isinstance(commit_message, str) else None
                 ),
                 error=parsed.get("error"),
+                provider=provider if isinstance(provider, str) else None,
+                provider_session_id=(
+                    provider_session_id
+                    if isinstance(provider_session_id, str)
+                    else None
+                ),
+                resumed_session=bool(parsed.get("resumed_session", False)),
             )
         return AgentResult(ok=True, final_message=stdout, raw_events=[{"value": parsed}])
