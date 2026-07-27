@@ -64,6 +64,26 @@ repositories are reused instead of nesting a new repository. The command also
 creates the standard pipeline artifacts, creates `.electroboy/`, and
 installs `path/to/project/.electroboy/bin/activate`.
 
+Start feature work when you want the same from-scratch pipeline with feature
+metadata attached. Use `--branch` when ElectroBoy should create or switch to a
+focused feature branch before the normal stages begin:
+
+```bash
+electroboy feature start "Add dashboard export" --branch
+electroboy requirements
+electroboy requirements-approve
+electroboy design
+electroboy design-review
+electroboy design-approve
+electroboy implementation-plan
+electroboy plan-approve
+electroboy code
+electroboy validate
+electroboy validation-approve
+electroboy document
+electroboy code-approve
+```
+
 Define and approve requirements:
 
 ```bash

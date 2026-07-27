@@ -414,6 +414,7 @@ The primary CLI exposes commands that match the operator workflow.
 electroboy new <path>
 source <path>/bin/activate
 electroboy status
+electroboy feature start <title-or-issue-url> [--branch]
 electroboy requirements [--reason <text>]
 electroboy requirements-approve
 electroboy design [--reason <text>]

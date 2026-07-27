@@ -339,6 +339,84 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("stage changes require --reason", stderr)
 
+    def test_feature_start_initializes_standard_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "feature", "start", "Add dashboard"]
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            feature = json.loads(
+                (store.run_dir(manifest.run_id) / "feature.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            requirements_exists = (root / "docs" / "requirements.md").exists()
+            activate_exists = (root / ".electroboy" / "bin" / "activate").exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("feature: Add dashboard", stdout)
+        self.assertIn("next: electroboy requirements", stdout)
+        self.assertEqual(manifest.active_stage, "requirements")
+        self.assertEqual(feature["title"], "Add dashboard")
+        self.assertEqual(feature["workflow"][-1], "code-approve")
+        self.assertTrue(requirements_exists)
+        self.assertTrue(activate_exists)
+
+    def test_feature_start_can_create_feature_branch(self) -> None:
+        with temp_project() as root:
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add Dashboard",
+                    "--branch",
+                ]
+            )
+            completed = subprocess.run(
+                ["git", "-C", str(root), "branch", "--show-current"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            feature = json.loads(
+                (store.run_dir(manifest.run_id) / "feature.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("branch: feature/add-dashboard", stdout)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "feature/add-dashboard")
+        self.assertEqual(feature["branch"], "feature/add-dashboard")
+
+    def test_feature_start_branch_requires_clean_worktree(self) -> None:
+        with temp_project() as root:
+            write_file(root / "scratch.txt", "dirty\n")
+
+            code, _stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--branch",
+                ]
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("cannot create feature branch", stderr)
+        self.assertIn("scratch.txt", stderr)
+
     def test_completion_bash_completes_commands(self) -> None:
         with temp_project() as root:
             code, script, stderr = self.run_cli(["completion", "bash"])

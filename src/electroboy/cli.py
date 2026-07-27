@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import json
 import os
 import shlex
 import shutil
@@ -196,6 +197,22 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status", help="show current pipeline status")
     subparsers.add_parser("deactivate", help="leave an activated pipeline project")
 
+    feature = subparsers.add_parser("feature", help="feature development workflow")
+    feature_subparsers = feature.add_subparsers(
+        dest="feature_command",
+        required=True,
+    )
+    feature_start = feature_subparsers.add_parser(
+        "start",
+        help="start feature development through the standard pipeline",
+    )
+    feature_start.add_argument("title_or_issue_url", help="feature title or issue URL")
+    feature_start.add_argument(
+        "--branch",
+        action="store_true",
+        help="create or switch to a focused feature branch",
+    )
+
     requirements = subparsers.add_parser(
         "requirements",
         help="author or resume requirements definition",
@@ -313,6 +330,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_status(store, engine)
         if args.command == "deactivate":
             return _cmd_deactivate(store)
+        if args.command == "feature":
+            return _cmd_feature(store, args)
         if args.command == "requirements":
             return _cmd_authoring_stage(store, engine, args, STAGE_REQUIREMENTS)
         if args.command == "requirements-approve":
@@ -637,6 +656,217 @@ def _cmd_new(args: argparse.Namespace) -> int:
     print(f"active stage: {manifest.active_stage}")
     print(f"activate: source {_project_bin_dir(project_root) / 'activate'}")
     return 0
+
+
+def _cmd_feature(store: StateStore, args: argparse.Namespace) -> int:
+    if args.feature_command == "start":
+        return _cmd_feature_start(store, args)
+    print("error: unknown feature command", file=sys.stderr)
+    return 2
+
+
+def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
+    project_root = store.root
+    project_root.mkdir(parents=True, exist_ok=True)
+    _init_git_repository(project_root)
+
+    branch_name: str | None = None
+    if args.branch:
+        branch_name = _feature_branch_name(args.title_or_issue_url)
+        branch_error = _switch_feature_branch(project_root, branch_name)
+        if branch_error:
+            print(f"error: {branch_error}", file=sys.stderr)
+            return 1
+
+    ArtifactManager(project_root).init_templates()
+    _write_project_config(project_root)
+    _write_project_gitignore(project_root)
+    _write_project_runtime(project_root)
+    _write_project_bin(project_root)
+
+    created_run = False
+    if store.current_run_id():
+        manifest = store.load_current_manifest()
+    else:
+        manifest = store.init_run()
+        created_run = True
+
+    feature_record = _write_feature_record(
+        store,
+        args.title_or_issue_url,
+        branch_name,
+    )
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=manifest.active_stage,
+            action="feature-started",
+            summary=f"Started feature workflow for {feature_record['title']}.",
+            outputs=[f".electroboy/shared/runs/{manifest.run_id}/feature.json"],
+        )
+    )
+
+    print(f"feature: {feature_record['title']}")
+    if feature_record.get("source_issue_url"):
+        print(f"source issue: {feature_record['source_issue_url']}")
+    if branch_name:
+        print(f"branch: {branch_name}")
+    print(f"run id: {manifest.run_id}")
+    if created_run:
+        print("created run: yes")
+    print(f"active stage: {manifest.active_stage}")
+    print(f"activate: source {_project_bin_dir(project_root) / 'activate'}")
+    print(f"next: {_stage_command(manifest.active_stage)}")
+    return 0
+
+
+def _write_feature_record(
+    store: StateStore,
+    title_or_issue_url: str,
+    branch_name: str | None,
+) -> dict[str, object]:
+    manifest = store.load_current_manifest()
+    title = _feature_title(title_or_issue_url)
+    record: dict[str, object] = {
+        "schema_version": 1,
+        "title": title,
+        "input": title_or_issue_url,
+        "source_issue_url": (
+            title_or_issue_url
+            if _looks_like_url(title_or_issue_url)
+            else None
+        ),
+        "branch": branch_name,
+        "run_id": manifest.run_id,
+        "started_at": utc_now(),
+        "workflow": [
+            "requirements",
+            "requirements-approve",
+            "design",
+            "design-review",
+            "design-approve",
+            "implementation-plan",
+            "plan-approve",
+            "code",
+            "validate",
+            "validation-approve",
+            "document",
+            "code-approve",
+        ],
+    }
+    path = store.run_dir(manifest.run_id) / "feature.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return record
+
+
+def _feature_title(title_or_issue_url: str) -> str:
+    value = title_or_issue_url.strip()
+    if not _looks_like_url(value):
+        return value
+    parts = [part for part in value.rstrip("/").split("/") if part]
+    if len(parts) >= 2 and parts[-2] in {"issues", "pull"}:
+        item_type = "issue" if parts[-2] == "issues" else "pull request"
+        return f"Feature from {item_type} {parts[-1]}"
+    return parts[-1] if parts else value
+
+
+def _looks_like_url(value: str) -> bool:
+    return value.startswith("http://") or value.startswith("https://")
+
+
+def _feature_branch_name(title_or_issue_url: str) -> str:
+    value = title_or_issue_url.strip()
+    if _looks_like_url(value):
+        parts = [part for part in value.rstrip("/").split("/") if part]
+        if len(parts) >= 2 and parts[-2] in {"issues", "pull"}:
+            return f"feature/{parts[-1]}"
+        value = parts[-1] if parts else value
+    return f"feature/{_slugify(value)}"
+
+
+def _slugify(value: str) -> str:
+    chars: list[str] = []
+    previous_dash = False
+    for char in value.lower():
+        if char.isalnum():
+            chars.append(char)
+            previous_dash = False
+            continue
+        if not previous_dash:
+            chars.append("-")
+            previous_dash = True
+    slug = "".join(chars).strip("-")
+    return slug or "work"
+
+
+def _switch_feature_branch(root: Path, branch_name: str) -> str | None:
+    changed_paths = _git_worktree_changed_paths(root)
+    if changed_paths:
+        return (
+            "cannot create feature branch with uncommitted changes: "
+            + ", ".join(changed_paths)
+        )
+    current_branch = _git_current_branch(root)
+    if current_branch == branch_name:
+        return None
+    if _git_branch_exists(root, branch_name):
+        command = ["git", "-C", str(root), "switch", branch_name]
+    else:
+        command = ["git", "-C", str(root), "switch", "-c", branch_name]
+    completed = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode == 0:
+        return None
+    return completed.stderr.strip() or completed.stdout.strip() or "git switch failed"
+
+
+def _git_current_branch(root: Path) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "branch", "--show-current"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    branch = completed.stdout.strip()
+    return branch or None
+
+
+def _git_branch_exists(root: Path, branch_name: str) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "show-ref", "--verify", f"refs/heads/{branch_name}"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def _stage_command(stage: str) -> str:
+    commands = {
+        STAGE_REQUIREMENTS: "electroboy requirements",
+        STAGE_DESIGN: "electroboy design",
+        STAGE_DESIGN_REVIEW: "electroboy design-review",
+        STAGE_DESIGN_ACCEPTANCE: "electroboy design-approve",
+        STAGE_PLAN: "electroboy implementation-plan",
+        STAGE_IMPLEMENTATION: "electroboy code",
+        STAGE_VALIDATION: "electroboy validate",
+        STAGE_DOCS_REVIEW: "electroboy document",
+        STAGE_COMPLETE: "electroboy code-approve",
+    }
+    return commands.get(stage, "electroboy status")
 
 
 def _cmd_status(store: StateStore, engine: GateEngine) -> int:

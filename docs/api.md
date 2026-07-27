@@ -10,6 +10,8 @@ Operator workflow commands:
 
 - `new <path>` creates a GitHub-ready project, initializes artifacts, creates
   `.electroboy/`, and installs `<path>/bin/activate`.
+- `feature start <title-or-issue-url> [--branch]` starts feature work through
+  the standard pipeline and optionally creates or switches to a feature branch.
 - `status` prints active stage, next stage, active phase, completed gates,
   invalidated gates, open requests, open issues, and blocked gates.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes
@@ -61,6 +63,12 @@ Passing `--session-id <id>` writes that id to the stage's local session record
 before the agent starts. If a record already exists for the same run, stage,
 and role, the explicit id replaces it and becomes the id used by later
 authoring resumes.
+
+`feature start` records feature metadata in the current run's `feature.json`.
+When `--branch` is provided, the command requires a clean git worktree before
+creating or switching to the derived `feature/<slug>` branch. After intake, the
+normal workflow begins at `electroboy requirements` unless an existing run is
+already active at another stage.
 
 ## Stage Commands
 
