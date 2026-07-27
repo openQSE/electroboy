@@ -419,7 +419,7 @@ electroboy status
 electroboy meta init <path>
 electroboy add <path> [path...]
 electroboy start <repository>
-electroboy feature start <title-or-issue-url> [--branch]
+electroboy feature start <title-or-issue-url> [--branch [name]]
 electroboy requirements [--reason <text>]
 electroboy requirements-approve
 electroboy design [--reason <text>]

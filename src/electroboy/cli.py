@@ -254,8 +254,13 @@ def build_parser() -> argparse.ArgumentParser:
     feature_start.add_argument("title_or_issue_url", help="feature title or issue URL")
     feature_start.add_argument(
         "--branch",
-        action="store_true",
-        help="create or switch to a focused feature branch",
+        nargs="?",
+        const="",
+        metavar="NAME",
+        help=(
+            "create or switch to a focused feature branch; derive the name when "
+            "NAME is omitted"
+        ),
     )
 
     requirements = subparsers.add_parser(
@@ -1048,8 +1053,8 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
     _init_git_repository(project_root)
 
     branch_name: str | None = None
-    if args.branch:
-        branch_name = _feature_branch_name(args.title_or_issue_url)
+    if args.branch is not None:
+        branch_name = args.branch or _feature_branch_name(args.title_or_issue_url)
         branch_error = _switch_feature_branch(project_root, branch_name)
         if branch_error:
             print(f"error: {branch_error}", file=sys.stderr)

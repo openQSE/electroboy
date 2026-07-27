@@ -456,6 +456,40 @@ class CliTests(unittest.TestCase):
         self.assertEqual(completed.stdout.strip(), "feature/add-dashboard")
         self.assertEqual(feature["branch"], "feature/add-dashboard")
 
+    def test_feature_start_can_create_named_feature_branch(self) -> None:
+        with temp_project() as root:
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add admission and scheduling to the QFw",
+                    "--branch",
+                    "adm-sched-v01",
+                ]
+            )
+            completed = subprocess.run(
+                ["git", "-C", str(root), "branch", "--show-current"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            feature = json.loads(
+                (store.run_dir(manifest.run_id) / "feature.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("branch: adm-sched-v01", stdout)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "adm-sched-v01")
+        self.assertEqual(feature["branch"], "adm-sched-v01")
+
     def test_feature_start_branch_requires_clean_worktree(self) -> None:
         with temp_project() as root:
             write_file(root / "scratch.txt", "dirty\n")

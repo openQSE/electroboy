@@ -92,10 +92,12 @@ in their prompts.
 
 Start feature work when you want the same from-scratch pipeline with feature
 metadata attached. Use `--branch` when ElectroBoy should create or switch to a
-focused feature branch before the normal stages begin:
+focused feature branch before the normal stages begin. Omit the branch name to
+derive `feature/<slug>` from the title, or pass an explicit branch name:
 
 ```bash
 electroboy feature start "Add dashboard export" --branch
+electroboy feature start "Add admission and scheduling to the QFw" --branch adm-sched-v01
 electroboy requirements
 electroboy requirements-approve
 electroboy design

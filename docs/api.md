@@ -16,8 +16,9 @@ Operator workflow commands:
   meta-project.
 - `start <repository>` switches the active target repository for meta-project
   work, registering and initializing it when needed.
-- `feature start <title-or-issue-url> [--branch]` starts feature work through
-  the standard pipeline and optionally creates or switches to a feature branch.
+- `feature start <title-or-issue-url> [--branch [name]]` starts feature work
+  through the standard pipeline and optionally creates or switches to a feature
+  branch.
 - `status` prints active stage, next stage, active phase, completed gates,
   invalidated gates, open requests, open issues, and blocked gates. In
   meta-project mode it also prints the meta root, active repo, and registered
@@ -79,9 +80,11 @@ authoring resumes.
 
 `feature start` records feature metadata in the current run's `feature.json`.
 When `--branch` is provided, the command requires a clean git worktree before
-creating or switching to the derived `feature/<slug>` branch. After intake, the
-normal workflow begins at `electroboy requirements` unless an existing run is
-already active at another stage.
+creating or switching branches. `--branch` without a value derives
+`feature/<slug>` from the title or issue URL. `--branch <name>` uses the exact
+branch name provided. After intake, the normal workflow begins at
+`electroboy requirements` unless an existing run is already active at another
+stage.
 
 `meta init`, `add`, and `start` enable meta-project mode. The registry is
 stored in `.electroboy/shared/repositories.json` under the meta-project root.
