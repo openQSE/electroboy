@@ -23,6 +23,8 @@ class RuntimeConfigTests(unittest.TestCase):
             "codex_interactive",
         )
         self.assertEqual(config.runtime_for_role("design_review").adapter, "codex_exec")
+        self.assertIn("COLORTERM", config.runtime_for_role("design_author").env)
+        self.assertIn("COLORTERM", config.runtime_for_role("design_review").env)
 
     def test_parse_runtime_config_selects_role_runtime(self) -> None:
         config = parse_pipeline_config(

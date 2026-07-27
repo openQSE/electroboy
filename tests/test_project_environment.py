@@ -51,6 +51,10 @@ class ProjectEnvironmentTests(unittest.TestCase):
                 ).exists()
             )
             self.assertTrue((root / ".electroboy" / "project.toml").exists())
+            project_config = (root / ".electroboy" / "project.toml").read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(project_config.count('"COLORTERM"'), 2)
             self.assertTrue(
                 (root / ".electroboy" / "shared" / "current-run").exists()
             )
