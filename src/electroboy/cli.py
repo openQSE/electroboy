@@ -1189,7 +1189,7 @@ def _slugify(value: str) -> str:
 
 
 def _switch_feature_branch(root: Path, branch_name: str) -> str | None:
-    changed_paths = _git_worktree_changed_paths(root)
+    changed_paths = _git_worktree_changed_paths(root, include_untracked=False)
     if changed_paths:
         return (
             "cannot create feature branch with uncommitted changes: "
@@ -4298,12 +4298,18 @@ def _create_phase_commit(
     return sha, None
 
 
-def _git_worktree_changed_paths(root: Path) -> list[str]:
+def _git_worktree_changed_paths(
+    root: Path,
+    include_untracked: bool = True,
+) -> list[str]:
     commands = [
         ["git", "-C", str(root), "diff", "--name-only"],
         ["git", "-C", str(root), "diff", "--name-only", "--cached"],
-        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard"],
     ]
+    if include_untracked:
+        commands.append(
+            ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard"]
+        )
     paths: set[str] = set()
     for command in commands:
         completed = subprocess.run(

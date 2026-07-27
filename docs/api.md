@@ -79,12 +79,12 @@ and role, the explicit id replaces it and becomes the id used by later
 authoring resumes.
 
 `feature start` records feature metadata in the current run's `feature.json`.
-When `--branch` is provided, the command requires a clean git worktree before
-creating or switching branches. `--branch` without a value derives
-`feature/<slug>` from the title or issue URL. `--branch <name>` uses the exact
-branch name provided. After intake, the normal workflow begins at
-`electroboy requirements` unless an existing run is already active at another
-stage.
+When `--branch` is provided, the command blocks tracked uncommitted changes
+before creating or switching branches. Untracked files do not block feature
+branch setup. `--branch` without a value derives `feature/<slug>` from the
+title or issue URL. `--branch <name>` uses the exact branch name provided.
+After intake, the normal workflow begins at `electroboy requirements` unless
+an existing run is already active at another stage.
 
 `meta init`, `add`, and `start` enable meta-project mode. The registry is
 stored in `.electroboy/shared/repositories.json` under the meta-project root.

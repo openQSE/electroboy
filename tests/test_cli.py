@@ -490,9 +490,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(completed.stdout.strip(), "adm-sched-v01")
         self.assertEqual(feature["branch"], "adm-sched-v01")
 
-    def test_feature_start_branch_requires_clean_worktree(self) -> None:
+    def test_feature_start_branch_blocks_tracked_changes(self) -> None:
         with temp_project() as root:
-            write_file(root / "scratch.txt", "dirty\n")
+            write_file(root / "tracked.txt", "initial\n")
+            subprocess.run(
+                ["git", "-C", str(root), "add", "tracked.txt"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-m", "Add tracked file"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            write_file(root / "tracked.txt", "dirty\n")
 
             code, _stdout, stderr = self.run_cli(
                 [
@@ -507,7 +520,34 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("cannot create feature branch", stderr)
-        self.assertIn("scratch.txt", stderr)
+        self.assertIn("tracked.txt", stderr)
+
+    def test_feature_start_branch_allows_untracked_files(self) -> None:
+        with temp_project() as root:
+            write_file(root / "scratch.txt", "untracked\n")
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--branch",
+                ]
+            )
+            completed = subprocess.run(
+                ["git", "-C", str(root), "branch", "--show-current"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("branch: feature/add-dashboard", stdout)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "feature/add-dashboard")
 
     def test_completion_bash_completes_commands(self) -> None:
         with temp_project() as root:
