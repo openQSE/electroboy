@@ -152,7 +152,7 @@ def write_docs(root: Path, include_api: bool) -> None:
         write_file(
             root / "docs" / "api.md",
             "# API\n\n"
-            "Commands: new status deactivate requirements "
+            "Commands: new meta add start status deactivate requirements "
             "requirements-approve design design-review design-approve "
             "implementation-plan plan-approve test-plan test-plan-approve "
             "code document code-approve report stage phase validate "

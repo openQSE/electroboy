@@ -9,11 +9,19 @@ wrappers.
 Operator workflow commands:
 
 - `new <path>` creates a GitHub-ready project, initializes artifacts, creates
-  `.electroboy/`, and installs `<path>/bin/activate`.
+  `.electroboy/`, and installs `<path>/.electroboy/bin/activate`.
+- `meta init <path>` initializes an explicit meta-project registry and installs
+  `<path>/.electroboy/bin/activate`.
+- `add <path> [path...]` registers one or more repositories in the current
+  meta-project.
+- `start <repository>` switches the active target repository for meta-project
+  work, registering and initializing it when needed.
 - `feature start <title-or-issue-url> [--branch]` starts feature work through
   the standard pipeline and optionally creates or switches to a feature branch.
 - `status` prints active stage, next stage, active phase, completed gates,
-  invalidated gates, open requests, open issues, and blocked gates.
+  invalidated gates, open requests, open issues, and blocked gates. In
+  meta-project mode it also prints the meta root, active repo, and registered
+  repos.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes
   requirements authoring.
 - `requirements-approve` records human and Design Author approval.
@@ -75,6 +83,17 @@ creating or switching to the derived `feature/<slug>` branch. After intake, the
 normal workflow begins at `electroboy requirements` unless an existing run is
 already active at another stage.
 
+`meta init`, `add`, and `start` enable meta-project mode. The registry is
+stored in `.electroboy/shared/repositories.json` under the meta-project root.
+`meta init` also installs the meta activation environment under
+`.electroboy/bin/`. `add` registers one or more repositories in one command.
+`add` and `start` require an initialized registry. `start` sets the active
+target repository; later stage commands operate on that target repo's
+`.electroboy` state and `docs/` artifacts. Agent runtimes execute from the
+meta-project root and receive prompt context that names the active target repo
+and every registered repo. Running `start <other-repo>` context-switches
+directly; no `end` command is required.
+
 ## Stage Commands
 
 The normal workflow advances through stage-specific commands such as
@@ -94,7 +113,7 @@ skipped gates as complete.
 
 ```bash
 ./electroboy new path/to/project
-source path/to/project/bin/activate
+source path/to/project/.electroboy/bin/activate
 electroboy status
 electroboy deactivate
 ```
@@ -102,11 +121,11 @@ electroboy deactivate
 `new` creates the target directory when needed. If the target is not already
 inside a Git worktree, it initializes a repository. Existing repositories are
 reused. Activation exports `ELECTROBOY_PROJECT_ROOT`, prepends
-`<project>/bin` to `PATH`, prefixes the shell prompt with the project name,
-defines an `electroboy` shell function, and registers Bash completion when Bash
-is available. The generated wrappers pass `--root <project>` to the Python
-module and use project-local runtime code when available, including the
-`ai-pipeline` wrapper.
+`<project>/.electroboy/bin` to `PATH`, prefixes the shell prompt with the
+project name, defines an `electroboy` shell function, and registers Bash
+completion when Bash is available. The generated wrappers pass
+`--root <project>` to the Python module and use project-local runtime code
+when available, including the `ai-pipeline` wrapper.
 
 If `.electroboy/project.toml` enables Python activation, the activation
 script sources the configured Python environment. It only deactivates that

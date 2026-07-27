@@ -64,6 +64,32 @@ repositories are reused instead of nesting a new repository. The command also
 creates the standard pipeline artifacts, creates `.electroboy/`, and
 installs `path/to/project/.electroboy/bin/activate`.
 
+Use a meta-project when several related repositories need shared agent
+context. Run commands from the top-level workspace, register repositories, and
+switch the active target with `start`:
+
+```bash
+electroboy meta init ~/ORNL/Quantum/openQSE
+source ~/ORNL/Quantum/openQSE/.electroboy/bin/activate
+electroboy add QFw qhw-characterization
+electroboy start QFw
+electroboy requirements
+electroboy start qhw-characterization
+electroboy design
+```
+
+`meta init <path>` creates the meta-project registry explicitly and installs
+`<path>/.electroboy/bin/activate`. Source that activation script once from the
+workspace root, then use `add <repo> [repo...]` to register one or more
+repositories and `start <repo>` to switch the active target. `add` and `start`
+require that registry, so running either command from the wrong root fails
+instead of creating unexpected state. There is no separate `end` command. If
+the repository is not already registered, `start` registers it, initializes its
+ElectroBoy project state when needed, and makes it active. Stage artifacts and
+approval commits belong to the active target repository. Agent sessions run from
+the meta-project root and receive the active repo plus the registered repo list
+in their prompts.
+
 Start feature work when you want the same from-scratch pipeline with feature
 metadata attached. Use `--branch` when ElectroBoy should create or switch to a
 focused feature branch before the normal stages begin:

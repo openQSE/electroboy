@@ -20,7 +20,8 @@ Implemented:
 - Added `./electroboy` and `./ai-pipeline` source checkout wrappers.
 - Added the `ai-pipeline` console-script alias.
 - Added `electroboy new <path>` for project creation.
-- Added generated project activation scripts under `<project>/bin/activate`.
+- Added generated project activation scripts under
+  `<project>/.electroboy/bin/activate`.
 - Added `electroboy deactivate` shell-safe project deactivation.
 - Added Rich as the terminal progress dependency for the target workflow.
 - Added project environment tests for creation, activation files, and

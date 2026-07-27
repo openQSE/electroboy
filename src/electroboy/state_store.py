@@ -29,8 +29,21 @@ class StateError(RuntimeError):
 class StateStore:
     """Read and write `.electroboy` state for one repository."""
 
-    def __init__(self, root: Path | str = ".") -> None:
+    def __init__(
+        self,
+        root: Path | str = ".",
+        execution_root: Path | str | None = None,
+        meta_project_root: Path | str | None = None,
+        target_name: str | None = None,
+        registered_repositories: list[dict[str, object]] | None = None,
+    ) -> None:
         self.root = Path(root).resolve()
+        self.execution_root = Path(execution_root or self.root).resolve()
+        self.meta_project_root = (
+            Path(meta_project_root).resolve() if meta_project_root else None
+        )
+        self.target_name = target_name
+        self.registered_repositories = registered_repositories or []
         self.state_dir = self.root / ".electroboy"
         self.legacy_state_dir = self.root / ".agent-pipeline"
         self.shared_dir = self.state_dir / "shared"

@@ -350,8 +350,8 @@ the target directory when needed. If the target is not already inside a Git
 worktree, it initializes a GitHub-ready repository. Existing repositories are
 reused instead of nesting a new repository. The command writes standard
 artifact templates, creates `.electroboy/`, installs
-`<path>/bin/activate`, and writes project-local runtime code under ignored
-local state.
+`<path>/.electroboy/bin/activate`, and writes project-local runtime code under
+ignored local state.
 
 The activation script sets project-specific environment variables and wraps the
 `electroboy` command so the current shell has a project context. It also
@@ -378,7 +378,7 @@ current shell, while the Python process records the deactivation event in
 local state.
 
 Activation is restart-safe. If the shell closes during a code run, the operator
-can run `source <project>/bin/activate` and then `electroboy code`. The
+can run `source <project>/.electroboy/bin/activate` and then `electroboy code`. The
 orchestrator resumes from shared run state, phase status, issue records,
 artifact snapshots, and any safe local checkpoint data.
 
@@ -414,8 +414,11 @@ The primary CLI exposes commands that match the operator workflow.
 
 ```text
 electroboy new <path>
-source <path>/bin/activate
+source <path>/.electroboy/bin/activate
 electroboy status
+electroboy meta init <path>
+electroboy add <path> [path...]
+electroboy start <repository>
 electroboy feature start <title-or-issue-url> [--branch]
 electroboy requirements [--reason <text>]
 electroboy requirements-approve
@@ -463,6 +466,15 @@ checkpoints.
 system-test cases during design, planning, or implementation. After code
 completes, `test-plan-approve` commits `docs/test-plan.md` and advances to
 validation.
+
+`meta init`, `add`, and `start` enable meta-project workflows. A meta-project
+stores a repository registry under `.electroboy/shared/repositories.json`.
+`meta init` installs the meta activation environment under `.electroboy/bin/`.
+`add` can register one or more repositories in one command. `add` and `start`
+require that explicit registry. `start` switches the active target repository,
+initializes that repo's ElectroBoy state when needed, and lets existing stage
+commands continue to operate on the active target while agent runtimes execute
+from the meta-project root.
 
 `validate` runs final validation testing after the implementation and test-plan
 stages are complete. It runs the full test suite and the validation commands
@@ -603,7 +615,7 @@ Acceptance criteria:
 - `electroboy new <path>` creates a project directory and git repository.
 - New repositories include GitHub-oriented defaults for collaboration.
 - `./electroboy --help` and `./ai-pipeline --help` expose the same command set.
-- `<path>/bin/activate` sets project context for the active shell.
+- `<path>/.electroboy/bin/activate` sets project context for the active shell.
 - The activation script does not define bare `deactivate`.
 - `electroboy deactivate` restores pipeline-owned shell state.
 - Unit tests run locally.
@@ -992,7 +1004,8 @@ Implement restart-safe resume behavior and human-readable reporting.
 
 Scope:
 
-- Print activation status and next command from `<project>/bin/activate`.
+- Print activation status and next command from
+  `<project>/.electroboy/bin/activate`.
 - Resume from run manifest and phase status.
 - Report blocked gates.
 - Report open change-control requests.
@@ -1015,7 +1028,7 @@ Acceptance criteria:
 The initial useful milestone is a local, single-repo prototype:
 
 1. Create a project with `electroboy new <path>`.
-2. Activate it with `source <path>/bin/activate`.
+2. Activate it with `source <path>/.electroboy/bin/activate`.
 3. Run interactive requirements and design stages through the configured
    Design Author Agent.
 4. Verify that implementation commands fail before requirements and design
@@ -1066,7 +1079,7 @@ Baseline verification commands:
 python -m unittest discover -s tests
 PYTHONPATH=src python -m electroboy --help
 electroboy new /tmp/example-pipeline-project
-source /tmp/example-pipeline-project/bin/activate
+source /tmp/example-pipeline-project/.electroboy/bin/activate
 electroboy status
 electroboy requirements
 electroboy requirements-approve

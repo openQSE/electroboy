@@ -91,7 +91,7 @@ sequenceDiagram
     H->>O: electroboy new <project>
     O->>G: Initialize project repository
     O->>S: Create project environment and pipeline state
-    H->>O: source <project>/bin/activate
+    H->>O: source <project>/.electroboy/bin/activate
     O-->>H: Show active stage and next command
 
     H->>DA: Draft requirements with Design Author
@@ -262,13 +262,13 @@ Each project has an activatable pipeline environment. The environment is
 created with `electroboy new <path>`, which initializes the project directory,
 initializes a GitHub-ready git repository when the target is not already
 inside a Git worktree, reuses existing repositories, writes the standard
-pipeline files, and creates `<path>/bin/activate`.
+pipeline files, and creates `<path>/.electroboy/bin/activate`.
 
 The activation script behaves like a Python virtual environment activation
 script from the operator's perspective:
 
 ```bash
-source path/to/project/bin/activate
+source path/to/project/.electroboy/bin/activate
 ```
 
 After activation, commands run in that project context:
@@ -917,7 +917,7 @@ order and preserve state.
 Responsibilities:
 
 - Create project environments with `electroboy new <path>`.
-- Provide activation metadata used by `<project>/bin/activate`.
+- Provide activation metadata used by `<project>/.electroboy/bin/activate`.
 - Restore pipeline activation state through `electroboy deactivate`.
 - Assign the active stage and active implementation phase.
 - Reject commands that do not match the active stage or allowed transition.
@@ -1484,8 +1484,8 @@ The CLI enforces the same ordered state machine as the design. Operator
 commands can inspect state at any time, but mutating commands are accepted only
 when they match the active stage or an allowed change-control transition.
 The activation environment makes the project context implicit after
-`source <project>/bin/activate`, while durable state keeps resume behavior
-independent of a particular shell session.
+`source <project>/.electroboy/bin/activate`, while durable state keeps resume
+behavior independent of a particular shell session.
 
 The architecture includes extension points for a service layer, dashboard,
 queue, and GitHub integration. Those extensions preserve the same core model.
@@ -1636,7 +1636,7 @@ history.
 ## Design Decisions
 
 - The baseline orchestrator is a local CLI workflow.
-- Projects are entered through `source <project>/bin/activate`.
+- Projects are entered through `source <project>/.electroboy/bin/activate`.
 - The pipeline provides `electroboy deactivate` instead of claiming the shell's
   bare `deactivate` command.
 - `ai-pipeline` is an alias for `electroboy`.

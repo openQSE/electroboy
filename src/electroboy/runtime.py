@@ -31,10 +31,11 @@ def runtime_for_role(
     role: str,
     root: Path | str = ".",
     config: PipelineConfig | None = None,
+    execution_root: Path | str | None = None,
 ) -> AgentRuntime:
     pipeline_config = config or load_pipeline_config(root)
     runtime_config = pipeline_config.runtime_for_role(role)
-    return runtime_from_config(runtime_config, root)
+    return runtime_from_config(runtime_config, execution_root or root)
 
 
 def runtime_from_config(

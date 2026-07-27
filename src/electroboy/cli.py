@@ -36,6 +36,7 @@ from .models import (
     STAGES,
     PhaseStatus,
     ReviewIssue,
+    RunManifest,
     STAGE_COMPLETE,
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
@@ -87,6 +88,9 @@ IMPLEMENTATION_LOG_PATH = "docs/implementation-log.md"
 IMPLEMENTATION_REPORT_PATH = "docs/implementation-report.md"
 TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
+META_REGISTRY_PATH = "repositories.json"
+META_MANAGEMENT_COMMANDS = {"add", "start"}
+ROOT_LOCAL_COMMANDS = {"completion", "deactivate", "new"}
 
 APPROVAL_BASELINE_ARTIFACTS = {
     STAGE_REQUIREMENTS: ["docs/requirements.md"],
@@ -214,6 +218,26 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument("path", help="project directory to create or initialize")
     new.add_argument("--run-id", help="explicit run id for deterministic tests")
     new.add_argument("--force", action="store_true", help="replace current run")
+
+    meta = subparsers.add_parser("meta", help="manage meta-projects")
+    meta_subparsers = meta.add_subparsers(dest="meta_command", required=True)
+    meta_init = meta_subparsers.add_parser(
+        "init",
+        help="initialize a meta-project registry",
+    )
+    meta_init.add_argument("path", help="meta-project directory to initialize")
+
+    add = subparsers.add_parser(
+        "add",
+        help="register a repository in a meta-project",
+    )
+    add.add_argument("paths", nargs="+", help="repository paths to register")
+
+    start = subparsers.add_parser(
+        "start",
+        help="switch the active target repository in a meta-project",
+    )
+    start.add_argument("repository", help="registered name or repository path")
 
     subparsers.add_parser("status", help="show current pipeline status")
     subparsers.add_parser("deactivate", help="leave an activated pipeline project")
@@ -352,10 +376,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "completion":
         return _cmd_completion(args)
 
-    store = StateStore(args.root)
-    engine = GateEngine(args.root)
-
     try:
+        root_store = StateStore(args.root)
+        if args.command == "meta":
+            return _cmd_meta(args)
+        if args.command == "add":
+            return _cmd_meta_add(root_store, args)
+        if args.command == "start":
+            return _cmd_meta_start(root_store, args)
+        if args.command == "status" and _is_meta_project(root_store.root):
+            return _cmd_meta_status(root_store)
+
+        store = _store_for_command(root_store, args.command)
+        engine = GateEngine(store.root)
+
         if args.command == "new":
             return _cmd_new(args)
         if args.command == "status":
@@ -423,6 +457,309 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.print_help(sys.stderr)
     return 2
+
+
+def _cmd_meta(args: argparse.Namespace) -> int:
+    if args.meta_command == "init":
+        return _cmd_meta_init(args)
+    return 2
+
+
+def _cmd_meta_init(args: argparse.Namespace) -> int:
+    meta_root = Path(args.path).expanduser().resolve()
+    meta_root.mkdir(parents=True, exist_ok=True)
+    _write_meta_environment(meta_root)
+    registry_exists = _meta_registry_file(meta_root).exists()
+    registry = _read_meta_registry(meta_root)
+    if not registry_exists:
+        _write_meta_registry(meta_root, registry)
+
+    print(f"meta-project: {meta_root}")
+    print(f"registry: {_meta_registry_file(meta_root)}")
+    print(f"initialized: {'already' if registry_exists else 'yes'}")
+    print(f"active repo: {registry.get('active') or 'none'}")
+    print(f"registered repos: {len(_meta_repositories(registry))}")
+    print(f"activate: source {_project_bin_dir(meta_root) / 'activate'}")
+    return 0
+
+
+def _cmd_meta_add(store: StateStore, args: argparse.Namespace) -> int:
+    registry = _require_meta_registry(store.root)
+    repo_paths = [
+        _resolve_existing_repo_path(store.root, path)
+        for path in args.paths
+    ]
+    records: list[dict[str, object]] = []
+    for repo_path in repo_paths:
+        registry, record = _register_meta_repository(store.root, repo_path, registry)
+        records.append(record)
+    print(f"meta-project: {store.root}")
+    for record in records:
+        print(f"registered repo: {record['name']}")
+        print(f"repo path: {record['path']}")
+    print(f"active repo: {registry.get('active') or 'none'}")
+    return 0
+
+
+def _cmd_meta_start(store: StateStore, args: argparse.Namespace) -> int:
+    registry = _require_meta_registry(store.root)
+    repo_path, record = _resolve_meta_repository(
+        store.root,
+        registry,
+        args.repository,
+    )
+    registry, record = _register_meta_repository(store.root, repo_path, registry)
+    registry["active"] = record["name"]
+    _write_meta_registry(store.root, registry)
+
+    target_store = _target_store_from_record(store.root, registry, record)
+    manifest = _ensure_target_pipeline_project(target_store.root)
+    target_store = _target_store_from_record(store.root, registry, record)
+    print(f"meta-project: {store.root}")
+    print(f"active repo: {record['name']}")
+    print(f"repo path: {target_store.root}")
+    print(f"run id: {manifest.run_id}")
+    print(f"active stage: {manifest.active_stage}")
+    print(f"next: {_stage_command(manifest.active_stage)}")
+    print(f"artifact root: {target_store.root}")
+    return 0
+
+
+def _cmd_meta_status(store: StateStore) -> int:
+    registry = _read_meta_registry(store.root)
+    active_name = str(registry.get("active") or "")
+    print(f"meta-project: {store.root}")
+    if not active_name:
+        print("active repo: none")
+        _print_meta_repositories(registry)
+        return 0
+
+    record = _meta_repository_by_name(registry, active_name)
+    if record is None:
+        print(f"active repo: {active_name}")
+        print("repo path: missing")
+        _print_meta_repositories(registry)
+        return 0
+
+    target_store = _target_store_from_record(store.root, registry, record)
+    print(f"active repo: {record['name']}")
+    print(f"repo path: {target_store.root}")
+    if target_store.current_run_id():
+        _cmd_status(target_store, GateEngine(target_store.root))
+    else:
+        print("run id: none")
+    _print_meta_repositories(registry)
+    return 0
+
+
+def _store_for_command(root_store: StateStore, command: str) -> StateStore:
+    if command in ROOT_LOCAL_COMMANDS or not _is_meta_project(root_store.root):
+        return root_store
+    if command in META_MANAGEMENT_COMMANDS:
+        return root_store
+    registry = _read_meta_registry(root_store.root)
+    active_name = str(registry.get("active") or "")
+    if not active_name:
+        raise StateError("no active target repo; run `electroboy start <repo>` first")
+    record = _meta_repository_by_name(registry, active_name)
+    if record is None:
+        raise StateError(f"active target repo is not registered: {active_name}")
+    return _target_store_from_record(root_store.root, registry, record)
+
+
+def _is_meta_project(root: Path) -> bool:
+    return _meta_registry_file(root).exists()
+
+
+def _require_meta_registry(root: Path) -> dict[str, object]:
+    if not _is_meta_project(root):
+        raise StateError(
+            "meta-project is not initialized; run "
+            "`electroboy meta init <path>` first"
+        )
+    return _read_meta_registry(root)
+
+
+def _read_meta_registry(root: Path) -> dict[str, object]:
+    path = _meta_registry_file(root)
+    if not path.exists():
+        return {
+            "schema_version": 1,
+            "active": None,
+            "repositories": [],
+            "created_at": utc_now(),
+            "updated_at": utc_now(),
+        }
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_meta_registry(root: Path, registry: dict[str, object]) -> None:
+    registry["schema_version"] = 1
+    registry["updated_at"] = utc_now()
+    path = _meta_registry_file(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(f"{path.suffix}.tmp")
+    temp.write_text(
+        json.dumps(registry, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temp.replace(path)
+
+
+def _meta_registry_file(root: Path) -> Path:
+    return root / ".electroboy" / "shared" / META_REGISTRY_PATH
+
+
+def _write_meta_environment(meta_root: Path) -> None:
+    _write_project_config(meta_root)
+    _write_project_gitignore(meta_root)
+    _write_project_runtime(meta_root)
+    _write_project_bin(meta_root)
+
+
+def _register_meta_repository(
+    meta_root: Path,
+    repo_path: Path,
+    registry: dict[str, object] | None = None,
+    activate_if_empty: bool = False,
+) -> tuple[dict[str, object], dict[str, object]]:
+    registry = registry or _read_meta_registry(meta_root)
+    repo_path = repo_path.resolve()
+    repositories = _meta_repositories(registry)
+    existing = _meta_repository_by_path(registry, repo_path)
+    if existing is not None:
+        return registry, existing
+
+    name = repo_path.name
+    conflicting = _meta_repository_by_name(registry, name)
+    if conflicting is not None:
+        raise StateError(
+            f"repository name already registered for another path: {name}"
+        )
+
+    record: dict[str, object] = {
+        "name": name,
+        "path": str(repo_path),
+        "added_at": utc_now(),
+    }
+    repositories.append(record)
+    registry["repositories"] = repositories
+    if activate_if_empty and not registry.get("active"):
+        registry["active"] = name
+    _write_meta_registry(meta_root, registry)
+    return registry, record
+
+
+def _resolve_meta_repository(
+    meta_root: Path,
+    registry: dict[str, object],
+    reference: str,
+) -> tuple[Path, dict[str, object]]:
+    by_name = _meta_repository_by_name(registry, reference)
+    if by_name is not None:
+        path = Path(str(by_name["path"])).resolve()
+        if not path.exists():
+            raise StateError(f"registered repository path does not exist: {path}")
+        if not path.is_dir():
+            raise StateError(f"registered repository path is not a directory: {path}")
+        return path, by_name
+
+    path = _candidate_repo_path(meta_root, reference)
+    if not path.exists():
+        raise StateError(f"repository does not exist: {path}")
+    if not path.is_dir():
+        raise StateError(f"repository path is not a directory: {path}")
+    existing = _meta_repository_by_path(registry, path)
+    if existing is not None:
+        return path, existing
+    return path, {"name": path.name, "path": str(path)}
+
+
+def _resolve_existing_repo_path(meta_root: Path, reference: str) -> Path:
+    path = _candidate_repo_path(meta_root, reference)
+    if not path.exists():
+        raise StateError(f"repository does not exist: {path}")
+    if not path.is_dir():
+        raise StateError(f"repository path is not a directory: {path}")
+    return path
+
+
+def _candidate_repo_path(meta_root: Path, reference: str) -> Path:
+    path = Path(reference).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (meta_root / path).resolve()
+
+
+def _meta_repositories(registry: dict[str, object]) -> list[dict[str, object]]:
+    repositories = registry.get("repositories", [])
+    if not isinstance(repositories, list):
+        return []
+    return [
+        repo
+        for repo in repositories
+        if isinstance(repo, dict)
+    ]
+
+
+def _meta_repository_by_name(
+    registry: dict[str, object],
+    name: str,
+) -> dict[str, object] | None:
+    for repo in _meta_repositories(registry):
+        if repo.get("name") == name:
+            return repo
+    return None
+
+
+def _meta_repository_by_path(
+    registry: dict[str, object],
+    path: Path,
+) -> dict[str, object] | None:
+    resolved = path.resolve()
+    for repo in _meta_repositories(registry):
+        if Path(str(repo.get("path", ""))).resolve() == resolved:
+            return repo
+    return None
+
+
+def _target_store_from_record(
+    meta_root: Path,
+    registry: dict[str, object],
+    record: dict[str, object],
+) -> StateStore:
+    return StateStore(
+        Path(str(record["path"])),
+        execution_root=meta_root,
+        meta_project_root=meta_root,
+        target_name=str(record["name"]),
+        registered_repositories=_meta_repositories(registry),
+    )
+
+
+def _ensure_target_pipeline_project(project_root: Path) -> RunManifest:
+    project_root.mkdir(parents=True, exist_ok=True)
+    _init_git_repository(project_root)
+    ArtifactManager(project_root).init_templates()
+    _write_project_config(project_root)
+    _write_project_gitignore(project_root)
+    _write_project_runtime(project_root)
+    _write_project_bin(project_root)
+
+    store = StateStore(project_root)
+    if store.current_run_id():
+        return store.load_current_manifest()
+    return store.init_run()
+
+
+def _print_meta_repositories(registry: dict[str, object]) -> None:
+    repositories = _meta_repositories(registry)
+    print("registered repos:")
+    if not repositories:
+        print("  - none")
+        return
+    for repo in repositories:
+        print(f"  - {repo.get('name')}: {repo.get('path')}")
 
 
 def _cmd_completion(args: argparse.Namespace) -> int:
@@ -2254,14 +2591,20 @@ def _invoke_agent_role(
             session_artifact,
             session_record,
         )
+    execution_context_paths = _execution_context_paths(store, context_paths)
+    prompt = _prompt_with_meta_context(store, prompt, execution_context_paths)
     invocation = AgentInvocation(
         role=role,
         prompt=prompt,
-        context_paths=context_paths,
+        context_paths=execution_context_paths,
         provider_session_id=provider_session_id,
     )
     try:
-        runtime = runtime_for_role(role, store.root)
+        runtime = runtime_for_role(
+            role,
+            store.root,
+            execution_root=store.execution_root,
+        )
         result = runtime.invoke(invocation)
     except Exception as error:
         result = _failed_agent_result(str(error))
@@ -2304,6 +2647,76 @@ def _invoke_agent_role(
         )
     )
     return result, event_id, issue_file
+
+
+def _prompt_with_meta_context(
+    store: StateStore,
+    prompt: str,
+    context_paths: list[str],
+) -> str:
+    if store.meta_project_root is None:
+        return prompt
+    target_prefix = _path_from_execution_root(store, store.root)
+    lines = [
+        "Meta-project context:",
+        "",
+        f"- Meta-project root: {store.meta_project_root}",
+        f"- Agent working directory: {store.execution_root}",
+        f"- Active target repository: {store.target_name or store.root.name}",
+        f"- Target repository path: {store.root}",
+        f"- Target repository from working directory: {target_prefix}",
+        "",
+        "Stage artifacts belong to the active target repository. When a stage",
+        "instruction mentions docs/... or another relative path, interpret it",
+        f"relative to {target_prefix} unless the operator says otherwise.",
+        "",
+        "Registered repositories:",
+        *_markdown_list(_registered_repository_lines(store)),
+        "",
+        "Context paths from the agent working directory:",
+        *_markdown_list(context_paths),
+        "",
+        prompt,
+    ]
+    return "\n".join(lines)
+
+
+def _execution_context_paths(
+    store: StateStore,
+    context_paths: list[str],
+) -> list[str]:
+    if store.meta_project_root is None:
+        return context_paths
+    target_prefix = _path_from_execution_root(store, store.root)
+    return [
+        _join_context_path(target_prefix, path)
+        for path in context_paths
+    ]
+
+
+def _join_context_path(prefix: str, path: str) -> str:
+    if Path(path).is_absolute() or prefix == ".":
+        return path
+    return f"{prefix.rstrip('/')}/{path}"
+
+
+def _path_from_execution_root(store: StateStore, path: Path) -> str:
+    try:
+        relative = os.path.relpath(path, store.execution_root)
+    except ValueError:
+        return str(path)
+    if relative == ".":
+        return "."
+    if relative == ".." or relative.startswith(f"..{os.sep}"):
+        return str(path)
+    return Path(relative).as_posix()
+
+
+def _registered_repository_lines(store: StateStore) -> list[str]:
+    return [
+        f"{repo.get('name')}: {repo.get('path')}"
+        for repo in store.registered_repositories
+    ]
 
 
 def _explicit_session_id(session_id: str | None) -> str | None:
