@@ -16,7 +16,7 @@ from electroboy.cli import main  # noqa: E402
 from electroboy.models import (  # noqa: E402
     GATE_IMPLEMENTATION,
     STAGE_IMPLEMENTATION,
-    STAGE_VALIDATION,
+    STAGE_TEST_PLAN,
 )
 from electroboy.state_store import StateStore  # noqa: E402
 
@@ -129,7 +129,7 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertIn("committed phase: 2", stdout)
         self.assertIn("artifact: docs/implementation-log.md", stdout)
         self.assertIn("artifact: docs/implementation-report.md", stdout)
-        self.assertEqual(manifest.active_stage, STAGE_VALIDATION)
+        self.assertEqual(manifest.active_stage, STAGE_TEST_PLAN)
         self.assertIsNone(status.active_phase)
         self.assertEqual(status.phases["1"]["status"], "committed")
         self.assertEqual(status.phases["2"]["status"], "committed")

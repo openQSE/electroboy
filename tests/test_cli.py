@@ -12,8 +12,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from electroboy.artifacts import ArtifactManager  # noqa: E402
 from electroboy.cli import main  # noqa: E402
-from electroboy.models import STAGE_IMPLEMENTATION  # noqa: E402
+from electroboy.models import (  # noqa: E402
+    GATE_IMPLEMENTATION,
+    STAGE_IMPLEMENTATION,
+    STAGE_TEST_PLAN,
+    STAGE_VALIDATION,
+)
 from electroboy.state_store import StateStore  # noqa: E402
 
 
@@ -303,6 +309,58 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertIn("active stage: implementation", stdout)
 
+    def test_test_plan_authoring_can_run_during_design(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            manifest = store.init_run(run_id="run-1")
+            manifest.complete_gate("requirements")
+            manifest.set_active_stage("design")
+            store.save_manifest(manifest)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "test-plan"])
+            prompt_files = list((store.run_dir("run-1") / "messages").glob("*-prompt.md"))
+            prompt = prompt_files[0].read_text(encoding="utf-8")
+            manifest = store.load_current_manifest()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("authoring stage: test-plan", stdout)
+        self.assertIn("artifact: docs/test-plan.md", stdout)
+        self.assertIn("active stage: design", stdout)
+        self.assertIn("approve the test plan after code completes", stdout)
+        self.assertEqual(manifest.active_stage, "design")
+        self.assertIn("Target file: docs/test-plan.md.", prompt)
+        self.assertIn("Focus on system tests", prompt)
+
+    def test_test_plan_approve_commits_and_advances_to_validation(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            manifest = store.init_run(run_id="run-1")
+            manifest.complete_gate(GATE_IMPLEMENTATION)
+            manifest.set_active_stage(STAGE_TEST_PLAN)
+            store.save_manifest(manifest)
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            snapshot = ArtifactManager(root).snapshot(
+                manifest.run_id,
+                "docs/implementation-plan.md",
+                "plan-approved",
+            )
+            store.append_artifact_snapshot(snapshot)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "test-plan-approve"]
+            )
+            manifest = store.load_current_manifest()
+            committed_files = git_show_names(root)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("completed stage: test-plan", stdout)
+        self.assertIn("active stage: validation", stdout)
+        self.assertEqual(manifest.active_stage, STAGE_VALIDATION)
+        self.assertIn("docs/test-plan.md", committed_files)
+
     def test_stage_force_sets_active_stage(self) -> None:
         with temp_project() as root:
             store = StateStore(root)
@@ -515,6 +573,17 @@ def initialize_git_repo(root: Path) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+
+def git_show_names(root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "show", "--name-only", "--format=", "HEAD"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return completed.stdout
 
 
 def write_manual_runtime(root: Path) -> None:

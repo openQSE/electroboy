@@ -154,8 +154,9 @@ def write_docs(root: Path, include_api: bool) -> None:
             "# API\n\n"
             "Commands: new status deactivate requirements "
             "requirements-approve design design-review design-approve "
-            "implementation-plan plan-approve code document code-approve "
-            "report stage phase validate validation-approve completion feature.\n",
+            "implementation-plan plan-approve test-plan test-plan-approve "
+            "code document code-approve report stage phase validate "
+            "validation-approve completion feature.\n",
         )
 
 

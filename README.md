@@ -73,11 +73,14 @@ electroboy feature start "Add dashboard export" --branch
 electroboy requirements
 electroboy requirements-approve
 electroboy design
+electroboy test-plan
 electroboy design-review
 electroboy design-approve
 electroboy implementation-plan
 electroboy plan-approve
 electroboy code
+electroboy test-plan
+electroboy test-plan-approve
 electroboy validate
 electroboy validation-approve
 electroboy document
@@ -106,6 +109,22 @@ electroboy implementation-plan
 electroboy plan-approve
 ```
 
+Draft the system test plan whenever useful during design or planning:
+
+```bash
+electroboy test-plan
+```
+
+`test-plan` updates `docs/test-plan.md`. It can be run while the active stage
+is still design, implementation planning, or implementation so system test
+ideas are captured when they arise. After implementation completes, run
+`test-plan` again to review the final validation surface, then approve it:
+
+```bash
+electroboy test-plan
+electroboy test-plan-approve
+```
+
 Commit the approved pre-implementation baseline:
 
 ```bash
@@ -119,6 +138,8 @@ final approval:
 
 ```bash
 electroboy code
+electroboy test-plan
+electroboy test-plan-approve
 electroboy validate
 electroboy validation-approve
 electroboy document
@@ -137,15 +158,15 @@ continues until every planned phase is complete. The command stops only when an
 agent fails, an unresolved review issue blocks progress, phase scope changes,
 git cannot create a valid commit, or the agents need human input.
 
-After `code` completes, run `validate`. Validation always runs the full test
-suite plus artifact-declared validation commands and writes
-`docs/validation-report.md`. If validation fails, the pipeline opens a
-validation-fix phase and returns to `code`. After validation passes, run
-`validation-approve` to commit the implementation log, implementation report,
-and validation report before documentation review. `document` runs the
-documentation refinement and review phase. If a review or validation issue
-needs human input, the command records the escalation and stops at a resumable
-checkpoint.
+After `code` completes, revisit and approve `docs/test-plan.md`. Validation
+requires that approved system test plan, always runs the full test suite plus
+artifact-declared validation commands, and writes `docs/validation-report.md`.
+If validation fails, the pipeline opens a validation-fix phase and returns to
+`code`. After validation passes, run `validation-approve` to commit the
+implementation log, implementation report, and validation report before
+documentation review. `document` runs the documentation refinement and review
+phase. If a review or validation issue needs human input, the command records
+the escalation and stops at a resumable checkpoint.
 
 Use phased mode only when a human wants to inspect and record each phase commit
 manually:
@@ -315,6 +336,7 @@ Run the earliest affected stage command with a reason:
 electroboy requirements --reason "Validation found a missing setup workflow"
 electroboy design --reason "The architecture needs queued run support"
 electroboy implementation-plan --reason "The phase split is wrong"
+electroboy test-plan --reason "Validation needs a new system scenario"
 electroboy document --reason "Improve API examples"
 ```
 

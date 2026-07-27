@@ -24,6 +24,9 @@ Operator workflow commands:
 - `implementation-plan [--reason <text>] [--session-id <id>]` starts or
   resumes planning.
 - `plan-approve` records human and Design Author plan approval.
+- `test-plan [--reason <text>] [--session-id <id>]` starts or resumes system
+  test-plan authoring.
+- `test-plan-approve` records human test-plan approval.
 - `code [--reason <text>] [--phased]` starts or resumes implementation work.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
@@ -45,12 +48,14 @@ records change-control and baseline-invalidation records before resuming from
 the reopened stage.
 
 Authoring commands use scoped prompts. `requirements` targets
-`docs/requirements.md`, `design` targets `docs/detailed-design.md`, and
-`implementation-plan` targets `docs/implementation-plan.md`. If the operator
-asks the authoring agent to update an upstream authoring artifact, the
-orchestrator detects the changed artifact after the session, reopens the
-earliest affected stage, invalidates downstream gates, and prints the next
-approval command.
+`docs/requirements.md`, `design` targets `docs/detailed-design.md`,
+`implementation-plan` targets `docs/implementation-plan.md`, and `test-plan`
+targets `docs/test-plan.md`. `test-plan` may run before it is the active stage
+so operators can capture system test cases during design, planning, or
+implementation. If the operator asks the authoring agent to update an upstream
+authoring artifact, the orchestrator detects the changed artifact after the
+session, reopens the earliest affected stage, invalidates downstream gates,
+and prints the next approval command.
 
 Authoring commands also maintain local provider session records under
 `.electroboy/local/sessions/<run-id>/<stage>/<role>.json`. When a record
@@ -143,8 +148,9 @@ Use `--shell-command` only when shell behavior is required.
 electroboy validate --shell-command "python -m unittest discover -s tests"
 ```
 
-Validation writes `docs/validation-report.md`, stores a copy under the run
-artifact directory, and stores failures in `validation-review.jsonl`.
+Validation requires an approved `docs/test-plan.md`. It writes
+`docs/validation-report.md`, stores a copy under the run artifact directory,
+and stores failures in `validation-review.jsonl`.
 
 `validation-approve` commits `docs/implementation-log.md`,
 `docs/implementation-report.md`, and `docs/validation-report.md`, then advances

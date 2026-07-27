@@ -16,6 +16,7 @@ from .models import (
     GATE_PLAN_CURRENCY,
     GATE_REQUIREMENTS,
     GATE_STAGE_ORDER,
+    GATE_TEST_PLAN,
     GATE_VALIDATION_TESTING,
     GateResult,
     RunManifest,
@@ -26,6 +27,7 @@ from .models import (
     STAGE_IMPLEMENTATION,
     STAGE_PLAN,
     STAGE_REQUIREMENTS,
+    STAGE_TEST_PLAN,
     STAGE_VALIDATION,
 )
 from .planning import has_traceability
@@ -36,6 +38,7 @@ REQUIRED_FILES = {
     GATE_REQUIREMENTS: "docs/requirements.md",
     GATE_DESIGN: "docs/detailed-design.md",
     GATE_IMPLEMENTATION: "docs/implementation-plan.md",
+    GATE_TEST_PLAN: "docs/test-plan.md",
     GATE_DOCUMENTATION: "docs/api.md",
 }
 
@@ -44,6 +47,7 @@ GATE_SNAPSHOT_ARTIFACTS = {
     GATE_DESIGN: "docs/detailed-design.md",
     GATE_HUMAN_DESIGN_ACCEPTANCE: "docs/detailed-design.md",
     GATE_IMPLEMENTATION: "docs/implementation-plan.md",
+    GATE_TEST_PLAN: "docs/test-plan.md",
 }
 
 GATE_APPROVALS = {
@@ -60,6 +64,9 @@ GATE_APPROVALS = {
     GATE_IMPLEMENTATION: [
         (STAGE_PLAN, "human-approval"),
         (STAGE_PLAN, "author-confirmation"),
+    ],
+    GATE_TEST_PLAN: [
+        (STAGE_TEST_PLAN, "human-approval"),
     ],
 }
 
@@ -81,7 +88,8 @@ PREDECESSOR_GATES = {
         GATE_HUMAN_DESIGN_ACCEPTANCE,
     ],
     STAGE_IMPLEMENTATION: [GATE_IMPLEMENTATION],
-    STAGE_VALIDATION: [GATE_IMPLEMENTATION],
+    STAGE_TEST_PLAN: [GATE_IMPLEMENTATION],
+    STAGE_VALIDATION: [GATE_IMPLEMENTATION, GATE_TEST_PLAN],
     STAGE_DOCS_REVIEW: [GATE_VALIDATION_TESTING],
 }
 
@@ -148,6 +156,13 @@ class GateEngine:
             )
         if name == GATE_COMMIT:
             return self.commit_gate(manifest)
+        if name == GATE_TEST_PLAN:
+            return self._completed_file_gate(
+                manifest,
+                name,
+                "docs/test-plan.md",
+                "test-plan approval has not been recorded",
+            )
         if name == GATE_VALIDATION_TESTING:
             return self.validation_gate(
                 manifest,

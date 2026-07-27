@@ -271,6 +271,7 @@ docs/
   requirements.md
   detailed-design.md
   implementation-plan.md
+  test-plan.md
   api.md
 README.md
 ```
@@ -308,6 +309,7 @@ split into committed shared state and ignored local state.
           requirements.md
           detailed-design.md
           implementation-plan.md
+          test-plan.md
           validation-report.md
           README.md
           api.md
@@ -422,6 +424,8 @@ electroboy design-review
 electroboy design-approve
 electroboy implementation-plan [--reason <text>]
 electroboy plan-approve
+electroboy test-plan [--reason <text>]
+electroboy test-plan-approve
 electroboy code [--reason <text>] [--phased]
 electroboy validate
 electroboy validation-approve
@@ -434,30 +438,37 @@ electroboy stage <stage> --force --reason <text>
 electroboy completion bash
 ```
 
-`requirements`, `design`, and `implementation-plan` invoke the configured
-Design Author Agent in an interactive authoring context. The orchestrator uses
-stage-specific prompts that keep startup scope narrow: requirements reads and
-updates `docs/requirements.md`, design reads requirements and design docs while
-updating `docs/detailed-design.md`, and implementation planning reads the three
-baseline authoring docs while updating `docs/implementation-plan.md`. The
-operator can explicitly ask for broader artifact edits during the session.
-Approval remains separate so the human operator can review the artifact before
-the pipeline advances.
+`requirements`, `design`, `implementation-plan`, and `test-plan` invoke the
+configured Design Author Agent in an interactive authoring context. The
+orchestrator uses stage-specific prompts that keep startup scope narrow:
+requirements reads and updates `docs/requirements.md`, design reads
+requirements and design docs while updating `docs/detailed-design.md`,
+implementation planning reads the three baseline authoring docs while updating
+`docs/implementation-plan.md`, and test planning reads the authoring docs while
+updating `docs/test-plan.md`. The operator can explicitly ask for broader
+artifact edits during the session. Approval remains separate so the human
+operator can review the artifact before the pipeline advances.
 
 `design-review` starts the automated design review loop. `code` starts or
 resumes the fully automated implementation loop. By default, it runs every
 remaining planned phase, invokes coding, code review, and test review agents,
-creates and records each valid phase commit, and advances to validation when
-the implementation plan is complete. `code --phased` runs one phase and leaves
-commit creation or commit recording to the operator before the next phase can
-start. During `code`, the orchestrator uses Rich progress indicators for the
-active phase, code review, test review, escalations, and resumable checkpoints.
+creates and records each valid phase commit, and advances to test-plan review
+when the implementation plan is complete. `code --phased` runs one phase and
+leaves commit creation or commit recording to the operator before the next
+phase can start. During `code`, the orchestrator uses Rich progress indicators
+for the active phase, code review, test review, escalations, and resumable
+checkpoints.
 
-`validate` runs final validation testing after the implementation stage is
-complete. It runs the full test suite and the validation commands declared by
-the artifacts. If validation finds blocker or major issues, the orchestrator
-opens a validation-fix implementation phase and returns the run to `code`.
-When validation passes, `validation-approve` commits
+`test-plan` can run before it becomes the active stage so operators can capture
+system-test cases during design, planning, or implementation. After code
+completes, `test-plan-approve` commits `docs/test-plan.md` and advances to
+validation.
+
+`validate` runs final validation testing after the implementation and test-plan
+stages are complete. It runs the full test suite and the validation commands
+declared by the artifacts. If validation finds blocker or major issues, the
+orchestrator opens a validation-fix implementation phase and returns the run to
+`code`. When validation passes, `validation-approve` commits
 `docs/implementation-log.md`, `docs/implementation-report.md`, and
 `docs/validation-report.md`, then advances to documentation review.
 
@@ -887,7 +898,7 @@ Implement final validation of the completed codebase.
 Scope:
 
 - Run the full test suite.
-- Run validation commands defined by the requirements and design.
+- Run validation commands defined by the requirements, design, and test plan.
 - Check end-to-end workflows.
 - Check integrated behavior against `docs/requirements.md`.
 - Check architecture and behavior against `docs/detailed-design.md`.

@@ -11,9 +11,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from electroboy.artifacts import ArtifactManager  # noqa: E402
 from electroboy.cli import main  # noqa: E402
 from electroboy.models import (  # noqa: E402
     GATE_IMPLEMENTATION,
+    GATE_TEST_PLAN,
     GATE_VALIDATION_TESTING,
     STAGE_DOCS_REVIEW,
     STAGE_VALIDATION,
@@ -32,9 +34,27 @@ class ValidationTests(unittest.TestCase):
     def prepare_validation_run(self, root: Path) -> StateStore:
         store = StateStore(root)
         manifest = store.init_run(run_id="run-1")
+        write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+        write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
         manifest.complete_gate(GATE_IMPLEMENTATION)
+        manifest.complete_gate(GATE_TEST_PLAN)
         manifest.set_active_stage(STAGE_VALIDATION)
         store.save_manifest(manifest)
+        manager = ArtifactManager(root)
+        store.append_artifact_snapshot(
+            manager.snapshot(
+                manifest.run_id,
+                "docs/implementation-plan.md",
+                "plan-approved",
+            )
+        )
+        store.append_artifact_snapshot(
+            manager.snapshot(
+                manifest.run_id,
+                "docs/test-plan.md",
+                "test-plan-approved",
+            )
+        )
         return store
 
     def test_validation_passes_and_stays_ready_for_approval(self) -> None:
@@ -109,9 +129,34 @@ class ValidationTests(unittest.TestCase):
             self.assertIn("validation: failed", stdout)
             self.assertEqual(manifest.active_stage, "implementation")
             self.assertFalse(manifest.has_gate(GATE_VALIDATION_TESTING))
-            self.assertEqual(issues[0]["severity"], "blocker")
-            self.assertEqual(issues[0]["status"], "open")
-            self.assertIsNotNone(phase_status.active_phase)
+        self.assertEqual(issues[0]["severity"], "blocker")
+        self.assertEqual(issues[0]["status"], "open")
+        self.assertIsNotNone(phase_status.active_phase)
+
+    def test_validation_requires_approved_test_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = StateStore(root)
+            manifest = store.init_run(run_id="run-1")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            manifest.complete_gate(GATE_IMPLEMENTATION)
+            manifest.set_active_stage(STAGE_VALIDATION)
+            store.save_manifest(manifest)
+            snapshot = ArtifactManager(root).snapshot(
+                manifest.run_id,
+                "docs/implementation-plan.md",
+                "plan-approved",
+            )
+            store.append_artifact_snapshot(snapshot)
+            command = f"{sys.executable} -c \"print('validation ok')\""
+            write_file(root / "docs" / "requirements.md", f"Validation: {command}\n")
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "validate", "--command", command]
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("predecessor gate is not complete: test-plan", stderr)
 
     def test_validation_pass_blocks_on_unresolved_validation_issue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -30,6 +30,7 @@ from .models import (
     GATE_PLAN_CURRENCY,
     GATE_REQUIREMENTS,
     GATE_STAGE_ORDER,
+    GATE_TEST_PLAN,
     GATE_VALIDATION_TESTING,
     NEXT_STAGE,
     STAGES,
@@ -43,6 +44,7 @@ from .models import (
     STAGE_IMPLEMENTATION,
     STAGE_PLAN,
     STAGE_REQUIREMENTS,
+    STAGE_TEST_PLAN,
     STAGE_VALIDATION,
     utc_now,
 )
@@ -57,6 +59,7 @@ STAGE_REQUIRED_FILES = {
     STAGE_DESIGN: "docs/detailed-design.md",
     STAGE_DESIGN_REVIEW: "docs/detailed-design.md",
     STAGE_PLAN: "docs/implementation-plan.md",
+    STAGE_TEST_PLAN: "docs/test-plan.md",
 }
 
 STAGE_COMPLETED_GATES = {
@@ -64,6 +67,7 @@ STAGE_COMPLETED_GATES = {
     STAGE_DESIGN_REVIEW: GATE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE: GATE_HUMAN_DESIGN_ACCEPTANCE,
     STAGE_PLAN: GATE_IMPLEMENTATION,
+    STAGE_TEST_PLAN: GATE_TEST_PLAN,
 }
 
 STAGE_SNAPSHOT_ARTIFACTS = {
@@ -71,6 +75,7 @@ STAGE_SNAPSHOT_ARTIFACTS = {
     STAGE_DESIGN_REVIEW: "docs/detailed-design.md",
     STAGE_DESIGN_ACCEPTANCE: "docs/detailed-design.md",
     STAGE_PLAN: "docs/implementation-plan.md",
+    STAGE_TEST_PLAN: "docs/test-plan.md",
 }
 
 DESIGN_REVIEW_SUMMARY_PATH = "docs/design-review.md"
@@ -80,6 +85,7 @@ DESIGN_REVIEW_CONTEXT_PATHS = [
 ]
 IMPLEMENTATION_LOG_PATH = "docs/implementation-log.md"
 IMPLEMENTATION_REPORT_PATH = "docs/implementation-report.md"
+TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
 
 APPROVAL_BASELINE_ARTIFACTS = {
@@ -89,6 +95,7 @@ APPROVAL_BASELINE_ARTIFACTS = {
         DESIGN_REVIEW_SUMMARY_PATH,
     ],
     STAGE_PLAN: ["docs/implementation-plan.md"],
+    STAGE_TEST_PLAN: [TEST_PLAN_PATH],
     STAGE_VALIDATION: [
         IMPLEMENTATION_LOG_PATH,
         IMPLEMENTATION_REPORT_PATH,
@@ -110,6 +117,9 @@ STAGE_APPROVAL_REQUIREMENTS = {
     STAGE_PLAN: [
         ("human-approval", "human-operator"),
         ("author-confirmation", "design-author-agent"),
+    ],
+    STAGE_TEST_PLAN: [
+        ("human-approval", "human-operator"),
     ],
 }
 
@@ -137,12 +147,14 @@ AUTHORING_ARTIFACT_STAGES = {
     "docs/requirements.md": STAGE_REQUIREMENTS,
     "docs/detailed-design.md": STAGE_DESIGN,
     "docs/implementation-plan.md": STAGE_PLAN,
+    TEST_PLAN_PATH: STAGE_TEST_PLAN,
 }
 
 AUTHORING_APPROVAL_COMMANDS = {
     STAGE_REQUIREMENTS: "electroboy requirements-approve",
     STAGE_DESIGN: "electroboy design-review",
     STAGE_PLAN: "electroboy plan-approve",
+    STAGE_TEST_PLAN: "electroboy test-plan-approve",
 }
 
 CHANGE_BASELINE_INVALIDATED_GATES = {
@@ -151,6 +163,7 @@ CHANGE_BASELINE_INVALIDATED_GATES = {
         GATE_DESIGN,
         GATE_HUMAN_DESIGN_ACCEPTANCE,
         GATE_IMPLEMENTATION,
+        GATE_TEST_PLAN,
         GATE_VALIDATION_TESTING,
         GATE_DOCUMENTATION,
     ],
@@ -158,15 +171,23 @@ CHANGE_BASELINE_INVALIDATED_GATES = {
         GATE_DESIGN,
         GATE_HUMAN_DESIGN_ACCEPTANCE,
         GATE_IMPLEMENTATION,
+        GATE_TEST_PLAN,
         GATE_VALIDATION_TESTING,
         GATE_DOCUMENTATION,
     ],
     "plan": [
         GATE_IMPLEMENTATION,
+        GATE_TEST_PLAN,
         GATE_VALIDATION_TESTING,
         GATE_DOCUMENTATION,
     ],
     "implementation": [
+        GATE_TEST_PLAN,
+        GATE_VALIDATION_TESTING,
+        GATE_DOCUMENTATION,
+    ],
+    "test-plan": [
+        GATE_TEST_PLAN,
         GATE_VALIDATION_TESTING,
         GATE_DOCUMENTATION,
     ],
@@ -246,6 +267,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="provider session id to record and resume for plan authoring",
     )
     subparsers.add_parser("plan-approve", help="approve implementation plan")
+
+    test_plan = subparsers.add_parser(
+        "test-plan",
+        help="author or resume system test planning",
+    )
+    test_plan.add_argument("--reason", help="reason for reopening test planning")
+    test_plan.add_argument(
+        "--session-id",
+        help="provider session id to record and resume for test-plan authoring",
+    )
+    subparsers.add_parser("test-plan-approve", help="approve system test plan")
 
     code = subparsers.add_parser("code", help="start or resume implementation")
     code.add_argument("--reason", help="reason for reopening implementation")
@@ -358,6 +390,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 engine,
                 _stage_args(STAGE_PLAN, human=True, author=True),
             )
+        if args.command == "test-plan":
+            return _cmd_test_plan(store, engine, args)
+        if args.command == "test-plan-approve":
+            return _cmd_stage(
+                store,
+                engine,
+                _stage_args(STAGE_TEST_PLAN, human=True),
+            )
         if args.command == "code":
             return _cmd_code(store, engine, args)
         if args.command == "document":
@@ -371,7 +411,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "phase":
             return _cmd_phase(store, engine, args)
         if args.command == "validate":
-            return _cmd_validate(store, args)
+            return _cmd_validate(store, engine, args)
         if args.command == "validation-approve":
             return _cmd_validation_approve(store)
     except StateError as error:
@@ -747,7 +787,10 @@ def _write_feature_record(
             "design-approve",
             "implementation-plan",
             "plan-approve",
+            "test-plan",
             "code",
+            "test-plan",
+            "test-plan-approve",
             "validate",
             "validation-approve",
             "document",
@@ -862,6 +905,7 @@ def _stage_command(stage: str) -> str:
         STAGE_DESIGN_ACCEPTANCE: "electroboy design-approve",
         STAGE_PLAN: "electroboy implementation-plan",
         STAGE_IMPLEMENTATION: "electroboy code",
+        STAGE_TEST_PLAN: "electroboy test-plan",
         STAGE_VALIDATION: "electroboy validate",
         STAGE_DOCS_REVIEW: "electroboy document",
         STAGE_COMPLETE: "electroboy code-approve",
@@ -926,6 +970,60 @@ def _cmd_authoring_stage(
         _print_gate_failure(order.messages)
         return 1
 
+    return _run_authoring_session(store, args, stage)
+
+
+def _cmd_test_plan(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
+    manifest = store.load_current_manifest()
+    if _maybe_reopen_from_public_command(
+        store,
+        manifest,
+        STAGE_TEST_PLAN,
+        getattr(args, "reason", None),
+    ):
+        manifest = store.load_current_manifest()
+
+    if manifest.active_stage == STAGE_TEST_PLAN:
+        order = engine.stage_order(STAGE_TEST_PLAN, manifest)
+        if not order.passed:
+            _print_gate_failure(order.messages)
+            return 1
+    else:
+        readiness_errors = _test_plan_authoring_errors(store, engine)
+        if readiness_errors:
+            _print_gate_failure(readiness_errors)
+            return 1
+
+    return _run_authoring_session(
+        store,
+        args,
+        STAGE_TEST_PLAN,
+        out_of_band=manifest.active_stage != STAGE_TEST_PLAN,
+    )
+
+
+def _test_plan_authoring_errors(
+    store: StateStore,
+    engine: GateEngine,
+) -> list[str]:
+    messages: list[str] = []
+    change_control = engine.change_control()
+    messages.extend(change_control.messages)
+    requirements = engine.require_file("docs/requirements.md")
+    messages.extend(requirements.messages)
+    return messages
+
+
+def _run_authoring_session(
+    store: StateStore,
+    args: argparse.Namespace,
+    stage: str,
+    out_of_band: bool = False,
+) -> int:
     ArtifactManager(store.root).init_templates()
     artifact = STAGE_REQUIRED_FILES.get(stage)
     reason = getattr(args, "reason", None)
@@ -962,6 +1060,17 @@ def _cmd_authoring_stage(
     if artifact:
         print(f"artifact: {artifact}")
     if _reopen_earliest_upstream_authoring_stage(store, stage, changed_artifacts):
+        return 0
+    if stage == STAGE_TEST_PLAN:
+        active_stage = store.load_current_manifest().active_stage
+        if out_of_band:
+            print(f"active stage: {active_stage}")
+            print(
+                "next: continue the active stage; approve the test plan "
+                "after code completes"
+            )
+            return 0
+        print("next: review docs/test-plan.md, then run `electroboy test-plan-approve`")
         return 0
     print("next: review the artifact, then run the approval command")
     return 0
@@ -1042,6 +1151,10 @@ def _cmd_code(
     if manifest.active_stage == STAGE_VALIDATION:
         _print_progress("validation", "implementation phases are complete")
         print("next: run validation commands, then `electroboy validation-approve`")
+        return 0
+    if manifest.active_stage == STAGE_TEST_PLAN:
+        _print_progress("test-plan", "implementation phases are complete")
+        print("next: run `electroboy test-plan`, then `electroboy test-plan-approve`")
         return 0
     if manifest.active_stage == STAGE_DOCS_REVIEW:
         _print_progress("documentation", "validation has passed")
@@ -1194,6 +1307,7 @@ def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
             "docs/requirements.md",
             "docs/detailed-design.md",
             "docs/implementation-plan.md",
+            TEST_PLAN_PATH,
         ],
     )
     phase["coding_event"] = coding_event
@@ -1213,6 +1327,7 @@ def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
             "docs/requirements.md",
             "docs/detailed-design.md",
             "docs/implementation-plan.md",
+            TEST_PLAN_PATH,
         ],
     )
     if not review_result.ok:
@@ -1238,6 +1353,7 @@ def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
             "docs/requirements.md",
             "docs/detailed-design.md",
             "docs/implementation-plan.md",
+            TEST_PLAN_PATH,
         ],
     )
     if not test_result.ok:
@@ -1328,6 +1444,7 @@ def _cmd_document(
             "docs/requirements.md",
             "docs/detailed-design.md",
             "docs/implementation-plan.md",
+            TEST_PLAN_PATH,
             "README.md",
             "docs/api.md",
         ],
@@ -1394,6 +1511,13 @@ def _authoring_inputs(stage: str) -> list[str]:
             "docs/detailed-design.md",
             "docs/implementation-plan.md",
         ]
+    if stage == STAGE_TEST_PLAN:
+        return [
+            "docs/requirements.md",
+            "docs/detailed-design.md",
+            "docs/implementation-plan.md",
+            TEST_PLAN_PATH,
+        ]
     return []
 
 
@@ -1434,6 +1558,21 @@ def _authoring_prompt(stage: str) -> str:
             "the operator explicitly asks you to.",
             "Update only docs/implementation-plan.md unless the operator",
             "explicitly asks for another change.",
+            "If the operator asks you to update another artifact, do it and",
+            "report which files changed and why.",
+        ],
+        STAGE_TEST_PLAN: [
+            "Work with the operator on the system test plan artifact.",
+            "",
+            "Target file: docs/test-plan.md.",
+            "Read docs/requirements.md, docs/detailed-design.md,",
+            "docs/implementation-plan.md, and docs/test-plan.md if they exist.",
+            "Do not explore the working directory or inspect source code unless",
+            "the operator explicitly asks you to.",
+            "Focus on system tests, workflow checks, manual validation,",
+            "environment assumptions, and acceptance criteria.",
+            "Update only docs/test-plan.md unless the operator explicitly asks",
+            "for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
         ],
@@ -1534,6 +1673,7 @@ PUBLIC_STAGE_BASELINES = {
     STAGE_DESIGN: "design",
     STAGE_PLAN: "plan",
     STAGE_IMPLEMENTATION: "implementation",
+    STAGE_TEST_PLAN: "test-plan",
     STAGE_DOCS_REVIEW: "documentation",
 }
 
@@ -1545,6 +1685,7 @@ PUBLIC_STAGE_ORDER = [
     STAGE_DESIGN_ACCEPTANCE,
     STAGE_PLAN,
     STAGE_IMPLEMENTATION,
+    STAGE_TEST_PLAN,
     STAGE_VALIDATION,
     STAGE_DOCS_REVIEW,
     STAGE_COMPLETE,
@@ -1878,10 +2019,18 @@ def _cmd_phase(
     return 2
 
 
-def _cmd_validate(store: StateStore, args: argparse.Namespace) -> int:
+def _cmd_validate(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
     manifest = store.load_current_manifest()
     if manifest.active_stage != STAGE_VALIDATION:
         print("error: active stage is not validation", file=sys.stderr)
+        return 1
+    order = engine.stage_order(STAGE_VALIDATION, manifest)
+    if not order.passed:
+        _print_gate_failure(order.messages)
         return 1
     missing_phases = _uncommitted_planned_phases(store)
     if missing_phases:
@@ -2313,14 +2462,15 @@ def _coding_prompt(phase_number: int) -> str:
         [
             f"Implement phase {phase_number} from docs/implementation-plan.md.",
             "",
-            "Use docs/requirements.md, docs/detailed-design.md, and",
-            "docs/implementation-plan.md as the approved context.",
+            "Use docs/requirements.md, docs/detailed-design.md,",
+            "docs/implementation-plan.md, and docs/test-plan.md when present",
+            "as the approved context.",
             "Inspect only files needed to complete this phase.",
             "Limit edits to implementation and test files needed for this phase.",
-            "Do not update requirements, design, or plan documents unless the",
-            "operator explicitly asks you to.",
-            "If approved requirements, design, or plan artifacts need to change,",
-            "report the required upstream change and why.",
+            "Do not update requirements, design, plan, or test-plan documents",
+            "unless the operator explicitly asks you to.",
+            "If approved requirements, design, plan, or test-plan artifacts need",
+            "to change, report the required upstream change and why.",
             "Report files changed and a concise commit_message when finished.",
         ]
     )
@@ -2331,8 +2481,9 @@ def _code_review_prompt(phase_number: int) -> str:
         [
             f"Review implementation phase {phase_number}.",
             "",
-            "Use docs/requirements.md, docs/detailed-design.md, and",
-            "docs/implementation-plan.md as the approved context.",
+            "Use docs/requirements.md, docs/detailed-design.md,",
+            "docs/implementation-plan.md, and docs/test-plan.md when present",
+            "as the approved context.",
             "Review only the changes relevant to this phase.",
             "Do not modify files.",
             "Report blocker and major findings as structured review issues.",
@@ -2345,8 +2496,9 @@ def _test_review_prompt(phase_number: int) -> str:
         [
             f"Review tests for implementation phase {phase_number}.",
             "",
-            "Use docs/requirements.md, docs/detailed-design.md, and",
-            "docs/implementation-plan.md as the approved context.",
+            "Use docs/requirements.md, docs/detailed-design.md,",
+            "docs/implementation-plan.md, and docs/test-plan.md when present",
+            "as the approved context.",
             "Inspect tests and test results relevant to this phase.",
             "Do not modify files.",
             "Report missing or failing coverage as structured review issues.",
@@ -2360,11 +2512,12 @@ def _documentation_prompt() -> str:
             "Review final documentation against the completed codebase.",
             "",
             "Use docs/requirements.md, docs/detailed-design.md,",
-            "docs/implementation-plan.md, README.md, and docs/api.md as context.",
+            "docs/implementation-plan.md, docs/test-plan.md, README.md, and",
+            "docs/api.md as context.",
             "Limit documentation edits to README.md and docs/api.md unless the",
             "operator explicitly asks for another change.",
-            "If requirements, design, or plan artifacts need to change, report",
-            "the required upstream change and why.",
+            "If requirements, design, plan, or test-plan artifacts need to",
+            "change, report the required upstream change and why.",
             "Report files changed and a concise commit_message when finished.",
         ]
     )
@@ -2537,6 +2690,7 @@ def _approval_commit_message(stage: str) -> str:
         STAGE_REQUIREMENTS: "requirements: approve baseline",
         STAGE_DESIGN_ACCEPTANCE: "design: approve baseline",
         STAGE_PLAN: "plan: approve implementation baseline",
+        STAGE_TEST_PLAN: "test-plan: approve validation baseline",
         STAGE_VALIDATION: "validation: approve implementation reports",
     }
     subject = subjects.get(stage, f"{stage}: approve baseline")
@@ -3507,7 +3661,11 @@ def _validation_commands(
 
 def _artifact_validation_commands(root: Path) -> list[str]:
     commands: list[str] = []
-    for relative_path in ["docs/requirements.md", "docs/detailed-design.md"]:
+    for relative_path in [
+        "docs/requirements.md",
+        "docs/detailed-design.md",
+        TEST_PLAN_PATH,
+    ]:
         path = root / relative_path
         if not path.exists():
             continue
@@ -4118,6 +4276,7 @@ def _invalidated_snapshot_refs(
         GATE_DESIGN: "docs/detailed-design.md",
         GATE_HUMAN_DESIGN_ACCEPTANCE: "docs/detailed-design.md",
         GATE_IMPLEMENTATION: "docs/implementation-plan.md",
+        GATE_TEST_PLAN: TEST_PLAN_PATH,
         GATE_DOCUMENTATION: "docs/api.md",
     }
     artifacts = {
@@ -4204,7 +4363,9 @@ def _validation_source_lines(results: list[dict[str, object]]) -> list[str]:
     sources = {str(result.get("source", "unknown")) for result in results}
     lines: list[str] = []
     if "artifact" in sources:
-        lines.append("artifact validation commands from requirements or design")
+        lines.append(
+            "artifact validation commands from requirements, design, or test plan"
+        )
     if "operator" in sources:
         lines.append("operator supplied validation command")
     if "operator-shell" in sources:
