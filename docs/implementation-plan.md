@@ -419,7 +419,7 @@ electroboy status
 electroboy meta init <path>
 electroboy add <path> [path...]
 electroboy start <repository>
-electroboy feature start <title-or-issue-url> [--branch [name]]
+electroboy feature start <title-or-issue-url> [--name <feature>] [--amend] [--branch [name]]
 electroboy requirements [--reason <text>]
 electroboy requirements-approve
 electroboy design [--reason <text>]
@@ -443,14 +443,13 @@ electroboy completion bash
 
 `requirements`, `design`, `implementation-plan`, and `test-plan` invoke the
 configured Design Author Agent in an interactive authoring context. The
-orchestrator uses stage-specific prompts that keep startup scope narrow:
-requirements reads and updates `docs/requirements.md`, design reads
-requirements and design docs while updating `docs/detailed-design.md`,
-implementation planning reads the three baseline authoring docs while updating
-`docs/implementation-plan.md`, and test planning reads the authoring docs while
-updating `docs/test-plan.md`. The operator can explicitly ask for broader
-artifact edits during the session. Approval remains separate so the human
-operator can review the artifact before the pipeline advances.
+orchestrator uses stage-specific prompts that keep startup scope narrow. Normal
+runs target the canonical files under `docs/`; feature runs resolve those same
+artifacts through `feature.json`, for example
+`docs/requirements-<feature>.md` and `docs/detailed-design-<feature>.md`.
+The operator can explicitly ask for broader artifact edits during the session.
+Approval remains separate so the human operator can review the artifact before
+the pipeline advances.
 
 `design-review` starts the automated design review loop. `code` starts or
 resumes the fully automated implementation loop. By default, it runs every
@@ -464,8 +463,8 @@ checkpoints.
 
 `test-plan` can run before it becomes the active stage so operators can capture
 system-test cases during design, planning, or implementation. After code
-completes, `test-plan-approve` commits `docs/test-plan.md` and advances to
-validation.
+completes, `test-plan-approve` commits the run's test-plan artifact and
+advances to validation.
 
 `meta init`, `add`, and `start` enable meta-project workflows. A meta-project
 stores a repository registry under `.electroboy/shared/repositories.json`.
@@ -480,9 +479,9 @@ from the meta-project root.
 stages are complete. It runs the full test suite and the validation commands
 declared by the artifacts. If validation finds blocker or major issues, the
 orchestrator opens a validation-fix implementation phase and returns the run to
-`code`. When validation passes, `validation-approve` commits
-`docs/implementation-log.md`, `docs/implementation-report.md`, and
-`docs/validation-report.md`, then advances to documentation review.
+`code`. When validation passes, `validation-approve` commits the run's
+implementation log, implementation report, and validation report, then advances
+to documentation review.
 
 `document` starts or resumes the documentation finesse pass. It gives the
 Documentation Agent the final codebase, requirements, design, implementation

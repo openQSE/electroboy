@@ -16,9 +16,10 @@ Operator workflow commands:
   meta-project.
 - `start <repository>` switches the active target repository for meta-project
   work, registering and initializing it when needed.
-- `feature start <title-or-issue-url> [--branch [name]]` starts feature work
-  through the standard pipeline and optionally creates or switches to a feature
-  branch.
+- `feature start <title-or-issue-url> [--name <feature>] [--amend]
+  [--branch [name]]` starts feature work through the standard pipeline,
+  chooses feature-scoped artifact paths, and optionally creates or switches to
+  a feature branch.
 - `status` prints active stage, next stage, active phase, completed gates,
   invalidated gates, open requests, open issues, and blocked gates. In
   meta-project mode it also prints the meta root, active repo, and registered
@@ -56,11 +57,13 @@ provided and the requested stage is behind the active stage. The orchestrator
 records change-control and baseline-invalidation records before resuming from
 the reopened stage.
 
-Authoring commands use scoped prompts. `requirements` targets
-`docs/requirements.md`, `design` targets `docs/detailed-design.md`,
-`implementation-plan` targets `docs/implementation-plan.md`, and `test-plan`
-targets `docs/test-plan.md`. `test-plan` may run before it is the active stage
-so operators can capture system test cases during design, planning, or
+Authoring commands use scoped prompts. `requirements` targets the run's
+requirements artifact, `design` targets the run's detailed-design artifact,
+`implementation-plan` targets the run's implementation-plan artifact, and
+`test-plan` targets the run's test-plan artifact. Normal runs use the canonical
+paths under `docs/`; feature runs use `docs/*-<feature>.md` paths recorded in
+the run's `feature.json`. `test-plan` may run before it is the active stage so
+operators can capture system test cases during design, planning, or
 implementation. If the operator asks the authoring agent to update an upstream
 authoring artifact, the orchestrator detects the changed artifact after the
 session, reopens the earliest affected stage, invalidates downstream gates,
@@ -79,6 +82,14 @@ and role, the explicit id replaces it and becomes the id used by later
 authoring resumes.
 
 `feature start` records feature metadata in the current run's `feature.json`.
+When `--name` is omitted in an interactive shell, ElectroBoy prompts for the
+feature artifact name. In non-interactive use, it derives a slug from the title
+or issue URL. The slug controls paths such as `docs/requirements-<slug>.md`,
+`docs/detailed-design-<slug>.md`, `docs/implementation-plan-<slug>.md`, and
+`docs/test-plan-<slug>.md`. If any feature artifact already exists,
+ElectroBoy warns before amending it; use `--amend` to accept reuse without an
+interactive prompt.
+
 When `--branch` is provided, the command blocks tracked uncommitted changes
 before creating or switching branches. Untracked files do not block feature
 branch setup. `--branch` without a value derives `feature/<slug>` from the
@@ -170,13 +181,14 @@ Use `--shell-command` only when shell behavior is required.
 electroboy validate --shell-command "python -m unittest discover -s tests"
 ```
 
-Validation requires an approved `docs/test-plan.md`. It writes
-`docs/validation-report.md`, stores a copy under the run artifact directory,
-and stores failures in `validation-review.jsonl`.
+Validation requires the run's approved test-plan artifact. It writes the run's
+validation report, stores a copy under the run artifact directory, and stores
+failures in `validation-review.jsonl`. In feature runs the validation report is
+`docs/validation-report-<feature>.md`.
 
-`validation-approve` commits `docs/implementation-log.md`,
-`docs/implementation-report.md`, and `docs/validation-report.md`, then advances
-the active stage to documentation review.
+`validation-approve` commits the run's implementation log, implementation
+report, and validation report, then advances the active stage to documentation
+review.
 
 ## Documentation Commands
 

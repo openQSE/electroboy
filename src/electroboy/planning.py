@@ -23,15 +23,21 @@ class PlannedPhase:
     paths: list[str] = field(default_factory=list)
 
 
-def requirement_ids(root: Path) -> set[str]:
-    path = root / "docs" / "requirements.md"
+def requirement_ids(
+    root: Path,
+    requirements_path: str = "docs/requirements.md",
+) -> set[str]:
+    path = root / requirements_path
     if not path.exists():
         return set()
     return set(REQUIREMENT_ID_RE.findall(path.read_text(encoding="utf-8")))
 
 
-def planned_phases(root: Path) -> list[PlannedPhase]:
-    path = root / "docs" / "implementation-plan.md"
+def planned_phases(
+    root: Path,
+    plan_path: str = "docs/implementation-plan.md",
+) -> list[PlannedPhase]:
+    path = root / plan_path
     if not path.exists():
         return []
     text = path.read_text(encoding="utf-8")
@@ -75,9 +81,13 @@ def _split_list(text: str) -> list[str]:
     ]
 
 
-def traceability_errors(root: Path) -> list[str]:
-    phases = planned_phases(root)
-    known_requirements = requirement_ids(root)
+def traceability_errors(
+    root: Path,
+    requirements_path: str = "docs/requirements.md",
+    plan_path: str = "docs/implementation-plan.md",
+) -> list[str]:
+    phases = planned_phases(root, plan_path)
+    known_requirements = requirement_ids(root, requirements_path)
     errors: list[str] = []
     if not phases:
         errors.append("implementation plan has no phase headings")
@@ -96,5 +106,9 @@ def traceability_errors(root: Path) -> list[str]:
     return errors
 
 
-def has_traceability(root: Path) -> bool:
-    return not traceability_errors(root)
+def has_traceability(
+    root: Path,
+    requirements_path: str = "docs/requirements.md",
+    plan_path: str = "docs/implementation-plan.md",
+) -> bool:
+    return not traceability_errors(root, requirements_path, plan_path)

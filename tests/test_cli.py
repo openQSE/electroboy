@@ -411,7 +411,12 @@ class CliTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            requirements_exists = (root / "docs" / "requirements.md").exists()
+            requirements_exists = (
+                root / "docs" / "requirements-add-dashboard.md"
+            ).exists()
+            canonical_requirements_exists = (
+                root / "docs" / "requirements.md"
+            ).exists()
             activate_exists = (root / ".electroboy" / "bin" / "activate").exists()
 
         self.assertEqual(code, 0, stderr)
@@ -419,9 +424,186 @@ class CliTests(unittest.TestCase):
         self.assertIn("next: electroboy requirements", stdout)
         self.assertEqual(manifest.active_stage, "requirements")
         self.assertEqual(feature["title"], "Add dashboard")
+        self.assertEqual(feature["slug"], "add-dashboard")
+        self.assertEqual(
+            feature["artifacts"]["requirements"],
+            "docs/requirements-add-dashboard.md",
+        )
         self.assertEqual(feature["workflow"][-1], "code-approve")
         self.assertTrue(requirements_exists)
+        self.assertFalse(canonical_requirements_exists)
         self.assertTrue(activate_exists)
+
+    def test_feature_start_accepts_explicit_feature_artifact_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add admission and scheduling to the QFw",
+                    "--name",
+                    "adm-sched-v01",
+                ]
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            feature = json.loads(
+                (store.run_dir(manifest.run_id) / "feature.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            requirements_exists = (
+                root / "docs" / "requirements-adm-sched-v01.md"
+            ).exists()
+            design_exists = (
+                root / "docs" / "detailed-design-adm-sched-v01.md"
+            ).exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("feature name: adm-sched-v01", stdout)
+        self.assertIn("artifact tag: adm-sched-v01", stdout)
+        self.assertIn(
+            "artifact requirements: docs/requirements-adm-sched-v01.md",
+            stdout,
+        )
+        self.assertEqual(feature["name"], "adm-sched-v01")
+        self.assertEqual(feature["slug"], "adm-sched-v01")
+        self.assertEqual(
+            feature["artifacts"]["design"],
+            "docs/detailed-design-adm-sched-v01.md",
+        )
+        self.assertTrue(requirements_exists)
+        self.assertTrue(design_exists)
+
+    def test_feature_start_warns_before_amending_existing_feature(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "feature",
+                        "start",
+                        "Add dashboard",
+                        "--name",
+                        "dashboard",
+                    ]
+                )[0],
+                0,
+            )
+
+            blocked, _stdout, blocked_stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--name",
+                    "dashboard",
+                ]
+            )
+            amended, amended_stdout, amended_stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--name",
+                    "dashboard",
+                    "--amend",
+                ]
+            )
+
+        self.assertEqual(blocked, 1)
+        self.assertIn("warning: feature artifacts already exist", blocked_stderr)
+        self.assertIn("rerun with --amend", blocked_stderr)
+        self.assertEqual(amended, 0, amended_stderr)
+        self.assertIn("feature name: dashboard", amended_stdout)
+
+    def test_feature_requirements_uses_feature_specific_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "feature",
+                        "start",
+                        "Add dashboard",
+                        "--name",
+                        "dashboard",
+                    ]
+                )[0],
+                0,
+            )
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "requirements"])
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            prompt_files = list(
+                (store.run_dir(manifest.run_id) / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+            canonical_requirements_exists = (
+                root / "docs" / "requirements.md"
+            ).exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("artifact: docs/requirements-dashboard.md", stdout)
+        self.assertIn("Target file: docs/requirements-dashboard.md.", prompt)
+        self.assertIn(
+            "Read only docs/requirements-dashboard.md if it exists.",
+            prompt,
+        )
+        self.assertFalse(canonical_requirements_exists)
+
+    def test_feature_requirements_approval_commits_feature_artifact(self) -> None:
+        with temp_project() as root:
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "feature",
+                        "start",
+                        "Add dashboard",
+                        "--name",
+                        "dashboard",
+                    ]
+                )[0],
+                0,
+            )
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "requirements-approve"]
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            snapshots = store.read_artifact_snapshots()
+            committed_files = git_show_names(root)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("active stage: design", stdout)
+        self.assertTrue(manifest.has_gate("requirements"))
+        self.assertTrue(
+            any(
+                snapshot.get("artifact_path") == "docs/requirements-dashboard.md"
+                for snapshot in snapshots
+            )
+        )
+        self.assertIn("docs/requirements-dashboard.md", committed_files)
+        self.assertNotIn("docs/requirements.md", committed_files)
 
     def test_feature_start_can_create_feature_branch(self) -> None:
         with temp_project() as root:
@@ -662,9 +844,7 @@ def git_show_names(root: Path) -> str:
 
 def write_manual_runtime(root: Path) -> None:
     write_file(root / "agent-response.md", "accepted\n")
-    write_file(
-        root / "electroboy.toml",
-        """
+    config = """
 [runtime]
 default = "manual"
 
@@ -680,8 +860,10 @@ coding = "manual"
 code_review = "manual"
 test_review = "manual"
 documentation = "manual"
-""".lstrip(),
-    )
+""".lstrip()
+    write_file(root / "electroboy.toml", config)
+    if (root / ".electroboy" / "project.toml").exists():
+        write_file(root / ".electroboy" / "project.toml", config)
 
 
 if __name__ == "__main__":

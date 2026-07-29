@@ -345,6 +345,13 @@ The pipeline revolves around a small number of durable files.
 Each pipeline artifact is kept as a working repository file and stored as an
 approved run snapshot when it passes a stage gate.
 
+Normal project runs use the canonical filenames below. Feature runs record a
+feature slug in `.electroboy/shared/runs/<run-id>/feature.json` and resolve the
+same artifact roles to feature-scoped filenames such as
+`docs/requirements-<feature>.md`, `docs/detailed-design-<feature>.md`,
+`docs/implementation-plan-<feature>.md`, and `docs/test-plan-<feature>.md`.
+Review and handoff reports use the same suffix.
+
 ### `docs/requirements.md`
 
 This file defines the system to be built at the behavioral level. It describes
@@ -511,14 +518,16 @@ terminal it uses Rich status spinners for long-running work such as invoking
 the review agent, writing the review summary, and completing the gate. In
 non-interactive output it prints the same steps as plain text.
 
-At the end of each review pass the orchestrator writes `docs/design-review.md`.
-This markdown artifact summarizes the run id, review event, reviewed artifacts,
-review findings, agent-reported file changes, open issues, and current approval
-state. The JSONL review issue file remains the machine-readable gate input; the
-markdown file is the human-readable audit artifact.
+At the end of each review pass the orchestrator writes the run's design-review
+summary artifact. For normal runs this is `docs/design-review.md`; feature
+runs use `docs/design-review-<feature>.md`. This markdown artifact summarizes
+the run id, review event, reviewed artifacts, review findings, agent-reported
+file changes, open issues, and current approval state. The JSONL review issue
+file remains the machine-readable gate input; the markdown file is the
+human-readable audit artifact.
 
 The review stage does not commit the summary. `electroboy design-approve`
-commits `docs/detailed-design.md` and `docs/design-review.md` together after
+commits the run's detailed-design and design-review artifacts together after
 the human operator accepts the reviewed design baseline.
 
 The loop continues until every required issue is verified, downgraded, or
@@ -1066,12 +1075,15 @@ the source of truth for design intent.
 Each agent receives only the context needed for its role, plus enough shared
 state to avoid contradictory work.
 
-Authoring prompts are intentionally narrow. The requirements prompt targets
-`docs/requirements.md`; the design prompt reads requirements and design docs and
-targets `docs/detailed-design.md`; the implementation-plan prompt reads the
-three baseline authoring docs and targets `docs/implementation-plan.md`. Each
-prompt allows the operator to explicitly request a different artifact change,
-but the agent is told not to explore source code or broaden scope on its own.
+Authoring prompts are intentionally narrow. The requirements prompt targets the
+run's requirements artifact; the design prompt reads requirements and design
+docs and targets the run's detailed-design artifact; the implementation-plan
+prompt reads the three baseline authoring docs and targets the run's
+implementation-plan artifact; the test-plan prompt targets the run's test-plan
+artifact. Each prompt uses feature-scoped paths when the run has feature
+metadata. Each prompt allows the operator to explicitly request a different
+artifact change, but the agent is told not to explore source code or broaden
+scope on its own.
 
 ### Design Author Context
 
@@ -1334,11 +1346,11 @@ Iteration rules:
 ## Commit Strategy
 
 Baseline documentation commits happen at human approval points. The
-requirements approval commits `docs/requirements.md`. Design approval commits
-`docs/detailed-design.md` and `docs/design-review.md`. Plan approval commits
-`docs/implementation-plan.md`. Validation approval commits
-`docs/implementation-log.md`, `docs/implementation-report.md`, and
-`docs/validation-report.md`.
+requirements approval commits the run's requirements artifact. Design approval
+commits the run's detailed-design and design-review artifacts. Plan approval
+commits the run's implementation-plan artifact. Test-plan approval commits the
+run's test-plan artifact. Validation approval commits the run's implementation
+log, implementation report, and validation report.
 
 ElectroBoy creates those approval-time baseline commits, verifies that the
 expected artifacts are present in the commit history, and records the commit
@@ -1646,7 +1658,8 @@ history.
 - Same-stage commands resume, earlier-stage commands reopen through change
   control, and later-stage commands are blocked until predecessor gates pass.
 - Agent runtimes are isolated behind role adapters.
-- `docs/requirements.md` is the source of truth for required system behavior.
+- The run's requirements artifact is the source of truth for required system
+  behavior.
 - Design, implementation planning, code review, test review, and final
   documentation review check their artifacts against the requirements baseline.
 - Validation testing checks the completed codebase against the approved
@@ -1666,11 +1679,11 @@ history.
   `.electroboy/shared/runs/<run-id>/messages/`.
 - Approved pipeline artifacts are stored as snapshots under
   `.electroboy/shared/runs/<run-id>/artifacts/`.
-- Design review summaries are stored in `docs/design-review.md` and committed
-  during design approval.
-- Implementation logs and implementation reports are stored in
-  `docs/implementation-log.md` and `docs/implementation-report.md`.
-- Validation results are stored in `docs/validation-report.md`.
+- Design review summaries are stored in the run's design-review artifact and
+  committed during design approval.
+- Implementation logs and implementation reports are stored in the run's
+  implementation handoff artifacts.
+- Validation results are stored in the run's validation-report artifact.
 - Shared pipeline state is committed; local session, raw runtime, credential,
   and shell activation state is ignored.
 - Change-control requests reopen the earliest affected baseline and invalidate

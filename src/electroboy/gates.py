@@ -30,6 +30,7 @@ from .models import (
     STAGE_TEST_PLAN,
     STAGE_VALIDATION,
 )
+from .feature_artifacts import artifact_paths_for_run, resolve_artifact_path
 from .planning import has_traceability
 from .state_store import StateStore
 
@@ -112,14 +113,14 @@ class GateEngine:
             return self._completed_file_gate(
                 manifest,
                 name,
-                "docs/requirements.md",
+                self._artifact_path(manifest, "docs/requirements.md"),
                 "requirements approval has not been recorded",
             )
         if name == GATE_DESIGN:
             return self._completed_file_gate(
                 manifest,
                 name,
-                "docs/detailed-design.md",
+                self._artifact_path(manifest, "docs/detailed-design.md"),
                 "design review has not been recorded",
             )
         if name == GATE_HUMAN_DESIGN_ACCEPTANCE:
@@ -132,10 +133,14 @@ class GateEngine:
             result = self._completed_file_gate(
                 manifest,
                 name,
-                "docs/implementation-plan.md",
+                self._artifact_path(manifest, "docs/implementation-plan.md"),
                 "implementation-plan approval has not been recorded",
             )
-            if result.passed and not has_traceability(self.root):
+            if result.passed and not has_traceability(
+                self.root,
+                self._artifact_path(manifest, "docs/requirements.md"),
+                self._artifact_path(manifest, "docs/implementation-plan.md"),
+            ):
                 return GateResult(
                     name=name,
                     status="blocked",
@@ -160,7 +165,7 @@ class GateEngine:
             return self._completed_file_gate(
                 manifest,
                 name,
-                "docs/test-plan.md",
+                self._artifact_path(manifest, "docs/test-plan.md"),
                 "test-plan approval has not been recorded",
             )
         if name == GATE_VALIDATION_TESTING:
@@ -183,7 +188,7 @@ class GateEngine:
         for gate in PREDECESSOR_GATES.get(requested_stage, []):
             if not manifest.has_gate(gate):
                 messages.append(f"predecessor gate is not complete: {gate}")
-            elif not self._has_required_snapshot(gate):
+            elif not self._has_required_snapshot(gate, manifest):
                 messages.append(f"predecessor snapshot is missing: {gate}")
 
         open_changes = self._open_change_requests()
@@ -290,7 +295,10 @@ class GateEngine:
             messages.append("validation testing has not been recorded")
         if self._blocking_issues("validation-review.jsonl"):
             messages.append("blocking validation review issues remain")
-        report = self.root / "docs" / "validation-report.md"
+        report = self.root / self._artifact_path(
+            manifest,
+            "docs/validation-report.md",
+        )
         if manifest.has_gate(GATE_VALIDATION_TESTING) and not report.exists():
             messages.append("validation report is missing")
         if messages:
@@ -306,8 +314,8 @@ class GateEngine:
         if not manifest.has_gate(GATE_DOCUMENTATION):
             messages.append("documentation review has not been recorded")
         for relative_path in [
-            "docs/requirements.md",
-            "docs/detailed-design.md",
+            self._artifact_path(manifest, "docs/requirements.md"),
+            self._artifact_path(manifest, "docs/detailed-design.md"),
             "README.md",
             "docs/api.md",
         ]:
@@ -357,7 +365,7 @@ class GateEngine:
                 messages.append(
                     f"approval is missing: {stage} {approval_type}"
                 )
-        if manifest.has_gate(gate) and not self._has_required_snapshot(gate):
+        if manifest.has_gate(gate) and not self._has_required_snapshot(gate, manifest):
             messages.append(f"required snapshot is missing: {gate}")
         if messages:
             return GateResult(name=gate, status="blocked", messages=messages)
@@ -380,7 +388,7 @@ class GateEngine:
                 messages.append(
                     f"approval is missing: {stage} {approval_type}"
                 )
-        if manifest.has_gate(gate) and not self._has_required_snapshot(gate):
+        if manifest.has_gate(gate) and not self._has_required_snapshot(gate, manifest):
             messages.append(f"required snapshot is missing: {gate}")
         if gate == GATE_DESIGN and self._blocking_issues("design-review.jsonl"):
             messages.append("blocking design review issues remain")
@@ -388,10 +396,11 @@ class GateEngine:
             return GateResult(name=gate, status="blocked", messages=messages)
         return GateResult(name=gate, status="pass")
 
-    def _has_required_snapshot(self, gate: str) -> bool:
+    def _has_required_snapshot(self, gate: str, manifest: RunManifest) -> bool:
         artifact_path = GATE_SNAPSHOT_ARTIFACTS.get(gate)
         if artifact_path is None:
             return True
+        artifact_path = self._artifact_path(manifest, artifact_path)
         invalidated = {
             str(snapshot_ref)
             for invalidation in self.store.read_baseline_invalidations()
@@ -404,6 +413,10 @@ class GateEngine:
                 continue
             return True
         return False
+
+    def _artifact_path(self, manifest: RunManifest, relative_path: str) -> str:
+        paths = artifact_paths_for_run(self.root, manifest.run_id)
+        return resolve_artifact_path(paths, relative_path)
 
     def _has_approval(self, stage: str, approval_type: str) -> bool:
         return any(

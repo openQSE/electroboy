@@ -91,13 +91,22 @@ the meta-project root and receive the active repo plus the registered repo list
 in their prompts.
 
 Start feature work when you want the same from-scratch pipeline with feature
-metadata attached. Use `--branch` when ElectroBoy should create or switch to a
-focused feature branch before the normal stages begin. Omit the branch name to
-derive `feature/<slug>` from the title, or pass an explicit branch name:
+metadata attached. ElectroBoy prompts for a feature artifact name in an
+interactive shell, or derives one from the title when input is not interactive.
+Pass `--name <feature>` to choose it explicitly. Feature runs write
+feature-tagged artifacts such as `docs/requirements-<feature>.md`,
+`docs/detailed-design-<feature>.md`, `docs/implementation-plan-<feature>.md`,
+and `docs/test-plan-<feature>.md`; later review and report artifacts use the
+same suffix. If those files already exist, ElectroBoy warns before amending
+them, or accepts the reuse directly with `--amend`.
+
+Use `--branch` when ElectroBoy should create or switch to a focused feature
+branch before the normal stages begin. Omit the branch name to derive
+`feature/<slug>` from the title, or pass an explicit branch name:
 
 ```bash
 electroboy feature start "Add dashboard export" --branch
-electroboy feature start "Add admission and scheduling to the QFw" --branch adm-sched-v01
+electroboy feature start "Add admission and scheduling to the QFw" --name adm-sched-v01 --branch adm-sched-v01
 electroboy requirements
 electroboy requirements-approve
 electroboy design
@@ -143,10 +152,11 @@ Draft the system test plan whenever useful during design or planning:
 electroboy test-plan
 ```
 
-`test-plan` updates `docs/test-plan.md`. It can be run while the active stage
-is still design, implementation planning, or implementation so system test
-ideas are captured when they arise. After implementation completes, run
-`test-plan` again to review the final validation surface, then approve it:
+`test-plan` updates `docs/test-plan.md`, or the feature-specific test plan in a
+feature run. It can be run while the active stage is still design,
+implementation planning, or implementation so system test ideas are captured
+when they arise. After implementation completes, run `test-plan` again to
+review the final validation surface, then approve it:
 
 ```bash
 electroboy test-plan
@@ -186,15 +196,16 @@ continues until every planned phase is complete. The command stops only when an
 agent fails, an unresolved review issue blocks progress, phase scope changes,
 git cannot create a valid commit, or the agents need human input.
 
-After `code` completes, revisit and approve `docs/test-plan.md`. Validation
-requires that approved system test plan, always runs the full test suite plus
-artifact-declared validation commands, and writes `docs/validation-report.md`.
-If validation fails, the pipeline opens a validation-fix phase and returns to
-`code`. After validation passes, run `validation-approve` to commit the
-implementation log, implementation report, and validation report before
-documentation review. `document` runs the documentation refinement and review
-phase. If a review or validation issue needs human input, the command records
-the escalation and stops at a resumable checkpoint.
+After `code` completes, revisit and approve the run's test-plan artifact.
+Validation requires that approved system test plan, always runs the full test
+suite plus artifact-declared validation commands, and writes the run's
+validation report. If validation fails, the pipeline opens a validation-fix
+phase and returns to `code`. After validation passes, run
+`validation-approve` to commit the implementation log, implementation report,
+and validation report before documentation review. `document` runs the
+documentation refinement and review phase. If a review or validation issue
+needs human input, the command records the escalation and stops at a resumable
+checkpoint.
 
 Use phased mode only when a human wants to inspect and record each phase commit
 manually:
@@ -240,10 +251,11 @@ earlier stage command records a change-control event and invalidates affected
 downstream gates. A later stage command fails until its predecessor gates pass.
 
 Authoring agents start with narrow prompts: each stage reads only its approved
-context documents and updates its stage artifact by default. If the operator
-asks the agent to update an upstream artifact anyway, ElectroBoy compares the
-known authoring artifacts after the session, reopens the earliest affected
-stage, and asks for the required reapproval.
+context documents and updates its stage artifact by default. In feature runs
+those prompts name the feature-specific artifacts. If the operator asks the
+agent to update an upstream artifact anyway, ElectroBoy compares the known
+authoring artifacts after the session, reopens the earliest affected stage,
+and asks for the required reapproval.
 
 Leave the project environment:
 

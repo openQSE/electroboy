@@ -13,7 +13,15 @@ import sys
 from pathlib import Path
 from typing import Iterator, Sequence
 
-from .artifacts import ArtifactError, ArtifactManager
+from .artifacts import ARTIFACT_TEMPLATES, ArtifactError, ArtifactManager
+from .feature_artifacts import (
+    DEFAULT_ARTIFACT_PATHS,
+    DEFAULT_PATH_KEYS,
+    artifact_paths_for_run,
+    feature_artifact_paths,
+    read_feature_record,
+    resolve_artifact_path,
+)
 from .gates import GateEngine
 from .models import (
     ActivityEvent,
@@ -252,6 +260,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="start feature development through the standard pipeline",
     )
     feature_start.add_argument("title_or_issue_url", help="feature title or issue URL")
+    feature_start.add_argument(
+        "--name",
+        "--feature-name",
+        dest="feature_name",
+        help="feature artifact name; prompted when omitted in an interactive shell",
+    )
+    feature_start.add_argument(
+        "--amend",
+        action="store_true",
+        help="reuse existing feature artifacts without an interactive warning",
+    )
     feature_start.add_argument(
         "--branch",
         nargs="?",
@@ -1052,6 +1071,16 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
     project_root.mkdir(parents=True, exist_ok=True)
     _init_git_repository(project_root)
 
+    feature_name, feature_slug = _select_feature_identity(args)
+    feature_artifacts = feature_artifact_paths(feature_slug)
+    existing_artifacts = _existing_feature_artifacts(project_root, feature_artifacts)
+    if existing_artifacts and not _confirm_feature_amend(
+        feature_name,
+        existing_artifacts,
+        getattr(args, "amend", False),
+    ):
+        return 1
+
     branch_name: str | None = None
     if args.branch is not None:
         branch_name = args.branch or _feature_branch_name(args.title_or_issue_url)
@@ -1060,7 +1089,7 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
             print(f"error: {branch_error}", file=sys.stderr)
             return 1
 
-    ArtifactManager(project_root).init_templates()
+    _init_feature_templates(project_root, feature_artifacts)
     _write_project_config(project_root)
     _write_project_gitignore(project_root)
     _write_project_runtime(project_root)
@@ -1076,7 +1105,11 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
     feature_record = _write_feature_record(
         store,
         args.title_or_issue_url,
+        feature_name,
+        feature_slug,
+        feature_artifacts,
         branch_name,
+        bool(existing_artifacts),
     )
     store.append_activity(
         ActivityEvent(
@@ -1089,10 +1122,14 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
     )
 
     print(f"feature: {feature_record['title']}")
+    print(f"feature name: {feature_record['name']}")
+    print(f"artifact tag: {feature_record['slug']}")
     if feature_record.get("source_issue_url"):
         print(f"source issue: {feature_record['source_issue_url']}")
     if branch_name:
         print(f"branch: {branch_name}")
+    for key in ["requirements", "design", "implementation_plan", "test_plan"]:
+        print(f"artifact {key}: {feature_artifacts[key]}")
     print(f"run id: {manifest.run_id}")
     if created_run:
         print("created run: yes")
@@ -1105,22 +1142,32 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
 def _write_feature_record(
     store: StateStore,
     title_or_issue_url: str,
+    feature_name: str,
+    feature_slug: str,
+    artifacts: dict[str, str],
     branch_name: str | None,
+    amending_existing: bool,
 ) -> dict[str, object]:
     manifest = store.load_current_manifest()
     title = _feature_title(title_or_issue_url)
+    previous = read_feature_record(store.root, manifest.run_id) or {}
     record: dict[str, object] = {
         "schema_version": 1,
         "title": title,
+        "name": feature_name,
+        "slug": feature_slug,
         "input": title_or_issue_url,
         "source_issue_url": (
             title_or_issue_url
             if _looks_like_url(title_or_issue_url)
             else None
         ),
+        "artifacts": artifacts,
         "branch": branch_name,
+        "amending_existing": amending_existing,
         "run_id": manifest.run_id,
-        "started_at": utc_now(),
+        "started_at": previous.get("started_at", utc_now()),
+        "updated_at": utc_now(),
         "workflow": [
             "requirements",
             "requirements-approve",
@@ -1146,6 +1193,87 @@ def _write_feature_record(
         encoding="utf-8",
     )
     return record
+
+
+def _select_feature_identity(args: argparse.Namespace) -> tuple[str, str]:
+    default_name = _feature_title(args.title_or_issue_url)
+    default_slug = _slugify(default_name)
+    supplied_name = getattr(args, "feature_name", None)
+    if supplied_name is not None and supplied_name.strip():
+        feature_name = supplied_name.strip()
+    elif sys.stdin.isatty():
+        entered = input(f"Feature name [{default_slug}]: ").strip()
+        feature_name = entered or default_slug
+    else:
+        feature_name = default_slug
+    feature_slug = _slugify(feature_name)
+    return feature_name, feature_slug
+
+
+def _existing_feature_artifacts(
+    root: Path,
+    artifacts: dict[str, str],
+) -> list[str]:
+    return [
+        relative_path
+        for relative_path in artifacts.values()
+        if (root / relative_path).exists()
+    ]
+
+
+def _confirm_feature_amend(
+    feature_name: str,
+    existing_artifacts: list[str],
+    amend: bool,
+) -> bool:
+    if amend:
+        return True
+    print(
+        f"warning: feature artifacts already exist for {feature_name}: "
+        + ", ".join(existing_artifacts),
+        file=sys.stderr,
+    )
+    if not sys.stdin.isatty():
+        print(
+            "error: rerun with --amend to continue an existing feature",
+            file=sys.stderr,
+        )
+        return False
+    answer = input("Amend existing feature artifacts? [y/N]: ").strip().lower()
+    return answer in {"y", "yes"}
+
+
+def _init_feature_templates(root: Path, artifacts: dict[str, str]) -> list[str]:
+    template_keys = {
+        "requirements": "docs/requirements.md",
+        "design": "docs/detailed-design.md",
+        "implementation_plan": "docs/implementation-plan.md",
+        "test_plan": "docs/test-plan.md",
+        "api": "docs/api.md",
+    }
+    written: list[str] = []
+    for key, template_path in template_keys.items():
+        relative_path = artifacts.get(key, template_path)
+        path = root / relative_path
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        template = ARTIFACT_TEMPLATES[template_path]
+        for default_path in DEFAULT_ARTIFACT_PATHS.values():
+            template = template.replace(
+                default_path,
+                resolve_artifact_path(artifacts, default_path),
+            )
+        path.write_text(template, encoding="utf-8")
+        written.append(relative_path)
+    return written
+
+
+def _init_run_templates(store: StateStore) -> list[str]:
+    manifest = store.load_current_manifest()
+    if read_feature_record(store.root, manifest.run_id):
+        return _init_feature_templates(store.root, _run_artifact_paths(store))
+    return ArtifactManager(store.root).init_templates()
 
 
 def _feature_title(title_or_issue_url: str) -> str:
@@ -1237,6 +1365,47 @@ def _git_branch_exists(root: Path, branch_name: str) -> bool:
         check=False,
     )
     return completed.returncode == 0
+
+
+def _run_artifact_paths(store: StateStore) -> dict[str, str]:
+    manifest = store.load_current_manifest()
+    return artifact_paths_for_run(store.root, manifest.run_id)
+
+
+def _artifact_path(store: StateStore, relative_path: str) -> str:
+    return resolve_artifact_path(_run_artifact_paths(store), relative_path)
+
+
+def _artifact_paths(store: StateStore, relative_paths: list[str]) -> list[str]:
+    return [
+        _artifact_path(store, relative_path)
+        for relative_path in relative_paths
+    ]
+
+
+def _stage_required_file(store: StateStore, stage: str) -> str | None:
+    required_file = STAGE_REQUIRED_FILES.get(stage)
+    if required_file is None:
+        return None
+    return _artifact_path(store, required_file)
+
+
+def _stage_snapshot_artifact(store: StateStore, stage: str) -> str | None:
+    snapshot_artifact = STAGE_SNAPSHOT_ARTIFACTS.get(stage)
+    if snapshot_artifact is None:
+        return None
+    return _artifact_path(store, snapshot_artifact)
+
+
+def _approval_baseline_artifacts(store: StateStore, stage: str) -> list[str] | None:
+    baseline_paths = APPROVAL_BASELINE_ARTIFACTS.get(stage)
+    if baseline_paths is None:
+        return None
+    return _artifact_paths(store, baseline_paths)
+
+
+def _documentation_review_files(store: StateStore) -> list[str]:
+    return _artifact_paths(store, DOCUMENTATION_REVIEW_FILES)
 
 
 def _stage_command(stage: str) -> str:
@@ -1355,7 +1524,9 @@ def _test_plan_authoring_errors(
     messages: list[str] = []
     change_control = engine.change_control()
     messages.extend(change_control.messages)
-    requirements = engine.require_file("docs/requirements.md")
+    requirements = engine.require_file(
+        _artifact_path(store, "docs/requirements.md")
+    )
     messages.extend(requirements.messages)
     return messages
 
@@ -1366,20 +1537,20 @@ def _run_authoring_session(
     stage: str,
     out_of_band: bool = False,
 ) -> int:
-    ArtifactManager(store.root).init_templates()
-    artifact = STAGE_REQUIRED_FILES.get(stage)
+    _init_run_templates(store)
+    artifact = _stage_required_file(store, stage)
     reason = getattr(args, "reason", None)
-    artifact_snapshot = _authoring_artifact_snapshot(store.root)
+    artifact_snapshot = _authoring_artifact_snapshot(store)
     result, event_id, _issue_file = _invoke_agent_role(
         store,
         role="design_author",
-        prompt=_authoring_prompt(stage),
-        context_paths=_authoring_inputs(stage),
+        prompt=_authoring_prompt(store, stage),
+        context_paths=_authoring_inputs(store, stage),
         session_stage=stage,
         session_artifact=artifact,
         explicit_session_id=getattr(args, "session_id", None),
     )
-    changed_artifacts = _changed_authoring_artifacts(store.root, artifact_snapshot)
+    changed_artifacts = _changed_authoring_artifacts(store, artifact_snapshot)
     if not result.ok:
         print(result.final_message, end="" if result.final_message.endswith("\n") else "\n")
         return 1
@@ -1392,7 +1563,7 @@ def _run_authoring_session(
             stage=stage,
             action="authoring-session-recorded",
             summary=summary,
-            inputs=_authoring_inputs(stage),
+            inputs=_authoring_inputs(store, stage),
             outputs=[artifact] if artifact else [],
             artifact_changes=changed_artifacts,
             message_ref=f"messages/{event_id}-response.md",
@@ -1412,7 +1583,7 @@ def _run_authoring_session(
                 "after code completes"
             )
             return 0
-        print("next: review docs/test-plan.md, then run `electroboy test-plan-approve`")
+        print(f"next: review {artifact}, then run `electroboy test-plan-approve`")
         return 0
     print("next: review the artifact, then run the approval command")
     return 0
@@ -1444,8 +1615,8 @@ def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
         result, event_id, issue_file = _invoke_agent_role(
             store,
             role="design_review",
-            prompt=_design_review_prompt(),
-            context_paths=DESIGN_REVIEW_CONTEXT_PATHS,
+            prompt=_design_review_prompt(store),
+            context_paths=_artifact_paths(store, DESIGN_REVIEW_CONTEXT_PATHS),
         )
     _print_progress(
         "design-review",
@@ -1552,7 +1723,7 @@ def _cmd_code_phased(
     phase.update(
         {
             "status": "active",
-            "objective": _phase_objective(store.root, next_phase),
+            "objective": _phase_objective(store, next_phase),
             "plan_current": True,
         }
     )
@@ -1622,7 +1793,7 @@ def _start_code_phase(store: StateStore, phase_number: int) -> None:
     phase.update(
         {
             "status": "active",
-            "objective": _phase_objective(store.root, phase_number),
+            "objective": _phase_objective(store, phase_number),
             "plan_current": True,
         }
     )
@@ -1644,13 +1815,8 @@ def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
     coding_result, coding_event, _coding_issue_file = _invoke_agent_role(
         store,
         role="coding",
-        prompt=_coding_prompt(phase_number),
-        context_paths=[
-            "docs/requirements.md",
-            "docs/detailed-design.md",
-            "docs/implementation-plan.md",
-            TEST_PLAN_PATH,
-        ],
+        prompt=_coding_prompt(store, phase_number),
+        context_paths=_implementation_context_paths(store),
     )
     phase["coding_event"] = coding_event
     store.save_phase_status(status)
@@ -1664,13 +1830,8 @@ def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
     review_result, review_event, review_issue_file = _invoke_agent_role(
         store,
         role="code_review",
-        prompt=_code_review_prompt(phase_number),
-        context_paths=[
-            "docs/requirements.md",
-            "docs/detailed-design.md",
-            "docs/implementation-plan.md",
-            TEST_PLAN_PATH,
-        ],
+        prompt=_code_review_prompt(store, phase_number),
+        context_paths=_implementation_context_paths(store),
     )
     if not review_result.ok:
         print(
@@ -1690,13 +1851,8 @@ def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
     test_result, test_event, test_issue_file = _invoke_agent_role(
         store,
         role="test_review",
-        prompt=_test_review_prompt(phase_number),
-        context_paths=[
-            "docs/requirements.md",
-            "docs/detailed-design.md",
-            "docs/implementation-plan.md",
-            TEST_PLAN_PATH,
-        ],
+        prompt=_test_review_prompt(store, phase_number),
+        context_paths=_implementation_context_paths(store),
     )
     if not test_result.ok:
         print(
@@ -1732,7 +1888,7 @@ def _commit_active_phase_automatically(
         print("error: requested phase is not active", file=sys.stderr)
         return 1
     phase = status.phases.setdefault(str(phase_number), {})
-    commit_sha, error = _create_phase_commit(store.root, phase_number, phase)
+    commit_sha, error = _create_phase_commit(store, phase_number, phase)
     if error:
         print(f"error: {error}", file=sys.stderr)
         return 1
@@ -1740,7 +1896,7 @@ def _commit_active_phase_automatically(
         print("error: phase commit was not created", file=sys.stderr)
         return 1
     validation_error = _phase_commit_validation_error(
-        store.root,
+        store,
         commit_sha,
         phase_number,
         phase,
@@ -1781,12 +1937,9 @@ def _cmd_document(
     result, _event_id, _issue_file = _invoke_agent_role(
         store,
         role="documentation",
-        prompt=_documentation_prompt(),
+        prompt=_documentation_prompt(store),
         context_paths=[
-            "docs/requirements.md",
-            "docs/detailed-design.md",
-            "docs/implementation-plan.md",
-            TEST_PLAN_PATH,
+            *_implementation_context_paths(store),
             "README.md",
             "docs/api.md",
         ],
@@ -1842,37 +1995,50 @@ def _stage_args(
     )
 
 
-def _authoring_inputs(stage: str) -> list[str]:
+def _authoring_inputs(store: StateStore, stage: str) -> list[str]:
     if stage == STAGE_REQUIREMENTS:
-        return ["docs/requirements.md"]
+        return [_artifact_path(store, "docs/requirements.md")]
     if stage == STAGE_DESIGN:
-        return ["docs/requirements.md", "docs/detailed-design.md"]
+        return _artifact_paths(
+            store,
+            ["docs/requirements.md", "docs/detailed-design.md"],
+        )
     if stage == STAGE_PLAN:
-        return [
-            "docs/requirements.md",
-            "docs/detailed-design.md",
-            "docs/implementation-plan.md",
-        ]
+        return _artifact_paths(
+            store,
+            [
+                "docs/requirements.md",
+                "docs/detailed-design.md",
+                "docs/implementation-plan.md",
+            ],
+        )
     if stage == STAGE_TEST_PLAN:
-        return [
-            "docs/requirements.md",
-            "docs/detailed-design.md",
-            "docs/implementation-plan.md",
-            TEST_PLAN_PATH,
-        ]
+        return _artifact_paths(
+            store,
+            [
+                "docs/requirements.md",
+                "docs/detailed-design.md",
+                "docs/implementation-plan.md",
+                TEST_PLAN_PATH,
+            ],
+        )
     return []
 
 
-def _authoring_prompt(stage: str) -> str:
+def _authoring_prompt(store: StateStore, stage: str) -> str:
+    requirements_path = _artifact_path(store, "docs/requirements.md")
+    design_path = _artifact_path(store, "docs/detailed-design.md")
+    plan_path = _artifact_path(store, "docs/implementation-plan.md")
+    test_plan_path = _artifact_path(store, TEST_PLAN_PATH)
     prompts = {
         STAGE_REQUIREMENTS: [
             "Work with the operator on the requirements artifact.",
             "",
-            "Target file: docs/requirements.md.",
-            "Read only docs/requirements.md if it exists.",
+            f"Target file: {requirements_path}.",
+            f"Read only {requirements_path} if it exists.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
-            "Update only docs/requirements.md unless the operator explicitly",
+            f"Update only {requirements_path} unless the operator explicitly",
             "asks for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
@@ -1880,12 +2046,11 @@ def _authoring_prompt(stage: str) -> str:
         STAGE_DESIGN: [
             "Work with the operator on the design artifact.",
             "",
-            "Target file: docs/detailed-design.md.",
-            "Read only docs/requirements.md and docs/detailed-design.md if",
-            "they exist.",
+            f"Target file: {design_path}.",
+            f"Read only {requirements_path} and {design_path} if they exist.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
-            "Update only docs/detailed-design.md unless the operator explicitly",
+            f"Update only {design_path} unless the operator explicitly",
             "asks for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
@@ -1893,12 +2058,12 @@ def _authoring_prompt(stage: str) -> str:
         STAGE_PLAN: [
             "Work with the operator on the implementation plan artifact.",
             "",
-            "Target file: docs/implementation-plan.md.",
-            "Read only docs/requirements.md, docs/detailed-design.md, and",
-            "docs/implementation-plan.md if they exist.",
+            f"Target file: {plan_path}.",
+            f"Read only {requirements_path}, {design_path}, and",
+            f"{plan_path} if they exist.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
-            "Update only docs/implementation-plan.md unless the operator",
+            f"Update only {plan_path} unless the operator",
             "explicitly asks for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
@@ -1906,14 +2071,14 @@ def _authoring_prompt(stage: str) -> str:
         STAGE_TEST_PLAN: [
             "Work with the operator on the system test plan artifact.",
             "",
-            "Target file: docs/test-plan.md.",
-            "Read docs/requirements.md, docs/detailed-design.md,",
-            "docs/implementation-plan.md, and docs/test-plan.md if they exist.",
+            f"Target file: {test_plan_path}.",
+            f"Read {requirements_path}, {design_path}, {plan_path}, and",
+            f"{test_plan_path} if they exist.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
             "Focus on system tests, workflow checks, manual validation,",
             "environment assumptions, and acceptance criteria.",
-            "Update only docs/test-plan.md unless the operator explicitly asks",
+            f"Update only {test_plan_path} unless the operator explicitly asks",
             "for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
@@ -1922,10 +2087,20 @@ def _authoring_prompt(stage: str) -> str:
     return "\n".join(prompts.get(stage, [f"Work with the operator on {stage}."]))
 
 
-def _authoring_artifact_snapshot(root: Path) -> dict[str, bytes | None]:
+def _authoring_artifact_stages(store: StateStore) -> dict[str, str]:
+    paths = _run_artifact_paths(store)
     return {
-        relative_path: _read_optional_bytes(root / relative_path)
-        for relative_path in AUTHORING_ARTIFACT_STAGES
+        paths.get(key, default_path): stage
+        for default_path, stage in AUTHORING_ARTIFACT_STAGES.items()
+        for key in [DEFAULT_PATH_KEYS.get(default_path)]
+        if key is not None
+    }
+
+
+def _authoring_artifact_snapshot(store: StateStore) -> dict[str, bytes | None]:
+    return {
+        relative_path: _read_optional_bytes(store.root / relative_path)
+        for relative_path in _authoring_artifact_stages(store)
     }
 
 
@@ -1936,12 +2111,12 @@ def _read_optional_bytes(path: Path) -> bytes | None:
 
 
 def _changed_authoring_artifacts(
-    root: Path,
+    store: StateStore,
     before: dict[str, bytes | None],
 ) -> list[str]:
     changed: list[str] = []
-    for relative_path in sorted(AUTHORING_ARTIFACT_STAGES):
-        if _read_optional_bytes(root / relative_path) != before.get(relative_path):
+    for relative_path in sorted(_authoring_artifact_stages(store)):
+        if _read_optional_bytes(store.root / relative_path) != before.get(relative_path):
             changed.append(relative_path)
     return changed
 
@@ -1951,15 +2126,20 @@ def _reopen_earliest_upstream_authoring_stage(
     source_stage: str,
     changed_paths: list[str],
 ) -> bool:
-    target_stage = _earliest_upstream_authoring_stage(source_stage, changed_paths)
+    artifact_stages = _authoring_artifact_stages(store)
+    target_stage = _earliest_upstream_authoring_stage(
+        source_stage,
+        changed_paths,
+        artifact_stages,
+    )
     if target_stage is None:
         return False
 
     upstream_paths = [
         path
         for path in changed_paths
-        if AUTHORING_ARTIFACT_STAGES.get(path) == target_stage
-        or _is_stage_before(AUTHORING_ARTIFACT_STAGES.get(path), source_stage)
+        if artifact_stages.get(path) == target_stage
+        or _is_stage_before(artifact_stages.get(path), source_stage)
     ]
     reason = (
         f"Authoring session for {source_stage} changed upstream artifact(s): "
@@ -1979,7 +2159,7 @@ def _reopen_earliest_upstream_authoring_stage(
     _print_list("upstream artifact changes", upstream_paths)
     _print_list("invalidated gates", invalidated)
     print(f"active stage: {target_stage}")
-    target_artifact = STAGE_REQUIRED_FILES.get(target_stage)
+    target_artifact = _stage_required_file(store, target_stage)
     next_command = AUTHORING_APPROVAL_COMMANDS.get(target_stage)
     if target_artifact and next_command:
         print(f"next: review {target_artifact}, then run `{next_command}`")
@@ -1989,11 +2169,12 @@ def _reopen_earliest_upstream_authoring_stage(
 def _earliest_upstream_authoring_stage(
     source_stage: str,
     changed_paths: list[str],
+    artifact_stages: dict[str, str],
 ) -> str | None:
     candidates = [
         owner_stage
         for path in changed_paths
-        for owner_stage in [AUTHORING_ARTIFACT_STAGES.get(path)]
+        for owner_stage in [artifact_stages.get(path)]
         if _is_stage_before(owner_stage, source_stage)
     ]
     if not candidates:
@@ -2223,7 +2404,7 @@ def _cmd_stage(
         _print_gate_failure(order.messages)
         return 1
 
-    required_file = STAGE_REQUIRED_FILES.get(stage)
+    required_file = _stage_required_file(store, stage)
     if required_file:
         file_result = engine.require_file(required_file)
         if not file_result.passed:
@@ -2233,8 +2414,18 @@ def _cmd_stage(
     if approval_errors:
         _print_gate_failure(approval_errors)
         return 1
-    if stage == STAGE_PLAN and not has_traceability(store.root):
-        _print_gate_failure(traceability_errors(store.root))
+    if stage == STAGE_PLAN and not has_traceability(
+        store.root,
+        _artifact_path(store, "docs/requirements.md"),
+        _artifact_path(store, "docs/implementation-plan.md"),
+    ):
+        _print_gate_failure(
+            traceability_errors(
+                store.root,
+                _artifact_path(store, "docs/requirements.md"),
+                _artifact_path(store, "docs/implementation-plan.md"),
+            )
+        )
         return 1
     if stage == STAGE_IMPLEMENTATION:
         phase_status = store.load_phase_status()
@@ -2251,7 +2442,7 @@ def _cmd_stage(
             )
             return 1
 
-    baseline_paths = APPROVAL_BASELINE_ARTIFACTS.get(stage)
+    baseline_paths = _approval_baseline_artifacts(store, stage)
     if baseline_paths:
         with _progress_step(stage, "committing approved baseline artifacts"):
             commit_sha, commit_error = _commit_approval_baseline(
@@ -2277,7 +2468,7 @@ def _cmd_stage(
     if next_stage:
         manifest.set_active_stage(next_stage)
     store.save_manifest(manifest)
-    snapshot_artifact = STAGE_SNAPSHOT_ARTIFACTS.get(stage)
+    snapshot_artifact = _stage_snapshot_artifact(store, stage)
     if snapshot_artifact:
         snapshot = ArtifactManager(store.root).snapshot(
             manifest.run_id,
@@ -2318,7 +2509,7 @@ def _stage_readiness_errors(
     order = engine.stage_order(stage, manifest)
     if not order.passed:
         return order.messages
-    required_file = STAGE_REQUIRED_FILES.get(stage)
+    required_file = _stage_required_file(engine.store, stage)
     if required_file:
         file_result = engine.require_file(required_file)
         if not file_result.passed:
@@ -2346,7 +2537,7 @@ def _cmd_phase(
             return 1
         phase = status.phases.setdefault(str(args.phase), {})
         error = _phase_commit_validation_error(
-            store.root,
+            store,
             args.sha,
             args.phase,
             phase,
@@ -2384,7 +2575,7 @@ def _cmd_validate(
         )
         return 1
 
-    commands = _validation_commands(store.root, args)
+    commands = _validation_commands(store, args)
     results = [
         _run_validation_command(store.root, command, shell=shell)
         for command, shell, _source in commands
@@ -2405,7 +2596,7 @@ def _cmd_validate(
                 status="open",
                 summary=f"Validation command failed: {result['command']}",
                 stage=STAGE_VALIDATION,
-                artifact=VALIDATION_REPORT_PATH,
+                artifact=_artifact_path(store, VALIDATION_REPORT_PATH),
                 requested_change="Fix the failing validation command.",
             )
             store.append_review_issue("validation-review.jsonl", issue)
@@ -2463,7 +2654,7 @@ def _cmd_validation_approve(store: StateStore) -> int:
         _print_gate_failure(["blocking validation review issues remain"])
         return 1
 
-    baseline_paths = APPROVAL_BASELINE_ARTIFACTS[STAGE_VALIDATION]
+    baseline_paths = _approval_baseline_artifacts(store, STAGE_VALIDATION) or []
     with _progress_step("validation", "committing validation reports"):
         commit_sha, commit_error = _commit_approval_baseline(
             store,
@@ -2501,9 +2692,10 @@ def _cmd_docs_review(store: StateStore, engine: GateEngine) -> int:
         _print_gate_failure(order.messages)
         return 1
 
+    documentation_files = _documentation_review_files(store)
     missing = [
         relative_path
-        for relative_path in DOCUMENTATION_REVIEW_FILES
+        for relative_path in documentation_files
         if not (store.root / relative_path).exists()
     ]
     _verify_restored_documentation_files(store, missing)
@@ -2537,7 +2729,7 @@ def _cmd_docs_review(store: StateStore, engine: GateEngine) -> int:
     manager = ArtifactManager(store.root)
     event_id = f"documentation-review-{len(manifest.completed_gates) + 1}"
     snapshot_refs: list[str] = []
-    for relative_path in DOCUMENTATION_REVIEW_FILES:
+    for relative_path in documentation_files:
         snapshot = manager.snapshot(manifest.run_id, relative_path, event_id)
         store.append_artifact_snapshot(snapshot)
         snapshot_refs.append(snapshot.snapshot_path)
@@ -2862,12 +3054,14 @@ def _write_attached_agent_session_record(
     )
 
 
-def _design_review_prompt() -> str:
+def _design_review_prompt(store: StateStore) -> str:
+    requirements_path = _artifact_path(store, "docs/requirements.md")
+    design_path = _artifact_path(store, "docs/detailed-design.md")
     return "\n".join(
         [
-            "Review docs/detailed-design.md against docs/requirements.md.",
+            f"Review {design_path} against {requirements_path}.",
             "",
-            "Read only docs/requirements.md and docs/detailed-design.md.",
+            f"Read only {requirements_path} and {design_path}.",
             "Do not inspect source code or modify files.",
             "Report blocker and major findings as structured review issues.",
             "If files need to change, report the requested change as an issue.",
@@ -2875,14 +3069,28 @@ def _design_review_prompt() -> str:
     )
 
 
-def _coding_prompt(phase_number: int) -> str:
+def _implementation_context_paths(store: StateStore) -> list[str]:
+    return _artifact_paths(
+        store,
+        [
+            "docs/requirements.md",
+            "docs/detailed-design.md",
+            "docs/implementation-plan.md",
+            TEST_PLAN_PATH,
+        ],
+    )
+
+
+def _coding_prompt(store: StateStore, phase_number: int) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
     return "\n".join(
         [
-            f"Implement phase {phase_number} from docs/implementation-plan.md.",
+            f"Implement phase {phase_number} from {plan_path}.",
             "",
-            "Use docs/requirements.md, docs/detailed-design.md,",
-            "docs/implementation-plan.md, and docs/test-plan.md when present",
-            "as the approved context.",
+            f"Use {requirements_path}, {design_path}, {plan_path}, and",
+            f"{test_plan_path} when present as the approved context.",
             "Inspect only files needed to complete this phase.",
             "Limit edits to implementation and test files needed for this phase.",
             "Do not update requirements, design, plan, or test-plan documents",
@@ -2894,14 +3102,16 @@ def _coding_prompt(phase_number: int) -> str:
     )
 
 
-def _code_review_prompt(phase_number: int) -> str:
+def _code_review_prompt(store: StateStore, phase_number: int) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
     return "\n".join(
         [
             f"Review implementation phase {phase_number}.",
             "",
-            "Use docs/requirements.md, docs/detailed-design.md,",
-            "docs/implementation-plan.md, and docs/test-plan.md when present",
-            "as the approved context.",
+            f"Use {requirements_path}, {design_path}, {plan_path}, and",
+            f"{test_plan_path} when present as the approved context.",
             "Review only the changes relevant to this phase.",
             "Do not modify files.",
             "Report blocker and major findings as structured review issues.",
@@ -2909,14 +3119,16 @@ def _code_review_prompt(phase_number: int) -> str:
     )
 
 
-def _test_review_prompt(phase_number: int) -> str:
+def _test_review_prompt(store: StateStore, phase_number: int) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
     return "\n".join(
         [
             f"Review tests for implementation phase {phase_number}.",
             "",
-            "Use docs/requirements.md, docs/detailed-design.md,",
-            "docs/implementation-plan.md, and docs/test-plan.md when present",
-            "as the approved context.",
+            f"Use {requirements_path}, {design_path}, {plan_path}, and",
+            f"{test_plan_path} when present as the approved context.",
             "Inspect tests and test results relevant to this phase.",
             "Do not modify files.",
             "Report missing or failing coverage as structured review issues.",
@@ -2924,14 +3136,16 @@ def _test_review_prompt(phase_number: int) -> str:
     )
 
 
-def _documentation_prompt() -> str:
+def _documentation_prompt(store: StateStore) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
     return "\n".join(
         [
             "Review final documentation against the completed codebase.",
             "",
-            "Use docs/requirements.md, docs/detailed-design.md,",
-            "docs/implementation-plan.md, docs/test-plan.md, README.md, and",
-            "docs/api.md as context.",
+            f"Use {requirements_path}, {design_path}, {plan_path},",
+            f"{test_plan_path}, README.md, and docs/api.md as context.",
             "Limit documentation edits to README.md and docs/api.md unless the",
             "operator explicitly asks for another change.",
             "If requirements, design, plan, or test-plan artifacts need to",
@@ -2964,6 +3178,8 @@ def _write_design_review_summary(
     blocking = _blocking_issues(store, issue_file)
     reported_files = _agent_reported_files(result)
     summary = result.final_message.strip() or "No narrative review summary returned."
+    reviewed_artifacts = _artifact_paths(store, DESIGN_REVIEW_CONTEXT_PATHS)
+    summary_path = _artifact_path(store, DESIGN_REVIEW_SUMMARY_PATH)
     lines = [
         "# Design Review",
         "",
@@ -2975,7 +3191,7 @@ def _write_design_review_summary(
         "",
         "## Reviewed Artifacts",
         "",
-        *_markdown_list(DESIGN_REVIEW_CONTEXT_PATHS),
+        *_markdown_list(reviewed_artifacts),
         "",
         "## Summary",
         "",
@@ -2991,7 +3207,7 @@ def _write_design_review_summary(
         "",
         "## Orchestrator Artifacts",
         "",
-        f"- {DESIGN_REVIEW_SUMMARY_PATH}",
+        f"- {summary_path}",
         "",
         "## Open Issues",
         "",
@@ -3001,7 +3217,7 @@ def _write_design_review_summary(
         "",
         _design_review_approval_state(outcome),
     ]
-    path = store.root / DESIGN_REVIEW_SUMMARY_PATH
+    path = store.root / summary_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     store.append_activity(
@@ -3009,13 +3225,13 @@ def _write_design_review_summary(
             actor="orchestrator",
             stage=STAGE_DESIGN_REVIEW,
             action="design-review-summary-written",
-            summary=f"Wrote {DESIGN_REVIEW_SUMMARY_PATH}.",
-            outputs=[DESIGN_REVIEW_SUMMARY_PATH],
-            artifact_changes=[DESIGN_REVIEW_SUMMARY_PATH],
+            summary=f"Wrote {summary_path}.",
+            outputs=[summary_path],
+            artifact_changes=[summary_path],
             message_ref=f"messages/{event_id}-response.md",
         )
     )
-    return DESIGN_REVIEW_SUMMARY_PATH
+    return summary_path
 
 
 def _design_review_issue_lines(issues: list[dict[str, object]]) -> list[str]:
@@ -3130,13 +3346,15 @@ def _complete_implementation_stage(store: StateStore, engine: GateEngine) -> int
 
 
 def _write_implementation_artifacts(store: StateStore) -> list[str]:
-    log_path = store.root / IMPLEMENTATION_LOG_PATH
-    report_path = store.root / IMPLEMENTATION_REPORT_PATH
+    log_relative_path = _artifact_path(store, IMPLEMENTATION_LOG_PATH)
+    report_relative_path = _artifact_path(store, IMPLEMENTATION_REPORT_PATH)
+    log_path = store.root / log_relative_path
+    report_path = store.root / report_relative_path
     log_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(_format_implementation_log(store), encoding="utf-8")
     report_path.write_text(_format_implementation_report(store), encoding="utf-8")
-    outputs = [IMPLEMENTATION_LOG_PATH, IMPLEMENTATION_REPORT_PATH]
+    outputs = [log_relative_path, report_relative_path]
     store.append_activity(
         ActivityEvent(
             actor="orchestrator",
@@ -3254,7 +3472,8 @@ def _format_implementation_report(store: StateStore) -> str:
         "",
         "## Validation",
         "",
-        "Validation results are recorded separately in docs/validation-report.md.",
+        "Validation results are recorded separately in "
+        f"{_artifact_path(store, VALIDATION_REPORT_PATH)}.",
     ]
     return "\n".join(lines).rstrip() + "\n"
 
@@ -3863,7 +4082,7 @@ def _record_stage_approvals(
             stage=stage,
             actor=actor,
             approval_type=approval_type,
-            artifact_path=STAGE_REQUIRED_FILES.get(stage),
+            artifact_path=_stage_required_file(store, stage),
             summary=f"{actor} recorded {approval_type} for {stage}.",
         )
         store.append_approval(approval)
@@ -4048,11 +4267,11 @@ def _top_level_cli_commands() -> list[str]:
 
 
 def _validation_commands(
-    root: Path,
+    store: StateStore,
     args: argparse.Namespace,
 ) -> list[tuple[list[str] | str, bool, str]]:
     commands: list[tuple[list[str] | str, bool, str]] = []
-    artifact_commands = _artifact_validation_commands(root)
+    artifact_commands = _artifact_validation_commands(store)
     for command in artifact_commands:
         commands.append((shlex.split(command), False, "artifact"))
     if not artifact_commands:
@@ -4077,14 +4296,17 @@ def _validation_commands(
     return commands
 
 
-def _artifact_validation_commands(root: Path) -> list[str]:
+def _artifact_validation_commands(store: StateStore) -> list[str]:
     commands: list[str] = []
-    for relative_path in [
-        "docs/requirements.md",
-        "docs/detailed-design.md",
-        TEST_PLAN_PATH,
-    ]:
-        path = root / relative_path
+    for relative_path in _artifact_paths(
+        store,
+        [
+            "docs/requirements.md",
+            "docs/detailed-design.md",
+            TEST_PLAN_PATH,
+        ],
+    ):
+        path = store.root / relative_path
         if not path.exists():
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -4136,7 +4358,10 @@ def _run_validation_command(
 
 
 def _uncommitted_planned_phases(store: StateStore) -> list[int]:
-    planned = planned_phases(store.root)
+    planned = planned_phases(
+        store.root,
+        _artifact_path(store, "docs/implementation-plan.md"),
+    )
     if not planned:
         return []
     status = store.load_phase_status()
@@ -4159,8 +4384,11 @@ def _next_uncommitted_phase(store: StateStore) -> int | None:
     return min(phases)
 
 
-def _phase_objective(root: Path, phase_number: int) -> str:
-    for phase in planned_phases(root):
+def _phase_objective(store: StateStore, phase_number: int) -> str:
+    for phase in planned_phases(
+        store.root,
+        _artifact_path(store, "docs/implementation-plan.md"),
+    ):
         if phase.number == phase_number:
             return phase.heading
     return f"Phase {phase_number}"
@@ -4263,19 +4491,20 @@ def _commit_message_parts(message: str) -> tuple[str, str]:
 
 
 def _create_phase_commit(
-    root: Path,
+    store: StateStore,
     phase_number: int,
     phase: dict[str, object],
 ) -> tuple[str | None, str | None]:
+    root = store.root
     if not _is_git_worktree(root):
         return None, "repository is not a git worktree"
     changed_paths = _git_worktree_changed_paths(root)
     if not changed_paths:
         return None, "phase produced no repository changes to commit"
-    scope_error = _phase_paths_scope_error(root, phase_number, changed_paths)
+    scope_error = _phase_paths_scope_error(store, phase_number, changed_paths)
     if scope_error:
         return None, scope_error
-    stage_paths = _phase_stage_paths(root, phase_number, changed_paths)
+    stage_paths = _phase_stage_paths(store, phase_number, changed_paths)
     add_error = _git_add_paths(root, stage_paths)
     if add_error:
         return None, add_error
@@ -4346,12 +4575,19 @@ def _git_staged_changed_paths(root: Path) -> list[str]:
 
 
 def _phase_stage_paths(
-    root: Path,
+    store: StateStore,
     phase_number: int,
     changed_paths: list[str],
 ) -> list[str]:
     planned_phase = next(
-        (phase for phase in planned_phases(root) if phase.number == phase_number),
+        (
+            phase
+            for phase in planned_phases(
+                store.root,
+                _artifact_path(store, "docs/implementation-plan.md"),
+            )
+            if phase.number == phase_number
+        ),
         None,
     )
     if planned_phase is None:
@@ -4440,11 +4676,12 @@ def _phase_commit_objective(
 
 
 def _phase_commit_validation_error(
-    root: Path,
+    store: StateStore,
     sha: str,
     phase_number: int,
     phase: dict[str, object],
 ) -> str | None:
+    root = store.root
     if not _git_commit_exists(root, sha):
         return f"commit does not exist: {sha}"
     if not _git_commit_reachable_from_head(root, sha):
@@ -4452,7 +4689,7 @@ def _phase_commit_validation_error(
     message_error = _phase_commit_message_error(root, sha, phase_number, phase)
     if message_error:
         return message_error
-    return _phase_commit_scope_error(root, sha, phase_number)
+    return _phase_commit_scope_error(store, sha, phase_number)
 
 
 def _record_phase_commit(
@@ -4530,21 +4767,32 @@ def _message_mentions_objective(
     return detail in message
 
 
-def _phase_commit_scope_error(root: Path, sha: str, phase_number: int) -> str | None:
+def _phase_commit_scope_error(
+    store: StateStore,
+    sha: str,
+    phase_number: int,
+) -> str | None:
     return _phase_paths_scope_error(
-        root,
+        store,
         phase_number,
-        _git_commit_changed_paths(root, sha),
+        _git_commit_changed_paths(store.root, sha),
     )
 
 
 def _phase_paths_scope_error(
-    root: Path,
+    store: StateStore,
     phase_number: int,
     changed_paths: list[str],
 ) -> str | None:
     planned_phase = next(
-        (phase for phase in planned_phases(root) if phase.number == phase_number),
+        (
+            phase
+            for phase in planned_phases(
+                store.root,
+                _artifact_path(store, "docs/implementation-plan.md"),
+            )
+            if phase.number == phase_number
+        ),
         None,
     )
     if planned_phase is None:
@@ -4616,7 +4864,13 @@ def _path_is_within(path: str, allowed: str) -> bool:
 def _open_validation_fix_phase(store: StateStore, manifest) -> None:
     status = store.load_phase_status()
     existing = [int(phase) for phase in status.phases if str(phase).isdigit()]
-    planned = [phase.number for phase in planned_phases(store.root)]
+    planned = [
+        phase.number
+        for phase in planned_phases(
+            store.root,
+            _artifact_path(store, "docs/implementation-plan.md"),
+        )
+    ]
     phase_number = max(existing + planned + [0]) + 1
     status.active_phase = phase_number
     phase = status.phases.setdefault(str(phase_number), {})
@@ -4696,11 +4950,14 @@ def _invalidated_snapshot_refs(
     invalidated_gates: list[str],
 ) -> list[str]:
     gate_artifacts = {
-        GATE_REQUIREMENTS: "docs/requirements.md",
-        GATE_DESIGN: "docs/detailed-design.md",
-        GATE_HUMAN_DESIGN_ACCEPTANCE: "docs/detailed-design.md",
-        GATE_IMPLEMENTATION: "docs/implementation-plan.md",
-        GATE_TEST_PLAN: TEST_PLAN_PATH,
+        GATE_REQUIREMENTS: _artifact_path(store, "docs/requirements.md"),
+        GATE_DESIGN: _artifact_path(store, "docs/detailed-design.md"),
+        GATE_HUMAN_DESIGN_ACCEPTANCE: _artifact_path(
+            store,
+            "docs/detailed-design.md",
+        ),
+        GATE_IMPLEMENTATION: _artifact_path(store, "docs/implementation-plan.md"),
+        GATE_TEST_PLAN: _artifact_path(store, TEST_PLAN_PATH),
         GATE_DOCUMENTATION: "docs/api.md",
     }
     artifacts = {
@@ -4720,9 +4977,10 @@ def _write_validation_report(
     results: list[dict[str, object]],
 ) -> Path:
     manifest = store.load_current_manifest()
-    report_path = store.root / VALIDATION_REPORT_PATH
+    report_relative_path = _artifact_path(store, VALIDATION_REPORT_PATH)
+    report_path = store.root / report_relative_path
     artifact_report_path = (
-        store.run_dir(manifest.run_id) / "artifacts" / "validation-report.md"
+        store.run_dir(manifest.run_id) / "artifacts" / report_relative_path
     )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_report_path.parent.mkdir(parents=True, exist_ok=True)
