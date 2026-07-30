@@ -90,6 +90,22 @@ approval commits belong to the active target repository. Agent sessions run from
 the meta-project root and receive the active repo plus the registered repo list
 in their prompts.
 
+When the ElectroBoy source checkout has changed, refresh the meta-project
+runtime from that checkout before rerunning stages. Running the refresh from
+the checkout avoids reinstalling an older activated `electroboy` runtime over
+itself:
+
+```bash
+cd ~/ORNL/Quantum/openQSE/electroboy
+./electroboy meta init ~/ORNL/Quantum/openQSE
+source ~/ORNL/Quantum/openQSE/.electroboy/bin/activate
+electroboy stage design-review --force --reason "Rerun with coordinated design review updates"
+electroboy design-review
+```
+
+After the runtime has been refreshed, normal meta-project work can continue
+from the meta-project root.
+
 Start feature work when you want the same from-scratch pipeline with feature
 metadata attached. ElectroBoy prompts for a feature artifact name in an
 interactive shell, or derives one from the title when input is not interactive.

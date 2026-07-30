@@ -169,6 +169,41 @@ class DesignLoopTests(unittest.TestCase):
         self.assertEqual(issues[0]["status"], "verified")
         self.assertEqual(manifest.active_stage, "design-acceptance")
 
+    def test_design_review_converts_narrative_findings_to_update_loop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            configure_git_identity(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
+            self.assertEqual(
+                self.run_cli(["--root", str(root), "requirements-approve"])[0],
+                0,
+            )
+            write_narrative_review_update_runtime(root)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "design-review"]
+            )
+            design = (root / "docs" / "detailed-design.md").read_text(
+                encoding="utf-8"
+            )
+            updates = (root / "docs" / "design-review-updates.md").read_text(
+                encoding="utf-8"
+            )
+            issues = store.read_review_issues("design-review.jsonl")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("running design author update after pass 1", stdout)
+        self.assertIn("Narrative update: aligned with review.", design)
+        self.assertIn("DREV-", updates)
+        self.assertIn("Design lacks a narrative-reviewed flow", updates)
+        self.assertEqual(issues[0]["source"], "design-review-agent:narrative")
+        self.assertEqual(issues[0]["status"], "verified")
+
 
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -276,6 +311,64 @@ else:
             "summary": "Design lacks reviewed update.",
         }],
     }))
+'''.lstrip(),
+    )
+    config = """
+[runtime]
+default = "agent"
+
+[runtimes.agent]
+adapter = "generic_cli"
+command = "python3"
+args = ["agent.py"]
+
+[roles]
+design_review = "agent"
+design_author_update = "agent"
+""".lstrip()
+    write_file(root / "electroboy.toml", config)
+    if (root / ".electroboy").exists():
+        write_file(root / ".electroboy" / "project.toml", config)
+
+
+def write_narrative_review_update_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        r'''
+from pathlib import Path
+import sys
+
+
+prompt = sys.stdin.read()
+design_path = Path("docs/detailed-design.md")
+design = design_path.read_text(encoding="utf-8")
+
+if "Update docs/detailed-design.md" in prompt:
+    design_path.write_text(
+        design.rstrip() + "\n\nNarrative update: aligned with review.\n",
+        encoding="utf-8",
+    )
+    print("Updated the detailed design from narrative review findings.")
+elif "Narrative update: aligned with review." in design:
+    print("""**Blockers**
+
+No blockers found.
+
+**Major Findings**
+
+No major findings.
+""")
+else:
+    print("""**Blockers**
+
+No blockers found.
+
+**Major Findings**
+
+1. **Major: Design lacks a narrative-reviewed flow.**
+   The design does not describe the flow requested by the review.
+   Requested change: add the missing design flow.
+""")
 '''.lstrip(),
     )
     config = """

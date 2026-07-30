@@ -1633,6 +1633,7 @@ def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
         )
 
         issue_file = issue_file or "design-review.jsonl"
+        _sync_design_review_narrative_issues(store, issue_file, result, event_id)
         blocking = _blocking_issues(store, issue_file)
         outcome = _design_review_outcome(result, blocking)
         with _progress_step("design-review", "writing review summary"):
@@ -3344,6 +3345,210 @@ def _design_review_approval_state(outcome: str) -> str:
     if outcome == "blocked":
         return "Design review is blocked by open blocker or major findings."
     return "Design review did not complete because the review agent failed."
+
+
+def _sync_design_review_narrative_issues(
+    store: StateStore,
+    issue_file: str,
+    result: AgentResult,
+    event_id: str,
+) -> None:
+    if result.issues:
+        return
+    findings = _design_review_narrative_findings(result.final_message)
+    if findings:
+        _append_design_review_narrative_issues(store, issue_file, findings, event_id)
+        return
+    if result.ok:
+        _verify_design_review_narrative_issues(store, issue_file)
+
+
+def _append_design_review_narrative_issues(
+    store: StateStore,
+    issue_file: str,
+    findings: list[dict[str, str]],
+    event_id: str,
+) -> None:
+    event_suffix = "".join(char for char in event_id if char.isdigit()) or "0"
+    for offset, finding in enumerate(findings, start=1):
+        issue = ReviewIssue(
+            issue_id=f"DREV-{event_suffix}-{offset:02d}",
+            source="design-review-agent:narrative",
+            severity=finding["severity"],
+            status="open",
+            summary=finding["summary"],
+            stage=STAGE_DESIGN_REVIEW,
+            artifact=_artifact_path(store, "docs/detailed-design.md"),
+            rationale=finding["body"],
+            requested_change=finding["requested_change"] or None,
+        )
+        store.append_review_issue(issue_file, issue)
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_DESIGN_REVIEW,
+            action="design-review-narrative-issues-recorded",
+            summary=(
+                "Recorded narrative design-review blocker/major findings as "
+                "structured issues."
+            ),
+            inputs=[event_id],
+            outputs=[issue_file],
+            linked_issue_ids=[
+                f"DREV-{event_suffix}-{offset:02d}"
+                for offset in range(1, len(findings) + 1)
+            ],
+        )
+    )
+
+
+def _verify_design_review_narrative_issues(
+    store: StateStore,
+    issue_file: str,
+) -> None:
+    open_issues = [
+        issue
+        for issue in store.read_review_issues(issue_file)
+        if issue.get("source") == "design-review-agent:narrative"
+        and issue.get("status") in BLOCKING_ISSUE_STATUSES
+        and issue.get("severity") in {"blocker", "major"}
+    ]
+    if not open_issues:
+        return
+    verified_ids: list[str] = []
+    for issue in open_issues:
+        data = dict(issue)
+        data["status"] = "verified"
+        data["verification"] = (
+            "A later design-review pass reported no narrative blocker or "
+            "major findings."
+        )
+        data["updated_at"] = utc_now()
+        store.append_review_issue(issue_file, ReviewIssue.from_dict(data))
+        verified_ids.append(str(issue.get("issue_id")))
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_DESIGN_REVIEW,
+            action="design-review-narrative-issues-verified",
+            summary=(
+                "Verified prior narrative design-review issues after a clean "
+                "review pass."
+            ),
+            outputs=[issue_file],
+            linked_issue_ids=verified_ids,
+        )
+    )
+
+
+def _design_review_narrative_findings(text: str) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    section: str | None = None
+    current: list[str] = []
+
+    def flush() -> None:
+        nonlocal current
+        if section is None or not current:
+            current = []
+            return
+        finding = _design_review_narrative_finding(section, current)
+        if finding:
+            findings.append(finding)
+        current = []
+
+    for line in text.splitlines():
+        heading = _design_review_narrative_heading(line)
+        if heading is not None:
+            flush()
+            section = heading
+            continue
+        if section is not None and _design_review_narrative_other_heading(line):
+            flush()
+            section = None
+            continue
+        if section is None:
+            continue
+        if _design_review_narrative_no_findings(line):
+            continue
+        if _design_review_narrative_item_start(line):
+            flush()
+            current = [line]
+            continue
+        if current:
+            current.append(line)
+    flush()
+    return findings
+
+
+def _design_review_narrative_heading(line: str) -> str | None:
+    normalized = line.strip().strip("#").strip().strip("*").strip().lower()
+    if normalized in {"blockers", "blocker findings"}:
+        return "blocker"
+    if normalized in {"major findings", "majors"}:
+        return "major"
+    return None
+
+
+def _design_review_narrative_other_heading(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.startswith("#"):
+        return True
+    return stripped.startswith("**") and stripped.endswith("**")
+
+
+def _design_review_narrative_no_findings(line: str) -> bool:
+    normalized = line.strip().lower()
+    return normalized.startswith("no blocker") or normalized.startswith("no major")
+
+
+def _design_review_narrative_item_start(line: str) -> bool:
+    stripped = line.lstrip()
+    if not stripped:
+        return False
+    if stripped[0] in {"-", "*"}:
+        return True
+    parts = stripped.split(maxsplit=1)
+    return bool(parts and parts[0].rstrip(".)").isdigit())
+
+
+def _design_review_narrative_finding(
+    severity: str,
+    lines: list[str],
+) -> dict[str, str] | None:
+    body = "\n".join(line.rstrip() for line in lines).strip()
+    if not body:
+        return None
+    first = lines[0].strip()
+    if first.startswith(("-", "*")):
+        first = first[1:].strip()
+    else:
+        parts = first.split(maxsplit=1)
+        if parts and parts[0].rstrip(".)").isdigit():
+            first = parts[1].strip() if len(parts) > 1 else ""
+    summary = _strip_markdown(first)
+    lower_prefix = f"{severity}:"
+    if summary.lower().startswith(lower_prefix):
+        summary = summary[len(lower_prefix):].strip()
+    requested_change = _design_review_requested_change(body)
+    return {
+        "severity": severity,
+        "summary": summary or f"{severity.title()} design-review finding",
+        "body": body,
+        "requested_change": requested_change,
+    }
+
+
+def _strip_markdown(text: str) -> str:
+    value = text.replace("**", "").replace("__", "").strip()
+    return value.rstrip(".").strip()
+
+
+def _design_review_requested_change(body: str) -> str:
+    marker = "Requested change:"
+    if marker not in body:
+        return ""
+    requested = body.split(marker, 1)[1].strip()
+    return requested.splitlines()[0].strip()
 
 
 def _init_design_review_update_log(store: StateStore) -> str:
