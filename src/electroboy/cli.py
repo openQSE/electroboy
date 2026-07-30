@@ -173,6 +173,57 @@ AGENT_PROGRESS_ROLES = {
     "documentation-review",
 }
 
+REVIEW_OUTPUT_CONTRACT_ROLES = {
+    "design_review",
+    "design-review",
+    "code_review",
+    "code-review",
+    "test_review",
+    "test-review",
+    "validation",
+    "validation_review",
+    "validation-review",
+    "documentation_review",
+    "documentation-review",
+}
+
+REVIEW_OUTPUT_SEVERITIES = {"blocker", "major", "minor"}
+REVIEW_OUTPUT_STATUSES = {
+    "open",
+    "accepted",
+    "fixed",
+    "verified",
+    "rejected",
+    "deferred",
+    "escalated",
+}
+
+REVIEW_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["ok", "final_message", "issues"],
+    "properties": {
+        "ok": {"type": "boolean"},
+        "final_message": {"type": "string"},
+        "issues": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["issue_id", "severity", "status", "summary"],
+                "properties": {
+                    "issue_id": {"type": "string"},
+                    "severity": {"enum": sorted(REVIEW_OUTPUT_SEVERITIES)},
+                    "status": {"enum": sorted(REVIEW_OUTPUT_STATUSES)},
+                    "summary": {"type": "string"},
+                    "artifact": {"type": "string"},
+                    "location": {"type": "string"},
+                    "rationale": {"type": "string"},
+                    "requested_change": {"type": "string"},
+                },
+            },
+        },
+    },
+}
+
 DOCUMENTATION_REVIEW_FILES = [
     "docs/requirements.md",
     "docs/detailed-design.md",
@@ -2973,6 +3024,9 @@ def _invoke_agent_role(
             session_artifact,
             session_record,
         )
+    output_schema = _agent_output_schema(role)
+    if output_schema is not None:
+        prompt = _prompt_with_output_contract(prompt)
     progress_path = _agent_progress_file(role, store)
     progress_context_path: str | None = None
     if progress_path:
@@ -2986,6 +3040,7 @@ def _invoke_agent_role(
         role=role,
         prompt=prompt,
         context_paths=execution_context_paths,
+        output_schema=output_schema,
         provider_session_id=provider_session_id,
         progress_path=progress_context_path,
         progress_idle_timeout=(
@@ -2999,6 +3054,8 @@ def _invoke_agent_role(
             execution_root=store.execution_root,
         )
         result = runtime.invoke(invocation)
+        if output_schema is not None and _runtime_enforces_output_contract(runtime):
+            result = _enforce_agent_output_contract(role, result)
     except Exception as error:
         result = _failed_agent_result(str(error))
     if session_stage:
@@ -3112,6 +3169,149 @@ def _prompt_with_agent_progress(prompt: str, progress_path: str) -> str:
         "  the only extra file you may modify.",
     ]
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _agent_output_schema(role: str) -> dict[str, object] | None:
+    if role in REVIEW_OUTPUT_CONTRACT_ROLES:
+        return REVIEW_OUTPUT_SCHEMA
+    return None
+
+
+def _prompt_with_output_contract(prompt: str) -> str:
+    lines = [
+        prompt.rstrip(),
+        "",
+        "Structured output contract:",
+        "- Your final response must be exactly one JSON object.",
+        "- Do not wrap the JSON in Markdown fences or add prose outside it.",
+        "- Use this shape:",
+        "{",
+        '  "ok": true,',
+        '  "final_message": "short human-readable review summary",',
+        '  "issues": [',
+        "    {",
+        '      "issue_id": "DR-001",',
+        '      "severity": "major",',
+        '      "status": "open",',
+        '      "summary": "Design omits admission hold semantics.",',
+        '      "artifact": "docs/detailed-design.md",',
+        '      "location": "docs/detailed-design.md:1060",',
+        '      "rationale": "Why this blocks safe implementation.",',
+        '      "requested_change": "Specify the consume/return/record sequence."',
+        "    }",
+        "  ]",
+        "}",
+        "- Use an empty issues array when there are no findings.",
+        "- Valid severities are blocker, major, and minor.",
+        "- Valid statuses are open, accepted, fixed, verified, rejected,",
+        "  deferred, and escalated.",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _runtime_enforces_output_contract(runtime: object) -> bool:
+    config = getattr(runtime, "config", None)
+    adapter = getattr(config, "adapter", None)
+    return adapter != "manual"
+
+
+def _enforce_agent_output_contract(
+    role: str,
+    result: AgentResult,
+) -> AgentResult:
+    errors = _review_output_contract_errors(result)
+    if not errors:
+        return _normalized_review_contract_result(result)
+    message = (
+        f"Agent output contract failed for {role}: "
+        + "; ".join(errors)
+        + "\n\nRaw response:\n"
+        + (result.final_message or "")
+    )
+    return AgentResult(
+        ok=False,
+        final_message=message,
+        issues=[],
+        raw_events=[
+            *result.raw_events,
+            {
+                "error": "review output contract failed",
+                "messages": errors,
+                "structured_payload": result.structured_payload,
+                "raw_final_message": result.final_message,
+            },
+        ],
+        changed_files=result.changed_files,
+        created_files=result.created_files,
+        commands=result.commands,
+        commit_message=result.commit_message,
+        error="review output contract failed",
+        provider=result.provider,
+        provider_session_id=result.provider_session_id,
+        resumed_session=result.resumed_session,
+        structured_output=result.structured_output,
+        structured_payload=result.structured_payload,
+    )
+
+
+def _review_output_contract_errors(result: AgentResult) -> list[str]:
+    payload = result.structured_payload
+    if not result.structured_output or payload is None:
+        return ["final response was not a structured JSON object"]
+    errors: list[str] = []
+    if not isinstance(payload.get("ok"), bool):
+        errors.append("ok must be a boolean")
+    final_message = payload.get("final_message")
+    if not isinstance(final_message, str) or not final_message.strip():
+        errors.append("final_message must be a non-empty string")
+    issues = payload.get("issues")
+    if not isinstance(issues, list):
+        errors.append("issues must be an array")
+        return errors
+    for index, issue in enumerate(issues, start=1):
+        errors.extend(_review_issue_contract_errors(issue, index))
+    return errors
+
+
+def _review_issue_contract_errors(issue: object, index: int) -> list[str]:
+    if not isinstance(issue, dict):
+        return [f"issues[{index}] must be an object"]
+    errors: list[str] = []
+    for key in ("issue_id", "severity", "status", "summary"):
+        value = issue.get(key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"issues[{index}].{key} must be a non-empty string")
+    severity = issue.get("severity")
+    if isinstance(severity, str) and severity not in REVIEW_OUTPUT_SEVERITIES:
+        errors.append(
+            f"issues[{index}].severity must be one of "
+            f"{', '.join(sorted(REVIEW_OUTPUT_SEVERITIES))}"
+        )
+    status = issue.get("status")
+    if isinstance(status, str) and status not in REVIEW_OUTPUT_STATUSES:
+        errors.append(
+            f"issues[{index}].status must be one of "
+            f"{', '.join(sorted(REVIEW_OUTPUT_STATUSES))}"
+        )
+    for key in ("artifact", "location", "rationale", "requested_change"):
+        value = issue.get(key)
+        if value is not None and not isinstance(value, str):
+            errors.append(f"issues[{index}].{key} must be a string when present")
+    return errors
+
+
+def _normalized_review_contract_result(result: AgentResult) -> AgentResult:
+    payload = result.structured_payload or {}
+    issues = payload.get("issues")
+    normalized_issues = [
+        dict(issue)
+        for issue in issues
+        if isinstance(issue, dict)
+    ] if isinstance(issues, list) else []
+    result.ok = bool(payload.get("ok"))
+    result.final_message = str(payload.get("final_message", ""))
+    result.issues = normalized_issues
+    return result
 
 
 def _path_from_execution_root(store: StateStore, path: Path) -> str:
@@ -3536,6 +3736,8 @@ def _sync_design_review_narrative_issues(
     result: AgentResult,
     event_id: str,
 ) -> None:
+    if not result.ok:
+        return
     if result.issues:
         return
     findings = _design_review_narrative_findings(result.final_message)

@@ -34,6 +34,8 @@ class AgentResult:
     provider: str | None = None
     provider_session_id: str | None = None
     resumed_session: bool = False
+    structured_output: bool = False
+    structured_payload: dict[str, object] | None = None
 
 
 class AgentRuntime:

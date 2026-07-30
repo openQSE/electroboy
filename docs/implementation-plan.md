@@ -137,6 +137,8 @@ A CLI runtime is compatible when it can:
 - Receive a role prompt and context bundle.
 - Restrict or document filesystem write behavior.
 - Return a final response that can be parsed into `AgentResult`.
+- Return strict JSON for automated review roles with `ok`, `final_message`,
+  and `issues`.
 - Keep credentials outside repository files and durable run state.
 
 The default design-author role uses the interactive Codex CLI. Review and
@@ -792,7 +794,7 @@ Acceptance criteria:
 - Codex sandbox mode is explicit for review, progress-aware review, and write
   roles.
 - A second CLI runtime can be configured through the generic adapter.
-- Structured outputs conform to the expected response schema.
+- Automated review outputs are validated against the expected response schema.
 - Coding-agent turns can run with workspace-write permission.
 - Review-agent turns avoid project file edits and may write only progress
   telemetry when progress monitoring is active.

@@ -297,5 +297,7 @@ class GenericCliRuntime(AgentRuntime):
                     else None
                 ),
                 resumed_session=bool(parsed.get("resumed_session", False)),
+                structured_output=True,
+                structured_payload=parsed,
             )
         return AgentResult(ok=True, final_message=stdout, raw_events=[{"value": parsed}])

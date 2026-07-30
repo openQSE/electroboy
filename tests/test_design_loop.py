@@ -144,6 +144,7 @@ class DesignLoopTests(unittest.TestCase):
         )
         self.assertTrue(progress_exists)
         self.assertIn("Progress file:", prompt)
+        self.assertIn("Structured output contract:", prompt)
 
     def test_design_review_coordinates_design_author_updates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,7 +186,7 @@ class DesignLoopTests(unittest.TestCase):
         self.assertEqual(issues[0]["status"], "verified")
         self.assertEqual(manifest.active_stage, "design-acceptance")
 
-    def test_design_review_converts_narrative_findings_to_update_loop(self) -> None:
+    def test_design_review_blocks_malformed_automated_review_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             configure_git_identity(root)
@@ -207,18 +208,12 @@ class DesignLoopTests(unittest.TestCase):
             design = (root / "docs" / "detailed-design.md").read_text(
                 encoding="utf-8"
             )
-            updates = (root / "docs" / "design-review-updates.md").read_text(
-                encoding="utf-8"
-            )
             issues = store.read_review_issues("design-review.jsonl")
 
-        self.assertEqual(code, 0, stderr)
-        self.assertIn("running design author update after pass 1", stdout)
-        self.assertIn("Narrative update: aligned with review.", design)
-        self.assertIn("DREV-", updates)
-        self.assertIn("Design lacks a narrative-reviewed flow", updates)
-        self.assertEqual(issues[0]["source"], "design-review-agent:narrative")
-        self.assertEqual(issues[0]["status"], "verified")
+        self.assertEqual(code, 1, stderr)
+        self.assertIn("Agent output contract failed for design_review", stdout)
+        self.assertNotIn("Narrative update: aligned with review.", design)
+        self.assertEqual(issues, [])
 
 
 def write_file(path: Path, text: str) -> None:

@@ -551,10 +551,12 @@ file changes, open issues, and current approval state. The JSONL review issue
 file remains the machine-readable gate input; the markdown file is the
 human-readable audit artifact.
 
-If the review agent returns blocker or major findings only as Markdown
-narrative, the orchestrator converts those findings into structured
-`design-review.jsonl` issues before deciding whether the design-author update
-loop must run.
+Automated review agents must return a final JSON object with `ok`,
+`final_message`, and `issues`. Each issue includes an id, severity, status,
+and summary, with optional artifact, location, rationale, and requested change
+fields. If the final response is missing or malformed, the orchestrator marks
+the agent invocation blocked, stores the raw response, and does not infer
+review findings from free-form prose.
 
 The orchestrator also maintains a design-review update log. For normal runs
 this is `docs/design-review-updates.md`; feature runs use

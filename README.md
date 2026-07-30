@@ -435,6 +435,8 @@ A compatible agent CLI must be able to:
 - Run non-interactively.
 - Receive a role prompt and context bundle.
 - Return output that can be parsed into the pipeline's `AgentResult`.
+- For automated review roles, return a final JSON object with `ok`,
+  `final_message`, and `issues`; use `issues: []` when there are no findings.
 - Make filesystem write behavior clear to the orchestrator.
 - Keep credentials outside repository files and durable run state.
 
@@ -481,6 +483,10 @@ non-interactive roles receive a progress file and run with enough filesystem
 access to update that file unless the runtime configuration supplies an
 explicit sandbox option. Review prompts still prohibit modifying project files
 other than the progress file.
+Automated review roles also receive a structured output contract. If their
+final response is not valid JSON in that shape, ElectroBoy blocks the stage and
+stores the raw response for debugging instead of trying to infer findings from
+free-form prose.
 
 If `activate_python` is true,
 `source path/to/project/.electroboy/bin/activate` also enters the configured

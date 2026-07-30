@@ -79,13 +79,15 @@ class CodexExecRuntime(GenericCliRuntime):
             return AgentResult(
                 ok=structured.ok,
                 final_message=structured.final_message,
-                raw_events=events,
+                raw_events=[*events, *structured.raw_events],
                 issues=issues,
                 changed_files=structured.changed_files,
                 created_files=structured.created_files,
                 commands=structured.commands,
                 commit_message=structured.commit_message,
                 error=structured.error,
+                structured_output=structured.structured_output,
+                structured_payload=structured.structured_payload,
             )
         return AgentResult(
             ok=True,
@@ -145,4 +147,6 @@ class CodexExecRuntime(GenericCliRuntime):
                 commit_message if isinstance(commit_message, str) else None
             ),
             error=parsed.get("error"),
+            structured_output=True,
+            structured_payload=parsed,
         )

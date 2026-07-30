@@ -241,7 +241,9 @@ non-interactive roles receive a progress file under
 that file has not been updated for 300 seconds. `electroboy progress` follows
 those files from another activated shell. Review prompts prohibit modifying
 project files other than the progress file, and explicit runtime sandbox
-options still override the default sandbox choice.
+options still override the default sandbox choice. Automated review roles must
+return a final JSON object with `ok`, `final_message`, and `issues`; malformed
+or free-form review output blocks the stage instead of being interpreted.
 
 ## Public Python Modules
 

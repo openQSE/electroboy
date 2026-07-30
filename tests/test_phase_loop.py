@@ -267,7 +267,7 @@ elif "phase 2" in prompt:
     path = pathlib.Path("src/phase2/output.txt")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("phase 2\\n", encoding="utf-8")
-print(json.dumps({"ok": True, "final_message": "accepted"}))
+print(json.dumps({"ok": True, "final_message": "accepted", "issues": []}))
 """.lstrip(),
     )
     write_file(
