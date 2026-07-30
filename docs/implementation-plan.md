@@ -118,6 +118,7 @@ structured_output = "prompt_contract"
 
 [roles]
 design_author = "codex-interactive"
+design_author_update = "codex"
 design_review = "codex"
 coding = "codex"
 code_review = "claude"
@@ -188,10 +189,11 @@ non-interactively. It passes the role prompt and context bundle through stdin,
 a temporary prompt file, or command arguments, depending on the runtime
 configuration.
 
-This adapter is responsible for process execution, timeout handling, stdout
-and stderr capture, exit-code interpretation, and response parsing. When the
-CLI cannot emit structured JSON directly, the prompt contract requires the
-final response to include the structured fields that the parser needs.
+This adapter is responsible for process execution, stdout and stderr capture,
+exit-code interpretation, response parsing, and progress-idle monitoring for
+invocations that receive a progress file. When the CLI cannot emit structured
+JSON directly, the prompt contract requires the final response to include the
+structured fields that the parser needs.
 
 The generic adapter supports CLIs such as Claude or local agent tools without
 changing orchestrator logic. Runtime-specific behavior stays in configuration
@@ -283,7 +285,8 @@ adapters separate.
 ## State And Artifact Storage
 
 The orchestrator stores run state under `.electroboy/`. The directory is
-split into committed shared state and ignored local state.
+split into committed shared state, ignored run progress telemetry, and ignored
+local state.
 
 ```text
 .electroboy/
@@ -305,6 +308,11 @@ split into committed shared state and ignored local state.
         phase-<n>-test-review.jsonl
         validation-review.jsonl
         documentation-review.jsonl
+        progress/
+          design-review-progress.md
+          phase-<n>-code-progress.md
+          phase-<n>-code-review-progress.md
+          phase-<n>-test-review-progress.md
         artifacts/
           requirements.md
           detailed-design.md
@@ -453,18 +461,21 @@ the pipeline advances.
 
 `design-review` starts the automated design review loop. The review agent may
 inspect source code as needed to check the design against the current
-implementation, but it must not modify files. If blocker or major findings
-remain, the orchestrator invokes a non-interactive design-author update turn,
-logs the detailed-design diff in the run's design-review update artifact, and
-reruns review within a bounded loop. `code` starts or resumes the fully
-automated implementation loop. By default, it runs every remaining planned
-phase, invokes coding, code review, and test review agents, creates and records
-each valid phase commit, and advances to test-plan review when the
-implementation plan is complete. `code --phased` runs one phase and
-leaves commit creation or commit recording to the operator before the next
-phase can start. During `code`, the orchestrator uses Rich progress indicators
-for the active phase, code review, test review, escalations, and resumable
-checkpoints.
+implementation, but it must not modify files except for its progress file. If
+blocker or major findings remain, the orchestrator invokes a non-interactive
+design-author update turn, logs the detailed-design diff in the run's
+design-review update artifact, and reruns review within a bounded loop. `code`
+starts or resumes the fully automated implementation loop. By default, it runs
+every remaining planned phase, invokes coding, code review, and test review
+agents, creates and records each valid phase commit, and advances to test-plan
+review when the implementation plan is complete. `code --phased` runs one
+phase and leaves commit creation or commit recording to the operator before the
+next phase can start. During `code`, the orchestrator uses Rich progress
+indicators for the active phase, code review, test review, escalations, and
+resumable checkpoints. Long-running non-interactive agent roles also receive a
+run-local Markdown progress file. The orchestrator prints the path, instructs
+the agent to append concise status lines, and stops the runtime if that file is
+idle for more than 300 seconds.
 
 `test-plan` can run before it becomes the active stage so operators can capture
 system-test cases during design, planning, or implementation. After code
@@ -777,11 +788,13 @@ Acceptance criteria:
 
 - Design review can run through the configured default runtime.
 - Codex can run through `codex exec --json` and produce issue JSONL.
-- Codex sandbox mode is explicit for review and write roles.
+- Codex sandbox mode is explicit for review, progress-aware review, and write
+  roles.
 - A second CLI runtime can be configured through the generic adapter.
 - Structured outputs conform to the expected response schema.
 - Coding-agent turns can run with workspace-write permission.
-- Review-agent turns run read-only.
+- Review-agent turns avoid project file edits and may write only progress
+  telemetry when progress monitoring is active.
 - Failures leave the stage resumable.
 
 ### Phase 6. Requirements And Design Loops
@@ -1065,8 +1078,10 @@ project needs tighter control than configured CLI adapters provide.
 - Never write API keys or access tokens to logs, prompts, state files, review
   issues, or reports.
 - Redact known secret environment variables before storing command context.
-- Use read-only sandbox mode for review agents.
-- Use workspace-write only for coding and documentation fix turns.
+- Keep review agents from modifying project files.
+- Allow writable sandbox access for progress-aware review turns only so the
+  agent can update its progress file.
+- Use workspace-write for coding and documentation fix turns.
 - Keep full-access execution outside the baseline design.
 - Treat saved CLI authentication files as secrets.
 - Store CI credentials in the CI secret store.

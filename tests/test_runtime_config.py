@@ -23,6 +23,11 @@ class RuntimeConfigTests(unittest.TestCase):
             "codex_interactive",
         )
         self.assertEqual(config.runtime_for_role("design_review").adapter, "codex_exec")
+        self.assertNotIn("timeout", config.runtime_for_role("design_review").options)
+        self.assertEqual(
+            config.runtime_for_role("design_author_update").adapter,
+            "codex_exec",
+        )
         self.assertIn("COLORTERM", config.runtime_for_role("design_author").env)
         self.assertIn("COLORTERM", config.runtime_for_role("design_review").env)
 

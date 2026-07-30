@@ -85,6 +85,26 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(review[-2:], ["--sandbox", "read-only"])
         self.assertEqual(coding[-2:], ["--sandbox", "workspace-write"])
 
+    def test_codex_exec_uses_writable_sandbox_for_progress_file(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        command = runtime._command(
+            AgentInvocation(
+                role="code_review",
+                prompt="p",
+                progress_path=".electroboy/progress.md",
+            )
+        )
+
+        self.assertEqual(command[-2:], ["--sandbox", "workspace-write"])
+
     def test_codex_interactive_strips_exec_args_and_adds_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             runtime = CodexInteractiveRuntime(
@@ -296,6 +316,69 @@ class RuntimeAdapterTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertEqual(result.final_message.strip(), "allowed:")
+
+    def test_generic_cli_progress_monitor_accepts_updated_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            progress = root / "progress.md"
+            progress.write_text("start\n", encoding="utf-8")
+            runtime = GenericCliRuntime(
+                RuntimeConfig(
+                    name="test",
+                    adapter="generic_cli",
+                    command=sys.executable,
+                    args=[
+                        "-c",
+                        (
+                            "import json, pathlib, sys; "
+                            "pathlib.Path(sys.argv[1]).write_text("
+                            "'agent step\\n', encoding='utf-8'); "
+                            "print(json.dumps({'final_message': 'done'}))"
+                        ),
+                        "progress.md",
+                    ],
+                ),
+                root,
+            )
+
+            result = runtime.invoke(
+                AgentInvocation(
+                    role="review",
+                    prompt="prompt",
+                    progress_path="progress.md",
+                    progress_idle_timeout=1.0,
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.final_message, "done")
+
+    def test_generic_cli_progress_monitor_fails_when_idle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            progress = root / "progress.md"
+            progress.write_text("start\n", encoding="utf-8")
+            runtime = GenericCliRuntime(
+                RuntimeConfig(
+                    name="test",
+                    adapter="generic_cli",
+                    command=sys.executable,
+                    args=["-c", "import time; time.sleep(1)"],
+                ),
+                root,
+            )
+
+            result = runtime.invoke(
+                AgentInvocation(
+                    role="review",
+                    prompt="prompt",
+                    progress_path="progress.md",
+                    progress_idle_timeout=0.1,
+                )
+            )
+
+        self.assertFalse(result.ok)
+        self.assertIn("progress file progress.md was not updated", result.final_message)
 
 
 if __name__ == "__main__":

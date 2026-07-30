@@ -58,6 +58,7 @@ DEFAULT_CONFIG = PipelineConfig(
                 "CODEX_HOME",
                 "OPENAI_API_KEY",
             ],
+            options={"structured_output": "json_schema"},
         ),
         "codex-interactive": RuntimeConfig(
             name="codex-interactive",
@@ -82,7 +83,10 @@ DEFAULT_CONFIG = PipelineConfig(
             env=["PATH"],
         ),
     },
-    roles={"design_author": "codex-interactive"},
+    roles={
+        "design_author": "codex-interactive",
+        "design_author_update": "codex",
+    },
 )
 
 

@@ -14,6 +14,8 @@ class AgentInvocation:
     context_paths: list[str] = field(default_factory=list)
     output_schema: dict[str, object] | None = None
     provider_session_id: str | None = None
+    progress_path: str | None = None
+    progress_idle_timeout: float | None = None
 
 
 @dataclass

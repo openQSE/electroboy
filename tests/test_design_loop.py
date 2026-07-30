@@ -116,6 +116,15 @@ class DesignLoopTests(unittest.TestCase):
                 encoding="utf-8"
             )
             committed_files = git_show_names(root)
+            progress_exists = (
+                root
+                / ".electroboy"
+                / "shared"
+                / "runs"
+                / "run-1"
+                / "progress"
+                / "design-review-progress.md"
+            ).exists()
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("design-review: running design review agent", stdout)
@@ -128,6 +137,13 @@ class DesignLoopTests(unittest.TestCase):
         self.assertIn("Inspect source code as needed", prompt)
         self.assertIn("Do not modify files.", prompt)
         self.assertNotIn("Do not inspect source code", prompt)
+        self.assertIn(
+            "progress: .electroboy/shared/runs/run-1/progress/"
+            "design-review-progress.md",
+            stdout,
+        )
+        self.assertTrue(progress_exists)
+        self.assertIn("Progress file:", prompt)
 
     def test_design_review_coordinates_design_author_updates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -278,6 +294,13 @@ import sys
 prompt = sys.stdin.read()
 design_path = Path("docs/detailed-design.md")
 design = design_path.read_text(encoding="utf-8")
+for line in prompt.splitlines():
+    if line.startswith("Progress file: "):
+        progress = Path(line.split(":", 1)[1].strip())
+        progress.parent.mkdir(parents=True, exist_ok=True)
+        with progress.open("a", encoding="utf-8") as stream:
+            stream.write("fake agent started\\n")
+        break
 
 if "Update docs/detailed-design.md" in prompt:
     design_path.write_text(
@@ -342,6 +365,13 @@ import sys
 prompt = sys.stdin.read()
 design_path = Path("docs/detailed-design.md")
 design = design_path.read_text(encoding="utf-8")
+for line in prompt.splitlines():
+    if line.startswith("Progress file: "):
+        progress = Path(line.split(":", 1)[1].strip())
+        progress.parent.mkdir(parents=True, exist_ok=True)
+        with progress.open("a", encoding="utf-8") as stream:
+            stream.write("fake agent started\\n")
+        break
 
 if "Update docs/detailed-design.md" in prompt:
     design_path.write_text(

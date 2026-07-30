@@ -55,14 +55,53 @@ class ProjectEnvironmentTests(unittest.TestCase):
                 encoding="utf-8"
             )
             self.assertEqual(project_config.count('"COLORTERM"'), 2)
+            self.assertNotIn('timeout = "900"', project_config)
             self.assertTrue(
                 (root / ".electroboy" / "shared" / "current-run").exists()
             )
             self.assertTrue((root / "docs" / "requirements.md").exists())
-            self.assertIn(
-                ".electroboy/local/",
-                (root / ".gitignore").read_text(encoding="utf-8"),
+            gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+            self.assertIn(".electroboy/local/", gitignore)
+            self.assertIn(".electroboy/shared/runs/*/progress/", gitignore)
+
+    def test_new_updates_existing_project_config_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            write_file(
+                root / ".electroboy" / "project.toml",
+                """
+[runtime]
+default = "codex"
+
+[runtimes.codex]
+adapter = "codex_exec"
+command = "codex"
+args = ["exec", "--json"]
+env = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "CODEX_HOME", "OPENAI_API_KEY"]
+structured_output = "json_schema"
+
+[runtimes.codex-interactive]
+adapter = "codex_interactive"
+command = "codex"
+env = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "CODEX_HOME", "OPENAI_API_KEY"]
+
+[roles]
+design_author = "codex-interactive"
+design_review = "codex"
+""".lstrip(),
             )
+
+            code, _stdout, stderr = self.run_cli(
+                ["new", str(root), "--run-id", "run-1"]
+            )
+            project_config = (root / ".electroboy" / "project.toml").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertNotIn('timeout = "900"', project_config)
+        self.assertIn('design_author_update = "codex"', project_config)
+        self.assertEqual(project_config.count('"COLORTERM"'), 2)
 
     def test_generated_wrapper_runs_without_pythonpath(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -208,6 +247,11 @@ class ProjectEnvironmentTests(unittest.TestCase):
 
             self.assertEqual(code, 0, stderr)
             self.assertIn("pipeline project deactivated", stdout)
+
+
+def write_file(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 if __name__ == "__main__":

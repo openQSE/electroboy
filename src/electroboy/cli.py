@@ -152,6 +152,26 @@ AGENT_ISSUE_FILES = {
     "documentation-review": "documentation-review.jsonl",
 }
 
+AGENT_PROGRESS_IDLE_TIMEOUT_SECONDS = 300.0
+
+AGENT_PROGRESS_ROLES = {
+    "design_review",
+    "design-review",
+    "design_author_update",
+    "design-author-update",
+    "coding",
+    "code_review",
+    "code-review",
+    "test_review",
+    "test-review",
+    "validation",
+    "validation_review",
+    "validation-review",
+    "documentation",
+    "documentation_review",
+    "documentation-review",
+}
+
 DOCUMENTATION_REVIEW_FILES = [
     "docs/requirements.md",
     "docs/detailed-design.md",
@@ -2822,6 +2842,13 @@ def _invoke_agent_role(
             session_artifact,
             session_record,
         )
+    progress_path = _agent_progress_file(role, store)
+    progress_context_path: str | None = None
+    if progress_path:
+        _init_agent_progress_file(store, role, progress_path, event_id)
+        progress_context_path = _execution_context_paths(store, [progress_path])[0]
+        print(f"progress: {progress_context_path}")
+        prompt = _prompt_with_agent_progress(prompt, progress_context_path)
     execution_context_paths = _execution_context_paths(store, context_paths)
     prompt = _prompt_with_meta_context(store, prompt, execution_context_paths)
     invocation = AgentInvocation(
@@ -2829,6 +2856,10 @@ def _invoke_agent_role(
         prompt=prompt,
         context_paths=execution_context_paths,
         provider_session_id=provider_session_id,
+        progress_path=progress_context_path,
+        progress_idle_timeout=(
+            AGENT_PROGRESS_IDLE_TIMEOUT_SECONDS if progress_context_path else None
+        ),
     )
     try:
         runtime = runtime_for_role(
@@ -2862,6 +2893,9 @@ def _invoke_agent_role(
             role,
             result.issues,
         )
+    outputs = [progress_path] if progress_path else []
+    if issue_file and linked_issue_ids:
+        outputs.append(issue_file)
     store.append_activity(
         ActivityEvent(
             actor=role,
@@ -2871,7 +2905,7 @@ def _invoke_agent_role(
             status="pass" if result.ok else "blocked",
             linked_issue_ids=linked_issue_ids,
             inputs=list(invocation.context_paths),
-            outputs=[issue_file] if issue_file and linked_issue_ids else [],
+            outputs=outputs,
             artifact_changes=_agent_reported_files(result),
             commands=list(result.commands),
             message_ref=f"messages/{event_id}-response.md",
@@ -2929,6 +2963,24 @@ def _join_context_path(prefix: str, path: str) -> str:
     if Path(path).is_absolute() or prefix == ".":
         return path
     return f"{prefix.rstrip('/')}/{path}"
+
+
+def _prompt_with_agent_progress(prompt: str, progress_path: str) -> str:
+    lines = [
+        prompt.rstrip(),
+        "",
+        "Progress reporting:",
+        f"Progress file: {progress_path}",
+        "- Append one concise Markdown line to the progress file before each",
+        "  meaningful step.",
+        "- Keep progress updates factual and short; do not include detailed",
+        "  reasoning.",
+        "- Update the progress file at least every few minutes while running.",
+        "- Do not overwrite the progress file.",
+        "- If this role otherwise says not to modify files, the progress file is",
+        "  the only extra file you may modify.",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _path_from_execution_root(store: StateStore, path: Path) -> str:
@@ -4066,6 +4118,7 @@ def _is_git_worktree(project_root: Path) -> bool:
 def _write_project_config(project_root: Path) -> None:
     path = project_root / ".electroboy" / "project.toml"
     if path.exists():
+        _update_project_config_defaults(path)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -4102,22 +4155,67 @@ python_managed_by_pipeline = false
     )
 
 
+def _update_project_config_defaults(path: Path) -> None:
+    original = path.read_text(encoding="utf-8")
+    lines = original.splitlines()
+    updated: list[str] = []
+    section: str | None = None
+    roles_update_seen = False
+
+    def finish_section() -> None:
+        nonlocal roles_update_seen
+        if section == "roles" and not roles_update_seen:
+            updated.append('design_author_update = "codex"')
+        roles_update_seen = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            finish_section()
+            section = stripped[1:-1].strip()
+            updated.append(line)
+            continue
+        if section in {"runtimes.codex", "runtimes.codex-interactive"}:
+            line = _project_config_env_with_colorterm(line)
+        if section == "roles" and stripped.startswith("design_author_update"):
+            roles_update_seen = True
+        updated.append(line)
+    finish_section()
+
+    text = "\n".join(updated).rstrip() + "\n"
+    if text != original:
+        path.write_text(text, encoding="utf-8")
+
+
+def _project_config_env_with_colorterm(line: str) -> str:
+    if not line.strip().startswith("env = ["):
+        return line
+    if '"COLORTERM"' in line:
+        return line
+    if '"TERM"' in line:
+        return line.replace('"TERM"', '"TERM", "COLORTERM"', 1)
+    if line.rstrip().endswith("]"):
+        return line.rstrip()[:-1].rstrip() + ', "COLORTERM"]'
+    return line
+
+
 def _write_project_gitignore(project_root: Path) -> None:
     path = project_root / ".gitignore"
     lines = []
     if path.exists():
         lines = path.read_text(encoding="utf-8").splitlines()
-    required = ".electroboy/local/"
-    if required in lines:
+    required = [
+        ".electroboy/local/",
+        ".electroboy/shared/runs/*/progress/",
+    ]
+    missing = [line for line in required if line not in lines]
+    if not missing:
         return
     if lines and lines[-1] != "":
         lines.append("")
-    lines.extend(
-        [
-            "# ElectroBoy local runtime state",
-            required,
-        ]
-    )
+    if "# ElectroBoy local runtime state" not in lines:
+        lines.append("# ElectroBoy local runtime state")
+    lines.extend(missing)
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
@@ -5417,6 +5515,53 @@ def _agent_issue_file(role: str, store: StateStore) -> str | None:
     if role in {"test_review", "test-review"}:
         return f"phase-{phase_status.active_phase}-test-review.jsonl"
     return None
+
+
+def _agent_progress_file(role: str, store: StateStore) -> str | None:
+    if role not in AGENT_PROGRESS_ROLES:
+        return None
+    manifest = store.load_current_manifest()
+    file_name = _agent_progress_file_name(role, store)
+    return f".electroboy/shared/runs/{manifest.run_id}/progress/{file_name}"
+
+
+def _agent_progress_file_name(role: str, store: StateStore) -> str:
+    phase_status = store.load_phase_status()
+    active_phase = phase_status.active_phase
+    normalized_role = role.replace("-", "_")
+    if normalized_role == "design_review":
+        return "design-review-progress.md"
+    if normalized_role == "design_author_update":
+        return "design-review-update-progress.md"
+    if normalized_role == "coding":
+        if active_phase is not None:
+            return f"phase-{active_phase}-code-progress.md"
+        return "code-progress.md"
+    if normalized_role == "code_review":
+        if active_phase is not None:
+            return f"phase-{active_phase}-code-review-progress.md"
+        return "code-review-progress.md"
+    if normalized_role == "test_review":
+        if active_phase is not None:
+            return f"phase-{active_phase}-test-review-progress.md"
+        return "test-review-progress.md"
+    if normalized_role == "validation_review":
+        return "validation-review-progress.md"
+    if normalized_role == "documentation_review":
+        return "documentation-review-progress.md"
+    return f"{normalized_role.replace('_', '-')}-progress.md"
+
+
+def _init_agent_progress_file(
+    store: StateStore,
+    role: str,
+    progress_file: str,
+    event_id: str,
+) -> None:
+    path = store.root / progress_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(f"{utc_now()} orchestrator started {role} ({event_id})\n")
 
 
 def _store_agent_issues(

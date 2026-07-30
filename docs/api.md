@@ -229,13 +229,16 @@ command = "codex"
 
 [roles]
 design_author = "codex-interactive"
+design_author_update = "codex"
 code_review = "codex"
 ```
 
-The design-author role opens the interactive Codex CLI. Codex review roles run
-in `read-only` sandbox mode by default. Coding and documentation-writing roles
-run in `workspace-write` mode unless the runtime sets an explicit sandbox
-option.
+The design-author role opens the interactive Codex CLI. Long-running
+non-interactive roles receive a progress file under
+`.electroboy/shared/runs/<run-id>/progress/`. ElectroBoy stops the runtime when
+that file has not been updated for 300 seconds. Review prompts prohibit
+modifying project files other than the progress file, and explicit runtime
+sandbox options still override the default sandbox choice.
 
 ## Public Python Modules
 

@@ -48,11 +48,14 @@ class CodexExecRuntime(GenericCliRuntime):
             return command
         sandbox = self.config.options.get("sandbox")
         if sandbox is None:
-            sandbox = (
-                "read-only"
-                if invocation.role in self.READ_ONLY_ROLES
-                else "workspace-write"
-            )
+            if invocation.progress_path:
+                sandbox = "workspace-write"
+            else:
+                sandbox = (
+                    "read-only"
+                    if invocation.role in self.READ_ONLY_ROLES
+                    else "workspace-write"
+                )
         return [*command, "--sandbox", sandbox]
 
     def _parse_stdout(self, stdout: str) -> AgentResult:

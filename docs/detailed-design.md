@@ -391,10 +391,10 @@ points, and stable behavior guarantees.
 ### Agent State Directory
 
 The pipeline stores machine-readable state under `.electroboy/`. The
-directory has a shared portion that is committed to git and a local portion
-that is ignored. Shared records let collaborators review the same pipeline
-history. Local records keep machine-specific and credential-adjacent data out
-of the repository.
+directory has a shared portion that is committed to git, shared run progress
+telemetry that is ignored, and a local portion that is ignored. Shared records
+let collaborators review the same pipeline history. Local records keep
+machine-specific and credential-adjacent data out of the repository.
 
 Directory layout:
 
@@ -418,6 +418,11 @@ Directory layout:
         phase-<n>-test-review.jsonl
         validation-review.jsonl
         documentation-review.jsonl
+        progress/
+          design-review-progress.md
+          phase-<n>-code-progress.md
+          phase-<n>-code-review-progress.md
+          phase-<n>-test-review-progress.md
         artifacts/
           requirements.md
           detailed-design.md
@@ -439,10 +444,14 @@ phase status, artifact snapshots, and run metadata. They are not a substitute
 for the source documents. They give the orchestrator, agents, and other
 collaborators a reliable way to resume work and audit past decisions.
 
+Progress files capture concise live heartbeats from long-running
+non-interactive agent passes. They are under the run directory so operators can
+tail them next to the rest of the run state, but they are ignored by git.
+
 The local files capture provider session ids, raw runtime streams, local logs,
 temporary checkpoints, shell activation state, and machine-specific paths.
 They are ignored by git. Provider credentials and API keys are never written to
-either shared or local state.
+shared progress telemetry or local state.
 
 `activity-log.jsonl` is the append-only timeline for the run. It records every
 agent step, review pass, response, verification, test command, gate decision,
@@ -519,14 +528,18 @@ The design review agent reviews `docs/detailed-design.md` against
 `docs/requirements.md` and the current codebase, then creates design review
 issues. The agent may inspect source code as needed to verify that the design
 matches the implementation context, especially for feature work and bug fixes,
-but it does not modify files. When blocker or major findings remain, the
-orchestrator invokes a non-interactive design-author update turn to revise the
-detailed-design artifact and then reruns design review.
+but it does not modify files except for its progress file. When blocker or
+major findings remain, the orchestrator invokes a non-interactive design-author
+update turn to revise the detailed-design artifact and then reruns design
+review.
 
 The orchestrator shows visible progress while the stage runs. In an interactive
 terminal it uses Rich status spinners for long-running work such as invoking
 the review agent, writing the review summary, and completing the gate. In
-non-interactive output it prints the same steps as plain text.
+non-interactive output it prints the same steps as plain text. For each
+non-interactive agent pass, the orchestrator also prints a progress file path,
+instructs the agent to append concise status lines, and stops the runtime if
+that file is idle for more than 300 seconds.
 
 At the end of each review pass the orchestrator writes the run's design-review
 summary artifact. For normal runs this is `docs/design-review.md`; feature

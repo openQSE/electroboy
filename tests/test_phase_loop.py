@@ -250,7 +250,15 @@ import json
 import pathlib
 import sys
 
-prompt = sys.stdin.read().lower()
+raw_prompt = sys.stdin.read()
+prompt = raw_prompt.lower()
+for line in raw_prompt.splitlines():
+    if line.startswith("Progress file: "):
+        progress = pathlib.Path(line.split(":", 1)[1].strip())
+        progress.parent.mkdir(parents=True, exist_ok=True)
+        with progress.open("a", encoding="utf-8") as stream:
+            stream.write("fake agent started\\n")
+        break
 if "phase 1" in prompt:
     path = pathlib.Path("src/phase1/output.txt")
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -155,9 +155,10 @@ electroboy design-review
 electroboy design-approve
 ```
 
-`design-review` coordinates the read-only design-review agent with an
-automatic design-author update pass when blocker or major findings require
-changes to the detailed design. The orchestrator records those updates in
+`design-review` coordinates the design-review agent with an automatic
+design-author update pass when blocker or major findings require changes to
+the detailed design. The review agent is instructed not to modify files except
+for its run progress file. The orchestrator records design updates in
 `docs/design-review-updates.md`, or `docs/design-review-updates-<feature>.md`
 for feature runs, then reruns design review until it passes or still blocks.
 
@@ -217,6 +218,17 @@ code review, invokes test review, creates and records the phase commit, and
 continues until every planned phase is complete. The command stops only when an
 agent fails, an unresolved review issue blocks progress, phase scope changes,
 git cannot create a valid commit, or the agents need human input.
+
+Long-running non-interactive passes print a `progress: <path>` line before the
+agent starts. Tail that file to see concise agent heartbeats:
+
+```bash
+tail -f .electroboy/shared/runs/<run-id>/progress/design-review-progress.md
+```
+
+If the progress file is not updated for 300 seconds, ElectroBoy stops the
+runtime and reports the idle progress file instead of using a generic
+wall-clock timeout.
 
 After `code` completes, revisit and approve the run's test-plan artifact.
 Validation requires that approved system test plan, always runs the full test
@@ -445,6 +457,7 @@ structured_output = "prompt_contract"
 
 [roles]
 design_author = "codex-interactive"
+design_author_update = "codex"
 design_review = "codex"
 coding = "codex"
 code_review = "claude"
@@ -458,10 +471,11 @@ python_managed_by_pipeline = false
 ```
 
 The design-author role opens the interactive Codex CLI for requirements,
-design, and implementation-plan authoring. Codex review roles run with
-`--sandbox read-only` by default. Coding and documentation-writing roles run
-with `--sandbox workspace-write` unless the runtime configuration supplies an
-explicit sandbox option.
+design, implementation-plan, and test-plan authoring. Long-running
+non-interactive roles receive a progress file and run with enough filesystem
+access to update that file unless the runtime configuration supplies an
+explicit sandbox option. Review prompts still prohibit modifying project files
+other than the progress file.
 
 If `activate_python` is true,
 `source path/to/project/.electroboy/bin/activate` also enters the configured
@@ -488,12 +502,14 @@ Shared files are committed to git:
 - `.electroboy/shared/runs/<run-id>/artifact-snapshots.jsonl` stores
   approved artifact snapshots.
 
-Local files are ignored by git:
+Ignored files are not committed to git:
 
 - `.electroboy/local/activation.json` stores shell activation state.
 - `.electroboy/local/sessions/` stores provider session references.
 - `.electroboy/local/raw/` stores redacted raw runtime streams.
 - `.electroboy/local/logs/` stores local diagnostic logs.
+- `.electroboy/shared/runs/<run-id>/progress/` stores live agent progress
+  heartbeats for tailing long-running passes.
 
 Secrets are never written to shared or local state.
 

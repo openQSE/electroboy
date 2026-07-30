@@ -20,7 +20,8 @@ control.
   control.
 - `REQ-6`: Agent runtimes are configurable by role and normalize their results
   into a shared response shape.
-- `REQ-7`: Review agents use read-only sandbox policy when Codex is selected.
+- `REQ-7`: Review agents do not modify project files; progress-aware Codex
+  review turns may use writable sandbox access only for progress telemetry.
 - `REQ-8`: Implementation runs one active phase at a time and commits each
   completed phase with a verified git SHA.
 - `REQ-9`: Implementation plans trace every phase to requirement ids.
