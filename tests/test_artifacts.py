@@ -43,6 +43,10 @@ class ArtifactTests(unittest.TestCase):
             )
 
             self.assertEqual(snapshot.artifact_path, "docs/requirements.md")
+            self.assertIn(
+                "/artifacts/EVT-1/docs/requirements.md",
+                snapshot.snapshot_path,
+            )
             self.assertTrue((root / snapshot.snapshot_path).exists())
             self.assertEqual(len(snapshot.checksum), 64)
 

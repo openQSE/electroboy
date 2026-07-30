@@ -144,8 +144,7 @@ class ArtifactManager:
         if not source.exists():
             raise ArtifactError(f"artifact does not exist: {relative_path}")
 
-        snapshot_path = self.root / ".electroboy" / "shared" / "runs" / run_id
-        snapshot_path = snapshot_path / "artifacts" / relative_path
+        snapshot_path = self._snapshot_path(run_id, relative_path, event_id)
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, snapshot_path)
 
@@ -155,6 +154,24 @@ class ArtifactManager:
             checksum=self.checksum(source),
             event_id=event_id,
         )
+
+    def _snapshot_path(self, run_id: str, relative_path: str, event_id: str) -> Path:
+        artifacts = self.root / ".electroboy" / "shared" / "runs" / run_id
+        artifacts = artifacts / "artifacts"
+        event_dir = self._snapshot_event_dir(event_id)
+        snapshot_path = artifacts / event_dir / relative_path
+        index = 2
+        while snapshot_path.exists():
+            snapshot_path = artifacts / f"{event_dir}-{index}" / relative_path
+            index += 1
+        return snapshot_path
+
+    def _snapshot_event_dir(self, event_id: str) -> str:
+        cleaned = "".join(
+            char if char.isalnum() or char in "._-" else "-"
+            for char in event_id
+        ).strip(".-")
+        return cleaned or "snapshot"
 
     def snapshot_all(self, run_id: str, event_id: str) -> list[ArtifactSnapshot]:
         snapshots: list[ArtifactSnapshot] = []

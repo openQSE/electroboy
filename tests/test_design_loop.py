@@ -37,12 +37,17 @@ class DesignLoopTests(unittest.TestCase):
                 ["--root", str(root), "requirements-approve"]
             )
 
-            run_dir = next(
-                (root / ".electroboy" / "shared" / "runs").iterdir()
-            )
-            snapshot = run_dir / "artifacts" / "docs" / "requirements.md"
+            snapshots = StateStore(root).read_artifact_snapshots()
+            requirements_snapshots = [
+                snapshot
+                for snapshot in snapshots
+                if snapshot.get("artifact_path") == "docs/requirements.md"
+            ]
             self.assertEqual(code, 0, stderr)
-            self.assertTrue(snapshot.exists())
+            self.assertTrue(requirements_snapshots)
+            self.assertTrue(
+                (root / str(requirements_snapshots[-1]["snapshot_path"])).exists()
+            )
 
     def test_design_review_blocks_until_issue_resolved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

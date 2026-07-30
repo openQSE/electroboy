@@ -401,15 +401,13 @@ class GateEngine:
         if artifact_path is None:
             return True
         artifact_path = self._artifact_path(manifest, artifact_path)
-        invalidated = {
-            str(snapshot_ref)
-            for invalidation in self.store.read_baseline_invalidations()
-            for snapshot_ref in invalidation.get("invalidated_snapshot_refs", [])
-        }
+        invalidated = _invalidated_snapshot_refs_by_time(
+            self.store.read_baseline_invalidations()
+        )
         for snapshot in self.store.read_artifact_snapshots():
             if snapshot.get("artifact_path") != artifact_path:
                 continue
-            if str(snapshot.get("snapshot_path")) in invalidated:
+            if _snapshot_ref_is_invalidated(snapshot, invalidated):
                 continue
             return True
         return False
@@ -439,3 +437,32 @@ class GateEngine:
             if issue.get("status") in BLOCKING_ISSUE_STATUSES
             and issue.get("severity") in {"blocker", "major"}
         ]
+
+
+def _invalidated_snapshot_refs_by_time(
+    invalidations: list[dict[str, object]],
+) -> dict[str, list[str]]:
+    invalidated: dict[str, list[str]] = {}
+    for invalidation in invalidations:
+        created_at = str(invalidation.get("created_at", ""))
+        for snapshot_ref in invalidation.get("invalidated_snapshot_refs", []):
+            invalidated.setdefault(str(snapshot_ref), []).append(created_at)
+    return invalidated
+
+
+def _snapshot_ref_is_invalidated(
+    snapshot: dict[str, object],
+    invalidated: dict[str, list[str]],
+) -> bool:
+    snapshot_ref = str(snapshot.get("snapshot_path", ""))
+    invalidation_times = invalidated.get(snapshot_ref, [])
+    if not invalidation_times:
+        return False
+    snapshot_created_at = str(snapshot.get("created_at", ""))
+    if not snapshot_created_at:
+        return True
+    return any(
+        not invalidation_created_at
+        or snapshot_created_at < invalidation_created_at
+        for invalidation_created_at in invalidation_times
+    )

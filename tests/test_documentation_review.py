@@ -82,25 +82,31 @@ class DocumentationReviewTests(unittest.TestCase):
                 ["--root", str(root), "document"]
             )
             manifest = store.load_current_manifest()
-            api_snapshot = (
-                store.run_dir(manifest.run_id)
-                / "artifacts"
-                / "docs"
-                / "api.md"
-            )
-            readme_snapshot = (
-                store.run_dir(manifest.run_id) / "artifacts" / "README.md"
-            )
             activity = store.read_activity()
+            snapshots = store.read_artifact_snapshots()
+            readme_snapshots = [
+                snapshot
+                for snapshot in snapshots
+                if snapshot.get("artifact_path") == "README.md"
+            ]
+            api_snapshots = [
+                snapshot
+                for snapshot in snapshots
+                if snapshot.get("artifact_path") == "docs/api.md"
+            ]
 
             self.assertEqual(code, 0, stderr)
             self.assertIn("documentation review: passed", stdout)
             self.assertEqual(manifest.active_stage, STAGE_COMPLETE)
             self.assertTrue(manifest.has_gate(GATE_DOCUMENTATION))
-            self.assertTrue(api_snapshot.exists())
-            self.assertTrue(readme_snapshot.exists())
+            self.assertTrue(api_snapshots)
+            self.assertTrue(readme_snapshots)
+            self.assertTrue((root / str(api_snapshots[-1]["snapshot_path"])).exists())
+            self.assertTrue(
+                (root / str(readme_snapshots[-1]["snapshot_path"])).exists()
+            )
             self.assertIn(
-                ".electroboy/shared/runs/run-1/artifacts/README.md",
+                readme_snapshots[-1]["snapshot_path"],
                 activity[-1]["artifact_snapshot_refs"],
             )
 

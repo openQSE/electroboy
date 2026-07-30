@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from electroboy.artifacts import ArtifactManager  # noqa: E402
 from electroboy.cli import main  # noqa: E402
 from electroboy.models import (  # noqa: E402
+    BaselineInvalidation,
     GATE_DESIGN,
     GATE_HUMAN_DESIGN_ACCEPTANCE,
     GATE_IMPLEMENTATION,
@@ -319,15 +320,38 @@ class CliTests(unittest.TestCase):
             store.save_manifest(manifest)
             write_file(root / "docs" / "requirements.md", "# Requirements\n")
             write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_manual_runtime(root)
+            old_snapshot = ArtifactManager(root).snapshot(
+                manifest.run_id,
+                "docs/detailed-design.md",
+                "old-design",
+            )
+            store.append_artifact_snapshot(old_snapshot)
+            store.append_baseline_invalidation(
+                BaselineInvalidation(
+                    invalidation_id="INV-0001",
+                    change_request_id="CR-0001",
+                    baseline="design",
+                    invalidated_gates=[
+                        GATE_DESIGN,
+                        GATE_HUMAN_DESIGN_ACCEPTANCE,
+                    ],
+                    invalidated_snapshot_refs=[old_snapshot.snapshot_path],
+                )
+            )
 
             code, stdout, stderr = self.run_cli(
                 ["--root", str(root), "design-approve", "--force"]
+            )
+            plan_code, _plan_stdout, plan_stderr = self.run_cli(
+                ["--root", str(root), "implementation-plan"]
             )
             manifest = store.load_current_manifest()
             committed_files = git_show_names(root)
             decisions = store.read_decisions()
 
         self.assertEqual(code, 0, stderr)
+        self.assertEqual(plan_code, 0, plan_stderr)
         self.assertIn("forced approval: yes", stdout)
         self.assertIn("backfilled gates:", stdout)
         self.assertEqual(manifest.active_stage, STAGE_PLAN)
