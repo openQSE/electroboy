@@ -42,6 +42,57 @@ class CliTests(unittest.TestCase):
         self.assertIn("next-stage: design", stdout)
         self.assertIn("completed gates:", stdout)
 
+    def test_progress_once_prints_run_progress_files(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            manifest = store.init_run(run_id="run-1")
+            write_file(
+                store.run_dir(manifest.run_id)
+                / "progress"
+                / "design-review-progress.md",
+                "started design review\nchecking design\n",
+            )
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "progress", "--once"]
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn(
+            "== .electroboy/shared/runs/run-1/progress/"
+            "design-review-progress.md ==",
+            stdout,
+        )
+        self.assertIn("checking design", stdout)
+
+    def test_monitor_alias_prints_run_progress_files(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            manifest = store.init_run(run_id="run-1")
+            write_file(
+                store.run_dir(manifest.run_id)
+                / "progress"
+                / "phase-1-code-progress.md",
+                "implementing phase 1\n",
+            )
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "monitor", "--once"]
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("phase-1-code-progress.md", stdout)
+        self.assertIn("implementing phase 1", stdout)
+
+    def test_progress_reports_none_when_no_progress_files_exist(self) -> None:
+        with temp_project() as root:
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "progress"])
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stdout, "progress: none\n")
+
     def test_rejects_design_before_requirements(self) -> None:
         with temp_project() as root:
             write_file(root / "docs" / "detailed-design.md", "# Design\n")

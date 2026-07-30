@@ -445,8 +445,9 @@ for the source documents. They give the orchestrator, agents, and other
 collaborators a reliable way to resume work and audit past decisions.
 
 Progress files capture concise live heartbeats from long-running
-non-interactive agent passes. They are under the run directory so operators can
-tail them next to the rest of the run state, but they are ignored by git.
+non-interactive agent passes. They are under the run directory so the
+orchestrator can monitor them and `electroboy progress` can display them from
+another activated shell, but they are ignored by git.
 
 The local files capture provider session ids, raw runtime streams, local logs,
 temporary checkpoints, shell activation state, and machine-specific paths.
@@ -538,8 +539,9 @@ terminal it uses Rich status spinners for long-running work such as invoking
 the review agent, writing the review summary, and completing the gate. In
 non-interactive output it prints the same steps as plain text. For each
 non-interactive agent pass, the orchestrator also prints a progress file path,
-instructs the agent to append concise status lines, and stops the runtime if
-that file is idle for more than 300 seconds.
+instructs the agent to append concise status lines, exposes those lines through
+`electroboy progress`, and stops the runtime if that file is idle for more than
+300 seconds.
 
 At the end of each review pass the orchestrator writes the run's design-review
 summary artifact. For normal runs this is `docs/design-review.md`; feature

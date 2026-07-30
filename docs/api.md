@@ -24,6 +24,8 @@ Operator workflow commands:
   invalidated gates, open requests, open issues, and blocked gates. In
   meta-project mode it also prints the meta root, active repo, and registered
   repos.
+- `progress [--once|--follow] [--interval <seconds>]` prints or follows hidden
+  progress files for the active run. `monitor` is an alias.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes
   requirements authoring.
 - `requirements-approve` records human and Design Author approval.
@@ -236,9 +238,10 @@ code_review = "codex"
 The design-author role opens the interactive Codex CLI. Long-running
 non-interactive roles receive a progress file under
 `.electroboy/shared/runs/<run-id>/progress/`. ElectroBoy stops the runtime when
-that file has not been updated for 300 seconds. Review prompts prohibit
-modifying project files other than the progress file, and explicit runtime
-sandbox options still override the default sandbox choice.
+that file has not been updated for 300 seconds. `electroboy progress` follows
+those files from another activated shell. Review prompts prohibit modifying
+project files other than the progress file, and explicit runtime sandbox
+options still override the default sandbox choice.
 
 ## Public Python Modules
 

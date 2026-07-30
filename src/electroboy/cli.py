@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Iterator, Sequence
 
@@ -272,6 +273,12 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("repository", help="registered name or repository path")
 
     subparsers.add_parser("status", help="show current pipeline status")
+    _add_progress_parser(subparsers, "progress", help_text="show agent progress")
+    _add_progress_parser(
+        subparsers,
+        "monitor",
+        help_text="alias for `progress`",
+    )
     subparsers.add_parser("deactivate", help="leave an activated pipeline project")
 
     feature = subparsers.add_parser("feature", help="feature development workflow")
@@ -418,6 +425,34 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_progress_parser(
+    subparsers: argparse._SubParsersAction,
+    name: str,
+    help_text: str,
+) -> None:
+    progress = subparsers.add_parser(name, help=help_text)
+    follow = progress.add_mutually_exclusive_group()
+    follow.add_argument(
+        "--follow",
+        action="store_true",
+        dest="follow",
+        default=None,
+        help="keep streaming progress updates",
+    )
+    follow.add_argument(
+        "--once",
+        action="store_false",
+        dest="follow",
+        help="print the current progress snapshot and exit",
+    )
+    progress.add_argument(
+        "--interval",
+        type=float,
+        default=1.0,
+        help="seconds between progress file checks while following",
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -442,6 +477,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_new(args)
         if args.command == "status":
             return _cmd_status(store, engine)
+        if args.command in {"progress", "monitor"}:
+            return _cmd_progress(store, args)
         if args.command == "deactivate":
             return _cmd_deactivate(store)
         if args.command == "feature":
@@ -1469,6 +1506,100 @@ def _cmd_status(store: StateStore, engine: GateEngine) -> int:
     blocked = _blocked_gate_lines(store, engine)
     _print_list("blocked gates", blocked)
     return 0
+
+
+def _cmd_progress(store: StateStore, args: argparse.Namespace) -> int:
+    if args.interval <= 0:
+        raise StateError("progress --interval must be greater than zero")
+    follow = args.follow if args.follow is not None else sys.stdout.isatty()
+    progress_dir = _progress_directory(store)
+    files = _progress_files(progress_dir)
+    if not files:
+        print("progress: none")
+        return 0
+
+    positions = _print_progress_snapshot(store, files)
+    if not follow:
+        return 0
+
+    try:
+        while True:
+            current_files = _progress_files(progress_dir)
+            for path in current_files:
+                if path not in positions:
+                    positions[path] = 0
+                    _print_progress_file_header(store, path)
+                positions[path] = _print_progress_file_update(
+                    path,
+                    positions[path],
+                )
+            sys.stdout.flush()
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print()
+        return 130
+
+
+def _progress_directory(store: StateStore) -> Path:
+    manifest = store.load_current_manifest()
+    return store.run_dir(manifest.run_id) / "progress"
+
+
+def _progress_files(progress_dir: Path) -> list[Path]:
+    if not progress_dir.exists():
+        return []
+    return sorted(
+        (path for path in progress_dir.glob("*.md") if path.is_file()),
+        key=lambda path: (_progress_sort_mtime(path), path.name),
+    )
+
+
+def _progress_sort_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
+
+def _print_progress_snapshot(
+    store: StateStore,
+    files: list[Path],
+) -> dict[Path, int]:
+    positions: dict[Path, int] = {}
+    for index, path in enumerate(files):
+        if index:
+            print()
+        _print_progress_file_header(store, path)
+        positions[path] = _print_progress_file_update(path, 0)
+    return positions
+
+
+def _print_progress_file_header(store: StateStore, path: Path) -> None:
+    print(f"== {_progress_display_path(store, path)} ==")
+
+
+def _progress_display_path(store: StateStore, path: Path) -> str:
+    try:
+        relative = path.relative_to(store.root).as_posix()
+    except ValueError:
+        return str(path)
+    return _execution_context_paths(store, [relative])[0]
+
+
+def _print_progress_file_update(path: Path, position: int) -> int:
+    try:
+        size = path.stat().st_size
+    except FileNotFoundError:
+        return position
+    if size < position:
+        position = 0
+    with path.open("r", encoding="utf-8") as stream:
+        stream.seek(position)
+        text = stream.read()
+        position = stream.tell()
+    if text:
+        print(text, end="" if text.endswith("\n") else "\n")
+    return position
 
 
 def _cmd_deactivate(store: StateStore) -> int:

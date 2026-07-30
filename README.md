@@ -219,12 +219,17 @@ continues until every planned phase is complete. The command stops only when an
 agent fails, an unresolved review issue blocks progress, phase scope changes,
 git cannot create a valid commit, or the agents need human input.
 
-Long-running non-interactive passes print a `progress: <path>` line before the
-agent starts. Tail that file to see concise agent heartbeats:
+Long-running non-interactive passes write hidden progress files under the
+active run. From another activated shell, use `progress` to watch concise agent
+heartbeats without manually tailing files:
 
 ```bash
-tail -f .electroboy/shared/runs/<run-id>/progress/design-review-progress.md
+electroboy progress
 ```
+
+`electroboy monitor` is an alias. In an interactive terminal the command
+follows live updates by default; use `--once` to print the current snapshot and
+exit.
 
 If the progress file is not updated for 300 seconds, ElectroBoy stops the
 runtime and reports the idle progress file instead of using a generic
@@ -509,7 +514,7 @@ Ignored files are not committed to git:
 - `.electroboy/local/raw/` stores redacted raw runtime streams.
 - `.electroboy/local/logs/` stores local diagnostic logs.
 - `.electroboy/shared/runs/<run-id>/progress/` stores live agent progress
-  heartbeats for tailing long-running passes.
+  heartbeats consumed by `electroboy progress`.
 
 Secrets are never written to shared or local state.
 
