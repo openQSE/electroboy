@@ -429,6 +429,10 @@ class CliTests(unittest.TestCase):
             feature["artifacts"]["requirements"],
             "docs/requirements-add-dashboard.md",
         )
+        self.assertEqual(
+            feature["artifacts"]["design_review_updates"],
+            "docs/design-review-updates-add-dashboard.md",
+        )
         self.assertEqual(feature["workflow"][-1], "code-approve")
         self.assertTrue(requirements_exists)
         self.assertFalse(canonical_requirements_exists)

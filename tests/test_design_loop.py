@@ -107,6 +107,11 @@ class DesignLoopTests(unittest.TestCase):
             code, stdout, stderr = self.run_cli(
                 ["--root", str(root), "design-review"]
             )
+            store = StateStore(root)
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
             summary = (root / "docs" / "design-review.md").read_text(
                 encoding="utf-8"
             )
@@ -120,6 +125,49 @@ class DesignLoopTests(unittest.TestCase):
         self.assertIn("Stage result: passed", summary)
         self.assertIn("docs/detailed-design.md", summary)
         self.assertNotIn("docs/design-review.md", committed_files)
+        self.assertIn("Inspect source code as needed", prompt)
+        self.assertIn("Do not modify files.", prompt)
+        self.assertNotIn("Do not inspect source code", prompt)
+
+    def test_design_review_coordinates_design_author_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            configure_git_identity(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
+            self.assertEqual(
+                self.run_cli(["--root", str(root), "requirements-approve"])[0],
+                0,
+            )
+            write_review_update_runtime(root)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "design-review"]
+            )
+            design = (root / "docs" / "detailed-design.md").read_text(
+                encoding="utf-8"
+            )
+            updates = (root / "docs" / "design-review-updates.md").read_text(
+                encoding="utf-8"
+            )
+            issues = store.read_review_issues("design-review.jsonl")
+            manifest = store.load_current_manifest()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("running design review agent pass 1", stdout)
+        self.assertIn("running design author update after pass 1", stdout)
+        self.assertIn("design author updated docs/detailed-design.md", stdout)
+        self.assertIn("completed stage: design-review", stdout)
+        self.assertIn("Reviewed update: aligned with code.", design)
+        self.assertIn("### Update After Review Pass 1", updates)
+        self.assertIn("DES-1: major open - Design lacks reviewed update.", updates)
+        self.assertIn("+Reviewed update: aligned with code.", updates)
+        self.assertEqual(issues[0]["status"], "verified")
+        self.assertEqual(manifest.active_stage, "design-acceptance")
 
 
 def write_file(path: Path, text: str) -> None:
@@ -177,6 +225,71 @@ coding = "manual"
 code_review = "manual"
 test_review = "manual"
 documentation = "manual"
+""".lstrip()
+    write_file(root / "electroboy.toml", config)
+    if (root / ".electroboy").exists():
+        write_file(root / ".electroboy" / "project.toml", config)
+
+
+def write_review_update_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        r'''
+import json
+from pathlib import Path
+import sys
+
+
+prompt = sys.stdin.read()
+design_path = Path("docs/detailed-design.md")
+design = design_path.read_text(encoding="utf-8")
+
+if "Update docs/detailed-design.md" in prompt:
+    design_path.write_text(
+        design.rstrip() + "\n\nReviewed update: aligned with code.\n",
+        encoding="utf-8",
+    )
+    print(json.dumps({
+        "ok": True,
+        "final_message": "Updated the detailed design from review findings.",
+        "changed_files": ["docs/detailed-design.md"],
+    }))
+elif "Reviewed update: aligned with code." in design:
+    print(json.dumps({
+        "ok": True,
+        "final_message": "Design review findings are resolved.",
+        "issues": [{
+            "issue_id": "DES-1",
+            "severity": "major",
+            "status": "verified",
+            "summary": "Design now includes the reviewed update.",
+        }],
+    }))
+else:
+    print(json.dumps({
+        "ok": True,
+        "final_message": "Design needs an update.",
+        "issues": [{
+            "issue_id": "DES-1",
+            "severity": "major",
+            "status": "open",
+            "summary": "Design lacks reviewed update.",
+        }],
+    }))
+'''.lstrip(),
+    )
+    config = """
+[runtime]
+default = "agent"
+
+[runtimes.agent]
+adapter = "generic_cli"
+command = "python3"
+args = ["agent.py"]
+
+[roles]
+design_review = "agent"
+design_author_update = "agent"
 """.lstrip()
     write_file(root / "electroboy.toml", config)
     if (root / ".electroboy").exists():

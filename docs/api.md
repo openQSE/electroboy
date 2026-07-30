@@ -29,7 +29,8 @@ Operator workflow commands:
 - `requirements-approve` records human and Design Author approval.
 - `design [--reason <text>] [--session-id <id>]` starts or resumes design
   authoring.
-- `design-review` runs the design-review stage gate.
+- `design-review` runs the design-review stage gate and may coordinate
+  design-author updates to the detailed-design artifact.
 - `design-approve` records human design acceptance.
 - `implementation-plan [--reason <text>] [--session-id <id>]` starts or
   resumes planning.
@@ -96,6 +97,13 @@ branch setup. `--branch` without a value derives `feature/<slug>` from the
 title or issue URL. `--branch <name>` uses the exact branch name provided.
 After intake, the normal workflow begins at `electroboy requirements` unless
 an existing run is already active at another stage.
+
+`design-review` writes the run's design-review summary and design-review update
+log. The update log is `docs/design-review-updates.md` for normal runs and
+`docs/design-review-updates-<feature>.md` for feature runs. If the review
+agent reports blocker or major findings, ElectroBoy invokes a non-interactive
+design-author update turn to modify the run's detailed-design artifact, logs
+the resulting diff, and reruns review within a bounded loop.
 
 `meta init`, `add`, and `start` enable meta-project mode. The registry is
 stored in `.electroboy/shared/repositories.json` under the meta-project root.

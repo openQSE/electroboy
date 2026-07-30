@@ -371,6 +371,12 @@ This file breaks the approved design into implementation phases. Each phase
 includes scope, expected files or modules, acceptance criteria, test
 expectations, and dependency notes.
 
+### `docs/design-review-updates.md`
+
+This file records detailed-design changes made by the design author in
+response to automated design-review findings. Feature runs use
+`docs/design-review-updates-<feature>.md`.
+
 ### `README.md`
 
 The README describes how to clone, build, configure, test, and operate the
@@ -510,8 +516,12 @@ Exit criteria:
 ### Stage 3. Automated Design Review
 
 The design review agent reviews `docs/detailed-design.md` against
-`docs/requirements.md` and creates design review issues. The design author
-agent updates the document or responds with a rejection rationale.
+`docs/requirements.md` and the current codebase, then creates design review
+issues. The agent may inspect source code as needed to verify that the design
+matches the implementation context, especially for feature work and bug fixes,
+but it does not modify files. When blocker or major findings remain, the
+orchestrator invokes a non-interactive design-author update turn to revise the
+detailed-design artifact and then reruns design review.
 
 The orchestrator shows visible progress while the stage runs. In an interactive
 terminal it uses Rich status spinners for long-running work such as invoking
@@ -526,12 +536,20 @@ file changes, open issues, and current approval state. The JSONL review issue
 file remains the machine-readable gate input; the markdown file is the
 human-readable audit artifact.
 
-The review stage does not commit the summary. `electroboy design-approve`
-commits the run's detailed-design and design-review artifacts together after
-the human operator accepts the reviewed design baseline.
+The orchestrator also maintains a design-review update log. For normal runs
+this is `docs/design-review-updates.md`; feature runs use
+`docs/design-review-updates-<feature>.md`. Each coordinated design-author
+update records the review pass, blocking findings, changed files, author
+summary, and a unified diff of detailed-design changes made because of the
+review.
 
-The loop continues until every required issue is verified, downgraded, or
-escalated to the human operator.
+The review stage does not commit the summary. `electroboy design-approve`
+commits the run's detailed-design, design-review, and design-review update
+artifacts together after the human operator accepts the reviewed design
+baseline.
+
+The loop continues until the review passes, an agent fails, or the bounded
+review/update pass budget is exhausted.
 
 Exit criteria:
 
@@ -804,11 +822,15 @@ This agent participates in Stage 3.
 
 Responsibilities:
 
-- Review `docs/detailed-design.md` against `docs/requirements.md` for
-  ambiguity, missing requirements, inconsistent assumptions, operational gaps,
-  testability problems, security risks, and implementation hazards.
+- Review `docs/detailed-design.md` against `docs/requirements.md` and the
+  current codebase for ambiguity, missing requirements, inconsistent
+  assumptions, operational gaps, testability problems, security risks, and
+  implementation hazards.
+- Inspect source code as needed to verify design alignment with existing
+  implementation, feature work, or bug-fix context.
 - Produce structured review issues for the design author agent.
 - Verify that design changes resolve review issues.
+- Report verified status for resolved findings using the original issue id.
 - Distinguish required fixes from optional improvements.
 
 Authority:
@@ -1347,10 +1369,11 @@ Iteration rules:
 
 Baseline documentation commits happen at human approval points. The
 requirements approval commits the run's requirements artifact. Design approval
-commits the run's detailed-design and design-review artifacts. Plan approval
-commits the run's implementation-plan artifact. Test-plan approval commits the
-run's test-plan artifact. Validation approval commits the run's implementation
-log, implementation report, and validation report.
+commits the run's detailed-design, design-review, and design-review update
+artifacts. Plan approval commits the run's implementation-plan artifact.
+Test-plan approval commits the run's test-plan artifact. Validation approval
+commits the run's implementation log, implementation report, and validation
+report.
 
 ElectroBoy creates those approval-time baseline commits, verifies that the
 expected artifacts are present in the commit history, and records the commit
@@ -1679,8 +1702,8 @@ history.
   `.electroboy/shared/runs/<run-id>/messages/`.
 - Approved pipeline artifacts are stored as snapshots under
   `.electroboy/shared/runs/<run-id>/artifacts/`.
-- Design review summaries are stored in the run's design-review artifact and
-  committed during design approval.
+- Design review summaries and update logs are stored in the run's
+  design-review artifacts and committed during design approval.
 - Implementation logs and implementation reports are stored in the run's
   implementation handoff artifacts.
 - Validation results are stored in the run's validation-report artifact.

@@ -451,11 +451,16 @@ The operator can explicitly ask for broader artifact edits during the session.
 Approval remains separate so the human operator can review the artifact before
 the pipeline advances.
 
-`design-review` starts the automated design review loop. `code` starts or
-resumes the fully automated implementation loop. By default, it runs every
-remaining planned phase, invokes coding, code review, and test review agents,
-creates and records each valid phase commit, and advances to test-plan review
-when the implementation plan is complete. `code --phased` runs one phase and
+`design-review` starts the automated design review loop. The review agent may
+inspect source code as needed to check the design against the current
+implementation, but it must not modify files. If blocker or major findings
+remain, the orchestrator invokes a non-interactive design-author update turn,
+logs the detailed-design diff in the run's design-review update artifact, and
+reruns review within a bounded loop. `code` starts or resumes the fully
+automated implementation loop. By default, it runs every remaining planned
+phase, invokes coding, code review, and test review agents, creates and records
+each valid phase commit, and advances to test-plan review when the
+implementation plan is complete. `code --phased` runs one phase and
 leaves commit creation or commit recording to the operator before the next
 phase can start. During `code`, the orchestrator uses Rich progress indicators
 for the active phase, code review, test review, escalations, and resumable

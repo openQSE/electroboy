@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import difflib
 import json
 import os
 import shlex
@@ -88,6 +89,8 @@ STAGE_SNAPSHOT_ARTIFACTS = {
 }
 
 DESIGN_REVIEW_SUMMARY_PATH = "docs/design-review.md"
+DESIGN_REVIEW_UPDATES_PATH = "docs/design-review-updates.md"
+DESIGN_REVIEW_MAX_PASSES = 3
 DESIGN_REVIEW_CONTEXT_PATHS = [
     "docs/requirements.md",
     "docs/detailed-design.md",
@@ -105,6 +108,7 @@ APPROVAL_BASELINE_ARTIFACTS = {
     STAGE_DESIGN_ACCEPTANCE: [
         "docs/detailed-design.md",
         DESIGN_REVIEW_SUMMARY_PATH,
+        DESIGN_REVIEW_UPDATES_PATH,
     ],
     STAGE_PLAN: ["docs/implementation-plan.md"],
     STAGE_TEST_PLAN: [TEST_PLAN_PATH],
@@ -1611,41 +1615,70 @@ def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
         _print_gate_failure(readiness_errors)
         return 1
 
-    with _progress_step("design-review", "running design review agent"):
-        result, event_id, issue_file = _invoke_agent_role(
-            store,
-            role="design_review",
-            prompt=_design_review_prompt(store),
-            context_paths=_artifact_paths(store, DESIGN_REVIEW_CONTEXT_PATHS),
+    update_log_path = _init_design_review_update_log(store)
+    for pass_number in range(1, DESIGN_REVIEW_MAX_PASSES + 1):
+        with _progress_step(
+            "design-review",
+            f"running design review agent pass {pass_number}",
+        ):
+            result, event_id, issue_file = _invoke_agent_role(
+                store,
+                role="design_review",
+                prompt=_design_review_prompt(store, pass_number),
+                context_paths=_design_review_context_paths(store),
+            )
+        _print_progress(
+            "design-review",
+            f"agent completed with {len(result.issues)} reported issue(s)",
         )
-    _print_progress(
-        "design-review",
-        f"agent completed with {len(result.issues)} reported issue(s)",
-    )
 
-    blocking = _blocking_issues(store, issue_file or "design-review.jsonl")
-    outcome = _design_review_outcome(result, blocking)
-    with _progress_step("design-review", "writing review summary"):
-        summary_path = _write_design_review_summary(
+        issue_file = issue_file or "design-review.jsonl"
+        blocking = _blocking_issues(store, issue_file)
+        outcome = _design_review_outcome(result, blocking)
+        with _progress_step("design-review", "writing review summary"):
+            summary_path = _write_design_review_summary(
+                store,
+                result,
+                event_id,
+                issue_file,
+                outcome,
+            )
+        print(f"summary: {summary_path}")
+        print(f"updates: {update_log_path}")
+
+        if not result.ok:
+            print(
+                result.final_message,
+                end="" if result.final_message.endswith("\n") else "\n",
+            )
+            return 1
+        if not blocking:
+            with _progress_step("design-review", "completing design-review gate"):
+                code = _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
+            if code == 0:
+                print(
+                    "next: run `electroboy design-approve` to commit the "
+                    "design baseline"
+                )
+            return code
+
+        if pass_number == DESIGN_REVIEW_MAX_PASSES:
+            _print_gate_failure(["blocking design review issues remain"])
+            return 1
+
+        update_code = _run_design_review_update(
             store,
-            result,
+            pass_number,
             event_id,
-            issue_file or "design-review.jsonl",
-            outcome,
-    )
-    print(f"summary: {summary_path}")
+            issue_file,
+            summary_path,
+            blocking,
+        )
+        if update_code != 0:
+            return update_code
 
-    if not result.ok:
-        print(result.final_message, end="" if result.final_message.endswith("\n") else "\n")
-        return 1
-    if blocking:
-        _print_gate_failure(["blocking design review issues remain"])
-        return 1
-    with _progress_step("design-review", "completing design-review gate"):
-        code = _cmd_stage(store, engine, _stage_args(STAGE_DESIGN_REVIEW))
-    if code == 0:
-        print("next: run `electroboy design-approve` to commit the design baseline")
-    return code
+    _print_gate_failure(["blocking design review issues remain"])
+    return 1
 
 
 def _cmd_code(
@@ -3054,19 +3087,72 @@ def _write_attached_agent_session_record(
     )
 
 
-def _design_review_prompt(store: StateStore) -> str:
+def _design_review_context_paths(store: StateStore) -> list[str]:
+    return _artifact_paths(
+        store,
+        [
+            *DESIGN_REVIEW_CONTEXT_PATHS,
+            DESIGN_REVIEW_SUMMARY_PATH,
+            DESIGN_REVIEW_UPDATES_PATH,
+        ],
+    )
+
+
+def _design_review_prompt(store: StateStore, pass_number: int) -> str:
     requirements_path = _artifact_path(store, "docs/requirements.md")
     design_path = _artifact_path(store, "docs/detailed-design.md")
+    summary_path = _artifact_path(store, DESIGN_REVIEW_SUMMARY_PATH)
+    updates_path = _artifact_path(store, DESIGN_REVIEW_UPDATES_PATH)
     return "\n".join(
         [
-            f"Review {design_path} against {requirements_path}.",
+            f"Review {design_path} against {requirements_path} and the current",
+            "codebase.",
             "",
-            f"Read only {requirements_path} and {design_path}.",
-            "Do not inspect source code or modify files.",
+            f"Read {requirements_path} and {design_path}.",
+            f"Read {summary_path} and {updates_path} when they exist so you can",
+            "verify prior design-review updates.",
+            "Inspect source code as needed to verify the design matches the current",
+            "implementation context, especially for feature work and bug fixes.",
+            "Do not modify files.",
             "Report blocker and major findings as structured review issues.",
+            "For previously reported findings that are now resolved, report a",
+            "structured issue with the original issue_id and status verified.",
             "If files need to change, report the requested change as an issue.",
+            f"This is design review pass {pass_number}.",
         ]
     )
+
+
+def _design_review_update_prompt(
+    store: StateStore,
+    issue_file: str,
+    summary_path: str,
+    blocking: list[dict[str, object]],
+    pass_number: int,
+) -> str:
+    requirements_path = _artifact_path(store, "docs/requirements.md")
+    design_path = _artifact_path(store, "docs/detailed-design.md")
+    updates_path = _artifact_path(store, DESIGN_REVIEW_UPDATES_PATH)
+    lines = [
+        f"Update {design_path} to address blocking design-review findings.",
+        "",
+        f"Use {requirements_path}, {design_path}, {summary_path}, and",
+        f"{updates_path} as context.",
+        "Inspect source code as needed to keep the design aligned with the",
+        "current implementation context.",
+        f"Modify only {design_path}.",
+        f"Do not edit {summary_path}, {updates_path}, or {issue_file}.",
+        "ElectroBoy will update the review-update log after this turn.",
+        "",
+        "Blocking findings to address:",
+        "",
+        *_markdown_list(_design_review_issue_lines(blocking)),
+        "",
+        "Report the design changes made and why. If your runtime supports",
+        "structured output, include changed_files.",
+        f"This update follows design review pass {pass_number}.",
+    ]
+    return "\n".join(lines)
 
 
 def _implementation_context_paths(store: StateStore) -> list[str]:
@@ -3180,6 +3266,7 @@ def _write_design_review_summary(
     summary = result.final_message.strip() or "No narrative review summary returned."
     reviewed_artifacts = _artifact_paths(store, DESIGN_REVIEW_CONTEXT_PATHS)
     summary_path = _artifact_path(store, DESIGN_REVIEW_SUMMARY_PATH)
+    updates_path = _artifact_path(store, DESIGN_REVIEW_UPDATES_PATH)
     lines = [
         "# Design Review",
         "",
@@ -3208,6 +3295,7 @@ def _write_design_review_summary(
         "## Orchestrator Artifacts",
         "",
         f"- {summary_path}",
+        f"- {updates_path}",
         "",
         "## Open Issues",
         "",
@@ -3256,6 +3344,213 @@ def _design_review_approval_state(outcome: str) -> str:
     if outcome == "blocked":
         return "Design review is blocked by open blocker or major findings."
     return "Design review did not complete because the review agent failed."
+
+
+def _init_design_review_update_log(store: StateStore) -> str:
+    manifest = store.load_current_manifest()
+    design_path = _artifact_path(store, "docs/detailed-design.md")
+    summary_path = _artifact_path(store, DESIGN_REVIEW_SUMMARY_PATH)
+    updates_path = _artifact_path(store, DESIGN_REVIEW_UPDATES_PATH)
+    path = store.root / updates_path
+    if path.exists():
+        return updates_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Design Review Updates",
+        "",
+        f"Run ID: {manifest.run_id}",
+        f"Design artifact: {design_path}",
+        f"Design review summary: {summary_path}",
+        "",
+        "This log is maintained by the ElectroBoy orchestrator. It records",
+        "detailed-design changes made by the design author in response to",
+        "design-review findings.",
+        "",
+        "## Update Entries",
+        "",
+        "No coordinated design-review updates have been made yet.",
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_DESIGN_REVIEW,
+            action="design-review-update-log-initialized",
+            summary=f"Initialized {updates_path}.",
+            outputs=[updates_path],
+            artifact_changes=[updates_path],
+        )
+    )
+    return updates_path
+
+
+def _run_design_review_update(
+    store: StateStore,
+    pass_number: int,
+    review_event_id: str,
+    issue_file: str,
+    summary_path: str,
+    blocking: list[dict[str, object]],
+) -> int:
+    design_path = _artifact_path(store, "docs/detailed-design.md")
+    before = _read_design_review_update_text(store, design_path)
+    with _progress_step(
+        "design-review",
+        f"running design author update after pass {pass_number}",
+    ):
+        result, author_event_id, _issue_file = _invoke_agent_role(
+            store,
+            role="design_author_update",
+            prompt=_design_review_update_prompt(
+                store,
+                issue_file,
+                summary_path,
+                blocking,
+                pass_number,
+            ),
+            context_paths=_design_review_context_paths(store),
+        )
+    after = _read_design_review_update_text(store, design_path)
+    changed = before != after
+    changed_paths = _design_review_update_changed_paths(
+        design_path,
+        changed,
+        result,
+    )
+    _append_design_review_update_log(
+        store,
+        pass_number,
+        review_event_id,
+        author_event_id,
+        issue_file,
+        blocking,
+        result,
+        before,
+        after,
+        changed_paths,
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    if not changed:
+        _print_gate_failure(
+            [
+                "blocking design review issues remain",
+                f"design author did not modify {design_path}",
+            ]
+        )
+        return 1
+    _print_progress(
+        "design-review",
+        f"design author updated {design_path}; rerunning review",
+    )
+    return 0
+
+
+def _read_design_review_update_text(store: StateStore, relative_path: str) -> str:
+    path = store.root / relative_path
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def _design_review_update_changed_paths(
+    design_path: str,
+    design_changed: bool,
+    result: AgentResult,
+) -> list[str]:
+    paths = set(_agent_reported_files(result))
+    if design_changed:
+        paths.add(design_path)
+    return sorted(paths)
+
+
+def _append_design_review_update_log(
+    store: StateStore,
+    pass_number: int,
+    review_event_id: str,
+    author_event_id: str,
+    issue_file: str,
+    blocking: list[dict[str, object]],
+    result: AgentResult,
+    before: str,
+    after: str,
+    changed_paths: list[str],
+) -> str:
+    updates_path = _artifact_path(store, DESIGN_REVIEW_UPDATES_PATH)
+    design_path = _artifact_path(store, "docs/detailed-design.md")
+    path = store.root / updates_path
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if "No coordinated design-review updates have been made yet." in existing:
+        existing = existing.replace(
+            "No coordinated design-review updates have been made yet.\n\n",
+            "",
+        )
+    diff_lines = _design_review_update_diff(design_path, before, after)
+    entry = [
+        f"### Update After Review Pass {pass_number}",
+        "",
+        f"Recorded: {utc_now()}",
+        f"Review event: {review_event_id}",
+        f"Design author event: {author_event_id}",
+        f"Review issue file: {issue_file}",
+        "",
+        "#### Blocking Findings",
+        "",
+        *_markdown_list(_design_review_issue_lines(blocking)),
+        "",
+        "#### Changed Files",
+        "",
+        *_markdown_list(changed_paths),
+        "",
+        "#### Design Author Summary",
+        "",
+        *(result.final_message.strip() or "No design author summary returned.").splitlines(),
+        "",
+        "#### Detailed Design Diff",
+        "",
+        "```diff",
+        *diff_lines,
+        "```",
+        "",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(existing.rstrip() + "\n\n" + "\n".join(entry), encoding="utf-8")
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_DESIGN_REVIEW,
+            action="design-review-update-logged",
+            summary=f"Logged design-review update in {updates_path}.",
+            inputs=[review_event_id, author_event_id],
+            outputs=[updates_path],
+            artifact_changes=[updates_path],
+            message_ref=f"messages/{author_event_id}-response.md",
+        )
+    )
+    return updates_path
+
+
+def _design_review_update_diff(
+    design_path: str,
+    before: str,
+    after: str,
+) -> list[str]:
+    if before == after:
+        return ["# No detailed-design changes detected."]
+    return list(
+        difflib.unified_diff(
+            before.splitlines(),
+            after.splitlines(),
+            fromfile=f"a/{design_path}",
+            tofile=f"b/{design_path}",
+            lineterm="",
+        )
+    )
 
 
 def _agent_reported_files(result: AgentResult) -> list[str]:
@@ -3586,6 +3881,7 @@ env = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "COLORTERM", "TMPDIR", "CODEX_H
 
 [roles]
 design_author = "codex-interactive"
+design_author_update = "codex"
 design_review = "codex"
 coding = "codex"
 code_review = "codex"

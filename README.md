@@ -139,6 +139,12 @@ electroboy design-review
 electroboy design-approve
 ```
 
+`design-review` coordinates the read-only design-review agent with an
+automatic design-author update pass when blocker or major findings require
+changes to the detailed design. The orchestrator records those updates in
+`docs/design-review-updates.md`, or `docs/design-review-updates-<feature>.md`
+for feature runs, then reruns design review until it passes or still blocks.
+
 Create and approve the implementation plan:
 
 ```bash
