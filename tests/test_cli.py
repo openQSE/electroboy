@@ -15,8 +15,13 @@ sys.path.insert(0, str(ROOT / "src"))
 from electroboy.artifacts import ArtifactManager  # noqa: E402
 from electroboy.cli import main  # noqa: E402
 from electroboy.models import (  # noqa: E402
+    GATE_DESIGN,
+    GATE_HUMAN_DESIGN_ACCEPTANCE,
     GATE_IMPLEMENTATION,
+    GATE_REQUIREMENTS,
+    STAGE_DESIGN,
     STAGE_IMPLEMENTATION,
+    STAGE_PLAN,
     STAGE_TEST_PLAN,
     STAGE_VALIDATION,
 )
@@ -305,6 +310,37 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertIn("completed stage: design-review", stdout)
         self.assertIn("active stage: design-acceptance", stdout)
+
+    def test_force_design_approve_from_design_backfills_review_gate(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            manifest = store.init_run(run_id="run-1")
+            manifest.set_active_stage(STAGE_DESIGN)
+            store.save_manifest(manifest)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "design-approve", "--force"]
+            )
+            manifest = store.load_current_manifest()
+            committed_files = git_show_names(root)
+            decisions = store.read_decisions()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("forced approval: yes", stdout)
+        self.assertIn("backfilled gates:", stdout)
+        self.assertEqual(manifest.active_stage, STAGE_PLAN)
+        self.assertTrue(manifest.has_gate(GATE_REQUIREMENTS))
+        self.assertTrue(manifest.has_gate(GATE_DESIGN))
+        self.assertTrue(manifest.has_gate(GATE_HUMAN_DESIGN_ACCEPTANCE))
+        self.assertIn("docs/detailed-design.md", committed_files)
+        self.assertIn("docs/design-review.md", committed_files)
+        self.assertIn("docs/design-review-updates.md", committed_files)
+        self.assertEqual(
+            decisions[-1]["summary"],
+            "Forced approval for design-acceptance",
+        )
 
     def test_rejects_plan_before_design_acceptance(self) -> None:
         with temp_project() as root:

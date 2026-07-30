@@ -133,6 +133,12 @@ electroboy stage implementation --force --reason "Adopting existing project"
 The command records a decision and activity event, but it does not mark
 skipped gates as complete.
 
+Approval commands for requirements, design, implementation-plan, and test-plan
+also accept `--force`. A forced approval keeps the required artifact check, but
+skips predecessor gate checks, records a forced-approval decision, backfills
+skipped gate records, snapshots relevant artifacts, and advances to the next
+stage.
+
 ## Project Environment Commands
 
 ```bash

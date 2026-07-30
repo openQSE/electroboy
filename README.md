@@ -423,6 +423,12 @@ The orchestrator records a change-control event, asks for approval when
 downstream gates would be invalidated, and resumes from the reopened stage.
 Use `electroboy stage <stage> --force --reason <text>` only when an expert
 operator needs to override the active stage directly.
+Use `<stage>-approve --force` only when an expert operator wants to approve the
+current stage without completing predecessor gates. For example,
+`electroboy design-approve --force` can approve the design directly from the
+design, design-review, or design-acceptance stage. The command records a
+forced-approval decision, backfills skipped gate records, and commits the
+approval artifacts.
 
 ## Agent Runtime Configuration
 
