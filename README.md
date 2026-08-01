@@ -140,6 +140,11 @@ electroboy document
 electroboy code-approve
 ```
 
+During feature runs with a branch, mutating agents are instructed to verify the
+branch before editing each git repository they touch. If they need to edit a
+nested repository and the feature branch is missing there, they create it with
+`git switch -c <branch>` rather than editing on the wrong branch.
+
 Define and approve requirements:
 
 ```bash

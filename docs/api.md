@@ -113,6 +113,10 @@ When `--branch` is provided, the command blocks tracked uncommitted changes
 before creating or switching branches. Untracked files do not block feature
 branch setup. `--branch` without a value derives `feature/<slug>` from the
 title or issue URL. `--branch <name>` uses the exact branch name provided.
+During that feature run, mutating agent prompts tell the agent to verify that
+each git repository it edits, including nested repositories, is on the feature
+branch. If the branch does not exist in a repository it must edit, the agent is
+instructed to create it with `git switch -c <branch>`.
 After intake, the normal workflow begins at `electroboy requirements` unless
 an existing run is already active at another stage.
 

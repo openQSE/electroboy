@@ -198,6 +198,15 @@ AGENT_PROGRESS_ROLES = {
     "documentation-review",
 }
 
+MUTATING_AGENT_ROLES = {
+    "design_author",
+    "design-author",
+    "design_author_update",
+    "design-author-update",
+    "coding",
+    "documentation",
+}
+
 REVIEW_OUTPUT_CONTRACT_ROLES = {
     "design_review",
     "design-review",
@@ -3709,6 +3718,7 @@ def _invoke_agent_role(
             session_artifact,
             session_record,
         )
+    prompt = _prompt_with_feature_branch_guard(store, role, prompt)
     output_schema = _agent_output_schema(role)
     if output_schema is not None:
         prompt = _prompt_with_output_contract(prompt)
@@ -3785,6 +3795,50 @@ def _invoke_agent_role(
         )
     )
     return result, event_id, issue_file
+
+
+def _prompt_with_feature_branch_guard(
+    store: StateStore,
+    role: str,
+    prompt: str,
+) -> str:
+    if role not in MUTATING_AGENT_ROLES:
+        return prompt
+    branch = _active_feature_branch(store)
+    if not branch:
+        return prompt
+    lines = [
+        "Feature branch guard:",
+        "",
+        f"- Active feature branch: {branch}",
+        "- Before modifying files in any git repository, verify that",
+        "  repository's current branch.",
+        "- This applies to the active target repository and to nested",
+        "  repositories you edit, such as subdirectories with their own .git",
+        "  directory.",
+        f"- If the branch exists, switch with: git switch {branch}",
+        f"- If the branch does not exist, create it with: git switch -c {branch}",
+        "- Do not use force checkout or discard tracked changes. If switching",
+        "  would overwrite tracked work, stop and report the repository path and",
+        "  branch mismatch.",
+        "- Untracked files alone do not block switching.",
+        "",
+        prompt,
+    ]
+    return "\n".join(lines)
+
+
+def _active_feature_branch(store: StateStore) -> str | None:
+    run_id = store.current_run_id()
+    if not run_id:
+        return None
+    record = read_feature_record(store.root, run_id)
+    if not record:
+        return None
+    branch = record.get("branch")
+    if not isinstance(branch, str) or not branch.strip():
+        return None
+    return branch.strip()
 
 
 def _prompt_with_meta_context(

@@ -853,6 +853,39 @@ class CliTests(unittest.TestCase):
         self.assertEqual(completed.stdout.strip(), "adm-sched-v01")
         self.assertEqual(feature["branch"], "adm-sched-v01")
 
+    def test_feature_branch_guard_is_added_to_mutating_agent_prompts(self) -> None:
+        with temp_project() as root:
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "feature",
+                        "start",
+                        "Add admission and scheduling to the QFw",
+                        "--branch",
+                        "adm-sched-v01",
+                    ]
+                )[0],
+                0,
+            )
+            write_manual_runtime(root)
+
+            code, _stdout, stderr = self.run_cli(["--root", str(root), "requirements"])
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            prompt_files = sorted(
+                (store.run_dir(manifest.run_id) / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("Feature branch guard:", prompt)
+        self.assertIn("Active feature branch: adm-sched-v01", prompt)
+        self.assertIn("git switch adm-sched-v01", prompt)
+        self.assertIn("git switch -c adm-sched-v01", prompt)
+        self.assertIn("nested", prompt)
+
     def test_feature_start_branch_blocks_tracked_changes(self) -> None:
         with temp_project() as root:
             write_file(root / "tracked.txt", "initial\n")
