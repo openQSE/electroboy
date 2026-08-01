@@ -213,11 +213,15 @@ generated project files, and any hand-authored baseline files before running
 `code`.
 
 `code` starts or resumes the fully automated implementation loop. It selects
-the active or next planned phase, invokes the configured coding agent, invokes
-code review, invokes test review, creates and records the phase commit, and
-continues until every planned phase is complete. The command stops only when an
-agent fails, an unresolved review issue blocks progress, phase scope changes,
-git cannot create a valid commit, or the agents need human input.
+the active or next planned phase, invokes the configured coding agent, runs up
+to five code-review/fix passes, runs up to five test-review/fix passes, creates
+and records the phase commit, and continues until every planned phase is
+complete. Blocker and major findings stop the phase after the retry limit.
+Minor findings are recorded for follow-up and do not block progress.
+
+Code review summaries are written to `docs/code-review.md` and test review
+summaries are written to `docs/test-review.md`. Feature runs use the matching
+feature-tagged filenames.
 
 Long-running non-interactive passes write hidden progress files under the
 active run. From another activated shell, use `progress` to watch concise agent

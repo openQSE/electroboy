@@ -140,6 +140,118 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertIn("Phase 1", implementation_log_text)
         self.assertIn("ready for validation", implementation_report_text)
 
+    def test_code_review_retries_until_blockers_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_review_retry_runtime(root, code_blocking_attempts=2)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "code"])
+
+            status = StateStore(root).load_phase_status()
+            code_review_text = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("code review: docs/code-review.md", stdout)
+        self.assertIn("committed phase: 1", stdout)
+        self.assertEqual(status.phases["1"]["code_review_attempts"], 3)
+        self.assertEqual(status.phases["1"]["status"], "committed")
+        self.assertIn("CR-001", code_review_text)
+        self.assertIn("Status: verified", code_review_text)
+
+    def test_code_review_stops_after_retry_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_review_retry_runtime(root, code_blocking_attempts=99)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, _stdout, stderr = self.run_cli(["--root", str(root), "code"])
+
+            status = StateStore(root).load_phase_status()
+            code_review_text = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("after 5 attempts", stderr)
+        self.assertEqual(status.active_phase, 1)
+        self.assertNotEqual(status.phases["1"].get("status"), "committed")
+        self.assertIn("CR-001", code_review_text)
+        self.assertIn("Severity: major", code_review_text)
+
+    def test_minor_code_review_findings_do_not_block_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_review_retry_runtime(root, code_minor=True)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "code"])
+
+            status = StateStore(root).load_phase_status()
+            code_review_text = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("committed phase: 1", stdout)
+        self.assertEqual(status.phases["1"]["code_review_attempts"], 1)
+        self.assertIn("CR-002", code_review_text)
+        self.assertIn("Severity: minor", code_review_text)
+        self.assertIn("Status: open", code_review_text)
+
+    def test_test_review_retries_until_blockers_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_review_retry_runtime(root, test_blocking_attempts=1)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1, tests/test_phase1.py\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "code"])
+
+            status = StateStore(root).load_phase_status()
+            test_review_text = (root / "docs" / "test-review.md").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("test review: docs/test-review.md", stdout)
+        self.assertEqual(status.phases["1"]["test_review_attempts"], 2)
+        self.assertIn("TR-001", test_review_text)
+        self.assertIn("Status: verified", test_review_text)
+
     def test_phase_commit_requires_phase_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -268,6 +380,156 @@ elif "phase 2" in prompt:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("phase 2\\n", encoding="utf-8")
 print(json.dumps({"ok": True, "final_message": "accepted", "issues": []}))
+""".lstrip(),
+    )
+    write_file(
+        root / "electroboy.toml",
+        f"""
+[runtime]
+default = "agent"
+
+[runtimes.agent]
+adapter = "generic_cli"
+command = "{sys.executable}"
+args = ["agent.py"]
+env = ["PATH"]
+
+[roles]
+coding = "agent"
+code_review = "agent"
+test_review = "agent"
+""".lstrip(),
+    )
+
+
+def write_review_retry_runtime(
+    root: Path,
+    code_blocking_attempts: int = 0,
+    test_blocking_attempts: int = 0,
+    code_minor: bool = False,
+) -> None:
+    minor_literal = "True" if code_minor else "False"
+    write_file(
+        root / "agent.py",
+        f"""
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+
+def bump(path: str) -> int:
+    counter = pathlib.Path(path)
+    counter.parent.mkdir(parents=True, exist_ok=True)
+    value = int(counter.read_text(encoding="utf-8")) if counter.exists() else 0
+    value += 1
+    counter.write_text(str(value), encoding="utf-8")
+    return value
+
+
+def note_progress(raw_prompt: str) -> None:
+    for line in raw_prompt.splitlines():
+        if line.startswith("Progress file: "):
+            progress = pathlib.Path(line.split(":", 1)[1].strip())
+            progress.parent.mkdir(parents=True, exist_ok=True)
+            with progress.open("a", encoding="utf-8") as stream:
+                stream.write("fake agent started\\n")
+            return
+
+
+raw_prompt = sys.stdin.read()
+prompt = raw_prompt.lower()
+note_progress(raw_prompt)
+
+if "review implementation phase" in prompt:
+    attempt = bump(".electroboy/local/test-counters/code-review-count.txt")
+    issues = []
+    if {minor_literal}:
+        issues.append({{
+            "issue_id": "CR-002",
+            "severity": "minor",
+            "status": "open",
+            "summary": "Consider tightening a helper name.",
+            "artifact": "src/phase1/output.txt",
+            "location": "src/phase1/output.txt:1",
+            "rationale": "Naming polish is useful but not blocking.",
+            "requested_change": "Rename the helper when convenient.",
+        }})
+    elif attempt <= {code_blocking_attempts}:
+        issues.append({{
+            "issue_id": "CR-001",
+            "severity": "major",
+            "status": "open",
+            "summary": "Phase output is incomplete.",
+            "artifact": "src/phase1/output.txt",
+            "location": "src/phase1/output.txt:1",
+            "rationale": "The implementation does not satisfy the phase.",
+            "requested_change": "Complete the phase output.",
+        }})
+    elif {code_blocking_attempts}:
+        issues.append({{
+            "issue_id": "CR-001",
+            "severity": "major",
+            "status": "verified",
+            "summary": "Phase output is complete.",
+            "artifact": "src/phase1/output.txt",
+            "location": "src/phase1/output.txt:1",
+            "rationale": "The blocking concern has been addressed.",
+            "requested_change": "No further code review change required.",
+        }})
+    print(json.dumps({{
+        "ok": True,
+        "final_message": "code review complete",
+        "issues": issues,
+    }}))
+elif "review tests for implementation phase" in prompt:
+    attempt = bump(".electroboy/local/test-counters/test-review-count.txt")
+    issues = []
+    if attempt <= {test_blocking_attempts}:
+        issues.append({{
+            "issue_id": "TR-001",
+            "severity": "blocker",
+            "status": "open",
+            "summary": "Required test is missing.",
+            "artifact": "tests/test_phase1.py",
+            "location": "tests/test_phase1.py:1",
+            "rationale": "The phase cannot be accepted without coverage.",
+            "requested_change": "Add the required test.",
+        }})
+    elif {test_blocking_attempts}:
+        issues.append({{
+            "issue_id": "TR-001",
+            "severity": "blocker",
+            "status": "verified",
+            "summary": "Required test is present.",
+            "artifact": "tests/test_phase1.py",
+            "location": "tests/test_phase1.py:1",
+            "rationale": "Coverage is now present.",
+            "requested_change": "No further test review change required.",
+        }})
+    print(json.dumps({{
+        "ok": True,
+        "final_message": "test review complete",
+        "issues": issues,
+        "commands": ["python -m pytest"],
+    }}))
+else:
+    attempt = bump(".electroboy/local/test-counters/coding-count.txt")
+    path = pathlib.Path("src/phase1/output.txt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"phase 1 coding attempt {{attempt}}\\n", encoding="utf-8")
+    if "test review" in prompt:
+        test_path = pathlib.Path("tests/test_phase1.py")
+        test_path.parent.mkdir(parents=True, exist_ok=True)
+        test_path.write_text("def test_phase1():\\n    assert True\\n", encoding="utf-8")
+    print(json.dumps({{
+        "ok": True,
+        "final_message": "coding complete",
+        "issues": [],
+        "changed_files": ["src/phase1/output.txt"],
+        "commit_message": "phase 1: implement test fixture",
+    }}))
 """.lstrip(),
     )
     write_file(

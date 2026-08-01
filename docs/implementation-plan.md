@@ -887,9 +887,11 @@ Scope:
 - Start active phase.
 - Invoke coding agent.
 - Invoke code review agent.
-- Iterate until code review passes.
+- Iterate code review and fixes up to five attempts.
 - Invoke phase test review agent.
-- Iterate until phase test review passes.
+- Iterate test review and fixes up to five attempts.
+- Write `docs/code-review.md` and `docs/test-review.md` summaries, using
+  feature-tagged names during feature work.
 - Detect active-phase drift from `docs/implementation-plan.md`.
 - Create and record the verified phase commit by default.
 - Preserve manual commit recording through phased mode.
@@ -912,7 +914,10 @@ Acceptance criteria:
 - Phase commit changed paths must match the planned phase `Paths:` metadata.
 - Phase commits require code review and test review agent evidence.
 - Manual review and test flags do not replace agent invocation evidence.
-- Code review and phase test review issues block commits.
+- Blocker and major code review and phase test review issues block commits
+  after the retry limit.
+- Minor code review and phase test review issues are recorded without blocking
+  commits.
 - Phase-scope drift clears review evidence and blocks commit until the plan is
   updated and review agents run again.
 - Test commands and outputs are stored in the activity log.

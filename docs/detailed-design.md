@@ -663,8 +663,16 @@ The basic loop is:
 The next phase starts only after the current phase commit exists.
 
 By default, `electroboy code` runs this loop for every remaining planned
-phase. `electroboy code --phased` runs one phase and leaves commit creation
-or commit recording to the operator before the next phase can start.
+phase. Each phase gets up to five code-review/fix passes and up to five
+test-review/fix passes. Blocker and major findings continue the loop until
+they are verified or the retry limit is reached. Minor findings are recorded
+for follow-up and do not block the phase. `electroboy code --phased` runs one
+phase and leaves commit creation or commit recording to the operator before
+the next phase can start.
+
+The orchestrator writes human-readable phase review summaries to
+`docs/code-review.md` and `docs/test-review.md`, or to the matching
+feature-tagged artifact paths during feature work.
 
 If development changes phase scope, sequencing, acceptance criteria, required
 tests, or documentation impact, the coding agent stops implementation work and
@@ -900,7 +908,8 @@ Responsibilities:
 - Identify correctness bugs, maintainability problems, security issues, API
   inconsistencies, missing error handling, and risky deviations from local
   project style.
-- Produce structured review issues for the coding agent.
+- Produce structured blocker, major, and minor review issues for the coding
+  agent.
 - Verify fixes before the phase proceeds.
 
 Authority:
@@ -924,6 +933,7 @@ Responsibilities:
 - Propose new or revised tests when coverage is weak.
 - Re-run tests after the coding agent implements requested tests.
 - Verify that the test suite gives meaningful confidence for the active phase.
+- Classify phase findings as blocker, major, or minor.
 - Validate the completed codebase against `docs/requirements.md` and
   `docs/detailed-design.md` after all phases are committed.
 - Produce validation review issues and a validation report.

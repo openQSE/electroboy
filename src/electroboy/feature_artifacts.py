@@ -16,6 +16,8 @@ DEFAULT_ARTIFACT_PATHS = {
     "implementation_log": "docs/implementation-log.md",
     "implementation_report": "docs/implementation-report.md",
     "validation_report": "docs/validation-report.md",
+    "code_review": "docs/code-review.md",
+    "test_review": "docs/test-review.md",
 }
 
 FEATURE_ARTIFACT_STEMS = {
@@ -28,6 +30,8 @@ FEATURE_ARTIFACT_STEMS = {
     "implementation_log": "implementation-log",
     "implementation_report": "implementation-report",
     "validation_report": "validation-report",
+    "code_review": "code-review",
+    "test_review": "test-review",
 }
 
 DEFAULT_PATH_KEYS = {
@@ -70,6 +74,11 @@ def artifact_paths_for_run(root: Path, run_id: str) -> dict[str, str]:
         for key, value in artifacts.items():
             if key in paths and isinstance(value, str) and value.strip():
                 paths[key] = value
+    slug = record.get("slug")
+    if isinstance(slug, str) and slug.strip():
+        for key, stem in FEATURE_ARTIFACT_STEMS.items():
+            if paths.get(key) == DEFAULT_ARTIFACT_PATHS.get(key):
+                paths[key] = f"docs/{stem}-{slug.strip()}.md"
     return paths
 
 

@@ -104,9 +104,10 @@ When `--name` is omitted in an interactive shell, ElectroBoy prompts for the
 feature artifact name. In non-interactive use, it derives a slug from the title
 or issue URL. The slug controls paths such as `docs/requirements-<slug>.md`,
 `docs/detailed-design-<slug>.md`, `docs/implementation-plan-<slug>.md`, and
-`docs/test-plan-<slug>.md`. If any feature artifact already exists,
-ElectroBoy warns before amending it; use `--amend` to accept reuse without an
-interactive prompt.
+`docs/test-plan-<slug>.md`. Review and report artifacts, including
+`docs/code-review-<slug>.md` and `docs/test-review-<slug>.md`, use the same
+suffix. If any feature artifact already exists, ElectroBoy warns before
+amending it; use `--amend` to accept reuse without an interactive prompt.
 
 When `--branch` is provided, the command blocks tracked uncommitted changes
 before creating or switching branches. Untracked files do not block feature
@@ -181,6 +182,14 @@ Python environment when the pipeline owns that activation.
 each remaining planned phase, invokes coding, code review, and test review
 agents, creates a valid phase commit, records that commit, and continues until
 the implementation stage is complete.
+
+For each phase, code review and test review are bounded automatic loops. The
+orchestrator gives the coding agent up to five attempts to resolve blocker and
+major review findings. Minor findings are kept as follow-up notes and do not
+block the phase. Code review summaries are written to `docs/code-review.md`;
+test review summaries are written to `docs/test-review.md`. Feature runs use
+the corresponding `docs/code-review-<feature>.md` and
+`docs/test-review-<feature>.md` files.
 
 `electroboy code --phased` is the explicit manual checkpoint mode. It runs one
 phase and leaves commit creation or commit recording to the operator.
