@@ -24,7 +24,8 @@ control.
   review turns may use writable sandbox access only for progress telemetry.
 - `REQ-8`: Implementation runs one active phase at a time and commits each
   completed phase with a verified git SHA.
-- `REQ-9`: Implementation plans trace every phase to requirement ids.
+- `REQ-9`: Implementation plans may include phase-to-requirement traceability
+  as guidance, but approval does not depend on exact Markdown formatting.
 - `REQ-10`: Validation runs only after all planned phases are committed.
 - `REQ-11`: Validation failures create blocking review issues and must be
   resolved before the validation gate passes.

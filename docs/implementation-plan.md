@@ -725,7 +725,8 @@ Acceptance criteria:
 - Each gate returns pass, fail, or blocked.
 - Gate failures include concrete missing conditions.
 - Gate results are written to the activity log.
-- Gates verify approvals, current snapshots, and structured traceability.
+- Gates verify approvals and current snapshots without depending on exact
+  Markdown traceability formatting.
 - Unit tests cover pass and fail cases.
 - Tests prove that later stages cannot start before predecessor gates pass.
 - Tests prove that active-stage commands resume the current stage.
@@ -852,7 +853,7 @@ Scope:
 - Generate or update `docs/implementation-plan.md`.
 - Track human approval.
 - Track Design Author Agent confirmation.
-- Verify phase-to-requirement traceability.
+- Treat phase-to-requirement traceability as guidance, not an approval gate.
 - Support plan updates discovered during implementation.
 - Snapshot the approved plan.
 

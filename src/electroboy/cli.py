@@ -60,7 +60,7 @@ from .models import (
     STAGE_VALIDATION,
     utc_now,
 )
-from .planning import has_traceability, planned_phases, traceability_errors
+from .planning import planned_phases
 from .adapters.base import AgentInvocation, AgentResult
 from .runtime import runtime_for_role
 from .state_store import StateError, StateStore
@@ -3041,19 +3041,6 @@ def _cmd_stage(
     approval_errors = _record_stage_approvals(store, stage, args)
     if approval_errors:
         _print_gate_failure(approval_errors)
-        return 1
-    if not forced and stage == STAGE_PLAN and not has_traceability(
-        store.root,
-        _artifact_path(store, "docs/requirements.md"),
-        _artifact_path(store, "docs/implementation-plan.md"),
-    ):
-        _print_gate_failure(
-            traceability_errors(
-                store.root,
-                _artifact_path(store, "docs/requirements.md"),
-                _artifact_path(store, "docs/implementation-plan.md"),
-            )
-        )
         return 1
     if not forced and stage == STAGE_IMPLEMENTATION:
         phase_status = store.load_phase_status()

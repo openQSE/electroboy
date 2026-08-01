@@ -421,13 +421,13 @@ class CliTests(unittest.TestCase):
         self.assertTrue(manifest.has_gate(GATE_HUMAN_DESIGN_ACCEPTANCE))
         self.assertTrue(order.passed, order.messages)
 
-    def test_public_plan_approval_uses_traceability_gate(self) -> None:
+    def test_public_plan_approval_does_not_require_traceability_format(self) -> None:
         with temp_project() as root:
-            write_file(root / "docs" / "requirements.md", "# Requirements\n\nREQ-1\n")
+            write_file(root / "docs" / "requirements.md", "# Requirements\n\n- Do it.\n")
             write_file(root / "docs" / "detailed-design.md", "# Design\n")
             write_file(
                 root / "docs" / "implementation-plan.md",
-                "# Plan\n\n## Phase 1\n\nRequirements: REQ-1\n",
+                "# Plan\n\n## Phase 1\n\nBuild the first slice.\n",
             )
             StateStore(root).init_run(run_id="run-1")
             write_manual_runtime(root)

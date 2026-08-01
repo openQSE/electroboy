@@ -272,6 +272,7 @@ or free-form review output blocks the stage instead of being interpreted.
 - `electroboy.state_store` reads and writes `.electroboy` state.
 - `electroboy.gates` evaluates deterministic gates.
 - `electroboy.artifacts` creates templates and snapshots artifacts.
-- `electroboy.planning` parses requirement and phase traceability.
+- `electroboy.planning` parses implementation phases and optional
+  traceability hints.
 - `electroboy.runtime` selects configured agent runtimes.
 - `electroboy.adapters.*` implements runtime adapter contracts.

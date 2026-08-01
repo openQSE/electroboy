@@ -211,20 +211,20 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 
 Implemented:
 
-- Added `electroboy plan check` for phase-to-requirement traceability.
+- Added implementation-plan parsing for phase-to-requirement guidance.
 - Added `electroboy plan update` to record implementation-plan changes.
 - Replaced substring traceability checks with phase parsing and REQ-id
-  validation against `docs/requirements.md`.
-- Blocked plan-stage approval when structured traceability is missing.
+  guidance against `docs/requirements.md`.
+- Kept structured traceability advisory so plan approval does not depend on
+  exact Markdown formatting.
 - Snapshotted the implementation plan when plan updates are recorded.
 - Added activity-log records for implementation-plan update decisions and
   plan snapshots.
 - Added implementation-plan command entries to `docs/implementation-plan.md`.
-- Added plan tests for traceability checks and update recording.
+- Added plan tests for phase parsing and update recording.
 - Added public `implementation-plan` and `plan-approve` commands.
-- Reused the existing plan traceability and approval gates from the public
-  commands.
-- Added tests for public plan approval through the traceability gate.
+- Reused the existing plan approval gate from the public commands.
+- Added tests for public plan approval without a traceability formatting gate.
 
 Verification:
 

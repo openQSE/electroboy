@@ -31,7 +31,6 @@ from .models import (
     STAGE_VALIDATION,
 )
 from .feature_artifacts import artifact_paths_for_run, resolve_artifact_path
-from .planning import has_traceability
 from .state_store import StateStore
 
 
@@ -130,23 +129,12 @@ class GateEngine:
                 "human design acceptance has not been recorded",
             )
         if name == GATE_IMPLEMENTATION:
-            result = self._completed_file_gate(
+            return self._completed_file_gate(
                 manifest,
                 name,
                 self._artifact_path(manifest, "docs/implementation-plan.md"),
                 "implementation-plan approval has not been recorded",
             )
-            if result.passed and not has_traceability(
-                self.root,
-                self._artifact_path(manifest, "docs/requirements.md"),
-                self._artifact_path(manifest, "docs/implementation-plan.md"),
-            ):
-                return GateResult(
-                    name=name,
-                    status="blocked",
-                    messages=["implementation plan lacks requirements traceability"],
-                )
-            return result
         if name == GATE_CODE_REVIEW:
             return self.phase_review_gate(
                 gate=GATE_CODE_REVIEW,
