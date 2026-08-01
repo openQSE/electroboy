@@ -140,6 +140,31 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertIn("Phase 1", implementation_log_text)
         self.assertIn("ready for validation", implementation_report_text)
 
+    def test_code_command_allows_phase_without_paths_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_generic_agent_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "code"])
+
+            status = StateStore(root).load_phase_status()
+            committed_files = git_show_names(root)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("committed phase: 1", stdout)
+        self.assertEqual(status.phases["1"]["status"], "committed")
+        self.assertIn("src/phase1/output.txt", committed_files)
+        self.assertIn("docs/code-review.md", committed_files)
+        self.assertIn("docs/test-review.md", committed_files)
+
     def test_code_review_retries_until_blockers_resolve(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -603,6 +628,20 @@ def create_git_commit(
         text=True,
     )
     return completed.stdout.strip()
+
+
+def git_show_names(root: Path) -> list[str]:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "show", "--name-only", "--format=", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if line.strip()
+    ]
 
 
 if __name__ == "__main__":

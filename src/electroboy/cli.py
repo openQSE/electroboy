@@ -6327,6 +6327,8 @@ def _phase_stage_paths(
     if planned_phase is None:
         return changed_paths
     allowed_paths = [_normalize_repo_path(path) for path in planned_phase.paths]
+    if not allowed_paths:
+        return changed_paths
     if "*" in allowed_paths or "." in allowed_paths:
         return changed_paths
     review_paths = [
@@ -6540,7 +6542,7 @@ def _phase_paths_scope_error(
     if planned_phase is None:
         return None
     if not planned_phase.paths:
-        return f"phase {phase_number} has no Paths line for commit scope validation"
+        return None
     allowed_paths = [_normalize_repo_path(path) for path in planned_phase.paths]
     allowed_paths.extend(_phase_review_artifact_paths(store))
     if "*" in allowed_paths or "." in allowed_paths:

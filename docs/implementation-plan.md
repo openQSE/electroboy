@@ -911,7 +911,8 @@ Acceptance criteria:
 - Phase review and test review can update only the active phase.
 - Phase commits require an existing git commit SHA reachable from `HEAD`.
 - Phase commit messages identify the active phase and objective.
-- Phase commit changed paths must match the planned phase `Paths:` metadata.
+- Phase commit changed paths must match the planned phase `Paths:` metadata
+  when that metadata is present.
 - Phase commits require code review and test review agent evidence.
 - Manual review and test flags do not replace agent invocation evidence.
 - Blocker and major code review and phase test review issues block commits
