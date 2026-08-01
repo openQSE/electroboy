@@ -28,6 +28,7 @@ from .gates import GateEngine
 from .models import (
     ActivityEvent,
     ApprovalRecord,
+    ArtifactSnapshot,
     BaselineInvalidation,
     ChangeRequest,
     DecisionRecord,
@@ -79,6 +80,12 @@ STAGE_COMPLETED_GATES = {
     STAGE_DESIGN_ACCEPTANCE: GATE_HUMAN_DESIGN_ACCEPTANCE,
     STAGE_PLAN: GATE_IMPLEMENTATION,
     STAGE_TEST_PLAN: GATE_TEST_PLAN,
+}
+
+FORCE_STAGE_COMPLETED_GATES = {
+    **STAGE_COMPLETED_GATES,
+    STAGE_VALIDATION: GATE_VALIDATION_TESTING,
+    STAGE_DOCS_REVIEW: GATE_DOCUMENTATION,
 }
 
 STAGE_SNAPSHOT_ARTIFACTS = {
@@ -152,35 +159,6 @@ STAGE_APPROVAL_REQUIREMENTS = {
     ],
     STAGE_TEST_PLAN: [
         ("human-approval", "human-operator"),
-    ],
-}
-
-FORCED_APPROVAL_ALLOWED_ACTIVE_STAGES = {
-    STAGE_REQUIREMENTS: {STAGE_REQUIREMENTS},
-    STAGE_DESIGN_ACCEPTANCE: {
-        STAGE_DESIGN,
-        STAGE_DESIGN_REVIEW,
-        STAGE_DESIGN_ACCEPTANCE,
-    },
-    STAGE_PLAN: {STAGE_PLAN},
-    STAGE_TEST_PLAN: {STAGE_TEST_PLAN},
-}
-
-FORCED_APPROVAL_BACKFILL_STAGES = {
-    STAGE_DESIGN_ACCEPTANCE: [
-        STAGE_REQUIREMENTS,
-        STAGE_DESIGN,
-        STAGE_DESIGN_REVIEW,
-    ],
-    STAGE_PLAN: [
-        STAGE_REQUIREMENTS,
-        STAGE_DESIGN,
-        STAGE_DESIGN_REVIEW,
-        STAGE_DESIGN_ACCEPTANCE,
-    ],
-    STAGE_TEST_PLAN: [
-        STAGE_PLAN,
-        STAGE_IMPLEMENTATION,
     ],
 }
 
@@ -413,6 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="author or resume requirements definition",
     )
     requirements.add_argument("--reason", help="reason for reopening requirements")
+    _add_force_option(requirements)
     requirements.add_argument(
         "--session-id",
         help="provider session id to record and resume for requirements authoring",
@@ -421,11 +400,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     design = subparsers.add_parser("design", help="author or resume design")
     design.add_argument("--reason", help="reason for reopening design")
+    _add_force_option(design)
     design.add_argument(
         "--session-id",
         help="provider session id to record and resume for design authoring",
     )
-    subparsers.add_parser("design-review", help="run design review")
+    design_review = subparsers.add_parser("design-review", help="run design review")
+    design_review.add_argument("--reason", help="reason for forcing design review")
+    _add_force_option(design_review)
     _add_approval_parser(subparsers, "design-approve", "approve reviewed design")
 
     implementation_plan = subparsers.add_parser(
@@ -436,6 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--reason",
         help="reason for reopening implementation planning",
     )
+    _add_force_option(implementation_plan)
     implementation_plan.add_argument(
         "--session-id",
         help="provider session id to record and resume for plan authoring",
@@ -447,6 +430,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="author or resume system test planning",
     )
     test_plan.add_argument("--reason", help="reason for reopening test planning")
+    _add_force_option(test_plan)
     test_plan.add_argument(
         "--session-id",
         help="provider session id to record and resume for test-plan authoring",
@@ -459,6 +443,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     code = subparsers.add_parser("code", help="start or resume implementation")
     code.add_argument("--reason", help="reason for reopening implementation")
+    _add_force_option(code)
     code.add_argument(
         "--phased",
         action="store_true",
@@ -469,7 +454,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="start or resume documentation review",
     )
     document.add_argument("--reason", help="reason for reopening documentation")
-    subparsers.add_parser("code-approve", help="approve completed pipeline")
+    _add_force_option(document)
+    code_approve = subparsers.add_parser(
+        "code-approve",
+        help="approve completed pipeline",
+    )
+    _add_force_option(code_approve)
 
     report = subparsers.add_parser("report", help="generate pipeline reports")
     report_subparsers = report.add_subparsers(dest="report_command", required=True)
@@ -478,7 +468,7 @@ def build_parser() -> argparse.ArgumentParser:
     report_trace = report_subparsers.add_parser("trace", help="show activity trace")
     report_trace.add_argument("--output", help="write report to this path")
 
-    stage = subparsers.add_parser("stage", help="force the active stage")
+    stage = subparsers.add_parser("stage", help="force-reset to a stage")
     stage.add_argument(
         "stage",
         choices=STAGES,
@@ -486,9 +476,9 @@ def build_parser() -> argparse.ArgumentParser:
     stage.add_argument(
         "--force",
         action="store_true",
-        help="required to set the active stage directly",
+        help="required to reset to the named stage",
     )
-    stage.add_argument("--reason", help="reason for forcing the active stage")
+    stage.add_argument("--reason", help="reason for forcing the stage reset")
 
     phase = subparsers.add_parser("phase", help="record manual phase commits")
     phase_subparsers = phase.add_subparsers(dest="phase_command", required=True)
@@ -497,6 +487,7 @@ def build_parser() -> argparse.ArgumentParser:
     phase_commit.add_argument("--sha", default="")
 
     validate = subparsers.add_parser("validate", help="run validation testing")
+    _add_force_option(validate)
     validate.add_argument(
         "--command",
         action="append",
@@ -511,10 +502,15 @@ def build_parser() -> argparse.ArgumentParser:
         dest="validation_shell_commands",
         help="explicit shell validation command; may be provided more than once",
     )
-    subparsers.add_parser(
+    validation_approve = subparsers.add_parser(
         "validation-approve",
         help="approve validation and commit implementation handoff reports",
     )
+    validation_approve.add_argument(
+        "--reason",
+        help="reason for forcing validation approval",
+    )
+    _add_force_option(validation_approve)
     completion = subparsers.add_parser(
         "completion",
         help="generate shell completion script",
@@ -558,16 +554,20 @@ def _add_approval_parser(
     help_text: str,
 ) -> argparse.ArgumentParser:
     parser = subparsers.add_parser(name, help=help_text)
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="expert override: approve the stage without completed gates",
-    )
+    _add_force_option(parser)
     parser.add_argument(
         "--reason",
         help="reason for forced approval; recorded when --force is used",
     )
     return parser
+
+
+def _add_force_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="expert override: reset prior gates so this command can run",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -625,7 +625,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "design":
             return _cmd_authoring_stage(store, engine, args, STAGE_DESIGN)
         if args.command == "design-review":
-            return _cmd_design_review(store, engine)
+            return _cmd_design_review(store, engine, args)
         if args.command == "design-approve":
             return _cmd_stage(
                 store,
@@ -669,7 +669,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "document":
             return _cmd_document(store, engine, args)
         if args.command == "code-approve":
-            return _cmd_code_approve(store, engine)
+            return _cmd_code_approve(store, engine, args)
         if args.command == "report":
             return _cmd_report(store, engine, args)
         if args.command == "stage":
@@ -679,7 +679,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "validate":
             return _cmd_validate(store, engine, args)
         if args.command == "validation-approve":
-            return _cmd_validation_approve(store)
+            return _cmd_validation_approve(store, args)
     except StateError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -1816,13 +1816,17 @@ def _cmd_authoring_stage(
     stage: str,
 ) -> int:
     manifest = store.load_current_manifest()
-    if _maybe_reopen_from_public_command(
-        store,
-        manifest,
-        stage,
-        getattr(args, "reason", None),
-    ):
+    if getattr(args, "force", False):
+        _force_reset_to_stage(store, stage, getattr(args, "reason", None))
         manifest = store.load_current_manifest()
+    else:
+        if _maybe_reopen_from_public_command(
+            store,
+            manifest,
+            stage,
+            getattr(args, "reason", None),
+        ):
+            manifest = store.load_current_manifest()
     order = engine.stage_order(stage, manifest)
     if not order.passed:
         _print_gate_failure(order.messages)
@@ -1837,13 +1841,17 @@ def _cmd_test_plan(
     args: argparse.Namespace,
 ) -> int:
     manifest = store.load_current_manifest()
-    if _maybe_reopen_from_public_command(
-        store,
-        manifest,
-        STAGE_TEST_PLAN,
-        getattr(args, "reason", None),
-    ):
+    if getattr(args, "force", False):
+        _force_reset_to_stage(store, STAGE_TEST_PLAN, getattr(args, "reason", None))
         manifest = store.load_current_manifest()
+    else:
+        if _maybe_reopen_from_public_command(
+            store,
+            manifest,
+            STAGE_TEST_PLAN,
+            getattr(args, "reason", None),
+        ):
+            manifest = store.load_current_manifest()
 
     if manifest.active_stage == STAGE_TEST_PLAN:
         order = engine.stage_order(STAGE_TEST_PLAN, manifest)
@@ -1936,8 +1944,19 @@ def _run_authoring_session(
     return 0
 
 
-def _cmd_design_review(store: StateStore, engine: GateEngine) -> int:
+def _cmd_design_review(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
     manifest = store.load_current_manifest()
+    if getattr(args, "force", False):
+        _force_reset_to_stage(
+            store,
+            STAGE_DESIGN_REVIEW,
+            getattr(args, "reason", None),
+        )
+        manifest = store.load_current_manifest()
     if manifest.active_stage == STAGE_DESIGN:
         with _progress_step("design-review", "recording design baseline"):
             code = _cmd_stage(
@@ -2031,13 +2050,21 @@ def _cmd_code(
     args: argparse.Namespace,
 ) -> int:
     manifest = store.load_current_manifest()
-    if _maybe_reopen_from_public_command(
-        store,
-        manifest,
-        STAGE_IMPLEMENTATION,
-        getattr(args, "reason", None),
-    ):
+    if getattr(args, "force", False):
+        _force_reset_to_stage(
+            store,
+            STAGE_IMPLEMENTATION,
+            getattr(args, "reason", None),
+        )
         manifest = store.load_current_manifest()
+    else:
+        if _maybe_reopen_from_public_command(
+            store,
+            manifest,
+            STAGE_IMPLEMENTATION,
+            getattr(args, "reason", None),
+        ):
+            manifest = store.load_current_manifest()
     if manifest.active_stage == STAGE_VALIDATION:
         _print_progress("validation", "implementation phases are complete")
         print("next: run validation commands, then `electroboy validation-approve`")
@@ -2295,13 +2322,17 @@ def _cmd_document(
 ) -> int:
     manifest = store.load_current_manifest()
     reason = getattr(args, "reason", None)
-    if _maybe_reopen_from_public_command(
-        store,
-        manifest,
-        STAGE_DOCS_REVIEW,
-        reason,
-    ):
+    if getattr(args, "force", False):
+        _force_reset_to_stage(store, STAGE_DOCS_REVIEW, reason)
         manifest = store.load_current_manifest()
+    else:
+        if _maybe_reopen_from_public_command(
+            store,
+            manifest,
+            STAGE_DOCS_REVIEW,
+            reason,
+        ):
+            manifest = store.load_current_manifest()
     if reason:
         store.append_activity(
             ActivityEvent(
@@ -2328,10 +2359,17 @@ def _cmd_document(
     return _cmd_docs_review(store, engine)
 
 
-def _cmd_code_approve(store: StateStore, engine: GateEngine) -> int:
+def _cmd_code_approve(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+) -> int:
+    forced = getattr(args, "force", False)
+    if forced:
+        _force_reset_to_stage(store, STAGE_COMPLETE, None)
     manifest = store.load_current_manifest()
     result = engine.evaluate(GATE_DOCUMENTATION, manifest)
-    if not result.passed or manifest.active_stage != STAGE_COMPLETE:
+    if (not forced and not result.passed) or manifest.active_stage != STAGE_COMPLETE:
         messages = result.messages or ["documentation review has not completed"]
         _print_gate_failure(messages)
         return 1
@@ -2376,62 +2414,81 @@ def _stage_args(
     )
 
 
-def _forced_approval_errors(
+def _force_reset_to_stage(
     store: StateStore,
-    manifest,
-    stage: str,
-) -> list[str]:
-    allowed = FORCED_APPROVAL_ALLOWED_ACTIVE_STAGES.get(stage, {stage})
-    if manifest.active_stage not in allowed:
-        allowed_text = ", ".join(sorted(allowed))
-        return [
-            f"forced approval for {stage} requires active stage in: {allowed_text}"
-        ]
-    errors: list[str] = []
-    for path in _force_stage_required_paths(store, stage):
-        if not (store.root / path).exists():
-            errors.append(f"forced approval requires existing artifact: {path}")
-    for backfill_stage in FORCED_APPROVAL_BACKFILL_STAGES.get(stage, []):
-        for path in _force_stage_required_paths(store, backfill_stage):
-            if not (store.root / path).exists():
-                errors.append(
-                    f"forced approval requires existing artifact: {path}"
-                )
-    return errors
-
-
-def _force_stage_required_paths(store: StateStore, stage: str) -> list[str]:
-    paths: list[str] = []
-    required_file = _stage_required_file(store, stage)
-    snapshot_artifact = _stage_snapshot_artifact(store, stage)
-    for path in [required_file, snapshot_artifact]:
-        if path and path not in paths:
-            paths.append(path)
-    return paths
-
-
-def _record_forced_approval_decision(
-    store: StateStore,
-    manifest,
-    stage: str,
+    target_stage: str,
     reason: str | None,
 ) -> str:
+    if target_stage not in PUBLIC_STAGE_ORDER:
+        raise StateError(f"cannot force unknown public stage: {target_stage}")
+
+    manifest = store.load_current_manifest()
+    previous_stage = manifest.active_stage
+    decision_id = _record_forced_stage_reset_decision(
+        store,
+        target_stage,
+        reason,
+        previous_stage,
+    )
+    backfill_stages = _force_backfill_stages_for_target(target_stage)
+    if (
+        STAGE_DESIGN_ACCEPTANCE in backfill_stages
+        or target_stage == STAGE_DESIGN_ACCEPTANCE
+    ):
+        _ensure_forced_approval_artifacts(store, STAGE_DESIGN_ACCEPTANCE)
+    backfilled_gates = _backfill_forced_stages(
+        store,
+        manifest,
+        target_stage,
+        backfill_stages,
+        reason,
+    )
+    manifest.set_active_stage(target_stage)
+    store.save_manifest(manifest)
+
+    print("forced stage reset: yes")
+    print(f"previous stage: {previous_stage}")
+    print(f"active stage: {target_stage}")
+    print(f"decision: {decision_id}")
+    if backfilled_gates:
+        _print_list("backfilled gates", backfilled_gates)
+    return decision_id
+
+
+def _force_backfill_stages_for_target(target_stage: str) -> list[str]:
+    try:
+        target_index = PUBLIC_STAGE_ORDER.index(target_stage)
+    except ValueError:
+        raise StateError(f"cannot force unknown public stage: {target_stage}") from None
+    return PUBLIC_STAGE_ORDER[:target_index]
+
+
+def _record_forced_stage_reset_decision(
+    store: StateStore,
+    target_stage: str,
+    reason: str | None,
+    previous_stage: str,
+) -> str:
     decision_id = f"STAGE-{len(store.read_decisions()) + 1:04d}"
-    rationale = (reason or "").strip() or f"Expert forced approval for {stage}."
+    rationale = (reason or "").strip() or (
+        f"Expert forced state reset from {previous_stage} to {target_stage}."
+    )
     store.append_decision(
         DecisionRecord(
             decision_id=decision_id,
-            stage=stage,
-            summary=f"Forced approval for {stage}",
+            stage=target_stage,
+            summary=f"Forced state reset to {target_stage}",
             rationale=rationale,
         )
     )
     store.append_activity(
         ActivityEvent(
             actor="human-operator",
-            stage=stage,
-            action="forced-stage-approval",
-            summary=f"Forced approval for {stage}.",
+            stage=target_stage,
+            action="forced-stage-reset",
+            summary=(
+                f"Forced state reset from {previous_stage} to {target_stage}."
+            ),
             inputs=[rationale],
             outputs=["decisions.jsonl"],
         )
@@ -2439,14 +2496,15 @@ def _record_forced_approval_decision(
     return decision_id
 
 
-def _backfill_forced_approval_stages(
+def _backfill_forced_stages(
     store: StateStore,
     manifest,
-    stage: str,
+    target_stage: str,
+    backfill_stages: list[str],
     reason: str | None,
 ) -> list[str]:
     completed: list[str] = []
-    for backfill_stage in FORCED_APPROVAL_BACKFILL_STAGES.get(stage, []):
+    for backfill_stage in backfill_stages:
         backfill_args = _stage_args(
             backfill_stage,
             human=True,
@@ -2455,7 +2513,7 @@ def _backfill_forced_approval_stages(
             reason=reason,
         )
         _record_stage_approvals(store, backfill_stage, backfill_args)
-        completed_gate = STAGE_COMPLETED_GATES.get(backfill_stage)
+        completed_gate = FORCE_STAGE_COMPLETED_GATES.get(backfill_stage)
         if completed_gate and not manifest.has_gate(completed_gate):
             manifest.complete_gate(completed_gate)
             completed.append(completed_gate)
@@ -2464,9 +2522,11 @@ def _backfill_forced_approval_stages(
         store.append_activity(
             ActivityEvent(
                 actor="orchestrator",
-                stage=stage,
+                stage=target_stage,
                 action="forced-predecessor-gates-completed",
-                summary="Completed skipped predecessor gates for forced approval.",
+                summary=(
+                    "Completed skipped predecessor gates for forced stage reset."
+                ),
                 status="pass",
                 outputs=completed,
             )
@@ -2482,21 +2542,74 @@ def _snapshot_forced_stage_artifact(
     snapshot_artifact = _stage_snapshot_artifact(store, stage)
     if not snapshot_artifact:
         return
-    snapshot = ArtifactManager(store.root).snapshot(
-        manifest.run_id,
-        snapshot_artifact,
-        f"{stage}-force-approved",
-    )
+    event_id = f"{stage}-force-reset"
+    if (store.root / snapshot_artifact).exists():
+        snapshot = ArtifactManager(store.root).snapshot(
+            manifest.run_id,
+            snapshot_artifact,
+            event_id,
+        )
+    else:
+        snapshot = _write_force_bypass_snapshot(
+            store,
+            manifest,
+            snapshot_artifact,
+            event_id,
+        )
     store.append_artifact_snapshot(snapshot)
     store.append_activity(
         ActivityEvent(
             actor="orchestrator",
             stage=stage,
             action="artifact-snapshotted",
-            summary=f"Snapshotted {snapshot_artifact} for forced approval.",
+            summary=f"Snapshotted {snapshot_artifact} for forced stage reset.",
             artifact_snapshot_refs=[snapshot.snapshot_path],
             outputs=[snapshot.snapshot_path],
         )
+    )
+
+
+def _write_force_bypass_snapshot(
+    store: StateStore,
+    manifest,
+    artifact_path: str,
+    event_id: str,
+) -> ArtifactSnapshot:
+    snapshot_root = (
+        store.root
+        / ".electroboy"
+        / "shared"
+        / "runs"
+        / manifest.run_id
+        / "artifacts"
+        / event_id
+    )
+    snapshot_path = snapshot_root / artifact_path
+    index = 2
+    while snapshot_path.exists():
+        snapshot_path = (
+            snapshot_root.parent / f"{event_id}-{index}" / artifact_path
+        )
+        index += 1
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(
+        "\n".join(
+            [
+                f"# Forced Stage Reset Placeholder: {artifact_path}",
+                "",
+                "The source artifact did not exist when an expert operator",
+                "forced the pipeline state forward. This snapshot records the",
+                "intentional bypass without creating a working-tree document.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return ArtifactSnapshot(
+        artifact_path=artifact_path,
+        snapshot_path=str(snapshot_path.relative_to(store.root)),
+        checksum=ArtifactManager(store.root).checksum(snapshot_path),
+        event_id=event_id,
     )
 
 
@@ -2897,41 +3010,7 @@ def _cmd_report(
 def _cmd_set_stage(store: StateStore, args: argparse.Namespace) -> int:
     if not args.force:
         raise StateError("stage changes require --force")
-    reason = (args.reason or "").strip()
-    if not reason:
-        raise StateError("stage changes require --reason")
-
-    manifest = store.load_current_manifest()
-    previous_stage = manifest.active_stage
-    manifest.set_active_stage(args.stage)
-    store.save_manifest(manifest)
-
-    decision_id = f"STAGE-{len(store.read_decisions()) + 1:04d}"
-    store.append_decision(
-        DecisionRecord(
-            decision_id=decision_id,
-            stage=args.stage,
-            summary=f"Forced active stage from {previous_stage} to {args.stage}",
-            rationale=reason,
-        )
-    )
-    store.append_activity(
-        ActivityEvent(
-            actor="human-operator",
-            stage=args.stage,
-            action="forced-stage-change",
-            summary=f"Forced active stage from {previous_stage} to {args.stage}.",
-            inputs=[reason],
-            outputs=[
-                f".electroboy/shared/runs/{manifest.run_id}/manifest.json",
-                "decisions.jsonl",
-            ],
-        )
-    )
-
-    print(f"previous stage: {previous_stage}")
-    print(f"active stage: {manifest.active_stage}")
-    print(f"decision: {decision_id}")
+    _force_reset_to_stage(store, args.stage, args.reason)
     return 0
 
 
@@ -2944,27 +3023,9 @@ def _cmd_stage(
     forced = getattr(args, "force", False)
     manifest = store.load_current_manifest()
     if forced:
-        force_errors = _forced_approval_errors(store, manifest, stage)
-        if force_errors:
-            _print_gate_failure(force_errors)
-            return 1
-        decision_id = _record_forced_approval_decision(
-            store,
-            manifest,
-            stage,
-            getattr(args, "reason", None),
-        )
-        backfilled_gates = _backfill_forced_approval_stages(
-            store,
-            manifest,
-            stage,
-            getattr(args, "reason", None),
-        )
-        _ensure_forced_approval_artifacts(store, stage)
+        _force_reset_to_stage(store, stage, getattr(args, "reason", None))
+        manifest = store.load_current_manifest()
         print("forced approval: yes")
-        print(f"decision: {decision_id}")
-        if backfilled_gates:
-            _print_list("backfilled gates", backfilled_gates)
     else:
         order = engine.stage_order(stage, manifest)
         if not order.passed:
@@ -3125,6 +3186,10 @@ def _cmd_validate(
     args: argparse.Namespace,
 ) -> int:
     manifest = store.load_current_manifest()
+    forced = getattr(args, "force", False)
+    if forced:
+        _force_reset_to_stage(store, STAGE_VALIDATION, None)
+        manifest = store.load_current_manifest()
     if manifest.active_stage != STAGE_VALIDATION:
         print("error: active stage is not validation", file=sys.stderr)
         return 1
@@ -3133,7 +3198,7 @@ def _cmd_validate(
         _print_gate_failure(order.messages)
         return 1
     missing_phases = _uncommitted_planned_phases(store)
-    if missing_phases:
+    if missing_phases and not forced:
         _print_gate_failure(
             [
                 "planned phases are not committed: "
@@ -3208,8 +3273,18 @@ def _cmd_validate(
     return 0
 
 
-def _cmd_validation_approve(store: StateStore) -> int:
+def _cmd_validation_approve(store: StateStore, args: argparse.Namespace) -> int:
     manifest = store.load_current_manifest()
+    forced = getattr(args, "force", False)
+    if forced:
+        _force_reset_to_stage(
+            store,
+            STAGE_VALIDATION,
+            getattr(args, "reason", None),
+        )
+        manifest = store.load_current_manifest()
+        manifest.complete_gate(GATE_VALIDATION_TESTING)
+        store.save_manifest(manifest)
     if manifest.active_stage != STAGE_VALIDATION:
         print("error: active stage is not validation", file=sys.stderr)
         return 1
@@ -3217,7 +3292,7 @@ def _cmd_validation_approve(store: StateStore) -> int:
         _print_gate_failure(["validation testing has not passed"])
         return 1
     blocking = _blocking_issues(store, "validation-review.jsonl")
-    if blocking:
+    if blocking and not forced:
         _print_gate_failure(["blocking validation review issues remain"])
         return 1
 

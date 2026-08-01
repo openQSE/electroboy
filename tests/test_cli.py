@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.artifacts import ArtifactManager  # noqa: E402
 from electroboy.cli import main  # noqa: E402
+from electroboy.gates import GateEngine  # noqa: E402
 from electroboy.models import (  # noqa: E402
     BaselineInvalidation,
     GATE_DESIGN,
@@ -374,7 +375,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("docs/design-review-updates.md", committed_files)
         self.assertEqual(
             decisions[-1]["summary"],
-            "Forced approval for design-acceptance",
+            "Forced state reset to design-acceptance",
         )
 
     def test_rejects_plan_before_design_acceptance(self) -> None:
@@ -395,6 +396,30 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("active stage is design", stderr)
+
+    def test_force_implementation_plan_backfills_predecessor_gates(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "implementation-plan", "--force"]
+            )
+            manifest = store.load_current_manifest()
+            order = GateEngine(root).stage_order(STAGE_PLAN, manifest)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("forced stage reset: yes", stdout)
+        self.assertIn("authoring stage: plan", stdout)
+        self.assertEqual(manifest.active_stage, STAGE_PLAN)
+        self.assertTrue(manifest.has_gate(GATE_REQUIREMENTS))
+        self.assertTrue(manifest.has_gate(GATE_DESIGN))
+        self.assertTrue(manifest.has_gate(GATE_HUMAN_DESIGN_ACCEPTANCE))
+        self.assertTrue(order.passed, order.messages)
 
     def test_public_plan_approval_uses_traceability_gate(self) -> None:
         with temp_project() as root:
@@ -501,23 +526,29 @@ class CliTests(unittest.TestCase):
             )
             manifest = store.load_current_manifest()
             activity = store.read_activity()
+            order = GateEngine(root).stage_order(STAGE_IMPLEMENTATION, manifest)
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("previous stage: requirements", stdout)
         self.assertIn("active stage: implementation", stdout)
         self.assertEqual(manifest.active_stage, STAGE_IMPLEMENTATION)
-        self.assertEqual(activity[-1]["action"], "forced-stage-change")
+        self.assertTrue(manifest.has_gate(GATE_IMPLEMENTATION))
+        self.assertTrue(order.passed, order.messages)
+        self.assertEqual(activity[-1]["action"], "forced-predecessor-gates-completed")
 
-    def test_stage_force_requires_reason(self) -> None:
+    def test_stage_force_reason_is_optional(self) -> None:
         with temp_project() as root:
-            StateStore(root).init_run(run_id="run-1")
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
 
-            code, _stdout, stderr = self.run_cli(
+            code, stdout, stderr = self.run_cli(
                 ["--root", str(root), "stage", STAGE_IMPLEMENTATION, "--force"]
             )
+            manifest = store.load_current_manifest()
 
-        self.assertEqual(code, 2)
-        self.assertIn("stage changes require --reason", stderr)
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("forced stage reset: yes", stdout)
+        self.assertEqual(manifest.active_stage, STAGE_IMPLEMENTATION)
 
     def test_feature_start_initializes_standard_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -99,7 +99,7 @@ itself:
 cd ~/ORNL/Quantum/openQSE/electroboy
 ./electroboy meta init ~/ORNL/Quantum/openQSE
 source ~/ORNL/Quantum/openQSE/.electroboy/bin/activate
-electroboy stage design-review --force --reason "Rerun with coordinated design review updates"
+electroboy design-review --force --reason "Rerun with coordinated design review updates"
 electroboy design-review
 ```
 
@@ -257,15 +257,19 @@ electroboy phase commit <phase> --sha <commit-sha>
 `code --phased` preserves the one-phase checkpoint workflow. It runs the active
 phase agents and leaves commit creation or commit recording to the operator.
 
-Expert users can force the active stage when adopting or repairing an existing
-project:
+Expert users can force a workflow command when adopting or repairing an
+existing project. `--force` resets the state machine to that command's stage
+and marks all previous gates satisfied so the command can run:
 
 ```bash
-electroboy stage implementation --force --reason "Adopting existing project"
+electroboy implementation-plan --force
+electroboy code --force
+electroboy validate --force
 ```
 
-This records a decision and activity event, but it does not mark skipped gates
-as complete.
+The low-level `stage <stage> --force` command remains available as an alias
+for resetting directly to a named stage. A `--reason` can be provided on any
+forced command and is recorded in the decision log.
 
 Resume an interrupted run from the same project:
 
@@ -359,7 +363,7 @@ Implemented capabilities:
   manual `phase commit` for phased mode.
 - Final validation and documentation review gates.
 - Public workflow commands that reopen earlier baselines with `--reason`.
-- Expert forced stage movement with `electroboy stage <stage> --force`.
+- Expert command-level stage resets with `electroboy <command> --force`.
 - Summary and trace reports.
 - Rich-compatible progress output for automatic implementation commands, with
   plain text fallback when Rich is unavailable.
@@ -382,8 +386,8 @@ Extension points:
 The CLI records one active stage in
 `.electroboy/shared/runs/<run-id>/manifest.json`. Mutating commands must
 match that active stage, move backward through change control, or pass
-predecessor gates, unless an expert operator uses the explicit forced stage
-override.
+predecessor gates, unless an expert operator uses the explicit command-level
+`--force` override.
 
 Project-scoped stage commands require an active ElectroBoy project before they
 run. If you are using a normal project, create or enter it with
@@ -430,14 +434,13 @@ electroboy document --reason "Improve API examples"
 
 The orchestrator records a change-control event, asks for approval when
 downstream gates would be invalidated, and resumes from the reopened stage.
-Use `electroboy stage <stage> --force --reason <text>` only when an expert
-operator needs to override the active stage directly.
-Use `<stage>-approve --force` only when an expert operator wants to approve the
-current stage without completing predecessor gates. For example,
-`electroboy design-approve --force` can approve the design directly from the
-design, design-review, or design-acceptance stage. The command records a
-forced-approval decision, backfills skipped gate records, and commits the
-approval artifacts.
+
+Use `<command> --force` only when an expert operator intentionally wants to
+reset the state machine to that command's stage. For example,
+`electroboy implementation-plan --force` resets the active stage to `plan`,
+records a forced reset decision, marks all predecessor gates satisfied, records
+predecessor snapshots, and starts implementation-plan authoring. Approval
+commands work the same way, then approve their target stage.
 
 ## Agent Runtime Configuration
 

@@ -764,8 +764,9 @@ User-facing stage commands follow stable transition rules:
   validation testing passes.
 - Running a public workflow command after pipeline completion starts a new
   controlled iteration from that stage.
-- Running `electroboy stage <stage> --force --reason <text>` sets the active
-  stage directly and records an audit event without completing skipped gates.
+- Running `<command> --force` resets the active stage to that command's stage,
+  marks predecessor gates satisfied, records predecessor snapshots, and records
+  an audit decision.
 
 Allowed operator actions:
 
@@ -775,13 +776,13 @@ Allowed operator actions:
 - Approve a gate when the gate's documented criteria are satisfied.
 - Reopen an earlier baseline by running the earlier stage command with a
   recorded reason.
-- Force the active stage explicitly for expert recovery or existing-project
+- Force a workflow command explicitly for expert recovery or existing-project
   adoption.
 
 Blocked operator actions:
 
 - Start a later stage without all predecessor gates passing, unless the
-  operator uses the explicit forced stage override.
+  operator uses the explicit command-level force reset.
 - Mark a stage complete without the required artifact snapshot.
 - Start phase implementation before implementation planning is approved.
 - Commit a phase before code review and phase test review pass.

@@ -51,9 +51,15 @@ Operator workflow commands:
 - `deactivate` leaves an activated project shell environment.
 - `report summary` writes or prints a run summary.
 - `report trace` writes or prints the activity trace.
-- `stage <stage> --force --reason <text>` forces the active stage for expert
-  recovery and existing-project adoption.
+- `stage <stage> --force [--reason <text>]` resets directly to a named stage
+  for expert recovery and existing-project adoption.
 - `completion bash` prints the Bash completion script.
+
+Workflow commands also accept `--force` for expert recovery. A forced command
+resets the state machine to that command's stage, records a decision, marks all
+predecessor gates satisfied, records predecessor snapshots, and then runs the
+command normally. `--reason <text>` can be supplied when the command exposes it
+and is stored with the decision record.
 
 Project-scoped stage commands require an active ElectroBoy project. For normal
 projects, run `electroboy new <path>` or `electroboy feature start ...` and
@@ -133,20 +139,19 @@ The normal workflow advances through stage-specific commands such as
 `requirements-approve`, `design-review`, `design-approve`, `plan-approve`,
 `code`, `validate`, and `document`.
 
-`stage` is an expert escape hatch for setting the active stage directly:
+`--force` is the expert escape hatch for resetting the state machine to a
+specific workflow point:
 
 ```bash
-electroboy stage implementation --force --reason "Adopting existing project"
+electroboy implementation-plan --force
+electroboy code --force
+electroboy validate --force
 ```
 
-The command records a decision and activity event, but it does not mark
-skipped gates as complete.
-
-Approval commands for requirements, design, implementation-plan, and test-plan
-also accept `--force`. A forced approval keeps the required artifact check, but
-skips predecessor gate checks, records a forced-approval decision, backfills
-skipped gate records, snapshots relevant artifacts, and advances to the next
-stage.
+The low-level `stage <stage> --force [--reason <text>]` command uses the same
+reset behavior when a named stage is more convenient. Approval commands can
+also be forced; they reset to their target stage, satisfy predecessor gates,
+and then approve that stage.
 
 ## Project Environment Commands
 

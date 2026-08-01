@@ -447,7 +447,7 @@ electroboy code-approve
 electroboy deactivate
 electroboy report summary
 electroboy report trace
-electroboy stage <stage> --force --reason <text>
+electroboy stage <stage> --force [--reason <text>]
 electroboy completion bash
 ```
 
@@ -511,9 +511,9 @@ Earlier stage commands are the primary iteration mechanism. When the active run
 is beyond the requested stage, the command opens a change-control record,
 stores the supplied reason, invalidates downstream gates after approval, and
 re-enters the ordered pipeline at that stage. Later stage commands are blocked
-until all predecessor gates pass. Expert users can use `stage --force` to set
-the active stage directly; it records an audit event without completing skipped
-gates.
+until all predecessor gates pass. Expert users can use `<command> --force` to
+reset to a workflow point, record an audit decision, mark predecessor gates
+satisfied, and record predecessor snapshots.
 
 ## Flow Enforcement
 
