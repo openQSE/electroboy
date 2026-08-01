@@ -40,7 +40,8 @@ Operator workflow commands:
 - `test-plan [--reason <text>] [--session-id <id>]` starts or resumes system
   test-plan authoring.
 - `test-plan-approve` records human test-plan approval.
-- `code [--reason <text>] [--phased]` starts or resumes implementation work.
+- `code [--reason <text>] [--msg <text>] [--phased]` starts or resumes
+  implementation work.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
 - `validate` runs final validation commands and writes a validation report.
@@ -184,8 +185,10 @@ Python environment when the pipeline owns that activation.
 
 `electroboy code` is the normal implementation command. By default, it runs
 each remaining planned phase, invokes coding, code review, and test review
-agents, creates a valid phase commit, records that commit, and continues until
-the implementation stage is complete.
+agents, asks the coding agent to commit reviewed phase changes, records that
+commit, and continues until the implementation stage is complete. Use
+`--msg "<instruction>"` to append operator guidance to coding-agent
+implementation, fix, and commit prompts for that run.
 
 For each phase, code review and test review are bounded automatic loops. The
 orchestrator gives the coding agent up to five attempts to resolve blocker and

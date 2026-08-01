@@ -212,17 +212,21 @@ electroboy document
 electroboy code-approve
 ```
 
-The automated code loop expects a clean git worktree before it creates phase
-commits. Commit the approved requirements, design, implementation plan,
+The automated code loop expects approved baseline artifacts to already be
+committed. Commit the approved requirements, design, implementation plan,
 generated project files, and any hand-authored baseline files before running
 `code`.
 
 `code` starts or resumes the fully automated implementation loop. It selects
 the active or next planned phase, invokes the configured coding agent, runs up
-to five code-review/fix passes, runs up to five test-review/fix passes, creates
-and records the phase commit, and continues until every planned phase is
-complete. Blocker and major findings stop the phase after the retry limit.
-Minor findings are recorded for follow-up and do not block progress.
+to five code-review/fix passes, runs up to five test-review/fix passes, asks
+the coding agent to commit the reviewed phase changes, records the resulting
+commit, and continues until every planned phase is complete. Blocker and major
+findings stop the phase after the retry limit. Minor findings are recorded for
+follow-up and do not block progress.
+
+Pass `--msg "<instruction>"` to append an operator instruction to the coding
+agent's implementation, fix, and commit prompts for that `code` run.
 
 Code review summaries are written to `docs/code-review.md` and test review
 summaries are written to `docs/test-review.md`. Feature runs use the matching

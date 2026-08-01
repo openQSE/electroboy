@@ -658,7 +658,9 @@ The basic loop is:
 6. The coding agent implements requested tests or fixes.
 7. The code review agent reviews any new code or tests.
 8. The test review agent re-runs tests and verifies coverage.
-9. The orchestrator creates or records the phase commit after all gates pass.
+9. The coding agent commits the reviewed phase changes after all review gates
+   pass.
+10. The orchestrator verifies and records the phase commit.
 
 The next phase starts only after the current phase commit exists.
 
@@ -666,9 +668,10 @@ By default, `electroboy code` runs this loop for every remaining planned
 phase. Each phase gets up to five code-review/fix passes and up to five
 test-review/fix passes. Blocker and major findings continue the loop until
 they are verified or the retry limit is reached. Minor findings are recorded
-for follow-up and do not block the phase. `electroboy code --phased` runs one
-phase and leaves commit creation or commit recording to the operator before
-the next phase can start.
+for follow-up and do not block the phase. After review passes, the orchestrator
+starts a coding-agent commit pass and records the resulting SHA. `electroboy
+code --phased` runs one phase and leaves commit creation or commit recording
+to the operator before the next phase can start.
 
 The orchestrator writes human-readable phase review summaries to
 `docs/code-review.md` and `docs/test-review.md`, or to the matching

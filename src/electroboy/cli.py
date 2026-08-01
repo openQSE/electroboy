@@ -461,6 +461,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run one phase and leave commit recording to the operator",
     )
+    code.add_argument(
+        "--msg",
+        action="append",
+        default=[],
+        help="append an instruction to coding-agent prompts for this run",
+    )
     document = subparsers.add_parser(
         "document",
         help="start or resume documentation review",
@@ -2112,15 +2118,25 @@ def _cmd_code(
         _print_gate_failure(["implementation gate has not passed"])
         return 1
 
+    operator_messages = _code_operator_messages(args)
     if getattr(args, "phased", False):
-        return _cmd_code_phased(store, engine, args)
-    return _cmd_code_automated(store, engine, args)
+        return _cmd_code_phased(store, engine, args, operator_messages)
+    return _cmd_code_automated(store, engine, args, operator_messages)
+
+
+def _code_operator_messages(args: argparse.Namespace) -> list[str]:
+    return [
+        str(message).strip()
+        for message in getattr(args, "msg", []) or []
+        if str(message).strip()
+    ]
 
 
 def _cmd_code_phased(
     store: StateStore,
     engine: GateEngine,
     args: argparse.Namespace,
+    operator_messages: list[str],
 ) -> int:
     phase_status = store.load_phase_status()
     if phase_status.active_phase is not None:
@@ -2136,7 +2152,7 @@ def _cmd_code_phased(
             )
         )
         print(f"active phase: {phase}")
-        code = _run_phase_agent_loop(store, phase)
+        code = _run_phase_agent_loop(store, phase, operator_messages)
         print("next: commit the phase after reviewing repository changes")
         return code
 
@@ -2165,7 +2181,7 @@ def _cmd_code_phased(
         )
     )
     _print_progress("implementation", f"started phase {next_phase}")
-    code = _run_phase_agent_loop(store, next_phase)
+    code = _run_phase_agent_loop(store, next_phase, operator_messages)
     print(f"active phase: {next_phase}")
     print("next: commit the phase after reviewing repository changes")
     if getattr(args, "reason", None):
@@ -2177,6 +2193,7 @@ def _cmd_code_automated(
     store: StateStore,
     engine: GateEngine,
     args: argparse.Namespace,
+    operator_messages: list[str],
 ) -> int:
     printed_reason = False
     while True:
@@ -2205,10 +2222,15 @@ def _cmd_code_automated(
         if getattr(args, "reason", None) and not printed_reason:
             print(f"reason: {args.reason}")
             printed_reason = True
-        code = _run_phase_agent_loop(store, phase)
+        code = _run_phase_agent_loop(store, phase, operator_messages)
         if code != 0:
             return code
-        commit_code = _commit_active_phase_automatically(store, engine, phase)
+        commit_code = _commit_active_phase_with_agent(
+            store,
+            engine,
+            phase,
+            operator_messages,
+        )
         if commit_code != 0:
             return commit_code
 
@@ -2236,17 +2258,25 @@ def _start_code_phase(store: StateStore, phase_number: int) -> None:
     )
 
 
-def _run_phase_agent_loop(store: StateStore, phase_number: int) -> int:
-    code_review_code = _run_code_review_cycle(store, phase_number)
+def _run_phase_agent_loop(
+    store: StateStore,
+    phase_number: int,
+    operator_messages: list[str],
+) -> int:
+    code_review_code = _run_code_review_cycle(store, phase_number, operator_messages)
     if code_review_code != 0:
         return code_review_code
-    test_review_code = _run_test_review_cycle(store, phase_number)
+    test_review_code = _run_test_review_cycle(store, phase_number, operator_messages)
     if test_review_code != 0:
         return test_review_code
     return 0
 
 
-def _run_code_review_cycle(store: StateStore, phase_number: int) -> int:
+def _run_code_review_cycle(
+    store: StateStore,
+    phase_number: int,
+    operator_messages: list[str],
+) -> int:
     issue_file = f"phase-{phase_number}-code-review.jsonl"
     summary_path = _phase_review_summary_path(store, "code_review")
     for attempt in range(1, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
@@ -2258,6 +2288,7 @@ def _run_code_review_cycle(store: StateStore, phase_number: int) -> int:
             review_kind="code_review",
             issue_file=issue_file if needs_review_context else None,
             summary_path=summary_path if needs_review_context else None,
+            operator_messages=operator_messages,
         )
         status = store.load_phase_status()
         phase = status.phases.setdefault(str(phase_number), {})
@@ -2332,7 +2363,11 @@ def _run_code_review_cycle(store: StateStore, phase_number: int) -> int:
     return 1
 
 
-def _run_test_review_cycle(store: StateStore, phase_number: int) -> int:
+def _run_test_review_cycle(
+    store: StateStore,
+    phase_number: int,
+    operator_messages: list[str],
+) -> int:
     issue_file = f"phase-{phase_number}-test-review.jsonl"
     summary_path = _phase_review_summary_path(store, "test_review")
     for attempt in range(1, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
@@ -2345,6 +2380,7 @@ def _run_test_review_cycle(store: StateStore, phase_number: int) -> int:
                 review_kind="test_review",
                 issue_file=issue_file,
                 summary_path=summary_path,
+                operator_messages=operator_messages,
             )
             status = store.load_phase_status()
             phase = status.phases.setdefault(str(phase_number), {})
@@ -2427,6 +2463,7 @@ def _run_coding_pass(
     review_kind: str,
     issue_file: str | None = None,
     summary_path: str | None = None,
+    operator_messages: list[str] | None = None,
 ) -> tuple[AgentResult, str]:
     context_paths = _implementation_context_paths(store)
     if summary_path and (store.root / summary_path).exists():
@@ -2441,6 +2478,7 @@ def _run_coding_pass(
             review_kind=review_kind,
             issue_file=issue_file,
             summary_path=summary_path,
+            operator_messages=operator_messages or [],
         ),
         context_paths=context_paths,
     )
@@ -2577,10 +2615,11 @@ def _phase_review_artifact_paths(store: StateStore) -> list[str]:
     ]
 
 
-def _commit_active_phase_automatically(
+def _commit_active_phase_with_agent(
     store: StateStore,
     engine: GateEngine,
     phase_number: int,
+    operator_messages: list[str],
 ) -> int:
     manifest = store.load_current_manifest()
     result = engine.evaluate(GATE_COMMIT, manifest)
@@ -2593,12 +2632,35 @@ def _commit_active_phase_automatically(
         print("error: requested phase is not active", file=sys.stderr)
         return 1
     phase = status.phases.setdefault(str(phase_number), {})
-    commit_sha, error = _create_phase_commit(store, phase_number, phase)
-    if error:
-        print(f"error: {error}", file=sys.stderr)
+    before_head = _git_current_head(store.root)
+    _print_progress("implementation", f"asking coding agent to commit phase {phase_number}")
+    commit_result, commit_event, _issue_file = _invoke_agent_role(
+        store,
+        role="coding",
+        prompt=_coding_commit_prompt(
+            store,
+            phase_number,
+            phase,
+            operator_messages,
+        ),
+        context_paths=_phase_commit_context_paths(store),
+    )
+    status = store.load_phase_status()
+    phase = status.phases.setdefault(str(phase_number), {})
+    phase["commit_event"] = commit_event
+    store.save_phase_status(status)
+    if not commit_result.ok:
+        print(
+            commit_result.final_message,
+            end="" if commit_result.final_message.endswith("\n") else "\n",
+        )
         return 1
+    commit_sha = _git_current_head(store.root)
     if commit_sha is None:
-        print("error: phase commit was not created", file=sys.stderr)
+        print("error: coding agent did not create a readable commit", file=sys.stderr)
+        return 1
+    if commit_sha == before_head:
+        print("error: coding agent did not create a new phase commit", file=sys.stderr)
         return 1
     validation_error = _phase_commit_validation_error(
         store,
@@ -2610,10 +2672,35 @@ def _commit_active_phase_automatically(
         print(f"error: {validation_error}", file=sys.stderr)
         return 1
 
-    _record_phase_commit(store, manifest, phase_number, commit_sha)
+    _record_phase_commit(
+        store,
+        manifest,
+        phase_number,
+        commit_sha,
+        commit_event=commit_event,
+    )
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=manifest.active_stage,
+            phase=phase_number,
+            action="agent-phase-commit-recorded",
+            summary=f"Recorded coding-agent commit for phase {phase_number}.",
+            inputs=[commit_event],
+            commit=commit_sha,
+        )
+    )
     print(f"committed phase: {phase_number}")
     print(f"commit: {commit_sha}")
     return 0
+
+
+def _phase_commit_context_paths(store: StateStore) -> list[str]:
+    return [
+        *_implementation_context_paths(store),
+        _phase_review_summary_path(store, "code_review"),
+        _phase_review_summary_path(store, "test_review"),
+    ]
 
 
 def _cmd_document(
@@ -4297,6 +4384,7 @@ def _coding_prompt(
     review_kind: str | None = None,
     issue_file: str | None = None,
     summary_path: str | None = None,
+    operator_messages: list[str] | None = None,
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
@@ -4322,6 +4410,7 @@ def _coding_prompt(
                 "only when doing so is low risk and in scope for this phase.",
             ]
         )
+    lines.extend(_coding_operator_instruction_lines(operator_messages or []))
     lines.extend(
         [
             "",
@@ -4334,6 +4423,57 @@ def _coding_prompt(
             "Report files changed and a concise commit_message when finished.",
         ]
     )
+    return "\n".join(lines)
+
+
+def _coding_operator_instruction_lines(messages: list[str]) -> list[str]:
+    if not messages:
+        return []
+    return [
+        "",
+        "Additional operator instructions for this code run:",
+        *_markdown_list(messages),
+    ]
+
+
+def _coding_commit_prompt(
+    store: StateStore,
+    phase_number: int,
+    phase: dict[str, object],
+    operator_messages: list[str],
+) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
+    code_review_path = _phase_review_summary_path(store, "code_review")
+    test_review_path = _phase_review_summary_path(store, "test_review")
+    objective = _phase_commit_objective(phase_number, phase)
+    lines = [
+        f"Commit implementation phase {phase_number}: {objective}.",
+        "",
+        "Code review and test review have passed. Do not change file contents",
+        "unless committing is impossible without a small metadata-only update",
+        "such as a submodule pointer after committing a nested repository.",
+        "",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        f"Use {code_review_path} and {test_review_path} as review context.",
+        "Inspect git status before committing.",
+        "Commit all uncommitted phase changes according to the commit breakdown",
+        f"recorded for phase {phase_number} in {plan_path}. If no explicit",
+        "breakdown is present, create one clear phase commit.",
+        "If phase changes are in nested git repositories, first ensure each",
+        "nested repository is on the active feature branch, commit the nested",
+        "repository changes there, then commit the active target repository",
+        "changes that record pointers or top-level artifacts.",
+        "Never stage or commit .electroboy/ or .agent-pipeline/ internal",
+        "runtime state.",
+        f"The final HEAD commit in the active target repository must identify",
+        f"phase {phase_number} and the phase objective.",
+        "Report the commit SHA or SHAs, files committed, and concise",
+        "commit_message when finished.",
+    ]
+    lines.extend(_coding_operator_instruction_lines(operator_messages))
     return "\n".join(lines)
 
 
@@ -5070,6 +5210,7 @@ def _format_implementation_log(store: StateStore) -> str:
                 f"- Coding event: {phase.get('coding_event', 'none')}",
                 f"- Code review event: {phase.get('code_review_event', 'none')}",
                 f"- Test review event: {phase.get('test_review_event', 'none')}",
+                f"- Commit event: {phase.get('commit_event', 'none')}",
                 f"- Commit: {phase.get('commit', 'none')}",
                 "",
                 "Code review findings:",
@@ -6224,43 +6365,6 @@ def _commit_message_parts(message: str) -> tuple[str, str]:
     return subject, body
 
 
-def _create_phase_commit(
-    store: StateStore,
-    phase_number: int,
-    phase: dict[str, object],
-) -> tuple[str | None, str | None]:
-    root = store.root
-    if not _is_git_worktree(root):
-        return None, "repository is not a git worktree"
-    changed_paths = _git_worktree_changed_paths(root)
-    if not changed_paths:
-        return None, "phase produced no repository changes to commit"
-    scope_error = _phase_paths_scope_error(store, phase_number, changed_paths)
-    if scope_error:
-        return None, scope_error
-    stage_paths = _phase_stage_paths(store, phase_number, changed_paths)
-    add_error = _git_add_paths(root, stage_paths)
-    if add_error:
-        return None, add_error
-    if _git_staged_diff_is_empty(root):
-        return None, "phase produced no staged changes to commit"
-    message = _phase_commit_message(phase_number, phase)
-    completed = subprocess.run(
-        ["git", "-C", str(root), "commit", "-m", message[0], "-m", message[1]],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip()
-        return None, f"git commit failed: {detail}"
-    sha = _git_current_head(root)
-    if sha is None:
-        return None, "git commit succeeded but HEAD could not be read"
-    return sha, None
-
-
 def _git_worktree_changed_paths(
     root: Path,
     include_untracked: bool = True,
@@ -6308,40 +6412,6 @@ def _git_staged_changed_paths(root: Path) -> list[str]:
     ]
 
 
-def _phase_stage_paths(
-    store: StateStore,
-    phase_number: int,
-    changed_paths: list[str],
-) -> list[str]:
-    planned_phase = next(
-        (
-            phase
-            for phase in planned_phases(
-                store.root,
-                _artifact_path(store, "docs/implementation-plan.md"),
-            )
-            if phase.number == phase_number
-        ),
-        None,
-    )
-    if planned_phase is None:
-        return changed_paths
-    allowed_paths = [_normalize_repo_path(path) for path in planned_phase.paths]
-    if not allowed_paths:
-        return changed_paths
-    if "*" in allowed_paths or "." in allowed_paths:
-        return changed_paths
-    review_paths = [
-        path
-        for path in changed_paths
-        if any(
-            _path_is_within(path, review_path)
-            for review_path in _phase_review_artifact_paths(store)
-        )
-    ]
-    return list(dict.fromkeys([*allowed_paths, *review_paths]))
-
-
 def _git_add_paths(root: Path, paths: list[str]) -> str | None:
     if not paths:
         return "phase produced no repository changes to stage"
@@ -6355,16 +6425,6 @@ def _git_add_paths(root: Path, paths: list[str]) -> str | None:
     if completed.returncode == 0:
         return None
     return completed.stderr.strip() or completed.stdout.strip() or "git add failed"
-
-
-def _git_staged_diff_is_empty(root: Path) -> bool:
-    completed = subprocess.run(
-        ["git", "-C", str(root), "diff", "--cached", "--quiet"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    return completed.returncode == 0
 
 
 def _git_current_head(root: Path) -> str | None:
@@ -6392,17 +6452,6 @@ def _git_paths_missing_from_head(root: Path, paths: list[str]) -> list[str]:
         if completed.returncode != 0:
             missing.append(path)
     return missing
-
-
-def _phase_commit_message(
-    phase_number: int,
-    phase: dict[str, object],
-) -> tuple[str, str]:
-    objective = _phase_commit_objective(phase_number, phase)
-    return (
-        f"phase {phase_number}: {objective}",
-        f"Automated phase {phase_number} commit created by electroboy code.",
-    )
 
 
 def _phase_commit_objective(
@@ -6441,12 +6490,15 @@ def _record_phase_commit(
     manifest,
     phase_number: int,
     sha: str,
+    commit_event: str | None = None,
 ) -> None:
     status = store.load_phase_status()
     phase = status.phases.setdefault(str(phase_number), {})
     phase["status"] = "committed"
     phase["commit"] = sha
     phase["commit_gate"] = "passed"
+    if commit_event:
+        phase["commit_event"] = commit_event
     status.active_phase = None
     store.save_phase_status(status)
     store.append_activity(
@@ -6516,10 +6568,19 @@ def _phase_commit_scope_error(
     sha: str,
     phase_number: int,
 ) -> str | None:
+    changed_paths = _git_commit_changed_paths(store.root, sha)
+    internal_paths = [
+        path for path in changed_paths if _is_pipeline_internal_path(path)
+    ]
+    if internal_paths:
+        return (
+            "phase commit includes ElectroBoy internal state: "
+            + ", ".join(internal_paths)
+        )
     return _phase_paths_scope_error(
         store,
         phase_number,
-        _git_commit_changed_paths(store.root, sha),
+        changed_paths,
     )
 
 

@@ -439,7 +439,7 @@ electroboy implementation-plan [--reason <text>]
 electroboy plan-approve
 electroboy test-plan [--reason <text>]
 electroboy test-plan-approve
-electroboy code [--reason <text>] [--phased]
+electroboy code [--reason <text>] [--msg <text>] [--phased]
 electroboy validate
 electroboy validation-approve
 electroboy document [--reason <text>]
@@ -469,10 +469,11 @@ design-author update turn, logs the detailed-design diff in the run's
 design-review update artifact, and reruns review within a bounded loop. `code`
 starts or resumes the fully automated implementation loop. By default, it runs
 every remaining planned phase, invokes coding, code review, and test review
-agents, creates and records each valid phase commit, and advances to test-plan
-review when the implementation plan is complete. `code --phased` runs one
-phase and leaves commit creation or commit recording to the operator before the
-next phase can start. During `code`, the orchestrator uses Rich progress
+agents, asks the coding agent to commit reviewed phase changes, records each
+valid phase commit, and advances to test-plan review when the implementation
+plan is complete. `code --phased` runs one phase and leaves commit creation or
+commit recording to the operator before the next phase can start. During
+`code`, the orchestrator uses Rich progress
 indicators for the active phase, code review, test review, escalations, and
 resumable checkpoints. Long-running non-interactive agent roles also receive a
 run-local Markdown progress file. The orchestrator prints the path, instructs
@@ -893,7 +894,10 @@ Scope:
 - Write `docs/code-review.md` and `docs/test-review.md` summaries, using
   feature-tagged names during feature work.
 - Detect active-phase drift from `docs/implementation-plan.md`.
-- Create and record the verified phase commit by default.
+- Invoke the coding agent to create the verified phase commit by default.
+- Record the coding-agent commit SHA after validation.
+- Add `electroboy code --msg <text>` for operator instructions appended to
+  coding-agent prompts.
 - Preserve manual commit recording through phased mode.
 - Update `phase-status.json`.
 - Persist checkpoints before and after each agent turn.
@@ -904,6 +908,7 @@ Acceptance criteria:
 - `electroboy code` resumes after interruption from the last durable
   checkpoint.
 - `electroboy code` automates every remaining planned phase by default.
+- `electroboy code --msg <text>` appends the text to coding-agent prompts.
 - `electroboy code --phased` runs only the active phase and waits for manual
   commit recording.
 - Each phase records an independent git commit before the next phase starts.

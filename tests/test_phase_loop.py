@@ -135,10 +135,61 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertEqual(status.phases["2"]["status"], "committed")
         self.assertTrue(status.phases["1"]["commit"])
         self.assertTrue(status.phases["2"]["commit"])
+        self.assertTrue(status.phases["1"]["commit_event"])
+        self.assertTrue(status.phases["2"]["commit_event"])
         self.assertTrue(phase1_exists)
         self.assertTrue(phase2_exists)
         self.assertIn("Phase 1", implementation_log_text)
         self.assertIn("ready for validation", implementation_report_text)
+
+    def test_code_msg_is_appended_to_coding_agent_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_generic_agent_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, _stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "code",
+                    "--msg",
+                    "Commit existing phase 1 before continuing.",
+                ]
+            )
+
+            store = StateStore(root)
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompts = [
+                path.read_text(encoding="utf-8")
+                for path in prompt_files
+            ]
+
+        self.assertEqual(code, 0, stderr)
+        self.assertTrue(
+            any(
+                "Additional operator instructions for this code run:" in prompt
+                and "Commit existing phase 1 before continuing." in prompt
+                for prompt in prompts
+            )
+        )
+        self.assertTrue(
+            any(
+                "Commit implementation phase 1" in prompt
+                and "Commit existing phase 1 before continuing." in prompt
+                for prompt in prompts
+            )
+        )
 
     def test_code_command_allows_phase_without_paths_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -385,6 +436,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 import sys
 
 raw_prompt = sys.stdin.read()
@@ -396,7 +448,19 @@ for line in raw_prompt.splitlines():
         with progress.open("a", encoding="utf-8") as stream:
             stream.write("fake agent started\\n")
         break
-if "phase 1" in prompt:
+if "commit implementation phase" in prompt:
+    phase = "2" if "phase 2" in prompt else "1"
+    message = "phase 2: second work" if phase == "2" else "phase 1: first work"
+    for candidate in ["src", "docs", "tests"]:
+        if pathlib.Path(candidate).exists():
+            subprocess.run(["git", "add", "-A", "--", candidate], check=True)
+    subprocess.run(
+        ["git", "commit", "-m", message],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+elif "phase 1" in prompt:
     path = pathlib.Path("src/phase1/output.txt")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("phase 1\\n", encoding="utf-8")
@@ -441,6 +505,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 import sys
 
 
@@ -467,7 +532,23 @@ raw_prompt = sys.stdin.read()
 prompt = raw_prompt.lower()
 note_progress(raw_prompt)
 
-if "review implementation phase" in prompt:
+if "commit implementation phase" in prompt:
+    for candidate in ["src", "docs", "tests"]:
+        if pathlib.Path(candidate).exists():
+            subprocess.run(["git", "add", "-A", "--", candidate], check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "phase 1: first work"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(json.dumps({{
+        "ok": True,
+        "final_message": "phase committed",
+        "issues": [],
+        "commit_message": "phase 1: first work",
+    }}))
+elif "review implementation phase" in prompt:
     attempt = bump(".electroboy/local/test-counters/code-review-count.txt")
     issues = []
     if {minor_literal}:
