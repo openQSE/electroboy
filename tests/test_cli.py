@@ -46,8 +46,23 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("active stage: requirements", stdout)
-        self.assertIn("next-stage: design", stdout)
+        self.assertIn("  stage command: electroboy requirements", stdout)
+        self.assertIn("next stage: design", stdout)
         self.assertIn("completed gates:", stdout)
+
+    def test_status_uses_command_aligned_stage_names(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            manifest = store.init_run(run_id="run-1")
+            manifest.set_active_stage(STAGE_IMPLEMENTATION)
+            store.save_manifest(manifest)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "status"])
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("active stage: code", stdout)
+        self.assertIn("  stage command: electroboy code", stdout)
+        self.assertIn("next stage: test-plan", stdout)
 
     def test_project_command_requires_active_project(self) -> None:
         with temp_project() as root:
@@ -142,7 +157,8 @@ class CliTests(unittest.TestCase):
         self.assertIn("active stage: design", stdout)
         self.assertEqual(status_code, 0, status_stderr)
         self.assertIn("active stage: design", status_stdout)
-        self.assertIn("next-stage: design-review", status_stdout)
+        self.assertIn("  stage command: electroboy design", status_stdout)
+        self.assertIn("next stage: design-review", status_stdout)
         self.assertTrue(manifest.has_gate("requirements"))
 
     def test_public_requirements_command_records_authoring(self) -> None:

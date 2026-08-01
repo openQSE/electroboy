@@ -20,10 +20,10 @@ Operator workflow commands:
   [--branch [name]]` starts feature work through the standard pipeline,
   chooses feature-scoped artifact paths, and optionally creates or switches to
   a feature branch.
-- `status` prints active stage, next stage, active phase, completed gates,
-  invalidated gates, open requests, open issues, and blocked gates. In
-  meta-project mode it also prints the meta root, active repo, and registered
-  repos.
+- `status` prints the active stage, the command for the active stage, next
+  stage, active phase, completed gates, invalidated gates, open requests, open
+  issues, and blocked gates. In meta-project mode it also prints the meta root,
+  active repo, and registered repos.
 - `progress [--once|--follow] [--interval <seconds>]` prints or follows hidden
   progress files for the active run. `monitor` is an alias.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes

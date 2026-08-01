@@ -1677,11 +1677,22 @@ def _stage_command(stage: str) -> str:
     return commands.get(stage, "electroboy status")
 
 
+def _stage_display_name(stage: str | None) -> str:
+    if stage is None:
+        return "none"
+    command = _stage_command(stage)
+    prefix = "electroboy "
+    if command.startswith(prefix):
+        return command[len(prefix):]
+    return stage
+
+
 def _cmd_status(store: StateStore, engine: GateEngine) -> int:
     manifest = store.load_current_manifest()
     print(f"run id: {manifest.run_id}")
-    print(f"active stage: {manifest.active_stage}")
-    print(f"next-stage: {NEXT_STAGE.get(manifest.active_stage, 'none')}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
+    print(f"  stage command: {_stage_command(manifest.active_stage)}")
+    print(f"next stage: {_stage_display_name(NEXT_STAGE.get(manifest.active_stage))}")
     phase_status = store.load_phase_status()
     if phase_status.active_phase is None:
         print("active phase: none")
@@ -5146,7 +5157,9 @@ def _format_run_summary(store: StateStore, engine: GateEngine) -> str:
         "# Run Summary",
         "",
         f"Run ID: {manifest.run_id}",
-        f"Active stage: {manifest.active_stage}",
+        f"Active stage: {_stage_display_name(manifest.active_stage)}",
+        f"Stage command: {_stage_command(manifest.active_stage)}",
+        f"Next stage: {_stage_display_name(NEXT_STAGE.get(manifest.active_stage))}",
         f"Active phase: {active_phase}",
         "",
         "## Completed Gates",
