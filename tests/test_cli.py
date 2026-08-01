@@ -48,6 +48,17 @@ class CliTests(unittest.TestCase):
         self.assertIn("next-stage: design", stdout)
         self.assertIn("completed gates:", stdout)
 
+    def test_project_command_requires_active_project(self) -> None:
+        with temp_project() as root:
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "implementation-plan"]
+            )
+
+        self.assertEqual(code, 2)
+        self.assertIn("no active ElectroBoy project", stderr)
+
     def test_progress_once_prints_run_progress_files(self) -> None:
         with temp_project() as root:
             store = StateStore(root)

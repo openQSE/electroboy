@@ -385,6 +385,15 @@ match that active stage, move backward through change control, or pass
 predecessor gates, unless an expert operator uses the explicit forced stage
 override.
 
+Project-scoped stage commands require an active ElectroBoy project before they
+run. If you are using a normal project, create or enter it with
+`electroboy new` or `electroboy feature start`, then source
+`<project>/.electroboy/bin/activate`. If you are using a meta-project, source
+the meta activation script and run `electroboy start <repo>` before authoring,
+review, implementation, validation, or approval commands. Merely changing into
+the project or meta-project directory is not enough; unactivated stage commands
+are blocked unless an explicit `--root` is provided by automation.
+
 For example, this fails immediately after `new`:
 
 ```bash

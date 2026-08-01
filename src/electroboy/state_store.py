@@ -81,7 +81,9 @@ class StateStore:
     def load_current_manifest(self) -> RunManifest:
         run_id = self.current_run_id()
         if not run_id:
-            raise StateError("no ElectroBoy run exists; run `electroboy init` first")
+            raise StateError(
+                "no ElectroBoy run exists; run `electroboy new <path>` first"
+            )
         return self.load_manifest(run_id)
 
     def current_run_id(self) -> str | None:

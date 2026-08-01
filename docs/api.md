@@ -55,6 +55,15 @@ Operator workflow commands:
   recovery and existing-project adoption.
 - `completion bash` prints the Bash completion script.
 
+Project-scoped stage commands require an active ElectroBoy project. For normal
+projects, run `electroboy new <path>` or `electroboy feature start ...` and
+source `<project>/.electroboy/bin/activate`. For meta-projects, source the
+meta-project activation script and run `electroboy start <repo>` before
+authoring, review, implementation, validation, or approval commands. Changing
+into the project directory without sourcing the activation script does not
+activate the project; stage commands block unless automation passes an
+explicit `--root`.
+
 Earlier operator workflow commands reopen baselines when `--reason` is
 provided and the requested stage is behind the active stage. The orchestrator
 records change-control and baseline-invalidation records before resuming from

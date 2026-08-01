@@ -148,6 +148,45 @@ class MetaProjectTests(unittest.TestCase):
         self.assertEqual(registry["repositories"][0]["name"], "QFw")
         self.assertEqual(registry["repositories"][0]["path"], str(repo))
 
+    def test_project_command_requires_active_meta_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = Path(tmp) / "openQSE"
+            repo = meta / "QFw"
+            repo.mkdir(parents=True)
+            self.assertEqual(self.run_cli(["meta", "init", str(meta)])[0], 0)
+            self.assertEqual(self.run_cli(["--root", str(meta), "add", "QFw"])[0], 0)
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(meta), "requirements"]
+            )
+
+        self.assertEqual(code, 2)
+        self.assertIn("no active target repo", stderr)
+
+    def test_project_command_requires_activated_meta_shell(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = Path(tmp) / "openQSE"
+            repo = meta / "QFw"
+            repo.mkdir(parents=True)
+            self.assertEqual(self.run_cli(["meta", "init", str(meta)])[0], 0)
+            self.assertEqual(self.run_cli(["--root", str(meta), "start", "QFw"])[0], 0)
+
+            previous_cwd = Path.cwd()
+            previous_project_root = os.environ.pop("ELECTROBOY_PROJECT_ROOT", None)
+            previous_legacy_root = os.environ.pop("AI_PIPELINE_PROJECT_ROOT", None)
+            try:
+                os.chdir(meta)
+                code, _stdout, stderr = self.run_cli(["requirements"])
+            finally:
+                os.chdir(previous_cwd)
+                if previous_project_root is not None:
+                    os.environ["ELECTROBOY_PROJECT_ROOT"] = previous_project_root
+                if previous_legacy_root is not None:
+                    os.environ["AI_PIPELINE_PROJECT_ROOT"] = previous_legacy_root
+
+        self.assertEqual(code, 2)
+        self.assertIn("no active ElectroBoy shell", stderr)
+
     def test_add_registers_multiple_repositories(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             meta = Path(tmp) / "openQSE"

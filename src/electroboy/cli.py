@@ -103,6 +103,21 @@ VALIDATION_REPORT_PATH = "docs/validation-report.md"
 META_REGISTRY_PATH = "repositories.json"
 META_MANAGEMENT_COMMANDS = {"add", "start"}
 ROOT_LOCAL_COMMANDS = {"completion", "deactivate", "new"}
+PROJECTLESS_COMMANDS = {
+    "add",
+    "completion",
+    "deactivate",
+    "feature",
+    "meta",
+    "new",
+    "start",
+}
+ACTIVATIONLESS_COMMANDS = {
+    "completion",
+    "feature",
+    "meta",
+    "new",
+}
 
 APPROVAL_BASELINE_ARTIFACTS = {
     STAGE_REQUIREMENTS: ["docs/requirements.md"],
@@ -556,6 +571,8 @@ def _add_approval_parser(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    root_explicit = _root_argument_explicit(raw_argv)
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "completion":
@@ -563,6 +580,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         root_store = StateStore(args.root)
+        _require_project_activation_for_command(
+            root_store,
+            args.command,
+            root_explicit,
+        )
         if args.command == "meta":
             return _cmd_meta(args)
         if args.command == "add":
@@ -573,6 +595,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_meta_status(root_store)
 
         store = _store_for_command(root_store, args.command)
+        _require_active_project_for_command(store, args.command)
         engine = GateEngine(store.root)
 
         if args.command == "new":
@@ -774,6 +797,51 @@ def _store_for_command(root_store: StateStore, command: str) -> StateStore:
     if record is None:
         raise StateError(f"active target repo is not registered: {active_name}")
     return _target_store_from_record(root_store.root, registry, record)
+
+
+def _root_argument_explicit(argv: Sequence[str]) -> bool:
+    return any(arg == "--root" or arg.startswith("--root=") for arg in argv)
+
+
+def _require_project_activation_for_command(
+    root_store: StateStore,
+    command: str,
+    root_explicit: bool,
+) -> None:
+    if command in ACTIVATIONLESS_COMMANDS or root_explicit:
+        return
+    activated_root = _activated_project_root()
+    if activated_root is None:
+        raise StateError(
+            "no active ElectroBoy shell; source "
+            "`<project>/.electroboy/bin/activate` or use explicit `--root`"
+        )
+    if activated_root != root_store.root:
+        raise StateError(
+            "active ElectroBoy shell points at "
+            f"{activated_root}, but command root is {root_store.root}"
+        )
+
+
+def _activated_project_root() -> Path | None:
+    root = os.environ.get("ELECTROBOY_PROJECT_ROOT") or os.environ.get(
+        "AI_PIPELINE_PROJECT_ROOT"
+    )
+    if not root:
+        return None
+    return Path(root).expanduser().resolve()
+
+
+def _require_active_project_for_command(store: StateStore, command: str) -> None:
+    if command in PROJECTLESS_COMMANDS:
+        return
+    if store.current_run_id():
+        return
+    raise StateError(
+        "no active ElectroBoy project; run `electroboy new <path>`, "
+        "source `<project>/.electroboy/bin/activate`, or in a meta-project "
+        "run `electroboy start <repo>` first"
+    )
 
 
 def _is_meta_project(root: Path) -> bool:
