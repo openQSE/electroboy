@@ -226,7 +226,10 @@ findings stop the phase after the retry limit. Minor findings are recorded for
 follow-up and do not block progress.
 
 Pass `--msg "<instruction>"` to append an operator instruction to the coding
-agent's implementation, fix, and commit prompts for that `code` run.
+agent's implementation, fix, and commit prompts for that `code` run. The
+message cannot broaden the active phase scope. Coding and fix passes leave
+changes in the working tree; only the dedicated commit pass may create git
+commits.
 
 Code review summaries are written to `docs/code-review.md` and test review
 summaries are written to `docs/test-review.md`. Feature runs use the matching

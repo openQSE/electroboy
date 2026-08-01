@@ -190,6 +190,39 @@ class PhaseLoopTests(unittest.TestCase):
                 for prompt in prompts
             )
         )
+        self.assertTrue(
+            any(
+                "Active phase boundary:" in prompt
+                and "Work only on implementation phase 1." in prompt
+                and "Do not create git commits during this implementation or fix pass."
+                in prompt
+                for prompt in prompts
+            )
+        )
+
+    def test_code_command_blocks_coding_pass_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_committing_coding_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "code"])
+
+            status = StateStore(root).load_phase_status()
+
+        self.assertEqual(code, 1)
+        self.assertIn("commits are only allowed", stdout)
+        self.assertEqual(stderr, "")
+        self.assertEqual(status.active_phase, 1)
+        self.assertNotEqual(status.phases["1"].get("status"), "committed")
 
     def test_code_command_allows_phase_without_paths_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -491,6 +524,57 @@ test_review = "agent"
     )
 
 
+def write_committing_coding_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        """
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+
+raw_prompt = sys.stdin.read()
+prompt = raw_prompt.lower()
+if (
+    "commit implementation phase" not in prompt
+    and "review implementation phase" not in prompt
+    and "review tests for implementation phase" not in prompt
+):
+    path = pathlib.Path("src/phase1/output.txt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("phase 1\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/phase1/output.txt"], check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "phase 1: premature commit"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+print(json.dumps({"ok": True, "final_message": "accepted", "issues": []}))
+""".lstrip(),
+    )
+    write_file(
+        root / "electroboy.toml",
+        f"""
+[runtime]
+default = "agent"
+
+[runtimes.agent]
+adapter = "generic_cli"
+command = "{sys.executable}"
+args = ["agent.py"]
+env = ["PATH"]
+
+[roles]
+coding = "agent"
+code_review = "agent"
+test_review = "agent"
+""".lstrip(),
+    )
+
+
 def write_review_retry_runtime(
     root: Path,
     code_blocking_attempts: int = 0,
@@ -625,7 +709,7 @@ else:
     path = pathlib.Path("src/phase1/output.txt")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"phase 1 coding attempt {{attempt}}\\n", encoding="utf-8")
-    if "test review" in prompt:
+    if "with test review context" in prompt:
         test_path = pathlib.Path("tests/test_phase1.py")
         test_path.parent.mkdir(parents=True, exist_ok=True)
         test_path.write_text("def test_phase1():\\n    assert True\\n", encoding="utf-8")

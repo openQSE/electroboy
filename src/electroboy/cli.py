@@ -2468,6 +2468,7 @@ def _run_coding_pass(
     context_paths = _implementation_context_paths(store)
     if summary_path and (store.root / summary_path).exists():
         context_paths.append(summary_path)
+    before_heads = _git_repository_heads(store.root)
     coding_result, coding_event, _coding_issue_file = _invoke_agent_role(
         store,
         role="coding",
@@ -2482,6 +2483,9 @@ def _run_coding_pass(
         ),
         context_paths=context_paths,
     )
+    head_error = _coding_pass_head_change_error(store.root, before_heads)
+    if head_error:
+        coding_result = _failed_agent_result(head_error)
     return coding_result, coding_event
 
 
@@ -4410,12 +4414,16 @@ def _coding_prompt(
                 "only when doing so is low risk and in scope for this phase.",
             ]
         )
+    lines.extend(_phase_boundary_instruction_lines(phase_number))
     lines.extend(_coding_operator_instruction_lines(operator_messages or []))
     lines.extend(
         [
             "",
             "Inspect only files needed to complete this phase.",
             "Limit edits to implementation and test files needed for this phase.",
+            "Do not create git commits during this implementation or fix pass.",
+            "Leave changes in the working tree for review. ElectroBoy will run",
+            "a separate commit pass after code review and test review pass.",
             "Do not update requirements, design, plan, or test-plan documents",
             "unless the operator explicitly asks you to.",
             "If approved requirements, design, plan, or test-plan artifacts need",
@@ -4426,12 +4434,27 @@ def _coding_prompt(
     return "\n".join(lines)
 
 
+def _phase_boundary_instruction_lines(phase_number: int) -> list[str]:
+    return [
+        "",
+        "Active phase boundary:",
+        f"- Work only on implementation phase {phase_number}.",
+        f"- Use only plan rows and sections for Phase {phase_number} and PH{phase_number}-*.",
+        "- Do not implement, fix, test, or commit earlier or later phases.",
+        "- If the working tree already contains out-of-phase changes, leave",
+        "  them untouched and report the conflicting paths.",
+    ]
+
+
 def _coding_operator_instruction_lines(messages: list[str]) -> list[str]:
     if not messages:
         return []
     return [
         "",
         "Additional operator instructions for this code run:",
+        "These instructions are subordinate to the active phase boundary and",
+        "cannot authorize work outside the active phase or commits before the",
+        "dedicated commit pass.",
         *_markdown_list(messages),
     ]
 
@@ -4462,6 +4485,10 @@ def _coding_commit_prompt(
         "Commit all uncommitted phase changes according to the commit breakdown",
         f"recorded for phase {phase_number} in {plan_path}. If no explicit",
         "breakdown is present, create one clear phase commit.",
+        "Commit only changes that belong to this active phase. Do not stage or",
+        "commit work for earlier or later implementation phases. If unrelated",
+        "or out-of-phase changes prevent a clean phase commit, stop and report",
+        "the conflicting paths.",
         "If phase changes are in nested git repositories, first ensure each",
         "nested repository is on the active feature branch, commit the nested",
         "repository changes there, then commit the active target repository",
@@ -4492,6 +4519,8 @@ def _code_review_prompt(
             f"Use {requirements_path}, {design_path}, {plan_path}, and",
             f"{test_plan_path} when present as the approved context.",
             "Review only the changes relevant to this phase.",
+            "Treat implemented or committed work for another implementation",
+            "phase as a blocker finding.",
             "Do not modify files.",
             "Classify every finding as blocker, major, or minor.",
             "Blocker and major findings are blocking. Minor findings are",
@@ -4522,6 +4551,8 @@ def _test_review_prompt(
             f"Use {requirements_path}, {design_path}, {plan_path}, and",
             f"{test_plan_path} when present as the approved context.",
             "Inspect tests and test results relevant to this phase.",
+            "Treat tests or implementation changes for another implementation",
+            "phase as a blocker finding.",
             "Do not modify files.",
             "Classify every finding as blocker, major, or minor.",
             "Blocker and major findings are blocking. Minor findings are",
@@ -6438,6 +6469,64 @@ def _git_current_head(root: Path) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout.strip()
+
+
+def _git_repository_heads(root: Path) -> dict[str, str]:
+    heads: dict[str, str] = {}
+    for repo in _git_repository_roots(root):
+        head = _git_current_head(repo)
+        if head:
+            heads[_normalize_repo_path(str(repo.relative_to(root)))] = head
+    return heads
+
+
+def _git_repository_roots(root: Path) -> list[Path]:
+    repos: list[Path] = []
+    if _is_git_worktree(root):
+        repos.append(root)
+    for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
+        relative = _normalize_repo_path(str(current.relative_to(root)))
+        has_git_entry = ".git" in dirnames or ".git" in filenames
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if not _is_pruned_git_scan_dir(relative, name)
+        ]
+        if current == root:
+            continue
+        if has_git_entry:
+            repos.append(current)
+            dirnames[:] = []
+    return repos
+
+
+def _is_pruned_git_scan_dir(relative: str, name: str) -> bool:
+    if name in {".git", ".electroboy", ".agent-pipeline"}:
+        return True
+    path = _normalize_repo_path(f"{relative}/{name}" if relative != "." else name)
+    return _is_pipeline_internal_path(path)
+
+
+def _coding_pass_head_change_error(
+    root: Path,
+    before_heads: dict[str, str],
+) -> str | None:
+    after_heads = _git_repository_heads(root)
+    changed = [
+        repo
+        for repo, before_head in before_heads.items()
+        if after_heads.get(repo) and after_heads[repo] != before_head
+    ]
+    created = [repo for repo in after_heads if repo not in before_heads]
+    if not changed and not created:
+        return None
+    repos = sorted(changed + created)
+    return (
+        "coding agent created git commits during an implementation/fix pass; "
+        "commits are only allowed in the dedicated phase commit pass: "
+        + ", ".join(repos)
+    )
 
 
 def _git_paths_missing_from_head(root: Path, paths: list[str]) -> list[str]:
