@@ -228,6 +228,7 @@ class ReviewIssue:
     phase: int | None = None
     owner: str | None = None
     artifact: str | None = None
+    commit: str | None = None
     location: str | None = None
     rationale: str | None = None
     requested_change: str | None = None
@@ -249,6 +250,7 @@ class ReviewIssue:
             "phase": self.phase,
             "owner": self.owner,
             "artifact": self.artifact,
+            "commit": self.commit,
             "location": self.location,
             "rationale": self.rationale,
             "requested_change": self.requested_change,
@@ -270,6 +272,7 @@ class ReviewIssue:
             phase=data.get("phase"),
             owner=data.get("owner"),
             artifact=data.get("artifact"),
+            commit=data.get("commit"),
             location=data.get("location"),
             rationale=data.get("rationale"),
             requested_change=data.get("requested_change"),

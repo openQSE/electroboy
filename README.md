@@ -235,6 +235,33 @@ Code review summaries are written to `docs/code-review.md` and test review
 summaries are written to `docs/test-review.md`. Feature runs use the matching
 feature-tagged filenames.
 
+Use `code-review <sha1>..<sha2>` to audit an already-written commit range
+without advancing the pipeline:
+
+```bash
+electroboy code-review <sha1>..<sha2>
+```
+
+The range is inclusive, so both endpoint commits are reviewed. The review
+agent first inspects the final tree at `<sha2>`, then reviews each commit in
+order against the approved requirements, detailed design, implementation plan,
+and test plan. Findings are recorded in `docs/code-review.md` and in the
+active run's internal range review issue file. The default mode is review-only
+and does not modify files.
+
+Use `--fix-in-place` only when you want ElectroBoy to launch a fix agent that
+rewrites the current branch range:
+
+```bash
+electroboy code-review <sha1>..<sha2> --fix-in-place
+```
+
+`--fix-in-place` requires `<sha2>` to be the current `HEAD` and the tracked
+working tree to be clean. The fix agent must fold blocker and major fixes into
+the offending commits rather than creating follow-up commits. ElectroBoy then
+reruns the range review, up to five attempts. Minor findings remain recorded
+but do not require a rewrite.
+
 Long-running non-interactive passes write hidden progress files under the
 active run. From another activated shell, use `progress` to watch concise agent
 heartbeats without manually tailing files:
@@ -377,6 +404,8 @@ Implemented capabilities:
 - Append-only issue lifecycle transitions.
 - Automated phase start, review, test review, drift, and commit recording, plus
   manual `phase commit` for phased mode.
+- Explicit `code-review <sha1>..<sha2>` audits for already-written commit
+  ranges, with optional in-place fix/review loops.
 - Final validation and documentation review gates.
 - Public workflow commands that reopen earlier baselines with `--reason`.
 - Expert command-level stage resets with `electroboy <command> --force`.

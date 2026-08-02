@@ -42,6 +42,8 @@ Operator workflow commands:
 - `test-plan-approve` records human test-plan approval.
 - `code [--reason <text>] [--msg <text>] [--phased]` starts or resumes
   implementation work.
+- `code-review <sha1>..<sha2> [--fix-in-place] [--msg <text>]` reviews an
+  inclusive commit range without advancing the pipeline.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
 - `validate` runs final validation commands and writes a validation report.
@@ -197,6 +199,21 @@ block the phase. Code review summaries are written to `docs/code-review.md`;
 test review summaries are written to `docs/test-review.md`. Feature runs use
 the corresponding `docs/code-review-<feature>.md` and
 `docs/test-review-<feature>.md` files.
+
+`electroboy code-review <sha1>..<sha2>` audits an already-written commit range.
+The range is inclusive, so both endpoint commits are reviewed. The review
+agent first inspects the final tree at `<sha2>`, then reviews each commit in
+order against the approved requirements, detailed design, implementation plan,
+and test plan. Findings are written to `docs/code-review.md` and the run's
+range review issue file. The default mode is review-only and does not modify
+files.
+
+`electroboy code-review <sha1>..<sha2> --fix-in-place` launches a fix agent
+when blocker or major findings remain. The range end must be current `HEAD`,
+and the tracked working tree must be clean. The fix agent must fold changes
+into the offending commits rather than adding follow-up fix commits. ElectroBoy
+reruns range review, up to five attempts. Minor findings remain recorded but
+do not force a rewrite.
 
 `electroboy code --phased` is the explicit manual checkpoint mode. It runs one
 phase and leaves commit creation or commit recording to the operator.

@@ -106,6 +106,7 @@ DESIGN_REVIEW_CONTEXT_PATHS = [
 IMPLEMENTATION_LOG_PATH = "docs/implementation-log.md"
 IMPLEMENTATION_REPORT_PATH = "docs/implementation-report.md"
 CODE_REVIEW_SUMMARY_PATH = "docs/code-review.md"
+RANGE_CODE_REVIEW_ISSUE_PREFIX = "range-code-review"
 TEST_REVIEW_SUMMARY_PATH = "docs/test-review.md"
 TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
@@ -188,6 +189,10 @@ AGENT_PROGRESS_ROLES = {
     "coding",
     "code_review",
     "code-review",
+    "range_code_review",
+    "range-code-review",
+    "range_code_fix",
+    "range-code-fix",
     "test_review",
     "test-review",
     "validation",
@@ -204,6 +209,8 @@ MUTATING_AGENT_ROLES = {
     "design_author_update",
     "design-author-update",
     "coding",
+    "range_code_fix",
+    "range-code-fix",
     "documentation",
 }
 
@@ -212,6 +219,8 @@ REVIEW_OUTPUT_CONTRACT_ROLES = {
     "design-review",
     "code_review",
     "code-review",
+    "range_code_review",
+    "range-code-review",
     "test_review",
     "test-review",
     "validation",
@@ -249,6 +258,7 @@ REVIEW_OUTPUT_SCHEMA = {
                     "status": {"enum": sorted(REVIEW_OUTPUT_STATUSES)},
                     "summary": {"type": "string"},
                     "artifact": {"type": "string"},
+                    "commit": {"type": "string"},
                     "location": {"type": "string"},
                     "rationale": {"type": "string"},
                     "requested_change": {"type": "string"},
@@ -467,6 +477,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="append an instruction to coding-agent prompts for this run",
     )
+    code_review = subparsers.add_parser(
+        "code-review",
+        help="review an inclusive commit range against approved artifacts",
+    )
+    code_review.add_argument(
+        "range",
+        metavar="SHA1..SHA2",
+        help="inclusive commit range to review",
+    )
+    code_review.add_argument(
+        "--fix-in-place",
+        action="store_true",
+        help="rewrite the current HEAD range to address blocker/major findings",
+    )
+    code_review.add_argument(
+        "--msg",
+        action="append",
+        default=[],
+        help="append an instruction to range review and fix prompts",
+    )
     document = subparsers.add_parser(
         "document",
         help="start or resume documentation review",
@@ -684,6 +714,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "code":
             return _cmd_code(store, engine, args)
+        if args.command == "code-review":
+            return _cmd_code_review(store, args)
         if args.command == "document":
             return _cmd_document(store, engine, args)
         if args.command == "code-approve":
@@ -2132,6 +2164,160 @@ def _code_operator_messages(args: argparse.Namespace) -> list[str]:
     ]
 
 
+def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
+    start_rev, end_rev = _parse_commit_range_spec(args.range)
+    start_sha = _git_resolve_commit(store.root, start_rev)
+    end_sha = _git_resolve_commit(store.root, end_rev)
+    if start_sha is None:
+        raise StateError(f"unknown start commit: {start_rev}")
+    if end_sha is None:
+        raise StateError(f"unknown end commit: {end_rev}")
+    if not _git_is_ancestor(store.root, start_sha, end_sha):
+        raise StateError(f"range start is not an ancestor of range end: {args.range}")
+
+    base_sha = _git_first_parent(store.root, start_sha)
+    commits = _git_inclusive_commit_range(store.root, start_sha, end_sha)
+    if not commits:
+        raise StateError(f"commit range is empty: {args.range}")
+
+    fix_in_place = bool(getattr(args, "fix_in_place", False))
+    if fix_in_place:
+        _validate_fix_in_place_range(store, end_sha)
+
+    issue_file = _range_code_review_issue_file(start_sha, end_sha)
+    operator_messages = _code_operator_messages(args)
+    current_end = end_sha
+    current_commits = commits
+    for attempt in range(1, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
+        result, event_id, review_issue_file = _invoke_agent_role(
+            store,
+            role="range_code_review",
+            prompt=_range_code_review_prompt(
+                store,
+                start_sha,
+                current_end,
+                current_commits,
+                attempt,
+                fix_in_place,
+                operator_messages,
+            ),
+            context_paths=_range_code_review_context_paths(store),
+            issue_file_override=issue_file,
+        )
+        review_issue_file = review_issue_file or issue_file
+        _verify_unreported_blocking_issues(
+            store,
+            review_issue_file,
+            result.issues,
+            event_id,
+            "range code review",
+        )
+        summary_path = _write_range_code_review_summary(
+            store,
+            range_spec=args.range,
+            start_sha=start_sha,
+            end_sha=current_end,
+            commits=current_commits,
+            issue_file=review_issue_file,
+            attempt=attempt,
+            fix_in_place=fix_in_place,
+        )
+        blocking = _blocking_issues(store, review_issue_file)
+        print(f"code review: {summary_path}")
+        print(f"issue file: {review_issue_file}")
+        print(f"commits reviewed: {len(current_commits)}")
+        print(f"blocker/major findings: {len(blocking)}")
+        if not result.ok:
+            print(
+                result.final_message,
+                end="" if result.final_message.endswith("\n") else "\n",
+            )
+            return 1
+        if not fix_in_place or not blocking:
+            return 0
+        if attempt == IMPLEMENTATION_REVIEW_MAX_ATTEMPTS:
+            _print_gate_failure(
+                [
+                    (
+                        "blocking range code review issues remain after "
+                        f"{IMPLEMENTATION_REVIEW_MAX_ATTEMPTS} attempts"
+                    ),
+                    f"review summary: {summary_path}",
+                ]
+            )
+            return 1
+
+        fix_code = _run_range_code_fix(
+            store,
+            base_sha,
+            current_end,
+            current_commits,
+            review_issue_file,
+            summary_path,
+            attempt,
+            operator_messages,
+        )
+        if fix_code != 0:
+            return fix_code
+        current_end = _git_current_head(store.root) or current_end
+        rewritten_commits = _git_commits_after_base(store.root, base_sha, current_end)
+        if len(rewritten_commits) != len(current_commits):
+            print(
+                "--fix-in-place changed the range commit count; fixes must be "
+                "folded into the existing commits instead of added as "
+                "follow-up commits",
+                file=sys.stderr,
+            )
+            return 1
+        current_commits = rewritten_commits
+    return 1
+
+
+def _run_range_code_fix(
+    store: StateStore,
+    base_sha: str | None,
+    end_sha: str,
+    commits: list[str],
+    issue_file: str,
+    summary_path: str,
+    attempt: int,
+    operator_messages: list[str],
+) -> int:
+    result, _event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="range_code_fix",
+        prompt=_range_code_fix_prompt(
+            store,
+            base_sha,
+            end_sha,
+            commits,
+            issue_file,
+            summary_path,
+            attempt,
+            operator_messages,
+        ),
+        context_paths=[
+            *_range_code_review_context_paths(store),
+            summary_path,
+        ],
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    changed_paths = _non_review_tracked_changes(store)
+    if changed_paths:
+        print(
+            "error: fix-in-place left uncommitted tracked changes: "
+            + ", ".join(changed_paths),
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def _cmd_code_phased(
     store: StateStore,
     engine: GateEngine,
@@ -2578,6 +2764,64 @@ def _write_phase_review_summary(
     return relative_path
 
 
+def _write_range_code_review_summary(
+    store: StateStore,
+    range_spec: str,
+    start_sha: str,
+    end_sha: str,
+    commits: list[str],
+    issue_file: str,
+    attempt: int,
+    fix_in_place: bool,
+) -> str:
+    relative_path = _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
+    path = store.root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    issues = store.read_review_issues(issue_file)
+    blocking = [
+        issue
+        for issue in issues
+        if _issue_is_blocking(issue)
+    ]
+    lines = [
+        "# Code Review",
+        "",
+        f"Generated: {utc_now()}",
+        "Mode: commit range review",
+        f"Range: {range_spec}",
+        f"Start commit: {start_sha}",
+        f"End commit: {end_sha}",
+        f"Attempt: {attempt}",
+        f"Fix in place: {'yes' if fix_in_place else 'no'}",
+        f"Commits reviewed: {len(commits)}",
+        f"Blocker/major findings: {len(blocking)}",
+        "",
+        "## Review Order",
+        "",
+        *_markdown_list(_commit_review_lines(store.root, commits)),
+        "",
+        "## Findings",
+        "",
+    ]
+    if not issues:
+        lines.extend(["- none", ""])
+    else:
+        for issue in issues:
+            lines.extend(_review_issue_detail_lines(issue, issue_file))
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            action="range-code-review-summary-written",
+            summary=f"Wrote {relative_path}.",
+            outputs=[relative_path],
+            artifact_changes=[relative_path],
+        )
+    )
+    return relative_path
+
+
 def _review_issue_detail_lines(issue: dict[str, object], issue_file: str) -> list[str]:
     issue_id = issue.get("issue_id", "unknown")
     severity = issue.get("severity", "unknown")
@@ -2591,6 +2835,7 @@ def _review_issue_detail_lines(issue: dict[str, object], issue_file: str) -> lis
         f"- Status: {status}",
     ]
     for label, key in [
+        ("Commit", "commit"),
         ("Artifact", "artifact"),
         ("Location", "location"),
         ("Requested change", "requested_change"),
@@ -3782,6 +4027,7 @@ def _invoke_agent_role(
     session_stage: str | None = None,
     session_artifact: str | None = None,
     explicit_session_id: str | None = None,
+    issue_file_override: str | None = None,
 ) -> tuple[AgentResult, str, str | None]:
     manifest = store.load_current_manifest()
     event_id = f"agent-{len(store.read_activity()) + 1:05d}"
@@ -3858,7 +4104,7 @@ def _invoke_agent_role(
     store.write_message(f"{event_id}-prompt", invocation.prompt)
     store.write_message(f"{event_id}-response", result.final_message)
     store.write_raw_event(event_id, result.raw_events)
-    issue_file = _agent_issue_file(role, store)
+    issue_file = issue_file_override or _agent_issue_file(role, store)
     linked_issue_ids: list[str] = []
     if issue_file:
         linked_issue_ids = _store_agent_issues(
@@ -4024,6 +4270,7 @@ def _prompt_with_output_contract(prompt: str) -> str:
         '      "severity": "major",',
         '      "status": "open",',
         '      "summary": "Design omits admission hold semantics.",',
+        '      "commit": "optional commit SHA for range reviews",',
         '      "artifact": "docs/detailed-design.md",',
         '      "location": "docs/detailed-design.md:1060",',
         '      "rationale": "Why this blocks safe implementation.",',
@@ -4123,7 +4370,7 @@ def _review_issue_contract_errors(issue: object, index: int) -> list[str]:
             f"issues[{index}].status must be one of "
             f"{', '.join(sorted(REVIEW_OUTPUT_STATUSES))}"
         )
-    for key in ("artifact", "location", "rationale", "requested_change"):
+    for key in ("artifact", "commit", "location", "rationale", "requested_change"):
         value = issue.get(key)
         if value is not None and not isinstance(value, str):
             errors.append(f"issues[{index}].{key} must be a string when present")
@@ -4566,6 +4813,117 @@ def _test_review_prompt(
             "cannot be completed.",
         ]
     )
+
+
+def _range_code_review_context_paths(store: StateStore) -> list[str]:
+    return _implementation_context_paths(store)
+
+
+def _range_code_review_prompt(
+    store: StateStore,
+    start_sha: str,
+    end_sha: str,
+    commits: list[str],
+    attempt: int,
+    fix_in_place: bool,
+    operator_messages: list[str],
+) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
+    lines = [
+        f"Review commit range {start_sha}..{end_sha} inclusively.",
+        f"This is range code-review attempt {attempt}.",
+        "",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        "First inspect the final tree at the range end commit to understand",
+        "the final architecture and behavior. Then review each commit in",
+        "range order using that final-tree context.",
+        "Evaluate whether each commit is coherent, reviewable, and aligned",
+        "with the approved requirements, detailed design, implementation plan,",
+        "and test plan.",
+        "Do not modify files.",
+        "Classify every finding as blocker, major, or minor.",
+        "Blocker and major findings are blocking. Minor findings are",
+        "non-blocking follow-up items.",
+        "Report every finding, including minor findings, as structured review",
+        "issues.",
+        "For each issue, set commit to the SHA of the commit that should be",
+        "changed. Use stable issue IDs that include the short commit SHA when",
+        "possible, for example RCR-ab12cd34-001.",
+        "If a previously reported issue is fixed, report the same issue_id",
+        "with status verified.",
+        "Set ok to true when the review completes successfully, even when",
+        "you report findings. Set ok to false only when the review itself",
+        "cannot be completed.",
+        "",
+        "Commits to review in order:",
+        *_markdown_list(_commit_review_lines(store.root, commits)),
+    ]
+    if fix_in_place:
+        lines.extend(
+            [
+                "",
+                "Fix mode is enabled. Review first; ElectroBoy will launch a",
+                "separate fix agent if blocker or major findings remain.",
+            ]
+        )
+    lines.extend(_range_operator_instruction_lines(operator_messages))
+    return "\n".join(lines)
+
+
+def _range_code_fix_prompt(
+    store: StateStore,
+    base_sha: str | None,
+    end_sha: str,
+    commits: list[str],
+    issue_file: str,
+    summary_path: str,
+    attempt: int,
+    operator_messages: list[str],
+) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
+    base_text = base_sha or "root commit has no parent"
+    lines = [
+        "Fix code-review findings in place for the current HEAD commit range.",
+        f"This is range fix attempt {attempt}.",
+        "",
+        f"Range base parent: {base_text}",
+        f"Current range end before fixes: {end_sha}",
+        "",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        f"Use {summary_path} and internal issue file {issue_file} as review",
+        "context.",
+        "Address blocker and major findings by modifying the specific commit",
+        "identified on each issue. Use an in-place history rewrite such as",
+        "interactive rebase, fixup, or amend so the fixes land in the",
+        "offending commits.",
+        "Do not create follow-up fix commits at the end of the range.",
+        "Do not modify commits before the range base parent.",
+        "Do not rewrite unrelated commits outside the listed range.",
+        "If a conflict or unsafe rewrite occurs, stop and report the exact",
+        "repository state. Do not resolve conflicts by guessing.",
+        "Leave the working tree clean when finished.",
+        "",
+        "Commits in the range before fixes:",
+        *_markdown_list(_commit_review_lines(store.root, commits)),
+    ]
+    lines.extend(_range_operator_instruction_lines(operator_messages))
+    return "\n".join(lines)
+
+
+def _range_operator_instruction_lines(messages: list[str]) -> list[str]:
+    if not messages:
+        return []
+    return [
+        "",
+        "Additional operator instructions for this range review:",
+        *_markdown_list(messages),
+    ]
 
 
 def _documentation_prompt(store: StateStore) -> str:
@@ -5851,6 +6209,14 @@ def _open_review_issues(store: StateStore) -> list[tuple[str, dict[str, object]]
                 f"phase-{phase}-test-review.jsonl",
             ]
         )
+    run_id = store.current_run_id()
+    if run_id:
+        issue_files.extend(
+            path.name
+            for path in store.run_dir(run_id).glob(
+                f"{RANGE_CODE_REVIEW_ISSUE_PREFIX}-*.jsonl"
+            )
+        )
 
     issues: list[tuple[str, dict[str, object]]] = []
     for issue_file in issue_files:
@@ -6469,6 +6835,152 @@ def _git_current_head(root: Path) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout.strip()
+
+
+def _parse_commit_range_spec(spec: str) -> tuple[str, str]:
+    if "..." in spec or spec.count("..") != 1:
+        raise StateError("commit range must use the form <sha1>..<sha2>")
+    start, end = [part.strip() for part in spec.split("..", 1)]
+    if not start or not end:
+        raise StateError("commit range must include both <sha1> and <sha2>")
+    return start, end
+
+
+def _git_resolve_commit(root: Path, revision: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", f"{revision}^{{commit}}"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def _git_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", ancestor, descendant],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def _git_inclusive_commit_range(root: Path, start_sha: str, end_sha: str) -> list[str]:
+    if start_sha == end_sha:
+        return [start_sha]
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "rev-list",
+            "--reverse",
+            "--ancestry-path",
+            f"{start_sha}..{end_sha}",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return []
+    commits = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    return [start_sha, *commits]
+
+
+def _git_commits_after_base(
+    root: Path,
+    base_sha: str | None,
+    end_sha: str,
+) -> list[str]:
+    revision = f"{base_sha}..{end_sha}" if base_sha else end_sha
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-list", "--reverse", revision],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return []
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _git_first_parent(root: Path, sha: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-list", "--parents", "-n", "1", sha],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    parts = completed.stdout.split()
+    if len(parts) < 2:
+        return None
+    return parts[1]
+
+
+def _validate_fix_in_place_range(store: StateStore, end_sha: str) -> None:
+    head = _git_current_head(store.root)
+    if head != end_sha:
+        raise StateError(
+            "--fix-in-place requires <sha2> to be the current HEAD commit"
+        )
+    changed_paths = _non_review_tracked_changes(store)
+    if changed_paths:
+        raise StateError(
+            "--fix-in-place requires a clean tracked worktree: "
+            + ", ".join(changed_paths)
+        )
+
+
+def _non_review_tracked_changes(store: StateStore) -> list[str]:
+    allowed = {
+        _normalize_repo_path(_artifact_path(store, CODE_REVIEW_SUMMARY_PATH)),
+    }
+    return [
+        path
+        for path in _git_worktree_changed_paths(store.root, include_untracked=False)
+        if path not in allowed
+    ]
+
+
+def _range_code_review_issue_file(start_sha: str, end_sha: str) -> str:
+    return (
+        f"{RANGE_CODE_REVIEW_ISSUE_PREFIX}-"
+        f"{_short_sha(start_sha)}-{_short_sha(end_sha)}.jsonl"
+    )
+
+
+def _commit_review_lines(root: Path, commits: list[str]) -> list[str]:
+    return [
+        f"{_short_sha(commit)} {commit} {_git_commit_subject(root, commit)}"
+        for commit in commits
+    ]
+
+
+def _git_commit_subject(root: Path, commit: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "show", "-s", "--format=%s", commit],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
+
+
+def _short_sha(sha: str) -> str:
+    return sha[:12]
 
 
 def _git_repository_heads(root: Path) -> dict[str, str]:

@@ -104,7 +104,34 @@ Describe the system-level validation strategy for the completed work.
 
 ## Commands
 
-- TBD
+- `new`
+- `meta`
+- `add`
+- `start`
+- `status`
+- `progress`
+- `monitor`
+- `deactivate`
+- `feature`
+- `requirements`
+- `requirements-approve`
+- `design`
+- `design-review`
+- `design-approve`
+- `implementation-plan`
+- `plan-approve`
+- `test-plan`
+- `test-plan-approve`
+- `code`
+- `code-review`
+- `document`
+- `code-approve`
+- `report`
+- `stage`
+- `phase`
+- `validate`
+- `validation-approve`
+- `completion`
 
 ## Configuration
 
