@@ -214,10 +214,12 @@ at `HEAD`. `electroboy code-review <sha1>..<sha2> --fix-in-place` instead asks
 the fix agent to rewrite the offending commits. Both fix modes require the
 range end to be current `HEAD`. New fix attempts require a clean tracked
 working tree. If a previous fix pass was interrupted after writing blocker or
-major findings and left tracked edits behind, rerunning the same command
-resumes with the fix agent first, passes the dirty path list into the prompt,
-and then reruns review. ElectroBoy reruns range review, up to five attempts.
-Minor findings remain recorded but do not force a fix commit or rewrite.
+major findings, rerunning the same command resumes with the fix agent first
+when tracked edits or an in-progress rebase remain. The prompt passes the dirty
+path list and rebase state to the agent, tells it to resolve conflicts, and
+tells it to continue the rewrite until it succeeds. ElectroBoy reruns range
+review, up to five attempts. Minor findings remain recorded but do not force a
+fix commit or rewrite.
 
 `electroboy code --phased` is the explicit manual checkpoint mode. It runs one
 phase and leaves commit creation or commit recording to the operator.

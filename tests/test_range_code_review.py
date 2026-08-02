@@ -191,6 +191,57 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertIn("resuming after an interrupted previous fix", prompts)
         self.assertIn("src/work.py", prompts)
 
+    def test_code_review_fix_in_place_resumes_in_progress_rebase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_rebase_resume_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
+            StateStore(root).init_run(run_id="run-1")
+            issue_file = f"range-code-review-{sha[:12]}-{sha[:12]}.jsonl"
+            write_existing_range_issue(root, issue_file, sha)
+            subprocess.run(
+                ["git", "-C", str(root), "checkout", "--detach", f"{sha}^"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            write_fake_rebase_state(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\npartial\n")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review", f"{sha}..{sha}", "--fix-in-place"]
+            )
+
+            new_head = git_head(root)
+            summary = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+            prompts = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (
+                    root
+                    / ".electroboy"
+                    / "shared"
+                    / "runs"
+                    / "run-1"
+                    / "messages"
+                ).glob("*-prompt.md")
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertNotEqual(new_head, sha)
+        self.assertIn("resuming interrupted fix during in-progress rebase", stdout)
+        self.assertIn("blocker/major findings: 0", stdout)
+        self.assertIn("Status: verified", summary)
+        self.assertIn("in-place rewrite/rebase", prompts)
+        self.assertIn("progress: 20/41", prompts)
+        self.assertIn("Continue the amend or rebase workflow until it succeeds", prompts)
+
 
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -413,6 +464,59 @@ else:
     write_runtime_config(root)
 
 
+def write_rebase_resume_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        """
+from __future__ import annotations
+
+import json
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+prompt = sys.stdin.read()
+if "Fix code-review findings in place" in prompt:
+    if "in-place rewrite/rebase" not in prompt:
+        raise SystemExit("missing in-progress rebase instruction")
+    if "Continue the amend or rebase workflow until it succeeds" not in prompt:
+        raise SystemExit("missing conflict continuation instruction")
+    shutil.rmtree(pathlib.Path(".git") / "rebase-merge")
+    subprocess.run(["git", "checkout", "--", "docs/requirements.md"], check=True)
+    path = pathlib.Path("src/work.py")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("work = True\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/work.py"], check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "code: resumed rebase fix"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(json.dumps({"ok": True, "final_message": "resumed rebase"}))
+else:
+    commits = re.findall(r"- ([0-9a-f]{12}) ([0-9a-f]{40}) ", prompt)
+    commit = commits[-1][1] if commits else ""
+    fixed = pathlib.Path("src/work.py").read_text(encoding="utf-8").strip()
+    issue = {
+        "issue_id": "RCR-RESUME-001",
+        "severity": "major",
+        "status": "verified" if fixed == "work = True" else "open",
+        "summary": "Commit needs a resumed in-place fix.",
+        "commit": commit,
+        "artifact": "src/work.py",
+        "location": "src/work.py:1",
+        "rationale": "Interrupted rebase must be completed.",
+        "requested_change": "Resume the interrupted rebase.",
+    }
+    print(json.dumps({"ok": True, "final_message": "reviewed", "issues": [issue]}))
+""".lstrip(),
+    )
+    write_runtime_config(root)
+
+
 def write_existing_range_issue(root: Path, issue_file: str, commit: str) -> None:
     path = root / ".electroboy" / "shared" / "runs" / "run-1" / issue_file
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,6 +532,18 @@ def write_existing_range_issue(root: Path, issue_file: str, commit: str) -> None
         "requested_change": "Resume the interrupted fix.",
     }
     path.write_text(json.dumps(issue) + "\n", encoding="utf-8")
+
+
+def write_fake_rebase_state(root: Path) -> None:
+    rebase_dir = root / ".git" / "rebase-merge"
+    rebase_dir.mkdir(parents=True, exist_ok=True)
+    write_file(rebase_dir / "msgnum", "20\n")
+    write_file(rebase_dir / "end", "41\n")
+    write_file(
+        rebase_dir / "stopped-sha",
+        "814298cc4b859e6538349d9146edd35130655bcf\n",
+    )
+    write_file(rebase_dir / "head-name", "refs/heads/adm-sched-v01\n")
 
 
 def write_runtime_config(root: Path) -> None:

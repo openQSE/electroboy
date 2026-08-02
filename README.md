@@ -265,14 +265,15 @@ electroboy code-review <sha1>..<sha2> --fix-in-place
 
 Both fix modes require `<sha2>` to be the current `HEAD`. New fix attempts
 require a clean tracked working tree. If an earlier fix pass was interrupted
-after writing blocker or major findings and left tracked edits behind, rerun
-the same command; ElectroBoy resumes with the fix agent first, tells it which
-paths are already dirty, and then reruns review. `--fix-followup` must
-preserve the reviewed commits and add new fix commits after the range.
-`--fix-in-place` must fold blocker and major fixes into the offending commits
-rather than creating follow-up commits. ElectroBoy then reruns the range
-review, up to five attempts. Minor findings remain recorded but do not require
-a fix commit or rewrite.
+after writing blocker or major findings, rerun the same command; ElectroBoy
+resumes with the fix agent first when tracked edits or an in-progress rebase
+remain. The fix prompt tells the agent which paths are already dirty, tells it
+to resolve rebase conflicts, and tells it to continue the rewrite until it
+succeeds. `--fix-followup` must preserve the reviewed commits and add new fix
+commits after the range. `--fix-in-place` must fold blocker and major fixes
+into the offending commits rather than creating follow-up commits. ElectroBoy
+then reruns the range review, up to five attempts. Minor findings remain
+recorded but do not require a fix commit or rewrite.
 
 Long-running non-interactive passes write hidden progress files under the
 active run. From another activated shell, use `progress` to watch concise agent

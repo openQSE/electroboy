@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+from dataclasses import dataclass
 import difflib
 import json
 import os
@@ -73,6 +74,12 @@ STAGE_REQUIRED_FILES = {
     STAGE_PLAN: "docs/implementation-plan.md",
     STAGE_TEST_PLAN: "docs/test-plan.md",
 }
+
+
+@dataclass(frozen=True)
+class RangeFixResumeState:
+    dirty_paths: list[str]
+    rebase_state: dict[str, str] | None = None
 
 STAGE_COMPLETED_GATES = {
     STAGE_REQUIREMENTS: GATE_REQUIREMENTS,
@@ -2186,9 +2193,9 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
 
     fix_mode = _range_code_review_fix_mode(args)
     issue_file = _range_code_review_issue_file(start_sha, end_sha)
-    resume_dirty_paths: list[str] = []
+    resume_state = RangeFixResumeState(dirty_paths=[])
     if fix_mode in {"in-place", "followup"}:
-        resume_dirty_paths = _validate_fix_range_at_head(
+        resume_state = _validate_fix_range_at_head(
             store,
             end_sha,
             fix_mode,
@@ -2199,7 +2206,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
     current_end = end_sha
     current_commits = commits
     next_attempt = 1
-    if resume_dirty_paths:
+    if resume_state.dirty_paths or resume_state.rebase_state:
         summary_path = _write_range_code_review_summary(
             store,
             range_spec=args.range,
@@ -2214,10 +2221,16 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
         print(f"issue file: {issue_file}")
         print(f"commits reviewed: {len(current_commits)}")
         print(f"blocker/major findings: {len(_blocking_issues(store, issue_file))}")
-        print(
-            "resuming interrupted fix with dirty tracked worktree: "
-            + ", ".join(resume_dirty_paths)
-        )
+        if resume_state.rebase_state:
+            print(
+                "resuming interrupted fix during in-progress rebase: "
+                + _format_rebase_state(resume_state.rebase_state)
+            )
+        if resume_state.dirty_paths:
+            print(
+                "resuming interrupted fix with dirty tracked worktree: "
+                + ", ".join(resume_state.dirty_paths)
+            )
         fix_code = _run_range_code_fix(
             store,
             base_sha,
@@ -2228,7 +2241,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             1,
             fix_mode,
             operator_messages,
-            resume_dirty_paths,
+            resume_state,
         )
         if fix_code != 0:
             return fix_code
@@ -2317,7 +2330,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             attempt,
             fix_mode,
             operator_messages,
-            [],
+            RangeFixResumeState(dirty_paths=[]),
         )
         if fix_code != 0:
             return fix_code
@@ -2387,7 +2400,7 @@ def _run_range_code_fix(
     attempt: int,
     fix_mode: str,
     operator_messages: list[str],
-    resume_dirty_paths: list[str],
+    resume_state: RangeFixResumeState,
 ) -> int:
     result, _event_id, _issue_file = _invoke_agent_role(
         store,
@@ -2402,7 +2415,7 @@ def _run_range_code_fix(
             attempt,
             fix_mode,
             operator_messages,
-            resume_dirty_paths,
+            resume_state,
         ),
         context_paths=[
             *_range_code_review_context_paths(store),
@@ -2413,6 +2426,14 @@ def _run_range_code_fix(
         print(
             result.final_message,
             end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    rebase_state = _git_rebase_state(store.root)
+    if rebase_state:
+        print(
+            f"error: --fix-{fix_mode} left an in-progress rebase: "
+            + _format_rebase_state(rebase_state),
+            file=sys.stderr,
         )
         return 1
     changed_paths = _non_review_tracked_changes(store)
@@ -4269,6 +4290,9 @@ def _prompt_with_feature_branch_guard(
         "- This applies to the active target repository and to nested",
         "  repositories you edit, such as subdirectories with their own .git",
         "  directory.",
+        "- If the repository is already in an in-progress rebase, detached",
+        "  HEAD is expected. Do not switch branches; resolve and continue the",
+        "  current rebase.",
         f"- If the branch exists, switch with: git switch {branch}",
         f"- If the branch does not exist, create it with: git switch -c {branch}",
         "- Do not use force checkout or discard tracked changes. If switching",
@@ -5000,7 +5024,7 @@ def _range_code_fix_prompt(
     attempt: int,
     fix_mode: str,
     operator_messages: list[str],
-    resume_dirty_paths: list[str],
+    resume_state: RangeFixResumeState,
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
@@ -5039,11 +5063,31 @@ def _range_code_fix_prompt(
         "context.",
         "Do not modify commits before the range base parent.",
         "Do not rewrite unrelated commits outside the listed range.",
-        "If a conflict or unsafe rewrite occurs, stop and report the exact",
-        "repository state. Do not resolve conflicts by guessing.",
+        "If rebase, amend, or merge conflicts occur, inspect both sides and",
+        "resolve them according to the approved context, review findings, and",
+        "current repository behavior. Do not stop merely because conflicts",
+        "occur.",
+        "Continue the amend or rebase workflow until it succeeds.",
         "Leave the working tree clean when finished.",
     ]
-    if resume_dirty_paths:
+    if resume_state.rebase_state:
+        lines.extend(
+            [
+                "",
+                "This fix pass is resuming while an in-place rewrite/rebase",
+                "is already in progress. Do not start a new rebase from",
+                "scratch. Inspect the current repository state, resolve the",
+                "current conflicts, stage resolved paths, and continue the",
+                "existing rebase until it completes. If later rebase conflicts",
+                "occur, resolve them and continue again.",
+                "",
+                "Current rebase state:",
+                *_markdown_list(
+                    _range_rebase_state_prompt_lines(resume_state.rebase_state)
+                ),
+            ]
+        )
+    if resume_state.dirty_paths:
         lines.extend(
             [
                 "",
@@ -5054,7 +5098,7 @@ def _range_code_fix_prompt(
                 "final corrected commits.",
                 "",
                 "Dirty tracked paths from the interrupted fix attempt:",
-                *_markdown_list(resume_dirty_paths),
+                *_markdown_list(resume_state.dirty_paths),
             ]
         )
     lines.extend(
@@ -7084,21 +7128,93 @@ def _validate_fix_range_at_head(
     end_sha: str,
     fix_mode: str,
     issue_file: str,
-) -> list[str]:
+) -> RangeFixResumeState:
     head = _git_current_head(store.root)
+    rebase_state = _git_rebase_state(store.root)
+    has_blocking_review = bool(_blocking_issues(store, issue_file))
     if head != end_sha:
+        if rebase_state and has_blocking_review:
+            return RangeFixResumeState(
+                dirty_paths=_non_review_tracked_changes(store),
+                rebase_state=rebase_state,
+            )
         raise StateError(
             f"--fix-{fix_mode} requires <sha2> to be the current HEAD commit"
         )
     changed_paths = _non_review_tracked_changes(store)
     if not changed_paths:
-        return []
-    if _blocking_issues(store, issue_file):
-        return changed_paths
+        return RangeFixResumeState(dirty_paths=[])
+    if has_blocking_review:
+        return RangeFixResumeState(
+            dirty_paths=changed_paths,
+            rebase_state=rebase_state,
+        )
     raise StateError(
         f"--fix-{fix_mode} requires a clean tracked worktree: "
         + ", ".join(changed_paths)
     )
+
+
+def _git_rebase_state(root: Path) -> dict[str, str] | None:
+    for rebase_dir_name in ["rebase-merge", "rebase-apply"]:
+        rebase_dir = _git_internal_path(root, rebase_dir_name)
+        if rebase_dir is not None and rebase_dir.exists():
+            state = {
+                "kind": rebase_dir_name,
+                "path": _normalize_repo_path(str(rebase_dir)),
+            }
+            for file_name in ["msgnum", "end", "stopped-sha", "head-name"]:
+                value = _read_first_line(rebase_dir / file_name)
+                if value:
+                    state[file_name] = value
+            return state
+    return None
+
+
+def _git_internal_path(root: Path, name: str) -> Path | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--git-path", name],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    path = Path(completed.stdout.strip())
+    if not path.is_absolute():
+        return root / path
+    return path
+
+
+def _read_first_line(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (FileNotFoundError, IndexError, OSError):
+        return None
+
+
+def _format_rebase_state(state: dict[str, str]) -> str:
+    progress = ""
+    if state.get("msgnum") and state.get("end"):
+        progress = f" ({state['msgnum']}/{state['end']})"
+    stopped_sha = state.get("stopped-sha")
+    stopped = f", stopped at {stopped_sha}" if stopped_sha else ""
+    return f"{state.get('kind', 'rebase')}{progress}{stopped}"
+
+
+def _range_rebase_state_prompt_lines(state: dict[str, str]) -> list[str]:
+    lines = [
+        f"kind: {state.get('kind', 'unknown')}",
+        f"path: {state.get('path', 'unknown')}",
+    ]
+    if state.get("msgnum") and state.get("end"):
+        lines.append(f"progress: {state['msgnum']}/{state['end']}")
+    if state.get("stopped-sha"):
+        lines.append(f"stopped commit: {state['stopped-sha']}")
+    if state.get("head-name"):
+        lines.append(f"rebasing branch: {state['head-name']}")
+    return lines
 
 
 def _non_review_tracked_changes(store: StateStore) -> list[str]:
