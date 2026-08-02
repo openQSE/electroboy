@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import threading
-import time
 from pathlib import Path
 from typing import TextIO
 
@@ -35,13 +34,11 @@ class GenericCliRuntime(AgentRuntime):
                 "env": self._runtime_env(),
                 "check": False,
             }
-            if "timeout" in self.config.options:
-                run_kwargs["timeout"] = float(self.config.options["timeout"])
             completed = subprocess.run(
                 command,
                 **run_kwargs,
             )
-        except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as error:
+        except (FileNotFoundError, OSError) as error:
             return AgentResult(
                 ok=False,
                 final_message=f"Agent runtime failed: {error}",
@@ -89,31 +86,9 @@ class GenericCliRuntime(AgentRuntime):
             stdout_chunks,
             stderr_chunks,
         )
-        progress_path = self._resolve_progress_path(invocation.progress_path)
-        idle_timeout = self._progress_idle_timeout(invocation)
-        last_mtime = self._progress_mtime(progress_path)
-        last_update = time.monotonic()
-        poll_interval = min(1.0, max(0.05, idle_timeout / 10.0))
-
-        while process.poll() is None:
-            current_mtime = self._progress_mtime(progress_path)
-            if current_mtime is not None and current_mtime != last_mtime:
-                last_mtime = current_mtime
-                last_update = time.monotonic()
-            if time.monotonic() - last_update > idle_timeout:
-                return self._kill_for_idle_progress(
-                    process,
-                    threads,
-                    command,
-                    invocation.progress_path or str(progress_path),
-                    idle_timeout,
-                    stdout_chunks,
-                    stderr_chunks,
-                )
-            time.sleep(poll_interval)
-
+        process.wait()
         for thread in threads:
-            thread.join(timeout=1.0)
+            thread.join()
         return self._result_from_process(
             command,
             process.returncode or 0,
@@ -173,43 +148,6 @@ class GenericCliRuntime(AgentRuntime):
         except (BrokenPipeError, OSError, ValueError):
             return
 
-    def _kill_for_idle_progress(
-        self,
-        process: subprocess.Popen[str],
-        threads: list[threading.Thread],
-        command: list[str],
-        progress_path: str,
-        idle_timeout: float,
-        stdout_chunks: list[str],
-        stderr_chunks: list[str],
-    ) -> AgentResult:
-        process.kill()
-        try:
-            process.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            process.terminate()
-        for thread in threads:
-            thread.join(timeout=0.5)
-        message = (
-            f"Agent runtime failed: progress file {progress_path} was not "
-            f"updated for {idle_timeout:g} seconds"
-        )
-        raw_events: list[dict[str, object]] = [
-            {
-                "error": message,
-                "progress_path": progress_path,
-                "stdout": "".join(stdout_chunks),
-                "stderr": "".join(stderr_chunks),
-            }
-        ]
-        return AgentResult(
-            ok=False,
-            final_message=message,
-            raw_events=raw_events,
-            commands=[" ".join(command)],
-            error=message,
-        )
-
     def _result_from_process(
         self,
         command: list[str],
@@ -225,29 +163,6 @@ class GenericCliRuntime(AgentRuntime):
             result.raw_events.append({"stream": "stderr", "text": stderr})
         result.commands.append(" ".join(command))
         return result
-
-    def _resolve_progress_path(self, progress_path: str | None) -> Path:
-        if not progress_path:
-            return self.root
-        path = Path(progress_path)
-        if path.is_absolute():
-            return path
-        return self.root / path
-
-    def _progress_mtime(self, progress_path: Path) -> float | None:
-        try:
-            return progress_path.stat().st_mtime
-        except FileNotFoundError:
-            return None
-
-    def _progress_idle_timeout(self, invocation: AgentInvocation) -> float:
-        if invocation.progress_idle_timeout is not None:
-            return invocation.progress_idle_timeout
-        configured = self.config.options.get("progress_idle_timeout", "300")
-        try:
-            return float(configured)
-        except ValueError:
-            return 300.0
 
     def _command(self, invocation: AgentInvocation) -> list[str]:
         return [self.config.command, *self.config.args]

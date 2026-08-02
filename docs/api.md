@@ -291,13 +291,14 @@ code_review = "codex"
 
 The design-author role opens the interactive Codex CLI. Long-running
 non-interactive roles receive a progress file under
-`.electroboy/shared/runs/<run-id>/progress/`. ElectroBoy stops the runtime when
-that file has not been updated for 300 seconds. `electroboy progress` follows
-those files from another activated shell. Review prompts prohibit modifying
-project files other than the progress file, and explicit runtime sandbox
-options still override the default sandbox choice. Automated review roles must
-return a final JSON object with `ok`, `final_message`, and `issues`; malformed
-or free-form review output blocks the stage instead of being interpreted.
+`.electroboy/shared/runs/<run-id>/progress/`. `electroboy progress` follows
+those files from another activated shell. Progress files are informational;
+ElectroBoy lets agent runtimes continue until they exit or the operator
+interrupts them. Review prompts prohibit modifying project files other than the
+progress file, and explicit runtime sandbox options still override the default
+sandbox choice. Automated review roles must return a final JSON object with
+`ok`, `final_message`, and `issues`; malformed or free-form review output
+blocks the stage instead of being interpreted.
 
 ## Public Python Modules
 

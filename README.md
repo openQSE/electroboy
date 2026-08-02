@@ -282,9 +282,9 @@ electroboy progress
 follows live updates by default; use `--once` to print the current snapshot and
 exit.
 
-If the progress file is not updated for 300 seconds, ElectroBoy stops the
-runtime and reports the idle progress file instead of using a generic
-wall-clock timeout.
+Progress files are informational only. ElectroBoy does not stop an agent just
+because progress output pauses; the agent runs until it exits or the operator
+interrupts it.
 
 After `code` completes, revisit and approve the run's test-plan artifact.
 Validation requires that approved system test plan, always runs the full test

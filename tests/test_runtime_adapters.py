@@ -346,14 +346,13 @@ class RuntimeAdapterTests(unittest.TestCase):
                     role="review",
                     prompt="prompt",
                     progress_path="progress.md",
-                    progress_idle_timeout=1.0,
                 )
             )
 
         self.assertTrue(result.ok)
         self.assertEqual(result.final_message, "done")
 
-    def test_generic_cli_progress_monitor_fails_when_idle(self) -> None:
+    def test_generic_cli_progress_monitor_does_not_fail_when_idle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             progress = root / "progress.md"
@@ -363,7 +362,14 @@ class RuntimeAdapterTests(unittest.TestCase):
                     name="test",
                     adapter="generic_cli",
                     command=sys.executable,
-                    args=["-c", "import time; time.sleep(1)"],
+                    args=[
+                        "-c",
+                        (
+                            "import json, time; "
+                            "time.sleep(0.2); "
+                            "print(json.dumps({'final_message': 'done'}))"
+                        ),
+                    ],
                 ),
                 root,
             )
@@ -373,12 +379,11 @@ class RuntimeAdapterTests(unittest.TestCase):
                     role="review",
                     prompt="prompt",
                     progress_path="progress.md",
-                    progress_idle_timeout=0.1,
                 )
             )
 
-        self.assertFalse(result.ok)
-        self.assertIn("progress file progress.md was not updated", result.final_message)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.final_message, "done")
 
 
 if __name__ == "__main__":

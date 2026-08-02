@@ -192,10 +192,10 @@ a temporary prompt file, or command arguments, depending on the runtime
 configuration.
 
 This adapter is responsible for process execution, stdout and stderr capture,
-exit-code interpretation, response parsing, and progress-idle monitoring for
-invocations that receive a progress file. When the CLI cannot emit structured
-JSON directly, the prompt contract requires the final response to include the
-structured fields that the parser needs.
+exit-code interpretation, and response parsing for invocations that receive a
+progress file. When the CLI cannot emit structured JSON directly, the prompt
+contract requires the final response to include the structured fields that the
+parser needs.
 
 The generic adapter supports CLIs such as Claude or local agent tools without
 changing orchestrator logic. Runtime-specific behavior stays in configuration
@@ -478,8 +478,8 @@ indicators for the active phase, code review, test review, escalations, and
 resumable checkpoints. Long-running non-interactive agent roles also receive a
 run-local Markdown progress file. The orchestrator prints the path, instructs
 the agent to append concise status lines, exposes those lines through
-`electroboy progress`, and stops the runtime if that file is idle for more than
-300 seconds.
+`electroboy progress`, and lets the runtime continue until the agent exits or
+the operator interrupts it.
 
 `test-plan` can run before it becomes the active stage so operators can capture
 system-test cases during design, planning, or implementation. After code

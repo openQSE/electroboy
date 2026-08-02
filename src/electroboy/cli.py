@@ -179,8 +179,6 @@ AGENT_ISSUE_FILES = {
     "documentation-review": "documentation-review.jsonl",
 }
 
-AGENT_PROGRESS_IDLE_TIMEOUT_SECONDS = 300.0
-
 AGENT_PROGRESS_ROLES = {
     "design_review",
     "design-review",
@@ -4137,9 +4135,6 @@ def _invoke_agent_role(
         output_schema=output_schema,
         provider_session_id=provider_session_id,
         progress_path=progress_context_path,
-        progress_idle_timeout=(
-            AGENT_PROGRESS_IDLE_TIMEOUT_SECONDS if progress_context_path else None
-        ),
     )
     try:
         runtime = runtime_for_role(

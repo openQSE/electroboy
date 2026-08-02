@@ -540,8 +540,8 @@ the review agent, writing the review summary, and completing the gate. In
 non-interactive output it prints the same steps as plain text. For each
 non-interactive agent pass, the orchestrator also prints a progress file path,
 instructs the agent to append concise status lines, exposes those lines through
-`electroboy progress`, and stops the runtime if that file is idle for more than
-300 seconds.
+`electroboy progress`, and lets the runtime continue until the agent exits or
+the operator interrupts it.
 
 At the end of each review pass the orchestrator writes the run's design-review
 summary artifact. For normal runs this is `docs/design-review.md`; feature
