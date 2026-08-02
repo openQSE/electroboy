@@ -28,6 +28,10 @@ class RuntimeConfigTests(unittest.TestCase):
             config.runtime_for_role("design_author_update").adapter,
             "codex_exec",
         )
+        self.assertEqual(
+            config.runtime_for_role("coding_interactive").adapter,
+            "codex_interactive",
+        )
         self.assertIn("COLORTERM", config.runtime_for_role("design_author").env)
         self.assertIn("COLORTERM", config.runtime_for_role("design_review").env)
 

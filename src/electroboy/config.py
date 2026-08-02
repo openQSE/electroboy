@@ -86,6 +86,7 @@ DEFAULT_CONFIG = PipelineConfig(
     roles={
         "design_author": "codex-interactive",
         "design_author_update": "codex",
+        "coding_interactive": "codex-interactive",
     },
 )
 

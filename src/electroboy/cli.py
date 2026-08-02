@@ -214,6 +214,8 @@ MUTATING_AGENT_ROLES = {
     "design_author_update",
     "design-author-update",
     "coding",
+    "coding_interactive",
+    "coding-interactive",
     "range_code_fix",
     "range-code-fix",
     "documentation",
@@ -471,10 +473,16 @@ def build_parser() -> argparse.ArgumentParser:
     code = subparsers.add_parser("code", help="start or resume implementation")
     code.add_argument("--reason", help="reason for reopening implementation")
     _add_force_option(code)
-    code.add_argument(
+    code_mode = code.add_mutually_exclusive_group()
+    code_mode.add_argument(
         "--phased",
         action="store_true",
         help="run one phase and leave commit recording to the operator",
+    )
+    code_mode.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive coding agent shell for the active phase",
     )
     code.add_argument(
         "--msg",
@@ -2162,6 +2170,8 @@ def _cmd_code(
         return 1
 
     operator_messages = _code_operator_messages(args)
+    if getattr(args, "interactive", False):
+        return _cmd_code_interactive(store, engine, args, operator_messages)
     if getattr(args, "phased", False):
         return _cmd_code_phased(store, engine, args, operator_messages)
     return _cmd_code_automated(store, engine, args, operator_messages)
@@ -2173,6 +2183,71 @@ def _code_operator_messages(args: argparse.Namespace) -> list[str]:
         for message in getattr(args, "msg", []) or []
         if str(message).strip()
     ]
+
+
+def _cmd_code_interactive(
+    store: StateStore,
+    engine: GateEngine,
+    args: argparse.Namespace,
+    operator_messages: list[str],
+) -> int:
+    phase_status = store.load_phase_status()
+    if phase_status.active_phase is None:
+        next_phase = _next_uncommitted_phase(store)
+        if next_phase is None:
+            _print_progress("implementation", "all planned phases are committed")
+            return _complete_implementation_stage(store, engine)
+        _start_code_phase(store, next_phase)
+        phase = next_phase
+        _print_progress("implementation", f"started phase {phase}")
+    else:
+        phase = phase_status.active_phase
+        _print_progress("implementation", f"resuming phase {phase}")
+        store.append_activity(
+            ActivityEvent(
+                actor="orchestrator",
+                stage=STAGE_IMPLEMENTATION,
+                phase=phase,
+                action="code-interactive-resumed",
+                summary=f"Resumed interactive implementation phase {phase}.",
+            )
+        )
+
+    plan_path = _artifact_path(store, "docs/implementation-plan.md")
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="coding_interactive",
+        prompt=_interactive_coding_prompt(
+            store,
+            phase,
+            operator_messages,
+        ),
+        context_paths=_implementation_context_paths(store),
+        session_stage=STAGE_IMPLEMENTATION,
+        session_artifact=plan_path,
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    store.append_activity(
+        ActivityEvent(
+            actor="coding-agent",
+            stage=STAGE_IMPLEMENTATION,
+            phase=phase,
+            action="interactive-code-session-recorded",
+            summary=f"Completed interactive implementation session for phase {phase}.",
+            inputs=_implementation_context_paths(store),
+            outputs=[],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print("interactive code session completed")
+    print(f"active phase: {phase}")
+    print("next: run `electroboy code` to continue automated review and commit")
+    return 0
 
 
 def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
@@ -4590,14 +4665,25 @@ def _prompt_with_session_recovery(
     if artifact_text:
         lines.extend(["", f"Current {artifact}:", artifact_text])
     lines.extend(
-        [
-            "",
-            "Continue the authoring work from this context. Promote any",
-            "project-relevant decisions into the target artifact before asking",
-            "for approval.",
-        ]
+        _session_recovery_next_step_lines(role)
     )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _session_recovery_next_step_lines(role: str) -> list[str]:
+    if role in {"coding_interactive", "coding-interactive"}:
+        return [
+            "",
+            "Continue the implementation work from this context. Preserve",
+            "useful in-progress changes, avoid repeating completed work, and",
+            "keep the implementation aligned with the approved artifacts.",
+        ]
+    return [
+        "",
+        "Continue the authoring work from this context. Promote any",
+        "project-relevant decisions into the target artifact before asking",
+        "for approval.",
+    ]
 
 
 def _session_recovery_artifact_text(root: Path, artifact: str | None) -> str:
@@ -4816,6 +4902,45 @@ def _coding_prompt(
             "If approved requirements, design, plan, or test-plan artifacts need",
             "to change, report the required upstream change and why.",
             "Report files changed and a concise commit_message when finished.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _interactive_coding_prompt(
+    store: StateStore,
+    phase_number: int,
+    operator_messages: list[str],
+) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
+    lines = [
+        f"Work interactively with the operator on implementation phase {phase_number}.",
+        "",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        "This session is for operator-guided implementation and fine tuning.",
+        "Ask the operator before making broad changes outside the active",
+        "phase. Continue from the current working tree instead of restarting",
+        "from scratch.",
+    ]
+    lines.extend(_phase_boundary_instruction_lines(phase_number))
+    lines.extend(_coding_operator_instruction_lines(operator_messages))
+    lines.extend(
+        [
+            "",
+            "Inspect only files needed for this interactive implementation",
+            "work.",
+            "Do not run the automated code review or test review loop yourself;",
+            "ElectroBoy will do that when the operator runs `electroboy code`.",
+            "Do not create git commits during this interactive implementation",
+            "session. Leave changes in the working tree for ElectroBoy's review",
+            "and commit workflow.",
+            "Do not update requirements, design, plan, or test-plan documents",
+            "unless the operator explicitly asks you to.",
+            "Before ending the session, summarize files changed, tests run,",
+            "and any remaining work.",
         ]
     )
     return "\n".join(lines)
@@ -5992,6 +6117,7 @@ design_author = "codex-interactive"
 design_author_update = "codex"
 design_review = "codex"
 coding = "codex"
+coding_interactive = "codex-interactive"
 code_review = "codex"
 test_review = "codex"
 documentation = "codex"
@@ -6010,13 +6136,19 @@ def _update_project_config_defaults(path: Path) -> None:
     lines = original.splitlines()
     updated: list[str] = []
     section: str | None = None
-    roles_update_seen = False
+    required_roles = {
+        "design_author_update": "codex",
+        "coding_interactive": "codex-interactive",
+    }
+    seen_required_roles: set[str] = set()
 
     def finish_section() -> None:
-        nonlocal roles_update_seen
-        if section == "roles" and not roles_update_seen:
-            updated.append('design_author_update = "codex"')
-        roles_update_seen = False
+        nonlocal seen_required_roles
+        if section == "roles":
+            for role, runtime_name in required_roles.items():
+                if role not in seen_required_roles:
+                    updated.append(f'{role} = "{runtime_name}"')
+        seen_required_roles = set()
 
     for line in lines:
         stripped = line.strip()
@@ -6027,8 +6159,10 @@ def _update_project_config_defaults(path: Path) -> None:
             continue
         if section in {"runtimes.codex", "runtimes.codex-interactive"}:
             line = _project_config_env_with_colorterm(line)
-        if section == "roles" and stripped.startswith("design_author_update"):
-            roles_update_seen = True
+        if section == "roles" and "=" in stripped:
+            role_name = stripped.split("=", 1)[0].strip()
+            if role_name in required_roles:
+                seen_required_roles.add(role_name)
         updated.append(line)
     finish_section()
 

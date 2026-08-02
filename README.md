@@ -231,6 +231,12 @@ message cannot broaden the active phase scope. Coding and fix passes leave
 changes in the working tree; only the dedicated commit pass may create git
 commits.
 
+Use `code --interactive` to open an interactive coding-agent shell for the
+active or next planned phase. This is for operator-guided fine tuning. The
+interactive session does not run review agents, create phase commits, or
+advance the implementation loop; after exiting, run `electroboy code` to
+continue automated review and commit handling.
+
 Code review summaries are written to `docs/code-review.md` and test review
 summaries are written to `docs/test-review.md`. Feature runs use the matching
 feature-tagged filenames.
@@ -312,6 +318,9 @@ electroboy phase commit <phase> --sha <commit-sha>
 
 `code --phased` preserves the one-phase checkpoint workflow. It runs the active
 phase agents and leaves commit creation or commit recording to the operator.
+`code --interactive` opens an interactive coding-agent shell for the active or
+next planned phase and leaves the implementation loop paused when the shell
+exits.
 
 Expert users can force a workflow command when adopting or repairing an
 existing project. `--force` resets the state machine to that command's stage
@@ -543,6 +552,7 @@ design_author = "codex-interactive"
 design_author_update = "codex"
 design_review = "codex"
 coding = "codex"
+coding_interactive = "codex-interactive"
 code_review = "claude"
 test_review = "codex"
 documentation = "codex"
@@ -554,7 +564,8 @@ python_managed_by_pipeline = false
 ```
 
 The design-author role opens the interactive Codex CLI for requirements,
-design, implementation-plan, and test-plan authoring. Long-running
+design, implementation-plan, and test-plan authoring. The coding-interactive
+role opens the interactive Codex CLI for `code --interactive`. Long-running
 non-interactive roles receive a progress file and run with enough filesystem
 access to update that file unless the runtime configuration supplies an
 explicit sandbox option. Review prompts still prohibit modifying project files

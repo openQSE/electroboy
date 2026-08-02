@@ -93,6 +93,49 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertEqual(status.active_phase, 1)
         self.assertIn("active phase: 1", stdout)
 
+    def test_code_interactive_starts_phase_and_records_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_manual_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n## Phase 1. First Work\n\nRequirements: REQ-1\n",
+            )
+            self.prepare_implementation_run(root)
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "code",
+                    "--interactive",
+                    "--msg",
+                    "focus on scheduler dispatch",
+                ]
+            )
+
+            store = StateStore(root)
+            status = store.load_phase_status()
+            session = store.read_session_record(
+                STAGE_IMPLEMENTATION,
+                "coding_interactive",
+            )
+            prompts = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompts[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(status.active_phase, 1)
+        self.assertIsNotNone(session)
+        session = session or {}
+        self.assertEqual(session["role"], "coding_interactive")
+        self.assertIn("interactive code session completed", stdout)
+        self.assertIn("active phase: 1", stdout)
+        self.assertIn("Work interactively with the operator", prompt)
+        self.assertIn("focus on scheduler dispatch", prompt)
+        self.assertIn("Do not run the automated code review", prompt)
+
     def test_code_command_automates_all_planned_phases_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

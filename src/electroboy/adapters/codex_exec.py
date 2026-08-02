@@ -17,6 +17,8 @@ class CodexExecRuntime(GenericCliRuntime):
     INTERACTIVE_ROLES = {
         "design_author",
         "design-author",
+        "coding_interactive",
+        "coding-interactive",
     }
 
     READ_ONLY_ROLES = {

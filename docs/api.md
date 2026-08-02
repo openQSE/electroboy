@@ -40,8 +40,8 @@ Operator workflow commands:
 - `test-plan [--reason <text>] [--session-id <id>]` starts or resumes system
   test-plan authoring.
 - `test-plan-approve` records human test-plan approval.
-- `code [--reason <text>] [--msg <text>] [--phased]` starts or resumes
-  implementation work.
+- `code [--reason <text>] [--msg <text>] [--phased|--interactive]` starts or
+  resumes implementation work.
 - `code-review <sha1>..<sha2> [--fix-followup|--fix-in-place] [--msg <text>]`
   reviews an inclusive commit range without advancing the pipeline.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
@@ -192,6 +192,12 @@ commit, and continues until the implementation stage is complete. Use
 `--msg "<instruction>"` to append operator guidance to coding-agent
 implementation, fix, and commit prompts for that run.
 
+`electroboy code --interactive` starts or resumes the active implementation
+phase, opens the configured interactive coding runtime, records the session,
+and then returns control without running code review, test review, or phase
+commit handling. Use it for operator-guided fine tuning, then run
+`electroboy code` to continue the automated implementation loop.
+
 For each phase, code review and test review are bounded automatic loops. The
 orchestrator gives the coding agent up to five attempts to resolve blocker and
 major review findings. Minor findings are kept as follow-up notes and do not
@@ -291,10 +297,12 @@ command = "codex"
 [roles]
 design_author = "codex-interactive"
 design_author_update = "codex"
+coding_interactive = "codex-interactive"
 code_review = "codex"
 ```
 
-The design-author role opens the interactive Codex CLI. Long-running
+The design-author and coding-interactive roles open the interactive Codex CLI.
+Long-running
 non-interactive roles receive a progress file under
 `.electroboy/shared/runs/<run-id>/progress/`. `electroboy progress` follows
 those files from another activated shell. Progress files are informational;
