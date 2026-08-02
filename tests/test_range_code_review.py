@@ -94,6 +94,36 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertIn("Fix in place: yes", summary)
         self.assertIn("Status: verified", summary)
 
+    def test_code_review_fix_followup_appends_commit_and_reruns_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_fix_followup_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review", f"{sha}..{sha}", "--fix-followup"]
+            )
+
+            new_head = git_head(root)
+            reviewed_commit = git_revision(root, f"{new_head}~1")
+            summary = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(reviewed_commit, sha)
+        self.assertNotEqual(new_head, sha)
+        self.assertIn("blocker/major findings: 1", stdout)
+        self.assertIn("blocker/major findings: 0", stdout)
+        self.assertIn("Fix follow-up: yes", summary)
+        self.assertIn("Status: verified", summary)
+
 
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,8 +162,12 @@ def create_commit(root: Path, relative_path: str, text: str, message: str) -> st
 
 
 def git_head(root: Path) -> str:
+    return git_revision(root, "HEAD")
+
+
+def git_revision(root: Path, revision: str) -> str:
     completed = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        ["git", "-C", str(root), "rev-parse", revision],
         check=True,
         capture_output=True,
         text=True,
@@ -210,6 +244,52 @@ else:
         "location": "src/work.py:1",
         "rationale": "The commit must be corrected before the range passes.",
         "requested_change": "Amend the offending commit.",
+    }
+    print(json.dumps({"ok": True, "final_message": "reviewed", "issues": [issue]}))
+""".lstrip(),
+    )
+    write_runtime_config(root)
+
+
+def write_fix_followup_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        """
+from __future__ import annotations
+
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+prompt = sys.stdin.read()
+if "Fix code-review findings as follow-up commits" in prompt:
+    path = pathlib.Path("src/followup.py")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("followup = True\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/followup.py"], check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "code: follow-up fix"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(json.dumps({"ok": True, "final_message": "fixed"}))
+else:
+    commits = re.findall(r"- ([0-9a-f]{12}) ([0-9a-f]{40}) ", prompt)
+    commit = commits[0][1] if commits else ""
+    fixed = pathlib.Path("src/followup.py").exists()
+    issue = {
+        "issue_id": "RCR-FOLLOWUP-001",
+        "severity": "major",
+        "status": "verified" if fixed else "open",
+        "summary": "Commit needs a follow-up fix.",
+        "commit": commit,
+        "artifact": "src/work.py",
+        "location": "src/work.py:1",
+        "rationale": "The range should be fixed without rewriting it.",
+        "requested_change": "Add a follow-up fix commit.",
     }
     print(json.dumps({"ok": True, "final_message": "reviewed", "issues": [issue]}))
 """.lstrip(),

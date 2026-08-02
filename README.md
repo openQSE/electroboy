@@ -249,6 +249,13 @@ and test plan. Findings are recorded in `docs/code-review.md` and in the
 active run's internal range review issue file. The default mode is review-only
 and does not modify files.
 
+Use `--fix-followup` when you want ElectroBoy to preserve the reviewed commits
+and launch a fix agent that appends follow-up commits at `HEAD`:
+
+```bash
+electroboy code-review <sha1>..<sha2> --fix-followup
+```
+
 Use `--fix-in-place` only when you want ElectroBoy to launch a fix agent that
 rewrites the current branch range:
 
@@ -256,11 +263,12 @@ rewrites the current branch range:
 electroboy code-review <sha1>..<sha2> --fix-in-place
 ```
 
-`--fix-in-place` requires `<sha2>` to be the current `HEAD` and the tracked
-working tree to be clean. The fix agent must fold blocker and major fixes into
-the offending commits rather than creating follow-up commits. ElectroBoy then
-reruns the range review, up to five attempts. Minor findings remain recorded
-but do not require a rewrite.
+Both fix modes require `<sha2>` to be the current `HEAD` and the tracked
+working tree to be clean. `--fix-followup` must preserve the reviewed commits
+and add new fix commits after the range. `--fix-in-place` must fold blocker and
+major fixes into the offending commits rather than creating follow-up commits.
+ElectroBoy then reruns the range review, up to five attempts. Minor findings
+remain recorded but do not require a fix commit or rewrite.
 
 Long-running non-interactive passes write hidden progress files under the
 active run. From another activated shell, use `progress` to watch concise agent
@@ -405,7 +413,7 @@ Implemented capabilities:
 - Automated phase start, review, test review, drift, and commit recording, plus
   manual `phase commit` for phased mode.
 - Explicit `code-review <sha1>..<sha2>` audits for already-written commit
-  ranges, with optional in-place fix/review loops.
+  ranges, with optional follow-up or in-place fix/review loops.
 - Final validation and documentation review gates.
 - Public workflow commands that reopen earlier baselines with `--reason`.
 - Expert command-level stage resets with `electroboy <command> --force`.

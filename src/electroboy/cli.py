@@ -486,10 +486,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SHA1..SHA2",
         help="inclusive commit range to review",
     )
-    code_review.add_argument(
+    code_review_fix = code_review.add_mutually_exclusive_group()
+    code_review_fix.add_argument(
         "--fix-in-place",
         action="store_true",
         help="rewrite the current HEAD range to address blocker/major findings",
+    )
+    code_review_fix.add_argument(
+        "--fix-followup",
+        action="store_true",
+        help="create follow-up commits at HEAD for blocker/major findings",
     )
     code_review.add_argument(
         "--msg",
@@ -2180,9 +2186,9 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
     if not commits:
         raise StateError(f"commit range is empty: {args.range}")
 
-    fix_in_place = bool(getattr(args, "fix_in_place", False))
-    if fix_in_place:
-        _validate_fix_in_place_range(store, end_sha)
+    fix_mode = _range_code_review_fix_mode(args)
+    if fix_mode in {"in-place", "followup"}:
+        _validate_fix_range_at_head(store, end_sha, fix_mode)
 
     issue_file = _range_code_review_issue_file(start_sha, end_sha)
     operator_messages = _code_operator_messages(args)
@@ -2198,7 +2204,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
                 current_end,
                 current_commits,
                 attempt,
-                fix_in_place,
+                fix_mode,
                 operator_messages,
             ),
             context_paths=_range_code_review_context_paths(store),
@@ -2220,7 +2226,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             commits=current_commits,
             issue_file=review_issue_file,
             attempt=attempt,
-            fix_in_place=fix_in_place,
+            fix_mode=fix_mode,
         )
         blocking = _blocking_issues(store, review_issue_file)
         print(f"code review: {summary_path}")
@@ -2233,7 +2239,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
                 end="" if result.final_message.endswith("\n") else "\n",
             )
             return 1
-        if not fix_in_place or not blocking:
+        if fix_mode == "none" or not blocking:
             return 0
         if attempt == IMPLEMENTATION_REVIEW_MAX_ATTEMPTS:
             _print_gate_failure(
@@ -2255,22 +2261,65 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             review_issue_file,
             summary_path,
             attempt,
+            fix_mode,
             operator_messages,
         )
         if fix_code != 0:
             return fix_code
+        previous_end = current_end
+        previous_commits = list(current_commits)
         current_end = _git_current_head(store.root) or current_end
-        rewritten_commits = _git_commits_after_base(store.root, base_sha, current_end)
-        if len(rewritten_commits) != len(current_commits):
-            print(
+        current_commits = _git_commits_after_base(store.root, base_sha, current_end)
+        mode_error = _range_fix_mode_error(
+            fix_mode,
+            previous_end,
+            previous_commits,
+            current_end,
+            current_commits,
+        )
+        if mode_error:
+            print(mode_error, file=sys.stderr)
+            return 1
+    return 1
+
+
+def _range_code_review_fix_mode(args: argparse.Namespace) -> str:
+    if bool(getattr(args, "fix_in_place", False)):
+        return "in-place"
+    if bool(getattr(args, "fix_followup", False)):
+        return "followup"
+    return "none"
+
+
+def _range_fix_mode_error(
+    fix_mode: str,
+    previous_end: str,
+    previous_commits: list[str],
+    current_end: str,
+    current_commits: list[str],
+) -> str | None:
+    if fix_mode == "in-place":
+        if len(current_commits) != len(previous_commits):
+            return (
                 "--fix-in-place changed the range commit count; fixes must be "
                 "folded into the existing commits instead of added as "
-                "follow-up commits",
-                file=sys.stderr,
+                "follow-up commits"
             )
-            return 1
-        current_commits = rewritten_commits
-    return 1
+        return None
+    if fix_mode == "followup":
+        if current_end == previous_end:
+            return "--fix-followup did not create a follow-up commit"
+        if len(current_commits) <= len(previous_commits):
+            return (
+                "--fix-followup rewrote existing commits; fixes must be added "
+                "as follow-up commits at HEAD"
+            )
+        if current_commits[: len(previous_commits)] != previous_commits:
+            return (
+                "--fix-followup changed commits in the reviewed range; fixes "
+                "must preserve the reviewed commits and append follow-up commits"
+            )
+    return None
 
 
 def _run_range_code_fix(
@@ -2281,6 +2330,7 @@ def _run_range_code_fix(
     issue_file: str,
     summary_path: str,
     attempt: int,
+    fix_mode: str,
     operator_messages: list[str],
 ) -> int:
     result, _event_id, _issue_file = _invoke_agent_role(
@@ -2294,6 +2344,7 @@ def _run_range_code_fix(
             issue_file,
             summary_path,
             attempt,
+            fix_mode,
             operator_messages,
         ),
         context_paths=[
@@ -2310,7 +2361,7 @@ def _run_range_code_fix(
     changed_paths = _non_review_tracked_changes(store)
     if changed_paths:
         print(
-            "error: fix-in-place left uncommitted tracked changes: "
+            f"error: --fix-{fix_mode} left uncommitted tracked changes: "
             + ", ".join(changed_paths),
             file=sys.stderr,
         )
@@ -2772,7 +2823,7 @@ def _write_range_code_review_summary(
     commits: list[str],
     issue_file: str,
     attempt: int,
-    fix_in_place: bool,
+    fix_mode: str,
 ) -> str:
     relative_path = _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
     path = store.root / relative_path
@@ -2792,7 +2843,9 @@ def _write_range_code_review_summary(
         f"Start commit: {start_sha}",
         f"End commit: {end_sha}",
         f"Attempt: {attempt}",
-        f"Fix in place: {'yes' if fix_in_place else 'no'}",
+        f"Fix mode: {_range_fix_mode_label(fix_mode)}",
+        f"Fix in place: {'yes' if fix_mode == 'in-place' else 'no'}",
+        f"Fix follow-up: {'yes' if fix_mode == 'followup' else 'no'}",
         f"Commits reviewed: {len(commits)}",
         f"Blocker/major findings: {len(blocking)}",
         "",
@@ -2820,6 +2873,15 @@ def _write_range_code_review_summary(
         )
     )
     return relative_path
+
+
+def _range_fix_mode_label(fix_mode: str) -> str:
+    labels = {
+        "none": "review-only",
+        "in-place": "in-place",
+        "followup": "follow-up",
+    }
+    return labels.get(fix_mode, fix_mode)
 
 
 def _review_issue_detail_lines(issue: dict[str, object], issue_file: str) -> list[str]:
@@ -4825,7 +4887,7 @@ def _range_code_review_prompt(
     end_sha: str,
     commits: list[str],
     attempt: int,
-    fix_in_place: bool,
+    fix_mode: str,
     operator_messages: list[str],
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
@@ -4834,6 +4896,7 @@ def _range_code_review_prompt(
     lines = [
         f"Review commit range {start_sha}..{end_sha} inclusively.",
         f"This is range code-review attempt {attempt}.",
+        f"Fix mode: {_range_fix_mode_label(fix_mode)}.",
         "",
         f"Use {requirements_path}, {design_path}, {plan_path}, and",
         f"{test_plan_path} when present as the approved context.",
@@ -4861,7 +4924,7 @@ def _range_code_review_prompt(
         "Commits to review in order:",
         *_markdown_list(_commit_review_lines(store.root, commits)),
     ]
-    if fix_in_place:
+    if fix_mode != "none":
         lines.extend(
             [
                 "",
@@ -4881,15 +4944,36 @@ def _range_code_fix_prompt(
     issue_file: str,
     summary_path: str,
     attempt: int,
+    fix_mode: str,
     operator_messages: list[str],
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
     )
     base_text = base_sha or "root commit has no parent"
+    if fix_mode == "followup":
+        mode_lines = [
+            "Fix code-review findings as follow-up commits for the current HEAD range.",
+            "Address blocker and major findings by creating one or more new",
+            "commits after the current range end.",
+            "Do not amend, rebase, squash, or otherwise rewrite commits in the",
+            "reviewed range.",
+            "Keep follow-up commits focused on the recorded blocker and major",
+            "findings.",
+        ]
+    else:
+        mode_lines = [
+            "Fix code-review findings in place for the current HEAD commit range.",
+            "Address blocker and major findings by modifying the specific commit",
+            "identified on each issue. Use an in-place history rewrite such as",
+            "interactive rebase, fixup, or amend so the fixes land in the",
+            "offending commits.",
+            "Do not create follow-up fix commits at the end of the range.",
+        ]
     lines = [
-        "Fix code-review findings in place for the current HEAD commit range.",
+        *mode_lines,
         f"This is range fix attempt {attempt}.",
+        f"Fix mode: {_range_fix_mode_label(fix_mode)}.",
         "",
         f"Range base parent: {base_text}",
         f"Current range end before fixes: {end_sha}",
@@ -4898,11 +4982,6 @@ def _range_code_fix_prompt(
         f"{test_plan_path} when present as the approved context.",
         f"Use {summary_path} and internal issue file {issue_file} as review",
         "context.",
-        "Address blocker and major findings by modifying the specific commit",
-        "identified on each issue. Use an in-place history rewrite such as",
-        "interactive rebase, fixup, or amend so the fixes land in the",
-        "offending commits.",
-        "Do not create follow-up fix commits at the end of the range.",
         "Do not modify commits before the range base parent.",
         "Do not rewrite unrelated commits outside the listed range.",
         "If a conflict or unsafe rewrite occurs, stop and report the exact",
@@ -6927,16 +7006,20 @@ def _git_first_parent(root: Path, sha: str) -> str | None:
     return parts[1]
 
 
-def _validate_fix_in_place_range(store: StateStore, end_sha: str) -> None:
+def _validate_fix_range_at_head(
+    store: StateStore,
+    end_sha: str,
+    fix_mode: str,
+) -> None:
     head = _git_current_head(store.root)
     if head != end_sha:
         raise StateError(
-            "--fix-in-place requires <sha2> to be the current HEAD commit"
+            f"--fix-{fix_mode} requires <sha2> to be the current HEAD commit"
         )
     changed_paths = _non_review_tracked_changes(store)
     if changed_paths:
         raise StateError(
-            "--fix-in-place requires a clean tracked worktree: "
+            f"--fix-{fix_mode} requires a clean tracked worktree: "
             + ", ".join(changed_paths)
         )
 
