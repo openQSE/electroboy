@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -123,6 +124,72 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertIn("blocker/major findings: 0", stdout)
         self.assertIn("Fix follow-up: yes", summary)
         self.assertIn("Status: verified", summary)
+
+    def test_code_review_fix_in_place_blocks_dirty_tree_without_review_issue(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
+            StateStore(root).init_run(run_id="run-1")
+            write_file(root / "src" / "work.py", "work = 'unrelated'\n")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review", f"{sha}..{sha}", "--fix-in-place"]
+            )
+
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("requires a clean tracked worktree: src/work.py", stderr)
+
+    def test_code_review_fix_in_place_resumes_dirty_interrupted_fix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_resume_dirty_fix_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
+            StateStore(root).init_run(run_id="run-1")
+            issue_file = f"range-code-review-{sha[:12]}-{sha[:12]}.jsonl"
+            write_existing_range_issue(root, issue_file, sha)
+            write_file(root / "src" / "work.py", "work = 'partial fix'\n")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review", f"{sha}..{sha}", "--fix-in-place"]
+            )
+
+            new_head = git_head(root)
+            summary = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+            prompts = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (
+                    root
+                    / ".electroboy"
+                    / "shared"
+                    / "runs"
+                    / "run-1"
+                    / "messages"
+                ).glob("*-prompt.md")
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertNotEqual(new_head, sha)
+        self.assertIn("resuming interrupted fix", stdout)
+        self.assertIn("blocker/major findings: 1", stdout)
+        self.assertIn("blocker/major findings: 0", stdout)
+        self.assertIn("Status: verified", summary)
+        self.assertIn("resuming after an interrupted previous fix", prompts)
+        self.assertIn("src/work.py", prompts)
 
 
 def write_file(path: Path, text: str) -> None:
@@ -295,6 +362,72 @@ else:
 """.lstrip(),
     )
     write_runtime_config(root)
+
+
+def write_resume_dirty_fix_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        """
+from __future__ import annotations
+
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+prompt = sys.stdin.read()
+if "Fix code-review findings in place" in prompt:
+    if "resuming after an interrupted previous fix" not in prompt:
+        raise SystemExit("missing interrupted-fix resume instruction")
+    if "src/work.py" not in prompt:
+        raise SystemExit("missing dirty path")
+    path = pathlib.Path("src/work.py")
+    path.write_text("work = True\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/work.py"], check=True)
+    subprocess.run(
+        ["git", "commit", "--amend", "--no-edit"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(json.dumps({"ok": True, "final_message": "resumed"}))
+else:
+    commits = re.findall(r"- ([0-9a-f]{12}) ([0-9a-f]{40}) ", prompt)
+    commit = commits[-1][1] if commits else ""
+    fixed = pathlib.Path("src/work.py").read_text(encoding="utf-8").strip()
+    issue = {
+        "issue_id": "RCR-RESUME-001",
+        "severity": "major",
+        "status": "verified" if fixed == "work = True" else "open",
+        "summary": "Commit needs a resumed in-place fix.",
+        "commit": commit,
+        "artifact": "src/work.py",
+        "location": "src/work.py:1",
+        "rationale": "Interrupted dirty edits must be resumed.",
+        "requested_change": "Resume the interrupted fix.",
+    }
+    print(json.dumps({"ok": True, "final_message": "reviewed", "issues": [issue]}))
+""".lstrip(),
+    )
+    write_runtime_config(root)
+
+
+def write_existing_range_issue(root: Path, issue_file: str, commit: str) -> None:
+    path = root / ".electroboy" / "shared" / "runs" / "run-1" / issue_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    issue = {
+        "issue_id": "RCR-RESUME-001",
+        "severity": "major",
+        "status": "open",
+        "summary": "Commit needs a resumed in-place fix.",
+        "commit": commit,
+        "artifact": "src/work.py",
+        "location": "src/work.py:1",
+        "rationale": "Interrupted dirty edits must be resumed.",
+        "requested_change": "Resume the interrupted fix.",
+    }
+    path.write_text(json.dumps(issue) + "\n", encoding="utf-8")
 
 
 def write_runtime_config(root: Path) -> None:

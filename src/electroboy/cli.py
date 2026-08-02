@@ -2185,14 +2185,70 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
         raise StateError(f"commit range is empty: {args.range}")
 
     fix_mode = _range_code_review_fix_mode(args)
-    if fix_mode in {"in-place", "followup"}:
-        _validate_fix_range_at_head(store, end_sha, fix_mode)
-
     issue_file = _range_code_review_issue_file(start_sha, end_sha)
+    resume_dirty_paths: list[str] = []
+    if fix_mode in {"in-place", "followup"}:
+        resume_dirty_paths = _validate_fix_range_at_head(
+            store,
+            end_sha,
+            fix_mode,
+            issue_file,
+        )
+
     operator_messages = _code_operator_messages(args)
     current_end = end_sha
     current_commits = commits
-    for attempt in range(1, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
+    next_attempt = 1
+    if resume_dirty_paths:
+        summary_path = _write_range_code_review_summary(
+            store,
+            range_spec=args.range,
+            start_sha=start_sha,
+            end_sha=current_end,
+            commits=current_commits,
+            issue_file=issue_file,
+            attempt=1,
+            fix_mode=fix_mode,
+        )
+        print(f"code review: {summary_path}")
+        print(f"issue file: {issue_file}")
+        print(f"commits reviewed: {len(current_commits)}")
+        print(f"blocker/major findings: {len(_blocking_issues(store, issue_file))}")
+        print(
+            "resuming interrupted fix with dirty tracked worktree: "
+            + ", ".join(resume_dirty_paths)
+        )
+        fix_code = _run_range_code_fix(
+            store,
+            base_sha,
+            current_end,
+            current_commits,
+            issue_file,
+            summary_path,
+            1,
+            fix_mode,
+            operator_messages,
+            resume_dirty_paths,
+        )
+        if fix_code != 0:
+            return fix_code
+        previous_end = current_end
+        previous_commits = list(current_commits)
+        current_end = _git_current_head(store.root) or current_end
+        current_commits = _git_commits_after_base(store.root, base_sha, current_end)
+        mode_error = _range_fix_mode_error(
+            fix_mode,
+            previous_end,
+            previous_commits,
+            current_end,
+            current_commits,
+        )
+        if mode_error:
+            print(mode_error, file=sys.stderr)
+            return 1
+        next_attempt = 2
+
+    for attempt in range(next_attempt, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
         result, event_id, review_issue_file = _invoke_agent_role(
             store,
             role="range_code_review",
@@ -2261,6 +2317,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             attempt,
             fix_mode,
             operator_messages,
+            [],
         )
         if fix_code != 0:
             return fix_code
@@ -2330,6 +2387,7 @@ def _run_range_code_fix(
     attempt: int,
     fix_mode: str,
     operator_messages: list[str],
+    resume_dirty_paths: list[str],
 ) -> int:
     result, _event_id, _issue_file = _invoke_agent_role(
         store,
@@ -2344,6 +2402,7 @@ def _run_range_code_fix(
             attempt,
             fix_mode,
             operator_messages,
+            resume_dirty_paths,
         ),
         context_paths=[
             *_range_code_review_context_paths(store),
@@ -4941,6 +5000,7 @@ def _range_code_fix_prompt(
     attempt: int,
     fix_mode: str,
     operator_messages: list[str],
+    resume_dirty_paths: list[str],
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
@@ -4982,10 +5042,28 @@ def _range_code_fix_prompt(
         "If a conflict or unsafe rewrite occurs, stop and report the exact",
         "repository state. Do not resolve conflicts by guessing.",
         "Leave the working tree clean when finished.",
+    ]
+    if resume_dirty_paths:
+        lines.extend(
+            [
+                "",
+                "This fix pass is resuming after an interrupted previous fix",
+                "attempt. The tracked working tree already contains partial",
+                "fix edits. Inspect these changes before editing, preserve",
+                "useful work, avoid repeating fixes, and include them in the",
+                "final corrected commits.",
+                "",
+                "Dirty tracked paths from the interrupted fix attempt:",
+                *_markdown_list(resume_dirty_paths),
+            ]
+        )
+    lines.extend(
+        [
         "",
         "Commits in the range before fixes:",
         *_markdown_list(_commit_review_lines(store.root, commits)),
-    ]
+        ]
+    )
     lines.extend(_range_operator_instruction_lines(operator_messages))
     return "\n".join(lines)
 
@@ -7005,18 +7083,22 @@ def _validate_fix_range_at_head(
     store: StateStore,
     end_sha: str,
     fix_mode: str,
-) -> None:
+    issue_file: str,
+) -> list[str]:
     head = _git_current_head(store.root)
     if head != end_sha:
         raise StateError(
             f"--fix-{fix_mode} requires <sha2> to be the current HEAD commit"
         )
     changed_paths = _non_review_tracked_changes(store)
-    if changed_paths:
-        raise StateError(
-            f"--fix-{fix_mode} requires a clean tracked worktree: "
-            + ", ".join(changed_paths)
-        )
+    if not changed_paths:
+        return []
+    if _blocking_issues(store, issue_file):
+        return changed_paths
+    raise StateError(
+        f"--fix-{fix_mode} requires a clean tracked worktree: "
+        + ", ".join(changed_paths)
+    )
 
 
 def _non_review_tracked_changes(store: StateStore) -> list[str]:
