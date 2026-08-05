@@ -42,9 +42,10 @@ Operator workflow commands:
 - `test-plan-approve` records human test-plan approval.
 - `code [--reason <text>] [--msg <text>] [--phased|--interactive]` starts or
   resumes implementation work.
-- `code-review [<sha>|<sha1>..<sha2>] [--fix-followup|--fix-in-place]
-  [--msg <text>]` reviews the current codebase, a commit, or an inclusive
-  commit range without advancing the pipeline.
+- `code-review [list [<cr-id>] | <cr-id> | <sha> | <sha1>..<sha2>]
+  [--fix-followup|--fix-in-place] [--msg <text>] [--verbose]` reviews the
+  current codebase, lists recorded reviews, fixes a recorded review, or
+  reviews a commit/range without advancing the pipeline.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
 - `validate` runs final validation commands and writes a validation report.
@@ -202,10 +203,10 @@ commit handling. Use it for operator-guided fine tuning, then run
 For each phase, code review and test review are bounded automatic loops. The
 orchestrator gives the coding agent up to five attempts to resolve blocker and
 major review findings. Minor findings are kept as follow-up notes and do not
-block the phase. Code review summaries are written to `docs/code-review.md`;
-test review summaries are written to `docs/test-review.md`. Feature runs use
-the corresponding `docs/code-review-<feature>.md` and
-`docs/test-review-<feature>.md` files.
+block the phase. Automated `code` stage review summaries are written to
+`docs/code-review.md`; test review summaries are written to
+`docs/test-review.md`. Feature runs use the corresponding
+`docs/code-review-<feature>.md` and `docs/test-review-<feature>.md` files.
 
 `electroboy code-review` audits the current codebase. `electroboy code-review
 <sha>` audits one commit. `electroboy code-review <sha1>..<sha2>` audits an
@@ -213,18 +214,27 @@ already-written commit range. The range is inclusive, so both endpoint commits
 are reviewed. For ranges, the review agent first inspects the final tree at
 `<sha2>`, then reviews each commit in order against the approved requirements,
 detailed design, implementation plan, and test plan. Findings are written to
-`docs/code-review.md` and the run's review issue file. The default mode is
-review-only and does not modify files.
+an explicit review report such as `docs/code-review-CR-0001.md` and the run's
+review issue file. Feature runs use reports such as
+`docs/code-review-<feature>-CR-0001.md`. The default mode is review-only and
+does not modify files.
+
+Each explicit review gets a stable `CR-####` id. `electroboy code-review list`
+prints recorded review ids, targets, finding counts, and report paths.
+`electroboy code-review list CR-0001 --verbose` prints the recorded findings
+for one review.
 
 `electroboy code-review --fix-followup` and `electroboy code-review <target>
 --fix-followup` launch a fix agent when blocker or major findings remain and
 ask it to append follow-up commits at `HEAD`. `electroboy code-review <target>
 --fix-in-place` instead asks the fix agent to rewrite the offending commit or
-range, so it requires an explicit commit or range target. Both fix modes
-require the reviewed commit target to end at current `HEAD`. New fix attempts
-require a clean tracked working tree. If a previous fix pass was interrupted
-after writing blocker or major findings, rerunning the same command resumes
-with the fix agent first
+range, so it requires an explicit commit, range, or compatible review id
+target. `electroboy code-review CR-0001 --fix-followup` uses the recorded
+findings from that review id and starts with the fix agent instead of rerunning
+review from scratch. Both fix modes require the reviewed commit target to end
+at current `HEAD`. New fix attempts require a clean tracked working tree. If a
+previous fix pass was interrupted after writing blocker or major findings,
+rerunning the same command resumes with the fix agent first
 when tracked edits or an in-progress rebase remain. The prompt passes the dirty
 path list and rebase state to the agent, tells it to resolve conflicts, and
 tells it to continue the rewrite until it succeeds. ElectroBoy reruns range

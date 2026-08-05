@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import difflib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -124,7 +125,8 @@ IMPLEMENTATION_LOG_PATH = "docs/implementation-log.md"
 IMPLEMENTATION_REPORT_PATH = "docs/implementation-report.md"
 CODE_REVIEW_SUMMARY_PATH = "docs/code-review.md"
 RANGE_CODE_REVIEW_ISSUE_PREFIX = "range-code-review"
-CODEBASE_CODE_REVIEW_ISSUE_FILE = "codebase-code-review.jsonl"
+CODE_REVIEW_REGISTRY_FILE = "code-reviews.jsonl"
+CODE_REVIEW_ID_PREFIX = "CR"
 TEST_REVIEW_SUMMARY_PATH = "docs/test-review.md"
 TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
@@ -508,8 +510,17 @@ def build_parser() -> argparse.ArgumentParser:
     code_review.add_argument(
         "target",
         nargs="?",
-        metavar="[SHA|SHA1..SHA2]",
-        help="commit or inclusive commit range to review; omit for full codebase",
+        metavar="[list|CR-ID|SHA|SHA1..SHA2]",
+        help=(
+            "list reviews, fix a review id, review a commit or range, "
+            "or omit for full codebase"
+        ),
+    )
+    code_review.add_argument(
+        "selector",
+        nargs="?",
+        metavar="[CR-ID]",
+        help="review id for `code-review list <id>`",
     )
     code_review_fix = code_review.add_mutually_exclusive_group()
     code_review_fix.add_argument(
@@ -527,6 +538,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="append an instruction to range review and fix prompts",
+    )
+    code_review.add_argument(
+        "--verbose",
+        action="store_true",
+        help="show review findings when listing code-review records",
     )
     document = subparsers.add_parser(
         "document",
@@ -2264,10 +2280,356 @@ def _cmd_code_interactive(
 
 def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
     target_spec = getattr(args, "target", None)
+    selector = getattr(args, "selector", None)
+    if target_spec == "list":
+        return _cmd_code_review_list(
+            store,
+            selector,
+            verbose=bool(getattr(args, "verbose", False)),
+        )
+    if selector:
+        raise StateError(f"unexpected code-review argument: {selector}")
+    review_id = _normalize_code_review_id(target_spec or "")
+    if review_id:
+        return _cmd_existing_code_review(store, args, review_id)
     if not target_spec:
         return _cmd_codebase_code_review(store, args)
     target = _resolve_code_review_range_target(store, target_spec)
     return _cmd_range_code_review(store, args, target)
+
+
+def _normalize_code_review_id(value: str) -> str | None:
+    text = value.strip().upper()
+    if re.fullmatch(rf"{CODE_REVIEW_ID_PREFIX}-\d{{4,}}", text):
+        return text
+    return None
+
+
+def _cmd_code_review_list(
+    store: StateStore,
+    selector: str | None,
+    verbose: bool,
+) -> int:
+    records = _read_code_review_records(store)
+    selected: list[dict[str, object]]
+    if selector:
+        review_id = _normalize_code_review_id(selector)
+        if not review_id:
+            raise StateError(f"invalid code-review id: {selector}")
+        record = _find_code_review_record(store, review_id)
+        if record is None:
+            raise StateError(f"unknown code-review id: {review_id}")
+        selected = [record]
+    else:
+        selected = records
+
+    print("code reviews:")
+    if not selected:
+        print("  - none")
+        return 0
+    for record in selected:
+        print(f"  - {_code_review_record_line(store, record)}")
+        if verbose:
+            _print_code_review_findings(store, record)
+    return 0
+
+
+def _cmd_existing_code_review(
+    store: StateStore,
+    args: argparse.Namespace,
+    review_id: str,
+) -> int:
+    record = _find_code_review_record(store, review_id)
+    if record is None:
+        raise StateError(f"unknown code-review id: {review_id}")
+    fix_mode = _range_code_review_fix_mode(args)
+    if fix_mode == "none":
+        print(_code_review_record_line(store, record))
+        if bool(getattr(args, "verbose", False)):
+            _print_code_review_findings(store, record)
+        else:
+            print(f"report: {record.get('summary_path', '')}")
+            print("next: rerun with --verbose or --fix-followup")
+        return 0
+    target_type = str(record.get("target_type") or "")
+    if target_type == "codebase":
+        return _cmd_codebase_code_review(
+            store,
+            args,
+            review_record=record,
+            start_with_fix=True,
+        )
+    if target_type in {"commit", "range"}:
+        target = _code_review_target_from_record(store, record)
+        return _cmd_range_code_review(
+            store,
+            args,
+            target,
+            review_record=record,
+            start_with_fix=True,
+        )
+    raise StateError(f"unsupported code-review target type for {review_id}")
+
+
+def _code_review_registry_path(store: StateStore) -> Path:
+    manifest = store.load_current_manifest()
+    return store.run_dir(manifest.run_id) / CODE_REVIEW_REGISTRY_FILE
+
+
+def _read_code_review_record_history(store: StateStore) -> list[dict[str, object]]:
+    return store.read_jsonl(_code_review_registry_path(store))
+
+
+def _read_code_review_records(store: StateStore) -> list[dict[str, object]]:
+    latest: dict[str, dict[str, object]] = {}
+    order: list[str] = []
+    for record in _read_code_review_record_history(store):
+        review_id = str(record.get("review_id") or "")
+        if not review_id:
+            continue
+        if review_id not in latest:
+            order.append(review_id)
+        latest[review_id] = record
+    return [latest[review_id] for review_id in order]
+
+
+def _find_code_review_record(
+    store: StateStore,
+    review_id: str,
+) -> dict[str, object] | None:
+    for record in _read_code_review_records(store):
+        if str(record.get("review_id") or "") == review_id:
+            return record
+    return None
+
+
+def _next_code_review_id(store: StateStore) -> str:
+    largest = 0
+    for record in _read_code_review_record_history(store):
+        review_id = str(record.get("review_id") or "")
+        match = re.fullmatch(rf"{CODE_REVIEW_ID_PREFIX}-(\d+)", review_id)
+        if match:
+            largest = max(largest, int(match.group(1)))
+    return f"{CODE_REVIEW_ID_PREFIX}-{largest + 1:04d}"
+
+
+def _append_code_review_record(
+    store: StateStore,
+    record: dict[str, object],
+) -> dict[str, object]:
+    updated = dict(record)
+    updated["updated_at"] = utc_now()
+    store.append_jsonl(_code_review_registry_path(store), updated)
+    return updated
+
+
+def _new_code_review_record(
+    store: StateStore,
+    target_type: str,
+    target_spec: str,
+    **fields: object,
+) -> dict[str, object]:
+    review_id = _next_code_review_id(store)
+    created_at = utc_now()
+    record: dict[str, object] = {
+        "schema_version": 1,
+        "review_id": review_id,
+        "target_type": target_type,
+        "target_spec": target_spec,
+        "issue_file": _code_review_issue_file(review_id),
+        "summary_path": _code_review_summary_path(store, review_id),
+        "status": "created",
+        "fix_mode": "review-only",
+        "finding_count": 0,
+        "blocker_major_count": 0,
+        "minor_count": 0,
+        "open_count": 0,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    record.update(fields)
+    return _append_code_review_record(store, record)
+
+
+def _new_range_code_review_record(
+    store: StateStore,
+    target: CodeReviewRangeTarget,
+) -> dict[str, object]:
+    target_type = "commit" if len(target.commits) == 1 else "range"
+    return _new_code_review_record(
+        store,
+        target_type,
+        target.display_spec,
+        start_sha=target.start_sha,
+        end_sha=target.end_sha,
+        base_sha=target.base_sha,
+        commits=target.commits,
+        mode_label=target.mode_label,
+        commit_count=len(target.commits),
+    )
+
+
+def _new_codebase_code_review_record(
+    store: StateStore,
+    head_sha: str,
+) -> dict[str, object]:
+    return _new_code_review_record(
+        store,
+        "codebase",
+        "codebase",
+        head_sha=head_sha,
+    )
+
+
+def _update_code_review_record(
+    store: StateStore,
+    record: dict[str, object],
+    *,
+    attempt: int,
+    fix_mode: str,
+    status: str,
+    **fields: object,
+) -> dict[str, object]:
+    issue_file = str(record.get("issue_file") or "")
+    updated = dict(record)
+    updated.update(_code_review_issue_counts(store, issue_file))
+    updated.update(
+        {
+            "attempt": attempt,
+            "fix_mode": _range_fix_mode_label(fix_mode),
+            "status": status,
+        }
+    )
+    updated.update(fields)
+    return _append_code_review_record(store, updated)
+
+
+def _code_review_issue_counts(
+    store: StateStore,
+    issue_file: str,
+) -> dict[str, int]:
+    issues = store.read_review_issues(issue_file) if issue_file else []
+    return {
+        "finding_count": len(issues),
+        "blocker_major_count": len(
+            [issue for issue in issues if _issue_is_blocking(issue)]
+        ),
+        "minor_count": len(
+            [issue for issue in issues if issue.get("severity") == "minor"]
+        ),
+        "open_count": len(
+            [
+                issue
+                for issue in issues
+                if issue.get("status") in BLOCKING_ISSUE_STATUSES
+            ]
+        ),
+    }
+
+
+def _code_review_issue_file(review_id: str) -> str:
+    return f"code-review-{review_id}.jsonl"
+
+
+def _code_review_summary_path(store: StateStore, review_id: str) -> str:
+    base_path = Path(_artifact_path(store, CODE_REVIEW_SUMMARY_PATH))
+    suffix = base_path.suffix or ".md"
+    return str(base_path.with_name(f"{base_path.stem}-{review_id}{suffix}"))
+
+
+def _code_review_record_line(
+    store: StateStore,
+    record: dict[str, object],
+) -> str:
+    review_id = str(record.get("review_id") or "CR-????")
+    target = _code_review_target_label(record)
+    counts = _code_review_issue_counts(store, str(record.get("issue_file") or ""))
+    created = str(record.get("created_at") or "unknown")
+    report = str(record.get("summary_path") or "")
+    return (
+        f"{review_id} {target} created={created} "
+        f"blocker/major={counts['blocker_major_count']} "
+        f"minor={counts['minor_count']} findings={counts['finding_count']} "
+        f"report={report}"
+    )
+
+
+def _code_review_target_label(record: dict[str, object]) -> str:
+    target_type = str(record.get("target_type") or "unknown")
+    if target_type == "codebase":
+        head_sha = str(record.get("head_sha") or "")
+        return f"codebase@{_short_sha(head_sha)}" if head_sha else "codebase"
+    start_sha = str(record.get("start_sha") or "")
+    end_sha = str(record.get("end_sha") or "")
+    if target_type == "commit" and start_sha:
+        return f"commit@{_short_sha(start_sha)}"
+    if target_type == "range" and start_sha and end_sha:
+        return f"range@{_short_sha(start_sha)}..{_short_sha(end_sha)}"
+    return target_type
+
+
+def _print_code_review_findings(
+    store: StateStore,
+    record: dict[str, object],
+) -> None:
+    issue_file = str(record.get("issue_file") or "")
+    issues = store.read_review_issues(issue_file) if issue_file else []
+    print("    findings:")
+    if not issues:
+        print("      - none")
+        return
+    for issue in issues:
+        issue_id = str(issue.get("issue_id") or "unknown")
+        severity = str(issue.get("severity") or "unknown")
+        status = str(issue.get("status") or "unknown")
+        summary = str(issue.get("summary") or "")
+        print(f"      - {issue_id} [{severity}/{status}] {summary}")
+        for label, key in [
+            ("commit", "commit"),
+            ("artifact", "artifact"),
+            ("location", "location"),
+            ("requested change", "requested_change"),
+            ("rationale", "rationale"),
+        ]:
+            value = str(issue.get(key) or "").strip()
+            if value:
+                print(f"        {label}: {value}")
+
+
+def _code_review_target_from_record(
+    store: StateStore,
+    record: dict[str, object],
+) -> CodeReviewRangeTarget:
+    start_sha = str(record.get("start_sha") or "")
+    end_sha = str(record.get("end_sha") or "")
+    if not start_sha or not end_sha:
+        review_id = str(record.get("review_id") or "unknown")
+        raise StateError(f"code-review {review_id} does not record commit SHAs")
+    commits = [
+        str(commit)
+        for commit in record.get("commits", [])
+        if isinstance(commit, str) and commit
+    ]
+    if not commits:
+        commits = _git_inclusive_commit_range(store.root, start_sha, end_sha)
+    if not commits:
+        review_id = str(record.get("review_id") or "unknown")
+        raise StateError(f"code-review {review_id} has no commits to fix")
+    mode_label = str(record.get("mode_label") or "")
+    if not mode_label:
+        mode_label = (
+            "single commit review"
+            if len(commits) == 1
+            else "commit range review"
+        )
+    return CodeReviewRangeTarget(
+        display_spec=str(record.get("target_spec") or start_sha),
+        start_sha=start_sha,
+        end_sha=end_sha,
+        base_sha=str(record.get("base_sha") or "") or None,
+        commits=commits,
+        mode_label=mode_label,
+    )
 
 
 def _resolve_code_review_range_target(
@@ -2312,9 +2674,15 @@ def _cmd_range_code_review(
     store: StateStore,
     args: argparse.Namespace,
     target: CodeReviewRangeTarget,
+    review_record: dict[str, object] | None = None,
+    start_with_fix: bool = False,
 ) -> int:
     fix_mode = _range_code_review_fix_mode(args)
-    issue_file = _range_code_review_issue_file(target.start_sha, target.end_sha)
+    if review_record is None:
+        review_record = _new_range_code_review_record(store, target)
+    review_id = str(review_record.get("review_id") or "")
+    issue_file = str(review_record.get("issue_file") or "")
+    summary_path = str(review_record.get("summary_path") or "")
     resume_state = RangeFixResumeState(dirty_paths=[])
     if fix_mode in {"in-place", "followup"}:
         resume_state = _validate_fix_range_at_head(
@@ -2328,9 +2696,11 @@ def _cmd_range_code_review(
     current_end = target.end_sha
     current_commits = target.commits
     next_attempt = 1
-    if resume_state.dirty_paths or resume_state.rebase_state:
+    if start_with_fix or resume_state.dirty_paths or resume_state.rebase_state:
         summary_path = _write_range_code_review_summary(
             store,
+            review_id=review_id,
+            summary_path=summary_path,
             range_spec=target.display_spec,
             start_sha=target.start_sha,
             end_sha=current_end,
@@ -2340,10 +2710,25 @@ def _cmd_range_code_review(
             fix_mode=fix_mode,
             mode_label=target.mode_label,
         )
+        blocking = _blocking_issues(store, issue_file)
+        review_record = _update_code_review_record(
+            store,
+            review_record,
+            attempt=1,
+            fix_mode=fix_mode,
+            status="blocking" if blocking else "passed",
+            summary_path=summary_path,
+            end_sha=current_end,
+            commits=current_commits,
+            commit_count=len(current_commits),
+        )
+        print(f"code review id: {review_id}")
         print(f"code review: {summary_path}")
         print(f"issue file: {issue_file}")
         print(f"commits reviewed: {len(current_commits)}")
-        print(f"blocker/major findings: {len(_blocking_issues(store, issue_file))}")
+        print(f"blocker/major findings: {len(blocking)}")
+        if not blocking:
+            return 0
         if resume_state.rebase_state:
             print(
                 "resuming interrupted fix during in-progress rebase: "
@@ -2386,7 +2771,7 @@ def _cmd_range_code_review(
         if mode_error:
             print(mode_error, file=sys.stderr)
             return 1
-        next_attempt = 2
+        next_attempt = max(2, int(review_record.get("attempt") or 1) + 1)
 
     for attempt in range(next_attempt, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
         result, event_id, review_issue_file = _invoke_agent_role(
@@ -2415,6 +2800,8 @@ def _cmd_range_code_review(
         )
         summary_path = _write_range_code_review_summary(
             store,
+            review_id=review_id,
+            summary_path=summary_path,
             range_spec=target.display_spec,
             start_sha=target.start_sha,
             end_sha=current_end,
@@ -2425,6 +2812,19 @@ def _cmd_range_code_review(
             mode_label=target.mode_label,
         )
         blocking = _blocking_issues(store, review_issue_file)
+        review_record = _update_code_review_record(
+            store,
+            review_record,
+            attempt=attempt,
+            fix_mode=fix_mode,
+            status="blocking" if blocking else "passed",
+            summary_path=summary_path,
+            issue_file=review_issue_file,
+            end_sha=current_end,
+            commits=current_commits,
+            commit_count=len(current_commits),
+        )
+        print(f"code review id: {review_id}")
         print(f"code review: {summary_path}")
         print(f"issue file: {review_issue_file}")
         print(f"commits reviewed: {len(current_commits)}")
@@ -2446,6 +2846,18 @@ def _cmd_range_code_review(
                     ),
                     f"review summary: {summary_path}",
                 ]
+            )
+            _update_code_review_record(
+                store,
+                review_record,
+                attempt=attempt,
+                fix_mode=fix_mode,
+                status="blocked",
+                summary_path=summary_path,
+                issue_file=review_issue_file,
+                end_sha=current_end,
+                commits=current_commits,
+                commit_count=len(current_commits),
             )
             return 1
 
@@ -2484,32 +2896,56 @@ def _cmd_range_code_review(
     return 1
 
 
-def _cmd_codebase_code_review(store: StateStore, args: argparse.Namespace) -> int:
+def _cmd_codebase_code_review(
+    store: StateStore,
+    args: argparse.Namespace,
+    review_record: dict[str, object] | None = None,
+    start_with_fix: bool = False,
+) -> int:
     fix_mode = _range_code_review_fix_mode(args)
     if fix_mode == "in-place":
         raise StateError(
             "--fix-in-place requires a commit or commit range target"
         )
-    issue_file = CODEBASE_CODE_REVIEW_ISSUE_FILE
     operator_messages = _code_operator_messages(args)
     current_head = _git_current_head(store.root) or "unknown"
+    if review_record is None:
+        review_record = _new_codebase_code_review_record(store, current_head)
+    review_id = str(review_record.get("review_id") or "")
+    issue_file = str(review_record.get("issue_file") or "")
+    summary_path = str(review_record.get("summary_path") or "")
     resume_state = RangeFixResumeState(dirty_paths=[])
     if fix_mode == "followup":
         resume_state = _validate_codebase_fix_start(store, issue_file)
 
     next_attempt = 1
-    if resume_state.dirty_paths or resume_state.rebase_state:
+    if start_with_fix or resume_state.dirty_paths or resume_state.rebase_state:
         summary_path = _write_codebase_code_review_summary(
             store,
+            review_id=review_id,
+            summary_path=summary_path,
             head_sha=current_head,
             issue_file=issue_file,
             attempt=1,
             fix_mode=fix_mode,
         )
+        blocking = _blocking_issues(store, issue_file)
+        review_record = _update_code_review_record(
+            store,
+            review_record,
+            attempt=1,
+            fix_mode=fix_mode,
+            status="blocking" if blocking else "passed",
+            summary_path=summary_path,
+            head_sha=current_head,
+        )
+        print(f"code review id: {review_id}")
         print(f"code review: {summary_path}")
         print(f"issue file: {issue_file}")
         print("reviewed target: codebase")
-        print(f"blocker/major findings: {len(_blocking_issues(store, issue_file))}")
+        print(f"blocker/major findings: {len(blocking)}")
+        if not blocking:
+            return 0
         if resume_state.dirty_paths:
             print(
                 "resuming interrupted fix with dirty tracked worktree: "
@@ -2536,7 +2972,7 @@ def _cmd_codebase_code_review(store: StateStore, args: argparse.Namespace) -> in
         if mode_error:
             print(mode_error, file=sys.stderr)
             return 1
-        next_attempt = 2
+        next_attempt = max(2, int(review_record.get("attempt") or 1) + 1)
 
     for attempt in range(next_attempt, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
         result, event_id, review_issue_file = _invoke_agent_role(
@@ -2562,12 +2998,25 @@ def _cmd_codebase_code_review(store: StateStore, args: argparse.Namespace) -> in
         )
         summary_path = _write_codebase_code_review_summary(
             store,
+            review_id=review_id,
+            summary_path=summary_path,
             head_sha=current_head,
             issue_file=review_issue_file,
             attempt=attempt,
             fix_mode=fix_mode,
         )
         blocking = _blocking_issues(store, review_issue_file)
+        review_record = _update_code_review_record(
+            store,
+            review_record,
+            attempt=attempt,
+            fix_mode=fix_mode,
+            status="blocking" if blocking else "passed",
+            summary_path=summary_path,
+            issue_file=review_issue_file,
+            head_sha=current_head,
+        )
+        print(f"code review id: {review_id}")
         print(f"code review: {summary_path}")
         print(f"issue file: {review_issue_file}")
         print("reviewed target: codebase")
@@ -2589,6 +3038,16 @@ def _cmd_codebase_code_review(store: StateStore, args: argparse.Namespace) -> in
                     ),
                     f"review summary: {summary_path}",
                 ]
+            )
+            _update_code_review_record(
+                store,
+                review_record,
+                attempt=attempt,
+                fix_mode=fix_mode,
+                status="blocked",
+                summary_path=summary_path,
+                issue_file=review_issue_file,
+                head_sha=current_head,
             )
             return 1
 
@@ -3244,6 +3703,8 @@ def _write_phase_review_summary(
 
 def _write_range_code_review_summary(
     store: StateStore,
+    review_id: str | None,
+    summary_path: str | None,
     range_spec: str,
     start_sha: str,
     end_sha: str,
@@ -3253,7 +3714,7 @@ def _write_range_code_review_summary(
     fix_mode: str,
     mode_label: str = "commit range review",
 ) -> str:
-    relative_path = _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
+    relative_path = summary_path or _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
     path = store.root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     issues = store.read_review_issues(issue_file)
@@ -3266,6 +3727,7 @@ def _write_range_code_review_summary(
         "# Code Review",
         "",
         f"Generated: {utc_now()}",
+        f"Review ID: {review_id}" if review_id else "",
         f"Mode: {mode_label}",
         f"Range: {range_spec}",
         f"Start commit: {start_sha}",
@@ -3305,12 +3767,14 @@ def _write_range_code_review_summary(
 
 def _write_codebase_code_review_summary(
     store: StateStore,
+    review_id: str | None,
+    summary_path: str | None,
     head_sha: str,
     issue_file: str,
     attempt: int,
     fix_mode: str,
 ) -> str:
-    relative_path = _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
+    relative_path = summary_path or _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
     path = store.root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     issues = store.read_review_issues(issue_file)
@@ -3323,6 +3787,7 @@ def _write_codebase_code_review_summary(
         "# Code Review",
         "",
         f"Generated: {utc_now()}",
+        f"Review ID: {review_id}" if review_id else "",
         "Mode: full codebase review",
         "Range: none",
         f"Reviewed tree: {head_sha} plus tracked working tree state",
@@ -6976,12 +7441,13 @@ def _open_review_issues(store: StateStore) -> list[tuple[str, dict[str, object]]
         )
     run_id = store.current_run_id()
     if run_id:
-        issue_files.extend(
-            path.name
-            for path in store.run_dir(run_id).glob(
-                f"{RANGE_CODE_REVIEW_ISSUE_PREFIX}-*.jsonl"
+        for pattern in [
+            f"{RANGE_CODE_REVIEW_ISSUE_PREFIX}-*.jsonl",
+            f"code-review-{CODE_REVIEW_ID_PREFIX}-*.jsonl",
+        ]:
+            issue_files.extend(
+                path.name for path in store.run_dir(run_id).glob(pattern)
             )
-        )
 
     issues: list[tuple[str, dict[str, object]]] = []
     for issue_file in issue_files:
@@ -7794,14 +8260,8 @@ def _non_review_tracked_changes(store: StateStore) -> list[str]:
         path
         for path in _git_worktree_changed_paths(store.root, include_untracked=False)
         if path not in allowed
+        and not (path.startswith("docs/code-review") and path.endswith(".md"))
     ]
-
-
-def _range_code_review_issue_file(start_sha: str, end_sha: str) -> str:
-    return (
-        f"{RANGE_CODE_REVIEW_ISSUE_PREFIX}-"
-        f"{_short_sha(start_sha)}-{_short_sha(end_sha)}.jsonl"
-    )
 
 
 def _commit_review_lines(root: Path, commits: list[str]) -> list[str]:

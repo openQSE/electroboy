@@ -237,9 +237,9 @@ interactive session does not run review agents, create phase commits, or
 advance the implementation loop; after exiting, run `electroboy code` to
 continue automated review and commit handling.
 
-Code review summaries are written to `docs/code-review.md` and test review
-summaries are written to `docs/test-review.md`. Feature runs use the matching
-feature-tagged filenames.
+Automated `code` stage summaries are written to `docs/code-review.md` and
+test review summaries are written to `docs/test-review.md`. Feature runs use
+the matching feature-tagged filenames.
 
 Use `code-review` to audit the current codebase, a single commit, or an
 already-written commit range without advancing the pipeline:
@@ -255,8 +255,18 @@ single SHA reviews that commit. A range is inclusive, so both endpoint commits
 are reviewed. For ranges, the review agent first inspects the final tree at
 `<sha2>`, then reviews each commit in order against the approved requirements,
 detailed design, implementation plan, and test plan. Findings are recorded in
-`docs/code-review.md` and in the active run's internal review issue file. The
-default mode is review-only and does not modify files.
+an explicit review report such as `docs/code-review-CR-0001.md` and in the
+active run's internal review issue file. Feature runs use reports such as
+`docs/code-review-<feature>-CR-0001.md`. The default mode is review-only and
+does not modify files.
+
+Each explicit review gets a stable `CR-####` id. Use `list` to discover prior
+reviews, and `--verbose` to print the recorded findings:
+
+```bash
+electroboy code-review list
+electroboy code-review list CR-0001 --verbose
+```
 
 Use `--fix-followup` when you want ElectroBoy to preserve the reviewed commits
 and launch a fix agent that appends follow-up commits at `HEAD`:
@@ -265,6 +275,7 @@ and launch a fix agent that appends follow-up commits at `HEAD`:
 electroboy code-review --fix-followup
 electroboy code-review <sha> --fix-followup
 electroboy code-review <sha1>..<sha2> --fix-followup
+electroboy code-review CR-0001 --fix-followup
 ```
 
 Use `--fix-in-place` only when you want ElectroBoy to launch a fix agent that
@@ -273,13 +284,17 @@ rewrites the current branch range:
 ```bash
 electroboy code-review <sha> --fix-in-place
 electroboy code-review <sha1>..<sha2> --fix-in-place
+electroboy code-review CR-0001 --fix-in-place
 ```
 
 Both fix modes require the reviewed commit target to end at the current `HEAD`.
-`--fix-in-place` requires an explicit commit or range target. New fix attempts
-require a clean tracked working tree. If an earlier fix pass was interrupted
-after writing blocker or major findings, rerun the same command; ElectroBoy
-resumes with the fix agent first when tracked edits or an in-progress rebase
+`--fix-in-place` requires an explicit commit, range, or compatible review id
+target. When a `CR-####` id is provided, ElectroBoy uses the recorded findings
+from that review and starts with the fix agent instead of rerunning review from
+scratch. New fix attempts require a clean tracked working tree. If an earlier
+fix pass was interrupted after writing blocker or major findings, rerun the
+same command; ElectroBoy resumes with the fix agent first when tracked edits
+or an in-progress rebase
 remain. The fix prompt tells the agent which paths are already dirty, tells it
 to resolve rebase conflicts, and tells it to continue the rewrite until it
 succeeds. `--fix-followup` must preserve the reviewed commits and add new fix
@@ -434,8 +449,8 @@ Implemented capabilities:
 - Automated phase start, review, test review, drift, and commit recording, plus
   manual `phase commit` for phased mode.
 - Explicit `code-review` audits for the current codebase, a single commit, or
-  already-written commit ranges, with optional follow-up or in-place
-  fix/review loops.
+  already-written commit ranges, with `CR-####` ids, list/verbose output, and
+  optional follow-up or in-place fix/review loops.
 - Final validation and documentation review gates.
 - Public workflow commands that reopen earlier baselines with `--reason`.
 - Expert command-level stage resets with `electroboy <command> --force`.

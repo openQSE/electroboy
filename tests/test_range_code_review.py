@@ -41,9 +41,7 @@ class RangeCodeReviewTests(unittest.TestCase):
                 ["--root", str(root), "code-review", f"{sha1}..{sha2}"]
             )
 
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
             messages_dir = (
                 root
                 / ".electroboy"
@@ -58,6 +56,7 @@ class RangeCodeReviewTests(unittest.TestCase):
             )
 
         self.assertEqual(code, 0, stderr)
+        self.assertIn("code review id: CR-0001", stdout)
         self.assertIn("commits reviewed: 2", stdout)
         self.assertIn("blocker/major findings: 1", stdout)
         self.assertIn("Mode: commit range review", summary)
@@ -83,9 +82,7 @@ class RangeCodeReviewTests(unittest.TestCase):
                 ["--root", str(root), "code-review", sha]
             )
 
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
             prompts = "\n".join(
                 path.read_text(encoding="utf-8")
                 for path in (
@@ -99,6 +96,7 @@ class RangeCodeReviewTests(unittest.TestCase):
             )
 
         self.assertEqual(code, 0, stderr)
+        self.assertIn("code review id: CR-0001", stdout)
         self.assertIn("commits reviewed: 1", stdout)
         self.assertIn("Mode: single commit review", summary)
         self.assertIn(f"Range: {sha}", summary)
@@ -121,9 +119,7 @@ class RangeCodeReviewTests(unittest.TestCase):
                 ["--root", str(root), "code-review"]
             )
 
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
             prompts = "\n".join(
                 path.read_text(encoding="utf-8")
                 for path in (
@@ -137,13 +133,45 @@ class RangeCodeReviewTests(unittest.TestCase):
             )
 
         self.assertEqual(code, 0, stderr)
+        self.assertIn("code review id: CR-0001", stdout)
         self.assertIn("reviewed target: codebase", stdout)
         self.assertIn("blocker/major findings: 1", stdout)
-        self.assertIn("issue file: codebase-code-review.jsonl", stdout)
+        self.assertIn("issue file: code-review-CR-0001.jsonl", stdout)
         self.assertIn("Mode: full codebase review", summary)
         self.assertIn("Range: none", summary)
         self.assertIn(f"Reviewed tree: {head}", summary)
         self.assertIn("Review the current codebase.", prompts)
+
+    def test_code_review_list_shows_records_and_verbose_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_range_review_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            create_commit(root, "src/one.py", "one = 1\n", "code: one")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review"]
+            )
+            list_code, list_stdout, list_stderr = self.run_cli(
+                ["--root", str(root), "code-review", "list"]
+            )
+            verbose_code, verbose_stdout, verbose_stderr = self.run_cli(
+                ["--root", str(root), "code-review", "list", "CR-0001", "--verbose"]
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(list_code, 0, list_stderr)
+        self.assertIn("CR-0001 codebase@", list_stdout)
+        self.assertIn("blocker/major=1", list_stdout)
+        self.assertIn("report=docs/code-review-CR-0001.md", list_stdout)
+        self.assertEqual(verbose_code, 0, verbose_stderr)
+        self.assertIn("findings:", verbose_stdout)
+        self.assertIn("Commit does not match the approved plan.", verbose_stdout)
 
     def test_code_review_without_target_rejects_fix_in_place(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,9 +203,7 @@ class RangeCodeReviewTests(unittest.TestCase):
             )
 
             new_head = git_head(root)
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
 
         self.assertEqual(code, 0, stderr)
         self.assertNotEqual(new_head, sha)
@@ -204,9 +230,7 @@ class RangeCodeReviewTests(unittest.TestCase):
 
             new_head = git_head(root)
             reviewed_commit = git_revision(root, f"{new_head}~1")
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
 
         self.assertEqual(code, 0, stderr)
         self.assertEqual(reviewed_commit, sha)
@@ -234,9 +258,7 @@ class RangeCodeReviewTests(unittest.TestCase):
 
             new_head = git_head(root)
             reviewed_commit = git_revision(root, f"{new_head}~1")
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
 
         self.assertEqual(code, 0, stderr)
         self.assertEqual(reviewed_commit, sha)
@@ -246,6 +268,39 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertIn("blocker/major findings: 0", stdout)
         self.assertIn("Mode: full codebase review", summary)
         self.assertIn("Fix follow-up: yes", summary)
+        self.assertIn("Status: verified", summary)
+
+    def test_code_review_id_fix_followup_uses_existing_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_codebase_fix_followup_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
+            StateStore(root).init_run(run_id="run-1")
+
+            review_code, review_stdout, review_stderr = self.run_cli(
+                ["--root", str(root), "code-review"]
+            )
+            fix_code, fix_stdout, fix_stderr = self.run_cli(
+                ["--root", str(root), "code-review", "CR-0001", "--fix-followup"]
+            )
+
+            new_head = git_head(root)
+            reviewed_commit = git_revision(root, f"{new_head}~1")
+            summary = read_code_review_summary(root)
+
+        self.assertEqual(review_code, 0, review_stderr)
+        self.assertIn("blocker/major findings: 1", review_stdout)
+        self.assertEqual(fix_code, 0, fix_stderr)
+        self.assertEqual(reviewed_commit, sha)
+        self.assertNotEqual(new_head, sha)
+        self.assertIn("code review id: CR-0001", fix_stdout)
+        self.assertIn("blocker/major findings: 1", fix_stdout)
+        self.assertIn("blocker/major findings: 0", fix_stdout)
         self.assertIn("Status: verified", summary)
 
     def test_code_review_fix_in_place_blocks_dirty_tree_without_review_issue(
@@ -281,18 +336,17 @@ class RangeCodeReviewTests(unittest.TestCase):
             initialize_git_repo(root)
             sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
             StateStore(root).init_run(run_id="run-1")
-            issue_file = f"range-code-review-{sha[:12]}-{sha[:12]}.jsonl"
+            issue_file = "code-review-CR-0001.jsonl"
+            write_existing_code_review_record(root, "CR-0001", sha)
             write_existing_range_issue(root, issue_file, sha)
             write_file(root / "src" / "work.py", "work = 'partial fix'\n")
 
             code, stdout, stderr = self.run_cli(
-                ["--root", str(root), "code-review", f"{sha}..{sha}", "--fix-in-place"]
+                ["--root", str(root), "code-review", "CR-0001", "--fix-in-place"]
             )
 
             new_head = git_head(root)
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
             prompts = "\n".join(
                 path.read_text(encoding="utf-8")
                 for path in (
@@ -325,7 +379,8 @@ class RangeCodeReviewTests(unittest.TestCase):
             initialize_git_repo(root)
             sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
             StateStore(root).init_run(run_id="run-1")
-            issue_file = f"range-code-review-{sha[:12]}-{sha[:12]}.jsonl"
+            issue_file = "code-review-CR-0001.jsonl"
+            write_existing_code_review_record(root, "CR-0001", sha)
             write_existing_range_issue(root, issue_file, sha)
             subprocess.run(
                 ["git", "-C", str(root), "checkout", "--detach", f"{sha}^"],
@@ -337,13 +392,11 @@ class RangeCodeReviewTests(unittest.TestCase):
             write_file(root / "docs" / "requirements.md", "# Requirements\npartial\n")
 
             code, stdout, stderr = self.run_cli(
-                ["--root", str(root), "code-review", f"{sha}..{sha}", "--fix-in-place"]
+                ["--root", str(root), "code-review", "CR-0001", "--fix-in-place"]
             )
 
             new_head = git_head(root)
-            summary = (root / "docs" / "code-review.md").read_text(
-                encoding="utf-8"
-            )
+            summary = read_code_review_summary(root)
             prompts = "\n".join(
                 path.read_text(encoding="utf-8")
                 for path in (
@@ -414,6 +467,51 @@ def git_revision(root: Path, revision: str) -> str:
         text=True,
     )
     return completed.stdout.strip()
+
+
+def read_code_review_summary(root: Path, review_id: str = "CR-0001") -> str:
+    return (root / "docs" / f"code-review-{review_id}.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def write_existing_code_review_record(
+    root: Path,
+    review_id: str,
+    sha: str,
+) -> None:
+    record = {
+        "schema_version": 1,
+        "review_id": review_id,
+        "target_type": "commit",
+        "target_spec": sha,
+        "start_sha": sha,
+        "end_sha": sha,
+        "base_sha": git_revision(root, f"{sha}^"),
+        "commits": [sha],
+        "mode_label": "single commit review",
+        "commit_count": 1,
+        "issue_file": f"code-review-{review_id}.jsonl",
+        "summary_path": f"docs/code-review-{review_id}.md",
+        "status": "blocking",
+        "fix_mode": "review-only",
+        "finding_count": 1,
+        "blocker_major_count": 1,
+        "minor_count": 0,
+        "open_count": 1,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    path = (
+        root
+        / ".electroboy"
+        / "shared"
+        / "runs"
+        / "run-1"
+        / "code-reviews.jsonl"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
 
 def write_range_review_runtime(root: Path) -> None:
