@@ -42,8 +42,9 @@ Operator workflow commands:
 - `test-plan-approve` records human test-plan approval.
 - `code [--reason <text>] [--msg <text>] [--phased|--interactive]` starts or
   resumes implementation work.
-- `code-review <sha1>..<sha2> [--fix-followup|--fix-in-place] [--msg <text>]`
-  reviews an inclusive commit range without advancing the pipeline.
+- `code-review [<sha>|<sha1>..<sha2>] [--fix-followup|--fix-in-place]
+  [--msg <text>]` reviews the current codebase, a commit, or an inclusive
+  commit range without advancing the pipeline.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
 - `validate` runs final validation commands and writes a validation report.
@@ -206,21 +207,24 @@ test review summaries are written to `docs/test-review.md`. Feature runs use
 the corresponding `docs/code-review-<feature>.md` and
 `docs/test-review-<feature>.md` files.
 
-`electroboy code-review <sha1>..<sha2>` audits an already-written commit range.
-The range is inclusive, so both endpoint commits are reviewed. The review
-agent first inspects the final tree at `<sha2>`, then reviews each commit in
-order against the approved requirements, detailed design, implementation plan,
-and test plan. Findings are written to `docs/code-review.md` and the run's
-range review issue file. The default mode is review-only and does not modify
-files.
+`electroboy code-review` audits the current codebase. `electroboy code-review
+<sha>` audits one commit. `electroboy code-review <sha1>..<sha2>` audits an
+already-written commit range. The range is inclusive, so both endpoint commits
+are reviewed. For ranges, the review agent first inspects the final tree at
+`<sha2>`, then reviews each commit in order against the approved requirements,
+detailed design, implementation plan, and test plan. Findings are written to
+`docs/code-review.md` and the run's review issue file. The default mode is
+review-only and does not modify files.
 
-`electroboy code-review <sha1>..<sha2> --fix-followup` launches a fix agent
-when blocker or major findings remain and asks it to append follow-up commits
-at `HEAD`. `electroboy code-review <sha1>..<sha2> --fix-in-place` instead asks
-the fix agent to rewrite the offending commits. Both fix modes require the
-range end to be current `HEAD`. New fix attempts require a clean tracked
-working tree. If a previous fix pass was interrupted after writing blocker or
-major findings, rerunning the same command resumes with the fix agent first
+`electroboy code-review --fix-followup` and `electroboy code-review <target>
+--fix-followup` launch a fix agent when blocker or major findings remain and
+ask it to append follow-up commits at `HEAD`. `electroboy code-review <target>
+--fix-in-place` instead asks the fix agent to rewrite the offending commit or
+range, so it requires an explicit commit or range target. Both fix modes
+require the reviewed commit target to end at current `HEAD`. New fix attempts
+require a clean tracked working tree. If a previous fix pass was interrupted
+after writing blocker or major findings, rerunning the same command resumes
+with the fix agent first
 when tracked edits or an in-progress rebase remain. The prompt passes the dirty
 path list and rebase state to the agent, tells it to resolve conflicts, and
 tells it to continue the rewrite until it succeeds. ElectroBoy reruns range

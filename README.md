@@ -241,24 +241,29 @@ Code review summaries are written to `docs/code-review.md` and test review
 summaries are written to `docs/test-review.md`. Feature runs use the matching
 feature-tagged filenames.
 
-Use `code-review <sha1>..<sha2>` to audit an already-written commit range
-without advancing the pipeline:
+Use `code-review` to audit the current codebase, a single commit, or an
+already-written commit range without advancing the pipeline:
 
 ```bash
+electroboy code-review
+electroboy code-review <sha>
 electroboy code-review <sha1>..<sha2>
 ```
 
-The range is inclusive, so both endpoint commits are reviewed. The review
-agent first inspects the final tree at `<sha2>`, then reviews each commit in
-order against the approved requirements, detailed design, implementation plan,
-and test plan. Findings are recorded in `docs/code-review.md` and in the
-active run's internal range review issue file. The default mode is review-only
-and does not modify files.
+When no target is provided, the review agent inspects the current codebase. A
+single SHA reviews that commit. A range is inclusive, so both endpoint commits
+are reviewed. For ranges, the review agent first inspects the final tree at
+`<sha2>`, then reviews each commit in order against the approved requirements,
+detailed design, implementation plan, and test plan. Findings are recorded in
+`docs/code-review.md` and in the active run's internal review issue file. The
+default mode is review-only and does not modify files.
 
 Use `--fix-followup` when you want ElectroBoy to preserve the reviewed commits
 and launch a fix agent that appends follow-up commits at `HEAD`:
 
 ```bash
+electroboy code-review --fix-followup
+electroboy code-review <sha> --fix-followup
 electroboy code-review <sha1>..<sha2> --fix-followup
 ```
 
@@ -266,10 +271,12 @@ Use `--fix-in-place` only when you want ElectroBoy to launch a fix agent that
 rewrites the current branch range:
 
 ```bash
+electroboy code-review <sha> --fix-in-place
 electroboy code-review <sha1>..<sha2> --fix-in-place
 ```
 
-Both fix modes require `<sha2>` to be the current `HEAD`. New fix attempts
+Both fix modes require the reviewed commit target to end at the current `HEAD`.
+`--fix-in-place` requires an explicit commit or range target. New fix attempts
 require a clean tracked working tree. If an earlier fix pass was interrupted
 after writing blocker or major findings, rerun the same command; ElectroBoy
 resumes with the fix agent first when tracked edits or an in-progress rebase
@@ -426,8 +433,9 @@ Implemented capabilities:
 - Append-only issue lifecycle transitions.
 - Automated phase start, review, test review, drift, and commit recording, plus
   manual `phase commit` for phased mode.
-- Explicit `code-review <sha1>..<sha2>` audits for already-written commit
-  ranges, with optional follow-up or in-place fix/review loops.
+- Explicit `code-review` audits for the current codebase, a single commit, or
+  already-written commit ranges, with optional follow-up or in-place
+  fix/review loops.
 - Final validation and documentation review gates.
 - Public workflow commands that reopen earlier baselines with `--reason`.
 - Expert command-level stage resets with `electroboy <command> --force`.

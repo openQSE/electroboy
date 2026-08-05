@@ -67,6 +67,97 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertIn("First inspect the final tree", prompts)
         self.assertIn("Then review each commit", prompts)
 
+    def test_code_review_single_commit_records_commit_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_range_review_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            sha = create_commit(root, "src/one.py", "one = 1\n", "code: one")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review", sha]
+            )
+
+            summary = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+            prompts = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (
+                    root
+                    / ".electroboy"
+                    / "shared"
+                    / "runs"
+                    / "run-1"
+                    / "messages"
+                ).glob("*-prompt.md")
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("commits reviewed: 1", stdout)
+        self.assertIn("Mode: single commit review", summary)
+        self.assertIn(f"Range: {sha}", summary)
+        self.assertIn(f"Commit: {sha}", summary)
+        self.assertIn(f"Review commit {sha}", prompts)
+
+    def test_code_review_without_target_reviews_current_codebase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_range_review_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            head = create_commit(root, "src/one.py", "one = 1\n", "code: one")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review"]
+            )
+
+            summary = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+            prompts = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (
+                    root
+                    / ".electroboy"
+                    / "shared"
+                    / "runs"
+                    / "run-1"
+                    / "messages"
+                ).glob("*-prompt.md")
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("reviewed target: codebase", stdout)
+        self.assertIn("blocker/major findings: 1", stdout)
+        self.assertIn("issue file: codebase-code-review.jsonl", stdout)
+        self.assertIn("Mode: full codebase review", summary)
+        self.assertIn("Range: none", summary)
+        self.assertIn(f"Reviewed tree: {head}", summary)
+        self.assertIn("Review the current codebase.", prompts)
+
+    def test_code_review_without_target_rejects_fix_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review", "--fix-in-place"]
+            )
+
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("requires a commit or commit range target", stderr)
+
     def test_code_review_fix_in_place_amends_range_and_reruns_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -122,6 +213,38 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertNotEqual(new_head, sha)
         self.assertIn("blocker/major findings: 1", stdout)
         self.assertIn("blocker/major findings: 0", stdout)
+        self.assertIn("Fix follow-up: yes", summary)
+        self.assertIn("Status: verified", summary)
+
+    def test_code_review_codebase_fix_followup_appends_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_codebase_fix_followup_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            sha = create_commit(root, "src/work.py", "work = False\n", "code: work")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review", "--fix-followup"]
+            )
+
+            new_head = git_head(root)
+            reviewed_commit = git_revision(root, f"{new_head}~1")
+            summary = (root / "docs" / "code-review.md").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(reviewed_commit, sha)
+        self.assertNotEqual(new_head, sha)
+        self.assertIn("reviewed target: codebase", stdout)
+        self.assertIn("blocker/major findings: 1", stdout)
+        self.assertIn("blocker/major findings: 0", stdout)
+        self.assertIn("Mode: full codebase review", summary)
         self.assertIn("Fix follow-up: yes", summary)
         self.assertIn("Status: verified", summary)
 
@@ -407,6 +530,48 @@ else:
         "artifact": "src/work.py",
         "location": "src/work.py:1",
         "rationale": "The range should be fixed without rewriting it.",
+        "requested_change": "Add a follow-up fix commit.",
+    }
+    print(json.dumps({"ok": True, "final_message": "reviewed", "issues": [issue]}))
+""".lstrip(),
+    )
+    write_runtime_config(root)
+
+
+def write_codebase_fix_followup_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        """
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+
+prompt = sys.stdin.read()
+if "Fix full-codebase code-review findings" in prompt:
+    path = pathlib.Path("src/codebase_fix.py")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("codebase_fix = True\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/codebase_fix.py"], check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "code: codebase follow-up fix"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(json.dumps({"ok": True, "final_message": "fixed"}))
+else:
+    fixed = pathlib.Path("src/codebase_fix.py").exists()
+    issue = {
+        "issue_id": "CODEBASE-001",
+        "severity": "major",
+        "status": "verified" if fixed else "open",
+        "summary": "Codebase needs a follow-up fix.",
+        "artifact": "src/work.py",
+        "location": "src/work.py:1",
+        "rationale": "The full codebase review should request a follow-up fix.",
         "requested_change": "Add a follow-up fix commit.",
     }
     print(json.dumps({"ok": True, "final_message": "reviewed", "issues": [issue]}))

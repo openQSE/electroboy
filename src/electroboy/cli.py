@@ -81,6 +81,16 @@ class RangeFixResumeState:
     dirty_paths: list[str]
     rebase_state: dict[str, str] | None = None
 
+
+@dataclass(frozen=True)
+class CodeReviewRangeTarget:
+    display_spec: str
+    start_sha: str
+    end_sha: str
+    base_sha: str | None
+    commits: list[str]
+    mode_label: str
+
 STAGE_COMPLETED_GATES = {
     STAGE_REQUIREMENTS: GATE_REQUIREMENTS,
     STAGE_DESIGN_REVIEW: GATE_DESIGN,
@@ -114,6 +124,7 @@ IMPLEMENTATION_LOG_PATH = "docs/implementation-log.md"
 IMPLEMENTATION_REPORT_PATH = "docs/implementation-report.md"
 CODE_REVIEW_SUMMARY_PATH = "docs/code-review.md"
 RANGE_CODE_REVIEW_ISSUE_PREFIX = "range-code-review"
+CODEBASE_CODE_REVIEW_ISSUE_FILE = "codebase-code-review.jsonl"
 TEST_REVIEW_SUMMARY_PATH = "docs/test-review.md"
 TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
@@ -492,12 +503,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     code_review = subparsers.add_parser(
         "code-review",
-        help="review an inclusive commit range against approved artifacts",
+        help="review a commit, commit range, or the current codebase",
     )
     code_review.add_argument(
-        "range",
-        metavar="SHA1..SHA2",
-        help="inclusive commit range to review",
+        "target",
+        nargs="?",
+        metavar="[SHA|SHA1..SHA2]",
+        help="commit or inclusive commit range to review; omit for full codebase",
     )
     code_review_fix = code_review.add_mutually_exclusive_group()
     code_review_fix.add_argument(
@@ -2251,7 +2263,26 @@ def _cmd_code_interactive(
 
 
 def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
-    start_rev, end_rev = _parse_commit_range_spec(args.range)
+    target_spec = getattr(args, "target", None)
+    if not target_spec:
+        return _cmd_codebase_code_review(store, args)
+    target = _resolve_code_review_range_target(store, target_spec)
+    return _cmd_range_code_review(store, args, target)
+
+
+def _resolve_code_review_range_target(
+    store: StateStore,
+    target_spec: str,
+) -> CodeReviewRangeTarget:
+    if ".." in target_spec:
+        start_rev, end_rev = _parse_commit_range_spec(target_spec)
+        display_spec = target_spec
+        mode_label = "commit range review"
+    else:
+        start_rev = target_spec
+        end_rev = target_spec
+        display_spec = target_spec
+        mode_label = "single commit review"
     start_sha = _git_resolve_commit(store.root, start_rev)
     end_sha = _git_resolve_commit(store.root, end_rev)
     if start_sha is None:
@@ -2259,38 +2290,55 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
     if end_sha is None:
         raise StateError(f"unknown end commit: {end_rev}")
     if not _git_is_ancestor(store.root, start_sha, end_sha):
-        raise StateError(f"range start is not an ancestor of range end: {args.range}")
+        raise StateError(
+            f"range start is not an ancestor of range end: {target_spec}"
+        )
 
     base_sha = _git_first_parent(store.root, start_sha)
     commits = _git_inclusive_commit_range(store.root, start_sha, end_sha)
     if not commits:
-        raise StateError(f"commit range is empty: {args.range}")
+        raise StateError(f"commit range is empty: {target_spec}")
+    return CodeReviewRangeTarget(
+        display_spec=display_spec,
+        start_sha=start_sha,
+        end_sha=end_sha,
+        base_sha=base_sha,
+        commits=commits,
+        mode_label=mode_label,
+    )
 
+
+def _cmd_range_code_review(
+    store: StateStore,
+    args: argparse.Namespace,
+    target: CodeReviewRangeTarget,
+) -> int:
     fix_mode = _range_code_review_fix_mode(args)
-    issue_file = _range_code_review_issue_file(start_sha, end_sha)
+    issue_file = _range_code_review_issue_file(target.start_sha, target.end_sha)
     resume_state = RangeFixResumeState(dirty_paths=[])
     if fix_mode in {"in-place", "followup"}:
         resume_state = _validate_fix_range_at_head(
             store,
-            end_sha,
+            target.end_sha,
             fix_mode,
             issue_file,
         )
 
     operator_messages = _code_operator_messages(args)
-    current_end = end_sha
-    current_commits = commits
+    current_end = target.end_sha
+    current_commits = target.commits
     next_attempt = 1
     if resume_state.dirty_paths or resume_state.rebase_state:
         summary_path = _write_range_code_review_summary(
             store,
-            range_spec=args.range,
-            start_sha=start_sha,
+            range_spec=target.display_spec,
+            start_sha=target.start_sha,
             end_sha=current_end,
             commits=current_commits,
             issue_file=issue_file,
             attempt=1,
             fix_mode=fix_mode,
+            mode_label=target.mode_label,
         )
         print(f"code review: {summary_path}")
         print(f"issue file: {issue_file}")
@@ -2308,7 +2356,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             )
         fix_code = _run_range_code_fix(
             store,
-            base_sha,
+            target.base_sha,
             current_end,
             current_commits,
             issue_file,
@@ -2323,7 +2371,11 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
         previous_end = current_end
         previous_commits = list(current_commits)
         current_end = _git_current_head(store.root) or current_end
-        current_commits = _git_commits_after_base(store.root, base_sha, current_end)
+        current_commits = _git_commits_after_base(
+            store.root,
+            target.base_sha,
+            current_end,
+        )
         mode_error = _range_fix_mode_error(
             fix_mode,
             previous_end,
@@ -2342,12 +2394,13 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             role="range_code_review",
             prompt=_range_code_review_prompt(
                 store,
-                start_sha,
+                target.start_sha,
                 current_end,
                 current_commits,
                 attempt,
                 fix_mode,
                 operator_messages,
+                target.mode_label,
             ),
             context_paths=_range_code_review_context_paths(store),
             issue_file_override=issue_file,
@@ -2362,13 +2415,14 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
         )
         summary_path = _write_range_code_review_summary(
             store,
-            range_spec=args.range,
-            start_sha=start_sha,
+            range_spec=target.display_spec,
+            start_sha=target.start_sha,
             end_sha=current_end,
             commits=current_commits,
             issue_file=review_issue_file,
             attempt=attempt,
             fix_mode=fix_mode,
+            mode_label=target.mode_label,
         )
         blocking = _blocking_issues(store, review_issue_file)
         print(f"code review: {summary_path}")
@@ -2397,7 +2451,7 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
 
         fix_code = _run_range_code_fix(
             store,
-            base_sha,
+            target.base_sha,
             current_end,
             current_commits,
             review_issue_file,
@@ -2412,7 +2466,11 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
         previous_end = current_end
         previous_commits = list(current_commits)
         current_end = _git_current_head(store.root) or current_end
-        current_commits = _git_commits_after_base(store.root, base_sha, current_end)
+        current_commits = _git_commits_after_base(
+            store.root,
+            target.base_sha,
+            current_end,
+        )
         mode_error = _range_fix_mode_error(
             fix_mode,
             previous_end,
@@ -2424,6 +2482,222 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
             print(mode_error, file=sys.stderr)
             return 1
     return 1
+
+
+def _cmd_codebase_code_review(store: StateStore, args: argparse.Namespace) -> int:
+    fix_mode = _range_code_review_fix_mode(args)
+    if fix_mode == "in-place":
+        raise StateError(
+            "--fix-in-place requires a commit or commit range target"
+        )
+    issue_file = CODEBASE_CODE_REVIEW_ISSUE_FILE
+    operator_messages = _code_operator_messages(args)
+    current_head = _git_current_head(store.root) or "unknown"
+    resume_state = RangeFixResumeState(dirty_paths=[])
+    if fix_mode == "followup":
+        resume_state = _validate_codebase_fix_start(store, issue_file)
+
+    next_attempt = 1
+    if resume_state.dirty_paths or resume_state.rebase_state:
+        summary_path = _write_codebase_code_review_summary(
+            store,
+            head_sha=current_head,
+            issue_file=issue_file,
+            attempt=1,
+            fix_mode=fix_mode,
+        )
+        print(f"code review: {summary_path}")
+        print(f"issue file: {issue_file}")
+        print("reviewed target: codebase")
+        print(f"blocker/major findings: {len(_blocking_issues(store, issue_file))}")
+        if resume_state.dirty_paths:
+            print(
+                "resuming interrupted fix with dirty tracked worktree: "
+                + ", ".join(resume_state.dirty_paths)
+            )
+        fix_code = _run_codebase_code_fix(
+            store,
+            current_head,
+            issue_file,
+            summary_path,
+            1,
+            operator_messages,
+            resume_state,
+        )
+        if fix_code != 0:
+            return fix_code
+        previous_head = current_head
+        current_head = _git_current_head(store.root) or current_head
+        mode_error = _codebase_followup_mode_error(
+            store.root,
+            previous_head,
+            current_head,
+        )
+        if mode_error:
+            print(mode_error, file=sys.stderr)
+            return 1
+        next_attempt = 2
+
+    for attempt in range(next_attempt, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
+        result, event_id, review_issue_file = _invoke_agent_role(
+            store,
+            role="range_code_review",
+            prompt=_codebase_code_review_prompt(
+                store,
+                current_head,
+                attempt,
+                fix_mode,
+                operator_messages,
+            ),
+            context_paths=_range_code_review_context_paths(store),
+            issue_file_override=issue_file,
+        )
+        review_issue_file = review_issue_file or issue_file
+        _verify_unreported_blocking_issues(
+            store,
+            review_issue_file,
+            result.issues,
+            event_id,
+            "full codebase review",
+        )
+        summary_path = _write_codebase_code_review_summary(
+            store,
+            head_sha=current_head,
+            issue_file=review_issue_file,
+            attempt=attempt,
+            fix_mode=fix_mode,
+        )
+        blocking = _blocking_issues(store, review_issue_file)
+        print(f"code review: {summary_path}")
+        print(f"issue file: {review_issue_file}")
+        print("reviewed target: codebase")
+        print(f"blocker/major findings: {len(blocking)}")
+        if not result.ok:
+            print(
+                result.final_message,
+                end="" if result.final_message.endswith("\n") else "\n",
+            )
+            return 1
+        if fix_mode == "none" or not blocking:
+            return 0
+        if attempt == IMPLEMENTATION_REVIEW_MAX_ATTEMPTS:
+            _print_gate_failure(
+                [
+                    (
+                        "blocking full codebase review issues remain after "
+                        f"{IMPLEMENTATION_REVIEW_MAX_ATTEMPTS} attempts"
+                    ),
+                    f"review summary: {summary_path}",
+                ]
+            )
+            return 1
+
+        fix_code = _run_codebase_code_fix(
+            store,
+            current_head,
+            review_issue_file,
+            summary_path,
+            attempt,
+            operator_messages,
+            RangeFixResumeState(dirty_paths=[]),
+        )
+        if fix_code != 0:
+            return fix_code
+        previous_head = current_head
+        current_head = _git_current_head(store.root) or current_head
+        mode_error = _codebase_followup_mode_error(
+            store.root,
+            previous_head,
+            current_head,
+        )
+        if mode_error:
+            print(mode_error, file=sys.stderr)
+            return 1
+    return 1
+
+
+def _validate_codebase_fix_start(
+    store: StateStore,
+    issue_file: str,
+) -> RangeFixResumeState:
+    rebase_state = _git_rebase_state(store.root)
+    if rebase_state:
+        raise StateError("--fix-followup requires no in-progress rebase")
+    changed_paths = _non_review_tracked_changes(store)
+    if not changed_paths:
+        return RangeFixResumeState(dirty_paths=[])
+    if _blocking_issues(store, issue_file):
+        return RangeFixResumeState(dirty_paths=changed_paths)
+    raise StateError(
+        "--fix-followup requires a clean tracked worktree: "
+        + ", ".join(changed_paths)
+    )
+
+
+def _run_codebase_code_fix(
+    store: StateStore,
+    head_sha: str,
+    issue_file: str,
+    summary_path: str,
+    attempt: int,
+    operator_messages: list[str],
+    resume_state: RangeFixResumeState,
+) -> int:
+    result, _event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="range_code_fix",
+        prompt=_codebase_code_fix_prompt(
+            store,
+            head_sha,
+            issue_file,
+            summary_path,
+            attempt,
+            operator_messages,
+            resume_state,
+        ),
+        context_paths=[
+            *_range_code_review_context_paths(store),
+            summary_path,
+        ],
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    rebase_state = _git_rebase_state(store.root)
+    if rebase_state:
+        print(
+            "error: --fix-followup left an in-progress rebase: "
+            + _format_rebase_state(rebase_state),
+            file=sys.stderr,
+        )
+        return 1
+    changed_paths = _non_review_tracked_changes(store)
+    if changed_paths:
+        print(
+            "error: --fix-followup left uncommitted tracked changes: "
+            + ", ".join(changed_paths),
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _codebase_followup_mode_error(
+    root: Path,
+    previous_head: str,
+    current_head: str,
+) -> str | None:
+    if current_head == previous_head:
+        return "--fix-followup did not create a follow-up commit"
+    if not _git_is_ancestor(root, previous_head, current_head):
+        return (
+            "--fix-followup rewrote existing commits; fixes must be added "
+            "as follow-up commits at HEAD"
+        )
+    return None
 
 
 def _range_code_review_fix_mode(args: argparse.Namespace) -> str:
@@ -2977,6 +3251,7 @@ def _write_range_code_review_summary(
     issue_file: str,
     attempt: int,
     fix_mode: str,
+    mode_label: str = "commit range review",
 ) -> str:
     relative_path = _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
     path = store.root / relative_path
@@ -2991,7 +3266,7 @@ def _write_range_code_review_summary(
         "# Code Review",
         "",
         f"Generated: {utc_now()}",
-        "Mode: commit range review",
+        f"Mode: {mode_label}",
         f"Range: {range_spec}",
         f"Start commit: {start_sha}",
         f"End commit: {end_sha}",
@@ -3020,6 +3295,57 @@ def _write_range_code_review_summary(
             actor="orchestrator",
             stage=STAGE_IMPLEMENTATION,
             action="range-code-review-summary-written",
+            summary=f"Wrote {relative_path}.",
+            outputs=[relative_path],
+            artifact_changes=[relative_path],
+        )
+    )
+    return relative_path
+
+
+def _write_codebase_code_review_summary(
+    store: StateStore,
+    head_sha: str,
+    issue_file: str,
+    attempt: int,
+    fix_mode: str,
+) -> str:
+    relative_path = _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
+    path = store.root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    issues = store.read_review_issues(issue_file)
+    blocking = [
+        issue
+        for issue in issues
+        if _issue_is_blocking(issue)
+    ]
+    lines = [
+        "# Code Review",
+        "",
+        f"Generated: {utc_now()}",
+        "Mode: full codebase review",
+        "Range: none",
+        f"Reviewed tree: {head_sha} plus tracked working tree state",
+        f"Attempt: {attempt}",
+        f"Fix mode: {_range_fix_mode_label(fix_mode)}",
+        "Fix in place: no",
+        f"Fix follow-up: {'yes' if fix_mode == 'followup' else 'no'}",
+        f"Blocker/major findings: {len(blocking)}",
+        "",
+        "## Findings",
+        "",
+    ]
+    if not issues:
+        lines.extend(["- none", ""])
+    else:
+        for issue in issues:
+            lines.extend(_review_issue_detail_lines(issue, issue_file))
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            action="codebase-code-review-summary-written",
             summary=f"Wrote {relative_path}.",
             outputs=[relative_path],
             artifact_changes=[relative_path],
@@ -5092,20 +5418,29 @@ def _range_code_review_prompt(
     attempt: int,
     fix_mode: str,
     operator_messages: list[str],
+    mode_label: str = "commit range review",
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
     )
+    if len(commits) == 1:
+        review_line = f"Review commit {start_sha}."
+        order_line = "Review the listed commit using current repository context."
+    else:
+        review_line = f"Review commit range {start_sha}..{end_sha} inclusively."
+        order_line = (
+            "First inspect the final tree at the range end commit to understand "
+            "the final architecture and behavior. Then review each commit in "
+            "range order using that final-tree context."
+        )
     lines = [
-        f"Review commit range {start_sha}..{end_sha} inclusively.",
-        f"This is range code-review attempt {attempt}.",
+        review_line,
+        f"This is {mode_label} attempt {attempt}.",
         f"Fix mode: {_range_fix_mode_label(fix_mode)}.",
         "",
         f"Use {requirements_path}, {design_path}, {plan_path}, and",
         f"{test_plan_path} when present as the approved context.",
-        "First inspect the final tree at the range end commit to understand",
-        "the final architecture and behavior. Then review each commit in",
-        "range order using that final-tree context.",
+        order_line,
         "Evaluate whether each commit is coherent, reviewable, and aligned",
         "with the approved requirements, detailed design, implementation plan,",
         "and test plan.",
@@ -5133,6 +5468,106 @@ def _range_code_review_prompt(
                 "",
                 "Fix mode is enabled. Review first; ElectroBoy will launch a",
                 "separate fix agent if blocker or major findings remain.",
+            ]
+        )
+    lines.extend(_range_operator_instruction_lines(operator_messages))
+    return "\n".join(lines)
+
+
+def _codebase_code_review_prompt(
+    store: StateStore,
+    head_sha: str,
+    attempt: int,
+    fix_mode: str,
+    operator_messages: list[str],
+) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
+    lines = [
+        "Review the current codebase.",
+        f"This is full codebase review attempt {attempt}.",
+        f"Fix mode: {_range_fix_mode_label(fix_mode)}.",
+        "",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        f"Current HEAD commit: {head_sha}.",
+        "Inspect the full current tree, including tracked working tree edits",
+        "if any are present.",
+        "Evaluate whether the implementation is coherent and aligned with the",
+        "approved requirements, detailed design, implementation plan, and test",
+        "plan.",
+        "Do not modify files.",
+        "Classify every finding as blocker, major, or minor.",
+        "Blocker and major findings are blocking. Minor findings are",
+        "non-blocking follow-up items.",
+        "Report every finding, including minor findings, as structured review",
+        "issues.",
+        "If a finding is tied to a specific commit, set commit to that SHA.",
+        "If it is not tied to a specific commit, omit commit or set it to HEAD.",
+        "Use stable issue IDs prefixed with CODEBASE-, for example",
+        "CODEBASE-001.",
+        "If a previously reported issue is fixed, report the same issue_id",
+        "with status verified.",
+        "Set ok to true when the review completes successfully, even when",
+        "you report findings. Set ok to false only when the review itself",
+        "cannot be completed.",
+    ]
+    if fix_mode != "none":
+        lines.extend(
+            [
+                "",
+                "Fix mode is enabled. Review first; ElectroBoy will launch a",
+                "separate fix agent if blocker or major findings remain.",
+            ]
+        )
+    lines.extend(_range_operator_instruction_lines(operator_messages))
+    return "\n".join(lines)
+
+
+def _codebase_code_fix_prompt(
+    store: StateStore,
+    head_sha: str,
+    issue_file: str,
+    summary_path: str,
+    attempt: int,
+    operator_messages: list[str],
+    resume_state: RangeFixResumeState,
+) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
+    lines = [
+        "Fix full-codebase code-review findings as follow-up commits.",
+        "Address blocker and major findings by creating one or more new",
+        "commits after the current HEAD.",
+        "Do not amend, rebase, squash, or otherwise rewrite existing commits.",
+        "Keep follow-up commits focused on the recorded blocker and major",
+        "findings.",
+        f"This is full-codebase fix attempt {attempt}.",
+        "Fix mode: follow-up.",
+        "",
+        f"Current HEAD before fixes: {head_sha}",
+        "",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        f"Use {summary_path} and internal issue file {issue_file} as review",
+        "context.",
+        "Do not rewrite existing commits.",
+        "Leave the working tree clean when finished.",
+    ]
+    if resume_state.dirty_paths:
+        lines.extend(
+            [
+                "",
+                "This fix pass is resuming after an interrupted previous fix",
+                "attempt. The tracked working tree already contains partial",
+                "fix edits. Inspect these changes before editing, preserve",
+                "useful work, avoid repeating fixes, and include them in the",
+                "follow-up commits.",
+                "",
+                "Dirty tracked paths from the interrupted fix attempt:",
+                *_markdown_list(resume_state.dirty_paths),
             ]
         )
     lines.extend(_range_operator_instruction_lines(operator_messages))
