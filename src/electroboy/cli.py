@@ -2504,6 +2504,33 @@ def _update_code_review_record(
     return _append_code_review_record(store, updated)
 
 
+def _fail_code_review_result(
+    store: StateStore,
+    record: dict[str, object],
+    result: AgentResult,
+    *,
+    attempt: int,
+    fix_mode: str,
+    issue_file: str,
+) -> int:
+    review_id = str(record.get("review_id") or "")
+    _update_code_review_record(
+        store,
+        record,
+        attempt=attempt,
+        fix_mode=fix_mode,
+        status="failed",
+        issue_file=issue_file,
+        error=result.error or "agent result was not ok",
+    )
+    print(f"code review id: {review_id}")
+    print(
+        result.final_message,
+        end="" if result.final_message.endswith("\n") else "\n",
+    )
+    return 1
+
+
 def _code_review_issue_counts(
     store: StateStore,
     issue_file: str,
@@ -2544,10 +2571,11 @@ def _code_review_record_line(
     review_id = str(record.get("review_id") or "CR-????")
     target = _code_review_target_label(record)
     counts = _code_review_issue_counts(store, str(record.get("issue_file") or ""))
+    status = str(record.get("status") or "unknown")
     created = str(record.get("created_at") or "unknown")
     report = str(record.get("summary_path") or "")
     return (
-        f"{review_id} {target} created={created} "
+        f"{review_id} {target} status={status} created={created} "
         f"blocker/major={counts['blocker_major_count']} "
         f"minor={counts['minor_count']} findings={counts['finding_count']} "
         f"report={report}"
@@ -2791,6 +2819,15 @@ def _cmd_range_code_review(
             issue_file_override=issue_file,
         )
         review_issue_file = review_issue_file or issue_file
+        if not result.ok:
+            return _fail_code_review_result(
+                store,
+                review_record,
+                result,
+                attempt=attempt,
+                fix_mode=fix_mode,
+                issue_file=review_issue_file,
+            )
         _verify_unreported_blocking_issues(
             store,
             review_issue_file,
@@ -2829,12 +2866,6 @@ def _cmd_range_code_review(
         print(f"issue file: {review_issue_file}")
         print(f"commits reviewed: {len(current_commits)}")
         print(f"blocker/major findings: {len(blocking)}")
-        if not result.ok:
-            print(
-                result.final_message,
-                end="" if result.final_message.endswith("\n") else "\n",
-            )
-            return 1
         if fix_mode == "none" or not blocking:
             return 0
         if attempt == IMPLEMENTATION_REVIEW_MAX_ATTEMPTS:
@@ -2989,6 +3020,15 @@ def _cmd_codebase_code_review(
             issue_file_override=issue_file,
         )
         review_issue_file = review_issue_file or issue_file
+        if not result.ok:
+            return _fail_code_review_result(
+                store,
+                review_record,
+                result,
+                attempt=attempt,
+                fix_mode=fix_mode,
+                issue_file=review_issue_file,
+            )
         _verify_unreported_blocking_issues(
             store,
             review_issue_file,
@@ -3021,12 +3061,6 @@ def _cmd_codebase_code_review(
         print(f"issue file: {review_issue_file}")
         print("reviewed target: codebase")
         print(f"blocker/major findings: {len(blocking)}")
-        if not result.ok:
-            print(
-                result.final_message,
-                end="" if result.final_message.endswith("\n") else "\n",
-            )
-            return 1
         if fix_mode == "none" or not blocking:
             return 0
         if attempt == IMPLEMENTATION_REVIEW_MAX_ATTEMPTS:
@@ -5090,7 +5124,7 @@ def _invoke_agent_role(
         )
         result = runtime.invoke(invocation)
         if output_schema is not None and _runtime_enforces_output_contract(runtime):
-            result = _enforce_agent_output_contract(role, result)
+            result = _enforce_agent_output_contract(runtime, role, result)
     except Exception as error:
         result = _failed_agent_result(str(error))
     if session_stage:
@@ -5263,6 +5297,13 @@ def _prompt_with_output_contract(prompt: str) -> str:
     lines = [
         prompt.rstrip(),
         "",
+        *_review_output_contract_lines(),
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _review_output_contract_lines() -> list[str]:
+    return [
         "Structured output contract:",
         "- Your final response must be exactly one JSON object.",
         "- Do not wrap the JSON in Markdown fences or add prose outside it.",
@@ -5285,11 +5326,17 @@ def _prompt_with_output_contract(prompt: str) -> str:
         "  ]",
         "}",
         "- Use an empty issues array when there are no findings.",
+        "- Every issue must include non-empty string values for issue_id,",
+        "  severity, status, and summary.",
+        "- summary must be a concise one-line description of the finding. It",
+        "  cannot be empty, null, a heading, or only punctuation.",
+        "- Do not emit heading-only or placeholder issue objects.",
+        "- If you mention finding counts in final_message, those counts must",
+        "  match the issues array exactly.",
         "- Valid severities are blocker, major, and minor.",
         "- Valid statuses are open, accepted, fixed, verified, rejected,",
         "  deferred, and escalated.",
     ]
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def _runtime_enforces_output_contract(runtime: object) -> bool:
@@ -5299,12 +5346,107 @@ def _runtime_enforces_output_contract(runtime: object) -> bool:
 
 
 def _enforce_agent_output_contract(
+    runtime: object,
     role: str,
     result: AgentResult,
 ) -> AgentResult:
     errors = _review_output_contract_errors(result)
     if not errors:
         return _normalized_review_contract_result(result)
+    repaired = _repair_review_output_contract(runtime, role, result, errors)
+    if repaired is not None:
+        return repaired
+    return _review_output_contract_failure_result(role, result, errors)
+
+
+def _repair_review_output_contract(
+    runtime: object,
+    role: str,
+    result: AgentResult,
+    errors: list[str],
+) -> AgentResult | None:
+    repair_invocation = AgentInvocation(
+        role=_review_output_repair_role(role),
+        prompt=_review_output_repair_prompt(role, result, errors),
+        context_paths=[],
+        output_schema=REVIEW_OUTPUT_SCHEMA,
+    )
+    try:
+        repaired = runtime.invoke(repair_invocation)
+    except Exception as error:
+        repaired = _failed_agent_result(f"review output repair failed: {error}")
+    repair_errors = _review_output_contract_errors(repaired)
+    if repair_errors:
+        return None
+    normalized = _normalized_review_contract_result(repaired)
+    normalized.raw_events = [
+        *result.raw_events,
+        {
+            "action": "review output contract repaired",
+            "role": role,
+            "original_errors": errors,
+            "raw_final_message": result.final_message,
+        },
+        *normalized.raw_events,
+    ]
+    return normalized
+
+
+def _review_output_repair_role(role: str) -> str:
+    if role == "range_code_review":
+        return "code_review"
+    return role
+
+
+def _review_output_repair_prompt(
+    role: str,
+    result: AgentResult,
+    errors: list[str],
+) -> str:
+    raw_payload = result.structured_payload
+    raw_payload_text = (
+        json.dumps(raw_payload, indent=2, sort_keys=True)
+        if raw_payload is not None
+        else "null"
+    )
+    return "\n".join(
+        [
+            "Repair structured review output.",
+            "",
+            f"Original review role: {role}",
+            "",
+            "Validation errors:",
+            *_markdown_list(errors),
+            "",
+            "Raw final response:",
+            "```text",
+            result.final_message or "",
+            "```",
+            "",
+            "Parsed JSON payload, when one was available:",
+            "```json",
+            raw_payload_text,
+            "```",
+            "",
+            "Return exactly one JSON object matching the review output",
+            "contract. Do not add or remove findings. Preserve severity,",
+            "status, artifact, location, rationale, requested_change, and",
+            "commit values when they are present. If an issue lacks a summary,",
+            "derive a short non-empty one-line summary from the issue fields or",
+            "from the raw final response. If no specific finding can be",
+            "recovered, return ok=false with an empty issues array and explain",
+            "that the output could not be repaired.",
+            "",
+            *_review_output_contract_lines(),
+        ]
+    )
+
+
+def _review_output_contract_failure_result(
+    role: str,
+    result: AgentResult,
+    errors: list[str],
+) -> AgentResult:
     message = (
         f"Agent output contract failed for {role}: "
         + "; ".join(errors)

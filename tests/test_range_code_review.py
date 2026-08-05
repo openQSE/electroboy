@@ -142,6 +142,66 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertIn(f"Reviewed tree: {head}", summary)
         self.assertIn("Review the current codebase.", prompts)
 
+    def test_code_review_contract_failure_does_not_report_zero_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_invalid_review_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            create_commit(root, "src/one.py", "one = 1\n", "code: one")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review"]
+            )
+            list_code, list_stdout, list_stderr = self.run_cli(
+                ["--root", str(root), "code-review", "list"]
+            )
+
+        self.assertEqual(code, 1, stderr)
+        self.assertIn("code review id: CR-0001", stdout)
+        self.assertIn("Agent output contract failed for range_code_review", stdout)
+        self.assertIn(
+            "Review completed; found 1 blocker and 1 major finding.",
+            stdout,
+        )
+        self.assertNotIn("blocker/major findings: 0", stdout)
+        self.assertNotIn("code review: docs/code-review-CR-0001.md", stdout)
+        self.assertFalse((root / "docs" / "code-review-CR-0001.md").exists())
+        self.assertEqual(list_code, 0, list_stderr)
+        self.assertIn("CR-0001 codebase@", list_stdout)
+        self.assertIn("status=failed", list_stdout)
+
+    def test_code_review_repairs_malformed_review_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_repairable_review_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            initialize_git_repo(root)
+            create_commit(root, "src/one.py", "one = 1\n", "code: one")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code-review"]
+            )
+            summary = read_code_review_summary(root)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("code review id: CR-0001", stdout)
+        self.assertNotIn("Agent output contract failed", stdout)
+        self.assertIn("blocker/major findings: 2", stdout)
+        self.assertIn("Blocker/major findings: 2", summary)
+        self.assertIn("CODEBASE-001", summary)
+        self.assertIn("Missing admission validation.", summary)
+        self.assertIn("CODEBASE-002", summary)
+        self.assertIn("Scheduler state update is incomplete.", summary)
+
     def test_code_review_list_shows_records_and_verbose_findings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -539,6 +599,103 @@ issue = {
     "requested_change": "Align the commit with the implementation plan.",
 }
 print(json.dumps({"ok": True, "final_message": "reviewed", "issues": [issue]}))
+""".lstrip(),
+    )
+    write_runtime_config(root)
+
+
+def write_invalid_review_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        """
+from __future__ import annotations
+
+import json
+
+issues = [
+    {
+        "issue_id": "CODEBASE-001",
+        "severity": "blocker",
+        "status": "open",
+        "summary": "",
+    },
+    {
+        "issue_id": "CODEBASE-002",
+        "severity": "major",
+        "status": "open",
+        "summary": "",
+    },
+]
+print(json.dumps({
+    "ok": True,
+    "final_message": "Review completed; found 1 blocker and 1 major finding.",
+    "issues": issues,
+}))
+""".lstrip(),
+    )
+    write_runtime_config(root)
+
+
+def write_repairable_review_runtime(root: Path) -> None:
+    write_file(
+        root / "agent.py",
+        """
+from __future__ import annotations
+
+import json
+import sys
+
+prompt = sys.stdin.read()
+if "Repair structured review output." in prompt:
+    print(json.dumps({
+        "ok": True,
+        "final_message": "Review completed; found 1 blocker and 1 major finding.",
+        "issues": [
+            {
+                "issue_id": "CODEBASE-001",
+                "severity": "blocker",
+                "status": "open",
+                "summary": "Missing admission validation.",
+                "artifact": "src/one.py",
+                "location": "src/one.py:1",
+                "rationale": "Admissions must reject invalid requests.",
+                "requested_change": "Add admission validation.",
+            },
+            {
+                "issue_id": "CODEBASE-002",
+                "severity": "major",
+                "status": "open",
+                "summary": "Scheduler state update is incomplete.",
+                "artifact": "src/one.py",
+                "location": "src/one.py:1",
+                "rationale": "Scheduler state must remain consistent.",
+                "requested_change": "Complete the scheduler state update.",
+            },
+        ],
+    }))
+else:
+    print(json.dumps({
+        "ok": True,
+        "final_message": "Review completed; found 1 blocker and 1 major finding.",
+        "issues": [
+            {
+                "issue_id": "CODEBASE-001",
+                "severity": "blocker",
+                "status": "open",
+                "summary": "",
+                "artifact": "src/one.py",
+                "requested_change": "Add admission validation.",
+            },
+            {
+                "issue_id": "CODEBASE-002",
+                "severity": "major",
+                "status": "open",
+                "summary": "",
+                "artifact": "src/one.py",
+                "requested_change": "Complete the scheduler state update.",
+            },
+        ],
+    }))
 """.lstrip(),
     )
     write_runtime_config(root)
