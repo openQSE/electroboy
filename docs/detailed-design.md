@@ -673,9 +673,13 @@ starts a coding-agent commit pass and records the resulting SHA. `electroboy
 code --phased` runs one phase and leaves commit creation or commit recording
 to the operator before the next phase can start.
 
-The orchestrator writes human-readable phase review summaries to
-`docs/code-review.md` and `docs/test-review.md`, or to the matching
-feature-tagged artifact paths during feature work.
+The orchestrator writes human-readable phase review attempt reports under
+`docs/reviews/`, with filenames that include the review kind, feature tag when
+present, phase, and attempt number. The top-level `docs/code-review.md` and
+`docs/test-review.md` files, or their feature-tagged equivalents, remain
+latest-summary indexes that point to the per-attempt reports. Generated review
+reports are operator-facing pipeline output and are not part of phase
+implementation commits.
 
 If development changes phase scope, sequencing, acceptance criteria, required
 tests, or documentation impact, the coding agent stops implementation work and

@@ -241,8 +241,9 @@ recorded state for each phase. Expert recovery can move the active phase with
 `code --set-phase <n> --reason "<why>"`. Earlier uncommitted phases are
 recorded as `operator-skipped` for sequencing, not as committed. The command
 records the operator override, then the next `electroboy code` starts from
-that phase and tells the agents to report missing prerequisites instead of
-silently filling skipped phases.
+that phase and tells the agents to check earlier phases for required
+dependencies before editing. If a required dependency is missing, the agent
+must stop and report the gap instead of silently filling skipped phases.
 
 Use `code --interactive` to open an interactive coding-agent shell for the
 active or next planned phase. This is for operator-guided fine tuning. The
@@ -250,9 +251,13 @@ interactive session does not run review agents, create phase commits, or
 advance the implementation loop; after exiting, run `electroboy code` to
 continue automated review and commit handling.
 
-Automated `code` stage summaries are written to `docs/code-review.md` and
-test review summaries are written to `docs/test-review.md`. Feature runs use
-the matching feature-tagged filenames.
+Automated `code` stage review attempts are written to `docs/reviews/`, for
+example `docs/reviews/code-review-phase-2-attempt-1.md` and
+`docs/reviews/test-review-phase-2-attempt-1.md`. Feature runs include the
+feature tag in those filenames. The top-level `docs/code-review.md` and
+`docs/test-review.md` files remain latest-summary indexes that point to the
+per-attempt reports. Generated review reports are human-readable pipeline
+output and should not be included in phase implementation commits.
 
 Use `code-review` to audit the current codebase, a single commit, or an
 already-written commit range without advancing the pipeline:

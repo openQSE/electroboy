@@ -209,16 +209,23 @@ status, review state, and commit for each phase. `electroboy code --set-phase
 <n> --reason "<why>"` is an expert recovery command. It records the selected
 active phase, records earlier uncommitted phases as `operator-skipped` for
 sequencing, and returns without running agents. The next `electroboy code`
-starts from that phase and instructs the agents to report missing
-prerequisites instead of silently implementing skipped phases.
+starts from that phase and instructs the agents to check earlier phases for
+required dependencies before editing. If a required dependency is missing,
+the agent must stop and report the gap instead of silently implementing
+skipped phases.
 
 For each phase, code review and test review are bounded automatic loops. The
 orchestrator gives the coding agent up to five attempts to resolve blocker and
 major review findings. Minor findings are kept as follow-up notes and do not
-block the phase. Automated `code` stage review summaries are written to
-`docs/code-review.md`; test review summaries are written to
-`docs/test-review.md`. Feature runs use the corresponding
-`docs/code-review-<feature>.md` and `docs/test-review-<feature>.md` files.
+block the phase. Automated `code` stage review attempts are written under
+`docs/reviews/`, for example
+`docs/reviews/code-review-phase-2-attempt-1.md` and
+`docs/reviews/test-review-phase-2-attempt-1.md`. Feature runs include the
+feature tag in those filenames. `docs/code-review.md` and
+`docs/test-review.md`, or the feature-tagged equivalents, remain latest
+summary indexes that point to the per-attempt reports. Generated review
+reports are human-readable pipeline output and should stay out of phase
+implementation commits.
 
 `electroboy code-review` audits the current codebase. `electroboy code-review
 <sha>` audits one commit. `electroboy code-review <sha1>..<sha2>` audits an

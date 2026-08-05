@@ -891,8 +891,9 @@ Scope:
 - Iterate code review and fixes up to five attempts.
 - Invoke phase test review agent.
 - Iterate test review and fixes up to five attempts.
-- Write `docs/code-review.md` and `docs/test-review.md` summaries, using
-  feature-tagged names during feature work.
+- Write per-attempt review reports under `docs/reviews/` and keep
+  `docs/code-review.md` and `docs/test-review.md` as latest-summary indexes,
+  using feature-tagged names during feature work.
 - Detect active-phase drift from `docs/implementation-plan.md`.
 - Invoke the coding agent to create the verified phase commit by default.
 - Record the coding-agent commit SHA after validation.

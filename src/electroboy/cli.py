@@ -128,6 +128,7 @@ RANGE_CODE_REVIEW_ISSUE_PREFIX = "range-code-review"
 CODE_REVIEW_REGISTRY_FILE = "code-reviews.jsonl"
 CODE_REVIEW_ID_PREFIX = "CR"
 TEST_REVIEW_SUMMARY_PATH = "docs/test-review.md"
+REVIEW_REPORT_DIRECTORY = "docs/reviews"
 TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
 IMPLEMENTATION_REVIEW_MAX_ATTEMPTS = 5
@@ -3712,13 +3713,14 @@ def _run_code_review_cycle(
             review_event,
             "code review",
         )
-        summary_path = _write_phase_review_summary(
+        summary_path, attempt_path = _write_phase_review_summary(
             store,
             review_kind="code_review",
             current_phase=phase_number,
             attempt=attempt,
         )
-        print(f"code review: {summary_path}")
+        print(f"code review: {attempt_path}")
+        print(f"summary: {summary_path}")
         status = store.load_phase_status()
         phase = status.phases.setdefault(str(phase_number), {})
         phase["code_review_event"] = review_event
@@ -3804,13 +3806,14 @@ def _run_test_review_cycle(
             test_event,
             "test review",
         )
-        summary_path = _write_phase_review_summary(
+        summary_path, attempt_path = _write_phase_review_summary(
             store,
             review_kind="test_review",
             current_phase=phase_number,
             attempt=attempt,
         )
-        print(f"test review: {summary_path}")
+        print(f"test review: {attempt_path}")
+        print(f"summary: {summary_path}")
         status = store.load_phase_status()
         phase = status.phases.setdefault(str(phase_number), {})
         phase["test_review_event"] = test_event
@@ -3922,17 +3925,62 @@ def _phase_review_summary_path(store: StateStore, review_kind: str) -> str:
     return _artifact_path(store, CODE_REVIEW_SUMMARY_PATH)
 
 
+def _phase_review_attempt_path(
+    store: StateStore,
+    review_kind: str,
+    phase_number: int,
+    attempt: int,
+) -> str:
+    stem = _phase_review_file_stem(store, review_kind)
+    return f"{REVIEW_REPORT_DIRECTORY}/{stem}-phase-{phase_number}-attempt-{attempt}.md"
+
+
+def _phase_review_file_stem(store: StateStore, review_kind: str) -> str:
+    stem = "test-review" if review_kind == "test_review" else "code-review"
+    slug = _run_feature_slug(store)
+    if slug:
+        return f"{stem}-{slug}"
+    return stem
+
+
+def _run_feature_slug(store: StateStore) -> str | None:
+    run_id = store.current_run_id()
+    if not run_id:
+        return None
+    record = read_feature_record(store.root, run_id)
+    if not record:
+        return None
+    slug = record.get("slug")
+    if isinstance(slug, str) and slug.strip():
+        return slug.strip()
+    return None
+
+
 def _write_phase_review_summary(
     store: StateStore,
     review_kind: str,
     current_phase: int,
     attempt: int,
-) -> str:
+) -> tuple[str, str]:
     relative_path = _phase_review_summary_path(store, review_kind)
+    attempt_path = _phase_review_attempt_path(
+        store,
+        review_kind,
+        current_phase,
+        attempt,
+    )
+    _write_phase_review_attempt_report(
+        store,
+        review_kind,
+        current_phase,
+        attempt,
+        attempt_path,
+    )
     path = store.root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     title = "Test Review" if review_kind == "test_review" else "Code Review"
     issue_suffix = "test-review" if review_kind == "test_review" else "code-review"
+    attempt_paths = _phase_review_attempt_paths(store, review_kind)
     lines = [
         f"# {title}",
         "",
@@ -3940,6 +3988,15 @@ def _write_phase_review_summary(
         f"Current phase: {current_phase}",
         f"Latest review attempt: {attempt}",
         f"Maximum review attempts: {IMPLEMENTATION_REVIEW_MAX_ATTEMPTS}",
+        "",
+        "This is the latest review summary. Detailed per-attempt reports are",
+        f"written under `{REVIEW_REPORT_DIRECTORY}/`.",
+        "",
+        "## Review Attempt Files",
+        "",
+        *_markdown_list(attempt_paths),
+        "",
+        "## Findings",
         "",
         "Blocker and major issues stop the phase after the retry limit.",
         "Minor issues are recorded for follow-up and do not block progress.",
@@ -3967,11 +4024,57 @@ def _write_phase_review_summary(
             phase=current_phase,
             action="review-summary-written",
             summary=f"Wrote {relative_path}.",
-            outputs=[relative_path],
-            artifact_changes=[relative_path],
+            outputs=[relative_path, attempt_path],
+            artifact_changes=[relative_path, attempt_path],
         )
     )
-    return relative_path
+    return relative_path, attempt_path
+
+
+def _write_phase_review_attempt_report(
+    store: StateStore,
+    review_kind: str,
+    current_phase: int,
+    attempt: int,
+    relative_path: str,
+) -> None:
+    path = store.root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    title = "Test Review" if review_kind == "test_review" else "Code Review"
+    issue_suffix = "test-review" if review_kind == "test_review" else "code-review"
+    issue_file = f"phase-{current_phase}-{issue_suffix}.jsonl"
+    issues = store.read_review_issues(issue_file)
+    lines = [
+        f"# {title} Phase {current_phase} Attempt {attempt}",
+        "",
+        f"Generated: {utc_now()}",
+        f"Phase: {current_phase}",
+        f"Attempt: {attempt}",
+        f"Issue file: {issue_file}",
+        "",
+        "## Findings",
+        "",
+    ]
+    if not issues:
+        lines.extend(["- none", ""])
+    else:
+        for issue in issues:
+            lines.extend(_review_issue_detail_lines(issue, issue_file))
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _phase_review_attempt_paths(
+    store: StateStore,
+    review_kind: str,
+) -> list[str]:
+    directory = store.root / REVIEW_REPORT_DIRECTORY
+    if not directory.exists():
+        return []
+    stem = _phase_review_file_stem(store, review_kind)
+    return [
+        _normalize_repo_path(str(path.relative_to(store.root)))
+        for path in sorted(directory.glob(f"{stem}-phase-*-attempt-*.md"))
+    ]
 
 
 def _write_range_code_review_summary(
@@ -4137,10 +4240,7 @@ def _issue_is_blocking(issue: dict[str, object]) -> bool:
 
 
 def _phase_review_artifact_paths(store: StateStore) -> list[str]:
-    return [
-        _normalize_repo_path(_phase_review_summary_path(store, "code_review")),
-        _normalize_repo_path(_phase_review_summary_path(store, "test_review")),
-    ]
+    return []
 
 
 def _commit_active_phase_with_agent(
@@ -6173,9 +6273,16 @@ def _force_selected_phase_instruction_lines(
     else:
         lines.extend(
             [
-                "- Stay on the selected phase. If required earlier work is",
-                "  missing, stop and report the dependency gap instead of",
-                "  implementing skipped phases.",
+                "- Before any file edits, inspect the implementation-plan",
+                "  sections for earlier phases and the current code/tests to",
+                "  confirm dependencies required by this phase are complete.",
+                "- If a previous-phase dependency required by this phase is",
+                "  missing or incomplete, stop before editing files and report",
+                "  the dependency gap instead of implementing skipped phases.",
+                "- In non-interactive runs, finish with ok=false and a concise",
+                "  final_message listing the missing dependency and affected",
+                "  previous phase. In interactive runs, tell the operator and",
+                "  wait for direction.",
                 "- Do not fill skipped phases just to make this phase pass.",
             ]
         )
@@ -6237,6 +6344,10 @@ def _coding_commit_prompt(
         "commit work for earlier or later implementation phases. If unrelated",
         "or out-of-phase changes prevent a clean phase commit, stop and report",
         "the conflicting paths.",
+        "Do not stage or commit generated review reports such as",
+        "docs/code-review*.md, docs/test-review*.md, or docs/reviews/*.md.",
+        "Those files are human-readable pipeline output for the operator and",
+        "should remain outside phase implementation commits.",
         "If phase changes are in nested git repositories, first ensure each",
         "nested repository is on the active feature branch, commit the nested",
         "repository changes there, then commit the active target repository",
@@ -7907,35 +8018,34 @@ def _open_change_requests(store: StateStore) -> list[dict[str, object]]:
 
 
 def _open_review_issues(store: StateStore) -> list[tuple[str, dict[str, object]]]:
-    issue_files = [
-        "design-review.jsonl",
-        "validation-review.jsonl",
-        "documentation-review.jsonl",
-    ]
-    phase_status = store.load_phase_status()
-    for phase in sorted(phase_status.phases):
-        issue_files.extend(
-            [
-                f"phase-{phase}-code-review.jsonl",
-                f"phase-{phase}-test-review.jsonl",
-            ]
-        )
-    run_id = store.current_run_id()
-    if run_id:
-        for pattern in [
-            f"{RANGE_CODE_REVIEW_ISSUE_PREFIX}-*.jsonl",
-            f"code-review-{CODE_REVIEW_ID_PREFIX}-*.jsonl",
-        ]:
-            issue_files.extend(
-                path.name for path in store.run_dir(run_id).glob(pattern)
-            )
-
+    issue_files = _active_workflow_review_issue_files(store)
     issues: list[tuple[str, dict[str, object]]] = []
     for issue_file in issue_files:
         for issue in store.read_review_issues(issue_file):
             if issue.get("status") in BLOCKING_ISSUE_STATUSES:
                 issues.append((issue_file, issue))
     return issues
+
+
+def _active_workflow_review_issue_files(store: StateStore) -> list[str]:
+    manifest = store.load_current_manifest()
+    if manifest.active_stage in {STAGE_DESIGN_REVIEW, STAGE_DESIGN_ACCEPTANCE}:
+        return ["design-review.jsonl"]
+    if manifest.active_stage == STAGE_VALIDATION:
+        return ["validation-review.jsonl"]
+    if manifest.active_stage == STAGE_DOCS_REVIEW:
+        return ["documentation-review.jsonl"]
+    if manifest.active_stage != STAGE_IMPLEMENTATION:
+        return []
+
+    phase_status = store.load_phase_status()
+    if phase_status.active_phase is None:
+        return []
+    phase = str(phase_status.active_phase)
+    return [
+        f"phase-{phase}-code-review.jsonl",
+        f"phase-{phase}-test-review.jsonl",
+    ]
 
 
 def _change_request_lines(requests: list[dict[str, object]]) -> list[str]:
@@ -8737,14 +8847,10 @@ def _range_rebase_state_prompt_lines(state: dict[str, str]) -> list[str]:
 
 
 def _non_review_tracked_changes(store: StateStore) -> list[str]:
-    allowed = {
-        _normalize_repo_path(_artifact_path(store, CODE_REVIEW_SUMMARY_PATH)),
-    }
     return [
         path
         for path in _git_worktree_changed_paths(store.root, include_untracked=False)
-        if path not in allowed
-        and not (path.startswith("docs/code-review") and path.endswith(".md"))
+        if not _is_generated_review_report_path(path)
     ]
 
 
@@ -8967,6 +9073,14 @@ def _phase_commit_scope_error(
             "phase commit includes ElectroBoy internal state: "
             + ", ".join(internal_paths)
         )
+    review_report_paths = [
+        path for path in changed_paths if _is_generated_review_report_path(path)
+    ]
+    if review_report_paths:
+        return (
+            "phase commit includes generated review reports: "
+            + ", ".join(review_report_paths)
+        )
     return _phase_paths_scope_error(
         store,
         phase_number,
@@ -9019,6 +9133,20 @@ def _is_pipeline_internal_path(path: str) -> bool:
         or path.startswith(".electroboy/")
         or path == ".agent-pipeline"
         or path.startswith(".agent-pipeline/")
+    )
+
+
+def _is_generated_review_report_path(path: str) -> bool:
+    normalized = _normalize_repo_path(path)
+    return (
+        (
+            normalized.startswith("docs/code-review")
+            or normalized.startswith("docs/test-review")
+        )
+        and normalized.endswith(".md")
+    ) or (
+        normalized.startswith(f"{REVIEW_REPORT_DIRECTORY}/")
+        and normalized.endswith(".md")
     )
 
 

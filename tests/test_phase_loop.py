@@ -214,7 +214,9 @@ class PhaseLoopTests(unittest.TestCase):
             any(
                 "Implement phase 2" in prompt
                 and "Operator force-selected implementation phase 2." in prompt
-                and "implementing skipped phases" in prompt
+                and "Before any file edits, inspect the implementation-plan"
+                in prompt
+                and "finish with ok=false" in prompt
                 for prompt in prompts
             )
         )
@@ -482,13 +484,25 @@ class PhaseLoopTests(unittest.TestCase):
 
             status = StateStore(root).load_phase_status()
             committed_files = git_show_names(root)
+            code_review_exists = (root / "docs" / "code-review.md").exists()
+            test_review_exists = (root / "docs" / "test-review.md").exists()
+            code_review_attempt_exists = (
+                root / "docs" / "reviews" / "code-review-phase-1-attempt-1.md"
+            ).exists()
+            test_review_attempt_exists = (
+                root / "docs" / "reviews" / "test-review-phase-1-attempt-1.md"
+            ).exists()
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("committed phase: 1", stdout)
         self.assertEqual(status.phases["1"]["status"], "committed")
         self.assertIn("src/phase1/output.txt", committed_files)
-        self.assertIn("docs/code-review.md", committed_files)
-        self.assertIn("docs/test-review.md", committed_files)
+        self.assertNotIn("docs/code-review.md", committed_files)
+        self.assertNotIn("docs/test-review.md", committed_files)
+        self.assertTrue(code_review_exists)
+        self.assertTrue(test_review_exists)
+        self.assertTrue(code_review_attempt_exists)
+        self.assertTrue(test_review_attempt_exists)
 
     def test_code_review_retries_until_blockers_resolve(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -510,12 +524,23 @@ class PhaseLoopTests(unittest.TestCase):
             code_review_text = (root / "docs" / "code-review.md").read_text(
                 encoding="utf-8"
             )
+            code_review_attempt_exists = (
+                root / "docs" / "reviews" / "code-review-phase-1-attempt-5.md"
+            ).exists()
 
         self.assertEqual(code, 0, stderr)
-        self.assertIn("code review: docs/code-review.md", stdout)
+        self.assertIn(
+            "code review: docs/reviews/code-review-phase-1-attempt-3.md",
+            stdout,
+        )
+        self.assertIn("summary: docs/code-review.md", stdout)
         self.assertIn("committed phase: 1", stdout)
         self.assertEqual(status.phases["1"]["code_review_attempts"], 3)
         self.assertEqual(status.phases["1"]["status"], "committed")
+        self.assertIn(
+            "docs/reviews/code-review-phase-1-attempt-3.md",
+            code_review_text,
+        )
         self.assertIn("CR-001", code_review_text)
         self.assertIn("Status: verified", code_review_text)
 
@@ -539,11 +564,15 @@ class PhaseLoopTests(unittest.TestCase):
             code_review_text = (root / "docs" / "code-review.md").read_text(
                 encoding="utf-8"
             )
+            code_review_attempt_exists = (
+                root / "docs" / "reviews" / "code-review-phase-1-attempt-5.md"
+            ).exists()
 
         self.assertEqual(code, 1)
         self.assertIn("after 5 attempts", stderr)
         self.assertEqual(status.active_phase, 1)
         self.assertNotEqual(status.phases["1"].get("status"), "committed")
+        self.assertTrue(code_review_attempt_exists)
         self.assertIn("CR-001", code_review_text)
         self.assertIn("Severity: major", code_review_text)
 
@@ -571,6 +600,10 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertIn("committed phase: 1", stdout)
         self.assertEqual(status.phases["1"]["code_review_attempts"], 1)
+        self.assertIn(
+            "docs/reviews/code-review-phase-1-attempt-1.md",
+            code_review_text,
+        )
         self.assertIn("CR-002", code_review_text)
         self.assertIn("Severity: minor", code_review_text)
         self.assertIn("Status: open", code_review_text)
@@ -597,8 +630,16 @@ class PhaseLoopTests(unittest.TestCase):
             )
 
         self.assertEqual(code, 0, stderr)
-        self.assertIn("test review: docs/test-review.md", stdout)
+        self.assertIn(
+            "test review: docs/reviews/test-review-phase-1-attempt-2.md",
+            stdout,
+        )
+        self.assertIn("summary: docs/test-review.md", stdout)
         self.assertEqual(status.phases["1"]["test_review_attempts"], 2)
+        self.assertIn(
+            "docs/reviews/test-review-phase-1-attempt-2.md",
+            test_review_text,
+        )
         self.assertIn("TR-001", test_review_text)
         self.assertIn("Status: verified", test_review_text)
 
@@ -650,6 +691,30 @@ class PhaseLoopTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("outside phase 1 scope", stderr)
+
+    def test_phase_commit_rejects_generated_review_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_manual_runtime(root)
+            self.prepare_implementation_run(root)
+            start_phase(root, 1)
+            self.assertEqual(
+                self.run_cli(["--root", str(root), "code", "--phased"])[0],
+                0,
+            )
+            sha = create_git_commit(
+                root,
+                "phase 1: review report",
+                "generated review\n",
+                relative_path="docs/reviews/code-review-phase-1-attempt-1.md",
+            )
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "phase", "commit", "1", "--sha", sha]
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("generated review reports", stderr)
 
 
 def write_file(path: Path, text: str) -> None:
@@ -725,7 +790,7 @@ for line in raw_prompt.splitlines():
 if "commit implementation phase" in prompt:
     phase = "2" if "phase 2" in prompt else "1"
     message = "phase 2: second work" if phase == "2" else "phase 1: first work"
-    for candidate in ["src", "docs", "tests"]:
+    for candidate in ["src", "tests"]:
         if pathlib.Path(candidate).exists():
             subprocess.run(["git", "add", "-A", "--", candidate], check=True)
     subprocess.run(
@@ -858,7 +923,7 @@ prompt = raw_prompt.lower()
 note_progress(raw_prompt)
 
 if "commit implementation phase" in prompt:
-    for candidate in ["src", "docs", "tests"]:
+    for candidate in ["src", "tests"]:
         if pathlib.Path(candidate).exists():
             subprocess.run(["git", "add", "-A", "--", candidate], check=True)
     subprocess.run(
