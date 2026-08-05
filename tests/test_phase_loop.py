@@ -93,6 +93,139 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertEqual(status.active_phase, 1)
         self.assertIn("active phase: 1", stdout)
 
+    def test_code_list_phases_prints_planned_and_recorded_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_manual_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n\n"
+                "## Phase 2. Second Work\n\n"
+                "Requirements: REQ-1\n",
+            )
+            self.prepare_implementation_run(root)
+            store = StateStore(root)
+            status = store.load_phase_status()
+            status.active_phase = 1
+            status.phases["1"] = {
+                "status": "active",
+                "objective": "Phase 1. First Work",
+                "code_review": "passed",
+                "test_review": "pending",
+                "commit": "abc123",
+            }
+            store.save_phase_status(status)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code", "--list-phase"]
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("active phase: 1", stdout)
+        self.assertIn("phase 1: active", stdout)
+        self.assertIn("objective: Phase 1. First Work", stdout)
+        self.assertIn("code review: passed", stdout)
+        self.assertIn("commit: abc123", stdout)
+        self.assertIn("phase 2: planned", stdout)
+
+    def test_code_set_phase_requires_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_manual_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n",
+            )
+            self.prepare_implementation_run(root)
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "code", "--set-phase", "1"]
+            )
+
+        self.assertEqual(code, 2)
+        self.assertIn("code --set-phase requires --reason", stderr)
+
+    def test_code_set_phase_records_force_selection_and_updates_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_generic_agent_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n\n"
+                "## Phase 2. Second Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase2\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            set_code, set_stdout, set_stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "code",
+                    "--set-phase",
+                    "2",
+                    "--reason",
+                    "Phase 1 was already handled manually.",
+                ]
+            )
+            run_code, run_stdout, run_stderr = self.run_cli(
+                ["--root", str(root), "code"]
+            )
+
+            store = StateStore(root)
+            status = store.load_phase_status()
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompts = [
+                path.read_text(encoding="utf-8")
+                for path in prompt_files
+            ]
+            phase1_output_exists = (root / "src" / "phase1" / "output.txt").exists()
+            phase2_output_exists = (root / "src" / "phase2" / "output.txt").exists()
+
+        self.assertEqual(set_code, 0, set_stderr)
+        self.assertIn("active phase: 2", set_stdout)
+        self.assertIn("operator-skipped phases:", set_stdout)
+        self.assertIn("  - 1", set_stdout)
+        self.assertIn("next: electroboy code", set_stdout)
+        self.assertEqual(run_code, 0, run_stderr)
+        self.assertIn("committed phase: 2", run_stdout)
+        self.assertIsNone(status.active_phase)
+        self.assertEqual(status.phases["1"]["status"], "operator-skipped")
+        self.assertFalse(phase1_output_exists)
+        self.assertTrue(phase2_output_exists)
+        self.assertTrue(status.phases["2"]["force_selected"])
+        self.assertEqual(status.phases["2"]["status"], "committed")
+        self.assertEqual(
+            status.phases["2"]["force_reason"],
+            "Phase 1 was already handled manually.",
+        )
+        self.assertTrue(
+            any(
+                "Implement phase 2" in prompt
+                and "Operator force-selected implementation phase 2." in prompt
+                and "implementing skipped phases" in prompt
+                for prompt in prompts
+            )
+        )
+        self.assertTrue(
+            any(
+                "Review implementation phase 2" in prompt
+                and "Do not create a blocker solely because branch history" in prompt
+                for prompt in prompts
+            )
+        )
+
     def test_code_interactive_starts_phase_and_records_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -601,14 +734,14 @@ if "commit implementation phase" in prompt:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+elif "implement phase 2" in prompt or "implementation phase 2" in prompt:
+    path = pathlib.Path("src/phase2/output.txt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("phase 2\\n", encoding="utf-8")
 elif "phase 1" in prompt:
     path = pathlib.Path("src/phase1/output.txt")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("phase 1\\n", encoding="utf-8")
-elif "phase 2" in prompt:
-    path = pathlib.Path("src/phase2/output.txt")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("phase 2\\n", encoding="utf-8")
 print(json.dumps({"ok": True, "final_message": "accepted", "issues": []}))
 """.lstrip(),
     )

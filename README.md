@@ -236,6 +236,14 @@ the code-review agent prompts for that `code` run. The instruction is reused
 on every code-review attempt and is not passed to coding, commit, or test
 review agents.
 
+Use `code --list-phases` to inspect planned implementation phases and the
+recorded state for each phase. Expert recovery can move the active phase with
+`code --set-phase <n> --reason "<why>"`. Earlier uncommitted phases are
+recorded as `operator-skipped` for sequencing, not as committed. The command
+records the operator override, then the next `electroboy code` starts from
+that phase and tells the agents to report missing prerequisites instead of
+silently filling skipped phases.
+
 Use `code --interactive` to open an interactive coding-agent shell for the
 active or next planned phase. This is for operator-guided fine tuning. The
 interactive session does not run review agents, create phase commits, or

@@ -41,7 +41,8 @@ Operator workflow commands:
   test-plan authoring.
 - `test-plan-approve` records human test-plan approval.
 - `code [--reason <text>] [--msg <text>] [--review-msg <text>]
-  [--phased|--interactive]` starts or resumes implementation work.
+  [--list-phases|--set-phase <n>] [--phased|--interactive]` starts or
+  resumes implementation work.
 - `code-review [list [<cr-id>] | <cr-id> | <sha> | <sha1>..<sha2>]
   [--fix-followup|--fix-in-place] [--msg <text>] [--verbose]` reviews the
   current codebase, lists recorded reviews, fixes a recorded review, or
@@ -202,6 +203,14 @@ phase, opens the configured interactive coding runtime, records the session,
 and then returns control without running code review, test review, or phase
 commit handling. Use it for operator-guided fine tuning, then run
 `electroboy code` to continue the automated implementation loop.
+
+`electroboy code --list-phases` prints every planned phase plus the recorded
+status, review state, and commit for each phase. `electroboy code --set-phase
+<n> --reason "<why>"` is an expert recovery command. It records the selected
+active phase, records earlier uncommitted phases as `operator-skipped` for
+sequencing, and returns without running agents. The next `electroboy code`
+starts from that phase and instructs the agents to report missing
+prerequisites instead of silently implementing skipped phases.
 
 For each phase, code review and test review are bounded automatic loops. The
 orchestrator gives the coding agent up to five attempts to resolve blocker and

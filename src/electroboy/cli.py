@@ -509,6 +509,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="append an instruction to code-review prompts for this run",
     )
+    code.add_argument(
+        "--list-phase",
+        "--list-phases",
+        action="store_true",
+        dest="list_phases",
+        help="list planned implementation phases and recorded phase state",
+    )
+    code.add_argument(
+        "--set-phase",
+        type=int,
+        metavar="N",
+        help="expert: set the active implementation phase and return",
+    )
     code_review = subparsers.add_parser(
         "code-review",
         help="review a commit, commit range, or the current codebase",
@@ -2203,6 +2216,22 @@ def _cmd_code(
         _print_gate_failure(["implementation gate has not passed"])
         return 1
 
+    list_phases = bool(getattr(args, "list_phases", False))
+    set_phase = getattr(args, "set_phase", None)
+    if list_phases and set_phase is not None:
+        raise StateError("code phase listing cannot be combined with --set-phase")
+    if (list_phases or set_phase is not None) and (
+        getattr(args, "interactive", False) or getattr(args, "phased", False)
+    ):
+        raise StateError(
+            "code phase state commands cannot be combined with --interactive "
+            "or --phased"
+        )
+    if list_phases:
+        return _cmd_code_list_phases(store)
+    if set_phase is not None:
+        return _cmd_code_set_phase(store, int(set_phase), getattr(args, "reason", None))
+
     operator_messages = _code_operator_messages(args)
     review_messages = _code_review_operator_messages(args)
     if getattr(args, "interactive", False):
@@ -2222,6 +2251,160 @@ def _cmd_code(
         operator_messages,
         review_messages,
     )
+
+
+def _cmd_code_list_phases(store: StateStore) -> int:
+    status = store.load_phase_status()
+    planned = {
+        phase.number: phase
+        for phase in planned_phases(
+            store.root,
+            _artifact_path(store, "docs/implementation-plan.md"),
+        )
+    }
+    numbers = set(planned)
+    for key in status.phases:
+        try:
+            numbers.add(int(key))
+        except ValueError:
+            continue
+
+    active = status.active_phase if status.active_phase is not None else "none"
+    print(f"active phase: {active}")
+    print("phases:")
+    if not numbers:
+        print("  - none")
+        return 0
+
+    for number in sorted(numbers):
+        phase = status.phases.get(str(number), {})
+        planned_phase = planned.get(number)
+        phase_state = _phase_status_label(
+            status,
+            number,
+            phase,
+            planned_phase is not None,
+        )
+        objective = str(
+            phase.get("objective")
+            or (planned_phase.heading if planned_phase else f"Phase {number}")
+        )
+        code_review = str(phase.get("code_review", "pending"))
+        test_review = str(phase.get("test_review", "pending"))
+        commit = str(phase.get("commit", "none"))
+        print(f"  - phase {number}: {phase_state}")
+        print(f"    objective: {objective}")
+        print(f"    code review: {code_review}")
+        print(f"    test review: {test_review}")
+        print(f"    commit: {commit}")
+        if bool(phase.get("force_selected")):
+            print("    force-selected: yes")
+            reason = str(phase.get("force_reason", "")).strip()
+            if reason:
+                print(f"    reason: {reason}")
+    return 0
+
+
+def _phase_status_label(
+    status: PhaseStatus,
+    phase_number: int,
+    phase: dict[str, object],
+    is_planned: bool,
+) -> str:
+    if status.active_phase == phase_number:
+        return "active"
+    recorded = str(phase.get("status", "")).strip()
+    if recorded:
+        return recorded
+    if is_planned:
+        return "planned"
+    return "recorded"
+
+
+def _cmd_code_set_phase(
+    store: StateStore,
+    phase_number: int,
+    reason: str | None,
+) -> int:
+    if phase_number <= 0:
+        raise StateError("code --set-phase requires a positive phase number")
+    reason_text = (reason or "").strip()
+    if not reason_text:
+        raise StateError("code --set-phase requires --reason")
+
+    planned = {
+        phase.number: phase
+        for phase in planned_phases(
+            store.root,
+            _artifact_path(store, "docs/implementation-plan.md"),
+        )
+    }
+    status = store.load_phase_status()
+    if phase_number not in planned and str(phase_number) not in status.phases:
+        raise StateError(
+            f"unknown implementation phase: {phase_number}; "
+            "run `electroboy code --list-phases`"
+        )
+
+    previous_phase = status.active_phase
+    skipped_phases: list[int] = []
+    for planned_number in sorted(planned):
+        if planned_number >= phase_number:
+            continue
+        skipped = status.phases.setdefault(str(planned_number), {})
+        if skipped.get("status") == "committed":
+            continue
+        skipped["status"] = "operator-skipped"
+        skipped.setdefault("objective", _phase_objective(store, planned_number))
+        skipped["plan_current"] = True
+        skipped["skipped_by_force_phase"] = phase_number
+        skipped["skip_reason"] = reason_text
+        skipped["skipped_at"] = utc_now()
+        skipped_phases.append(planned_number)
+
+    status.active_phase = phase_number
+    phase = status.phases.setdefault(str(phase_number), {})
+    phase["status"] = "active"
+    phase.setdefault("objective", _phase_objective(store, phase_number))
+    phase["plan_current"] = True
+    phase["force_selected"] = True
+    phase["force_reason"] = reason_text
+    phase["force_selected_at"] = utc_now()
+    if previous_phase is not None and previous_phase != phase_number:
+        phase["previous_active_phase"] = previous_phase
+    store.save_phase_status(status)
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            phase=phase_number,
+            action="code-phase-force-selected",
+            summary=f"Force-selected implementation phase {phase_number}.",
+            status="pass",
+            inputs=[f"previous phase: {previous_phase or 'none'}"],
+            outputs=[
+                f"reason: {reason_text}",
+                "operator-skipped phases: "
+                + (
+                    ", ".join(str(number) for number in skipped_phases)
+                    or "none"
+                ),
+            ],
+        )
+    )
+
+    print(f"previous phase: {previous_phase or 'none'}")
+    print(f"active phase: {phase_number}")
+    print(f"reason: {reason_text}")
+    if skipped_phases:
+        print("operator-skipped phases:")
+        for skipped_phase in skipped_phases:
+            print(f"  - {skipped_phase}")
+    existing_commit = phase.get("commit")
+    if existing_commit:
+        print(f"existing commit: {existing_commit}")
+    print("next: electroboy code")
+    return 0
 
 
 def _code_operator_messages(args: argparse.Namespace) -> list[str]:
@@ -5876,7 +6059,7 @@ def _coding_prompt(
                 "only when doing so is low risk and in scope for this phase.",
             ]
         )
-    lines.extend(_phase_boundary_instruction_lines(phase_number))
+    lines.extend(_phase_boundary_instruction_lines(store, phase_number))
     lines.extend(_coding_operator_instruction_lines(operator_messages or []))
     lines.extend(
         [
@@ -5914,7 +6097,7 @@ def _interactive_coding_prompt(
         "phase. Continue from the current working tree instead of restarting",
         "from scratch.",
     ]
-    lines.extend(_phase_boundary_instruction_lines(phase_number))
+    lines.extend(_phase_boundary_instruction_lines(store, phase_number))
     lines.extend(_coding_operator_instruction_lines(operator_messages))
     lines.extend(
         [
@@ -5935,8 +6118,11 @@ def _interactive_coding_prompt(
     return "\n".join(lines)
 
 
-def _phase_boundary_instruction_lines(phase_number: int) -> list[str]:
-    return [
+def _phase_boundary_instruction_lines(
+    store: StateStore,
+    phase_number: int,
+) -> list[str]:
+    lines = [
         "",
         "Active phase boundary:",
         f"- Work only on implementation phase {phase_number}.",
@@ -5945,6 +6131,67 @@ def _phase_boundary_instruction_lines(phase_number: int) -> list[str]:
         "- If the working tree already contains out-of-phase changes, leave",
         "  them untouched and report the conflicting paths.",
     ]
+    lines.extend(
+        _force_selected_phase_instruction_lines(
+            store,
+            phase_number,
+            review=False,
+        )
+    )
+    return lines
+
+
+def _force_selected_phase_instruction_lines(
+    store: StateStore,
+    phase_number: int,
+    review: bool,
+) -> list[str]:
+    phase = _phase_status_entry(store, phase_number)
+    if not bool(phase.get("force_selected")):
+        return []
+    reason = str(phase.get("force_reason", "")).strip()
+    lines = [
+        "",
+        "Expert phase selection:",
+        f"- Operator force-selected implementation phase {phase_number}.",
+    ]
+    if reason:
+        lines.append(f"- Reason: {reason}")
+    if review:
+        lines.extend(
+            [
+                "- Review the selected phase against the approved artifacts.",
+                "- Do not create a blocker solely because branch history or the",
+                "  working tree contains out-of-phase work from operator",
+                "  recovery. Report blocker or major findings only when that",
+                "  work creates a concrete defect, missing dependency, or",
+                "  conflict for this phase.",
+                "- If required earlier work is missing, report the dependency",
+                "  gap clearly.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "- Stay on the selected phase. If required earlier work is",
+                "  missing, stop and report the dependency gap instead of",
+                "  implementing skipped phases.",
+                "- Do not fill skipped phases just to make this phase pass.",
+            ]
+        )
+    return lines
+
+
+def _phase_is_force_selected(store: StateStore, phase_number: int) -> bool:
+    return bool(_phase_status_entry(store, phase_number).get("force_selected"))
+
+
+def _phase_status_entry(
+    store: StateStore,
+    phase_number: int,
+) -> dict[str, object]:
+    status = store.load_phase_status()
+    return status.phases.get(str(phase_number), {})
 
 
 def _coding_operator_instruction_lines(messages: list[str]) -> list[str]:
@@ -6014,26 +6261,51 @@ def _code_review_prompt(
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
     )
+    force_selected = _phase_is_force_selected(store, phase_number)
     lines = [
         f"Review implementation phase {phase_number}, attempt {attempt}.",
         "",
         f"Use {requirements_path}, {design_path}, {plan_path}, and",
         f"{test_plan_path} when present as the approved context.",
         "Review only the changes relevant to this phase.",
-        "Treat implemented or committed work for another implementation",
-        "phase as a blocker finding.",
-        "Do not modify files.",
-        "Classify every finding as blocker, major, or minor.",
-        "Blocker and major findings are blocking. Minor findings are",
-        "non-blocking follow-up items.",
-        "Report every finding, including minor findings, as structured",
-        "review issues.",
-        "If a previously reported issue is fixed, report the same issue_id",
-        "with status verified.",
-        "Set ok to true when the review completes successfully, even when",
-        "you report findings. Set ok to false only when the review itself",
-        "cannot be completed.",
     ]
+    if force_selected:
+        lines.extend(
+            [
+                "Treat implemented or committed work for another phase as a",
+                "blocker only when it creates a concrete defect, missing",
+                "dependency, or conflict for this selected phase.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "Treat implemented or committed work for another implementation",
+                "phase as a blocker finding.",
+            ]
+        )
+    lines.extend(
+        [
+            "Do not modify files.",
+            "Classify every finding as blocker, major, or minor.",
+            "Blocker and major findings are blocking. Minor findings are",
+            "non-blocking follow-up items.",
+            "Report every finding, including minor findings, as structured",
+            "review issues.",
+            "If a previously reported issue is fixed, report the same issue_id",
+            "with status verified.",
+            "Set ok to true when the review completes successfully, even when",
+            "you report findings. Set ok to false only when the review itself",
+            "cannot be completed.",
+        ]
+    )
+    lines.extend(
+        _force_selected_phase_instruction_lines(
+            store,
+            phase_number,
+            review=True,
+        )
+    )
     lines.extend(_phase_review_operator_instruction_lines(review_messages or []))
     return "\n".join(lines)
 
@@ -8080,7 +8352,10 @@ def _uncommitted_planned_phases(store: StateStore) -> list[int]:
     missing: list[int] = []
     for phase in planned:
         state = status.phases.get(str(phase.number), {})
-        if state.get("status") != "committed":
+        phase_state = state.get("status")
+        if phase_state == "operator-skipped":
+            continue
+        if phase_state != "committed":
             missing.append(phase.number)
             continue
         commit = state.get("commit")
