@@ -333,6 +333,11 @@ electroboy progress
 follows live updates by default; use `--once` to print the current snapshot and
 exit.
 
+When a review agent reports structured issues, ElectroBoy appends prominent
+lines such as `ISSUE FOUND - PH2-CODE-001 - MAJOR - <summary>` and
+`ISSUE VERIFIED - PH2-CODE-001 - MAJOR - <summary>` to the relevant progress
+file.
+
 Progress files are informational only. ElectroBoy does not stop an agent just
 because progress output pauses; the agent runs until it exits or the operator
 interrupts it.

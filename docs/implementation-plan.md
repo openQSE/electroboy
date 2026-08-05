@@ -478,8 +478,9 @@ indicators for the active phase, code review, test review, escalations, and
 resumable checkpoints. Long-running non-interactive agent roles also receive a
 run-local Markdown progress file. The orchestrator prints the path, instructs
 the agent to append concise status lines, exposes those lines through
-`electroboy progress`, and lets the runtime continue until the agent exits or
-the operator interrupts it.
+`electroboy progress`, appends prominent `ISSUE FOUND` and `ISSUE VERIFIED`
+lines when structured review issues are recorded, and lets the runtime
+continue until the agent exits or the operator interrupts it.
 
 `test-plan` can run before it becomes the active stage so operators can capture
 system-test cases during design, planning, or implementation. After code

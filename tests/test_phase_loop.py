@@ -524,11 +524,21 @@ class PhaseLoopTests(unittest.TestCase):
             code_review_text = (root / "docs" / "code-review.md").read_text(
                 encoding="utf-8"
             )
-            code_review_attempt_exists = (
-                root / "docs" / "reviews" / "code-review-phase-1-attempt-5.md"
-            ).exists()
+            code_review_progress = (
+                root
+                / ".electroboy"
+                / "shared"
+                / "runs"
+                / "run-1"
+                / "progress"
+                / "phase-1-code-review-progress.md"
+            ).read_text(encoding="utf-8")
+            progress_code, progress_stdout, progress_stderr = self.run_cli(
+                ["--root", str(root), "progress", "--once"]
+            )
 
         self.assertEqual(code, 0, stderr)
+        self.assertEqual(progress_code, 0, progress_stderr)
         self.assertIn(
             "code review: docs/reviews/code-review-phase-1-attempt-3.md",
             stdout,
@@ -543,6 +553,18 @@ class PhaseLoopTests(unittest.TestCase):
         )
         self.assertIn("CR-001", code_review_text)
         self.assertIn("Status: verified", code_review_text)
+        self.assertIn(
+            "ISSUE FOUND - CR-001 - MAJOR - Phase output is incomplete.",
+            code_review_progress,
+        )
+        self.assertIn(
+            "ISSUE FOUND - CR-001 - MAJOR - Phase output is incomplete.",
+            progress_stdout,
+        )
+        self.assertIn(
+            "ISSUE VERIFIED - CR-001 - MAJOR - Phase output is complete.",
+            code_review_progress,
+        )
 
     def test_code_review_stops_after_retry_limit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

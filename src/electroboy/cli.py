@@ -5488,6 +5488,7 @@ def _invoke_agent_role(
             issue_file,
             role,
             result.issues,
+            progress_path=progress_path,
         )
     outputs = [progress_path] if progress_path else []
     if issue_file and linked_issue_ids:
@@ -8236,6 +8237,11 @@ def _transition_issue(
         }
     )
     store.append_review_issue(file_name, ReviewIssue.from_dict(updated))
+    _append_review_issue_progress_line(
+        store,
+        _review_issue_progress_file(store, file_name),
+        updated,
+    )
     store.append_activity(
         ActivityEvent(
             actor="orchestrator",
@@ -8247,6 +8253,31 @@ def _transition_issue(
         )
     )
     return True
+
+
+def _review_issue_progress_file(
+    store: StateStore,
+    issue_file: str,
+) -> str | None:
+    manifest = store.load_current_manifest()
+    prefix = f".electroboy/shared/runs/{manifest.run_id}/progress"
+    if issue_file == "design-review.jsonl":
+        return f"{prefix}/design-review-progress.md"
+    if issue_file == "validation-review.jsonl":
+        return f"{prefix}/validation-review-progress.md"
+    if issue_file == "documentation-review.jsonl":
+        return f"{prefix}/documentation-review-progress.md"
+    phase_code = re.fullmatch(r"phase-(\d+)-code-review\.jsonl", issue_file)
+    if phase_code:
+        return f"{prefix}/phase-{phase_code.group(1)}-code-review-progress.md"
+    phase_test = re.fullmatch(r"phase-(\d+)-test-review\.jsonl", issue_file)
+    if phase_test:
+        return f"{prefix}/phase-{phase_test.group(1)}-test-review-progress.md"
+    if issue_file.startswith(f"{RANGE_CODE_REVIEW_ISSUE_PREFIX}-"):
+        return f"{prefix}/range-code-review-progress.md"
+    if issue_file.startswith(f"code-review-{CODE_REVIEW_ID_PREFIX}-"):
+        return f"{prefix}/range-code-review-progress.md"
+    return None
 
 
 def _find_issue(
@@ -9294,6 +9325,7 @@ def _store_agent_issues(
     issue_file: str,
     role: str,
     issues: list[dict[str, object]],
+    progress_path: str | None = None,
 ) -> list[str]:
     linked: list[str] = []
     existing = store.read_review_issues(issue_file)
@@ -9312,8 +9344,45 @@ def _store_agent_issues(
             "summary": raw_issue.get("summary", ""),
         }
         store.append_review_issue(issue_file, ReviewIssue.from_dict(data))
+        _append_review_issue_progress_line(store, progress_path, data)
         linked.append(issue_id)
     return linked
+
+
+def _append_review_issue_progress_line(
+    store: StateStore,
+    progress_path: str | None,
+    issue: dict[str, object],
+) -> None:
+    if not progress_path:
+        return
+    line = _review_issue_progress_line(issue)
+    if not line:
+        return
+    path = store.root / progress_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(f"{utc_now()} {line}\n")
+
+
+def _review_issue_progress_line(issue: dict[str, object]) -> str | None:
+    status = str(issue.get("status") or "open").strip().lower()
+    if status == "verified":
+        label = "ISSUE VERIFIED"
+    elif status in BLOCKING_ISSUE_STATUSES:
+        label = "ISSUE FOUND"
+    else:
+        return None
+    issue_id = str(issue.get("issue_id") or "").strip()
+    severity = str(issue.get("severity") or "major").strip().upper()
+    summary = str(issue.get("summary") or "").strip()
+    if not summary:
+        summary = "Review issue reported without a summary."
+    parts = [label]
+    if issue_id:
+        parts.append(issue_id)
+    parts.extend([severity, summary])
+    return " - ".join(parts)
 
 
 def _invalidated_snapshot_refs(
