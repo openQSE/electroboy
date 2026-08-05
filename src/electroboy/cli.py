@@ -503,6 +503,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="append an instruction to coding-agent prompts for this run",
     )
+    code.add_argument(
+        "--review-msg",
+        action="append",
+        default=[],
+        help="append an instruction to code-review prompts for this run",
+    )
     code_review = subparsers.add_parser(
         "code-review",
         help="review a commit, commit range, or the current codebase",
@@ -2198,17 +2204,38 @@ def _cmd_code(
         return 1
 
     operator_messages = _code_operator_messages(args)
+    review_messages = _code_review_operator_messages(args)
     if getattr(args, "interactive", False):
         return _cmd_code_interactive(store, engine, args, operator_messages)
     if getattr(args, "phased", False):
-        return _cmd_code_phased(store, engine, args, operator_messages)
-    return _cmd_code_automated(store, engine, args, operator_messages)
+        return _cmd_code_phased(
+            store,
+            engine,
+            args,
+            operator_messages,
+            review_messages,
+        )
+    return _cmd_code_automated(
+        store,
+        engine,
+        args,
+        operator_messages,
+        review_messages,
+    )
 
 
 def _code_operator_messages(args: argparse.Namespace) -> list[str]:
     return [
         str(message).strip()
         for message in getattr(args, "msg", []) or []
+        if str(message).strip()
+    ]
+
+
+def _code_review_operator_messages(args: argparse.Namespace) -> list[str]:
+    return [
+        str(message).strip()
+        for message in getattr(args, "review_msg", []) or []
         if str(message).strip()
     ]
 
@@ -3294,6 +3321,7 @@ def _cmd_code_phased(
     engine: GateEngine,
     args: argparse.Namespace,
     operator_messages: list[str],
+    review_messages: list[str],
 ) -> int:
     phase_status = store.load_phase_status()
     if phase_status.active_phase is not None:
@@ -3309,7 +3337,12 @@ def _cmd_code_phased(
             )
         )
         print(f"active phase: {phase}")
-        code = _run_phase_agent_loop(store, phase, operator_messages)
+        code = _run_phase_agent_loop(
+            store,
+            phase,
+            operator_messages,
+            review_messages,
+        )
         print("next: commit the phase after reviewing repository changes")
         return code
 
@@ -3338,7 +3371,12 @@ def _cmd_code_phased(
         )
     )
     _print_progress("implementation", f"started phase {next_phase}")
-    code = _run_phase_agent_loop(store, next_phase, operator_messages)
+    code = _run_phase_agent_loop(
+        store,
+        next_phase,
+        operator_messages,
+        review_messages,
+    )
     print(f"active phase: {next_phase}")
     print("next: commit the phase after reviewing repository changes")
     if getattr(args, "reason", None):
@@ -3351,6 +3389,7 @@ def _cmd_code_automated(
     engine: GateEngine,
     args: argparse.Namespace,
     operator_messages: list[str],
+    review_messages: list[str],
 ) -> int:
     printed_reason = False
     while True:
@@ -3379,7 +3418,12 @@ def _cmd_code_automated(
         if getattr(args, "reason", None) and not printed_reason:
             print(f"reason: {args.reason}")
             printed_reason = True
-        code = _run_phase_agent_loop(store, phase, operator_messages)
+        code = _run_phase_agent_loop(
+            store,
+            phase,
+            operator_messages,
+            review_messages,
+        )
         if code != 0:
             return code
         commit_code = _commit_active_phase_with_agent(
@@ -3419,8 +3463,14 @@ def _run_phase_agent_loop(
     store: StateStore,
     phase_number: int,
     operator_messages: list[str],
+    review_messages: list[str],
 ) -> int:
-    code_review_code = _run_code_review_cycle(store, phase_number, operator_messages)
+    code_review_code = _run_code_review_cycle(
+        store,
+        phase_number,
+        operator_messages,
+        review_messages,
+    )
     if code_review_code != 0:
         return code_review_code
     test_review_code = _run_test_review_cycle(store, phase_number, operator_messages)
@@ -3433,6 +3483,7 @@ def _run_code_review_cycle(
     store: StateStore,
     phase_number: int,
     operator_messages: list[str],
+    review_messages: list[str],
 ) -> int:
     issue_file = f"phase-{phase_number}-code-review.jsonl"
     summary_path = _phase_review_summary_path(store, "code_review")
@@ -3462,7 +3513,12 @@ def _run_code_review_cycle(
         review_result, review_event, review_issue_file = _invoke_agent_role(
             store,
             role="code_review",
-            prompt=_code_review_prompt(store, phase_number, attempt),
+            prompt=_code_review_prompt(
+                store,
+                phase_number,
+                attempt,
+                review_messages,
+            ),
             context_paths=_implementation_context_paths(store),
         )
         review_issue_file = review_issue_file or issue_file
@@ -5953,32 +6009,43 @@ def _code_review_prompt(
     store: StateStore,
     phase_number: int,
     attempt: int = 1,
+    review_messages: list[str] | None = None,
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
     )
-    return "\n".join(
-        [
-            f"Review implementation phase {phase_number}, attempt {attempt}.",
-            "",
-            f"Use {requirements_path}, {design_path}, {plan_path}, and",
-            f"{test_plan_path} when present as the approved context.",
-            "Review only the changes relevant to this phase.",
-            "Treat implemented or committed work for another implementation",
-            "phase as a blocker finding.",
-            "Do not modify files.",
-            "Classify every finding as blocker, major, or minor.",
-            "Blocker and major findings are blocking. Minor findings are",
-            "non-blocking follow-up items.",
-            "Report every finding, including minor findings, as structured",
-            "review issues.",
-            "If a previously reported issue is fixed, report the same issue_id",
-            "with status verified.",
-            "Set ok to true when the review completes successfully, even when",
-            "you report findings. Set ok to false only when the review itself",
-            "cannot be completed.",
-        ]
-    )
+    lines = [
+        f"Review implementation phase {phase_number}, attempt {attempt}.",
+        "",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        "Review only the changes relevant to this phase.",
+        "Treat implemented or committed work for another implementation",
+        "phase as a blocker finding.",
+        "Do not modify files.",
+        "Classify every finding as blocker, major, or minor.",
+        "Blocker and major findings are blocking. Minor findings are",
+        "non-blocking follow-up items.",
+        "Report every finding, including minor findings, as structured",
+        "review issues.",
+        "If a previously reported issue is fixed, report the same issue_id",
+        "with status verified.",
+        "Set ok to true when the review completes successfully, even when",
+        "you report findings. Set ok to false only when the review itself",
+        "cannot be completed.",
+    ]
+    lines.extend(_phase_review_operator_instruction_lines(review_messages or []))
+    return "\n".join(lines)
+
+
+def _phase_review_operator_instruction_lines(messages: list[str]) -> list[str]:
+    if not messages:
+        return []
+    return [
+        "",
+        "Additional operator instructions for this phase code review:",
+        *_markdown_list(messages),
+    ]
 
 
 def _test_review_prompt(

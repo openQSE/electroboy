@@ -231,6 +231,11 @@ message cannot broaden the active phase scope. Coding and fix passes leave
 changes in the working tree; only the dedicated commit pass may create git
 commits.
 
+Pass `--review-msg "<instruction>"` to append an operator instruction only to
+the code-review agent prompts for that `code` run. The instruction is reused
+on every code-review attempt and is not passed to coding, commit, or test
+review agents.
+
 Use `code --interactive` to open an interactive coding-agent shell for the
 active or next planned phase. This is for operator-guided fine tuning. The
 interactive session does not run review agents, create phase commits, or

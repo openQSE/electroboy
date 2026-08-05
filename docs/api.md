@@ -40,8 +40,8 @@ Operator workflow commands:
 - `test-plan [--reason <text>] [--session-id <id>]` starts or resumes system
   test-plan authoring.
 - `test-plan-approve` records human test-plan approval.
-- `code [--reason <text>] [--msg <text>] [--phased|--interactive]` starts or
-  resumes implementation work.
+- `code [--reason <text>] [--msg <text>] [--review-msg <text>]
+  [--phased|--interactive]` starts or resumes implementation work.
 - `code-review [list [<cr-id>] | <cr-id> | <sha> | <sha1>..<sha2>]
   [--fix-followup|--fix-in-place] [--msg <text>] [--verbose]` reviews the
   current codebase, lists recorded reviews, fixes a recorded review, or
@@ -192,7 +192,10 @@ each remaining planned phase, invokes coding, code review, and test review
 agents, asks the coding agent to commit reviewed phase changes, records that
 commit, and continues until the implementation stage is complete. Use
 `--msg "<instruction>"` to append operator guidance to coding-agent
-implementation, fix, and commit prompts for that run.
+implementation, fix, and commit prompts for that run. Use
+`--review-msg "<instruction>"` to append operator guidance only to the
+code-review agent prompts for that run; the instruction is reused on every
+code-review attempt.
 
 `electroboy code --interactive` starts or resumes the active implementation
 phase, opens the configured interactive coding runtime, records the session,

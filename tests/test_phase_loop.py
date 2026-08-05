@@ -243,6 +243,71 @@ class PhaseLoopTests(unittest.TestCase):
             )
         )
 
+    def test_code_review_msg_is_appended_only_to_code_review_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_generic_agent_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+
+            code, _stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "code",
+                    "--review-msg",
+                    "Do not block on phase-boundary history splitting.",
+                ]
+            )
+
+            store = StateStore(root)
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompts = [
+                path.read_text(encoding="utf-8")
+                for path in prompt_files
+            ]
+
+        self.assertEqual(code, 0, stderr)
+        self.assertTrue(
+            any(
+                "Review implementation phase 1" in prompt
+                and "Additional operator instructions for this phase code review:"
+                in prompt
+                and "Do not block on phase-boundary history splitting." in prompt
+                for prompt in prompts
+            )
+        )
+        self.assertFalse(
+            any(
+                "Active phase boundary:" in prompt
+                and "Do not block on phase-boundary history splitting." in prompt
+                for prompt in prompts
+            )
+        )
+        self.assertFalse(
+            any(
+                "Commit implementation phase 1" in prompt
+                and "Do not block on phase-boundary history splitting." in prompt
+                for prompt in prompts
+            )
+        )
+        self.assertFalse(
+            any(
+                "Review tests for implementation phase 1" in prompt
+                and "Do not block on phase-boundary history splitting." in prompt
+                for prompt in prompts
+            )
+        )
+
     def test_code_command_blocks_coding_pass_commits(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
