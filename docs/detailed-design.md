@@ -1288,7 +1288,6 @@ Commit gate:
 - `Paths:` metadata in the implementation plan defines the allowed commit
   scope for a planned phase when present.
 - Code review gate passes.
-- Commit message identifies the phase and the completed objective.
 - The commit SHA exists and is reachable from `HEAD`.
 
 Validation testing gate:

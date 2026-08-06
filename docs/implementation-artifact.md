@@ -263,7 +263,6 @@ Implemented:
 - Attributed manual phase review and test markers to the human operator.
 - Cleared active-phase review evidence when phase-plan drift is recorded.
 - Required phase commit SHAs to be reachable from `HEAD`.
-- Required phase commit messages to identify the active phase and objective.
 - Checked phase commit changed paths against implementation-plan `Paths:`
   metadata when a planned phase declares scope paths.
 - Added Rich-compatible progress output with a plain text fallback.

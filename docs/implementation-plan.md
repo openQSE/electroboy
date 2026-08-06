@@ -915,7 +915,6 @@ Acceptance criteria:
 - A new phase cannot start while another phase is active.
 - Phase review can update only the active phase.
 - Phase commits require an existing git commit SHA reachable from `HEAD`.
-- Phase commit messages identify the active phase and objective.
 - Phase commit changed paths must match the planned phase `Paths:` metadata
   when that metadata is present.
 - Phase commits require code review agent evidence.

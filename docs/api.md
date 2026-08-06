@@ -272,9 +272,8 @@ electroboy phase commit <n> --sha <commit-sha>
 
 `phase commit` verifies that code review has a runtime-backed agent event,
 verifies that the supplied SHA is an existing commit reachable from `HEAD`,
-verifies that the commit message identifies the phase and
-objective, checks changed paths against any `Paths:` metadata for the active
-phase, and stores it in phase status.
+checks changed paths against any `Paths:` metadata for the active phase, and
+stores it in phase status.
 
 ## Validation Commands
 

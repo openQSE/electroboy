@@ -653,24 +653,28 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertIn("Severity: major", code_review_text)
         self.assertIn("Status: deferred", code_review_text)
 
-    def test_phase_commit_requires_phase_message(self) -> None:
+    def test_phase_commit_allows_arbitrary_commit_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_manual_runtime(root)
             self.prepare_implementation_run(root)
             start_phase(root, 1)
+            store = StateStore(root)
+            status = store.load_phase_status()
+            status.phases["1"]["objective"] = "Phase 1. First Work"
+            store.save_phase_status(status)
             self.assertEqual(
                 self.run_cli(["--root", str(root), "code", "--phased"])[0],
                 0,
             )
             sha = create_git_commit(root, "unrelated work")
 
-            code, _stdout, stderr = self.run_cli(
+            code, stdout, stderr = self.run_cli(
                 ["--root", str(root), "phase", "commit", "1", "--sha", sha]
             )
 
-        self.assertEqual(code, 1)
-        self.assertIn("commit message must identify phase 1", stderr)
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("committed phase: 1", stdout)
 
     def test_phase_commit_requires_scope_paths_when_plan_declares_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

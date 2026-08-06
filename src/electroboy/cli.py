@@ -9227,9 +9227,6 @@ def _phase_commit_validation_error(
         return f"commit does not exist: {sha}"
     if not _git_commit_reachable_from_head(root, sha):
         return f"commit is not reachable from HEAD: {sha}"
-    message_error = _phase_commit_message_error(root, sha, phase_number, phase)
-    if message_error:
-        return message_error
     return _phase_commit_scope_error(store, sha, phase_number)
 
 
@@ -9271,44 +9268,6 @@ def _git_commit_reachable_from_head(root: Path, sha: str) -> bool:
         check=False,
     )
     return completed.returncode == 0
-
-
-def _phase_commit_message_error(
-    root: Path,
-    sha: str,
-    phase_number: int,
-    phase: dict[str, object],
-) -> str | None:
-    completed = subprocess.run(
-        ["git", "-C", str(root), "log", "-1", "--format=%B", sha],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if completed.returncode != 0:
-        return "commit message could not be read"
-    message = completed.stdout.lower()
-    if f"phase {phase_number}" not in message and f"phase-{phase_number}" not in message:
-        return f"commit message must identify phase {phase_number}"
-    objective = str(phase.get("objective") or "").strip().lower()
-    if objective and not _message_mentions_objective(message, objective, phase_number):
-        return "commit message must identify the active phase objective"
-    return None
-
-
-def _message_mentions_objective(
-    message: str,
-    objective: str,
-    phase_number: int,
-) -> bool:
-    prefix = f"phase {phase_number}"
-    detail = objective
-    if detail.startswith(prefix):
-        detail = detail[len(prefix):].strip(" .:-")
-    if not detail:
-        return True
-    return detail in message
 
 
 def _phase_commit_scope_error(
