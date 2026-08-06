@@ -512,6 +512,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="append an instruction to code-review prompts for this run",
     )
     code.add_argument(
+        "--blockers-only",
+        action="store_true",
+        help=(
+            "only blocker review findings force another automated code pass; "
+            "major findings are recorded as deferred follow-up"
+        ),
+    )
+    code.add_argument(
         "--list-phase",
         "--list-phases",
         action="store_true",
@@ -617,6 +625,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         dest="validation_shell_commands",
         help="explicit shell validation command; may be provided more than once",
+    )
+    validate.add_argument(
+        "--blockers-only",
+        action="store_true",
+        help=(
+            "only blocker test-review findings block validation; major "
+            "findings are recorded as deferred follow-up"
+        ),
     )
     validation_approve = subparsers.add_parser(
         "validation-approve",
@@ -3525,6 +3541,7 @@ def _cmd_code_phased(
             phase,
             operator_messages,
             review_messages,
+            blockers_only=bool(getattr(args, "blockers_only", False)),
         )
         print("next: commit the phase after reviewing repository changes")
         return code
@@ -3559,6 +3576,7 @@ def _cmd_code_phased(
         next_phase,
         operator_messages,
         review_messages,
+        blockers_only=bool(getattr(args, "blockers_only", False)),
     )
     print(f"active phase: {next_phase}")
     print("next: commit the phase after reviewing repository changes")
@@ -3606,6 +3624,7 @@ def _cmd_code_automated(
             phase,
             operator_messages,
             review_messages,
+            blockers_only=bool(getattr(args, "blockers_only", False)),
         )
         if code != 0:
             return code
@@ -3647,12 +3666,15 @@ def _run_phase_agent_loop(
     phase_number: int,
     operator_messages: list[str],
     review_messages: list[str],
+    *,
+    blockers_only: bool = False,
 ) -> int:
     return _run_code_review_cycle(
         store,
         phase_number,
         operator_messages,
         review_messages,
+        blockers_only=blockers_only,
     )
 
 
@@ -3661,11 +3683,18 @@ def _run_code_review_cycle(
     phase_number: int,
     operator_messages: list[str],
     review_messages: list[str],
+    *,
+    blockers_only: bool = False,
 ) -> int:
     issue_file = f"phase-{phase_number}-code-review.jsonl"
     summary_path = _phase_review_summary_path(store, "code_review")
     for attempt in range(1, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
-        needs_review_context = attempt > 1 or bool(_blocking_issues(store, issue_file))
+        blocking = _blocking_issues(
+            store,
+            issue_file,
+            blockers_only=blockers_only,
+        )
+        needs_review_context = attempt > 1 or bool(blocking)
         coding_result, coding_event = _run_coding_pass(
             store,
             phase_number,
@@ -3674,6 +3703,7 @@ def _run_code_review_cycle(
             issue_file=issue_file if needs_review_context else None,
             summary_path=summary_path if needs_review_context else None,
             operator_messages=operator_messages,
+            blockers_only=blockers_only,
         )
         status = store.load_phase_status()
         phase = status.phases.setdefault(str(phase_number), {})
@@ -3695,16 +3725,25 @@ def _run_code_review_cycle(
                 phase_number,
                 attempt,
                 review_messages,
+                blockers_only=blockers_only,
             ),
             context_paths=_implementation_context_paths(store),
         )
         review_issue_file = review_issue_file or issue_file
+        if blockers_only:
+            _defer_nonblocking_major_issues(
+                store,
+                review_issue_file,
+                review_event,
+                "code review",
+            )
         _verify_unreported_blocking_issues(
             store,
             review_issue_file,
             review_result.issues,
             review_event,
             "code review",
+            blockers_only=blockers_only,
         )
         summary_path, attempt_path = _write_phase_review_summary(
             store,
@@ -3725,11 +3764,16 @@ def _run_code_review_cycle(
                 end="" if review_result.final_message.endswith("\n") else "\n",
             )
             return 1
-        blocking = _blocking_issues(store, review_issue_file)
+        blocking = _blocking_issues(
+            store,
+            review_issue_file,
+            blockers_only=blockers_only,
+        )
         if not blocking:
             status = store.load_phase_status()
             phase = status.phases.setdefault(str(phase_number), {})
             phase["code_review"] = "passed"
+            phase["code_review_blockers_only"] = blockers_only
             store.save_phase_status(status)
             return 0
         if attempt == IMPLEMENTATION_REVIEW_MAX_ATTEMPTS:
@@ -3747,101 +3791,8 @@ def _run_code_review_cycle(
         _print_progress(
             "code-review",
             (
-                f"{len(blocking)} blocker/major issue(s) remain; "
-                f"starting fix pass {attempt + 1}"
-            ),
-        )
-    return 1
-
-
-def _run_test_review_cycle(
-    store: StateStore,
-    phase_number: int,
-    operator_messages: list[str],
-) -> int:
-    issue_file = f"phase-{phase_number}-test-review.jsonl"
-    summary_path = _phase_review_summary_path(store, "test_review")
-    for attempt in range(1, IMPLEMENTATION_REVIEW_MAX_ATTEMPTS + 1):
-        needs_fix_pass = attempt > 1 or bool(_blocking_issues(store, issue_file))
-        if needs_fix_pass:
-            coding_result, coding_event = _run_coding_pass(
-                store,
-                phase_number,
-                attempt=attempt,
-                review_kind="test_review",
-                issue_file=issue_file,
-                summary_path=summary_path,
-                operator_messages=operator_messages,
-            )
-            status = store.load_phase_status()
-            phase = status.phases.setdefault(str(phase_number), {})
-            phase["coding_event"] = coding_event
-            phase["test_fix_attempts"] = int(phase.get("test_fix_attempts", 0)) + 1
-            store.save_phase_status(status)
-            if not coding_result.ok:
-                print(
-                    coding_result.final_message,
-                    end="" if coding_result.final_message.endswith("\n") else "\n",
-                )
-                return 1
-
-        test_result, test_event, test_issue_file = _invoke_agent_role(
-            store,
-            role="test_review",
-            prompt=_test_review_prompt(store, phase_number, attempt),
-            context_paths=_implementation_context_paths(store),
-        )
-        test_issue_file = test_issue_file or issue_file
-        _verify_unreported_blocking_issues(
-            store,
-            test_issue_file,
-            test_result.issues,
-            test_event,
-            "test review",
-        )
-        summary_path, attempt_path = _write_phase_review_summary(
-            store,
-            review_kind="test_review",
-            current_phase=phase_number,
-            attempt=attempt,
-        )
-        print(f"test review: {attempt_path}")
-        print(f"summary: {summary_path}")
-        status = store.load_phase_status()
-        phase = status.phases.setdefault(str(phase_number), {})
-        phase["test_review_event"] = test_event
-        phase["test_review_attempts"] = attempt
-        phase["test_commands"] = list(test_result.commands)
-        store.save_phase_status(status)
-        if not test_result.ok and not test_result.issues:
-            print(
-                test_result.final_message,
-                end="" if test_result.final_message.endswith("\n") else "\n",
-            )
-            return 1
-        blocking = _blocking_issues(store, test_issue_file)
-        if not blocking:
-            status = store.load_phase_status()
-            phase = status.phases.setdefault(str(phase_number), {})
-            phase["test_review"] = "passed"
-            store.save_phase_status(status)
-            return 0
-        if attempt == IMPLEMENTATION_REVIEW_MAX_ATTEMPTS:
-            _print_gate_failure(
-                [
-                    (
-                        "blocking review issues remain in "
-                        f"{test_issue_file} after "
-                        f"{IMPLEMENTATION_REVIEW_MAX_ATTEMPTS} attempts"
-                    ),
-                    f"review summary: {summary_path}",
-                ]
-            )
-            return 1
-        _print_progress(
-            "test-review",
-            (
-                f"{len(blocking)} blocker/major issue(s) remain; "
+                f"{len(blocking)} {_blocking_review_label(blockers_only)} "
+                "issue(s) remain; "
                 f"starting fix pass {attempt + 1}"
             ),
         )
@@ -3856,6 +3807,7 @@ def _run_coding_pass(
     issue_file: str | None = None,
     summary_path: str | None = None,
     operator_messages: list[str] | None = None,
+    blockers_only: bool = False,
 ) -> tuple[AgentResult, str]:
     context_paths = _implementation_context_paths(store)
     if summary_path and (store.root / summary_path).exists():
@@ -3872,6 +3824,7 @@ def _run_coding_pass(
             issue_file=issue_file,
             summary_path=summary_path,
             operator_messages=operator_messages or [],
+            blockers_only=blockers_only,
         ),
         context_paths=context_paths,
     )
@@ -6380,6 +6333,7 @@ def _coding_prompt(
     issue_file: str | None = None,
     summary_path: str | None = None,
     operator_messages: list[str] | None = None,
+    blockers_only: bool = False,
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
@@ -6400,7 +6354,8 @@ def _coding_prompt(
                 "",
                 f"This is implementation pass {attempt} with {review_label} context.",
                 f"Use {summary_path} and internal issue file {issue_file} to",
-                "address remaining blocker and major findings.",
+                "address remaining "
+                f"{_blocking_review_label(blockers_only)} findings.",
                 "Minor findings are non-blocking follow-up items; address them",
                 "only when doing so is low risk and in scope for this phase.",
             ]
@@ -6613,6 +6568,7 @@ def _code_review_prompt(
     phase_number: int,
     attempt: int = 1,
     review_messages: list[str] | None = None,
+    blockers_only: bool = False,
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
@@ -6640,12 +6596,22 @@ def _code_review_prompt(
                 "phase as a blocker finding.",
             ]
         )
+    blocking_policy = (
+        [
+            "Only blocker findings are blocking for this run. Major and minor",
+            "findings are non-blocking follow-up items.",
+        ]
+        if blockers_only
+        else [
+            "Blocker and major findings are blocking. Minor findings are",
+            "non-blocking follow-up items.",
+        ]
+    )
     lines.extend(
         [
             "Do not modify files.",
             "Classify every finding as blocker, major, or minor.",
-            "Blocker and major findings are blocking. Minor findings are",
-            "non-blocking follow-up items.",
+            *blocking_policy,
             "Report every finding, including minor findings, as structured",
             "review issues.",
             "If a previously reported issue is fixed, report the same issue_id",
@@ -9633,6 +9599,8 @@ def _review_issue_progress_line(issue: dict[str, object]) -> str | None:
     status = str(issue.get("status") or "open").strip().lower()
     if status == "verified":
         label = "ISSUE VERIFIED"
+    elif status == "deferred":
+        label = "ISSUE DEFERRED"
     elif status in BLOCKING_ISSUE_STATUSES:
         label = "ISSUE FOUND"
     else:

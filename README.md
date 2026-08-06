@@ -233,8 +233,11 @@ commits.
 
 Pass `--review-msg "<instruction>"` to append an operator instruction only to
 the code-review agent prompts for that `code` run. The instruction is reused
-on every code-review attempt and is not passed to coding, commit, or test
-review agents.
+on every code-review attempt and is not passed to coding or commit agents.
+
+Pass `--blockers-only` when the automated `code` loop should run another
+coding pass only for blocker review findings. Major findings are recorded as
+deferred follow-up items and the phase can continue.
 
 Use `code --list-phases` to inspect planned implementation phases and the
 recorded state for each phase. Expert recovery can move the active phase with
@@ -335,7 +338,8 @@ exit.
 When a review agent reports structured issues, ElectroBoy appends prominent
 lines such as `ISSUE FOUND - PH2-CODE-001 - MAJOR - <summary>` and
 `ISSUE VERIFIED - PH2-CODE-001 - MAJOR - <summary>` to the relevant progress
-file.
+file. Under `--blockers-only`, deferred major findings are shown as
+`ISSUE DEFERRED - ...`.
 
 Progress files are informational only. ElectroBoy does not stop an agent just
 because progress output pauses; the agent runs until it exits or the operator
@@ -354,6 +358,9 @@ and validation report before documentation review. `document` runs the
 documentation refinement and review phase. If a review or validation issue
 needs human input, the command records the escalation and stops at a resumable
 checkpoint.
+
+Pass `validate --blockers-only` to let major test-review findings continue as
+deferred follow-up items. Failed validation commands remain blockers.
 
 Use phased mode only when a human wants to inspect and record each phase commit
 manually:

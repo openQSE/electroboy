@@ -41,6 +41,7 @@ Operator workflow commands:
   test-plan authoring.
 - `test-plan-approve` records human test-plan approval.
 - `code [--reason <text>] [--msg <text>] [--review-msg <text>]
+  [--blockers-only]
   [--list-phases|--set-phase <n>] [--phased|--interactive]` starts or
   resumes implementation work.
 - `code-review [list [<cr-id>] | <cr-id> | <sha> | <sha1>..<sha2>]
@@ -49,7 +50,8 @@ Operator workflow commands:
   reviews a commit/range without advancing the pipeline.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
-- `validate` runs final validation commands and writes a validation report.
+- `validate [--blockers-only]` runs validation test review, final validation
+  commands, and writes a validation report.
 - `validation-approve` approves validation and commits implementation handoff
   reports.
 - `document [--reason <text>]` runs documentation review and refinement.
@@ -189,19 +191,21 @@ Python environment when the pipeline owns that activation.
 ## Phase Commands
 
 `electroboy code` is the normal implementation command. By default, it runs
-each remaining planned phase, invokes coding, code review, and test review
-agents, asks the coding agent to commit reviewed phase changes, records that
-commit, and continues until the implementation stage is complete. Use
+each remaining planned phase, invokes coding and code review agents, asks the
+coding agent to commit reviewed phase changes, records that commit, and
+continues until the implementation stage is complete. Use
 `--msg "<instruction>"` to append operator guidance to coding-agent
 implementation, fix, and commit prompts for that run. Use
 `--review-msg "<instruction>"` to append operator guidance only to the
 code-review agent prompts for that run; the instruction is reused on every
-code-review attempt.
+code-review attempt. Use `--blockers-only` to make only blocker findings
+trigger another automatic coding pass; major findings are recorded as deferred
+follow-up items.
 
 `electroboy code --interactive` starts or resumes the active implementation
 phase, opens the configured interactive coding runtime, records the session,
-and then returns control without running code review, test review, or phase
-commit handling. Use it for operator-guided fine tuning, then run
+and then returns control without running code review or phase commit handling.
+Use it for operator-guided fine tuning, then run
 `electroboy code` to continue the automated implementation loop.
 
 `electroboy code --list-phases` prints every planned phase plus the recorded
@@ -214,16 +218,15 @@ required dependencies before editing. If a required dependency is missing,
 the agent must stop and report the gap instead of silently implementing
 skipped phases.
 
-For each phase, code review and test review are bounded automatic loops. The
-orchestrator gives the coding agent up to five attempts to resolve blocker and
-major review findings. Minor findings are kept as follow-up notes and do not
-block the phase. Automated `code` stage review attempts are written under
+For each phase, code review is a bounded automatic loop. The orchestrator gives
+the coding agent up to five attempts to resolve blocker and major review
+findings. Minor findings are kept as follow-up notes and do not block the
+phase. Automated `code` stage review attempts are written under
 `docs/reviews/`, for example
-`docs/reviews/code-review-phase-2-attempt-1.md` and
-`docs/reviews/test-review-phase-2-attempt-1.md`. Feature runs include the
-feature tag in those filenames. `docs/code-review.md` and
-`docs/test-review.md`, or the feature-tagged equivalents, remain latest
-summary indexes that point to the per-attempt reports. Generated review
+`docs/reviews/code-review-phase-2-attempt-1.md`. Feature runs include the
+feature tag in those filenames. `docs/code-review.md`, or the feature-tagged
+equivalent, remains a latest summary index that points to the per-attempt
+reports. Generated review
 reports are human-readable pipeline output and should stay out of phase
 implementation commits.
 
@@ -267,16 +270,17 @@ phase and leaves commit creation or commit recording to the operator.
 electroboy phase commit <n> --sha <commit-sha>
 ```
 
-`phase commit` verifies that code review and test review have runtime-backed
-agent events, verifies that the supplied SHA is an existing commit reachable
-from `HEAD`, verifies that the commit message identifies the phase and
+`phase commit` verifies that code review has a runtime-backed agent event,
+verifies that the supplied SHA is an existing commit reachable from `HEAD`,
+verifies that the commit message identifies the phase and
 objective, checks changed paths against any `Paths:` metadata for the active
 phase, and stores it in phase status.
 
 ## Validation Commands
 
-`validate` always runs the configured full test-suite command. It also runs
-artifact validation commands declared with `Validation:` lines and any quoted
+`validate` first runs a validation test-review pass against the approved
+system test plan. It then runs the configured full test-suite command,
+artifact validation commands declared with `Validation:` lines, and any quoted
 operator commands passed with `--command`.
 
 ```bash
@@ -290,9 +294,14 @@ electroboy validate --shell-command "python -m unittest discover -s tests"
 ```
 
 Validation requires the run's approved test-plan artifact. It writes the run's
-validation report, stores a copy under the run artifact directory, and stores
-failures in `validation-review.jsonl`. In feature runs the validation report is
-`docs/validation-report-<feature>.md`.
+test-review summary to `docs/test-review.md` and detailed validation
+test-review attempts under `docs/reviews/`. Each validation rerun uses the next
+attempt number, for example `docs/reviews/test-review-validation-attempt-2.md`.
+Use `--blockers-only` to let major test-review findings continue as deferred
+follow-up items. Failed validation commands remain blockers. Validation writes
+the validation report, stores a copy under the run artifact directory, and
+stores command failures in `validation-review.jsonl`. In feature runs the
+validation report is `docs/validation-report-<feature>.md`.
 
 `validation-approve` commits the run's implementation log, implementation
 report, and validation report, then advances the active stage to documentation

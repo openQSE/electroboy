@@ -157,29 +157,21 @@ sequenceDiagram
             O->>S: Store code verification event
         end
 
-        loop Until test review passes
-            O->>TR: Run tests and review requirements coverage
-            TR-->>C: Return test gaps or failures
-            O->>S: Store test review comments
-            C-->>O: Add tests or fix behavior
-            O->>S: Store test fix event
-            O->>CR: Review new code or tests
-            O->>TR: Re-run tests and verify coverage
-            O->>S: Store test verification event
-        end
-
         O->>G: Commit verified phase
         O->>S: Record phase commit event
     end
 
     loop Until validation testing passes
-        O->>TR: Validate complete codebase
-        TR-->>O: Return validation issues or report
-        O->>S: Store validation results
+        O->>TR: Review system test plan and implemented coverage
+        TR-->>O: Return validation test-review issues
+        O->>S: Store validation test-review comments
+        O->>TR: Run validation commands
+        TR-->>O: Return validation command results
+        O->>S: Store validation report
         O->>C: Request validation fixes when needed
         C-->>O: Fix validated behavior
         O->>CR: Review validation fixes
-        O->>TR: Re-run validation testing
+        O->>TR: Re-run validation test review and commands
     end
 
     O->>S: Snapshot validation report
@@ -228,15 +220,16 @@ stateDiagram-v2
     PhaseImplementation: Coding agent implements active phase
     PhaseImplementation --> CodeReview: phase implementation complete
     CodeReview --> PhaseImplementation: code issues found
-    CodeReview --> TestReview: code review passed
-    TestReview --> PhaseImplementation: test gaps or failures
-    TestReview --> PhaseCommit: requirements coverage verified
+    CodeReview --> PhaseCommit: code review passed
 
     PhaseCommit: Commit verified phase
     PhaseCommit --> PhaseImplementation: next phase exists
     PhaseCommit --> ValidationTesting: all phases complete
 
     ValidationTesting: Validate complete codebase
+    ValidationTesting --> TestReview: start validation test review
+    TestReview --> PhaseImplementation: blocker coverage gaps
+    TestReview --> ValidationTesting: test plan coverage reviewed
     ValidationTesting --> PhaseImplementation: validation issues found
     ValidationTesting --> ChangeControl: requirement or design gap
     ValidationTesting --> DocumentationReview: requirements and design pass
@@ -315,8 +308,8 @@ agent session ids.
   reviewable phases.
 - Require the human operator and Design Author Agent to agree on
   `docs/implementation-plan.md` before automated implementation begins.
-- Run design review, code review, and test review as separate loops with clear
-  completion gates.
+- Run design review, phase code review, and validation test review as separate
+  loops with clear completion gates.
 - Require each implementation phase to be coded, reviewed, tested, and committed
   before the next phase begins.
 - Keep documentation synchronized with the final codebase.
@@ -415,14 +408,14 @@ Directory layout:
         artifact-snapshots.jsonl
         design-review.jsonl
         phase-<n>-code-review.jsonl
-        phase-<n>-test-review.jsonl
+        validation-test-review.jsonl
         validation-review.jsonl
         documentation-review.jsonl
         progress/
           design-review-progress.md
           phase-<n>-code-progress.md
           phase-<n>-code-review-progress.md
-          phase-<n>-test-review-progress.md
+          test-review-progress.md
         artifacts/
           requirements.md
           detailed-design.md
@@ -655,43 +648,39 @@ The basic loop is:
 2. The code review agent reviews the implementation.
 3. The coding agent fixes accepted review issues.
 4. The code review agent verifies the fixes.
-5. The test review agent runs tests and evaluates test completeness.
-6. The coding agent implements requested tests or fixes.
-7. The code review agent reviews any new code or tests.
-8. The test review agent re-runs tests and verifies coverage.
-9. The coding agent commits the reviewed phase changes after all review gates
-   pass.
-10. The orchestrator verifies and records the phase commit.
+5. The coding agent runs or updates phase-level tests needed to check validity.
+6. The coding agent commits the reviewed phase changes after the code review
+   gate passes.
+7. The orchestrator verifies and records the phase commit.
 
 The next phase starts only after the current phase commit exists.
 
 By default, `electroboy code` runs this loop for every remaining planned
-phase. Each phase gets up to five code-review/fix passes and up to five
-test-review/fix passes. Blocker and major findings continue the loop until
-they are verified or the retry limit is reached. Minor findings are recorded
-for follow-up and do not block the phase. After review passes, the orchestrator
-starts a coding-agent commit pass and records the resulting SHA. `electroboy
-code --phased` runs one phase and leaves commit creation or commit recording
-to the operator before the next phase can start.
+phase. Each phase gets up to five code-review/fix passes. Blocker and major
+findings continue the loop until they are verified or the retry limit is
+reached. With `--blockers-only`, only blocker findings continue the automatic
+loop; major findings are recorded as deferred follow-up items. Minor findings
+are recorded for follow-up and do not block the phase. After code review
+passes, the orchestrator starts a coding-agent commit pass and records the
+resulting SHA. `electroboy code --phased` runs one phase and leaves commit
+creation or commit recording to the operator before the next phase can start.
 
 The orchestrator writes human-readable phase review attempt reports under
 `docs/reviews/`, with filenames that include the review kind, feature tag when
-present, phase, and attempt number. The top-level `docs/code-review.md` and
-`docs/test-review.md` files, or their feature-tagged equivalents, remain
-latest-summary indexes that point to the per-attempt reports. Generated review
-reports are operator-facing pipeline output and are not part of phase
-implementation commits.
+present, phase, and attempt number. The top-level `docs/code-review.md` file,
+or its feature-tagged equivalent, remains a latest-summary index that points
+to the per-attempt reports. Generated review reports are operator-facing
+pipeline output and are not part of phase implementation commits.
 
 If development changes phase scope, sequencing, acceptance criteria, required
 tests, or documentation impact, the coding agent stops implementation work and
 opens a plan update. `docs/implementation-plan.md` is updated before code
-review, test review, or commit proceeds. Review agents use the current
+review or commit proceeds. The code review agent uses the current
 implementation plan as the baseline for evaluating the active phase.
 
 Exit criteria for each phase:
 
 - All blocker and major code review issues are resolved.
-- All blocker and major test review issues are resolved.
 - Required tests pass.
 - The implementation matches the phase acceptance criteria.
 - `docs/implementation-plan.md` reflects any approved phase-scope changes.
@@ -702,17 +691,21 @@ Exit criteria for each phase:
 
 The Test Review Agent validates the completed codebase after all implementation
 phases are committed. This stage checks the integrated system against
-`docs/requirements.md` and `docs/detailed-design.md`, rather than checking only
-the active phase.
+`docs/requirements.md`, `docs/detailed-design.md`, and the approved
+`docs/test-plan.md`, rather than checking only the active phase.
 
-Validation testing covers full workflows, cross-phase integration, public
-behavior, error paths, configuration behavior, and requirement-level success
-criteria. The validation pass produces `validation-review.jsonl` findings and
-`docs/validation-report.md`.
+Validation first runs a test-review pass against the approved system test plan,
+implemented tests, and relevant source code. It then runs the configured full
+test suite and artifact-declared validation commands. The validation
+test-review pass produces `validation-test-review.jsonl` findings and
+`docs/test-review.md`; each validation rerun writes the next detailed attempt
+report under `docs/reviews/`. Validation command failures produce
+`validation-review.jsonl` findings and `docs/validation-report.md`.
 
 When validation finds a blocker or major issue, the orchestrator returns work
-to the coding agent. Validation fixes go through code review and test review
-before validation testing runs again.
+to the coding agent. With `--blockers-only`, major test-review findings are
+deferred and validation continues; failed validation commands remain blockers.
+Validation fixes go through code review before validation testing runs again.
 
 Exit criteria:
 
@@ -720,9 +713,10 @@ Exit criteria:
 - Requirement-level workflows pass validation testing.
 - Public behavior matches `docs/requirements.md`.
 - Integrated behavior and architecture match `docs/detailed-design.md`.
-- No blocker or major validation review issues remain.
+- No blocker or major validation test-review or validation review issues remain.
 - Validation commands, results, and findings are stored in the activity log.
-- `validation-review.jsonl` and `docs/validation-report.md` are stored.
+- `validation-test-review.jsonl`, `validation-review.jsonl`,
+  `docs/test-review.md`, and `docs/validation-report.md` are stored.
 - `electroboy validation-approve` commits the implementation log,
   implementation report, and validation report before documentation review.
 
@@ -801,7 +795,7 @@ Blocked operator actions:
   operator uses the explicit command-level force reset.
 - Mark a stage complete without the required artifact snapshot.
 - Start phase implementation before implementation planning is approved.
-- Commit a phase before code review and phase test review pass.
+- Commit a phase before code review passes.
 - Start final documentation review before validation testing passes.
 
 Human waiver is available only for individual review issues or documented gate
@@ -889,9 +883,10 @@ Responsibilities:
 - Read the approved requirements, detailed design, and implementation plan
   before each phase.
 - Implement only the active phase scope.
-- Add or update tests requested by the implementation plan or test review agent.
+- Add or update tests requested by the implementation plan or validation
+  test-review agent.
 - Address code review findings.
-- Commit each completed phase after review and test gates pass.
+- Commit each completed phase after code review passes.
 
 Authority:
 
@@ -930,8 +925,7 @@ Authority:
 
 The test review agent evaluates both test execution and test quality.
 
-This agent participates in the phase test review loop during Stage 6 and owns
-validation testing in Stage 7.
+This agent owns validation test review during Stage 7.
 
 Responsibilities:
 
@@ -940,15 +934,16 @@ Responsibilities:
   criteria, edge cases, failure modes, integration paths, and regression risk.
 - Propose new or revised tests when coverage is weak.
 - Re-run tests after the coding agent implements requested tests.
-- Verify that the test suite gives meaningful confidence for the active phase.
-- Classify phase findings as blocker, major, or minor.
+- Verify that the test suite gives meaningful confidence for the completed
+  codebase and approved system test plan.
+- Classify validation test-review findings as blocker, major, or minor.
 - Validate the completed codebase against `docs/requirements.md` and
   `docs/detailed-design.md` after all phases are committed.
 - Produce validation review issues and a validation report.
 
 Authority:
 
-- Creates and updates test review issue records.
+- Creates and updates validation test-review issue records.
 - Creates and updates validation review issue records.
 - Requests tests from the coding agent.
 - Requests validation fixes from the coding agent.
@@ -1007,7 +1002,7 @@ Responsibilities:
 - Prevent coding work before design review is complete.
 - Prevent coding work before the human operator and Design Author Agent approve
   `docs/implementation-plan.md`.
-- Prevent a phase commit before code review and test review are complete.
+- Prevent a phase commit before code review is complete.
 - Prevent final documentation review before validation testing passes.
 - Route later requirements or design discoveries through change control.
 - Convert earlier-stage commands into controlled change-control iterations.
@@ -1173,7 +1168,7 @@ scope on its own.
 - Approved `docs/detailed-design.md`.
 - Approved `docs/implementation-plan.md`.
 - Active phase definition.
-- Open code review and test review issues for the phase.
+- Open code review issues for the phase.
 - Current repository state.
 
 ### Code Reviewer Context
@@ -1190,10 +1185,11 @@ scope on its own.
 
 - Approved requirements.
 - Approved design.
-- Active phase definition.
+- Approved system test plan.
+- Completed codebase.
 - Current test suite.
 - Test outputs.
-- Prior test review issues for the phase.
+- Prior validation test-review issues.
 - Relevant activity-log events.
 - Relevant diffs.
 
@@ -1205,9 +1201,9 @@ scope on its own.
 - Completed codebase.
 - Full test suite and validation test commands.
 - Phase commits and phase review history.
-- Open or deferred code review and test review issues.
+- Open or deferred code review and validation test-review issues.
 - Relevant activity-log events.
-- Prior validation review issues.
+- Prior validation test-review and validation review issues.
 
 ### Documentation Agent Context
 
@@ -1284,15 +1280,6 @@ Code review gate:
 - Code review has a recorded runtime-backed agent invocation event.
 - Rejected code review issues have reviewer verification or human waiver.
 
-Phase test review gate:
-
-- The code review gate has passed.
-- Required tests pass.
-- Test review has no unresolved blocker or major issues for the active phase.
-- Test review has checked coverage of relevant requirements.
-- Test review has a recorded runtime-backed agent invocation event.
-- Missing coverage findings are fixed, deferred, or escalated.
-
 Commit gate:
 
 - The implementation gate has passed.
@@ -1300,7 +1287,7 @@ Commit gate:
 - Working tree changes belong to the active phase.
 - `Paths:` metadata in the implementation plan defines the allowed commit
   scope for a planned phase when present.
-- Code review and phase test review gates pass.
+- Code review gate passes.
 - Commit message identifies the phase and the completed objective.
 - The commit SHA exists and is reachable from `HEAD`.
 
@@ -1309,9 +1296,11 @@ Validation testing gate:
 - All planned phases are committed.
 - The commit gate has passed for every planned phase.
 - Each planned phase has a verified git commit SHA.
+- Validation test review has checked the approved system test plan against the
+  completed codebase.
 - The full test suite passes.
 - Validation opens a validation-fix phase when blocker or major findings are
-  created, and fixes return through code review and test review.
+  created, and fixes return through code review.
 - Validation testing has checked the completed codebase against
   `docs/requirements.md`.
 - Validation testing has checked integrated behavior and architecture against
@@ -1401,8 +1390,9 @@ Iteration rules:
 - The detailed design is updated before dependent implementation-plan changes.
 - Implementation resumes only after the new requirements, design, and plan
   gates pass.
-- Code review and test review use the current implementation plan as their
-  review baseline.
+- Code review uses the current implementation plan as its review baseline.
+- Validation test review uses the approved requirements, design,
+  implementation plan, and system test plan as its review baseline.
 - Validation testing and documentation review run again after affected code or
   public behavior changes.
 
@@ -1478,24 +1468,24 @@ Requirements change:
 ## Test Review Expectations
 
 The Test Review Agent evaluates tests against risk, not only line or branch
-coverage. It performs phase-level test review during Stage 6 and full
-validation testing during Stage 7.
+coverage. It performs validation test review during Stage 7.
 
-During phase-level review, it checks:
+During validation test review, it checks:
 
-- Requirements linked to the active phase.
-- Acceptance criteria from the implementation plan.
+- Requirements linked to the completed feature or codebase.
+- Acceptance criteria from the implementation plan and system test plan.
 - Primary success paths.
 - Boundary conditions.
 - Error and recovery paths.
 - Configuration and environment differences.
-- Integration points with earlier phases.
+- Integration points across implementation phases.
 - Regression risk from changed behavior.
 - Public API compatibility.
 
 When proposing tests, the test review agent states the risk being covered and
 the expected failure mode if the test is missing. The coding agent then
-implements the requested tests and sends the changes through code review.
+implements the requested tests in a validation-fix phase and sends the changes
+through code review.
 
 During validation testing, it checks the completed codebase against the
 approved requirements and detailed design. This validation pass covers major
@@ -1703,8 +1693,9 @@ history.
 7. Add approved artifact snapshots under each run directory.
 8. Add change-control reopening and downstream gate invalidation.
 9. Add implementation phase tracking and phase gate checks.
-10. Add code review and test review loops for one phase at a time.
-11. Add validation testing against requirements and design.
+10. Add code review loops for one phase at a time.
+11. Add validation test review and validation testing against requirements and
+    design.
 12. Add commit automation after gates pass.
 13. Add the final documentation review pass, `document`, and `code-approve`.
 14. Add resume support from `.electroboy/` state.
@@ -1724,8 +1715,9 @@ history.
 - Agent runtimes are isolated behind role adapters.
 - The run's requirements artifact is the source of truth for required system
   behavior.
-- Design, implementation planning, code review, test review, and final
-  documentation review check their artifacts against the requirements baseline.
+- Design, implementation planning, code review, validation test review, and
+  final documentation review check their artifacts against the requirements
+  baseline.
 - Validation testing checks the completed codebase against the approved
   requirements and detailed design before final documentation review begins.
 - The pipeline is stateful and review agents are invoked with reconstructed

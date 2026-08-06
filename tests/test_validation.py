@@ -34,6 +34,7 @@ class ValidationTests(unittest.TestCase):
     def prepare_validation_run(self, root: Path) -> StateStore:
         store = StateStore(root)
         manifest = store.init_run(run_id="run-1")
+        write_validation_manual_runtime(root)
         write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
         write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
         manifest.complete_gate(GATE_IMPLEMENTATION)
@@ -80,6 +81,46 @@ class ValidationTests(unittest.TestCase):
             self.assertIn("validation ok", report_text)
             self.assertIn("artifact validation commands", report_text)
             self.assertIn("configured full test-suite command", report_text)
+            self.assertTrue((root / "docs" / "test-review.md").exists())
+
+    def test_validation_test_review_attempts_increment_on_rerun(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.prepare_validation_run(root)
+            write_test_suite(root)
+            command = f"{sys.executable} -c \"print('validation ok')\""
+            write_file(root / "docs" / "requirements.md", f"Validation: {command}\n")
+
+            first_code, _first_stdout, first_stderr = self.run_cli(
+                ["--root", str(root), "validate", "--command", command]
+            )
+            second_code, _second_stdout, second_stderr = self.run_cli(
+                ["--root", str(root), "validate", "--command", command]
+            )
+
+            test_review = (root / "docs" / "test-review.md").read_text(
+                encoding="utf-8"
+            )
+            attempt_1_exists = (
+                root
+                / "docs"
+                / "reviews"
+                / "test-review-validation-attempt-1.md"
+            ).exists()
+            attempt_2_exists = (
+                root
+                / "docs"
+                / "reviews"
+                / "test-review-validation-attempt-2.md"
+            ).exists()
+
+        self.assertEqual(first_code, 0, first_stderr)
+        self.assertEqual(second_code, 0, second_stderr)
+        self.assertTrue(attempt_1_exists)
+        self.assertTrue(attempt_2_exists)
+        self.assertIn("Latest review attempt: 2", test_review)
+        self.assertIn("docs/reviews/test-review-validation-attempt-1.md", test_review)
+        self.assertIn("docs/reviews/test-review-validation-attempt-2.md", test_review)
 
     def test_validation_approve_commits_reports_and_advances(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,7 +224,7 @@ class ValidationTests(unittest.TestCase):
             )
 
             self.assertEqual(code, 1)
-            self.assertIn("blocking validation review issues remain", stderr)
+            self.assertIn("blocking validation or test-review issues remain", stderr)
 
     def test_validation_requires_full_test_suite(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -216,10 +257,137 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(issues[0]["severity"], "blocker")
         self.assertIn(command, issues[0]["summary"])
 
+    def test_validation_test_review_blocks_before_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.prepare_validation_run(root)
+            write_validation_review_runtime(root, severity="blocker")
+            write_test_suite(root)
+            command = f"{sys.executable} -c \"print('validation ok')\""
+            write_file(root / "docs" / "requirements.md", f"Validation: {command}\n")
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "validate", "--command", command]
+            )
+
+            manifest = store.load_current_manifest()
+            issues = store.read_review_issues("validation-test-review.jsonl")
+
+        self.assertEqual(code, 1)
+        self.assertIn("test-review issue(s) remain", stderr)
+        self.assertEqual(manifest.active_stage, "implementation")
+        self.assertEqual(issues[0]["severity"], "blocker")
+        self.assertEqual(issues[0]["status"], "open")
+
+    def test_validation_blockers_only_defers_major_review_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.prepare_validation_run(root)
+            write_validation_review_runtime(root, severity="major")
+            write_test_suite(root)
+            command = f"{sys.executable} -c \"print('validation ok')\""
+            write_file(root / "docs" / "requirements.md", f"Validation: {command}\n")
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "validate",
+                    "--blockers-only",
+                    "--command",
+                    command,
+                ]
+            )
+
+            manifest = store.load_current_manifest()
+            issues = store.read_review_issues("validation-test-review.jsonl")
+            test_review = (root / "docs" / "test-review.md").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("validation: passed", stdout)
+        self.assertTrue(manifest.has_gate(GATE_VALIDATION_TESTING))
+        self.assertEqual(issues[0]["severity"], "major")
+        self.assertEqual(issues[0]["status"], "deferred")
+        self.assertIn("Status: deferred", test_review)
+
 
 def write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def write_validation_manual_runtime(root: Path) -> None:
+    write_file(root / "agent-response.md", "test review ok\n")
+    write_file(
+        root / "electroboy.toml",
+        """
+[runtime]
+default = "manual"
+
+[runtimes.manual]
+adapter = "manual"
+command = "manual"
+response_file = "agent-response.md"
+
+[roles]
+test_review = "manual"
+""".lstrip(),
+    )
+
+
+def write_validation_review_runtime(root: Path, severity: str) -> None:
+    script = root / "fake-agent.py"
+    write_file(
+        script,
+        f"""
+import json
+import pathlib
+import sys
+
+raw_prompt = sys.stdin.read()
+for line in raw_prompt.splitlines():
+    if line.startswith("Progress file: "):
+        progress = pathlib.Path(line.split(":", 1)[1].strip())
+        progress.parent.mkdir(parents=True, exist_ok=True)
+        progress.write_text("fake validation test review\\n", encoding="utf-8")
+        break
+
+issues = [{{
+    "issue_id": "VTR-001",
+    "severity": "{severity}",
+    "status": "open",
+    "summary": "Validation coverage needs review.",
+    "artifact": "docs/test-plan.md",
+    "location": "docs/test-plan.md:1",
+    "rationale": "The system test plan lacks one required scenario.",
+    "requested_change": "Add the missing validation scenario.",
+}}]
+print(json.dumps({{
+    "ok": True,
+    "final_message": "validation test review complete",
+    "issues": issues,
+}}))
+""".lstrip(),
+    )
+    write_file(
+        root / "electroboy.toml",
+        f"""
+[runtime]
+default = "agent"
+
+[runtimes.agent]
+adapter = "generic_cli"
+command = "{sys.executable}"
+args = ["{script}"]
+env = ["PATH"]
+structured_output = "json_schema"
+
+[roles]
+test_review = "agent"
+""".lstrip(),
+    )
 
 
 def configure_git_identity(root: Path) -> None:

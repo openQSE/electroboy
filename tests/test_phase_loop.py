@@ -113,7 +113,6 @@ class PhaseLoopTests(unittest.TestCase):
                 "status": "active",
                 "objective": "Phase 1. First Work",
                 "code_review": "passed",
-                "test_review": "pending",
                 "commit": "abc123",
             }
             store.save_phase_status(status)
@@ -485,12 +484,8 @@ class PhaseLoopTests(unittest.TestCase):
             status = StateStore(root).load_phase_status()
             committed_files = git_show_names(root)
             code_review_exists = (root / "docs" / "code-review.md").exists()
-            test_review_exists = (root / "docs" / "test-review.md").exists()
             code_review_attempt_exists = (
                 root / "docs" / "reviews" / "code-review-phase-1-attempt-1.md"
-            ).exists()
-            test_review_attempt_exists = (
-                root / "docs" / "reviews" / "test-review-phase-1-attempt-1.md"
             ).exists()
 
         self.assertEqual(code, 0, stderr)
@@ -500,9 +495,7 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertNotIn("docs/code-review.md", committed_files)
         self.assertNotIn("docs/test-review.md", committed_files)
         self.assertTrue(code_review_exists)
-        self.assertTrue(test_review_exists)
         self.assertTrue(code_review_attempt_exists)
-        self.assertTrue(test_review_attempt_exists)
 
     def test_code_review_retries_until_blockers_resolve(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -630,40 +623,35 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertIn("Severity: minor", code_review_text)
         self.assertIn("Status: open", code_review_text)
 
-    def test_test_review_retries_until_blockers_resolve(self) -> None:
+    def test_code_blockers_only_defers_major_findings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_review_retry_runtime(root, test_blocking_attempts=1)
+            write_review_retry_runtime(root, code_blocking_attempts=99)
             write_file(
                 root / "docs" / "implementation-plan.md",
                 "# Plan\n\n"
                 "## Phase 1. First Work\n\n"
                 "Requirements: REQ-1\n"
-                "Paths: src/phase1, tests/test_phase1.py\n",
+                "Paths: src/phase1\n",
             )
             initialize_git_repo(root)
             self.prepare_implementation_run(root)
 
-            code, stdout, stderr = self.run_cli(["--root", str(root), "code"])
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "code", "--blockers-only"]
+            )
 
             status = StateStore(root).load_phase_status()
-            test_review_text = (root / "docs" / "test-review.md").read_text(
+            code_review_text = (root / "docs" / "code-review.md").read_text(
                 encoding="utf-8"
             )
 
         self.assertEqual(code, 0, stderr)
-        self.assertIn(
-            "test review: docs/reviews/test-review-phase-1-attempt-2.md",
-            stdout,
-        )
-        self.assertIn("summary: docs/test-review.md", stdout)
-        self.assertEqual(status.phases["1"]["test_review_attempts"], 2)
-        self.assertIn(
-            "docs/reviews/test-review-phase-1-attempt-2.md",
-            test_review_text,
-        )
-        self.assertIn("TR-001", test_review_text)
-        self.assertIn("Status: verified", test_review_text)
+        self.assertIn("committed phase: 1", stdout)
+        self.assertEqual(status.phases["1"]["code_review_attempts"], 1)
+        self.assertIn("CR-001", code_review_text)
+        self.assertIn("Severity: major", code_review_text)
+        self.assertIn("Status: deferred", code_review_text)
 
     def test_phase_commit_requires_phase_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
