@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import difflib
 import json
 import os
@@ -66,6 +66,7 @@ from .planning import planned_phases
 from .adapters.base import AgentInvocation, AgentResult
 from .runtime import runtime_for_role
 from .state_store import StateError, StateStore
+from .upstream import IssueRecord, UpstreamError, load_issue_record
 
 
 STAGE_REQUIRED_FILES = {
@@ -133,11 +134,21 @@ TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
 VALIDATION_TEST_REVIEW_ISSUE_FILE = "validation-test-review.jsonl"
 IMPLEMENTATION_REVIEW_MAX_ATTEMPTS = 5
+BUG_RECORD_FILE = "bug.json"
+BUG_ARTIFACT_KEYS = {
+    "issue": "issue.md",
+    "investigation": "investigation.md",
+    "reproduction": "reproduction.md",
+    "fix": "fix.md",
+    "validation": "validation.md",
+    "summary": "summary.md",
+}
 META_REGISTRY_PATH = "repositories.json"
 META_MANAGEMENT_COMMANDS = {"add", "start"}
 ROOT_LOCAL_COMMANDS = {"completion", "deactivate", "new"}
 PROJECTLESS_COMMANDS = {
     "add",
+    "bug",
     "completion",
     "deactivate",
     "feature",
@@ -146,6 +157,7 @@ PROJECTLESS_COMMANDS = {
     "start",
 }
 ACTIVATIONLESS_COMMANDS = {
+    "bug",
     "completion",
     "feature",
     "meta",
@@ -221,6 +233,14 @@ AGENT_PROGRESS_ROLES = {
     "documentation",
     "documentation_review",
     "documentation-review",
+    "bug_investigate",
+    "bug-investigate",
+    "bug_reproduce",
+    "bug-reproduce",
+    "bug_fix",
+    "bug-fix",
+    "bug_validate",
+    "bug-validate",
 }
 
 MUTATING_AGENT_ROLES = {
@@ -231,6 +251,10 @@ MUTATING_AGENT_ROLES = {
     "coding",
     "coding_interactive",
     "coding-interactive",
+    "bug_reproduce",
+    "bug-reproduce",
+    "bug_fix",
+    "bug-fix",
     "range_code_fix",
     "range-code-fix",
     "documentation",
@@ -429,6 +453,47 @@ def build_parser() -> argparse.ArgumentParser:
             "NAME is omitted"
         ),
     )
+
+    bug = subparsers.add_parser("bug", help="bug-fix workflow")
+    bug_subparsers = bug.add_subparsers(dest="bug_command", required=True)
+    bug_start = bug_subparsers.add_parser(
+        "start",
+        help="start a focused bug-fix run from an upstream issue",
+    )
+    bug_start.add_argument("issue_reference", help="upstream issue URL or reference")
+    bug_start.add_argument(
+        "--provider",
+        help="configured upstream provider name; auto-selected when omitted",
+    )
+    bug_start.add_argument(
+        "--branch",
+        nargs="?",
+        const="",
+        metavar="NAME",
+        help=(
+            "create or switch to a focused bug branch; derive the name when "
+            "NAME is omitted"
+        ),
+    )
+    bug_subparsers.add_parser("investigate", help="investigate the active bug")
+    bug_subparsers.add_parser("reproduce", help="record reproduction evidence")
+    bug_subparsers.add_parser("fix", help="fix the active bug")
+    bug_validate = bug_subparsers.add_parser("validate", help="validate the bug fix")
+    bug_validate.add_argument(
+        "--command",
+        action="append",
+        default=[],
+        dest="bug_validation_commands",
+        help="quoted validation command; may be provided more than once",
+    )
+    bug_validate.add_argument(
+        "--shell-command",
+        action="append",
+        default=[],
+        dest="bug_validation_shell_commands",
+        help="explicit shell validation command; may be provided more than once",
+    )
+    bug_subparsers.add_parser("summary", help="write the bug-fix handoff summary")
 
     requirements = subparsers.add_parser(
         "requirements",
@@ -738,6 +803,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_progress(store, args)
         if args.command == "deactivate":
             return _cmd_deactivate(store)
+        if args.command == "bug":
+            return _cmd_bug(store, args)
         if args.command == "feature":
             return _cmd_feature(store, args)
         if args.command == "requirements":
@@ -1451,6 +1518,524 @@ def _cmd_feature(store: StateStore, args: argparse.Namespace) -> int:
         return _cmd_feature_start(store, args)
     print("error: unknown feature command", file=sys.stderr)
     return 2
+
+
+def _cmd_bug(store: StateStore, args: argparse.Namespace) -> int:
+    if args.bug_command == "start":
+        return _cmd_bug_start(store, args)
+    if args.bug_command == "investigate":
+        return _cmd_bug_agent_step(
+            store,
+            step="investigation",
+            role="bug_investigate",
+            prompt_builder=_bug_investigation_prompt,
+            next_command="electroboy bug reproduce",
+        )
+    if args.bug_command == "reproduce":
+        return _cmd_bug_agent_step(
+            store,
+            step="reproduction",
+            role="bug_reproduce",
+            prompt_builder=_bug_reproduction_prompt,
+            next_command="electroboy bug fix",
+        )
+    if args.bug_command == "fix":
+        return _cmd_bug_agent_step(
+            store,
+            step="fix",
+            role="bug_fix",
+            prompt_builder=_bug_fix_prompt,
+            next_command="electroboy bug validate",
+        )
+    if args.bug_command == "validate":
+        return _cmd_bug_validate(store, args)
+    if args.bug_command == "summary":
+        return _cmd_bug_summary(store)
+    print("error: unknown bug command", file=sys.stderr)
+    return 2
+
+
+def _cmd_bug_start(store: StateStore, args: argparse.Namespace) -> int:
+    project_root = store.root
+    project_root.mkdir(parents=True, exist_ok=True)
+    _init_git_repository(project_root)
+
+    try:
+        issue = load_issue_record(
+            project_root,
+            args.issue_reference,
+            provider_name=getattr(args, "provider", None),
+        )
+    except UpstreamError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+    bug_slug = _bug_slug(issue)
+    artifacts = _bug_artifact_paths(bug_slug)
+    branch_name: str | None = None
+    if args.branch is not None:
+        branch_name = args.branch or _bug_branch_name(issue)
+        branch_error = _switch_bug_branch(project_root, branch_name)
+        if branch_error:
+            print(f"error: {branch_error}", file=sys.stderr)
+            return 1
+
+    _write_project_config(project_root)
+    _write_project_gitignore(project_root)
+    _write_project_runtime(project_root)
+    _write_project_bin(project_root)
+
+    created_run = False
+    if store.current_run_id():
+        manifest = store.load_current_manifest()
+    else:
+        manifest = store.init_run()
+        created_run = True
+
+    record = _write_bug_record(
+        store,
+        issue,
+        bug_slug,
+        artifacts,
+        branch_name,
+    )
+    _write_bug_issue_artifact(store, record)
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=manifest.active_stage,
+            action="bug-started",
+            summary=f"Started bug workflow for {issue.title}.",
+            outputs=[
+                f".electroboy/shared/runs/{manifest.run_id}/{BUG_RECORD_FILE}",
+                artifacts["issue"],
+            ],
+        )
+    )
+
+    print(f"bug: {issue.title}")
+    print(f"provider: {issue.provider}")
+    if issue.number:
+        print(f"issue: {issue.number}")
+    if issue.url:
+        print(f"source issue: {issue.url}")
+    if branch_name:
+        print(f"branch: {branch_name}")
+    print(f"bug id: {bug_slug}")
+    print(f"artifact issue: {artifacts['issue']}")
+    print(f"run id: {manifest.run_id}")
+    if created_run:
+        print("created run: yes")
+    print(f"activate: source {_project_bin_dir(project_root) / 'activate'}")
+    print("next: electroboy bug investigate")
+    return 0
+
+
+def _write_bug_record(
+    store: StateStore,
+    issue: IssueRecord,
+    bug_slug: str,
+    artifacts: dict[str, str],
+    branch_name: str | None,
+) -> dict[str, object]:
+    manifest = store.load_current_manifest()
+    previous = _read_bug_record(store) or {}
+    record: dict[str, object] = {
+        "schema_version": 1,
+        "workflow": "bug",
+        "slug": bug_slug,
+        "issue": asdict(issue),
+        "title": issue.title,
+        "reference": issue.reference,
+        "provider": issue.provider,
+        "branch": branch_name,
+        "artifacts": artifacts,
+        "run_id": manifest.run_id,
+        "started_at": previous.get("started_at", utc_now()),
+        "updated_at": utc_now(),
+        "steps": previous.get("steps", {}),
+    }
+    _write_run_json(store, BUG_RECORD_FILE, record)
+    return record
+
+
+def _read_bug_record(store: StateStore) -> dict[str, object] | None:
+    run_id = store.current_run_id()
+    if not run_id:
+        return None
+    path = store.run_dir(run_id) / BUG_RECORD_FILE
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_run_json(store: StateStore, file_name: str, data: dict[str, object]) -> None:
+    manifest = store.load_current_manifest()
+    path = store.run_dir(manifest.run_id) / file_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_bug_issue_artifact(store: StateStore, record: dict[str, object]) -> None:
+    artifacts = _bug_record_artifacts(record)
+    issue = _bug_record_issue(record)
+    path = store.root / artifacts["issue"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"# Bug Issue: {issue.get('title', 'Unknown bug')}",
+        "",
+        f"- Provider: {issue.get('provider', 'unknown')}",
+        f"- Reference: {issue.get('reference', '')}",
+    ]
+    if issue.get("number"):
+        lines.append(f"- Number: {issue['number']}")
+    if issue.get("url"):
+        lines.append(f"- URL: {issue['url']}")
+    if issue.get("state"):
+        lines.append(f"- State: {issue['state']}")
+    if issue.get("author"):
+        lines.append(f"- Author: {issue['author']}")
+    labels = issue.get("labels")
+    if isinstance(labels, list) and labels:
+        lines.append("- Labels: " + ", ".join(str(label) for label in labels))
+    lines.extend(["", "## Reported Behavior", ""])
+    body = str(issue.get("body") or "").strip()
+    lines.append(body or "_No issue body was provided by the upstream provider._")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _cmd_bug_agent_step(
+    store: StateStore,
+    *,
+    step: str,
+    role: str,
+    prompt_builder,
+    next_command: str,
+) -> int:
+    record = _require_bug_record(store)
+    if record is None:
+        return 1
+    artifacts = _bug_record_artifacts(record)
+    prompt = prompt_builder(record)
+    context_paths = _existing_bug_context_paths(store, artifacts)
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role=role,
+        prompt=prompt,
+        context_paths=context_paths,
+    )
+    artifact = artifacts[step]
+    _ensure_bug_artifact_from_result(store, artifact, step, result)
+    _update_bug_step(
+        store,
+        record,
+        step,
+        "completed" if result.ok else "blocked",
+        event_id,
+        artifact,
+    )
+    print(f"bug {step}: {artifact}")
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    print(f"next: {next_command}")
+    return 0
+
+
+def _cmd_bug_validate(store: StateStore, args: argparse.Namespace) -> int:
+    record = _require_bug_record(store)
+    if record is None:
+        return 1
+    commands = _bug_validation_commands(args)
+    if not commands:
+        return _cmd_bug_agent_step(
+            store,
+            step="validation",
+            role="bug_validate",
+            prompt_builder=_bug_validation_prompt,
+            next_command="electroboy bug summary",
+        )
+    results = [
+        _run_validation_command(store.root, command, shell=shell)
+        for command, shell, _source in commands
+    ]
+    artifact = _bug_record_artifacts(record)["validation"]
+    _write_bug_validation_artifact(store, record, artifact, commands, results)
+    status = (
+        "completed"
+        if all(int(result.get("returncode", 1)) == 0 for result in results)
+        else "blocked"
+    )
+    _update_bug_step(store, record, "validation", status, None, artifact)
+    print(f"bug validation: {artifact}")
+    if status == "blocked":
+        print("validation: failed")
+        return 1
+    print("validation: passed")
+    print("next: electroboy bug summary")
+    return 0
+
+
+def _cmd_bug_summary(store: StateStore) -> int:
+    record = _require_bug_record(store)
+    if record is None:
+        return 1
+    artifacts = _bug_record_artifacts(record)
+    summary_path = artifacts["summary"]
+    path = store.root / summary_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    issue = _bug_record_issue(record)
+    lines = [
+        f"# Bug Fix Summary: {issue.get('title', 'Unknown bug')}",
+        "",
+        f"- Provider: {issue.get('provider', 'unknown')}",
+        f"- Reference: {issue.get('reference', '')}",
+        f"- Branch: {record.get('branch') or 'not recorded'}",
+        "",
+        "## Artifacts",
+        "",
+    ]
+    for key in ["issue", "investigation", "reproduction", "fix", "validation"]:
+        artifact = artifacts.get(key)
+        if not artifact:
+            continue
+        status = "present" if (store.root / artifact).exists() else "missing"
+        lines.append(f"- {key}: {artifact} ({status})")
+    lines.extend(["", "## Upstream Handoff", ""])
+    lines.append(
+        "Use this summary as the issue comment or merge-request body after "
+        "the bug branch has been reviewed."
+    )
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    _update_bug_step(store, record, "summary", "completed", None, summary_path)
+    print(f"bug summary: {summary_path}")
+    return 0
+
+
+def _require_bug_record(store: StateStore) -> dict[str, object] | None:
+    record = _read_bug_record(store)
+    if record is not None:
+        return record
+    print(
+        "error: no active bug workflow; run `electroboy bug start <issue>` first",
+        file=sys.stderr,
+    )
+    return None
+
+
+def _update_bug_step(
+    store: StateStore,
+    record: dict[str, object],
+    step: str,
+    status: str,
+    event_id: str | None,
+    artifact: str,
+) -> None:
+    updated = dict(record)
+    steps = dict(updated.get("steps") if isinstance(updated.get("steps"), dict) else {})
+    steps[step] = {
+        "status": status,
+        "event": event_id,
+        "artifact": artifact,
+        "updated_at": utc_now(),
+    }
+    updated["steps"] = steps
+    updated["updated_at"] = utc_now()
+    _write_run_json(store, BUG_RECORD_FILE, updated)
+    manifest = store.load_current_manifest()
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=manifest.active_stage,
+            action=f"bug-{step}-{status}",
+            summary=f"Bug {step} {status}.",
+            outputs=[artifact],
+            artifact_changes=[artifact],
+        )
+    )
+
+
+def _ensure_bug_artifact_from_result(
+    store: StateStore,
+    artifact: str,
+    step: str,
+    result: AgentResult,
+) -> None:
+    path = store.root / artifact
+    if path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    title = step.replace("_", " ").title()
+    body = result.final_message.strip() or "_No agent summary was returned._"
+    path.write_text(f"# Bug {title}\n\n{body}\n", encoding="utf-8")
+
+
+def _write_bug_validation_artifact(
+    store: StateStore,
+    record: dict[str, object],
+    artifact: str,
+    commands: list[tuple[list[str] | str, bool, str]],
+    results,
+) -> None:
+    path = store.root / artifact
+    path.parent.mkdir(parents=True, exist_ok=True)
+    issue = _bug_record_issue(record)
+    lines = [
+        f"# Bug Validation: {issue.get('title', 'Unknown bug')}",
+        "",
+        f"Generated: {utc_now()}",
+        "",
+        "## Commands",
+        "",
+    ]
+    for (command, _shell, source), result in zip(commands, results):
+        command_text = command if isinstance(command, str) else " ".join(command)
+        returncode = int(result.get("returncode", 1))
+        output = (
+            str(result.get("stdout") or "")
+            + str(result.get("stderr") or "")
+        ).strip()
+        lines.extend(
+            [
+                f"### {source}",
+                "",
+                f"- Command: `{command_text}`",
+                f"- Exit status: {returncode}",
+                f"- Result: {'pass' if returncode == 0 else 'fail'}",
+                "",
+            ]
+        )
+        if output:
+            lines.extend(["```text", output, "```", ""])
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _bug_validation_commands(
+    args: argparse.Namespace,
+) -> list[tuple[list[str] | str, bool, str]]:
+    commands: list[tuple[list[str] | str, bool, str]] = []
+    for command in getattr(args, "bug_validation_commands", []) or []:
+        commands.append((shlex.split(command), False, "operator --command"))
+    for command in getattr(args, "bug_validation_shell_commands", []) or []:
+        commands.append((command, True, "operator --shell-command"))
+    return commands
+
+
+def _existing_bug_context_paths(
+    store: StateStore,
+    artifacts: dict[str, str],
+) -> list[str]:
+    return [
+        artifact
+        for key in ["issue", "investigation", "reproduction", "fix", "validation"]
+        if (artifact := artifacts.get(key)) and (store.root / artifact).exists()
+    ]
+
+
+def _bug_investigation_prompt(record: dict[str, object]) -> str:
+    artifacts = _bug_record_artifacts(record)
+    return "\n".join(
+        [
+            "Investigate the active bug before attempting a fix.",
+            "",
+            f"Read the issue artifact: {artifacts['issue']}.",
+            f"Write the investigation artifact: {artifacts['investigation']}.",
+            "Inspect code, tests, logs, and nearby documentation as needed.",
+            "Do not patch code in this step.",
+            "Record known facts, unknowns, commands tried, suspected files,",
+            "ranked root-cause hypotheses, and whether the bug is reproducible",
+            "from the available information.",
+        ]
+    )
+
+
+def _bug_reproduction_prompt(record: dict[str, object]) -> str:
+    artifacts = _bug_record_artifacts(record)
+    return "\n".join(
+        [
+            "Attempt to reproduce the active bug.",
+            "",
+            f"Use {artifacts['issue']} and {artifacts['investigation']} when present.",
+            f"Write the reproduction artifact: {artifacts['reproduction']}.",
+            "Prefer a failing regression test, minimal failing command, or",
+            "small reproduction script. If reproduction is not practical,",
+            "document the reason and what validation evidence will substitute.",
+        ]
+    )
+
+
+def _bug_fix_prompt(record: dict[str, object]) -> str:
+    artifacts = _bug_record_artifacts(record)
+    return "\n".join(
+        [
+            "Fix the active bug.",
+            "",
+            f"Use {artifacts['issue']}, {artifacts['investigation']}, and",
+            f"{artifacts['reproduction']} as input.",
+            f"Write the fix artifact: {artifacts['fix']}.",
+            "Keep the change scoped to the reported bug. Add or update",
+            "regression coverage when practical. Record root cause, changed",
+            "files, behavioral impact, and test coverage.",
+        ]
+    )
+
+
+def _bug_validation_prompt(record: dict[str, object]) -> str:
+    artifacts = _bug_record_artifacts(record)
+    return "\n".join(
+        [
+            "Validate the active bug fix.",
+            "",
+            f"Use {artifacts['issue']}, {artifacts['reproduction']}, and",
+            f"{artifacts['fix']} as input.",
+            f"Write the validation artifact: {artifacts['validation']}.",
+            "Run the regression test or reproduction command first when one",
+            "exists, then run relevant broader checks. Record exact commands,",
+            "exit status, important output, and remaining risk.",
+        ]
+    )
+
+
+def _bug_record_artifacts(record: dict[str, object]) -> dict[str, str]:
+    artifacts = record.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return {}
+    return {str(key): str(value) for key, value in artifacts.items()}
+
+
+def _bug_record_issue(record: dict[str, object]) -> dict[str, object]:
+    issue = record.get("issue")
+    return issue if isinstance(issue, dict) else {}
+
+
+def _bug_artifact_paths(slug: str) -> dict[str, str]:
+    return {
+        key: f"docs/bugs/{slug}/{file_name}"
+        for key, file_name in BUG_ARTIFACT_KEYS.items()
+    }
+
+
+def _bug_slug(issue: IssueRecord) -> str:
+    title_slug = _slugify(issue.title)
+    if issue.number and title_slug == _slugify(f"Bug from issue {issue.number}"):
+        return issue.number
+    if issue.number:
+        return f"{issue.number}-{_slugify(issue.title)}"
+    return _slugify(issue.title)
+
+
+def _bug_branch_name(issue: IssueRecord) -> str:
+    return f"fix/{_bug_slug(issue)}"
+
+
+def _switch_bug_branch(root: Path, branch_name: str) -> str | None:
+    error = _switch_feature_branch(root, branch_name)
+    if error is None:
+        return None
+    return error.replace("feature branch", "bug branch")
 
 
 def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
@@ -5716,13 +6301,14 @@ def _prompt_with_feature_branch_guard(
 ) -> str:
     if role not in MUTATING_AGENT_ROLES:
         return prompt
-    branch = _active_feature_branch(store)
+    branch, workflow = _active_workflow_branch(store)
     if not branch:
         return prompt
+    title = "Feature branch guard" if workflow == "feature" else "Bug branch guard"
     lines = [
-        "Feature branch guard:",
+        f"{title}:",
         "",
-        f"- Active feature branch: {branch}",
+        f"- Active {workflow} branch: {branch}",
         "- Before modifying files in any git repository, verify that",
         "  repository's current branch.",
         "- This applies to the active target repository and to nested",
@@ -5754,6 +6340,18 @@ def _active_feature_branch(store: StateStore) -> str | None:
     if not isinstance(branch, str) or not branch.strip():
         return None
     return branch.strip()
+
+
+def _active_workflow_branch(store: StateStore) -> tuple[str | None, str]:
+    bug_record = _read_bug_record(store)
+    if bug_record:
+        branch = bug_record.get("branch")
+        if isinstance(branch, str) and branch.strip():
+            return branch.strip(), "bug"
+    branch = _active_feature_branch(store)
+    if branch:
+        return branch, "feature"
+    return None, "workflow"
 
 
 def _prompt_with_meta_context(

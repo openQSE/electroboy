@@ -58,6 +58,30 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(runtime.env, ["PATH", "TOKEN"])
         self.assertEqual(runtime.options["response_file"], "response.md")
 
+    def test_parse_upstream_provider_config(self) -> None:
+        config = parse_pipeline_config(
+            """
+            [upstream]
+            default = "tracker"
+
+            [upstreams.tracker]
+            adapter = "command"
+            command = "tracker-cli"
+            args = ["issue", "show", "{reference}"]
+            domains = ["tracker.example.com"]
+            env = ["PATH", "TRACKER_TOKEN"]
+            """
+        )
+
+        provider = config.upstreams["tracker"]
+
+        self.assertEqual(config.upstream_default, "tracker")
+        self.assertEqual(provider.adapter, "command")
+        self.assertEqual(provider.command, "tracker-cli")
+        self.assertEqual(provider.args, ["issue", "show", "{reference}"])
+        self.assertEqual(provider.domains, ["tracker.example.com"])
+        self.assertEqual(provider.env, ["PATH", "TRACKER_TOKEN"])
+
     def test_manual_runtime_reads_configured_response_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

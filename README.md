@@ -146,6 +146,44 @@ branch before editing each git repository they touch. If they need to edit a
 nested repository and the feature branch is missing there, they create it with
 `git switch -c <branch>` rather than editing on the wrong branch.
 
+Start bug-fix work when the first task is investigation instead of full
+requirements authoring. Bug runs keep their own artifacts under
+`docs/bugs/<bug-id>/` and start from an upstream issue reference. The upstream
+reader is provider-based: the built-in generic provider records the reference
+as-is, the local provider can read a markdown or JSON file, and configured
+command providers can adapt GitHub, Gerrit, GitLab, or another tracker without
+coupling ElectroBoy to one service.
+
+```bash
+electroboy bug start https://tracker.example.com/issues/123 --branch
+electroboy bug investigate
+electroboy bug reproduce
+electroboy bug fix
+electroboy bug validate --command "python -m pytest tests/test_bug.py"
+electroboy bug summary
+```
+
+Configure an upstream command provider in `electroboy.toml` when the issue
+metadata should be fetched from a tracker. The command receives the reference
+through `{reference}` and must print one JSON object with fields such as
+`title`, `number`, `url`, `labels`, and `body`.
+
+```toml
+[upstream]
+default = "tracker"
+
+[upstreams.tracker]
+adapter = "command"
+command = "tracker-cli"
+args = ["issue", "show", "{reference}", "--json"]
+domains = ["tracker.example.com"]
+env = ["PATH", "TRACKER_TOKEN"]
+```
+
+Bug branches default to `fix/<number-and-title-slug>` when `--branch` is given
+without a name. Mutating bug agents receive a branch guard just like feature
+agents, including nested repositories.
+
 Define and approve requirements:
 
 ```bash

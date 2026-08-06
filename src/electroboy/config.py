@@ -19,6 +19,19 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True)
+class UpstreamConfig:
+    """Configured upstream issue provider."""
+
+    name: str
+    adapter: str = "generic"
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    env: list[str] = field(default_factory=list)
+    domains: list[str] = field(default_factory=list)
+    options: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     """Pipeline runtime configuration."""
 
@@ -26,6 +39,8 @@ class PipelineConfig:
     runtimes: dict[str, RuntimeConfig] = field(default_factory=dict)
     roles: dict[str, str] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
+    upstream_default: str = "generic"
+    upstreams: dict[str, UpstreamConfig] = field(default_factory=dict)
 
     def runtime_for_role(self, role: str) -> RuntimeConfig:
         runtime_name = self.roles.get(role, self.default_runtime)
@@ -88,6 +103,10 @@ DEFAULT_CONFIG = PipelineConfig(
         "design_author_update": "codex",
         "coding_interactive": "codex-interactive",
     },
+    upstreams={
+        "generic": UpstreamConfig(name="generic"),
+        "local": UpstreamConfig(name="local", adapter="local"),
+    },
 )
 
 
@@ -114,9 +133,12 @@ def parse_pipeline_config(text: str) -> PipelineConfig:
     runtimes: dict[str, RuntimeConfig] = dict(DEFAULT_CONFIG.runtimes)
     roles: dict[str, str] = {}
     environment: dict[str, str] = {}
+    upstream_default = DEFAULT_CONFIG.upstream_default
     section: str | None = None
     runtime_name: str | None = None
+    upstream_name: str | None = None
     runtime_data: dict[str, dict[str, object]] = {}
+    upstream_data: dict[str, dict[str, object]] = {}
 
     for raw_line in text.splitlines():
         line = raw_line.split("#", 1)[0].strip()
@@ -125,9 +147,13 @@ def parse_pipeline_config(text: str) -> PipelineConfig:
         if line.startswith("[") and line.endswith("]"):
             section = line[1:-1].strip()
             runtime_name = None
+            upstream_name = None
             if section.startswith("runtimes."):
                 runtime_name = section.split(".", 1)[1]
                 runtime_data.setdefault(runtime_name, {})
+            if section.startswith("upstreams."):
+                upstream_name = section.split(".", 1)[1]
+                upstream_data.setdefault(upstream_name, {})
             continue
         if "=" not in line:
             raise ConfigError(f"invalid config line: {raw_line}")
@@ -139,8 +165,12 @@ def parse_pipeline_config(text: str) -> PipelineConfig:
             roles[key] = str(parsed)
         elif section == "environment":
             environment[key] = str(parsed).lower() if isinstance(parsed, bool) else str(parsed)
+        elif section == "upstream" and key == "default":
+            upstream_default = str(parsed)
         elif section and section.startswith("runtimes.") and runtime_name:
             runtime_data.setdefault(runtime_name, {})[key] = parsed
+        elif section and section.startswith("upstreams.") and upstream_name:
+            upstream_data.setdefault(upstream_name, {})[key] = parsed
         else:
             raise ConfigError(f"unsupported config setting: {raw_line}")
 
@@ -169,7 +199,44 @@ def parse_pipeline_config(text: str) -> PipelineConfig:
 
     if default_runtime not in runtimes:
         raise ConfigError(f"unknown default runtime: {default_runtime}")
-    return PipelineConfig(default_runtime, runtimes, roles, environment)
+
+    upstreams: dict[str, UpstreamConfig] = dict(DEFAULT_CONFIG.upstreams)
+    for name, data in upstream_data.items():
+        adapter = str(data.get("adapter", "generic"))
+        command = str(data.get("command", ""))
+        args = data.get("args", [])
+        if not isinstance(args, list):
+            raise ConfigError(f"upstream {name} args must be a list")
+        env = data.get("env", [])
+        if not isinstance(env, list):
+            raise ConfigError(f"upstream {name} env must be a list")
+        domains = data.get("domains", [])
+        if not isinstance(domains, list):
+            raise ConfigError(f"upstream {name} domains must be a list")
+        options = {
+            key: str(value)
+            for key, value in data.items()
+            if key not in {"adapter", "command", "args", "env", "domains"}
+        }
+        upstreams[name] = UpstreamConfig(
+            name=name,
+            adapter=adapter,
+            command=command,
+            args=[str(arg) for arg in args],
+            env=[str(env_name) for env_name in env],
+            domains=[str(domain) for domain in domains],
+            options=options,
+        )
+    if upstream_default not in upstreams:
+        raise ConfigError(f"unknown upstream provider: {upstream_default}")
+    return PipelineConfig(
+        default_runtime,
+        runtimes,
+        roles,
+        environment,
+        upstream_default,
+        upstreams,
+    )
 
 
 def _parse_value(value: str) -> object:

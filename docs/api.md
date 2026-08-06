@@ -40,6 +40,10 @@ Operator workflow commands:
 - `test-plan [--reason <text>] [--session-id <id>]` starts or resumes system
   test-plan authoring.
 - `test-plan-approve` records human test-plan approval.
+- `bug start <issue-reference> [--provider <name>] [--branch [name]]` starts
+  a bug-fix run from an upstream issue provider.
+- `bug investigate|reproduce|fix|validate|summary` advances the active bug-fix
+  run through evidence gathering, repair, validation, and handoff.
 - `code [--reason <text>] [--msg <text>] [--review-msg <text>]
   [--blockers-only]
   [--list-phases|--set-phase <n>] [--phased|--interactive]` starts or
@@ -187,6 +191,56 @@ when available, including the `ai-pipeline` wrapper.
 If `.electroboy/project.toml` enables Python activation, the activation
 script sources the configured Python environment. It only deactivates that
 Python environment when the pipeline owns that activation.
+
+## Bug Commands
+
+`electroboy bug start <issue-reference>` starts a focused bug-fix workflow
+without entering the full requirements/design pipeline. It creates durable
+state in `bug.json`, writes `docs/bugs/<bug-id>/issue.md`, and optionally
+creates or switches to a focused branch when `--branch` is provided. Omit the
+branch name to derive `fix/<number-and-title-slug>`.
+
+Bug issue intake is provider-based. The built-in `generic` provider records
+the reference without fetching metadata. The built-in `local` provider reads a
+markdown or JSON file. Configured command providers can adapt GitHub, Gerrit,
+GitLab, or another tracker by printing normalized JSON.
+
+```toml
+[upstream]
+default = "tracker"
+
+[upstreams.tracker]
+adapter = "command"
+command = "tracker-cli"
+args = ["issue", "show", "{reference}", "--json"]
+domains = ["tracker.example.com"]
+env = ["PATH", "TRACKER_TOKEN"]
+```
+
+Command providers may return fields such as `title`, `number`, `url`,
+`labels`, `body`, `state`, and `author`. ElectroBoy stores the normalized
+metadata in the bug record and writes the issue artifact for the agents.
+
+`bug investigate`, `bug reproduce`, `bug fix`, and `bug validate` invoke the
+configured agent runtime with the active bug artifacts as context. The
+investigation step records known facts and likely root causes. The reproduction
+step records a failing test, command, script, or the reason reproduction is not
+practical. The fix step keeps code changes scoped to the bug and records root
+cause, changed files, behavioral impact, and regression coverage.
+
+`bug validate` can also run explicit operator commands:
+
+```bash
+electroboy bug validate --command "python -m pytest tests/test_bug.py"
+electroboy bug validate --shell-command "make test && make lint"
+```
+
+When validation commands are provided, ElectroBoy runs them directly and writes
+`docs/bugs/<bug-id>/validation.md`. Without commands, it invokes the
+`bug_validate` agent role and asks the agent to run and record relevant checks.
+
+`bug summary` writes `docs/bugs/<bug-id>/summary.md` with the issue reference,
+branch, artifact status, and upstream handoff notes.
 
 ## Phase Commands
 

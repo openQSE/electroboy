@@ -945,6 +945,195 @@ class CliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), "feature/add-dashboard")
 
+    def test_bug_start_creates_generic_bug_run_and_branch(self) -> None:
+        with temp_project() as root:
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "bug",
+                    "start",
+                    "https://tracker.example.com/issues/123",
+                    "--branch",
+                ]
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            bug = json.loads(
+                (store.run_dir(manifest.run_id) / "bug.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            issue_exists = (root / "docs" / "bugs" / "123" / "issue.md").exists()
+            current_branch = subprocess.run(
+                ["git", "-C", str(root), "branch", "--show-current"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("bug: Bug from issue 123", stdout)
+        self.assertIn("provider: generic", stdout)
+        self.assertIn("branch: fix/123", stdout)
+        self.assertIn("next: electroboy bug investigate", stdout)
+        self.assertEqual(current_branch.stdout.strip(), "fix/123")
+        self.assertEqual(bug["workflow"], "bug")
+        self.assertEqual(bug["issue"]["provider"], "generic")
+        self.assertEqual(
+            bug["artifacts"]["issue"],
+            "docs/bugs/123/issue.md",
+        )
+        self.assertTrue(issue_exists)
+
+    def test_bug_start_uses_command_upstream_provider(self) -> None:
+        with temp_project() as root:
+            provider = root / "fake-upstream.py"
+            write_file(
+                provider,
+                """
+import json
+import sys
+
+print(json.dumps({
+    "number": 42,
+    "title": "Crash on startup",
+    "url": sys.argv[1],
+    "labels": [{"name": "bug"}, {"name": "urgent"}],
+    "body": "The app crashes before the first prompt.",
+}))
+""".lstrip(),
+            )
+            write_file(
+                root / "electroboy.toml",
+                f"""
+[upstream]
+default = "tracker"
+
+[upstreams.tracker]
+adapter = "command"
+command = "{sys.executable}"
+args = ["{provider}", "{{reference}}"]
+domains = ["tracker.example.com"]
+""".lstrip(),
+            )
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "bug",
+                    "start",
+                    "https://tracker.example.com/issues/42",
+                    "--branch",
+                ]
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            bug = json.loads(
+                (store.run_dir(manifest.run_id) / "bug.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            issue_text = (
+                root / "docs" / "bugs" / "42-crash-on-startup" / "issue.md"
+            ).read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("provider: tracker", stdout)
+        self.assertIn("branch: fix/42-crash-on-startup", stdout)
+        self.assertEqual(bug["issue"]["labels"], ["bug", "urgent"])
+        self.assertIn("The app crashes before the first prompt.", issue_text)
+
+    def test_bug_steps_write_artifacts_and_branch_guard(self) -> None:
+        with temp_project() as root:
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "bug",
+                        "start",
+                        "https://tracker.example.com/issues/123",
+                        "--branch",
+                        "fix/bug-123",
+                    ]
+                )[0],
+                0,
+            )
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "bug", "investigate"]
+            )
+            reproduce_code, _reproduce_stdout, reproduce_stderr = self.run_cli(
+                ["--root", str(root), "bug", "reproduce"]
+            )
+            store = StateStore(root)
+            manifest = store.load_current_manifest()
+            bug = json.loads(
+                (store.run_dir(manifest.run_id) / "bug.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            prompt_files = sorted(
+                (store.run_dir(manifest.run_id) / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+            investigation_exists = (
+                root
+                / "docs"
+                / "bugs"
+                / "123"
+                / "investigation.md"
+            ).exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("bug investigation:", stdout)
+        self.assertIn("next: electroboy bug reproduce", stdout)
+        self.assertEqual(reproduce_code, 0, reproduce_stderr)
+        self.assertEqual(bug["steps"]["investigation"]["status"], "completed")
+        self.assertTrue(investigation_exists)
+        self.assertIn("Bug branch guard:", prompt)
+        self.assertIn("Active bug branch: fix/bug-123", prompt)
+
+    def test_bug_validate_runs_operator_commands_and_summary(self) -> None:
+        with temp_project() as root:
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "bug",
+                        "start",
+                        "https://tracker.example.com/issues/123",
+                    ]
+                )[0],
+                0,
+            )
+            command = f"{sys.executable} -c \"print('bug validation ok')\""
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "bug", "validate", "--command", command]
+            )
+            summary_code, summary_stdout, summary_stderr = self.run_cli(
+                ["--root", str(root), "bug", "summary"]
+            )
+            validation_text = (
+                root
+                / "docs"
+                / "bugs"
+                / "123"
+                / "validation.md"
+            ).read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("validation: passed", stdout)
+        self.assertIn("bug validation ok", validation_text)
+        self.assertEqual(summary_code, 0, summary_stderr)
+        self.assertIn("bug summary:", summary_stdout)
+
     def test_completion_bash_completes_commands(self) -> None:
         with temp_project() as root:
             code, script, stderr = self.run_cli(["completion", "bash"])
