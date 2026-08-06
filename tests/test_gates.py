@@ -110,7 +110,7 @@ class GateTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("code review agent evidence is missing", result.messages[0])
 
-    def test_commit_gate_passes_with_phase_reviews(self) -> None:
+    def test_commit_gate_passes_with_code_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = StateStore(tmp)
             manifest = store.init_run(run_id="run-1")
@@ -124,8 +124,6 @@ class GateTests(unittest.TestCase):
                             "plan_current": True,
                             "code_review": "passed",
                             "code_review_event": "agent-00001",
-                            "test_review": "passed",
-                            "test_review_event": "agent-00002",
                         }
                     },
                 )

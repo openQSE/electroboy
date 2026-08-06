@@ -266,11 +266,6 @@ class GateEngine:
                 "phase-{phase}-code-review.jsonl",
                 "code_review",
             ),
-            self.phase_review_gate(
-                GATE_PHASE_TEST_REVIEW,
-                "phase-{phase}-test-review.jsonl",
-                "test_review",
-            ),
         ]:
             messages.extend(result.messages)
         if messages:
@@ -281,6 +276,8 @@ class GateEngine:
         messages: list[str] = []
         if not manifest.has_gate(GATE_VALIDATION_TESTING):
             messages.append("validation testing has not been recorded")
+        if self._blocking_issues("validation-test-review.jsonl"):
+            messages.append("blocking validation test-review issues remain")
         if self._blocking_issues("validation-review.jsonl"):
             messages.append("blocking validation review issues remain")
         report = self.root / self._artifact_path(

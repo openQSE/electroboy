@@ -131,6 +131,7 @@ TEST_REVIEW_SUMMARY_PATH = "docs/test-review.md"
 REVIEW_REPORT_DIRECTORY = "docs/reviews"
 TEST_PLAN_PATH = "docs/test-plan.md"
 VALIDATION_REPORT_PATH = "docs/validation-report.md"
+VALIDATION_TEST_REVIEW_ISSUE_FILE = "validation-test-review.jsonl"
 IMPLEMENTATION_REVIEW_MAX_ATTEMPTS = 5
 META_REGISTRY_PATH = "repositories.json"
 META_MANAGEMENT_COMMANDS = {"add", "start"}
@@ -2291,12 +2292,10 @@ def _cmd_code_list_phases(store: StateStore) -> int:
             or (planned_phase.heading if planned_phase else f"Phase {number}")
         )
         code_review = str(phase.get("code_review", "pending"))
-        test_review = str(phase.get("test_review", "pending"))
         commit = str(phase.get("commit", "none"))
         print(f"  - phase {number}: {phase_state}")
         print(f"    objective: {objective}")
         print(f"    code review: {code_review}")
-        print(f"    test review: {test_review}")
         print(f"    commit: {commit}")
         if bool(phase.get("force_selected")):
             print("    force-selected: yes")
@@ -3649,18 +3648,12 @@ def _run_phase_agent_loop(
     operator_messages: list[str],
     review_messages: list[str],
 ) -> int:
-    code_review_code = _run_code_review_cycle(
+    return _run_code_review_cycle(
         store,
         phase_number,
         operator_messages,
         review_messages,
     )
-    if code_review_code != 0:
-        return code_review_code
-    test_review_code = _run_test_review_cycle(store, phase_number, operator_messages)
-    if test_review_code != 0:
-        return test_review_code
-    return 0
 
 
 def _run_code_review_cycle(
@@ -3894,17 +3887,19 @@ def _verify_unreported_blocking_issues(
     reported_issues: list[dict[str, object]],
     review_event: str,
     review_label: str,
+    *,
+    blockers_only: bool = False,
 ) -> None:
     reported_blocking_ids = {
         str(issue.get("issue_id") or issue.get("id") or "")
         for issue in reported_issues
-        if _issue_is_blocking(issue)
+        if _issue_is_blocking(issue, blockers_only=blockers_only)
     }
     for issue in store.read_review_issues(issue_file):
         issue_id = str(issue.get("issue_id") or "")
         if not issue_id or issue_id in reported_blocking_ids:
             continue
-        if not _issue_is_blocking(issue):
+        if not _issue_is_blocking(issue, blockers_only=blockers_only):
             continue
         _transition_issue(
             store,
@@ -3913,10 +3908,44 @@ def _verify_unreported_blocking_issues(
             status="verified",
             response=(
                 f"Later {review_label} pass {review_event} did not report "
-                "this blocker/major issue."
+                f"this {_blocking_review_label(blockers_only)} issue."
             ),
-            verification="No longer reported as blocker or major.",
+            verification=(
+                "No longer reported as "
+                f"{_blocking_review_label(blockers_only)}."
+            ),
         )
+
+
+def _defer_nonblocking_major_issues(
+    store: StateStore,
+    issue_file: str,
+    review_event: str,
+    review_label: str,
+) -> None:
+    for issue in store.read_review_issues(issue_file):
+        issue_id = str(issue.get("issue_id") or "")
+        if not issue_id:
+            continue
+        if issue.get("severity") != "major":
+            continue
+        if issue.get("status") not in BLOCKING_ISSUE_STATUSES:
+            continue
+        _transition_issue(
+            store,
+            issue_file,
+            issue_id,
+            status="deferred",
+            response=(
+                f"Deferred by --blockers-only during {review_label} "
+                f"{review_event}."
+            ),
+            verification="Major finding recorded as non-blocking follow-up.",
+        )
+
+
+def _blocking_review_label(blockers_only: bool) -> str:
+    return "blocker" if blockers_only else "blocker/major"
 
 
 def _phase_review_summary_path(store: StateStore, review_kind: str) -> str:
@@ -4061,6 +4090,114 @@ def _write_phase_review_attempt_report(
         for issue in issues:
             lines.extend(_review_issue_detail_lines(issue, issue_file))
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _write_validation_test_review_summary(
+    store: StateStore,
+    attempt: int,
+    *,
+    blockers_only: bool = False,
+) -> tuple[str, str]:
+    relative_path = _artifact_path(store, TEST_REVIEW_SUMMARY_PATH)
+    attempt_path = _validation_test_review_attempt_path(store, attempt)
+    _write_validation_test_review_attempt_report(store, attempt, attempt_path)
+    path = store.root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    issues = store.read_review_issues(VALIDATION_TEST_REVIEW_ISSUE_FILE)
+    blocking = [
+        issue
+        for issue in issues
+        if _issue_is_blocking(issue, blockers_only=blockers_only)
+    ]
+    lines = [
+        "# Test Review",
+        "",
+        f"Generated: {utc_now()}",
+        "Stage: validation",
+        f"Latest review attempt: {attempt}",
+        f"Blocking policy: {_blocking_review_label(blockers_only)} findings",
+        f"Blocking findings: {len(blocking)}",
+        "",
+        "This is the latest validation test-review summary. Detailed",
+        f"per-attempt reports are written under `{REVIEW_REPORT_DIRECTORY}/`.",
+        "",
+        "## Review Attempt Files",
+        "",
+        *_markdown_list(_validation_test_review_attempt_paths(store)),
+        "",
+        "## Findings",
+        "",
+    ]
+    if not issues:
+        lines.extend(["- none", ""])
+    else:
+        for issue in issues:
+            lines.extend(
+                _review_issue_detail_lines(
+                    issue,
+                    VALIDATION_TEST_REVIEW_ISSUE_FILE,
+                )
+            )
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_VALIDATION,
+            action="validation-test-review-summary-written",
+            summary=f"Wrote {relative_path}.",
+            outputs=[relative_path, attempt_path],
+            artifact_changes=[relative_path, attempt_path],
+        )
+    )
+    return relative_path, attempt_path
+
+
+def _write_validation_test_review_attempt_report(
+    store: StateStore,
+    attempt: int,
+    relative_path: str,
+) -> None:
+    path = store.root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    issues = store.read_review_issues(VALIDATION_TEST_REVIEW_ISSUE_FILE)
+    lines = [
+        f"# Test Review Validation Attempt {attempt}",
+        "",
+        f"Generated: {utc_now()}",
+        "Stage: validation",
+        f"Attempt: {attempt}",
+        f"Issue file: {VALIDATION_TEST_REVIEW_ISSUE_FILE}",
+        "",
+        "## Findings",
+        "",
+    ]
+    if not issues:
+        lines.extend(["- none", ""])
+    else:
+        for issue in issues:
+            lines.extend(
+                _review_issue_detail_lines(
+                    issue,
+                    VALIDATION_TEST_REVIEW_ISSUE_FILE,
+                )
+            )
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _validation_test_review_attempt_path(store: StateStore, attempt: int) -> str:
+    stem = _phase_review_file_stem(store, "test_review")
+    return f"{REVIEW_REPORT_DIRECTORY}/{stem}-validation-attempt-{attempt}.md"
+
+
+def _validation_test_review_attempt_paths(store: StateStore) -> list[str]:
+    directory = store.root / REVIEW_REPORT_DIRECTORY
+    if not directory.exists():
+        return []
+    stem = _phase_review_file_stem(store, "test_review")
+    return [
+        _normalize_repo_path(str(path.relative_to(store.root)))
+        for path in sorted(directory.glob(f"{stem}-validation-attempt-*.md"))
+    ]
 
 
 def _phase_review_attempt_paths(
@@ -4232,10 +4369,15 @@ def _review_issue_detail_lines(issue: dict[str, object], issue_file: str) -> lis
     return lines
 
 
-def _issue_is_blocking(issue: dict[str, object]) -> bool:
+def _issue_is_blocking(
+    issue: dict[str, object],
+    *,
+    blockers_only: bool = False,
+) -> bool:
+    severities = {"blocker"} if blockers_only else {"blocker", "major"}
     return (
         issue.get("status") in BLOCKING_ISSUE_STATUSES
-        and issue.get("severity") in {"blocker", "major"}
+        and issue.get("severity") in severities
     )
 
 
@@ -4327,7 +4469,6 @@ def _phase_commit_context_paths(store: StateStore) -> list[str]:
     return [
         *_implementation_context_paths(store),
         _phase_review_summary_path(store, "code_review"),
-        _phase_review_summary_path(store, "test_review"),
     ]
 
 
@@ -5211,6 +5352,15 @@ def _cmd_validate(
         return 1
 
     commands = _validation_commands(store, args)
+    test_review_code = _run_validation_test_review(
+        store,
+        manifest,
+        commands,
+        blockers_only=bool(getattr(args, "blockers_only", False)),
+    )
+    if test_review_code != 0:
+        return test_review_code
+
     results = [
         _run_validation_command(store.root, command, shell=shell)
         for command, shell, _source in commands
@@ -5251,8 +5401,8 @@ def _cmd_validate(
         _open_validation_fix_phase(store, manifest)
         return 1
 
-    if _blocking_issues(store, "validation-review.jsonl"):
-        _print_gate_failure(["blocking validation review issues remain"])
+    if _validation_blocking_issues(store):
+        _print_gate_failure(["blocking validation or test-review issues remain"])
         return 1
 
     manifest.complete_gate(GATE_VALIDATION_TESTING)
@@ -5276,6 +5426,101 @@ def _cmd_validate(
     return 0
 
 
+def _run_validation_test_review(
+    store: StateStore,
+    manifest: RunManifest,
+    commands: list[tuple[list[str] | str, bool, str]],
+    *,
+    blockers_only: bool = False,
+) -> int:
+    issue_file = VALIDATION_TEST_REVIEW_ISSUE_FILE
+    attempt = _next_validation_test_review_attempt(store)
+    result, event_id, review_issue_file = _invoke_agent_role(
+        store,
+        role="test_review",
+        prompt=_validation_test_review_prompt(
+            store,
+            commands,
+            blockers_only=blockers_only,
+        ),
+        context_paths=_implementation_context_paths(store),
+        issue_file_override=issue_file,
+    )
+    review_issue_file = review_issue_file or issue_file
+    if blockers_only:
+        _defer_nonblocking_major_issues(
+            store,
+            review_issue_file,
+            event_id,
+            "validation test review",
+        )
+    _verify_unreported_blocking_issues(
+        store,
+        review_issue_file,
+        result.issues,
+        event_id,
+        "validation test review",
+        blockers_only=blockers_only,
+    )
+    summary_path, attempt_path = _write_validation_test_review_summary(
+        store,
+        attempt,
+        blockers_only=blockers_only,
+    )
+    print(f"test review: {attempt_path}")
+    print(f"summary: {summary_path}")
+    if not result.ok and not result.issues:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    blocking = _blocking_issues(
+        store,
+        review_issue_file,
+        blockers_only=blockers_only,
+    )
+    if not blocking:
+        store.append_activity(
+            ActivityEvent(
+                actor="test-review-agent",
+                stage=STAGE_VALIDATION,
+                action="validation-test-review-passed",
+                summary=f"Validation test review passed; wrote {summary_path}.",
+                status="pass",
+                outputs=[review_issue_file, summary_path, attempt_path],
+                linked_issue_ids=[
+                    str(issue.get("issue_id"))
+                    for issue in store.read_review_issues(review_issue_file)
+                    if issue.get("issue_id")
+                ],
+            )
+        )
+        return 0
+    _print_gate_failure(
+        [
+            (
+                f"{len(blocking)} {_blocking_review_label(blockers_only)} "
+                "test-review issue(s) remain"
+            ),
+            f"review summary: {summary_path}",
+        ]
+    )
+    _open_validation_fix_phase(store, manifest)
+    return 1
+
+
+def _next_validation_test_review_attempt(store: StateStore) -> int:
+    return len(_validation_test_review_attempt_paths(store)) + 1
+
+
+def _validation_blocking_issues(store: StateStore) -> list[dict[str, object]]:
+    issues: list[dict[str, object]] = []
+    for issue_file in [VALIDATION_TEST_REVIEW_ISSUE_FILE, "validation-review.jsonl"]:
+        issues.extend(_blocking_issues(store, issue_file))
+    return issues
+
+
 def _cmd_validation_approve(store: StateStore, args: argparse.Namespace) -> int:
     manifest = store.load_current_manifest()
     forced = getattr(args, "force", False)
@@ -5294,9 +5539,9 @@ def _cmd_validation_approve(store: StateStore, args: argparse.Namespace) -> int:
     if not manifest.has_gate(GATE_VALIDATION_TESTING):
         _print_gate_failure(["validation testing has not passed"])
         return 1
-    blocking = _blocking_issues(store, "validation-review.jsonl")
+    blocking = _validation_blocking_issues(store)
     if blocking and not forced:
-        _print_gate_failure(["blocking validation review issues remain"])
+        _print_gate_failure(["blocking validation or test-review issues remain"])
         return 1
 
     baseline_paths = _approval_baseline_artifacts(store, STAGE_VALIDATION) or []
@@ -6169,7 +6414,7 @@ def _coding_prompt(
             "Limit edits to implementation and test files needed for this phase.",
             "Do not create git commits during this implementation or fix pass.",
             "Leave changes in the working tree for review. ElectroBoy will run",
-            "a separate commit pass after code review and test review pass.",
+            "a separate commit pass after code review passes.",
             "Do not update requirements, design, plan, or test-plan documents",
             "unless the operator explicitly asks you to.",
             "If approved requirements, design, plan, or test-plan artifacts need",
@@ -6205,7 +6450,7 @@ def _interactive_coding_prompt(
             "",
             "Inspect only files needed for this interactive implementation",
             "work.",
-            "Do not run the automated code review or test review loop yourself;",
+            "Do not run the automated code review loop yourself;",
             "ElectroBoy will do that when the operator runs `electroboy code`.",
             "Do not create git commits during this interactive implementation",
             "session. Leave changes in the working tree for ElectroBoy's review",
@@ -6325,18 +6570,17 @@ def _coding_commit_prompt(
         _implementation_context_paths(store)
     )
     code_review_path = _phase_review_summary_path(store, "code_review")
-    test_review_path = _phase_review_summary_path(store, "test_review")
     objective = _phase_commit_objective(phase_number, phase)
     lines = [
         f"Commit implementation phase {phase_number}: {objective}.",
         "",
-        "Code review and test review have passed. Do not change file contents",
+        "Code review has passed. Do not change file contents",
         "unless committing is impossible without a small metadata-only update",
         "such as a submodule pointer after committing a nested repository.",
         "",
         f"Use {requirements_path}, {design_path}, {plan_path}, and",
         f"{test_plan_path} when present as the approved context.",
-        f"Use {code_review_path} and {test_review_path} as review context.",
+        f"Use {code_review_path} as review context.",
         "Inspect git status before committing.",
         "Commit all uncommitted phase changes according to the commit breakdown",
         f"recorded for phase {phase_number} in {plan_path}. If no explicit",
@@ -6432,36 +6676,59 @@ def _phase_review_operator_instruction_lines(messages: list[str]) -> list[str]:
     ]
 
 
-def _test_review_prompt(
+def _validation_test_review_prompt(
     store: StateStore,
-    phase_number: int,
-    attempt: int = 1,
+    commands: list[tuple[list[str] | str, bool, str]],
+    *,
+    blockers_only: bool = False,
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
     )
-    return "\n".join(
+    blocking_policy = (
         [
-            f"Review tests for implementation phase {phase_number}, attempt {attempt}.",
-            "",
-            f"Use {requirements_path}, {design_path}, {plan_path}, and",
-            f"{test_plan_path} when present as the approved context.",
-            "Inspect tests and test results relevant to this phase.",
-            "Treat tests or implementation changes for another implementation",
-            "phase as a blocker finding.",
-            "Do not modify files.",
-            "Classify every finding as blocker, major, or minor.",
+            "Only blocker findings are blocking for this run. Major and minor",
+            "findings are non-blocking follow-up items.",
+        ]
+        if blockers_only
+        else [
             "Blocker and major findings are blocking. Minor findings are",
             "non-blocking follow-up items.",
-            "Report missing, failing, or weak coverage as structured review",
-            "issues.",
+        ]
+    )
+    return "\n".join(
+        [
+            "Review the approved system test plan before final validation.",
+            "",
+            f"Use {requirements_path}, {design_path}, {plan_path}, and",
+            f"{test_plan_path} as the approved context.",
+            "Inspect the test plan, implemented tests, and relevant source code",
+            "to decide whether the validation plan is adequate for the current",
+            "implementation.",
+            "Do not modify files.",
+            "Classify every finding as blocker, major, or minor.",
+            *blocking_policy,
+            "Report missing, failing, weak, or misaligned coverage as",
+            "structured review issues.",
             "If a previously reported issue is fixed, report the same issue_id",
             "with status verified.",
             "Set ok to true when the review completes successfully, even when",
             "you report findings. Set ok to false only when the review itself",
             "cannot be completed.",
+            "",
+            "Validation commands ElectroBoy will run after this review:",
+            *_markdown_list(_validation_command_lines(commands)),
         ]
     )
+
+
+def _validation_command_lines(
+    commands: list[tuple[list[str] | str, bool, str]],
+) -> list[str]:
+    return [
+        f"{source}: {command if isinstance(command, str) else ' '.join(command)}"
+        for command, _shell, source in commands
+    ]
 
 
 def _range_code_review_context_paths(store: StateStore) -> list[str]:
@@ -7412,7 +7679,6 @@ def _format_implementation_log(store: StateStore) -> str:
                 f"- Objective: {phase.get('objective', 'unknown')}",
                 f"- Coding event: {phase.get('coding_event', 'none')}",
                 f"- Code review event: {phase.get('code_review_event', 'none')}",
-                f"- Test review event: {phase.get('test_review_event', 'none')}",
                 f"- Commit event: {phase.get('commit_event', 'none')}",
                 f"- Commit: {phase.get('commit', 'none')}",
                 "",
@@ -7422,15 +7688,6 @@ def _format_implementation_log(store: StateStore) -> str:
                     _review_issue_summary_lines(
                         store,
                         f"phase-{phase_number}-code-review.jsonl",
-                    )
-                ),
-                "",
-                "Test review findings:",
-                "",
-                *_markdown_list(
-                    _review_issue_summary_lines(
-                        store,
-                        f"phase-{phase_number}-test-review.jsonl",
                     )
                 ),
                 "",
@@ -7458,13 +7715,6 @@ def _format_implementation_report(store: StateStore) -> str:
             _review_issue_summary_lines(
                 store,
                 f"phase-{phase_number}-code-review.jsonl",
-                blocking_only=True,
-            )
-        )
-        open_issues.extend(
-            _review_issue_summary_lines(
-                store,
-                f"phase-{phase_number}-test-review.jsonl",
                 blocking_only=True,
             )
         )
@@ -7516,11 +7766,12 @@ def _implementation_review_note_lines(store: StateStore) -> list[str]:
     notes: list[str] = []
     phase_status = store.load_phase_status()
     for phase_number in sorted(phase_status.phases, key=int):
-        for issue_file in [
-            f"phase-{phase_number}-code-review.jsonl",
-            f"phase-{phase_number}-test-review.jsonl",
-        ]:
-            notes.extend(_review_issue_summary_lines(store, issue_file))
+        notes.extend(
+            _review_issue_summary_lines(
+                store,
+                f"phase-{phase_number}-code-review.jsonl",
+            )
+        )
     return notes
 
 
@@ -8033,7 +8284,7 @@ def _active_workflow_review_issue_files(store: StateStore) -> list[str]:
     if manifest.active_stage in {STAGE_DESIGN_REVIEW, STAGE_DESIGN_ACCEPTANCE}:
         return ["design-review.jsonl"]
     if manifest.active_stage == STAGE_VALIDATION:
-        return ["validation-review.jsonl"]
+        return [VALIDATION_TEST_REVIEW_ISSUE_FILE, "validation-review.jsonl"]
     if manifest.active_stage == STAGE_DOCS_REVIEW:
         return ["documentation-review.jsonl"]
     if manifest.active_stage != STAGE_IMPLEMENTATION:
@@ -8043,10 +8294,7 @@ def _active_workflow_review_issue_files(store: StateStore) -> list[str]:
     if phase_status.active_phase is None:
         return []
     phase = str(phase_status.active_phase)
-    return [
-        f"phase-{phase}-code-review.jsonl",
-        f"phase-{phase}-test-review.jsonl",
-    ]
+    return [f"phase-{phase}-code-review.jsonl"]
 
 
 def _change_request_lines(requests: list[dict[str, object]]) -> list[str]:
@@ -8127,11 +8375,16 @@ def _print_gate_failure(messages: list[str]) -> None:
         print(f"  - {message}", file=sys.stderr)
 
 
-def _blocking_issues(store: StateStore, file_name: str) -> list[dict[str, object]]:
+def _blocking_issues(
+    store: StateStore,
+    file_name: str,
+    *,
+    blockers_only: bool = False,
+) -> list[dict[str, object]]:
     return [
         issue
         for issue in store.read_review_issues(file_name)
-        if _issue_is_blocking(issue)
+        if _issue_is_blocking(issue, blockers_only=blockers_only)
     ]
 
 
@@ -8265,6 +8518,8 @@ def _review_issue_progress_file(
         return f"{prefix}/design-review-progress.md"
     if issue_file == "validation-review.jsonl":
         return f"{prefix}/validation-review-progress.md"
+    if issue_file == VALIDATION_TEST_REVIEW_ISSUE_FILE:
+        return f"{prefix}/test-review-progress.md"
     if issue_file == "documentation-review.jsonl":
         return f"{prefix}/documentation-review-progress.md"
     phase_code = re.fullmatch(r"phase-(\d+)-code-review\.jsonl", issue_file)
@@ -9263,6 +9518,12 @@ def _failed_agent_result(error: str) -> AgentResult:
 def _agent_issue_file(role: str, store: StateStore) -> str | None:
     if role in AGENT_ISSUE_FILES:
         return AGENT_ISSUE_FILES[role]
+    manifest = store.load_current_manifest()
+    if (
+        role in {"test_review", "test-review"}
+        and manifest.active_stage == STAGE_VALIDATION
+    ):
+        return VALIDATION_TEST_REVIEW_ISSUE_FILE
     phase_status = store.load_phase_status()
     if phase_status.active_phase is None:
         return None
@@ -9282,6 +9543,7 @@ def _agent_progress_file(role: str, store: StateStore) -> str | None:
 
 
 def _agent_progress_file_name(role: str, store: StateStore) -> str:
+    manifest = store.load_current_manifest()
     phase_status = store.load_phase_status()
     active_phase = phase_status.active_phase
     normalized_role = role.replace("-", "_")
@@ -9298,6 +9560,8 @@ def _agent_progress_file_name(role: str, store: StateStore) -> str:
             return f"phase-{active_phase}-code-review-progress.md"
         return "code-review-progress.md"
     if normalized_role == "test_review":
+        if manifest.active_stage == STAGE_VALIDATION:
+            return "test-review-progress.md"
         if active_phase is not None:
             return f"phase-{active_phase}-test-review-progress.md"
         return "test-review-progress.md"

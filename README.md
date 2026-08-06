@@ -8,7 +8,8 @@ pipeline:
 2. Create and review the detailed design.
 3. Approve an implementation plan with small phases.
 4. Implement one phase at a time.
-5. Run code review, test review, validation, and documentation review.
+5. Run code review, validation test review, validation, and documentation
+   review.
 6. Preserve all review comments, decisions, commands, and artifacts.
 
 The tool is intentionally not a replacement for human design judgment. It keeps
@@ -219,11 +220,10 @@ generated project files, and any hand-authored baseline files before running
 
 `code` starts or resumes the fully automated implementation loop. It selects
 the active or next planned phase, invokes the configured coding agent, runs up
-to five code-review/fix passes, runs up to five test-review/fix passes, asks
-the coding agent to commit the reviewed phase changes, records the resulting
-commit, and continues until every planned phase is complete. Blocker and major
-findings stop the phase after the retry limit. Minor findings are recorded for
-follow-up and do not block progress.
+to five code-review/fix passes, asks the coding agent to commit the reviewed
+phase changes, records the resulting commit, and continues until every planned
+phase is complete. Blocker and major findings stop the phase after the retry
+limit. Minor findings are recorded for follow-up and do not block progress.
 
 Pass `--msg "<instruction>"` to append an operator instruction to the coding
 agent's implementation, fix, and commit prompts for that `code` run. The
@@ -252,12 +252,11 @@ advance the implementation loop; after exiting, run `electroboy code` to
 continue automated review and commit handling.
 
 Automated `code` stage review attempts are written to `docs/reviews/`, for
-example `docs/reviews/code-review-phase-2-attempt-1.md` and
-`docs/reviews/test-review-phase-2-attempt-1.md`. Feature runs include the
-feature tag in those filenames. The top-level `docs/code-review.md` and
-`docs/test-review.md` files remain latest-summary indexes that point to the
-per-attempt reports. Generated review reports are human-readable pipeline
-output and should not be included in phase implementation commits.
+example `docs/reviews/code-review-phase-2-attempt-1.md`. Feature runs include
+the feature tag in those filenames. The top-level `docs/code-review.md` file
+remains a latest-summary index that points to the per-attempt reports.
+Generated review reports are human-readable pipeline output and should not be
+included in phase implementation commits.
 
 Use `code-review` to audit the current codebase, a single commit, or an
 already-written commit range without advancing the pipeline:
@@ -343,10 +342,13 @@ because progress output pauses; the agent runs until it exits or the operator
 interrupts it.
 
 After `code` completes, revisit and approve the run's test-plan artifact.
-Validation requires that approved system test plan, always runs the full test
-suite plus artifact-declared validation commands, and writes the run's
-validation report. If validation fails, the pipeline opens a validation-fix
-phase and returns to `code`. After validation passes, run
+Validation requires that approved system test plan, runs a validation
+test-review pass first, then runs the full test suite plus artifact-declared
+validation commands, and writes the run's validation report. Each validation
+test-review rerun writes the next report under `docs/reviews/`, such as
+`docs/reviews/test-review-validation-attempt-2.md`. If validation test-review
+or validation commands fail with blocker findings, the pipeline opens a
+validation-fix phase and returns to `code`. After validation passes, run
 `validation-approve` to commit the implementation log, implementation report,
 and validation report before documentation review. `document` runs the
 documentation refinement and review phase. If a review or validation issue
@@ -438,7 +440,7 @@ It helps by:
 - Preventing an operator or agent from jumping into the middle of the pipeline.
 - Breaking implementation into small reviewed phases instead of one large code
   dump.
-- Keeping code review and test review as separate responsibilities.
+- Keeping code review and validation test review as separate responsibilities.
 - Recording an append-only history of agent actions and review comments.
 - Supporting controlled iteration when later work exposes a requirement or
   design issue.
@@ -469,7 +471,7 @@ Implemented capabilities:
 - Artifact snapshots, approval records, decisions, review issues, change
   requests, baseline invalidations, and activity events.
 - Append-only issue lifecycle transitions.
-- Automated phase start, review, test review, drift, and commit recording, plus
+- Automated phase start, code review, drift, and commit recording, plus
   manual `phase commit` for phased mode.
 - Explicit `code-review` audits for the current codebase, a single commit, or
   already-written commit ranges, with `CR-####` ids, list/verbose output, and

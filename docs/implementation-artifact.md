@@ -102,18 +102,17 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m electroboy --help
 Implemented:
 
 - Added gate constants for stage order, change control, plan currency, code
-  review, phase test review, and commit readiness.
+  review, validation test review, and commit readiness.
 - Added approval and snapshot checks to predecessor gates.
 - Added gate evaluation activity events.
 - Added change-control gate checks that block stage transitions while change
   requests remain open.
 - Added implementation-plan currency checks for active phase drift.
-- Added code review and phase test review gates based on phase status and
-  blocking review issues.
-- Required code review and test review gates to have runtime-backed agent
-  invocation evidence before a phase commit can pass.
-- Added commit gate composition across implementation, plan currency, code
-  review, and phase test review gates.
+- Added code review gates based on phase status and blocking review issues.
+- Required code review gates to have runtime-backed agent invocation evidence
+  before a phase commit can pass.
+- Added commit gate composition across implementation, plan currency, and code
+  review gates.
 - Added gate tests for open change requests, plan drift, blocking review
   issues, and commit readiness.
 
@@ -242,11 +241,10 @@ Implemented:
 
 - Added `electroboy phase start` to activate an implementation phase.
 - Added `electroboy phase review --pass` for code review completion.
-- Added `electroboy phase test --pass` for phase test review completion.
 - Added `electroboy phase drift` for active-phase plan drift.
 - Added `electroboy phase commit` with commit-gate enforcement.
 - Blocked a second active phase from overwriting an uncommitted phase.
-- Required review and test review commands to target the active phase.
+- Required review commands to target the active phase.
 - Required phase commits to reference an existing git commit SHA.
 - Made plan updates restore active-phase plan currency.
 - Added tests for review-gated phase commits and plan-drift blocking.

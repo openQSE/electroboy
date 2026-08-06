@@ -307,14 +307,14 @@ local state.
         artifact-snapshots.jsonl
         design-review.jsonl
         phase-<n>-code-review.jsonl
-        phase-<n>-test-review.jsonl
+        validation-test-review.jsonl
         validation-review.jsonl
         documentation-review.jsonl
         progress/
           design-review-progress.md
           phase-<n>-code-progress.md
           phase-<n>-code-review-progress.md
-          phase-<n>-test-review-progress.md
+          test-review-progress.md
         artifacts/
           requirements.md
           detailed-design.md
@@ -890,11 +890,9 @@ Scope:
 - Invoke coding agent.
 - Invoke code review agent.
 - Iterate code review and fixes up to five attempts.
-- Invoke phase test review agent.
-- Iterate test review and fixes up to five attempts.
 - Write per-attempt review reports under `docs/reviews/` and keep
-  `docs/code-review.md` and `docs/test-review.md` as latest-summary indexes,
-  using feature-tagged names during feature work.
+  `docs/code-review.md` as the latest-summary index, using feature-tagged
+  names during feature work.
 - Detect active-phase drift from `docs/implementation-plan.md`.
 - Invoke the coding agent to create the verified phase commit by default.
 - Record the coding-agent commit SHA after validation.
@@ -915,17 +913,15 @@ Acceptance criteria:
   commit recording.
 - Each phase records an independent git commit before the next phase starts.
 - A new phase cannot start while another phase is active.
-- Phase review and test review can update only the active phase.
+- Phase review can update only the active phase.
 - Phase commits require an existing git commit SHA reachable from `HEAD`.
 - Phase commit messages identify the active phase and objective.
 - Phase commit changed paths must match the planned phase `Paths:` metadata
   when that metadata is present.
-- Phase commits require code review and test review agent evidence.
-- Manual review and test flags do not replace agent invocation evidence.
-- Blocker and major code review and phase test review issues block commits
-  after the retry limit.
-- Minor code review and phase test review issues are recorded without blocking
-  commits.
+- Phase commits require code review agent evidence.
+- Manual review flags do not replace agent invocation evidence.
+- Blocker and major code review issues block commits after the retry limit.
+- Minor code review issues are recorded without blocking commits.
 - Phase-scope drift clears review evidence and blocks commit until the plan is
   updated and review agents run again.
 - Test commands and outputs are stored in the activity log.
@@ -958,7 +954,7 @@ Acceptance criteria:
 - Validation commands run as argument vectors unless explicit shell mode is
   requested.
 - Validation issues return work to the coding agent.
-- Validation fixes go through code review and phase test review.
+- Validation fixes go through code review.
 - Validation failures open a validation-fix phase and return the active stage
   to implementation.
 - The configured full test-suite command always runs and fails closed when the
