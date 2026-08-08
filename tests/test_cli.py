@@ -47,7 +47,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertIn("active stage: requirements", stdout)
         self.assertIn("  stage command: electroboy requirements", stdout)
-        self.assertIn("next stage: design", stdout)
+        self.assertIn("next stage: requirements-approve", stdout)
         self.assertIn("completed gates:", stdout)
 
     def test_status_uses_command_aligned_stage_names(self) -> None:
@@ -338,7 +338,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("completed stage: design-review", stdout)
-        self.assertIn("active stage: design-acceptance", stdout)
+        self.assertIn("active stage: design-approve", stdout)
 
     def test_force_design_approve_from_design_backfills_review_gate(self) -> None:
         with temp_project() as root:
@@ -430,7 +430,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("forced stage reset: yes", stdout)
-        self.assertIn("authoring stage: plan", stdout)
+        self.assertIn("authoring stage: implementation-plan", stdout)
         self.assertEqual(manifest.active_stage, STAGE_PLAN)
         self.assertTrue(manifest.has_gate(GATE_REQUIREMENTS))
         self.assertTrue(manifest.has_gate(GATE_DESIGN))
@@ -465,12 +465,19 @@ class CliTests(unittest.TestCase):
                 0,
             )
 
+            status_code, status_stdout, status_stderr = self.run_cli(
+                ["--root", str(root), "status"]
+            )
             code, stdout, stderr = self.run_cli(
                 ["--root", str(root), "plan-approve"]
             )
 
         self.assertEqual(code, 0, stderr)
-        self.assertIn("active stage: implementation", stdout)
+        self.assertEqual(status_code, 0, status_stderr)
+        self.assertIn("active stage: implementation-plan", status_stdout)
+        self.assertIn("next stage: plan-approve", status_stdout)
+        self.assertIn("completed stage: implementation-plan", stdout)
+        self.assertIn("active stage: code", stdout)
 
     def test_test_plan_authoring_can_run_during_design(self) -> None:
         with temp_project() as root:
@@ -520,7 +527,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("completed stage: test-plan", stdout)
-        self.assertIn("active stage: validation", stdout)
+        self.assertIn("active stage: validate", stdout)
         self.assertEqual(manifest.active_stage, STAGE_VALIDATION)
         self.assertIn("docs/test-plan.md", committed_files)
 
@@ -534,7 +541,7 @@ class CliTests(unittest.TestCase):
                     "--root",
                     str(root),
                     "stage",
-                    STAGE_IMPLEMENTATION,
+                    "code",
                     "--force",
                     "--reason",
                     "Adopting existing project.",
@@ -546,7 +553,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("previous stage: requirements", stdout)
-        self.assertIn("active stage: implementation", stdout)
+        self.assertIn("active stage: code", stdout)
         self.assertEqual(manifest.active_stage, STAGE_IMPLEMENTATION)
         self.assertTrue(manifest.has_gate(GATE_IMPLEMENTATION))
         self.assertTrue(order.passed, order.messages)
@@ -1236,7 +1243,7 @@ domains = ["tracker.example.com"]
 
         self.assertEqual(code, 0, stderr)
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout.splitlines(), ["implementation"])
+        self.assertEqual(completed.stdout.splitlines(), ["implementation-plan"])
 
 
 class temp_project:

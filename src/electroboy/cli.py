@@ -77,6 +77,33 @@ STAGE_REQUIRED_FILES = {
     STAGE_TEST_PLAN: "docs/test-plan.md",
 }
 
+PUBLIC_STAGE_NAMES = {
+    STAGE_REQUIREMENTS: "requirements",
+    STAGE_DESIGN: "design",
+    STAGE_DESIGN_REVIEW: "design-review",
+    STAGE_DESIGN_ACCEPTANCE: "design-approve",
+    STAGE_PLAN: "implementation-plan",
+    STAGE_IMPLEMENTATION: "code",
+    STAGE_TEST_PLAN: "test-plan",
+    STAGE_VALIDATION: "validate",
+    STAGE_DOCS_REVIEW: "document",
+    STAGE_COMPLETE: "code-approve",
+}
+
+PUBLIC_STAGE_ALIASES = {
+    **{public_name: stage for stage, public_name in PUBLIC_STAGE_NAMES.items()},
+    **{stage: stage for stage in STAGES},
+}
+
+PUBLIC_STAGE_CHOICES = list(PUBLIC_STAGE_NAMES.values())
+
+STATUS_NEXT_STAGE_NAMES = {
+    STAGE_REQUIREMENTS: "requirements-approve",
+    STAGE_PLAN: "plan-approve",
+    STAGE_TEST_PLAN: "test-plan-approve",
+    STAGE_VALIDATION: "validation-approve",
+}
+
 
 @dataclass(frozen=True)
 class RangeFixResumeState:
@@ -711,7 +738,8 @@ def build_parser() -> argparse.ArgumentParser:
     stage = subparsers.add_parser("stage", help="force-reset to a stage")
     stage.add_argument(
         "stage",
-        choices=STAGES,
+        metavar="stage",
+        help="stage command name, such as implementation-plan or code",
     )
     stage.add_argument(
         "--force",
@@ -1008,7 +1036,7 @@ def _cmd_meta_start(store: StateStore, args: argparse.Namespace) -> int:
     print(f"active repo: {record['name']}")
     print(f"repo path: {target_store.root}")
     print(f"run id: {manifest.run_id}")
-    print(f"active stage: {manifest.active_stage}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     print(f"next: {_stage_command(manifest.active_stage)}")
     print(f"artifact root: {target_store.root}")
     return 0
@@ -1347,7 +1375,7 @@ def _bash_completion_script() -> str:
     replacements = {
         "__COMMANDS__": _shell_words(sorted(command_parsers)),
         "__GLOBAL_OPTIONS__": _shell_words(_option_strings(parser)),
-        "__STAGE_CHOICES__": _shell_words(STAGES),
+        "__STAGE_CHOICES__": _shell_words(PUBLIC_STAGE_CHOICES),
         "__COMPLETION_SHELLS__": "bash",
         "__COMMAND_OPTIONS_CASES__": _bash_case_entries(command_options),
         "__SUBCOMMAND_CASES__": _bash_case_entries(nested_subcommands),
@@ -1564,7 +1592,7 @@ def _cmd_new(args: argparse.Namespace) -> int:
     manifest = store.init_run(run_id=args.run_id, force=args.force)
     print(f"project: {project_root}")
     print(f"created run: {manifest.run_id}")
-    print(f"active stage: {manifest.active_stage}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     print(f"activate: source {_project_bin_dir(project_root) / 'activate'}")
     return 0
 
@@ -2204,7 +2232,7 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
     print(f"run id: {manifest.run_id}")
     if created_run:
         print("created run: yes")
-    print(f"active stage: {manifest.active_stage}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     print(f"activate: source {_project_bin_dir(project_root) / 'activate'}")
     print(f"next: {_stage_command(manifest.active_stage)}")
     return 0
@@ -2480,29 +2508,23 @@ def _documentation_review_files(store: StateStore) -> list[str]:
 
 
 def _stage_command(stage: str) -> str:
-    commands = {
-        STAGE_REQUIREMENTS: "electroboy requirements",
-        STAGE_DESIGN: "electroboy design",
-        STAGE_DESIGN_REVIEW: "electroboy design-review",
-        STAGE_DESIGN_ACCEPTANCE: "electroboy design-approve",
-        STAGE_PLAN: "electroboy implementation-plan",
-        STAGE_IMPLEMENTATION: "electroboy code",
-        STAGE_TEST_PLAN: "electroboy test-plan",
-        STAGE_VALIDATION: "electroboy validate",
-        STAGE_DOCS_REVIEW: "electroboy document",
-        STAGE_COMPLETE: "electroboy code-approve",
-    }
-    return commands.get(stage, "electroboy status")
+    public_name = PUBLIC_STAGE_NAMES.get(stage)
+    if public_name:
+        return f"electroboy {public_name}"
+    return "electroboy status"
 
 
 def _stage_display_name(stage: str | None) -> str:
     if stage is None:
         return "none"
-    command = _stage_command(stage)
-    prefix = "electroboy "
-    if command.startswith(prefix):
-        return command[len(prefix):]
-    return stage
+    return PUBLIC_STAGE_NAMES.get(stage, stage)
+
+
+def _status_next_stage_name(stage: str) -> str:
+    approval_stage = STATUS_NEXT_STAGE_NAMES.get(stage)
+    if approval_stage:
+        return approval_stage
+    return _stage_display_name(NEXT_STAGE.get(stage))
 
 
 def _cmd_status(store: StateStore, engine: GateEngine) -> int:
@@ -2510,7 +2532,7 @@ def _cmd_status(store: StateStore, engine: GateEngine) -> int:
     print(f"run id: {manifest.run_id}")
     print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     print(f"  stage command: {_stage_command(manifest.active_stage)}")
-    print(f"next stage: {_stage_display_name(NEXT_STAGE.get(manifest.active_stage))}")
+    print(f"next stage: {_status_next_stage_name(manifest.active_stage)}")
     phase_status = store.load_phase_status()
     if phase_status.active_phase is None:
         print("active phase: none")
@@ -2753,7 +2775,7 @@ def _run_authoring_session(
             message_ref=f"messages/{event_id}-response.md",
         )
     )
-    print(f"authoring stage: {stage}")
+    print(f"authoring stage: {_stage_display_name(stage)}")
     if artifact:
         print(f"artifact: {artifact}")
     if _reopen_earliest_upstream_authoring_stage(store, stage, changed_artifacts):
@@ -2761,7 +2783,7 @@ def _run_authoring_session(
     if stage == STAGE_TEST_PLAN:
         active_stage = store.load_current_manifest().active_stage
         if out_of_band:
-            print(f"active stage: {active_stage}")
+            print(f"active stage: {_stage_display_name(active_stage)}")
             print(
                 "next: continue the active stage; approve the test plan "
                 "after code completes"
@@ -5481,8 +5503,8 @@ def _force_reset_to_stage(
     store.save_manifest(manifest)
 
     print("forced stage reset: yes")
-    print(f"previous stage: {previous_stage}")
-    print(f"active stage: {target_stage}")
+    print(f"previous stage: {_stage_display_name(previous_stage)}")
+    print(f"active stage: {_stage_display_name(target_stage)}")
     print(f"decision: {decision_id}")
     if backfilled_gates:
         _print_list("backfilled gates", backfilled_gates)
@@ -5848,7 +5870,7 @@ def _reopen_earliest_upstream_authoring_stage(
     print(f"reopened baseline: {baseline}")
     _print_list("upstream artifact changes", upstream_paths)
     _print_list("invalidated gates", invalidated)
-    print(f"active stage: {target_stage}")
+    print(f"active stage: {_stage_display_name(target_stage)}")
     target_artifact = _stage_required_file(store, target_stage)
     next_command = AUTHORING_APPROVAL_COMMANDS.get(target_stage)
     if target_artifact and next_command:
@@ -5925,7 +5947,7 @@ def _maybe_reopen_from_public_command(
         summary=f"Reopened {PUBLIC_STAGE_BASELINES[target_stage]} through public stage command.",
     )
     print(f"reopened baseline: {baseline}")
-    print(f"active stage: {target_stage}")
+    print(f"active stage: {_stage_display_name(target_stage)}")
     return True
 
 
@@ -6044,8 +6066,16 @@ def _cmd_report(
 def _cmd_set_stage(store: StateStore, args: argparse.Namespace) -> int:
     if not args.force:
         raise StateError("stage changes require --force")
-    _force_reset_to_stage(store, args.stage, args.reason)
+    _force_reset_to_stage(store, _normalize_stage_name(args.stage), args.reason)
     return 0
+
+
+def _normalize_stage_name(value: str) -> str:
+    stage = PUBLIC_STAGE_ALIASES.get(value)
+    if stage:
+        return stage
+    choices = ", ".join(PUBLIC_STAGE_CHOICES)
+    raise StateError(f"unknown stage {value!r}; choose one of: {choices}")
 
 
 def _cmd_stage(
@@ -6145,8 +6175,8 @@ def _cmd_stage(
             status="pass",
         )
     )
-    print(f"completed stage: {stage}")
-    print(f"active stage: {manifest.active_stage}")
+    print(f"completed stage: {_stage_display_name(stage)}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     return 0
 
 
@@ -6303,7 +6333,7 @@ def _cmd_validate(
         )
     )
     print("validation: passed")
-    print(f"active stage: {manifest.active_stage}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     print(f"report: {report_path}")
     print("next: run `electroboy validation-approve`")
     return 0
@@ -6498,7 +6528,7 @@ def _cmd_validation_approve(store: StateStore, args: argparse.Namespace) -> int:
     )
     print("validation approved")
     print(f"baseline commit: {commit_sha}")
-    print(f"active stage: {manifest.active_stage}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     return 0
 
 
@@ -6566,7 +6596,7 @@ def _cmd_docs_review(store: StateStore, engine: GateEngine) -> int:
         )
     )
     print("documentation review: passed")
-    print(f"active stage: {manifest.active_stage}")
+    print(f"active stage: {_stage_display_name(manifest.active_stage)}")
     return 0
 
 
@@ -9128,7 +9158,7 @@ def _format_run_summary(store: StateStore, engine: GateEngine) -> str:
         f"Run ID: {manifest.run_id}",
         f"Active stage: {_stage_display_name(manifest.active_stage)}",
         f"Stage command: {_stage_command(manifest.active_stage)}",
-        f"Next stage: {_stage_display_name(NEXT_STAGE.get(manifest.active_stage))}",
+        f"Next stage: {_status_next_stage_name(manifest.active_stage)}",
         f"Active phase: {active_phase}",
         "",
         "## Completed Gates",

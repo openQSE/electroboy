@@ -435,9 +435,10 @@ electroboy code --force
 electroboy validate --force
 ```
 
-The low-level `stage <stage> --force` command remains available as an alias
-for resetting directly to a named stage. A `--reason` can be provided on any
-forced command and is recorded in the decision log.
+The low-level `stage <stage> --force` command remains available for resetting
+directly to a command-aligned stage name, such as `implementation-plan` or
+`code`. A `--reason` can be provided on any forced command and is recorded in
+the decision log.
 
 Resume an interrupted run from the same project:
 
@@ -608,10 +609,11 @@ downstream gates would be invalidated, and resumes from the reopened stage.
 
 Use `<command> --force` only when an expert operator intentionally wants to
 reset the state machine to that command's stage. For example,
-`electroboy implementation-plan --force` resets the active stage to `plan`,
-records a forced reset decision, marks all predecessor gates satisfied, records
-predecessor snapshots, and starts implementation-plan authoring. Approval
-commands work the same way, then approve their target stage.
+`electroboy implementation-plan --force` resets the active stage to
+`implementation-plan`, records a forced reset decision, marks all predecessor
+gates satisfied, records predecessor snapshots, and starts implementation-plan
+authoring. Approval commands work the same way, then approve their target
+stage.
 
 ## Agent Runtime Configuration
 

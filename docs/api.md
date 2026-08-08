@@ -24,6 +24,8 @@ Operator workflow commands:
   stage, active phase, completed gates, invalidated gates, open requests, open
   issues, and blocked gates. In meta-project mode it also prints the meta root,
   active repo, and registered repos.
+  The next stage is the next operator command stage, so approval commands such
+  as `plan-approve` are shown when approval is the next step.
 - `progress [--once|--follow] [--interval <seconds>]` prints or follows hidden
   progress files for the active run. `monitor` is an alias.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes
@@ -65,8 +67,9 @@ Operator workflow commands:
 - `deactivate` leaves an activated project shell environment.
 - `report summary` writes or prints a run summary.
 - `report trace` writes or prints the activity trace.
-- `stage <stage> --force [--reason <text>]` resets directly to a named stage
-  for expert recovery and existing-project adoption.
+- `stage <stage> --force [--reason <text>]` resets directly to a
+  command-aligned stage name, such as `implementation-plan` or `code`, for
+  expert recovery and existing-project adoption.
 - `completion bash` prints the Bash completion script.
 
 Workflow commands also accept `--force` for expert recovery. A forced command
@@ -168,9 +171,10 @@ electroboy validate --force
 ```
 
 The low-level `stage <stage> --force [--reason <text>]` command uses the same
-reset behavior when a named stage is more convenient. Approval commands can
-also be forced; they reset to their target stage, satisfy predecessor gates,
-and then approve that stage.
+reset behavior when a named stage is more convenient. It accepts
+command-aligned stage names such as `implementation-plan`, `code`, and
+`validate`. Approval commands can also be forced; they reset to their target
+stage, satisfy predecessor gates, and then approve that stage.
 
 ## Project Environment Commands
 
