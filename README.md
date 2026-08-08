@@ -292,6 +292,15 @@ interactive session does not run review agents, create phase commits, or
 advance the implementation loop; after exiting, run `electroboy code` to
 continue automated review and commit handling.
 
+The review and handoff commands also support interactive mode for operator fine
+tuning without advancing their automated gates: `design-review --interactive`,
+`code-review --interactive`, `validate --interactive`, and
+`document --interactive`. Bug workflow agent steps accept the same flag:
+`bug investigate --interactive`, `bug reproduce --interactive`,
+`bug fix --interactive`, and `bug validate --interactive`. After the live
+session exits, rerun the normal command without `--interactive` to continue
+automation.
+
 Automated `code` stage review attempts are written to `docs/reviews/`, for
 example `docs/reviews/code-review-phase-2-attempt-1.md`. Feature runs include
 the feature tag in those filenames. The top-level `docs/code-review.md` file
@@ -399,6 +408,8 @@ checkpoint.
 
 Pass `validate --blockers-only` to let major test-review findings continue as
 deferred follow-up items. Failed validation commands remain blockers.
+Pass `validate --interactive` to open the validation test-review agent without
+running validation commands or completing the validation gate.
 
 Use phased mode only when a human wants to inspect and record each phase commit
 manually:
@@ -644,11 +655,20 @@ structured_output = "prompt_contract"
 design_author = "codex-interactive"
 design_author_update = "codex"
 design_review = "codex"
+design_review_interactive = "codex-interactive"
 coding = "codex"
 coding_interactive = "codex-interactive"
 code_review = "claude"
+code_review_interactive = "codex-interactive"
+range_code_fix_interactive = "codex-interactive"
 test_review = "codex"
+test_review_interactive = "codex-interactive"
 documentation = "codex"
+documentation_interactive = "codex-interactive"
+bug_investigate_interactive = "codex-interactive"
+bug_reproduce_interactive = "codex-interactive"
+bug_fix_interactive = "codex-interactive"
+bug_validate_interactive = "codex-interactive"
 
 [environment]
 activate_python = true
@@ -657,12 +677,12 @@ python_managed_by_pipeline = false
 ```
 
 The design-author role opens the interactive Codex CLI for requirements,
-design, implementation-plan, and test-plan authoring. The coding-interactive
-role opens the interactive Codex CLI for `code --interactive`. Long-running
-non-interactive roles receive a progress file and run with enough filesystem
-access to update that file unless the runtime configuration supplies an
-explicit sandbox option. Review prompts still prohibit modifying project files
-other than the progress file.
+design, implementation-plan, and test-plan authoring. Roles ending in
+`_interactive` open live operator sessions for the corresponding command.
+Long-running non-interactive roles receive a progress file and run with enough
+filesystem access to update that file unless the runtime configuration
+supplies an explicit sandbox option. Review prompts still prohibit modifying
+project files other than the progress file.
 Automated review roles also receive a structured output contract. If their
 final response is not valid JSON in that shape, ElectroBoy blocks the stage and
 stores the raw response for debugging instead of trying to infer findings from

@@ -43,7 +43,16 @@ class PipelineConfig:
     upstreams: dict[str, UpstreamConfig] = field(default_factory=dict)
 
     def runtime_for_role(self, role: str) -> RuntimeConfig:
-        runtime_name = self.roles.get(role, self.default_runtime)
+        runtime_name = self.roles.get(role)
+        normalized_role = role.replace("-", "_")
+        if (
+            runtime_name is None
+            and normalized_role.endswith("_interactive")
+            and self.default_runtime == DEFAULT_CONFIG.default_runtime
+            and "codex-interactive" in self.runtimes
+        ):
+            runtime_name = "codex-interactive"
+        runtime_name = runtime_name or self.default_runtime
         try:
             return self.runtimes[runtime_name]
         except KeyError as error:
@@ -101,7 +110,16 @@ DEFAULT_CONFIG = PipelineConfig(
     roles={
         "design_author": "codex-interactive",
         "design_author_update": "codex",
+        "design_review_interactive": "codex-interactive",
         "coding_interactive": "codex-interactive",
+        "code_review_interactive": "codex-interactive",
+        "range_code_fix_interactive": "codex-interactive",
+        "test_review_interactive": "codex-interactive",
+        "documentation_interactive": "codex-interactive",
+        "bug_investigate_interactive": "codex-interactive",
+        "bug_reproduce_interactive": "codex-interactive",
+        "bug_fix_interactive": "codex-interactive",
+        "bug_validate_interactive": "codex-interactive",
     },
     upstreams={
         "generic": UpstreamConfig(name="generic"),

@@ -125,6 +125,36 @@ class DocumentationReviewTests(unittest.TestCase):
         self.assertIn("documentation review: passed", stdout)
         self.assertEqual(manifest.active_stage, STAGE_COMPLETE)
 
+    def test_document_interactive_records_session_without_completing_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.prepare_docs_review_run(root)
+            write_docs(root, include_api=True)
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "document", "--interactive"]
+            )
+
+            manifest = store.load_current_manifest()
+            session = store.read_session_record(
+                STAGE_DOCS_REVIEW,
+                "documentation_interactive",
+            )
+            prompt = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("interactive documentation session completed", stdout)
+        self.assertEqual(manifest.active_stage, STAGE_DOCS_REVIEW)
+        self.assertFalse(manifest.has_gate(GATE_DOCUMENTATION))
+        self.assertIsNotNone(session)
+        session = session or {}
+        self.assertEqual(session["role"], "documentation_interactive")
+        self.assertIn("Interactive mode:", prompt)
+        self.assertIn("Review final documentation", prompt)
+
     def test_code_approve_requires_documentation_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -32,8 +32,47 @@ class RuntimeConfigTests(unittest.TestCase):
             config.runtime_for_role("coding_interactive").adapter,
             "codex_interactive",
         )
+        for role in [
+            "design_review_interactive",
+            "code_review_interactive",
+            "range_code_fix_interactive",
+            "test_review_interactive",
+            "documentation_interactive",
+            "bug_investigate_interactive",
+            "bug_reproduce_interactive",
+            "bug_fix_interactive",
+            "bug_validate_interactive",
+        ]:
+            self.assertEqual(
+                config.runtime_for_role(role).adapter,
+                "codex_interactive",
+            )
         self.assertIn("COLORTERM", config.runtime_for_role("design_author").env)
         self.assertIn("COLORTERM", config.runtime_for_role("design_review").env)
+
+    def test_stock_codex_config_falls_back_to_interactive_runtime(self) -> None:
+        config = parse_pipeline_config(
+            """
+            [runtime]
+            default = "codex"
+
+            [runtimes.codex]
+            adapter = "codex_exec"
+            command = "codex"
+
+            [runtimes.codex-interactive]
+            adapter = "codex_interactive"
+            command = "codex"
+
+            [roles]
+            design_review = "codex"
+            """
+        )
+
+        self.assertEqual(
+            config.runtime_for_role("code_review_interactive").adapter,
+            "codex_interactive",
+        )
 
     def test_parse_runtime_config_selects_role_runtime(self) -> None:
         config = parse_pipeline_config(

@@ -83,6 +83,44 @@ class ValidationTests(unittest.TestCase):
             self.assertIn("configured full test-suite command", report_text)
             self.assertTrue((root / "docs" / "test-review.md").exists())
 
+    def test_validate_interactive_records_test_review_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.prepare_validation_run(root)
+            command = f"{sys.executable} -c \"print('validation ok')\""
+            write_file(root / "docs" / "requirements.md", f"Validation: {command}\n")
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "validate",
+                    "--interactive",
+                    "--command",
+                    command,
+                ]
+            )
+
+            manifest = store.load_current_manifest()
+            session = store.read_session_record(
+                STAGE_VALIDATION,
+                "test_review_interactive",
+            )
+            prompt = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )[-1].read_text(encoding="utf-8")
+            report_exists = (root / "docs" / "validation-report.md").exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("interactive validation test-review session completed", stdout)
+        self.assertFalse(manifest.has_gate(GATE_VALIDATION_TESTING))
+        self.assertFalse(report_exists)
+        self.assertIsNotNone(session)
+        session = session or {}
+        self.assertEqual(session["role"], "test_review_interactive")
+        self.assertIn("Interactive mode:", prompt)
+        self.assertIn("Review the approved system test plan", prompt)
+
     def test_validation_test_review_attempts_increment_on_rerun(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -251,13 +251,23 @@ MUTATING_AGENT_ROLES = {
     "coding",
     "coding_interactive",
     "coding-interactive",
+    "range_code_fix_interactive",
+    "range-code-fix-interactive",
     "bug_reproduce",
     "bug-reproduce",
+    "bug_reproduce_interactive",
+    "bug-reproduce-interactive",
     "bug_fix",
     "bug-fix",
+    "bug_fix_interactive",
+    "bug-fix-interactive",
+    "bug_validate_interactive",
+    "bug-validate-interactive",
     "range_code_fix",
     "range-code-fix",
     "documentation",
+    "documentation_interactive",
+    "documentation-interactive",
 }
 
 REVIEW_OUTPUT_CONTRACT_ROLES = {
@@ -475,10 +485,36 @@ def build_parser() -> argparse.ArgumentParser:
             "NAME is omitted"
         ),
     )
-    bug_subparsers.add_parser("investigate", help="investigate the active bug")
-    bug_subparsers.add_parser("reproduce", help="record reproduction evidence")
-    bug_subparsers.add_parser("fix", help="fix the active bug")
+    bug_investigate = bug_subparsers.add_parser(
+        "investigate",
+        help="investigate the active bug",
+    )
+    bug_investigate.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive bug investigation session",
+    )
+    bug_reproduce = bug_subparsers.add_parser(
+        "reproduce",
+        help="record reproduction evidence",
+    )
+    bug_reproduce.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive bug reproduction session",
+    )
+    bug_fix = bug_subparsers.add_parser("fix", help="fix the active bug")
+    bug_fix.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive bug-fix session",
+    )
     bug_validate = bug_subparsers.add_parser("validate", help="validate the bug fix")
+    bug_validate.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive bug validation session",
+    )
     bug_validate.add_argument(
         "--command",
         action="append",
@@ -517,6 +553,11 @@ def build_parser() -> argparse.ArgumentParser:
     design_review = subparsers.add_parser("design-review", help="run design review")
     design_review.add_argument("--reason", help="reason for forcing design review")
     _add_force_option(design_review)
+    design_review.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive design-review session",
+    )
     _add_approval_parser(subparsers, "design-approve", "approve reviewed design")
 
     implementation_plan = subparsers.add_parser(
@@ -638,12 +679,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show review findings when listing code-review records",
     )
+    code_review.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive code-review or fix session",
+    )
     document = subparsers.add_parser(
         "document",
         help="start or resume documentation review",
     )
     document.add_argument("--reason", help="reason for reopening documentation")
     _add_force_option(document)
+    document.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive documentation session",
+    )
     code_approve = subparsers.add_parser(
         "code-approve",
         help="approve completed pipeline",
@@ -698,6 +749,11 @@ def build_parser() -> argparse.ArgumentParser:
             "only blocker test-review findings block validation; major "
             "findings are recorded as deferred follow-up"
         ),
+    )
+    validate.add_argument(
+        "--interactive",
+        action="store_true",
+        help="open an interactive validation test-review session",
     )
     validation_approve = subparsers.add_parser(
         "validation-approve",
@@ -1527,25 +1583,40 @@ def _cmd_bug(store: StateStore, args: argparse.Namespace) -> int:
         return _cmd_bug_agent_step(
             store,
             step="investigation",
-            role="bug_investigate",
+            role=(
+                "bug_investigate_interactive"
+                if getattr(args, "interactive", False)
+                else "bug_investigate"
+            ),
             prompt_builder=_bug_investigation_prompt,
             next_command="electroboy bug reproduce",
+            interactive=bool(getattr(args, "interactive", False)),
         )
     if args.bug_command == "reproduce":
         return _cmd_bug_agent_step(
             store,
             step="reproduction",
-            role="bug_reproduce",
+            role=(
+                "bug_reproduce_interactive"
+                if getattr(args, "interactive", False)
+                else "bug_reproduce"
+            ),
             prompt_builder=_bug_reproduction_prompt,
             next_command="electroboy bug fix",
+            interactive=bool(getattr(args, "interactive", False)),
         )
     if args.bug_command == "fix":
         return _cmd_bug_agent_step(
             store,
             step="fix",
-            role="bug_fix",
+            role=(
+                "bug_fix_interactive"
+                if getattr(args, "interactive", False)
+                else "bug_fix"
+            ),
             prompt_builder=_bug_fix_prompt,
             next_command="electroboy bug validate",
+            interactive=bool(getattr(args, "interactive", False)),
         )
     if args.bug_command == "validate":
         return _cmd_bug_validate(store, args)
@@ -1711,6 +1782,7 @@ def _cmd_bug_agent_step(
     role: str,
     prompt_builder,
     next_command: str,
+    interactive: bool = False,
 ) -> int:
     record = _require_bug_record(store)
     if record is None:
@@ -1721,8 +1793,10 @@ def _cmd_bug_agent_step(
     result, event_id, _issue_file = _invoke_agent_role(
         store,
         role=role,
-        prompt=prompt,
+        prompt=_interactive_step_prompt(prompt) if interactive else prompt,
         context_paths=context_paths,
+        session_stage=f"bug-{step}" if interactive else None,
+        session_artifact=artifacts[step] if interactive else None,
     )
     artifact = artifacts[step]
     _ensure_bug_artifact_from_result(store, artifact, step, result)
@@ -1734,7 +1808,8 @@ def _cmd_bug_agent_step(
         event_id,
         artifact,
     )
-    print(f"bug {step}: {artifact}")
+    label = "interactive bug session" if interactive else f"bug {step}"
+    print(f"{label}: {artifact}")
     if not result.ok:
         print(
             result.final_message,
@@ -1750,6 +1825,15 @@ def _cmd_bug_validate(store: StateStore, args: argparse.Namespace) -> int:
     if record is None:
         return 1
     commands = _bug_validation_commands(args)
+    if getattr(args, "interactive", False):
+        return _cmd_bug_agent_step(
+            store,
+            step="validation",
+            role="bug_validate_interactive",
+            prompt_builder=_bug_validation_prompt,
+            next_command="electroboy bug summary",
+            interactive=True,
+        )
     if not commands:
         return _cmd_bug_agent_step(
             store,
@@ -1995,6 +2079,21 @@ def _bug_validation_prompt(record: dict[str, object]) -> str:
             "Run the regression test or reproduction command first when one",
             "exists, then run relevant broader checks. Record exact commands,",
             "exit status, important output, and remaining risk.",
+        ]
+    )
+
+
+def _interactive_step_prompt(prompt: str) -> str:
+    return "\n".join(
+        [
+            prompt.rstrip(),
+            "",
+            "Interactive mode:",
+            "- Work with the operator in this live session.",
+            "- Preserve useful context and in-progress edits.",
+            "- Do not mark gates complete or simulate ElectroBoy approval.",
+            "- When the operator is done, return control so they can run the",
+            "  normal ElectroBoy command to continue automation.",
         ]
     )
 
@@ -2707,6 +2806,9 @@ def _cmd_design_review(
         _print_gate_failure(readiness_errors)
         return 1
 
+    if getattr(args, "interactive", False):
+        return _cmd_design_review_interactive(store)
+
     update_log_path = _init_design_review_update_log(store)
     for pass_number in range(1, DESIGN_REVIEW_MAX_PASSES + 1):
         with _progress_step(
@@ -2772,6 +2874,39 @@ def _cmd_design_review(
 
     _print_gate_failure(["blocking design review issues remain"])
     return 1
+
+
+def _cmd_design_review_interactive(store: StateStore) -> int:
+    artifact = _artifact_path(store, "docs/detailed-design.md")
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="design_review_interactive",
+        prompt=_interactive_step_prompt(_design_review_prompt(store, 1)),
+        context_paths=_design_review_context_paths(store),
+        session_stage=STAGE_DESIGN_REVIEW,
+        session_artifact=artifact,
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    store.append_activity(
+        ActivityEvent(
+            actor="design-review-agent",
+            stage=STAGE_DESIGN_REVIEW,
+            action="interactive-design-review-session-recorded",
+            summary="Completed interactive design-review session.",
+            inputs=_design_review_context_paths(store),
+            outputs=[artifact],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print("interactive design-review session completed")
+    print(f"artifact: {artifact}")
+    print("next: run `electroboy design-review` to continue automated review")
+    return 0
 
 
 def _cmd_code(
@@ -3102,11 +3237,178 @@ def _cmd_code_review(store: StateStore, args: argparse.Namespace) -> int:
         raise StateError(f"unexpected code-review argument: {selector}")
     review_id = _normalize_code_review_id(target_spec or "")
     if review_id:
+        if getattr(args, "interactive", False):
+            return _cmd_existing_code_review_interactive(store, args, review_id)
         return _cmd_existing_code_review(store, args, review_id)
     if not target_spec:
+        if getattr(args, "interactive", False):
+            return _cmd_codebase_code_review_interactive(store, args)
         return _cmd_codebase_code_review(store, args)
     target = _resolve_code_review_range_target(store, target_spec)
+    if getattr(args, "interactive", False):
+        return _cmd_range_code_review_interactive(store, args, target)
     return _cmd_range_code_review(store, args, target)
+
+
+def _cmd_codebase_code_review_interactive(
+    store: StateStore,
+    args: argparse.Namespace,
+) -> int:
+    fix_mode = _range_code_review_fix_mode(args)
+    if fix_mode == "in-place":
+        raise StateError(
+            "--fix-in-place requires a commit or commit range target"
+        )
+    current_head = _git_current_head(store.root) or "unknown"
+    operator_messages = _code_operator_messages(args)
+    if fix_mode == "followup":
+        role = "range_code_fix_interactive"
+        prompt = _codebase_code_fix_prompt(
+            store,
+            current_head,
+            "code-review issues from the interactive session",
+            CODE_REVIEW_SUMMARY_PATH,
+            1,
+            operator_messages,
+            RangeFixResumeState(dirty_paths=[]),
+        )
+    else:
+        role = "code_review_interactive"
+        prompt = _codebase_code_review_prompt(
+            store,
+            current_head,
+            1,
+            fix_mode,
+            operator_messages,
+        )
+    return _run_code_review_interactive_session(
+        store,
+        role,
+        prompt,
+        CODE_REVIEW_SUMMARY_PATH,
+    )
+
+
+def _cmd_range_code_review_interactive(
+    store: StateStore,
+    args: argparse.Namespace,
+    target: CodeReviewRangeTarget,
+) -> int:
+    fix_mode = _range_code_review_fix_mode(args)
+    operator_messages = _code_operator_messages(args)
+    if fix_mode == "none":
+        role = "code_review_interactive"
+        prompt = _range_code_review_prompt(
+            store,
+            target.start_sha,
+            target.end_sha,
+            target.commits,
+            1,
+            fix_mode,
+            operator_messages,
+            target.mode_label,
+        )
+    else:
+        role = "range_code_fix_interactive"
+        prompt = _range_code_fix_prompt(
+            store,
+            target.base_sha,
+            target.end_sha,
+            target.commits,
+            "code-review issues from the interactive session",
+            CODE_REVIEW_SUMMARY_PATH,
+            1,
+            fix_mode,
+            operator_messages,
+            RangeFixResumeState(dirty_paths=[]),
+        )
+    return _run_code_review_interactive_session(
+        store,
+        role,
+        prompt,
+        CODE_REVIEW_SUMMARY_PATH,
+    )
+
+
+def _cmd_existing_code_review_interactive(
+    store: StateStore,
+    args: argparse.Namespace,
+    review_id: str,
+) -> int:
+    record = _find_code_review_record(store, review_id)
+    if record is None:
+        raise StateError(f"unknown code-review id: {review_id}")
+    fix_mode = _range_code_review_fix_mode(args)
+    summary_path = str(record.get("summary_path") or CODE_REVIEW_SUMMARY_PATH)
+    issue_file = str(record.get("issue_file") or "")
+    operator_messages = _code_operator_messages(args)
+    if fix_mode == "none":
+        role = "code_review_interactive"
+        prompt = "\n".join(
+            [
+                f"Interactively review recorded code review {review_id}.",
+                "",
+                f"Use review summary: {summary_path}.",
+                f"Use internal issue file: {issue_file or 'none recorded'}.",
+                "Discuss findings with the operator. Do not modify files.",
+                "The normal `electroboy code-review` command remains",
+                "responsible for recording structured review issues.",
+                *_range_operator_instruction_lines(operator_messages),
+            ]
+        )
+    else:
+        role = "range_code_fix_interactive"
+        prompt = "\n".join(
+            [
+                f"Interactively fix findings from code review {review_id}.",
+                "",
+                f"Use review summary: {summary_path}.",
+                f"Use internal issue file: {issue_file or 'none recorded'}.",
+                f"Fix mode: {_range_fix_mode_label(fix_mode)}.",
+                "Work with the operator to address blocker and major findings.",
+                "Leave commits or working-tree changes in the shape requested",
+                "by the operator.",
+                *_range_operator_instruction_lines(operator_messages),
+            ]
+        )
+    return _run_code_review_interactive_session(store, role, prompt, summary_path)
+
+
+def _run_code_review_interactive_session(
+    store: StateStore,
+    role: str,
+    prompt: str,
+    artifact: str,
+) -> int:
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role=role,
+        prompt=_interactive_step_prompt(prompt),
+        context_paths=_range_code_review_context_paths(store),
+        session_stage="code-review",
+        session_artifact=artifact,
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    store.append_activity(
+        ActivityEvent(
+            actor=role,
+            stage=store.load_current_manifest().active_stage,
+            action="interactive-code-review-session-recorded",
+            summary="Completed interactive code-review session.",
+            inputs=_range_code_review_context_paths(store),
+            outputs=[artifact],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print("interactive code-review session completed")
+    print(f"artifact: {artifact}")
+    print("next: rerun `electroboy code-review` to record structured findings")
+    return 0
 
 
 def _normalize_code_review_id(value: str) -> str | None:
@@ -5037,6 +5339,8 @@ def _cmd_document(
                 summary=reason,
             )
         )
+    if getattr(args, "interactive", False):
+        return _cmd_document_interactive(store)
     result, _event_id, _issue_file = _invoke_agent_role(
         store,
         role="documentation",
@@ -5052,6 +5356,41 @@ def _cmd_document(
         return 1
     _print_progress("documentation", "running documentation review")
     return _cmd_docs_review(store, engine)
+
+
+def _cmd_document_interactive(store: StateStore) -> int:
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="documentation_interactive",
+        prompt=_interactive_step_prompt(_documentation_prompt(store)),
+        context_paths=[
+            *_implementation_context_paths(store),
+            "README.md",
+            "docs/api.md",
+        ],
+        session_stage=STAGE_DOCS_REVIEW,
+        session_artifact="README.md",
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    store.append_activity(
+        ActivityEvent(
+            actor="documentation-agent",
+            stage=STAGE_DOCS_REVIEW,
+            action="interactive-documentation-session-recorded",
+            summary="Completed interactive documentation session.",
+            inputs=[*_implementation_context_paths(store), "README.md", "docs/api.md"],
+            outputs=["README.md", "docs/api.md"],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print("interactive documentation session completed")
+    print("next: run `electroboy document` to continue documentation review")
+    return 0
 
 
 def _cmd_code_approve(
@@ -5890,6 +6229,12 @@ def _cmd_validate(
         return 1
 
     commands = _validation_commands(store, args)
+    if getattr(args, "interactive", False):
+        return _cmd_validation_test_review_interactive(
+            store,
+            commands,
+            blockers_only=bool(getattr(args, "blockers_only", False)),
+        )
     test_review_code = _run_validation_test_review(
         store,
         manifest,
@@ -5961,6 +6306,50 @@ def _cmd_validate(
     print(f"active stage: {manifest.active_stage}")
     print(f"report: {report_path}")
     print("next: run `electroboy validation-approve`")
+    return 0
+
+
+def _cmd_validation_test_review_interactive(
+    store: StateStore,
+    commands: list[tuple[list[str] | str, bool, str]],
+    *,
+    blockers_only: bool = False,
+) -> int:
+    artifact = _artifact_path(store, TEST_REVIEW_SUMMARY_PATH)
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="test_review_interactive",
+        prompt=_interactive_step_prompt(
+            _validation_test_review_prompt(
+                store,
+                commands,
+                blockers_only=blockers_only,
+            )
+        ),
+        context_paths=_implementation_context_paths(store),
+        session_stage=STAGE_VALIDATION,
+        session_artifact=artifact,
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    store.append_activity(
+        ActivityEvent(
+            actor="test-review-agent",
+            stage=STAGE_VALIDATION,
+            action="interactive-validation-test-review-session-recorded",
+            summary="Completed interactive validation test-review session.",
+            inputs=_implementation_context_paths(store),
+            outputs=[artifact],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print("interactive validation test-review session completed")
+    print(f"artifact: {artifact}")
+    print("next: run `electroboy validate` to continue validation")
     return 0
 
 
@@ -6746,6 +7135,13 @@ def _session_recovery_next_step_lines(role: str) -> list[str]:
             "Continue the implementation work from this context. Preserve",
             "useful in-progress changes, avoid repeating completed work, and",
             "keep the implementation aligned with the approved artifacts.",
+        ]
+    if role.endswith("_interactive") or role.endswith("-interactive"):
+        return [
+            "",
+            "Continue the interactive session from this context. Preserve",
+            "useful in-progress work and coordinate next steps with the",
+            "operator before returning control to ElectroBoy.",
         ]
     return [
         "",
@@ -8424,11 +8820,20 @@ env = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "COLORTERM", "TMPDIR", "CODEX_H
 design_author = "codex-interactive"
 design_author_update = "codex"
 design_review = "codex"
+design_review_interactive = "codex-interactive"
 coding = "codex"
 coding_interactive = "codex-interactive"
 code_review = "codex"
+code_review_interactive = "codex-interactive"
+range_code_fix_interactive = "codex-interactive"
 test_review = "codex"
+test_review_interactive = "codex-interactive"
 documentation = "codex"
+documentation_interactive = "codex-interactive"
+bug_investigate_interactive = "codex-interactive"
+bug_reproduce_interactive = "codex-interactive"
+bug_fix_interactive = "codex-interactive"
+bug_validate_interactive = "codex-interactive"
 
 [environment]
 activate_python = false
@@ -8446,7 +8851,16 @@ def _update_project_config_defaults(path: Path) -> None:
     section: str | None = None
     required_roles = {
         "design_author_update": "codex",
+        "design_review_interactive": "codex-interactive",
         "coding_interactive": "codex-interactive",
+        "code_review_interactive": "codex-interactive",
+        "range_code_fix_interactive": "codex-interactive",
+        "test_review_interactive": "codex-interactive",
+        "documentation_interactive": "codex-interactive",
+        "bug_investigate_interactive": "codex-interactive",
+        "bug_reproduce_interactive": "codex-interactive",
+        "bug_fix_interactive": "codex-interactive",
+        "bug_validate_interactive": "codex-interactive",
     }
     seen_required_roles: set[str] = set()
 

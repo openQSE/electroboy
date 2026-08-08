@@ -1098,6 +1098,48 @@ domains = ["tracker.example.com"]
         self.assertIn("Bug branch guard:", prompt)
         self.assertIn("Active bug branch: fix/bug-123", prompt)
 
+    def test_bug_step_interactive_records_session(self) -> None:
+        with temp_project() as root:
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "bug",
+                        "start",
+                        "https://tracker.example.com/issues/123",
+                        "--branch",
+                        "fix/bug-123",
+                    ]
+                )[0],
+                0,
+            )
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "bug", "reproduce", "--interactive"]
+            )
+
+            store = StateStore(root)
+            session = store.read_session_record(
+                "bug-reproduction",
+                "bug_reproduce_interactive",
+            )
+            prompt = sorted(
+                (store.run_dir(store.current_run_id() or "") / "messages").glob(
+                    "*-prompt.md"
+                )
+            )[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("interactive bug session:", stdout)
+        self.assertIsNotNone(session)
+        session = session or {}
+        self.assertEqual(session["role"], "bug_reproduce_interactive")
+        self.assertIn("Interactive mode:", prompt)
+        self.assertIn("Bug branch guard:", prompt)
+        self.assertIn("Active bug branch: fix/bug-123", prompt)
+
     def test_bug_validate_runs_operator_commands_and_summary(self) -> None:
         with temp_project() as root:
             self.assertEqual(

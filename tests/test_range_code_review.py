@@ -142,6 +142,45 @@ class RangeCodeReviewTests(unittest.TestCase):
         self.assertIn(f"Reviewed tree: {head}", summary)
         self.assertIn("Review the current codebase.", prompts)
 
+    def test_code_review_interactive_records_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_manual_runtime(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            write_file(root / "docs" / "implementation-plan.md", "# Plan\n")
+            write_file(root / "docs" / "test-plan.md", "# Test Plan\n")
+            StateStore(root).init_run(run_id="run-1")
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "code-review",
+                    "--interactive",
+                    "--msg",
+                    "focus on admission edge cases",
+                ]
+            )
+
+            store = StateStore(root)
+            session = store.read_session_record(
+                "code-review",
+                "code_review_interactive",
+            )
+            prompt = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("interactive code-review session completed", stdout)
+        self.assertIsNotNone(session)
+        session = session or {}
+        self.assertEqual(session["role"], "code_review_interactive")
+        self.assertIn("Interactive mode:", prompt)
+        self.assertIn("Review the current codebase", prompt)
+        self.assertIn("focus on admission edge cases", prompt)
+
     def test_code_review_contract_failure_does_not_report_zero_findings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -979,6 +1018,22 @@ command = "{sys.executable}"
 args = ["agent.py"]
 env = ["PATH"]
 structured_output = "json_schema"
+""".lstrip(),
+    )
+
+
+def write_manual_runtime(root: Path) -> None:
+    write_file(root / "agent-response.md", "accepted\n")
+    write_file(
+        root / "electroboy.toml",
+        """
+[runtime]
+default = "manual"
+
+[runtimes.manual]
+adapter = "manual"
+command = "manual"
+response_file = "agent-response.md"
 """.lstrip(),
     )
 

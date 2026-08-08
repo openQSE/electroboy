@@ -95,6 +95,41 @@ class DesignLoopTests(unittest.TestCase):
         self.assertIn("blocking design review issues remain", stderr)
         self.assertEqual(passed, 0)
 
+    def test_design_review_interactive_records_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            configure_git_identity(root)
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
+            self.assertEqual(
+                self.run_cli(["--root", str(root), "requirements-approve"])[0],
+                0,
+            )
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "design-review", "--interactive"]
+            )
+
+            session = store.read_session_record(
+                "design-review",
+                "design_review_interactive",
+            )
+            prompt = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("interactive design-review session completed", stdout)
+        self.assertIsNotNone(session)
+        session = session or {}
+        self.assertEqual(session["role"], "design_review_interactive")
+        self.assertIn("Interactive mode:", prompt)
+        self.assertIn("Review docs/detailed-design.md", prompt)
+
     def test_design_review_writes_summary_and_commits_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "project"

@@ -56,6 +56,10 @@ class ProjectEnvironmentTests(unittest.TestCase):
             )
             self.assertEqual(project_config.count('"COLORTERM"'), 2)
             self.assertNotIn('timeout = "900"', project_config)
+            self.assertIn('design_review_interactive = "codex-interactive"', project_config)
+            self.assertIn('code_review_interactive = "codex-interactive"', project_config)
+            self.assertIn('test_review_interactive = "codex-interactive"', project_config)
+            self.assertIn('documentation_interactive = "codex-interactive"', project_config)
             self.assertTrue(
                 (root / ".electroboy" / "shared" / "current-run").exists()
             )
@@ -102,6 +106,11 @@ design_review = "codex"
         self.assertNotIn('timeout = "900"', project_config)
         self.assertIn('design_author_update = "codex"', project_config)
         self.assertIn('coding_interactive = "codex-interactive"', project_config)
+        self.assertIn('design_review_interactive = "codex-interactive"', project_config)
+        self.assertIn('code_review_interactive = "codex-interactive"', project_config)
+        self.assertIn('test_review_interactive = "codex-interactive"', project_config)
+        self.assertIn('documentation_interactive = "codex-interactive"', project_config)
+        self.assertIn('bug_fix_interactive = "codex-interactive"', project_config)
         self.assertEqual(project_config.count('"COLORTERM"'), 2)
 
     def test_generated_wrapper_runs_without_pythonpath(self) -> None:

@@ -31,8 +31,8 @@ Operator workflow commands:
 - `requirements-approve` records human and Design Author approval.
 - `design [--reason <text>] [--session-id <id>]` starts or resumes design
   authoring.
-- `design-review` runs the design-review stage gate and may coordinate
-  design-author updates to the detailed-design artifact.
+- `design-review [--interactive]` runs the design-review stage gate and may
+  coordinate design-author updates to the detailed-design artifact.
 - `design-approve` records human design acceptance.
 - `implementation-plan [--reason <text>] [--session-id <id>]` starts or
   resumes planning.
@@ -42,23 +42,25 @@ Operator workflow commands:
 - `test-plan-approve` records human test-plan approval.
 - `bug start <issue-reference> [--provider <name>] [--branch [name]]` starts
   a bug-fix run from an upstream issue provider.
-- `bug investigate|reproduce|fix|validate|summary` advances the active bug-fix
-  run through evidence gathering, repair, validation, and handoff.
+- `bug investigate|reproduce|fix|validate [--interactive]` advances the active
+  bug-fix run through evidence gathering, repair, validation, and handoff.
 - `code [--reason <text>] [--msg <text>] [--review-msg <text>]
   [--blockers-only]
   [--list-phases|--set-phase <n>] [--phased|--interactive]` starts or
   resumes implementation work.
 - `code-review [list [<cr-id>] | <cr-id> | <sha> | <sha1>..<sha2>]
-  [--fix-followup|--fix-in-place] [--msg <text>] [--verbose]` reviews the
-  current codebase, lists recorded reviews, fixes a recorded review, or
-  reviews a commit/range without advancing the pipeline.
+  [--fix-followup|--fix-in-place] [--msg <text>] [--verbose]
+  [--interactive]` reviews the current codebase, lists recorded reviews,
+  fixes a recorded review, or reviews a commit/range without advancing the
+  pipeline.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
-- `validate [--blockers-only]` runs validation test review, final validation
-  commands, and writes a validation report.
+- `validate [--blockers-only] [--interactive]` runs validation test review,
+  final validation commands, and writes a validation report.
 - `validation-approve` approves validation and commits implementation handoff
   reports.
-- `document [--reason <text>]` runs documentation review and refinement.
+- `document [--reason <text>] [--interactive]` runs documentation review and
+  refinement.
 - `code-approve` records final human completion approval.
 - `deactivate` leaves an activated project shell environment.
 - `report summary` writes or prints a run summary.
@@ -242,6 +244,10 @@ When validation commands are provided, ElectroBoy runs them directly and writes
 `bug summary` writes `docs/bugs/<bug-id>/summary.md` with the issue reference,
 branch, artifact status, and upstream handoff notes.
 
+Pass `--interactive` to any bug agent step to open a live operator session for
+that step. The session is recorded for resume, then control returns to the
+operator.
+
 ## Phase Commands
 
 `electroboy code` is the normal implementation command. By default, it runs
@@ -261,6 +267,13 @@ phase, opens the configured interactive coding runtime, records the session,
 and then returns control without running code review or phase commit handling.
 Use it for operator-guided fine tuning, then run
 `electroboy code` to continue the automated implementation loop.
+
+`electroboy design-review --interactive`,
+`electroboy code-review --interactive`, `electroboy validate --interactive`,
+and `electroboy document --interactive` use the same live-session pattern for
+review, validation test-review, and documentation work. They record the
+session and return without completing gates or running the automated follow-up
+loop.
 
 `electroboy code --list-phases` prints every planned phase plus the recorded
 status, review state, and commit for each phase. `electroboy code --set-phase
@@ -356,6 +369,9 @@ the validation report, stores a copy under the run artifact directory, and
 stores command failures in `validation-review.jsonl`. In feature runs the
 validation report is `docs/validation-report-<feature>.md`.
 
+`validate --interactive` opens only the validation test-review agent. It does
+not run validation commands or complete the validation gate.
+
 `validation-approve` commits the run's implementation log, implementation
 report, and validation report, then advances the active stage to documentation
 review.
@@ -371,6 +387,8 @@ electroboy code-approve
 `document` wraps the final documentation review gate. It requires validation
 testing to pass before it can complete. `code-approve` requires the
 documentation gate to pass before it records final human completion approval.
+`document --interactive` opens a documentation agent session and returns
+without running the documentation review gate.
 
 ## Runtime Configuration
 
@@ -392,13 +410,23 @@ command = "codex"
 [roles]
 design_author = "codex-interactive"
 design_author_update = "codex"
+design_review_interactive = "codex-interactive"
 coding_interactive = "codex-interactive"
 code_review = "codex"
+code_review_interactive = "codex-interactive"
+range_code_fix_interactive = "codex-interactive"
+test_review_interactive = "codex-interactive"
+documentation_interactive = "codex-interactive"
+bug_investigate_interactive = "codex-interactive"
+bug_reproduce_interactive = "codex-interactive"
+bug_fix_interactive = "codex-interactive"
+bug_validate_interactive = "codex-interactive"
 ```
 
-The design-author and coding-interactive roles open the interactive Codex CLI.
-Long-running
-non-interactive roles receive a progress file under
+The design-author role opens the interactive Codex CLI for requirements,
+design, implementation-plan, and test-plan authoring. Roles ending in
+`_interactive` open live operator sessions for the corresponding command.
+Long-running non-interactive roles receive a progress file under
 `.electroboy/shared/runs/<run-id>/progress/`. `electroboy progress` follows
 those files from another activated shell. When review agents report structured
 issues, ElectroBoy appends prominent progress lines such as
