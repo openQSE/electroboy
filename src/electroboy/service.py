@@ -1105,7 +1105,7 @@ INDEX_HTML = """<!doctype html>
       }
       setRequirementsRunning(false);
       agentInput.value = "";
-      appendOutput("skipped requirements authoring; next: requirements-approve\\n", "system");
+      clearAgentOutput();
       updateProjectState(payload);
     }
 

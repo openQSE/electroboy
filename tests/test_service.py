@@ -128,6 +128,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/requirements/start"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/restart"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/skip"', INDEX_HTML)
+        self.assertIn(
+            'agentInput.value = "";\n'
+            "      clearAgentOutput();\n"
+            "      updateProjectState(payload);",
+            INDEX_HTML,
+        )
         self.assertIn('contextUrl("/api/agents/requirements/message")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/resize")', INDEX_HTML)
