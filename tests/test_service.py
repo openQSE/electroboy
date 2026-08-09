@@ -69,6 +69,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="requirementsMenu"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
+        self.assertIn("xterm@5.3.0", INDEX_HTML)
+        self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
+        self.assertIn("new window.Terminal", INDEX_HTML)
+        self.assertIn("disableStdin: true", INDEX_HTML)
         self.assertIn('fetch("/api/contexts"', INDEX_HTML)
         self.assertIn('let contextId = "";', INDEX_HTML)
         self.assertIn("function contextUrl(path)", INDEX_HTML)
@@ -88,6 +92,8 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('contextUrl("/api/agents/requirements/start")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/message")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/agents/requirements/resize")', INDEX_HTML)
+        self.assertIn("payload.terminal || payload.text", INDEX_HTML)
         self.assertIn('event.key === "Enter" && event.shiftKey', INDEX_HTML)
 
     def test_workflow_payload_exposes_project_operations_before_activation(
@@ -262,6 +268,36 @@ class ServiceTests(unittest.TestCase):
             if session.is_active() and session.process is not None:
                 session.process.terminate()
 
+    def test_agent_session_preserves_raw_terminal_output(self) -> None:
+        script = (
+            "import sys\n"
+            "sys.stdout.write('\\x1b[31mred\\x1b[0m\\n')\n"
+            "sys.stdout.flush()\n"
+        )
+        session = AgentSession([sys.executable, "-c", script], ROOT)
+        try:
+            try:
+                session.start()
+            except PermissionError as error:
+                self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+            self.assertIn("red", wait_for_output(self, session, "red"))
+            wait_for_exit(self, session)
+        finally:
+            if session.is_active() and session.process is not None:
+                session.process.terminate()
+
+        output_events = [
+            event for event in session.events_after(0)
+            if event.get("type") == "output"
+        ]
+        self.assertTrue(output_events)
+        terminal_output = "".join(
+            str(event.get("terminal", "")) for event in output_events
+        )
+        text_output = "".join(str(event.get("text", "")) for event in output_events)
+        self.assertIn("\x1b[31m", terminal_output)
+        self.assertNotIn("\x1b[31m", text_output)
+
     def test_agent_process_env_prepends_absolute_module_path(self) -> None:
         original_pythonpath = os.environ.get("PYTHONPATH")
         os.environ["PYTHONPATH"] = "src"
@@ -276,10 +312,11 @@ class ServiceTests(unittest.TestCase):
         entries = env["PYTHONPATH"].split(os.pathsep)
         self.assertEqual(entries[0], str((ROOT / "src").resolve()))
         self.assertIn("src", entries)
-        self.assertEqual(env["TERM"], "dumb")
-        self.assertEqual(env["NO_COLOR"], "1")
-        self.assertEqual(env["CLICOLOR"], "0")
-        self.assertEqual(env["FORCE_COLOR"], "0")
+        self.assertEqual(env["TERM"], "xterm-256color")
+        self.assertEqual(env["COLORTERM"], "truecolor")
+        self.assertNotIn("NO_COLOR", env)
+        self.assertNotIn("CLICOLOR", env)
+        self.assertNotIn("FORCE_COLOR", env)
 
     def test_terminal_output_cleaner_strips_ansi_screen_updates(self) -> None:
         raw = (

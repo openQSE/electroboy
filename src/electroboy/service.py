@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import errno
+import fcntl
 import json
 import os
 import pty
 import re
 import shlex
+import struct
 import subprocess
 import sys
 import termios
@@ -57,6 +59,10 @@ INDEX_HTML = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ElectroBoy</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
+  >
   <style>
     :root {
       color-scheme: light;
@@ -341,13 +347,22 @@ INDEX_HTML = """<!doctype html>
     .agent-output {
       min-height: 0;
       overflow: auto;
-      padding: 18px 20px;
+      padding: 0;
       color: var(--terminal-text);
       font-family:
         "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       font-size: 13px;
       line-height: 1.45;
       white-space: pre-wrap;
+    }
+
+    .agent-output .xterm {
+      height: 100%;
+      padding: 10px 12px;
+    }
+
+    .agent-output .xterm-viewport {
+      background: var(--terminal);
     }
 
     .agent-output .system {
@@ -514,6 +529,8 @@ INDEX_HTML = """<!doctype html>
       </div>
     </section>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script>
     const connection = document.getElementById("connection");
     const projectStage = document.querySelector("[data-stage='project']");
@@ -538,6 +555,10 @@ INDEX_HTML = """<!doctype html>
     const agentOutput = document.getElementById("agentOutput");
     const agentInput = document.getElementById("agentInput");
     let eventSource = null;
+    let terminal = null;
+    let terminalFit = null;
+    let resizeTimer = null;
+    let requirementsRunning = false;
     let contextId = "";
     let projectMode = "open";
     let serviceRoot = "";
@@ -545,7 +566,80 @@ INDEX_HTML = """<!doctype html>
     let currentBrowsePath = "";
     let currentBrowseParent = "";
 
+    function initializeTerminal() {
+      if (!window.Terminal) {
+        appendPlainOutput("terminal renderer unavailable; using plain text\\n", "error");
+        return;
+      }
+      terminal = new window.Terminal({
+        allowProposedApi: false,
+        convertEol: true,
+        cursorBlink: false,
+        disableStdin: true,
+        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+        fontSize: 13,
+        scrollback: 10000,
+        theme: {
+          background: "#10141f",
+          foreground: "#e7edf7",
+          cursor: "#e7edf7",
+          selectionBackground: "#2b6173",
+        },
+      });
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        terminalFit = new window.FitAddon.FitAddon();
+        terminal.loadAddon(terminalFit);
+      }
+      terminal.open(agentOutput);
+      fitTerminal();
+      window.addEventListener("resize", fitTerminal);
+    }
+
+    function fitTerminal() {
+      if (!terminal) {
+        return;
+      }
+      if (terminalFit) {
+        try {
+          terminalFit.fit();
+        } catch (error) {
+          return;
+        }
+      }
+      queueTerminalResize();
+    }
+
+    function queueTerminalResize() {
+      if (!requirementsRunning || !contextId || !terminal) {
+        return;
+      }
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(sendTerminalResize, 120);
+    }
+
+    async function sendTerminalResize() {
+      if (!requirementsRunning || !contextId || !terminal) {
+        return;
+      }
+      await fetch(contextUrl("/api/agents/requirements/resize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          columns: terminal.cols,
+          rows: terminal.rows,
+        }),
+      }).catch(() => {});
+    }
+
     function appendOutput(text, className = "") {
+      if (terminal) {
+        terminal.write(formatTerminalMessage(text, className));
+        return;
+      }
+      appendPlainOutput(text, className);
+    }
+
+    function appendPlainOutput(text, className = "") {
       const span = document.createElement("span");
       span.textContent = text;
       if (className) {
@@ -553,6 +647,24 @@ INDEX_HTML = """<!doctype html>
       }
       agentOutput.appendChild(span);
       agentOutput.scrollTop = agentOutput.scrollHeight;
+    }
+
+    function appendAgentOutput(text) {
+      if (terminal) {
+        terminal.write(text);
+        return;
+      }
+      appendPlainOutput(text);
+    }
+
+    function formatTerminalMessage(text, className) {
+      if (className === "error") {
+        return `\\x1b[31m${text}\\x1b[0m`;
+      }
+      if (className === "system") {
+        return `\\x1b[36m${text}\\x1b[0m`;
+      }
+      return text;
     }
 
     function setConnected() {
@@ -734,6 +846,7 @@ INDEX_HTML = """<!doctype html>
       requirementsMenu.hidden = true;
       agentInput.disabled = true;
       startRequirements.disabled = false;
+      requirementsRunning = false;
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
       updateProjectState(payload);
     }
@@ -746,7 +859,10 @@ INDEX_HTML = """<!doctype html>
       eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
-          appendOutput(payload.text);
+          const outputText = terminal
+            ? payload.terminal || payload.text || ""
+            : payload.text || "";
+          appendAgentOutput(outputText);
         } else if (payload.type === "system") {
           appendOutput(`${payload.text}\\n`, "system");
         } else if (payload.type === "error") {
@@ -755,6 +871,7 @@ INDEX_HTML = """<!doctype html>
           appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
           agentInput.disabled = true;
           startRequirements.disabled = false;
+          requirementsRunning = false;
         }
       });
       eventSource.onerror = () => {};
@@ -767,6 +884,7 @@ INDEX_HTML = """<!doctype html>
       }
       requirementsMenu.hidden = true;
       startRequirements.disabled = true;
+      requirementsRunning = true;
       agentInput.disabled = false;
       agentInput.focus();
       appendOutput("$ electroboy requirements\\n", "system");
@@ -778,9 +896,11 @@ INDEX_HTML = """<!doctype html>
         appendOutput(`${payload.error || "start failed"}\\n`, "error");
         agentInput.disabled = true;
         startRequirements.disabled = false;
+        requirementsRunning = false;
         return;
       }
       connectAgentEvents();
+      sendTerminalResize();
     }
 
     async function sendMessage() {
@@ -841,6 +961,7 @@ INDEX_HTML = """<!doctype html>
     });
 
     async function initialize() {
+      initializeTerminal();
       await checkConnection();
       await createContext();
     }
@@ -955,6 +1076,19 @@ class ServiceState:
             context = self._context_locked(context_id)
             return context.requirements_session
 
+    def resize_requirements_agent(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.requirements_session
+        if session is None:
+            raise AgentSessionError("requirements agent has not been started")
+        session.resize(columns, rows)
+
     def _context_locked(self, context_id: str) -> BrowserContext:
         context_id = context_id.strip()
         if not context_id:
@@ -989,9 +1123,17 @@ class AgentSessionError(RuntimeError):
 class AgentSession:
     """One browser-mediated child process attached through a pseudo-terminal."""
 
-    def __init__(self, command: list[str], cwd: Path | str) -> None:
+    def __init__(
+        self,
+        command: list[str],
+        cwd: Path | str,
+        columns: int = 120,
+        rows: int = 32,
+    ) -> None:
         self.command = command
         self.cwd = Path(cwd).resolve()
+        self.columns = columns
+        self.rows = rows
         self.process: subprocess.Popen[bytes] | None = None
         self.status = "created"
         self.returncode: int | None = None
@@ -1009,6 +1151,7 @@ class AgentSession:
         master_fd, slave_fd = pty.openpty()
         env = _agent_process_env()
         _disable_terminal_echo(slave_fd)
+        _set_terminal_size(slave_fd, self.columns, self.rows)
         try:
             self.process = subprocess.Popen(
                 self.command,
@@ -1055,6 +1198,14 @@ class AgentSession:
             os.write(self._master_fd, text.encode("utf-8"))
         except OSError as error:
             raise AgentSessionError(f"could not write to requirements agent: {error}")
+
+    def resize(self, columns: int, rows: int) -> None:
+        self.columns = max(20, min(columns, 300))
+        self.rows = max(5, min(rows, 120))
+        fd = self._master_fd
+        if fd is None:
+            return
+        _set_terminal_size(fd, self.columns, self.rows)
 
     def events_after(self, event_id: int) -> list[dict[str, object]]:
         with self._condition:
@@ -1111,16 +1262,18 @@ class AgentSession:
                 break
             if not chunk:
                 break
+            terminal_text = chunk.decode("utf-8", errors="replace")
             text, self._terminal_pending = _clean_terminal_output(
-                chunk.decode("utf-8", errors="replace"),
+                terminal_text,
                 self._terminal_pending,
             )
-            if not text:
+            if not text and not terminal_text:
                 continue
             self._append_event(
                 {
                     "type": "output",
                     "text": text,
+                    "terminal": terminal_text,
                 }
             )
 
@@ -1360,14 +1513,24 @@ def _disable_terminal_echo(slave_fd: int) -> None:
         return
 
 
+def _set_terminal_size(fd: int, columns: int, rows: int) -> None:
+    columns = max(20, min(columns, 300))
+    rows = max(5, min(rows, 120))
+    packed_size = struct.pack("HHHH", rows, columns, 0, 0)
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, packed_size)
+    except OSError:
+        return
+
+
 def _agent_process_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    env["TERM"] = "dumb"
-    env["NO_COLOR"] = "1"
-    env["CLICOLOR"] = "0"
-    env["FORCE_COLOR"] = "0"
-    env.pop("COLORTERM", None)
+    env["TERM"] = "xterm-256color"
+    env["COLORTERM"] = "truecolor"
+    env.pop("NO_COLOR", None)
+    env.pop("CLICOLOR", None)
+    env.pop("FORCE_COLOR", None)
     module_path = str(_module_search_path())
     existing_pythonpath = env.get("PYTHONPATH", "")
     entries = [module_path]
@@ -1530,6 +1693,9 @@ def _handler_for(
                 return
             if path == "/api/agents/requirements/message":
                 self._send_requirements_message(parsed.query)
+                return
+            if path == "/api/agents/requirements/resize":
+                self._resize_requirements_agent(parsed.query)
                 return
             self._send_json(
                 {"error": "not found"},
@@ -1725,6 +1891,21 @@ def _handler_for(
                         break
             except (BrokenPipeError, ConnectionError, OSError):
                 return
+
+        def _resize_requirements_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                columns = int(payload.get("columns") or 120)
+                rows = int(payload.get("rows") or 32)
+                state.resize_requirements_agent(context_id, columns, rows)
+            except (AgentSessionError, StateError, TypeError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "resized"})
 
         def _send_context_json(
             self,
