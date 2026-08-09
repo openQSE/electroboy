@@ -223,6 +223,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="sidePane"', INDEX_HTML)
         self.assertIn('id="sidePaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="scratchPad"', INDEX_HTML)
+        self.assertIn('id="artifactPreviewPane"', INDEX_HTML)
+        self.assertIn('id="artifactPreviewFrame"', INDEX_HTML)
+        self.assertIn('id="artifactPaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
@@ -242,6 +245,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".output-workbench", INDEX_HTML)
         self.assertIn(".workbench-resize-handle", INDEX_HTML)
         self.assertIn(".side-pane-resize-handle", INDEX_HTML)
+        self.assertIn(".artifact-pane-resize-handle", INDEX_HTML)
+        self.assertIn(".side-pane.preview-visible", INDEX_HTML)
+        self.assertIn(".artifact-preview-frame", INDEX_HTML)
         self.assertIn(".scratch-pad", INDEX_HTML)
         self.assertIn(".project-status-output", INDEX_HTML)
         self.assertIn(".shell-resize-handle", INDEX_HTML)
@@ -279,6 +285,10 @@ class ServiceTests(unittest.TestCase):
             'const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";',
             INDEX_HTML,
         )
+        self.assertIn(
+            'const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";',
+            INDEX_HTML,
+        )
         self.assertIn('const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";', INDEX_HTML)
         self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
         self.assertIn("const MIN_INPUT_PANE_HEIGHT = 56;", INDEX_HTML)
@@ -308,6 +318,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startSidePaneResize(event)", INDEX_HTML)
         self.assertIn("function updateSidePaneResize(event)", INDEX_HTML)
         self.assertIn("function finishSidePaneResize(event)", INDEX_HTML)
+        self.assertIn("function startArtifactPaneResize(event)", INDEX_HTML)
+        self.assertIn("function updateArtifactPaneResize(event)", INDEX_HTML)
+        self.assertIn("function finishArtifactPaneResize(event)", INDEX_HTML)
         self.assertIn("applyStoredPaneSizes();", INDEX_HTML)
         self.assertIn("applyStoredProgressPaneSize();", INDEX_HTML)
         self.assertIn("applyStoredWorkbenchPaneSize();", INDEX_HTML)
@@ -317,12 +330,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("saveProgressPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("saveRightPaneWidth(nextWidth);", INDEX_HTML)
         self.assertIn("saveScratchPaneHeight(nextHeight);", INDEX_HTML)
+        self.assertIn("saveArtifactPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("shellResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("inputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("outputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("workbenchResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("sidePaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("artifactPaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn('scratchPad.addEventListener("input", saveScratchPad);', INDEX_HTML)
+        self.assertIn('contextUrl("/artifacts/requirements?embed=1")', INDEX_HTML)
+        self.assertIn("function showArtifactPreview(kind)", INDEX_HTML)
+        self.assertIn("function syncArtifactPreviewWithProject()", INDEX_HTML)
+        self.assertIn("showArtifactPreview(\"requirements\")", INDEX_HTML)
         self.assertIn('contextUrl("/api/project/status")', INDEX_HTML)
         self.assertIn("function queueProjectStatusRefresh", INDEX_HTML)
         self.assertIn("async function refreshProjectStatus()", INDEX_HTML)
@@ -1751,6 +1770,22 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status.value, 200)
         self.assertIn("<h1>Requirements</h1>", page)
         self.assertIn("First requirement", page)
+
+    def test_requirements_document_html_supports_embedded_view(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "requirements.md").write_text(
+                "# Requirements\n",
+                encoding="utf-8",
+            )
+
+            page, status = requirements_document_html(root, embedded=True)
+
+        self.assertEqual(status.value, 200)
+        self.assertIn("padding: 16px;", page)
+        self.assertIn("border: 0;", page)
 
     def test_agent_session_streams_output_and_accepts_messages(self) -> None:
         script = (

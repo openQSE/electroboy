@@ -190,7 +190,8 @@ INDEX_HTML = """<!doctype html>
     .input-resize-handle,
     .output-resize-handle,
     .workbench-resize-handle,
-    .side-pane-resize-handle {
+    .side-pane-resize-handle,
+    .artifact-pane-resize-handle {
       touch-action: none;
       user-select: none;
     }
@@ -629,7 +630,9 @@ INDEX_HTML = """<!doctype html>
     .workbench-resize-handle:hover,
     .output-workbench.resizing .workbench-resize-handle,
     .side-pane-resize-handle:hover,
-    .side-pane.resizing .side-pane-resize-handle {
+    .side-pane.resizing .side-pane-resize-handle,
+    .artifact-pane-resize-handle:hover,
+    .side-pane.resizing-artifact .artifact-pane-resize-handle {
       background: #3a78a0;
     }
 
@@ -702,18 +705,37 @@ INDEX_HTML = """<!doctype html>
       background: #111827;
     }
 
+    .side-pane.preview-visible {
+      grid-template-rows:
+        minmax(100px, var(--scratch-pane-height, 30%)) 7px
+        minmax(140px, var(--artifact-pane-height, 36%)) 7px
+        minmax(100px, 1fr);
+    }
+
     .side-pane-resize-handle {
       min-height: 0;
       background: #253044;
       cursor: row-resize;
     }
 
+    .artifact-pane-resize-handle {
+      min-height: 0;
+      background: #253044;
+      cursor: row-resize;
+    }
+
     .scratch-pane,
+    .artifact-preview-pane,
     .project-status-pane {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       min-height: 0;
       min-width: 0;
+    }
+
+    .artifact-preview-pane[hidden],
+    .artifact-pane-resize-handle[hidden] {
+      display: none;
     }
 
     .side-pane-header {
@@ -752,6 +774,14 @@ INDEX_HTML = """<!doctype html>
 
     .project-status-output {
       overflow: auto;
+    }
+
+    .artifact-preview-frame {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      border: 0;
+      background: #f7f8fb;
     }
 
     .input-pane {
@@ -1166,7 +1196,11 @@ INDEX_HTML = """<!doctype html>
           aria-orientation="vertical"
           aria-label="Resize terminal and side panes"
         ></div>
-        <aside id="sidePane" class="side-pane" aria-label="Scratch pad and status">
+        <aside
+          id="sidePane"
+          class="side-pane"
+          aria-label="Scratch pad, artifact preview, and status"
+        >
           <section class="scratch-pane" aria-label="Scratch pad">
             <div class="side-pane-header">Scratch pad</div>
             <textarea
@@ -1182,6 +1216,28 @@ INDEX_HTML = """<!doctype html>
             role="separator"
             aria-orientation="horizontal"
             aria-label="Resize scratch pad and status panes"
+          ></div>
+          <section
+            id="artifactPreviewPane"
+            class="artifact-preview-pane"
+            aria-label="Artifact preview"
+            hidden
+          >
+            <div id="artifactPreviewHeader" class="side-pane-header">Requirements</div>
+            <iframe
+              id="artifactPreviewFrame"
+              class="artifact-preview-frame"
+              title="Rendered artifact preview"
+              sandbox=""
+            ></iframe>
+          </section>
+          <div
+            id="artifactPaneResizeHandle"
+            class="artifact-pane-resize-handle"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize artifact preview and status panes"
+            hidden
           ></div>
           <section class="project-status-pane" aria-label="Project status">
             <div class="side-pane-header">Project status</div>
@@ -1342,6 +1398,10 @@ INDEX_HTML = """<!doctype html>
     const sidePane = document.getElementById("sidePane");
     const sidePaneResizeHandle = document.getElementById("sidePaneResizeHandle");
     const scratchPad = document.getElementById("scratchPad");
+    const artifactPreviewPane = document.getElementById("artifactPreviewPane");
+    const artifactPaneResizeHandle = document.getElementById("artifactPaneResizeHandle");
+    const artifactPreviewHeader = document.getElementById("artifactPreviewHeader");
+    const artifactPreviewFrame = document.getElementById("artifactPreviewFrame");
     const projectStatusOutput = document.getElementById("projectStatusOutput");
     const inputResizeHandle = document.getElementById("inputResizeHandle");
     const inputPane = document.getElementById("inputPane");
@@ -1360,6 +1420,7 @@ INDEX_HTML = """<!doctype html>
     const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
     const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
+    const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
     const DEFAULT_DOCUMENT_TARGETS = [
@@ -1370,6 +1431,7 @@ INDEX_HTML = """<!doctype html>
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
     const MIN_INPUT_PANE_HEIGHT = 56;
+    const ARTIFACT_PREVIEW_REFRESH_MS = 1500;
     let eventSource = null;
     let progressEventSource = null;
     let terminal = null;
@@ -1382,9 +1444,12 @@ INDEX_HTML = """<!doctype html>
     let resizeOutputState = null;
     let resizeWorkbenchState = null;
     let resizeSidePaneState = null;
+    let resizeArtifactPaneState = null;
     let resizeTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
+    let artifactRefreshTimer = null;
+    let artifactPreviewKind = "";
     let activeAgentKind = "";
     let requirementsRunning = false;
     let requirementsStarted = false;
@@ -1506,6 +1571,10 @@ INDEX_HTML = """<!doctype html>
       if (scratchHeight) {
         sidePane.style.setProperty("--scratch-pane-height", `${scratchHeight}px`);
       }
+      const artifactHeight = storedNumber(ARTIFACT_PANE_HEIGHT_STORAGE_KEY);
+      if (artifactHeight) {
+        sidePane.style.setProperty("--artifact-pane-height", `${artifactHeight}px`);
+      }
     }
 
     function saveProgressPaneWidth(width) {
@@ -1526,6 +1595,10 @@ INDEX_HTML = """<!doctype html>
 
     function saveScratchPaneHeight(height) {
       saveNumber(SCRATCH_PANE_HEIGHT_STORAGE_KEY, height);
+    }
+
+    function saveArtifactPaneHeight(height) {
+      saveNumber(ARTIFACT_PANE_HEIGHT_STORAGE_KEY, height);
     }
 
     function restoreScratchPad() {
@@ -1974,6 +2047,49 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function startArtifactPaneResize(event) {
+      if (artifactPreviewPane.hidden) {
+        return;
+      }
+      event.preventDefault();
+      const sideRect = sidePane.getBoundingClientRect();
+      const artifactRect = artifactPreviewPane.getBoundingClientRect();
+      resizeArtifactPaneState = {
+        startY: event.clientY,
+        startHeight: artifactRect.height,
+        maxHeight: Math.max(140, sideRect.height - 180),
+      };
+      artifactPaneResizeHandle.setPointerCapture(event.pointerId);
+      sidePane.classList.add("resizing-artifact");
+    }
+
+    function updateArtifactPaneResize(event) {
+      if (!resizeArtifactPaneState) {
+        return;
+      }
+      const deltaY = event.clientY - resizeArtifactPaneState.startY;
+      const nextHeight = clampValue(
+        resizeArtifactPaneState.startHeight + deltaY,
+        140,
+        resizeArtifactPaneState.maxHeight,
+      );
+      sidePane.style.setProperty("--artifact-pane-height", `${nextHeight}px`);
+      saveArtifactPaneHeight(nextHeight);
+    }
+
+    function finishArtifactPaneResize(event) {
+      if (!resizeArtifactPaneState) {
+        return;
+      }
+      resizeArtifactPaneState = null;
+      sidePane.classList.remove("resizing-artifact");
+      try {
+        artifactPaneResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+    }
+
     function showProgressPane(show) {
       if (show) {
         progressOutput.hidden = false;
@@ -2221,6 +2337,7 @@ INDEX_HTML = """<!doctype html>
       updateDesignMenuState();
       updateDesignReviewMenuState();
       updateDocumentMenuState();
+      syncArtifactPreviewWithProject();
       projectStatus.textContent = projectStatusLine();
       queueProjectStatusRefresh();
     }
@@ -2483,6 +2600,78 @@ INDEX_HTML = """<!doctype html>
       customDocumentName.value = "";
       customDocumentForm.hidden = true;
       renderDocumentTargets();
+    }
+
+    function artifactPreviewUrl(kind) {
+      if (kind === "requirements") {
+        return `${contextUrl("/artifacts/requirements?embed=1")}&refresh=${Date.now()}`;
+      }
+      return "";
+    }
+
+    function showArtifactPreview(kind) {
+      if (!activeProjectRoot) {
+        hideArtifactPreview();
+        return;
+      }
+      const url = artifactPreviewUrl(kind);
+      if (!url) {
+        return;
+      }
+      artifactPreviewKind = kind;
+      artifactPreviewHeader.textContent =
+        kind === "requirements" ? "Requirements" : "Artifact";
+      artifactPreviewPane.hidden = false;
+      artifactPaneResizeHandle.hidden = false;
+      sidePane.classList.add("preview-visible");
+      refreshArtifactPreview();
+      scheduleArtifactPreviewRefresh();
+    }
+
+    function hideArtifactPreview() {
+      window.clearTimeout(artifactRefreshTimer);
+      artifactRefreshTimer = null;
+      artifactPreviewKind = "";
+      artifactPreviewPane.hidden = true;
+      artifactPaneResizeHandle.hidden = true;
+      artifactPreviewFrame.removeAttribute("src");
+      sidePane.classList.remove("preview-visible");
+    }
+
+    function refreshArtifactPreview() {
+      const url = artifactPreviewUrl(artifactPreviewKind);
+      if (!url) {
+        return;
+      }
+      artifactPreviewFrame.src = url;
+    }
+
+    function scheduleArtifactPreviewRefresh() {
+      window.clearTimeout(artifactRefreshTimer);
+      artifactRefreshTimer = null;
+      if (artifactPreviewKind !== "requirements" || !requirementsRunning) {
+        return;
+      }
+      artifactRefreshTimer = window.setTimeout(() => {
+        refreshArtifactPreview();
+        scheduleArtifactPreviewRefresh();
+      }, ARTIFACT_PREVIEW_REFRESH_MS);
+    }
+
+    function syncArtifactPreviewWithProject() {
+      if (!activeProjectRoot) {
+        hideArtifactPreview();
+        return;
+      }
+      if (requirementsRunning) {
+        showArtifactPreview("requirements");
+        return;
+      }
+      if (artifactPreviewKind === "requirements" && !requirementsStarted) {
+        hideArtifactPreview();
+        return;
+      }
+      scheduleArtifactPreviewRefresh();
     }
 
     async function refreshProject() {
@@ -2919,6 +3108,7 @@ INDEX_HTML = """<!doctype html>
       setAgentInputVisible(true);
       clearAgentOutput();
       clearProgressOutput();
+      hideArtifactPreview();
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
       updateProjectState(payload);
     }
@@ -2948,6 +3138,9 @@ INDEX_HTML = """<!doctype html>
           appendOutput(`${payload.text}\\n`, "error");
         } else if (payload.type === "completed") {
           appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
+          if (kind === "requirements") {
+            refreshArtifactPreview();
+          }
           if (kind === "design-review") {
             closeProgressEventStream();
           }
@@ -2985,6 +3178,9 @@ INDEX_HTML = """<!doctype html>
           appendOutput(`${payload.text}\\n`, "error");
         } else if (payload.type === "completed") {
           appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
+          if (session && session.kind === "requirements") {
+            refreshArtifactPreview();
+          }
           refreshProject();
         }
       });
@@ -3048,6 +3244,14 @@ INDEX_HTML = """<!doctype html>
         }
       } else if (kind === "documentation") {
         documentationRunning = isRunning;
+      }
+      if (kind === "requirements") {
+        if (isRunning) {
+          showArtifactPreview("requirements");
+        } else {
+          refreshArtifactPreview();
+        }
+        scheduleArtifactPreviewRefresh();
       }
       if (isRunning) {
         activeAgentKind = kind;
@@ -3654,6 +3858,10 @@ INDEX_HTML = """<!doctype html>
     sidePaneResizeHandle.addEventListener("pointermove", updateSidePaneResize);
     sidePaneResizeHandle.addEventListener("pointerup", finishSidePaneResize);
     sidePaneResizeHandle.addEventListener("pointercancel", finishSidePaneResize);
+    artifactPaneResizeHandle.addEventListener("pointerdown", startArtifactPaneResize);
+    artifactPaneResizeHandle.addEventListener("pointermove", updateArtifactPaneResize);
+    artifactPaneResizeHandle.addEventListener("pointerup", finishArtifactPaneResize);
+    artifactPaneResizeHandle.addEventListener("pointercancel", finishArtifactPaneResize);
     interruptAgent.addEventListener("click", interruptActiveAgent);
     insertFileLink.addEventListener("click", () => {
       if (insertFileLink.disabled) {
@@ -5919,12 +6127,17 @@ def _should_force_completed_requirements_approval(store: StateStore) -> bool:
     )
 
 
-def requirements_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
+def requirements_document_html(
+    project_root: Path | str,
+    *,
+    embedded: bool = False,
+) -> tuple[str, HTTPStatus]:
     return markdown_document_html(
         project_root,
         "docs/requirements.md",
         "Requirements",
         "Requirements document does not exist yet.",
+        embedded=embedded,
     )
 
 
@@ -5951,6 +6164,8 @@ def markdown_document_html(
     relative_path: str,
     title: str,
     missing_message: str,
+    *,
+    embedded: bool = False,
 ) -> tuple[str, HTTPStatus]:
     project_root = Path(project_root).expanduser().resolve()
     document_path = project_root / relative_path
@@ -5961,6 +6176,10 @@ def markdown_document_html(
     else:
         body = f"<p>{html.escape(missing_message)}</p>"
         status = HTTPStatus.NOT_FOUND
+    main_padding = "16px" if embedded else "40px 24px 64px"
+    article_padding = "18px" if embedded else "28px"
+    article_radius = "0" if embedded else "8px"
+    article_border = "0" if embedded else "1px solid #d8dde8"
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -5978,13 +6197,13 @@ def markdown_document_html(
     main {{
       max-width: 880px;
       margin: 0 auto;
-      padding: 40px 24px 64px;
+      padding: {main_padding};
     }}
     article {{
       background: #ffffff;
-      border: 1px solid #d8dde8;
-      border-radius: 8px;
-      padding: 28px;
+      border: {article_border};
+      border-radius: {article_radius};
+      padding: {article_padding};
     }}
     pre, code {{
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -6748,7 +6967,12 @@ def _handler_for(
             try:
                 context_id = self._context_id(query)
                 project_root = state.requirements_document_root(context_id)
-                page, status = requirements_document_html(project_root)
+                params = parse_qs(query)
+                embedded = str((params.get("embed") or [""])[0]) == "1"
+                page, status = requirements_document_html(
+                    project_root,
+                    embedded=embedded,
+                )
             except (AgentSessionError, OSError, StateError) as error:
                 self._send_text(
                     f"<p>{html.escape(str(error))}</p>",
