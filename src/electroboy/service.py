@@ -49,12 +49,12 @@ WORKFLOW_STAGES = [
     "implementation-plan",
     "plan-approve",
     "code",
+    "code-approve",
     "test-plan",
     "test-plan-approve",
     "validate",
     "validation-approve",
     "document",
-    "code-approve",
 ]
 
 INDEX_HTML = """<!doctype html>
@@ -564,6 +564,9 @@ INDEX_HTML = """<!doctype html>
           <button class="stage-node disabled" type="button" data-stage="code" disabled>
             code
           </button>
+          <button class="stage-node disabled" type="button" data-stage="code-approve" disabled>
+            code-approve
+          </button>
           <button class="stage-node disabled" type="button" data-stage="test-plan" disabled>
             test-plan
           </button>
@@ -588,9 +591,6 @@ INDEX_HTML = """<!doctype html>
           </button>
           <button class="stage-node disabled" type="button" data-stage="document" disabled>
             document
-          </button>
-          <button class="stage-node disabled" type="button" data-stage="code-approve" disabled>
-            code-approve
           </button>
         </div>
       </div>

@@ -76,6 +76,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-stage="requirements-approve"', INDEX_HTML)
         self.assertIn('data-stage="design"', INDEX_HTML)
         self.assertIn('data-stage="code-approve"', INDEX_HTML)
+        self.assertLess(
+            INDEX_HTML.index('data-stage="code"'),
+            INDEX_HTML.index('data-stage="code-approve"'),
+        )
+        self.assertLess(
+            INDEX_HTML.index('data-stage="code-approve"'),
+            INDEX_HTML.index('data-stage="test-plan"'),
+        )
         self.assertIn('const stageNodes = Array.from', INDEX_HTML)
         self.assertIn("function updateStageNodes(hasActiveProject, workflowStage)", INDEX_HTML)
         self.assertIn("stageNode.disabled = !isEnabled", INDEX_HTML)
@@ -181,6 +189,9 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(operations["project"], ["Open", "Create"])
         self.assertEqual(operations["requirements"], [])
+        stage_ids = [str(stage["id"]) for stage in stages if isinstance(stage, dict)]
+        self.assertLess(stage_ids.index("code"), stage_ids.index("code-approve"))
+        self.assertLess(stage_ids.index("code-approve"), stage_ids.index("test-plan"))
         for stage, stage_operations in operations.items():
             if stage not in {"project", "requirements"}:
                 self.assertEqual(stage_operations, [])
