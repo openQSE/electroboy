@@ -200,16 +200,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="removeMetaRepositorySubmenu"', INDEX_HTML)
         self.assertIn('id="workItemMenuButton"', INDEX_HTML)
         self.assertIn('id="workItemSubmenu"', INDEX_HTML)
-        self.assertIn('id="newFeatureCollection"', INDEX_HTML)
-        self.assertIn('id="switchFeatureCollection"', INDEX_HTML)
-        self.assertIn('id="switchFeatureCollectionSubmenu"', INDEX_HTML)
         self.assertIn('id="newFeatureWorkItem"', INDEX_HTML)
-        self.assertIn('id="addSubfeatureWorkItem"', INDEX_HTML)
         self.assertIn('id="switchFeatureWorkItem"', INDEX_HTML)
         self.assertIn('id="switchFeatureWorkItemSubmenu"', INDEX_HTML)
         self.assertIn('id="newBugWorkItem"', INDEX_HTML)
         self.assertIn('id="switchBugWorkItem"', INDEX_HTML)
         self.assertIn('id="switchBugWorkItemSubmenu"', INDEX_HTML)
+        self.assertIn("function activeProjectMenuLabel()", INDEX_HTML)
+        self.assertIn("workItemMenuButton.textContent = activeProjectMenuLabel();", INDEX_HTML)
+        self.assertIn("Features", INDEX_HTML)
+        self.assertIn("Add feature", INDEX_HTML)
+        self.assertIn("Add bug resolution", INDEX_HTML)
+        self.assertIn("Bug resolutions", INDEX_HTML)
+        self.assertNotIn("New feature collection", INDEX_HTML)
+        self.assertNotIn("Switch collection", INDEX_HTML)
+        self.assertNotIn('id="workItemCollection"', INDEX_HTML)
         self.assertIn("function renderMetaRepositoryMenus()", INDEX_HTML)
         self.assertIn("function renderWorkItemMenus()", INDEX_HTML)
         self.assertIn("function showWorkItemPanel(mode)", INDEX_HTML)
@@ -223,8 +228,6 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('activeProjectMode !== "meta" || registeredRepositories.length === 0', INDEX_HTML)
         self.assertIn("workItemMenuButton.disabled = !hasStageTarget", INDEX_HTML)
         self.assertIn('"/api/meta/remove"', INDEX_HTML)
-        self.assertIn('"/api/work-items/collections"', INDEX_HTML)
-        self.assertIn('"/api/work-items/collections/switch"', INDEX_HTML)
         self.assertIn('"/api/work-items/features"', INDEX_HTML)
         self.assertIn('"/api/work-items/features/switch"', INDEX_HTML)
         self.assertIn('"/api/work-items/bugs"', INDEX_HTML)
@@ -834,7 +837,7 @@ class ServiceTests(unittest.TestCase):
             ["QFw", "qSchedSim"],
         )
 
-    def test_service_state_manages_feature_collections_and_switching(self) -> None:
+    def test_service_state_registers_features_in_default_collection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -846,21 +849,15 @@ class ServiceTests(unittest.TestCase):
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
 
-            collection_payload = state.create_feature_collection(
-                context_id,
-                "Admissions",
-            )
             feature_payload = state.start_feature_work_item(
                 context_id,
                 title="Add admissions",
                 feature_name="admissions",
-                collection_id="admissions",
             )
             subfeature_payload = state.start_feature_work_item(
                 context_id,
                 title="Add scheduler",
                 feature_name="scheduler",
-                collection_id="admissions",
                 parent_slug="admissions",
             )
             switched_payload = state.switch_feature_work_item(context_id, "admissions")
@@ -875,19 +872,23 @@ class ServiceTests(unittest.TestCase):
                 ).read_text(encoding="utf-8")
             )
 
-        self.assertEqual(collection_payload["status"], "created collection")
         self.assertEqual(feature_payload["status"], "started feature")
         self.assertEqual(subfeature_payload["status"], "started feature")
         self.assertEqual(switched_payload["status"], "switched feature")
         self.assertEqual(feature_record["slug"], "admissions")
         work_items = subfeature_payload["work_items"]
-        self.assertEqual(work_items["active_collection_id"], "admissions")
+        self.assertEqual(work_items["active_collection_id"], "default")
         self.assertEqual(work_items["active_feature_slug"], "scheduler")
+        collections = {
+            collection["id"]: collection for collection in work_items["collections"]
+        }
+        self.assertIn("default", collections)
         features = {
             feature["slug"]: feature for feature in work_items["features"]
         }
         self.assertEqual(features["scheduler"]["parent_slug"], "admissions")
-        self.assertEqual(features["admissions"]["collection_id"], "admissions")
+        self.assertEqual(features["admissions"]["collection_id"], "default")
+        self.assertEqual(features["scheduler"]["collection_id"], "default")
 
     def test_service_state_starts_bug_work_item(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -916,7 +917,7 @@ class ServiceTests(unittest.TestCase):
                 ).read_text(encoding="utf-8")
             )
 
-        self.assertEqual(payload["status"], "started bug")
+        self.assertEqual(payload["status"], "started bug resolution")
         self.assertEqual(payload["work_items"]["active_bug_slug"], "123")
         self.assertEqual(payload["work_items"]["active_feature_slug"], None)
         self.assertEqual(bug_record["slug"], "123")

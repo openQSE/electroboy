@@ -1212,26 +1212,9 @@ INDEX_HTML = """<!doctype html>
             aria-haspopup="true"
             aria-expanded="false"
           >
-            Work items
+            Project
           </button>
           <div id="workItemSubmenu" class="stage-submenu" hidden>
-            <button id="newFeatureCollection" type="button" disabled>
-              New feature collection
-            </button>
-            <div id="switchFeatureCollectionBranch" class="menu-branch">
-              <button
-                id="switchFeatureCollection"
-                type="button"
-                disabled
-                aria-haspopup="true"
-                aria-expanded="false"
-              >
-                Switch collection
-              </button>
-              <div id="switchFeatureCollectionSubmenu" class="stage-submenu" hidden></div>
-            </div>
-            <button id="newFeatureWorkItem" type="button" disabled>New feature</button>
-            <button id="addSubfeatureWorkItem" type="button" disabled>Add subfeature</button>
             <div id="switchFeatureWorkItemBranch" class="menu-branch">
               <button
                 id="switchFeatureWorkItem"
@@ -1240,11 +1223,12 @@ INDEX_HTML = """<!doctype html>
                 aria-haspopup="true"
                 aria-expanded="false"
               >
-                Switch feature
+                Features
               </button>
               <div id="switchFeatureWorkItemSubmenu" class="stage-submenu" hidden></div>
             </div>
-            <button id="newBugWorkItem" type="button" disabled>New bug</button>
+            <button id="newFeatureWorkItem" type="button" disabled>Add feature</button>
+            <button id="newBugWorkItem" type="button" disabled>Add bug resolution</button>
             <div id="switchBugWorkItemBranch" class="menu-branch">
               <button
                 id="switchBugWorkItem"
@@ -1253,7 +1237,7 @@ INDEX_HTML = """<!doctype html>
                 aria-haspopup="true"
                 aria-expanded="false"
               >
-                Switch bug
+                Bug resolutions
               </button>
               <div id="switchBugWorkItemSubmenu" class="stage-submenu" hidden></div>
             </div>
@@ -1328,11 +1312,6 @@ INDEX_HTML = """<!doctype html>
           autocomplete="off"
           aria-label="Work item name"
         >
-        <select
-          id="workItemCollection"
-          class="session-switcher work-item-select"
-          aria-label="Feature collection"
-        ></select>
         <label id="workItemBranchLabel" class="work-item-checkbox">
           <input id="workItemBranchCheckbox" type="checkbox">
           Branch
@@ -1622,13 +1601,7 @@ INDEX_HTML = """<!doctype html>
     const workItemBranch = document.getElementById("workItemBranch");
     const workItemMenuButton = document.getElementById("workItemMenuButton");
     const workItemSubmenu = document.getElementById("workItemSubmenu");
-    const newFeatureCollection = document.getElementById("newFeatureCollection");
-    const switchFeatureCollectionBranch = document.getElementById("switchFeatureCollectionBranch");
-    const switchFeatureCollection = document.getElementById("switchFeatureCollection");
-    const switchFeatureCollectionSubmenu =
-      document.getElementById("switchFeatureCollectionSubmenu");
     const newFeatureWorkItem = document.getElementById("newFeatureWorkItem");
-    const addSubfeatureWorkItem = document.getElementById("addSubfeatureWorkItem");
     const switchFeatureWorkItemBranch = document.getElementById("switchFeatureWorkItemBranch");
     const switchFeatureWorkItem = document.getElementById("switchFeatureWorkItem");
     const switchFeatureWorkItemSubmenu =
@@ -1668,7 +1641,6 @@ INDEX_HTML = """<!doctype html>
     const workItemPanel = document.getElementById("workItemPanel");
     const workItemTitle = document.getElementById("workItemTitle");
     const workItemName = document.getElementById("workItemName");
-    const workItemCollection = document.getElementById("workItemCollection");
     const workItemBranchLabel = document.getElementById("workItemBranchLabel");
     const workItemBranchCheckbox = document.getElementById("workItemBranchCheckbox");
     const applyWorkItem = document.getElementById("applyWorkItem");
@@ -1784,7 +1756,6 @@ INDEX_HTML = """<!doctype html>
     let registeredRepositories = [];
     let workItemState = { collections: [], features: [], bugs: [] };
     let workItemMode = "";
-    let selectedParentFeatureSlug = "";
     let customDocumentTargets = storedDocumentTargets();
     let currentBrowsePath = "";
     let currentBrowseParent = "";
@@ -2783,16 +2754,11 @@ INDEX_HTML = """<!doctype html>
       removeMetaRepository.disabled =
         activeProjectMode !== "meta" || registeredRepositories.length === 0;
       workItemMenuButton.disabled = !hasStageTarget;
-      newFeatureCollection.disabled = !hasStageTarget;
-      switchFeatureCollection.disabled =
-        !hasStageTarget || workItemCollections().length === 0;
+      workItemMenuButton.textContent = activeProjectMenuLabel();
       newFeatureWorkItem.disabled = !hasStageTarget;
-      addSubfeatureWorkItem.disabled =
-        !hasStageTarget || workItemFeatures().length === 0;
-      switchFeatureWorkItem.disabled =
-        !hasStageTarget || workItemFeatures().length === 0;
+      switchFeatureWorkItem.disabled = !hasStageTarget;
       newBugWorkItem.disabled = !hasStageTarget;
-      switchBugWorkItem.disabled = !hasStageTarget || workItemBugs().length === 0;
+      switchBugWorkItem.disabled = !hasStageTarget;
       deactivateProject.disabled = !hasProjectContext;
       renderMetaRepositoryMenus();
       renderWorkItemMenus();
@@ -2803,6 +2769,22 @@ INDEX_HTML = """<!doctype html>
       syncArtifactPreviewWithProject();
       projectStatus.textContent = projectStatusLine();
       queueProjectStatusRefresh();
+    }
+
+    function activeProjectMenuLabel() {
+      if (!activeProjectRoot) {
+        return "Project";
+      }
+      if (activeProjectMode === "meta" && activeRepositoryName) {
+        return activeRepositoryName;
+      }
+      return basename(activeProjectRoot || activationRoot || "Project");
+    }
+
+    function basename(path) {
+      const normalized = String(path || "").replace(/[/]+$/, "");
+      const parts = normalized.split(/[\\/]+/).filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : normalized || "Project";
     }
 
     function projectStatusLine() {
@@ -2826,21 +2808,13 @@ INDEX_HTML = """<!doctype html>
       const parts = [];
       const feature = activeWorkItemFeature();
       const bug = activeWorkItemBug();
-      const collection = activeFeatureCollection();
-      if (collection) {
-        parts.push(`collection: ${collection.name || collection.id}`);
-      }
       if (feature) {
         parts.push(`feature: ${feature.name || feature.slug}`);
       }
       if (bug) {
-        parts.push(`bug: ${bug.title || bug.slug}`);
+        parts.push(`bug resolution: ${bug.title || bug.slug}`);
       }
       return parts.length ? `${line} · ${parts.join(" · ")}` : line;
-    }
-
-    function workItemCollections() {
-      return Array.isArray(workItemState.collections) ? workItemState.collections : [];
     }
 
     function workItemFeatures() {
@@ -2849,11 +2823,6 @@ INDEX_HTML = """<!doctype html>
 
     function workItemBugs() {
       return Array.isArray(workItemState.bugs) ? workItemState.bugs : [];
-    }
-
-    function activeFeatureCollection() {
-      const activeId = workItemState.active_collection_id || "";
-      return workItemCollections().find((collection) => collection.id === activeId) || null;
     }
 
     function activeWorkItemFeature() {
@@ -2884,41 +2853,16 @@ INDEX_HTML = """<!doctype html>
     }
 
     function renderWorkItemMenus() {
-      renderFeatureCollectionMenu();
       renderFeatureMenu();
       renderBugMenu();
-      renderWorkItemCollectionOptions();
       if (workItemMenuButton.disabled) {
         hideSubmenu(workItemSubmenu, workItemMenuButton);
-      }
-      if (switchFeatureCollection.disabled) {
-        hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
       }
       if (switchFeatureWorkItem.disabled) {
         hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
       }
       if (switchBugWorkItem.disabled) {
         hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
-      }
-    }
-
-    function renderFeatureCollectionMenu() {
-      switchFeatureCollectionSubmenu.replaceChildren();
-      const collections = workItemCollections();
-      if (collections.length === 0) {
-        appendDisabledMenuItem(switchFeatureCollectionSubmenu, "No collections");
-        return;
-      }
-      for (const collection of collections) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = collection.name || collection.id || "Collection";
-        button.classList.toggle(
-          "active-repo",
-          collection.id === workItemState.active_collection_id,
-        );
-        button.addEventListener("click", () => switchFeatureCollectionContext(collection.id));
-        switchFeatureCollectionSubmenu.append(button);
       }
     }
 
@@ -2947,7 +2891,7 @@ INDEX_HTML = """<!doctype html>
       switchBugWorkItemSubmenu.replaceChildren();
       const bugs = workItemBugs();
       if (bugs.length === 0) {
-        appendDisabledMenuItem(switchBugWorkItemSubmenu, "No bugs");
+        appendDisabledMenuItem(switchBugWorkItemSubmenu, "No bug resolutions");
         return;
       }
       for (const bug of bugs) {
@@ -2967,19 +2911,6 @@ INDEX_HTML = """<!doctype html>
       emptyButton.disabled = true;
       emptyButton.textContent = label;
       menu.append(emptyButton);
-    }
-
-    function renderWorkItemCollectionOptions() {
-      workItemCollection.replaceChildren();
-      for (const collection of workItemCollections()) {
-        const option = document.createElement("option");
-        option.value = collection.id || "";
-        option.textContent = collection.name || collection.id || "Collection";
-        workItemCollection.append(option);
-      }
-      if (workItemState.active_collection_id) {
-        workItemCollection.value = workItemState.active_collection_id;
-      }
     }
 
     function featureLabel(feature) {
@@ -3695,48 +3626,28 @@ INDEX_HTML = """<!doctype html>
       hideStageMenus();
       projectPanel.hidden = true;
       workItemPanel.hidden = false;
-      selectedParentFeatureSlug = "";
       workItemTitle.value = "";
       workItemName.value = "";
       workItemBranchCheckbox.checked = false;
-      workItemCollection.hidden = mode === "collection-new" || mode === "bug-new";
-      workItemName.hidden = mode === "collection-new" || mode === "bug-new";
-      workItemBranchLabel.hidden = mode === "collection-new";
-      if (mode === "collection-new") {
-        workItemTitle.placeholder = "Feature collection name";
-        workItemName.placeholder = "";
-        applyWorkItem.textContent = "Create";
-        workItemStatus.textContent = "Create a collection for related features.";
-      } else if (mode === "feature-sub") {
-        const parent = activeWorkItemFeature();
-        if (!parent) {
-          workItemStatus.textContent = "activate a parent feature first";
-          return;
-        }
-        selectedParentFeatureSlug = parent.slug || "";
-        workItemTitle.placeholder = "Subfeature title or issue URL";
-        workItemName.placeholder = "artifact name (optional)";
-        applyWorkItem.textContent = "Add subfeature";
-        workItemStatus.textContent = `parent: ${featureLabel(parent)}`;
-      } else if (mode === "bug-new") {
+      workItemName.hidden = mode === "bug-new";
+      workItemBranchLabel.hidden = false;
+      if (mode === "bug-new") {
         workItemTitle.placeholder = "Bug issue URL or reference";
         workItemName.placeholder = "";
-        applyWorkItem.textContent = "Start bug";
-        workItemStatus.textContent = "Start a focused bug workflow.";
+        applyWorkItem.textContent = "Add bug resolution";
+        workItemStatus.textContent = "Start a focused bug-resolution workflow.";
       } else {
         workItemTitle.placeholder = "Feature title or issue URL";
         workItemName.placeholder = "artifact name (optional)";
-        applyWorkItem.textContent = "Start feature";
+        applyWorkItem.textContent = "Add feature";
         workItemStatus.textContent = "Start or register feature work.";
       }
-      renderWorkItemCollectionOptions();
       workItemTitle.focus();
     }
 
     function hideWorkItemPanel() {
       workItemPanel.hidden = true;
       workItemMode = "";
-      selectedParentFeatureSlug = "";
     }
 
     async function applyWorkItemSelection() {
@@ -3782,9 +3693,6 @@ INDEX_HTML = """<!doctype html>
     }
 
     function workItemEndpoint() {
-      if (workItemMode === "collection-new") {
-        return "/api/work-items/collections";
-      }
       if (workItemMode === "bug-new") {
         return "/api/work-items/bugs";
       }
@@ -3792,9 +3700,6 @@ INDEX_HTML = """<!doctype html>
     }
 
     function workItemRequestBody(title) {
-      if (workItemMode === "collection-new") {
-        return { name: title };
-      }
       if (workItemMode === "bug-new") {
         return {
           issue_reference: title,
@@ -3804,31 +3709,15 @@ INDEX_HTML = """<!doctype html>
       return {
         title,
         name: workItemName.value.trim(),
-        collection_id: workItemCollection.value || workItemState.active_collection_id || "",
-        parent_slug: selectedParentFeatureSlug,
         branch: workItemBranchCheckbox.checked,
       };
     }
 
     function workItemPendingLabel() {
-      if (workItemMode === "collection-new") {
-        return "creating feature collection";
-      }
       if (workItemMode === "bug-new") {
-        return "starting bug workflow";
-      }
-      if (workItemMode === "feature-sub") {
-        return "adding subfeature";
+        return "starting bug-resolution workflow";
       }
       return "starting feature workflow";
-    }
-
-    async function switchFeatureCollectionContext(collectionId) {
-      await switchWorkItemContext(
-        "/api/work-items/collections/switch",
-        { collection_id: collectionId },
-        "switched collection",
-      );
     }
 
     async function switchFeatureWorkItemContext(slug) {
@@ -3843,7 +3732,7 @@ INDEX_HTML = """<!doctype html>
       await switchWorkItemContext(
         "/api/work-items/bugs/switch",
         { slug },
-        "switched bug",
+        "switched bug resolution",
       );
     }
 
@@ -4458,7 +4347,6 @@ INDEX_HTML = """<!doctype html>
       }
       hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
       hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-      hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
       hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
       hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
     }
@@ -4474,7 +4362,6 @@ INDEX_HTML = """<!doctype html>
         hideSubmenu(workItemSubmenu, workItemMenuButton);
         hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
         hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-        hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
         hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
         hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
       }
@@ -4600,15 +4487,6 @@ INDEX_HTML = """<!doctype html>
     workItemBranch.addEventListener("mouseleave", () => {
       hideSubmenu(workItemSubmenu, workItemMenuButton);
     });
-    switchFeatureCollection.addEventListener("click", () => {
-      toggleSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
-    });
-    switchFeatureCollectionBranch.addEventListener("mouseenter", () => {
-      showSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
-    });
-    switchFeatureCollectionBranch.addEventListener("mouseleave", () => {
-      hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
-    });
     switchFeatureWorkItem.addEventListener("click", () => {
       toggleSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
     });
@@ -4627,9 +4505,7 @@ INDEX_HTML = """<!doctype html>
     switchBugWorkItemBranch.addEventListener("mouseleave", () => {
       hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
     });
-    newFeatureCollection.addEventListener("click", () => showWorkItemPanel("collection-new"));
     newFeatureWorkItem.addEventListener("click", () => showWorkItemPanel("feature-new"));
-    addSubfeatureWorkItem.addEventListener("click", () => showWorkItemPanel("feature-sub"));
     newBugWorkItem.addEventListener("click", () => showWorkItemPanel("bug-new"));
     applyWorkItem.addEventListener("click", applyWorkItemSelection);
     cancelWorkItem.addEventListener("click", hideWorkItemPanel);
@@ -5357,9 +5233,12 @@ class ServiceState:
         registry = _load_work_item_registry(project_root)
         feature_record = _current_feature_record(project_root)
         if feature_record is not None:
+            effective_collection_id = (
+                collection_id if collection_id or parent_slug else "default"
+            )
             collection = _ensure_collection_for_feature(
                 registry,
-                collection_id,
+                effective_collection_id,
                 parent_slug=parent_slug,
             )
             _upsert_feature_record(
@@ -5473,7 +5352,7 @@ class ServiceState:
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
-            "status": "started bug",
+            "status": "started bug resolution",
             "label": _bug_record_label(bug_record) if bug_record else issue_reference,
             "output": output,
         }
@@ -5503,7 +5382,7 @@ class ServiceState:
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
-            "status": "switched bug",
+            "status": "switched bug resolution",
             "label": _bug_record_label(bug),
         }
 
@@ -7316,6 +7195,8 @@ def _load_work_item_registry(project_root: Path) -> dict[str, object]:
     collections = _registry_list(registry, "collections")
     if not collections:
         collections = [_default_feature_collection()]
+    elif _feature_collection_by_id(registry, "default") is None:
+        collections.insert(0, _default_feature_collection())
     registry["collections"] = collections
     registry["features"] = _registry_list(registry, "features")
     registry["bugs"] = _registry_list(registry, "bugs")
