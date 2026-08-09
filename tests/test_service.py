@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -137,7 +138,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="restartDesign"', INDEX_HTML)
         self.assertIn('id="completeDesign"', INDEX_HTML)
         self.assertIn('id="openDesign"', INDEX_HTML)
-        self.assertIn('id="startDesignReview"', INDEX_HTML)
+        self.assertIn('id="startAutomaticDesignReview"', INDEX_HTML)
+        self.assertIn('id="startInteractiveDesignReview"', INDEX_HTML)
         self.assertIn('id="stopDesignReview"', INDEX_HTML)
         self.assertIn('id="completeDesignReview"', INDEX_HTML)
         self.assertIn('id="restartDesignReview"', INDEX_HTML)
@@ -149,6 +151,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="agentPane"', INDEX_HTML)
         self.assertIn('id="outputSplit"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
+        self.assertIn('id="outputResizeHandle"', INDEX_HTML)
         self.assertIn('id="progressOutput"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
@@ -158,6 +161,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="insertFileLink"', INDEX_HTML)
         self.assertIn('class="agent-actions"', INDEX_HTML)
         self.assertIn(".output-split.split", INDEX_HTML)
+        self.assertIn(".output-resize-handle", INDEX_HTML)
         self.assertIn(".agent-pane.noninteractive", INDEX_HTML)
         self.assertIn(".terminal-font-controls", INDEX_HTML)
         self.assertIn(".directory-entry.file", INDEX_HTML)
@@ -167,10 +171,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("new window.Terminal", INDEX_HTML)
         self.assertIn("disableStdin: true", INDEX_HTML)
         self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
+        self.assertIn('const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";', INDEX_HTML)
         self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
         self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
         self.assertIn("terminal.options.fontSize = terminalFontSize", INDEX_HTML)
         self.assertIn("progressTerminal.options.fontSize = terminalFontSize", INDEX_HTML)
+        self.assertIn("function startOutputResize(event)", INDEX_HTML)
+        self.assertIn("function updateOutputResize(event)", INDEX_HTML)
+        self.assertIn("function finishOutputResize(event)", INDEX_HTML)
+        self.assertIn("applyStoredProgressPaneWidth();", INDEX_HTML)
+        self.assertIn("outputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("black: \"#151923\"", INDEX_HTML)
+        self.assertIn("brightCyan: \"#99e9f2\"", INDEX_HTML)
         self.assertIn("let progressEventSource = null;", INDEX_HTML)
         self.assertIn("let progressTerminal = null;", INDEX_HTML)
         self.assertIn("function initializeProgressTerminal()", INDEX_HTML)
@@ -196,9 +208,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("designRunning = Boolean(payload.design_running)", INDEX_HTML)
         self.assertIn("designReviewStarted = Boolean(payload.design_review_started)", INDEX_HTML)
         self.assertIn("designReviewRunning = Boolean(payload.design_review_running)", INDEX_HTML)
+        self.assertIn("designReviewInteractive = Boolean(payload.design_review_interactive)", INDEX_HTML)
         self.assertIn("if (payload.requirements_running)", INDEX_HTML)
         self.assertIn("else if (payload.design_running)", INDEX_HTML)
         self.assertIn("else if (payload.design_review_running)", INDEX_HTML)
+        self.assertIn("if (payload.design_review_interactive)", INDEX_HTML)
         self.assertIn("connectProgressEvents();", INDEX_HTML)
         self.assertIn("await restoreContext();", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
@@ -217,10 +231,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("restartDesign.disabled = !hasActiveProject || inDesignStage", INDEX_HTML)
         self.assertIn("completeDesign.disabled = !hasActiveProject || !inDesignStage", INDEX_HTML)
         self.assertIn(
-            "startDesignReview.disabled =\n"
+            "startAutomaticDesignReview.disabled =\n"
             "        !hasActiveProject || !inDesignReviewStage || designReviewRunning || designReviewStarted",
             INDEX_HTML,
         )
+        self.assertIn("startInteractiveDesignReview.disabled =", INDEX_HTML)
         self.assertIn("stopDesignReview.disabled =", INDEX_HTML)
         self.assertIn("!hasActiveProject || !inDesignReviewStage || !designReviewRunning", INDEX_HTML)
         self.assertIn("completeDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
@@ -257,6 +272,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/design/restart"', INDEX_HTML)
         self.assertIn('"/api/agents/design/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/start"', INDEX_HTML)
+        self.assertIn('"/api/agents/design-review/start-interactive"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/stop"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/restart"', INDEX_HTML)
@@ -280,6 +296,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function completeRequirementsAgent()", INDEX_HTML)
         self.assertIn("function restartDesignAgent()", INDEX_HTML)
         self.assertIn("function completeDesignAgent()", INDEX_HTML)
+        self.assertIn("function startAutomaticDesignReviewAgent()", INDEX_HTML)
+        self.assertIn("function startInteractiveDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function stopDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function completeDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function restartDesignReviewAgent()", INDEX_HTML)
@@ -340,7 +358,8 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             operations["design-review"],
             [
-                "Start review",
+                "Start automatic",
+                "Start interactive",
                 "Stop",
                 "Complete",
                 "Restart review",
@@ -374,6 +393,7 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(payload["design_running"])
         self.assertFalse(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
+        self.assertFalse(payload["design_review_interactive"])
         self.assertEqual(
             payload["activate_command"],
             f"source {project_root.resolve() / '.electroboy' / 'bin' / 'activate'}",
@@ -395,6 +415,7 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(payload["design_running"])
         self.assertFalse(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
+        self.assertFalse(payload["design_review_interactive"])
 
     def test_project_payload_reports_running_requirements_session(self) -> None:
         class FakeSession:
@@ -449,6 +470,7 @@ class ServiceTests(unittest.TestCase):
                 context = state.contexts[context_id]
                 context.design_session = design_session  # type: ignore[assignment]
                 context.design_review_session = review_session  # type: ignore[assignment]
+                context.design_review_interactive = True
 
             running_payload = state.project_payload(context_id)
             design_session.terminated = True
@@ -457,8 +479,10 @@ class ServiceTests(unittest.TestCase):
 
         self.assertTrue(running_payload["design_running"])
         self.assertTrue(running_payload["design_review_running"])
+        self.assertTrue(running_payload["design_review_interactive"])
         self.assertFalse(stopped_payload["design_running"])
         self.assertFalse(stopped_payload["design_review_running"])
+        self.assertFalse(stopped_payload["design_review_interactive"])
 
     def test_service_state_keeps_project_activation_per_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -853,6 +877,35 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(failed_payload["workflow_stage"], "design-review")
         self.assertEqual(passed_payload["workflow_stage"], "design-approve")
 
+    def test_interactive_design_review_start_uses_interactive_cli_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with state.lock:
+                state.contexts[context_id].workflow_stage = "design-review"
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_design_review_agent(
+                    context_id,
+                    interactive=True,
+                )
+            with state.lock:
+                context = state.contexts[context_id]
+                stored_interactive = context.design_review_interactive
+
+        self.assertTrue(started)
+        self.assertIn("--interactive", session.command)
+        self.assertEqual(session.label, "interactive design-review agent")
+        self.assertIsNone(session.on_completed)
+        self.assertTrue(stored_interactive)
+
     def test_design_review_stop_terminates_session_without_advancing(self) -> None:
         class FakeSession:
             def __init__(self) -> None:
@@ -1228,6 +1281,49 @@ class ServiceTests(unittest.TestCase):
             if session.is_active():
                 session.terminate()
 
+    def test_agent_session_terminate_stops_detached_child_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            child_pid_path = Path(tmp) / "child.pid"
+            child_script = "import time\nprint('child', flush=True)\ntime.sleep(30)\n"
+            parent_script = (
+                "import pathlib\n"
+                "import subprocess\n"
+                "import sys\n"
+                "import time\n"
+                "pid_path = pathlib.Path(sys.argv[1])\n"
+                "child = subprocess.Popen(\n"
+                "    [sys.executable, '-c', sys.argv[2]],\n"
+                "    start_new_session=True,\n"
+                ")\n"
+                "pid_path.write_text(str(child.pid), encoding='utf-8')\n"
+                "print('ready', flush=True)\n"
+                "time.sleep(30)\n"
+            )
+            session = AgentSession(
+                [sys.executable, "-c", parent_script, str(child_pid_path), child_script],
+                ROOT,
+            )
+            child_pid = 0
+            try:
+                try:
+                    session.start()
+                except PermissionError as error:
+                    self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+                self.assertIn("ready", wait_for_output(self, session, "ready"))
+                child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+
+                session.terminate()
+
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline and process_exists(child_pid):
+                    time.sleep(0.05)
+                self.assertFalse(process_exists(child_pid))
+            finally:
+                if session.is_active():
+                    session.terminate()
+                if child_pid and process_exists(child_pid):
+                    os.kill(child_pid, signal.SIGKILL)
+
     def test_agent_session_preserves_raw_terminal_output(self) -> None:
         script = (
             "import sys\n"
@@ -1437,6 +1533,16 @@ def wait_for_exit(
             return
         time.sleep(0.05)
     test_case.fail("timed out waiting for agent session to exit")
+
+
+def process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
 
 
 def write_file(path: Path, text: str) -> None:
