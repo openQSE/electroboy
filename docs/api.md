@@ -28,6 +28,9 @@ Operator workflow commands:
   as `plan-approve` are shown when approval is the next step.
 - `progress [--once|--follow] [--interval <seconds>]` prints or follows hidden
   progress files for the active run. `monitor` is an alias.
+- `serve [--root <path>] [--host <host>] [--port <port>]` starts the local
+  browser service. The initial web interface fetches `/api/health` and prints
+  `connected` when the browser can reach ElectroBoy.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes
   requirements authoring.
 - `requirements-approve` records human and Design Author approval.
@@ -463,4 +466,5 @@ blocks the stage instead of being interpreted.
 - `electroboy.planning` parses implementation phases and optional
   traceability hints.
 - `electroboy.runtime` selects configured agent runtimes.
+- `electroboy.service` runs the local browser service and health endpoint.
 - `electroboy.adapters.*` implements runtime adapter contracts.

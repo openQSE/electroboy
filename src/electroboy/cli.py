@@ -179,6 +179,7 @@ PROJECTLESS_COMMANDS = {
     "feature",
     "meta",
     "new",
+    "serve",
     "start",
 }
 ACTIVATIONLESS_COMMANDS = {
@@ -187,6 +188,7 @@ ACTIVATIONLESS_COMMANDS = {
     "feature",
     "meta",
     "new",
+    "serve",
 }
 
 APPROVAL_BASELINE_ARTIFACTS = {
@@ -454,6 +456,23 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "monitor",
         help_text="alias for `progress`",
+    )
+    serve = subparsers.add_parser("serve", help="run the local browser service")
+    serve.add_argument(
+        "--root",
+        default=argparse.SUPPRESS,
+        help="repository root containing pipeline artifacts",
+    )
+    serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="interface to bind; defaults to 127.0.0.1",
+    )
+    serve.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="port to bind; defaults to 8765",
     )
     subparsers.add_parser("deactivate", help="leave an activated pipeline project")
 
@@ -859,6 +878,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.command,
             root_explicit,
         )
+        if args.command == "serve":
+            return _cmd_serve(args)
         if args.command == "meta":
             return _cmd_meta(args)
         if args.command == "add":
@@ -965,6 +986,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.print_help(sys.stderr)
     return 2
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from .service import run_service
+
+    try:
+        return run_service(args.root, host=args.host, port=args.port)
+    except OSError as error:
+        print(f"error: could not start ElectroBoy service: {error}", file=sys.stderr)
+        return 2
 
 
 def _cmd_meta(args: argparse.Namespace) -> int:
