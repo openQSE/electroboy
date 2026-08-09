@@ -755,6 +755,10 @@ def build_parser() -> argparse.ArgumentParser:
             "active workflow stage"
         ),
     )
+    document.add_argument(
+        "--target",
+        help="documentation target path for a sidecar documentation session",
+    )
     code_approve = subparsers.add_parser(
         "code-approve",
         help="approve completed pipeline",
@@ -5600,6 +5604,7 @@ def _cmd_document(
         return _cmd_document_sidecar(
             store,
             interactive=bool(getattr(args, "interactive", False)),
+            target=getattr(args, "target", None),
         )
     manifest = store.load_current_manifest()
     reason = getattr(args, "reason", None)
@@ -5677,22 +5682,33 @@ def _cmd_document_interactive(store: StateStore) -> int:
     return 0
 
 
-def _cmd_document_sidecar(store: StateStore, interactive: bool = False) -> int:
+def _cmd_document_sidecar(
+    store: StateStore,
+    interactive: bool = False,
+    target: str | None = None,
+) -> int:
     role = "documentation_interactive" if interactive else "documentation"
-    prompt = _documentation_prompt(store)
+    target_path = (target or "").strip()
+    prompt = _documentation_prompt(store, target=target_path or None)
     if interactive:
         prompt = _interactive_step_prompt(prompt)
+    session_artifact = None
+    if interactive:
+        session_artifact = target_path or "documentation.jsonl"
+    context_paths = [
+        *_implementation_context_paths(store),
+        "README.md",
+        "docs/api.md",
+    ]
+    if target_path and target_path not in context_paths:
+        context_paths.append(target_path)
     result, event_id, _issue_file = _invoke_agent_role(
         store,
         role=role,
         prompt=prompt,
-        context_paths=[
-            *_implementation_context_paths(store),
-            "README.md",
-            "docs/api.md",
-        ],
+        context_paths=context_paths,
         session_stage="documentation-sidecar" if interactive else None,
-        session_artifact="documentation.jsonl" if interactive else None,
+        session_artifact=session_artifact,
     )
     if not result.ok:
         print(
@@ -5706,8 +5722,8 @@ def _cmd_document_sidecar(store: StateStore, interactive: bool = False) -> int:
             stage=store.load_current_manifest().active_stage,
             action="documentation-sidecar-session-recorded",
             summary="Ran documentation sidecar without changing workflow stage.",
-            inputs=[*_implementation_context_paths(store), "README.md", "docs/api.md"],
-            outputs=["README.md", "docs/api.md", "documentation.jsonl"],
+            inputs=context_paths,
+            outputs=[target_path or "README.md", "documentation.jsonl"],
             message_ref=f"messages/{event_id}-response.md",
         )
     )
@@ -8356,10 +8372,17 @@ def _range_operator_instruction_lines(messages: list[str]) -> list[str]:
     ]
 
 
-def _documentation_prompt(store: StateStore) -> str:
+def _documentation_prompt(store: StateStore, target: str | None = None) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
     )
+    target_lines = []
+    if target:
+        target_lines = [
+            "",
+            f"Primary documentation target: {target}.",
+            "Focus edits on that target unless the operator asks otherwise.",
+        ]
     return "\n".join(
         [
             "Review final documentation against the completed codebase.",
@@ -8368,6 +8391,7 @@ def _documentation_prompt(store: StateStore) -> str:
             f"{test_plan_path}, README.md, and docs/api.md as context.",
             "Limit documentation edits to README.md and docs/api.md unless the",
             "operator explicitly asks for another change.",
+            *target_lines,
             "If requirements, design, plan, or test-plan artifacts need to",
             "change, report the required upstream change and why.",
             "Report files changed and a concise commit_message when finished.",

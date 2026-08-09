@@ -141,6 +141,10 @@ INDEX_HTML = """<!doctype html>
       --terminal: #10141f;
       --terminal-text: #e7edf7;
       --error: #b42318;
+      --ui-font-size: 13px;
+      --ui-small-font-size: 12px;
+      --ui-menu-font-size: 14px;
+      --terminal-font-size: 15px;
     }
 
     * {
@@ -156,6 +160,7 @@ INDEX_HTML = """<!doctype html>
       font-family:
         Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", sans-serif;
+      font-size: var(--ui-font-size);
     }
 
     body {
@@ -235,7 +240,7 @@ INDEX_HTML = """<!doctype html>
       right: 24px;
       top: 16px;
       color: var(--active);
-      font-size: 13px;
+      font-size: var(--ui-font-size);
       font-weight: 650;
     }
 
@@ -252,7 +257,7 @@ INDEX_HTML = """<!doctype html>
       position: absolute;
       top: 77px;
       left: 56px;
-      right: 204px;
+      right: calc(16.6667% - 4px);
       height: 2px;
       background: var(--border);
       content: "";
@@ -265,13 +270,13 @@ INDEX_HTML = """<!doctype html>
       align-items: center;
       justify-content: center;
       min-width: 0;
-      height: 48px;
+      min-height: 48px;
       padding: 0 12px;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--disabled);
       color: var(--muted);
-      font-size: 13px;
+      font-size: var(--ui-font-size);
       font-weight: 650;
       letter-spacing: 0;
       white-space: normal;
@@ -320,6 +325,18 @@ INDEX_HTML = """<!doctype html>
       border-style: dashed;
     }
 
+    .stage-node.sidecar::before {
+      position: absolute;
+      top: 50%;
+      left: -28px;
+      width: 28px;
+      height: 4px;
+      transform: translateY(-50%);
+      background: var(--paper);
+      content: "";
+      pointer-events: none;
+    }
+
     .stage-node.sidecar.available {
       border-color: #7b8fb1;
       background: #f8fbff;
@@ -352,14 +369,15 @@ INDEX_HTML = """<!doctype html>
 
     .stage-menu button {
       width: 100%;
-      height: 38px;
+      min-height: 38px;
+      padding: 7px 10px;
       border: 1px solid transparent;
       border-radius: 6px;
       background: var(--active);
       color: white;
       cursor: pointer;
       font-family: inherit;
-      font-size: 14px;
+      font-size: var(--ui-menu-font-size);
       font-weight: 700;
     }
 
@@ -407,6 +425,30 @@ INDEX_HTML = """<!doctype html>
     .repo-menu-item.active-repo {
       border-color: #005f66;
       background: #007f8a;
+    }
+
+    .document-targets {
+      display: grid;
+      gap: 6px;
+    }
+
+    .menu-form {
+      display: grid;
+      gap: 6px;
+    }
+
+    .menu-form[hidden] {
+      display: none;
+    }
+
+    .menu-text-input {
+      width: 100%;
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 10px;
+      color: var(--ink);
+      font: inherit;
     }
 
     .project-panel {
@@ -462,7 +504,7 @@ INDEX_HTML = """<!doctype html>
       grid-column: 1 / -1;
       min-height: 20px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: var(--ui-font-size);
     }
 
     .directory-list {
@@ -615,7 +657,7 @@ INDEX_HTML = """<!doctype html>
       color: var(--terminal-text);
       font-family:
         "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: 13px;
+      font-size: var(--terminal-font-size);
       line-height: 1.45;
       white-space: pre-wrap;
     }
@@ -681,7 +723,7 @@ INDEX_HTML = """<!doctype html>
       border-bottom: 1px solid #2a3142;
       padding: 0 12px;
       color: #aab8cf;
-      font-size: 12px;
+      font-size: var(--ui-small-font-size);
       font-weight: 750;
       text-transform: uppercase;
     }
@@ -697,7 +739,7 @@ INDEX_HTML = """<!doctype html>
       padding: 10px 12px;
       font-family:
         "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: 13px;
+      font-size: var(--terminal-font-size);
       line-height: 1.45;
       outline: none;
       white-space: pre-wrap;
@@ -737,7 +779,7 @@ INDEX_HTML = """<!doctype html>
       padding: 12px;
       font-family:
         "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: 13px;
+      font-size: var(--terminal-font-size);
       line-height: 1.45;
     }
 
@@ -752,19 +794,31 @@ INDEX_HTML = """<!doctype html>
       grid-template-rows: auto auto auto auto;
       gap: 8px;
       align-self: stretch;
-      width: 112px;
+      width: 196px;
+    }
+
+    .session-control {
+      display: grid;
+      gap: 4px;
+    }
+
+    .session-label {
+      color: #aab8cf;
+      font-size: var(--ui-small-font-size);
+      font-weight: 750;
     }
 
     .session-switcher {
       width: 100%;
-      height: 38px;
+      min-height: 38px;
+      height: calc(var(--ui-font-size) + 25px);
       min-width: 0;
       border: 1px solid #303746;
       border-radius: 6px;
       background: #171d2b;
       color: #e7edf7;
       font: inherit;
-      font-size: 13px;
+      font-size: var(--ui-font-size);
       font-weight: 650;
       padding: 0 8px;
     }
@@ -785,19 +839,21 @@ INDEX_HTML = """<!doctype html>
       border-radius: 8px;
       cursor: pointer;
       font-family: inherit;
-      font-size: 13px;
+      font-size: var(--ui-font-size);
       font-weight: 750;
     }
 
     .terminal-font-button {
-      height: 32px;
+      min-height: 32px;
+      height: calc(var(--ui-font-size) + 19px);
       border: 1px solid #364156;
       background: #1d2638;
       color: var(--terminal-text);
     }
 
     .agent-action-button {
-      height: 38px;
+      min-height: 38px;
+      height: calc(var(--ui-font-size) + 25px);
     }
 
     .agent-interrupt {
@@ -840,6 +896,10 @@ INDEX_HTML = """<!doctype html>
       .stage-graph {
         grid-template-columns: repeat(15, minmax(112px, 1fr));
         min-width: 1840px;
+      }
+
+      .stage-graph::before {
+        right: 50%;
       }
 
       .stage-menu {
@@ -1014,7 +1074,19 @@ INDEX_HTML = """<!doctype html>
         <button id="openDesignFromReview" type="button">Open design</button>
       </div>
       <div id="documentMenu" class="stage-menu" hidden>
-        <button id="startDocumentation" type="button">Start documentation</button>
+        <div id="documentTargets" class="document-targets"></div>
+        <button id="createDocumentTarget" type="button">Create your own</button>
+        <div id="customDocumentForm" class="menu-form" hidden>
+          <input
+            id="customDocumentName"
+            class="menu-text-input"
+            type="text"
+            autocomplete="off"
+            placeholder="docs/guide.md"
+            aria-label="Document name"
+          >
+          <button id="addDocumentTarget" type="button">Add document</button>
+        </div>
       </div>
       <div id="projectPanel" class="project-panel" hidden>
         <input
@@ -1128,19 +1200,13 @@ INDEX_HTML = """<!doctype html>
           aria-label="Requirements agent input"
         ></textarea>
         <div class="agent-actions">
-          <select
-            id="sessionSwitcher"
-            class="session-switcher"
-            disabled
-            aria-label="Agent stream"
-          ></select>
-          <div class="terminal-font-controls" aria-label="Terminal font size">
+          <div class="terminal-font-controls" aria-label="UI font size">
             <button
               id="decreaseTerminalFont"
               class="terminal-font-button"
               type="button"
-              title="Decrease terminal font size"
-              aria-label="Decrease terminal font size"
+              title="Decrease font size"
+              aria-label="Decrease font size"
             >
               A-
             </button>
@@ -1148,11 +1214,20 @@ INDEX_HTML = """<!doctype html>
               id="increaseTerminalFont"
               class="terminal-font-button"
               type="button"
-              title="Increase terminal font size"
-              aria-label="Increase terminal font size"
+              title="Increase font size"
+              aria-label="Increase font size"
             >
               A+
             </button>
+          </div>
+          <div class="session-control">
+            <label class="session-label" for="sessionSwitcher">Select Agent</label>
+            <select
+              id="sessionSwitcher"
+              class="session-switcher"
+              disabled
+              aria-label="Select Agent"
+            ></select>
           </div>
           <button
             id="interruptAgent"
@@ -1236,7 +1311,11 @@ INDEX_HTML = """<!doctype html>
     const restartDesignReview = document.getElementById("restartDesignReview");
     const openDesignReview = document.getElementById("openDesignReview");
     const openDesignFromReview = document.getElementById("openDesignFromReview");
-    const startDocumentation = document.getElementById("startDocumentation");
+    const documentTargets = document.getElementById("documentTargets");
+    const createDocumentTarget = document.getElementById("createDocumentTarget");
+    const customDocumentForm = document.getElementById("customDocumentForm");
+    const customDocumentName = document.getElementById("customDocumentName");
+    const addDocumentTarget = document.getElementById("addDocumentTarget");
     const projectPanel = document.getElementById("projectPanel");
     const projectPath = document.getElementById("projectPath");
     const browseProject = document.getElementById("browseProject");
@@ -1277,6 +1356,11 @@ INDEX_HTML = """<!doctype html>
     const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
+    const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
+    const DEFAULT_DOCUMENT_TARGETS = [
+      { label: "README", path: "README.md" },
+      { label: "API", path: "docs/api.md" },
+    ];
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
@@ -1317,6 +1401,7 @@ INDEX_HTML = """<!doctype html>
     let activeProjectRoot = "";
     let activeRepositoryName = "";
     let registeredRepositories = [];
+    let customDocumentTargets = storedDocumentTargets();
     let currentBrowsePath = "";
     let currentBrowseParent = "";
     let currentBrowserMode = "project";
@@ -1453,6 +1538,36 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function storedDocumentTargets() {
+      try {
+        const parsed = JSON.parse(
+          window.localStorage.getItem(DOCUMENT_TARGETS_STORAGE_KEY) || "[]",
+        );
+        if (!Array.isArray(parsed)) {
+          return [];
+        }
+        return parsed
+          .map((target) => ({
+            label: String(target.label || target.path || "").trim(),
+            path: String(target.path || "").trim(),
+          }))
+          .filter((target) => target.label && target.path);
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function saveDocumentTargets() {
+      try {
+        window.localStorage.setItem(
+          DOCUMENT_TARGETS_STORAGE_KEY,
+          JSON.stringify(customDocumentTargets),
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
     function initializeTerminal() {
       if (!window.Terminal) {
         appendPlainOutput("terminal renderer unavailable; using plain text\\n", "error");
@@ -1524,15 +1639,28 @@ INDEX_HTML = """<!doctype html>
     }
 
     function applyTerminalFontSize() {
+      document.documentElement.style.setProperty(
+        "--terminal-font-size",
+        `${terminalFontSize}px`,
+      );
+      document.documentElement.style.setProperty(
+        "--ui-font-size",
+        `${terminalFontSize}px`,
+      );
+      document.documentElement.style.setProperty(
+        "--ui-small-font-size",
+        `${Math.max(10, terminalFontSize - 2)}px`,
+      );
+      document.documentElement.style.setProperty(
+        "--ui-menu-font-size",
+        `${Math.max(11, terminalFontSize - 1)}px`,
+      );
       if (terminal) {
         terminal.options.fontSize = terminalFontSize;
       }
       if (progressTerminal) {
         progressTerminal.options.fontSize = terminalFontSize;
       }
-      agentInput.style.fontSize = `${terminalFontSize}px`;
-      scratchPad.style.fontSize = `${terminalFontSize}px`;
-      projectStatusOutput.style.fontSize = `${terminalFontSize}px`;
       decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
       increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
       window.requestAnimationFrame(fitTerminal);
@@ -2285,7 +2413,64 @@ INDEX_HTML = """<!doctype html>
 
     function updateDocumentMenuState() {
       const hasActiveProject = Boolean(activeProjectRoot);
-      startDocumentation.disabled = !hasActiveProject || documentationRunning;
+      createDocumentTarget.disabled = !hasActiveProject;
+      addDocumentTarget.disabled = !hasActiveProject;
+      customDocumentName.disabled = !hasActiveProject;
+      renderDocumentTargets();
+    }
+
+    function allDocumentTargets() {
+      const byPath = new Map();
+      for (const target of [...DEFAULT_DOCUMENT_TARGETS, ...customDocumentTargets]) {
+        byPath.set(target.path, target);
+      }
+      return Array.from(byPath.values());
+    }
+
+    function renderDocumentTargets() {
+      documentTargets.replaceChildren();
+      const disabled = !activeProjectRoot || documentationRunning;
+      for (const target of allDocumentTargets()) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = target.label;
+        button.title = target.path;
+        button.disabled = disabled;
+        button.addEventListener("click", () => {
+          startDocumentationAgent(target);
+        });
+        documentTargets.append(button);
+      }
+    }
+
+    function documentTargetFromInput(value) {
+      const raw = value.trim();
+      if (!raw) {
+        return null;
+      }
+      const path = raw.includes("/") || raw.endsWith(".md")
+        ? raw
+        : `docs/${raw.replace(/\\s+/g, "-").toLowerCase()}.md`;
+      const label = raw.replace(/\\.md$/i, "") || path;
+      return { label, path };
+    }
+
+    function addCustomDocumentTarget() {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const target = documentTargetFromInput(customDocumentName.value);
+      if (!target) {
+        return;
+      }
+      customDocumentTargets = customDocumentTargets.filter(
+        (existing) => existing.path !== target.path,
+      );
+      customDocumentTargets.push(target);
+      saveDocumentTargets();
+      customDocumentName.value = "";
+      customDocumentForm.hidden = true;
+      renderDocumentTargets();
     }
 
     async function refreshProject() {
@@ -3149,11 +3334,12 @@ INDEX_HTML = """<!doctype html>
       window.open(contextUrl("/artifacts/design-review"), "_blank", "noopener");
     }
 
-    async function startDocumentationAgent() {
+    async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
         return;
       }
+      const documentTarget = target || DEFAULT_DOCUMENT_TARGETS[0];
       hideStageMenus();
       closeAgentEventStream();
       showProgressPane(false);
@@ -3162,9 +3348,14 @@ INDEX_HTML = """<!doctype html>
       setAgentRunning("documentation", true);
       agentInput.disabled = false;
       agentInput.focus();
-      appendOutput("$ electroboy document --sidecar --interactive\\n", "system");
+      appendOutput(
+        `$ electroboy document --sidecar --interactive --target ${documentTarget.path}\\n`,
+        "system",
+      );
       const response = await fetch(contextUrl("/api/agents/documentation/start"), {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: documentTarget.path }),
       });
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
@@ -3409,7 +3600,19 @@ INDEX_HTML = """<!doctype html>
     restartDesignReview.addEventListener("click", restartDesignReviewAgent);
     openDesignReview.addEventListener("click", openDesignReviewDocument);
     openDesignFromReview.addEventListener("click", openDesignDocument);
-    startDocumentation.addEventListener("click", startDocumentationAgent);
+    createDocumentTarget.addEventListener("click", () => {
+      customDocumentForm.hidden = !customDocumentForm.hidden;
+      if (!customDocumentForm.hidden) {
+        customDocumentName.focus();
+      }
+    });
+    addDocumentTarget.addEventListener("click", addCustomDocumentTarget);
+    customDocumentName.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addCustomDocumentTarget();
+      }
+    });
     sessionSwitcher.addEventListener("change", () => {
       selectAgentSession(sessionSwitcher.value).catch((error) => {
         appendOutput(`session switch failed: ${error}\\n`, "error");
@@ -3465,6 +3668,7 @@ INDEX_HTML = """<!doctype html>
       applyStoredProgressPaneSize();
       applyStoredWorkbenchPaneSize();
       restoreScratchPad();
+      applyTerminalFontSize();
       initializeTerminal();
       await checkConnection();
       await restoreContext();
@@ -4126,6 +4330,7 @@ class ServiceState:
         context_id: str,
         *,
         interactive: bool = True,
+        target: str | None = None,
     ) -> tuple[AgentSession, bool]:
         with self.lock:
             context = self._context_locked(context_id)
@@ -4141,13 +4346,19 @@ class ServiceState:
                 return context.documentation_session, False
             lock_names = SESSION_ARTIFACT_LOCKS["documentation"]
             self._require_session_locks_available_locked(context, lock_names)
+            target_path = (target or "").strip()
+            label_target = f" ({target_path})" if target_path else ""
             session = AgentSession(
-                command=_documentation_command(command_root, interactive=interactive),
+                command=_documentation_command(
+                    command_root,
+                    interactive=interactive,
+                    target=target_path or None,
+                ),
                 cwd=command_root,
                 label=(
-                    "interactive documentation agent"
+                    f"interactive documentation agent{label_target}"
                     if interactive
-                    else "documentation agent"
+                    else f"documentation agent{label_target}"
                 ),
                 kind="documentation",
                 interactive=interactive,
@@ -5822,10 +6033,17 @@ def _status_command(root: Path) -> list[str]:
     return _electroboy_command(root, ["status"])
 
 
-def _documentation_command(root: Path, *, interactive: bool = True) -> list[str]:
+def _documentation_command(
+    root: Path,
+    *,
+    interactive: bool = True,
+    target: str | None = None,
+) -> list[str]:
     args = ["document", "--sidecar"]
     if interactive:
         args.append("--interactive")
+    if target:
+        args.extend(["--target", target])
     return _electroboy_command(root, args)
 
 
@@ -6863,14 +7081,22 @@ def _handler_for(
         def _start_documentation_agent(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
+                payload = self._read_json_body()
                 session, started = state.start_documentation_agent(
                     context_id,
                     interactive=True,
+                    target=str(payload.get("target") or ""),
                 )
             except (AgentSessionError, StateError) as error:
                 self._send_json(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
+                )
+                return
+            except ValueError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.BAD_REQUEST,
                 )
                 return
             except OSError as error:

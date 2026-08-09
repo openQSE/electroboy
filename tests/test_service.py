@@ -126,6 +126,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-stage="document"', INDEX_HTML)
         self.assertIn('class="stage-node disabled sidecar"', INDEX_HTML)
         self.assertIn(".stage-node.sidecar", INDEX_HTML)
+        self.assertIn(".stage-node.sidecar::before", INDEX_HTML)
         self.assertNotIn('data-stage="requirements-approve"', INDEX_HTML)
         self.assertNotIn('data-stage="design-approve"', INDEX_HTML)
         self.assertNotIn('data-stage="plan-approve"', INDEX_HTML)
@@ -204,7 +205,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="restartDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignFromReview"', INDEX_HTML)
-        self.assertIn('id="startDocumentation"', INDEX_HTML)
+        self.assertIn('id="documentTargets"', INDEX_HTML)
+        self.assertIn('id="createDocumentTarget"', INDEX_HTML)
+        self.assertIn('id="customDocumentName"', INDEX_HTML)
+        self.assertIn('id="addDocumentTarget"', INDEX_HTML)
         self.assertNotIn('id="approveDesign"', INDEX_HTML)
         self.assertNotIn('id="openApprovedDesign"', INDEX_HTML)
         self.assertNotIn('id="openApprovedDesignReview"', INDEX_HTML)
@@ -224,8 +228,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
         self.assertIn('id="sessionSwitcher"', INDEX_HTML)
+        self.assertIn('for="sessionSwitcher">Select Agent</label>', INDEX_HTML)
         self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
         self.assertIn('id="increaseTerminalFont"', INDEX_HTML)
+        self.assertLess(
+            INDEX_HTML.index('id="decreaseTerminalFont"'),
+            INDEX_HTML.index('id="sessionSwitcher"'),
+        )
         self.assertIn('id="interruptAgent"', INDEX_HTML)
         self.assertIn('id="insertFileLink"', INDEX_HTML)
         self.assertIn('class="agent-actions"', INDEX_HTML)
@@ -275,12 +284,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
         self.assertIn("terminal.options.fontSize = terminalFontSize", INDEX_HTML)
         self.assertIn("progressTerminal.options.fontSize = terminalFontSize", INDEX_HTML)
-        self.assertIn("agentInput.style.fontSize = `${terminalFontSize}px`;", INDEX_HTML)
-        self.assertIn("scratchPad.style.fontSize = `${terminalFontSize}px`;", INDEX_HTML)
-        self.assertIn(
-            "projectStatusOutput.style.fontSize = `${terminalFontSize}px`;",
-            INDEX_HTML,
-        )
+        self.assertIn('font-size: var(--ui-font-size);', INDEX_HTML)
+        self.assertIn('font-size: var(--terminal-font-size);', INDEX_HTML)
+        self.assertIn('"--ui-font-size"', INDEX_HTML)
+        self.assertIn('"--terminal-font-size"', INDEX_HTML)
         self.assertIn("function startShellResize(event)", INDEX_HTML)
         self.assertIn("function updateShellResize(event)", INDEX_HTML)
         self.assertIn("function finishShellResize(event)", INDEX_HTML)
@@ -352,7 +359,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function renderSessionSwitcher()", INDEX_HTML)
         self.assertIn("function selectAgentSession(sessionId)", INDEX_HTML)
         self.assertIn("function connectSessionEvents(sessionId)", INDEX_HTML)
-        self.assertIn("function startDocumentationAgent()", INDEX_HTML)
+        self.assertIn("const DEFAULT_DOCUMENT_TARGETS = [", INDEX_HTML)
+        self.assertIn('label: "README", path: "README.md"', INDEX_HTML)
+        self.assertIn('label: "API", path: "docs/api.md"', INDEX_HTML)
+        self.assertIn("function renderDocumentTargets()", INDEX_HTML)
+        self.assertIn("function addCustomDocumentTarget()", INDEX_HTML)
+        self.assertIn("async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0])", INDEX_HTML)
         self.assertIn("const session = selectedSession();", INDEX_HTML)
         self.assertIn("connectSessionEvents(session.session_id)", INDEX_HTML)
         self.assertIn('session.kind === "design-review"', INDEX_HTML)
@@ -384,6 +396,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
+        self.assertIn("customDocumentName.disabled = !hasActiveProject", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
         self.assertIn("Requirements have not been explicitly approved", INDEX_HTML)
         self.assertIn("Design has not been explicitly approved", INDEX_HTML)
@@ -430,6 +443,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/design-review/skip-approval"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/restart"', INDEX_HTML)
         self.assertNotIn('"/api/agents/design-approve/approve"', INDEX_HTML)
+        self.assertIn("body: JSON.stringify({ target: documentTarget.path })", INDEX_HTML)
         self.assertIn("function approveRequirementsStage(skipApproval = false)", INDEX_HTML)
         self.assertIn("function skipRequirementsApprovalStage()", INDEX_HTML)
         self.assertIn("function approveDesignReviewStage(skipApproval = false)", INDEX_HTML)
@@ -785,7 +799,10 @@ class ServiceTests(unittest.TestCase):
             state.open_project(context_id, str(project_root))
 
             with mock.patch("electroboy.service.AgentSession.start"):
-                session, started = state.start_documentation_agent(context_id)
+                session, started = state.start_documentation_agent(
+                    context_id,
+                    target="README.md",
+                )
             payload = state.project_payload(context_id)
 
         self.assertTrue(started)
@@ -795,6 +812,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("document", command_text)
         self.assertIn("--sidecar", command_text)
         self.assertIn("--interactive", command_text)
+        self.assertIn("--target", command_text)
+        self.assertIn("README.md", command_text)
+        self.assertIn("README.md", session.label)
         self.assertEqual(payload["workflow_stage"], "requirements")
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "documentation")
@@ -2093,11 +2113,14 @@ class ServiceTests(unittest.TestCase):
     def test_document_accepts_sidecar_option(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["document", "--sidecar", "--interactive"])
+        args = parser.parse_args(
+            ["document", "--sidecar", "--interactive", "--target", "README.md"]
+        )
 
         self.assertEqual(args.command, "document")
         self.assertTrue(args.sidecar)
         self.assertTrue(args.interactive)
+        self.assertEqual(args.target, "README.md")
 
 
 def request(
