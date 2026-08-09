@@ -1544,11 +1544,24 @@ class ServiceState:
         stderr = io.StringIO()
         store = StateStore(project_root)
         engine = GateEngine(project_root)
+        force_approval = _should_force_skipped_requirements_approval(store)
+        reason = (
+            "Requirements authoring was skipped from the GUI; approval "
+            "force-records the missing author confirmation."
+            if force_approval
+            else None
+        )
         with redirect_stdout(stdout), redirect_stderr(stderr):
             code = _cmd_stage(
                 store,
                 engine,
-                _stage_args(STAGE_REQUIREMENTS, human=True, author=True),
+                _stage_args(
+                    STAGE_REQUIREMENTS,
+                    human=True,
+                    author=True,
+                    force=force_approval,
+                    reason=reason,
+                ),
             )
         output = "\n".join(
             part.strip() for part in [stderr.getvalue(), stdout.getvalue()] if part.strip()
@@ -2234,6 +2247,19 @@ def _record_requirements_skip(project_root: Path) -> None:
             ),
             inputs=[manifest.active_stage],
         )
+    )
+
+
+def _should_force_skipped_requirements_approval(store: StateStore) -> bool:
+    from .cli import _has_successful_agent_event
+
+    if _has_successful_agent_event(store, "design_author", STAGE_REQUIREMENTS):
+        return False
+    return any(
+        event.get("actor") == "human-operator"
+        and event.get("stage") == STAGE_REQUIREMENTS
+        and event.get("action") == "gui-requirements-authoring-skipped"
+        for event in store.read_activity()
     )
 
 

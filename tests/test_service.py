@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -568,6 +569,38 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertEqual(payload["next_stage"], "design")
 
+    def test_skipped_requirements_approval_force_records_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            initialize_git_repo(project_root)
+            write_file(project_root / "docs" / "requirements.md", "# Requirements\n")
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            state.skip_requirements_agent(context_id)
+
+            payload = state.approve_requirements(context_id)
+            store = StateStore(project_root)
+            approvals = store.read_approvals()
+
+        self.assertEqual(payload["status"], "approved")
+        self.assertEqual(payload["workflow_stage"], "design")
+        self.assertEqual(payload["next_stage"], "design")
+        self.assertIn("forced approval: yes", str(payload["output"]))
+        self.assertTrue(
+            any(
+                approval.get("stage") == STAGE_REQUIREMENTS
+                and approval.get("approval_type") == "author-confirmation"
+                and "force-recorded" in str(approval.get("summary"))
+                for approval in approvals
+            )
+        )
+
     def test_requirements_approval_requires_approval_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -958,6 +991,32 @@ def wait_for_exit(
             return
         time.sleep(0.05)
     test_case.fail("timed out waiting for agent session to exit")
+
+
+def write_file(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def initialize_git_repo(root: Path) -> None:
+    subprocess.run(
+        ["git", "-C", str(root), "init"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "Test User"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
 
 if __name__ == "__main__":
