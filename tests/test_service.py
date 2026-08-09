@@ -204,6 +204,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
         self.assertIn("new window.Terminal", INDEX_HTML)
         self.assertIn("disableStdin: true", INDEX_HTML)
+        self.assertIn('termName: "xterm-256color"', INDEX_HTML)
         self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
         self.assertIn(
             'const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";',
@@ -222,6 +223,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
         self.assertIn("terminal.options.fontSize = terminalFontSize", INDEX_HTML)
         self.assertIn("progressTerminal.options.fontSize = terminalFontSize", INDEX_HTML)
+        self.assertIn("agentInput.style.fontSize = `${terminalFontSize}px`;", INDEX_HTML)
         self.assertIn("function startShellResize(event)", INDEX_HTML)
         self.assertIn("function updateShellResize(event)", INDEX_HTML)
         self.assertIn("function finishShellResize(event)", INDEX_HTML)

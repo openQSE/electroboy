@@ -1169,6 +1169,7 @@ INDEX_HTML = """<!doctype html>
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
         fontSize: terminalFontSize,
         scrollback: 10000,
+        termName: "xterm-256color",
         theme: {
           background: "#10141f",
           foreground: "#e7edf7",
@@ -1207,6 +1208,7 @@ INDEX_HTML = """<!doctype html>
       if (progressTerminal) {
         progressTerminal.options.fontSize = terminalFontSize;
       }
+      agentInput.style.fontSize = `${terminalFontSize}px`;
       decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
       increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
       window.requestAnimationFrame(fitTerminal);
