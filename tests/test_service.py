@@ -38,6 +38,7 @@ from electroboy.service import (  # noqa: E402
 )
 from electroboy.models import (  # noqa: E402
     STAGE_DESIGN,
+    STAGE_DESIGN_ACCEPTANCE,
     STAGE_DESIGN_REVIEW,
     STAGE_REQUIREMENTS,
 )
@@ -113,20 +114,22 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("button.stage-node.available:hover", INDEX_HTML)
         self.assertIn('data-stage="project"', INDEX_HTML)
         self.assertIn('data-stage="requirements"', INDEX_HTML)
-        self.assertIn('data-stage="requirements-approve"', INDEX_HTML)
         self.assertIn('data-stage="design"', INDEX_HTML)
-        self.assertIn('data-stage="code-approve"', INDEX_HTML)
-        self.assertLess(
-            INDEX_HTML.index('data-stage="code"'),
-            INDEX_HTML.index('data-stage="code-approve"'),
-        )
-        self.assertLess(
-            INDEX_HTML.index('data-stage="code-approve"'),
-            INDEX_HTML.index('data-stage="test-plan"'),
-        )
+        self.assertIn('data-stage="design-review"', INDEX_HTML)
+        self.assertIn('data-stage="implementation-plan"', INDEX_HTML)
+        self.assertIn('data-stage="code"', INDEX_HTML)
+        self.assertIn('data-stage="test-plan"', INDEX_HTML)
+        self.assertIn('data-stage="validate"', INDEX_HTML)
+        self.assertIn('data-stage="document"', INDEX_HTML)
+        self.assertNotIn('data-stage="requirements-approve"', INDEX_HTML)
+        self.assertNotIn('data-stage="design-approve"', INDEX_HTML)
+        self.assertNotIn('data-stage="plan-approve"', INDEX_HTML)
+        self.assertNotIn('data-stage="code-approve"', INDEX_HTML)
+        self.assertNotIn('data-stage="test-plan-approve"', INDEX_HTML)
+        self.assertNotIn('data-stage="validation-approve"', INDEX_HTML)
         self.assertIn('const stageNodes = Array.from', INDEX_HTML)
         self.assertIn("const STAGE_DESCRIPTIONS = {", INDEX_HTML)
-        self.assertIn("const APPROVAL_STAGES = new Set", INDEX_HTML)
+        self.assertNotIn("const APPROVAL_STAGES = new Set", INDEX_HTML)
         self.assertIn("function applyStageDescriptions()", INDEX_HTML)
         self.assertIn("stageNode.title = description", INDEX_HTML)
         self.assertIn('stageNode.setAttribute("aria-label"', INDEX_HTML)
@@ -155,14 +158,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="closeBrowser"', INDEX_HTML)
         self.assertIn('id="deactivateProject"', INDEX_HTML)
         self.assertIn('id="requirementsMenu"', INDEX_HTML)
-        self.assertIn('id="requirementsApproveMenu"', INDEX_HTML)
+        self.assertNotIn('id="requirementsApproveMenu"', INDEX_HTML)
         self.assertIn('id="designMenu"', INDEX_HTML)
         self.assertIn('id="designReviewMenu"', INDEX_HTML)
-        self.assertIn('id="designApproveMenu"', INDEX_HTML)
+        self.assertNotIn('id="designApproveMenu"', INDEX_HTML)
         self.assertIn('id="approveRequirements"', INDEX_HTML)
-        self.assertIn('id="openApprovedRequirements"', INDEX_HTML)
+        self.assertIn('id="skipRequirementsApproval"', INDEX_HTML)
+        self.assertNotIn('id="openApprovedRequirements"', INDEX_HTML)
         self.assertIn('id="restartRequirements"', INDEX_HTML)
-        self.assertIn('id="completeRequirements"', INDEX_HTML)
+        self.assertNotIn('id="completeRequirements"', INDEX_HTML)
         self.assertIn('id="openRequirements"', INDEX_HTML)
         self.assertIn('id="startDesign"', INDEX_HTML)
         self.assertIn('id="restartDesign"', INDEX_HTML)
@@ -171,13 +175,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="startAutomaticDesignReview"', INDEX_HTML)
         self.assertIn('id="startInteractiveDesignReview"', INDEX_HTML)
         self.assertIn('id="stopDesignReview"', INDEX_HTML)
-        self.assertIn('id="completeDesignReview"', INDEX_HTML)
+        self.assertIn('id="approveDesignReview"', INDEX_HTML)
+        self.assertIn('id="skipDesignReviewApproval"', INDEX_HTML)
+        self.assertNotIn('id="completeDesignReview"', INDEX_HTML)
         self.assertIn('id="restartDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignFromReview"', INDEX_HTML)
-        self.assertIn('id="approveDesign"', INDEX_HTML)
-        self.assertIn('id="openApprovedDesign"', INDEX_HTML)
-        self.assertIn('id="openApprovedDesignReview"', INDEX_HTML)
+        self.assertNotIn('id="approveDesign"', INDEX_HTML)
+        self.assertNotIn('id="openApprovedDesign"', INDEX_HTML)
+        self.assertNotIn('id="openApprovedDesignReview"', INDEX_HTML)
         self.assertIn('id="agentPane"', INDEX_HTML)
         self.assertIn('id="shellResizeHandle"', INDEX_HTML)
         self.assertIn('id="outputSplit"', INDEX_HTML)
@@ -264,11 +270,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('let currentWorkflowStage = "project";', INDEX_HTML)
         self.assertIn("requirementsStarted = Boolean(payload.requirements_started)", INDEX_HTML)
         self.assertIn("requirementsRunning = Boolean(payload.requirements_running)", INDEX_HTML)
+        self.assertIn("requirementsApproved = Boolean(payload.requirements_approved)", INDEX_HTML)
         self.assertIn("designStarted = Boolean(payload.design_started)", INDEX_HTML)
         self.assertIn("designRunning = Boolean(payload.design_running)", INDEX_HTML)
         self.assertIn("designReviewStarted = Boolean(payload.design_review_started)", INDEX_HTML)
         self.assertIn("designReviewRunning = Boolean(payload.design_review_running)", INDEX_HTML)
         self.assertIn("designReviewInteractive = Boolean(payload.design_review_interactive)", INDEX_HTML)
+        self.assertIn("designApproved = Boolean(payload.design_approved)", INDEX_HTML)
         self.assertIn("if (payload.requirements_running)", INDEX_HTML)
         self.assertIn("else if (payload.design_running)", INDEX_HTML)
         self.assertIn("else if (payload.design_review_running)", INDEX_HTML)
@@ -277,17 +285,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("await restoreContext();", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
         self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
-        self.assertIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
+        self.assertNotIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
         self.assertIn("function updateDesignMenuState()", INDEX_HTML)
         self.assertIn("function updateDesignReviewMenuState()", INDEX_HTML)
-        self.assertIn("function updateDesignApproveMenuState()", INDEX_HTML)
+        self.assertNotIn("function updateDesignApproveMenuState()", INDEX_HTML)
         self.assertIn('const inRequirementsStage = currentWorkflowStage === "requirements";', INDEX_HTML)
         self.assertIn("!hasActiveProject || !inRequirementsStage || requirementsRunning", INDEX_HTML)
         self.assertIn("!hasActiveProject || (inRequirementsStage && !requirementsStarted)", INDEX_HTML)
-        self.assertIn("completeRequirements.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
+        self.assertIn("approveRequirements.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
+        self.assertIn("skipRequirementsApproval.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
         self.assertIn("openRequirements.disabled =", INDEX_HTML)
-        self.assertIn("approveRequirements.disabled = !inRequirementsApproveStage", INDEX_HTML)
-        self.assertIn("openApprovedRequirements.disabled = !inRequirementsApproveStage", INDEX_HTML)
         self.assertIn("restartDesign.disabled = !hasActiveProject || inDesignStage", INDEX_HTML)
         self.assertIn("completeDesign.disabled = !hasActiveProject || !inDesignStage", INDEX_HTML)
         self.assertIn(
@@ -298,12 +305,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("startInteractiveDesignReview.disabled =", INDEX_HTML)
         self.assertIn("stopDesignReview.disabled =", INDEX_HTML)
         self.assertIn("!hasActiveProject || !inDesignReviewStage || !designReviewRunning", INDEX_HTML)
-        self.assertIn("completeDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
+        self.assertIn("approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
+        self.assertIn("skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
-        self.assertIn("approveDesign.disabled = !inDesignApproveStage", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
-        self.assertIn("Requirements authoring has not been started", INDEX_HTML)
-        self.assertIn("Complete anyway?", INDEX_HTML)
+        self.assertIn("Requirements have not been explicitly approved", INDEX_HTML)
+        self.assertIn("Design has not been explicitly approved", INDEX_HTML)
         self.assertIn("function contextUrl(path)", INDEX_HTML)
         self.assertIn('contextUrl("/api/project")', INDEX_HTML)
         self.assertIn('"/api/project/open"', INDEX_HTML)
@@ -326,19 +333,22 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("EventSource(contextUrl(`/api/agents/${kind}/events`))", INDEX_HTML)
         self.assertIn('"/api/agents/requirements/start"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/restart"', INDEX_HTML)
-        self.assertIn('"/api/agents/requirements/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/approve"', INDEX_HTML)
+        self.assertIn('"/api/agents/requirements/skip-approval"', INDEX_HTML)
         self.assertIn('"/api/agents/design/start"', INDEX_HTML)
         self.assertIn('"/api/agents/design/restart"', INDEX_HTML)
         self.assertIn('"/api/agents/design/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/start"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/start-interactive"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/stop"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-review/complete"', INDEX_HTML)
+        self.assertIn('"/api/agents/design-review/approve"', INDEX_HTML)
+        self.assertIn('"/api/agents/design-review/skip-approval"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/restart"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-approve/approve"', INDEX_HTML)
-        self.assertIn("function approveRequirementsStage()", INDEX_HTML)
-        self.assertIn("function approveDesignStage()", INDEX_HTML)
+        self.assertNotIn('"/api/agents/design-approve/approve"', INDEX_HTML)
+        self.assertIn("function approveRequirementsStage(skipApproval = false)", INDEX_HTML)
+        self.assertIn("function skipRequirementsApprovalStage()", INDEX_HTML)
+        self.assertIn("function approveDesignReviewStage(skipApproval = false)", INDEX_HTML)
+        self.assertIn("function skipDesignReviewApprovalStage()", INDEX_HTML)
         self.assertIn(
             'agentInput.value = "";\n'
             "      clearAgentOutput();\n"
@@ -367,10 +377,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("window.open(contextUrl(\"/artifacts/requirements\")", INDEX_HTML)
         self.assertIn("function positionStageMenu(menu, stage)", INDEX_HTML)
         self.assertIn("function hideStageMenus(exceptMenu = null)", INDEX_HTML)
-        self.assertIn("positionStageMenu(requirementsApproveMenu, requirementsApproveStage)", INDEX_HTML)
+        self.assertNotIn("positionStageMenu(requirementsApproveMenu, requirementsApproveStage)", INDEX_HTML)
         self.assertIn("positionStageMenu(designMenu, designStage)", INDEX_HTML)
         self.assertIn("positionStageMenu(designReviewMenu, designReviewStage)", INDEX_HTML)
-        self.assertIn("positionStageMenu(designApproveMenu, designApproveStage)", INDEX_HTML)
+        self.assertNotIn("positionStageMenu(designApproveMenu, designApproveStage)", INDEX_HTML)
         self.assertIn("stageScroll.addEventListener(\"scroll\", repositionOpenStageMenu)", INDEX_HTML)
         self.assertIn('event.code === "NumpadEnter"', INDEX_HTML)
         self.assertIn("isEnter && event.shiftKey", INDEX_HTML)
@@ -390,8 +400,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(operations["project"], ["Open", "Create"])
         self.assertEqual(operations["requirements"], [])
         stage_ids = [str(stage["id"]) for stage in stages if isinstance(stage, dict)]
-        self.assertLess(stage_ids.index("code"), stage_ids.index("code-approve"))
-        self.assertLess(stage_ids.index("code-approve"), stage_ids.index("test-plan"))
+        self.assertEqual(
+            stage_ids,
+            [
+                "project",
+                "requirements",
+                "design",
+                "design-review",
+                "implementation-plan",
+                "code",
+                "test-plan",
+                "validate",
+                "document",
+            ],
+        )
         for stage, stage_operations in operations.items():
             if stage not in {"project", "requirements"}:
                 self.assertEqual(stage_operations, [])
@@ -409,7 +431,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(operations["project"], ["Open", "Create", "Deactivate"])
         self.assertEqual(
             operations["requirements"],
-            ["Start", "Restart", "Complete", "Open requirements"],
+            ["Start", "Restart", "Approve", "Skip approval", "Open requirements"],
         )
         self.assertEqual(
             operations["design"],
@@ -421,15 +443,12 @@ class ServiceTests(unittest.TestCase):
                 "Start automatic",
                 "Start interactive",
                 "Stop",
-                "Complete",
+                "Approve",
+                "Skip approval",
                 "Restart review",
                 "Open review",
                 "Open design",
             ],
-        )
-        self.assertEqual(
-            operations["design-approve"],
-            ["Approve", "Open design", "Open review"],
         )
 
     def test_service_state_opens_existing_project(self) -> None:
@@ -640,7 +659,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNone(payload["active_project_root"])
         self.assertIsNone(state.current_requirements_session(context_id))
 
-    def test_requirements_complete_terminates_agent_and_moves_to_approval_node(self) -> None:
+    def test_requirements_approve_terminates_agent_and_advances_to_design(self) -> None:
         class FakeSession:
             def __init__(self) -> None:
                 self.terminated = False
@@ -656,6 +675,8 @@ class ServiceTests(unittest.TestCase):
             project_root = Path(tmp) / "project"
             service_root.mkdir()
             project_root.mkdir()
+            initialize_git_repo(project_root)
+            write_file(project_root / "docs" / "requirements.md", "# Requirements\n")
             StateStore(project_root).init_run(run_id="run-1")
 
             state = ServiceState(service_root)
@@ -666,13 +687,14 @@ class ServiceTests(unittest.TestCase):
                 state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
                 state.contexts[context_id].requirements_started = True
 
-            payload = state.complete_requirements_agent(context_id)
+            payload = state.approve_requirements(context_id)
 
         self.assertTrue(session.terminated)
-        self.assertEqual(payload["status"], "completed")
-        self.assertEqual(payload["workflow_stage"], "requirements-approve")
+        self.assertEqual(payload["status"], "approved")
+        self.assertEqual(payload["workflow_stage"], "design")
         self.assertTrue(payload["requirements_started"])
-        self.assertEqual(payload["next_stage"], "requirements-approve")
+        self.assertTrue(payload["requirements_approved"])
+        self.assertEqual(payload["next_stage"], "design")
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
         self.assertIsNone(state.current_requirements_session(context_id))
 
@@ -693,24 +715,27 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
                 state.requirements_document_root(context_id)
 
-    def test_requirements_complete_can_run_before_start(self) -> None:
+    def test_requirements_approval_can_run_before_start_with_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
             service_root.mkdir()
             project_root.mkdir()
+            initialize_git_repo(project_root)
+            write_file(project_root / "docs" / "requirements.md", "# Requirements\n")
             StateStore(project_root).init_run(run_id="run-1")
 
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
 
-            payload = state.complete_requirements_agent(context_id)
+            payload = state.approve_requirements(context_id)
 
-        self.assertEqual(payload["status"], "completed")
-        self.assertEqual(payload["workflow_stage"], "requirements-approve")
+        self.assertEqual(payload["status"], "approved")
+        self.assertEqual(payload["workflow_stage"], "design")
         self.assertFalse(payload["requirements_started"])
-        self.assertEqual(payload["next_stage"], "requirements-approve")
+        self.assertEqual(payload["next_stage"], "design")
+        self.assertTrue(payload["requirements_approved"])
         self.assertIsNone(state.current_requirements_session(context_id))
 
     def test_service_state_selects_workflow_stage_after_activation(self) -> None:
@@ -793,18 +818,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertIsNone(state.current_requirements_session(context_id))
 
-    def test_requirements_approval_stage_only_allows_requirements_restart(self) -> None:
+    def test_after_requirements_approval_only_allows_requirements_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
             service_root.mkdir()
             project_root.mkdir()
+            initialize_git_repo(project_root)
+            write_file(project_root / "docs" / "requirements.md", "# Requirements\n")
             StateStore(project_root).init_run(run_id="run-1")
 
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
-            state.complete_requirements_agent(context_id)
+            state.approve_requirements(context_id)
 
             with self.assertRaisesRegex(
                 AgentSessionError,
@@ -915,7 +942,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertTrue(payload["design_started"])
 
-    def test_design_review_completion_moves_to_design_approval(self) -> None:
+    def test_design_review_completion_stays_on_review_for_folded_approval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -935,7 +962,8 @@ class ServiceTests(unittest.TestCase):
             passed_payload = state.project_payload(context_id)
 
         self.assertEqual(failed_payload["workflow_stage"], "design-review")
-        self.assertEqual(passed_payload["workflow_stage"], "design-approve")
+        self.assertEqual(passed_payload["workflow_stage"], "design-review")
+        self.assertTrue(passed_payload["design_review_started"])
 
     def test_interactive_design_review_start_uses_interactive_cli_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1002,7 +1030,7 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
 
-    def test_design_review_complete_terminates_session_and_advances(self) -> None:
+    def test_design_review_approve_terminates_session_and_advances(self) -> None:
         class FakeSession:
             def __init__(self) -> None:
                 self.terminated = False
@@ -1031,16 +1059,17 @@ class ServiceTests(unittest.TestCase):
                 context.design_review_session = session  # type: ignore[assignment]
 
             with mock.patch("electroboy.cli._cmd_stage", return_value=0) as cmd_stage:
-                payload = state.complete_design_review_agent(context_id)
+                payload = state.approve_design(context_id)
 
-            stage_args = cmd_stage.call_args.args[2]
+            stage_args = [call.args[2] for call in cmd_stage.call_args_list]
 
         self.assertTrue(session.terminated)
-        self.assertTrue(stage_args.force)
-        self.assertEqual(stage_args.stage, STAGE_DESIGN_REVIEW)
-        self.assertEqual(payload["status"], "completed")
-        self.assertEqual(payload["workflow_stage"], "design-approve")
-        self.assertEqual(payload["next_stage"], "design-approve")
+        self.assertEqual([args.stage for args in stage_args], [STAGE_DESIGN_REVIEW, STAGE_DESIGN_ACCEPTANCE])
+        self.assertTrue(stage_args[0].force)
+        self.assertFalse(stage_args[1].force)
+        self.assertEqual(payload["status"], "approved")
+        self.assertEqual(payload["workflow_stage"], "implementation-plan")
+        self.assertEqual(payload["next_stage"], "implementation-plan")
         self.assertTrue(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
 
@@ -1065,6 +1094,35 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "implementation-plan")
         self.assertEqual(payload["next_stage"], "implementation-plan")
 
+    def test_design_skip_approval_force_records_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with state.lock:
+                context = state.contexts[context_id]
+                context.workflow_stage = "design-review"
+                context.design_review_started = True
+
+            with mock.patch("electroboy.cli._cmd_stage", return_value=0) as cmd_stage:
+                payload = state.approve_design(context_id, skip_approval=True)
+
+            stage_args = [call.args[2] for call in cmd_stage.call_args_list]
+
+        self.assertEqual([args.stage for args in stage_args], [STAGE_DESIGN_REVIEW, STAGE_DESIGN_ACCEPTANCE])
+        self.assertTrue(stage_args[0].force)
+        self.assertTrue(stage_args[1].force)
+        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["workflow_stage"], "implementation-plan")
+        self.assertEqual(payload["next_stage"], "implementation-plan")
+        self.assertIn("WARNING: design approval was skipped", str(payload["warning"]))
+
     def test_completed_requirements_approval_force_records_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -1078,7 +1136,6 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
-            state.complete_requirements_agent(context_id)
 
             payload = state.approve_requirements(context_id)
             store = StateStore(project_root)
@@ -1097,7 +1154,39 @@ class ServiceTests(unittest.TestCase):
             )
         )
 
-    def test_requirements_approval_requires_approval_stage(self) -> None:
+    def test_requirements_skip_approval_records_warning_and_advances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            initialize_git_repo(project_root)
+            write_file(project_root / "docs" / "requirements.md", "# Requirements\n")
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            payload = state.approve_requirements(context_id, skip_approval=True)
+            store = StateStore(project_root)
+            approvals = store.read_approvals()
+
+        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["workflow_stage"], "design")
+        self.assertEqual(payload["next_stage"], "design")
+        self.assertIn("WARNING: requirements approval was skipped", str(payload["warning"]))
+        self.assertIn("forced approval: yes", str(payload["output"]))
+        self.assertTrue(
+            any(
+                approval.get("stage") == STAGE_REQUIREMENTS
+                and approval.get("approval_type") == "human-approval"
+                and "force-recorded" in str(approval.get("summary"))
+                for approval in approvals
+            )
+        )
+
+    def test_requirements_approval_requires_requirements_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -1108,10 +1197,12 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
+            with state.lock:
+                state.contexts[context_id].workflow_stage = "design"
 
             with self.assertRaisesRegex(
                 AgentSessionError,
-                "requirements approval stage is not active",
+                "requirements stage is not active",
             ):
                 state.approve_requirements(context_id)
 

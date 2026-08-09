@@ -30,6 +30,7 @@ from uuid import uuid4
 from .artifacts import ArtifactManager
 from .models import (
     ActivityEvent,
+    GATE_DESIGN,
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
     STAGE_DESIGN_REVIEW,
@@ -50,18 +51,12 @@ _CONTROL_CHARS_TO_DROP = frozenset(
 WORKFLOW_STAGES = [
     "project",
     "requirements",
-    "requirements-approve",
     "design",
     "design-review",
-    "design-approve",
     "implementation-plan",
-    "plan-approve",
     "code",
-    "code-approve",
     "test-plan",
-    "test-plan-approve",
     "validate",
-    "validation-approve",
     "document",
 ]
 
@@ -75,6 +70,15 @@ APPROVAL_WORKFLOW_STAGES = frozenset(
         "validation-approve",
     }
 )
+
+APPROVAL_STAGE_OWNERS = {
+    "requirements-approve": "requirements",
+    "design-approve": "design-review",
+    "plan-approve": "implementation-plan",
+    "code-approve": "code",
+    "test-plan-approve": "test-plan",
+    "validation-approve": "validate",
+}
 
 INDEX_HTML = """<!doctype html>
 <html lang="en">
@@ -199,9 +203,9 @@ INDEX_HTML = """<!doctype html>
     .stage-graph {
       position: relative;
       display: grid;
-      grid-template-columns: repeat(15, minmax(126px, 1fr));
+      grid-template-columns: repeat(9, minmax(136px, 1fr));
       gap: 12px;
-      min-width: 1880px;
+      min-width: 1240px;
       padding-top: 54px;
     }
 
@@ -696,22 +700,11 @@ INDEX_HTML = """<!doctype html>
           >
             requirements
           </button>
-          <button
-            class="stage-node disabled"
-            type="button"
-            data-stage="requirements-approve"
-            disabled
-          >
-            requirements-approve
-          </button>
           <button class="stage-node disabled" type="button" data-stage="design" disabled>
             design
           </button>
           <button class="stage-node disabled" type="button" data-stage="design-review" disabled>
             design-review
-          </button>
-          <button class="stage-node disabled" type="button" data-stage="design-approve" disabled>
-            design-approve
           </button>
           <button
             class="stage-node disabled"
@@ -721,36 +714,14 @@ INDEX_HTML = """<!doctype html>
           >
             implementation-plan
           </button>
-          <button class="stage-node disabled" type="button" data-stage="plan-approve" disabled>
-            plan-approve
-          </button>
           <button class="stage-node disabled" type="button" data-stage="code" disabled>
             code
-          </button>
-          <button class="stage-node disabled" type="button" data-stage="code-approve" disabled>
-            code-approve
           </button>
           <button class="stage-node disabled" type="button" data-stage="test-plan" disabled>
             test-plan
           </button>
-          <button
-            class="stage-node disabled"
-            type="button"
-            data-stage="test-plan-approve"
-            disabled
-          >
-            test-plan-approve
-          </button>
           <button class="stage-node disabled" type="button" data-stage="validate" disabled>
             validate
-          </button>
-          <button
-            class="stage-node disabled"
-            type="button"
-            data-stage="validation-approve"
-            disabled
-          >
-            validation-approve
           </button>
           <button class="stage-node disabled" type="button" data-stage="document" disabled>
             document
@@ -765,12 +736,9 @@ INDEX_HTML = """<!doctype html>
       <div id="requirementsMenu" class="stage-menu" hidden>
         <button id="startRequirements" type="button">Start</button>
         <button id="restartRequirements" type="button">Restart</button>
-        <button id="completeRequirements" type="button">Complete</button>
-        <button id="openRequirements" type="button">Open requirements</button>
-      </div>
-      <div id="requirementsApproveMenu" class="stage-menu" hidden>
         <button id="approveRequirements" type="button">Approve</button>
-        <button id="openApprovedRequirements" type="button">Open requirements</button>
+        <button id="skipRequirementsApproval" type="button">Skip approval</button>
+        <button id="openRequirements" type="button">Open requirements</button>
       </div>
       <div id="designMenu" class="stage-menu" hidden>
         <button id="startDesign" type="button">Start</button>
@@ -782,15 +750,11 @@ INDEX_HTML = """<!doctype html>
         <button id="startAutomaticDesignReview" type="button">Start automatic</button>
         <button id="startInteractiveDesignReview" type="button">Start interactive</button>
         <button id="stopDesignReview" type="button">Stop</button>
-        <button id="completeDesignReview" type="button">Complete</button>
+        <button id="approveDesignReview" type="button">Approve</button>
+        <button id="skipDesignReviewApproval" type="button">Skip approval</button>
         <button id="restartDesignReview" type="button">Restart review</button>
         <button id="openDesignReview" type="button">Open review</button>
         <button id="openDesignFromReview" type="button">Open design</button>
-      </div>
-      <div id="designApproveMenu" class="stage-menu" hidden>
-        <button id="approveDesign" type="button">Approve</button>
-        <button id="openApprovedDesign" type="button">Open design</button>
-        <button id="openApprovedDesignReview" type="button">Open review</button>
       </div>
       <div id="projectPanel" class="project-panel" hidden>
         <input
@@ -923,51 +887,30 @@ INDEX_HTML = """<!doctype html>
     const STAGE_DESCRIPTIONS = {
       project: "Open an existing ElectroBoy project or create a new one.",
       requirements: "Author or resume docs/requirements.md with the requirements agent.",
-      "requirements-approve": "Review and approve the requirements baseline before design.",
       design: "Author docs/detailed-design.md from the approved requirements.",
       "design-review": "Review the detailed design and capture blocking design issues.",
-      "design-approve": "Approve the detailed design baseline.",
       "implementation-plan": "Author docs/implementation-plan.md with the implementation phases.",
-      "plan-approve": "Approve the implementation plan before coding.",
       code: "Implement and commit the planned code changes.",
-      "code-approve": "Approve the completed code handoff before test planning.",
       "test-plan": "Author docs/test-plan.md with validation commands and acceptance checks.",
-      "test-plan-approve": "Approve the test plan as the validation baseline.",
       validate: "Run validation commands and tests, then write the validation report.",
-      "validation-approve": "Approve validation results and implementation handoff artifacts.",
       document: "Update final project documentation after validation passes.",
     };
-    const APPROVAL_STAGES = new Set([
-      "requirements-approve",
-      "design-approve",
-      "plan-approve",
-      "code-approve",
-      "test-plan-approve",
-      "validation-approve",
-    ]);
     const projectStage = document.querySelector("[data-stage='project']");
     const requirementsStage = document.querySelector("[data-stage='requirements']");
-    const requirementsApproveStage = document.querySelector(
-      "[data-stage='requirements-approve']",
-    );
     const designStage = document.querySelector("[data-stage='design']");
     const designReviewStage = document.querySelector("[data-stage='design-review']");
-    const designApproveStage = document.querySelector("[data-stage='design-approve']");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
-    const requirementsApproveMenu = document.getElementById("requirementsApproveMenu");
     const designMenu = document.getElementById("designMenu");
     const designReviewMenu = document.getElementById("designReviewMenu");
-    const designApproveMenu = document.getElementById("designApproveMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
     const deactivateProject = document.getElementById("deactivateProject");
     const startRequirements = document.getElementById("startRequirements");
     const restartRequirements = document.getElementById("restartRequirements");
-    const completeRequirements = document.getElementById("completeRequirements");
-    const openRequirements = document.getElementById("openRequirements");
     const approveRequirements = document.getElementById("approveRequirements");
-    const openApprovedRequirements = document.getElementById("openApprovedRequirements");
+    const skipRequirementsApproval = document.getElementById("skipRequirementsApproval");
+    const openRequirements = document.getElementById("openRequirements");
     const startDesign = document.getElementById("startDesign");
     const restartDesign = document.getElementById("restartDesign");
     const completeDesign = document.getElementById("completeDesign");
@@ -975,13 +918,11 @@ INDEX_HTML = """<!doctype html>
     const startAutomaticDesignReview = document.getElementById("startAutomaticDesignReview");
     const startInteractiveDesignReview = document.getElementById("startInteractiveDesignReview");
     const stopDesignReview = document.getElementById("stopDesignReview");
-    const completeDesignReview = document.getElementById("completeDesignReview");
+    const approveDesignReview = document.getElementById("approveDesignReview");
+    const skipDesignReviewApproval = document.getElementById("skipDesignReviewApproval");
     const restartDesignReview = document.getElementById("restartDesignReview");
     const openDesignReview = document.getElementById("openDesignReview");
     const openDesignFromReview = document.getElementById("openDesignFromReview");
-    const approveDesign = document.getElementById("approveDesign");
-    const openApprovedDesign = document.getElementById("openApprovedDesign");
-    const openApprovedDesignReview = document.getElementById("openApprovedDesignReview");
     const projectPanel = document.getElementById("projectPanel");
     const projectPath = document.getElementById("projectPath");
     const browseProject = document.getElementById("browseProject");
@@ -1028,11 +969,13 @@ INDEX_HTML = """<!doctype html>
     let activeAgentKind = "";
     let requirementsRunning = false;
     let requirementsStarted = false;
+    let requirementsApproved = false;
     let designRunning = false;
     let designStarted = false;
     let designReviewRunning = false;
     let designReviewStarted = false;
     let designReviewInteractive = false;
+    let designApproved = false;
     let currentWorkflowStage = "project";
     let contextId = "";
     let projectMode = "open";
@@ -1625,11 +1568,13 @@ INDEX_HTML = """<!doctype html>
       activeProjectRoot = payload.active_project_root || "";
       requirementsStarted = Boolean(payload.requirements_started);
       requirementsRunning = Boolean(payload.requirements_running);
+      requirementsApproved = Boolean(payload.requirements_approved);
       designStarted = Boolean(payload.design_started);
       designRunning = Boolean(payload.design_running);
       designReviewStarted = Boolean(payload.design_review_started);
       designReviewRunning = Boolean(payload.design_review_running);
       designReviewInteractive = Boolean(payload.design_review_interactive);
+      designApproved = Boolean(payload.design_approved);
       updateAgentControls();
       const hasActiveProject = Boolean(activeProjectRoot);
       const workflowStage = payload.workflow_stage || (hasActiveProject ? "requirements" : "project");
@@ -1643,10 +1588,8 @@ INDEX_HTML = """<!doctype html>
       newProject.disabled = hasActiveProject;
       deactivateProject.disabled = !hasActiveProject;
       updateRequirementsMenuState();
-      updateRequirementsApproveMenuState();
       updateDesignMenuState();
       updateDesignReviewMenuState();
-      updateDesignApproveMenuState();
       projectStatus.textContent = activeProjectRoot
         ? `active: ${activeProjectRoot}`
         : "";
@@ -1677,15 +1620,11 @@ INDEX_HTML = """<!doctype html>
         !hasActiveProject || !inRequirementsStage || requirementsRunning;
       restartRequirements.disabled =
         !hasActiveProject || (inRequirementsStage && !requirementsStarted);
-      completeRequirements.disabled = !hasActiveProject || !inRequirementsStage;
+      approveRequirements.disabled = !hasActiveProject || !inRequirementsStage;
+      skipRequirementsApproval.disabled = !hasActiveProject || !inRequirementsStage;
       openRequirements.disabled =
-        !hasActiveProject || !inRequirementsStage || !requirementsStarted;
-    }
-
-    function updateRequirementsApproveMenuState() {
-      const inRequirementsApproveStage = currentWorkflowStage === "requirements-approve";
-      approveRequirements.disabled = !inRequirementsApproveStage;
-      openApprovedRequirements.disabled = !inRequirementsApproveStage;
+        !hasActiveProject ||
+        (inRequirementsStage && !requirementsStarted && !requirementsApproved);
     }
 
     function updateDesignMenuState() {
@@ -1706,19 +1645,13 @@ INDEX_HTML = """<!doctype html>
         !hasActiveProject || !inDesignReviewStage || designReviewRunning || designReviewStarted;
       stopDesignReview.disabled =
         !hasActiveProject || !inDesignReviewStage || !designReviewRunning;
-      completeDesignReview.disabled = !hasActiveProject || !inDesignReviewStage;
+      approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage;
+      skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage;
       restartDesignReview.disabled =
         !hasActiveProject || (inDesignReviewStage && !designReviewStarted);
       openDesignReview.disabled =
         !hasActiveProject || !inDesignReviewStage || !designReviewStarted;
       openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage;
-    }
-
-    function updateDesignApproveMenuState() {
-      const inDesignApproveStage = currentWorkflowStage === "design-approve";
-      approveDesign.disabled = !inDesignApproveStage;
-      openApprovedDesign.disabled = !inDesignApproveStage;
-      openApprovedDesignReview.disabled = !inDesignApproveStage;
     }
 
     async function refreshProject() {
@@ -1734,7 +1667,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function selectWorkflowStage(stageId) {
-      if (!activeProjectRoot || stageId === "project" || APPROVAL_STAGES.has(stageId)) {
+      if (!activeProjectRoot || stageId === "project") {
         return false;
       }
       const response = await fetch(contextUrl("/api/workflow/stage"), {
@@ -1758,12 +1691,20 @@ INDEX_HTML = """<!doctype html>
       return true;
     }
 
-    async function approveRequirementsStage() {
-      if (currentWorkflowStage !== "requirements-approve") {
+    async function approveRequirementsStage(skipApproval = false) {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
         return;
       }
-      requirementsApproveMenu.hidden = true;
-      const response = await fetch(contextUrl("/api/agents/requirements/approve"), {
+      if (currentWorkflowStage !== "requirements") {
+        return;
+      }
+      requirementsMenu.hidden = true;
+      closeAgentEventStream();
+      const endpoint = skipApproval
+        ? "/api/agents/requirements/skip-approval"
+        : "/api/agents/requirements/approve";
+      const response = await fetch(contextUrl(endpoint), {
         method: "POST",
       });
       const payload = await response.json().catch(() => ({ error: "approval failed" }));
@@ -1774,8 +1715,34 @@ INDEX_HTML = """<!doctype html>
         }
         return;
       }
-      appendOutput("requirements approved; next: design\\n", "system");
+      setRequirementsRunning(false);
+      agentInput.value = "";
+      clearAgentOutput();
+      if (payload.output) {
+        appendOutput(`${payload.output}\\n`, "system");
+      }
+      if (payload.warning) {
+        appendOutput(`${payload.warning}\\n`, "system");
+      }
+      appendOutput(
+        skipApproval
+          ? "requirements approval skipped; next: design\\n"
+          : "requirements approved; next: design\\n",
+        "system",
+      );
       updateProjectState(payload);
+    }
+
+    async function skipRequirementsApprovalStage() {
+      if (
+        !requirementsApproved &&
+        !window.confirm(
+          "Requirements have not been explicitly approved.\\n\\nSkip approval and advance to design anyway?",
+        )
+      ) {
+        return;
+      }
+      await approveRequirementsStage(true);
     }
 
     async function browseDirectory(path = projectPath.value || ".", mode = currentBrowserMode) {
@@ -1844,10 +1811,8 @@ INDEX_HTML = """<!doctype html>
       projectMode = mode;
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
-      requirementsApproveMenu.hidden = true;
       designMenu.hidden = true;
       designReviewMenu.hidden = true;
-      designApproveMenu.hidden = true;
       projectPanel.hidden = false;
       activateProject.textContent = mode === "new" ? "Create" : "Activate";
       projectStatus.textContent = activeProjectRoot ? `active: ${activeProjectRoot}` : "";
@@ -1957,7 +1922,6 @@ INDEX_HTML = """<!doctype html>
       requirementsMenu.hidden = true;
       designMenu.hidden = true;
       designReviewMenu.hidden = true;
-      designApproveMenu.hidden = true;
       agentInput.disabled = true;
       interruptAgent.disabled = true;
       startRequirements.disabled = false;
@@ -2153,33 +2117,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function completeRequirementsAgent() {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\\n", "error");
-        return;
-      }
-      if (currentWorkflowStage !== "requirements") {
-        return;
-      }
-      if (
-        !requirementsStarted &&
-        !window.confirm("Requirements authoring has not been started.\\n\\nComplete anyway?")
-      ) {
-        return;
-      }
-      requirementsMenu.hidden = true;
-      closeAgentEventStream();
-      const response = await fetch(contextUrl("/api/agents/requirements/complete"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "complete failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "complete failed"}\\n`, "error");
-        return;
-      }
-      setRequirementsRunning(false);
-      agentInput.value = "";
-      clearAgentOutput();
-      updateProjectState(payload);
+      await approveRequirementsStage(false);
     }
 
     async function startDesignAgent() {
@@ -2295,6 +2233,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function completeDesignReviewAgent() {
+      await approveDesignReviewStage(false);
+    }
+
+    async function approveDesignReviewStage(skipApproval = false) {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
         return;
@@ -2305,12 +2247,15 @@ INDEX_HTML = """<!doctype html>
       designReviewMenu.hidden = true;
       closeAgentEventStream();
       closeProgressEventStream();
-      const response = await fetch(contextUrl("/api/agents/design-review/complete"), {
+      const endpoint = skipApproval
+        ? "/api/agents/design-review/skip-approval"
+        : "/api/agents/design-review/approve";
+      const response = await fetch(contextUrl(endpoint), {
         method: "POST",
       });
-      const payload = await response.json().catch(() => ({ error: "complete failed" }));
+      const payload = await response.json().catch(() => ({ error: "approval failed" }));
       if (!response.ok) {
-        appendOutput(`${payload.error || "complete failed"}\\n`, "error");
+        appendOutput(`${payload.error || "approval failed"}\\n`, "error");
         if (payload.output) {
           appendOutput(`${payload.output}\\n`, "error");
         }
@@ -2322,28 +2267,28 @@ INDEX_HTML = """<!doctype html>
       if (payload.output) {
         appendOutput(`${payload.output}\\n`, "system");
       }
-      appendOutput("design review completed; next: design-approve\\n", "system");
+      if (payload.warning) {
+        appendOutput(`${payload.warning}\\n`, "system");
+      }
+      appendOutput(
+        skipApproval
+          ? "design approval skipped; next: implementation-plan\\n"
+          : "design approved; next: implementation-plan\\n",
+        "system",
+      );
       updateProjectState(payload);
     }
 
-    async function approveDesignStage() {
-      if (currentWorkflowStage !== "design-approve") {
+    async function skipDesignReviewApprovalStage() {
+      if (
+        !designApproved &&
+        !window.confirm(
+          "Design has not been explicitly approved.\\n\\nSkip approval and advance to implementation planning anyway?",
+        )
+      ) {
         return;
       }
-      designApproveMenu.hidden = true;
-      const response = await fetch(contextUrl("/api/agents/design-approve/approve"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "approval failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "approval failed"}\\n`, "error");
-        if (payload.output) {
-          appendOutput(`${payload.output}\\n`, "error");
-        }
-        return;
-      }
-      appendOutput("design approved; next: implementation-plan\\n", "system");
-      updateProjectState(payload);
+      await approveDesignReviewStage(true);
     }
 
     function openRequirementsDocument() {
@@ -2426,10 +2371,8 @@ INDEX_HTML = """<!doctype html>
       const menus = [
         projectMenu,
         requirementsMenu,
-        requirementsApproveMenu,
         designMenu,
         designReviewMenu,
-        designApproveMenu,
       ];
       for (const menu of menus) {
         if (menu !== exceptMenu) {
@@ -2454,17 +2397,11 @@ INDEX_HTML = """<!doctype html>
       if (!requirementsMenu.hidden) {
         positionStageMenu(requirementsMenu, requirementsStage);
       }
-      if (!requirementsApproveMenu.hidden) {
-        positionStageMenu(requirementsApproveMenu, requirementsApproveStage);
-      }
       if (!designMenu.hidden) {
         positionStageMenu(designMenu, designStage);
       }
       if (!designReviewMenu.hidden) {
         positionStageMenu(designReviewMenu, designReviewStage);
-      }
-      if (!designApproveMenu.hidden) {
-        positionStageMenu(designApproveMenu, designApproveStage);
       }
     }
 
@@ -2475,16 +2412,6 @@ INDEX_HTML = """<!doctype html>
       }
       const wasCurrentStage = stageId === currentWorkflowStage;
       hideStageMenus();
-      if (APPROVAL_STAGES.has(stageId)) {
-        if (stageId === "requirements-approve") {
-          requirementsApproveMenu.hidden = false;
-          positionStageMenu(requirementsApproveMenu, requirementsApproveStage);
-        } else if (stageId === "design-approve") {
-          designApproveMenu.hidden = false;
-          positionStageMenu(designApproveMenu, designApproveStage);
-        }
-        return;
-      }
       if (stageId === "requirements") {
         if (wasCurrentStage) {
           toggleStageMenu(requirementsMenu, requirementsStage);
@@ -2562,10 +2489,9 @@ INDEX_HTML = """<!doctype html>
 
     startRequirements.addEventListener("click", startRequirementsAgent);
     restartRequirements.addEventListener("click", restartRequirementsAgent);
-    completeRequirements.addEventListener("click", completeRequirementsAgent);
-    openRequirements.addEventListener("click", openRequirementsDocument);
     approveRequirements.addEventListener("click", approveRequirementsStage);
-    openApprovedRequirements.addEventListener("click", openRequirementsDocument);
+    skipRequirementsApproval.addEventListener("click", skipRequirementsApprovalStage);
+    openRequirements.addEventListener("click", openRequirementsDocument);
     startDesign.addEventListener("click", startDesignAgent);
     restartDesign.addEventListener("click", restartDesignAgent);
     completeDesign.addEventListener("click", completeDesignAgent);
@@ -2573,13 +2499,11 @@ INDEX_HTML = """<!doctype html>
     startAutomaticDesignReview.addEventListener("click", startAutomaticDesignReviewAgent);
     startInteractiveDesignReview.addEventListener("click", startInteractiveDesignReviewAgent);
     stopDesignReview.addEventListener("click", stopDesignReviewAgent);
-    completeDesignReview.addEventListener("click", completeDesignReviewAgent);
+    approveDesignReview.addEventListener("click", approveDesignReviewStage);
+    skipDesignReviewApproval.addEventListener("click", skipDesignReviewApprovalStage);
     restartDesignReview.addEventListener("click", restartDesignReviewAgent);
     openDesignReview.addEventListener("click", openDesignReviewDocument);
     openDesignFromReview.addEventListener("click", openDesignDocument);
-    approveDesign.addEventListener("click", approveDesignStage);
-    openApprovedDesign.addEventListener("click", openDesignDocument);
-    openApprovedDesignReview.addEventListener("click", openDesignReviewDocument);
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
     shellResizeHandle.addEventListener("pointerdown", startShellResize);
@@ -2681,10 +2605,10 @@ class ServiceState:
         stage: str,
     ) -> dict[str, object]:
         stage = stage.strip()
-        if stage == "project" or stage not in WORKFLOW_STAGES:
-            raise StateError(f"unknown workflow stage: {stage}")
         if stage in APPROVAL_WORKFLOW_STAGES:
             raise StateError(f"approval stage is not directly selectable: {stage}")
+        if stage == "project" or stage not in WORKFLOW_STAGES:
+            raise StateError(f"unknown workflow stage: {stage}")
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
@@ -2711,14 +2635,22 @@ class ServiceState:
             "terminated_agent": terminated_agent,
         }
 
-    def approve_requirements(self, context_id: str) -> dict[str, object]:
+    def approve_requirements(
+        self,
+        context_id: str,
+        *,
+        skip_approval: bool = False,
+    ) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            if context.workflow_stage != "requirements-approve":
-                raise AgentSessionError("requirements approval stage is not active")
+            if context.workflow_stage not in {"requirements", "requirements-approve"}:
+                raise AgentSessionError("requirements stage is not active")
+            requirements_started = context.requirements_started
+        self._terminate_requirements_session(context_id)
+        _record_requirements_complete(project_root, skipped=skip_approval)
         from .cli import _cmd_stage, _stage_args
         from .gates import GateEngine
 
@@ -2726,14 +2658,30 @@ class ServiceState:
         stderr = io.StringIO()
         store = StateStore(project_root)
         engine = GateEngine(project_root)
-        force_approval = _should_force_completed_requirements_approval(store)
-        reason = (
-            "Requirements authoring was completed from the GUI without "
-            "agent confirmation; approval "
-            "force-records the missing author confirmation."
-            if force_approval
-            else None
+        previously_approved = _stage_has_approvals(
+            project_root,
+            STAGE_REQUIREMENTS,
+            ["human-approval", "author-confirmation"],
         )
+        if skip_approval:
+            force_approval = True
+            reason = (
+                "Requirements approval was skipped from the GUI during an "
+                "update after a previous requirements approval."
+                if previously_approved
+                else "WARNING: requirements approval was skipped from the GUI. "
+                "The operator accepted the risk that requirements were not "
+                "explicitly approved."
+            )
+        else:
+            force_approval = _should_force_completed_requirements_approval(store)
+            reason = (
+                "Requirements authoring was completed from the GUI without "
+                "agent confirmation; approval "
+                "force-records the missing author confirmation."
+                if force_approval
+                else None
+            )
         with redirect_stdout(stdout), redirect_stderr(stderr):
             code = _cmd_stage(
                 store,
@@ -2755,12 +2703,19 @@ class ServiceState:
             context = self._context_locked(context_id)
             context.workflow_stage = "design"
             context.requirements_session = None
+            context.requirements_started = requirements_started
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
-            "status": "approved",
+            "status": "skipped" if skip_approval else "approved",
             "next_stage": "design",
             "output": output,
+            "warning": (
+                "WARNING: requirements approval was skipped; advancing to design "
+                "with forced approval records."
+                if skip_approval and not previously_approved
+                else None
+            ),
         }
 
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
@@ -2885,30 +2840,10 @@ class ServiceState:
         return self.start_requirements_agent(context_id, allow_stage_reopen=True)
 
     def complete_requirements_agent(self, context_id: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
-            project_root = context.active_project_root
-            if project_root is None:
-                raise AgentSessionError("activate a project first")
-            if context.workflow_stage != "requirements":
-                raise AgentSessionError("requirements stage is not active")
-            requirements_started = context.requirements_started
-        self._terminate_requirements_session(context_id)
-        _record_requirements_complete(project_root)
-        with self.lock:
-            context = self._context_locked(context_id)
-            context.workflow_stage = "requirements-approve"
-            context.requirements_session = None
-            context.requirements_started = requirements_started
-            project_root = context.active_project_root
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "completed",
-            "next_stage": "requirements-approve",
-        }
+        return self.approve_requirements(context_id)
 
     def skip_requirements_agent(self, context_id: str) -> dict[str, object]:
-        return self.complete_requirements_agent(context_id)
+        return self.approve_requirements(context_id, skip_approval=True)
 
     def start_design_agent(
         self,
@@ -3092,18 +3027,26 @@ class ServiceState:
         }
 
     def complete_design_review_agent(self, context_id: str) -> dict[str, object]:
+        return self.approve_design(context_id)
+
+    def approve_design(
+        self,
+        context_id: str,
+        *,
+        skip_approval: bool = False,
+    ) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            if context.workflow_stage != "design-review":
+            if context.workflow_stage not in {"design-review", "design-approve"}:
                 raise AgentSessionError("design review stage is not active")
             session = context.design_review_session
             design_review_started = context.design_review_started
+            needs_design_review_completion = context.workflow_stage == "design-review"
         if session is not None and session.is_active():
             session.terminate()
-
         from .cli import _cmd_stage, _stage_args
         from .gates import GateEngine
 
@@ -3111,69 +3054,58 @@ class ServiceState:
         stderr = io.StringIO()
         store = StateStore(project_root)
         engine = GateEngine(project_root)
-        reason = "Design review was completed manually from the GUI."
-        try:
+        manifest = store.load_current_manifest()
+        if needs_design_review_completion and not manifest.has_gate(GATE_DESIGN):
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 code = _cmd_stage(
                     store,
                     engine,
-                    _stage_args(STAGE_DESIGN_REVIEW, force=True, reason=reason),
+                    _stage_args(
+                        STAGE_DESIGN_REVIEW,
+                        force=True,
+                        reason="Design review was completed from the GUI approval action.",
+                    ),
                 )
-        except StateError:
-            with self.lock:
-                context = self._context_locked(context_id)
-                if context.design_review_session is session:
-                    context.design_review_session = None
-                    context.design_review_interactive = False
-            raise
-        output = "\n".join(
-            part.strip()
-            for part in [stderr.getvalue(), stdout.getvalue()]
-            if part.strip()
+            if code != 0:
+                output = "\n".join(
+                    part.strip()
+                    for part in [stderr.getvalue(), stdout.getvalue()]
+                    if part.strip()
+                )
+                with self.lock:
+                    context = self._context_locked(context_id)
+                    if context.design_review_session is session:
+                        context.design_review_session = None
+                        context.design_review_interactive = False
+                raise AgentSessionError(output or "design review completion failed")
+            store = StateStore(project_root)
+            engine = GateEngine(project_root)
+        previously_approved = _stage_has_approvals(
+            project_root,
+            STAGE_DESIGN_ACCEPTANCE,
+            ["human-approval"],
         )
-        if code != 0:
-            with self.lock:
-                context = self._context_locked(context_id)
-                if context.design_review_session is session:
-                    context.design_review_session = None
-                    context.design_review_interactive = False
-            raise AgentSessionError(output or "design review completion failed")
-
-        with self.lock:
-            context = self._context_locked(context_id)
-            if context.design_review_session is session:
-                context.design_review_session = None
-                context.design_review_interactive = False
-            context.workflow_stage = "design-approve"
-            context.design_review_started = design_review_started
-            project_root = context.active_project_root
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "completed",
-            "next_stage": "design-approve",
-            "output": output,
-        }
-
-    def approve_design(self, context_id: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
-            project_root = context.active_project_root
-            if project_root is None:
-                raise AgentSessionError("activate a project first")
-            if context.workflow_stage != "design-approve":
-                raise AgentSessionError("design approval stage is not active")
-        from .cli import _cmd_stage, _stage_args
-        from .gates import GateEngine
-
-        stdout = io.StringIO()
-        stderr = io.StringIO()
-        store = StateStore(project_root)
-        engine = GateEngine(project_root)
+        if skip_approval:
+            reason = (
+                "Design approval was skipped from the GUI during an update "
+                "after a previous design approval."
+                if previously_approved
+                else "WARNING: design approval was skipped from the GUI. "
+                "The operator accepted the risk that design was not "
+                "explicitly approved."
+            )
+        else:
+            reason = None
         with redirect_stdout(stdout), redirect_stderr(stderr):
             code = _cmd_stage(
                 store,
                 engine,
-                _stage_args(STAGE_DESIGN_ACCEPTANCE, human=True),
+                _stage_args(
+                    STAGE_DESIGN_ACCEPTANCE,
+                    human=True,
+                    force=skip_approval,
+                    reason=reason,
+                ),
             )
         output = "\n".join(
             part.strip()
@@ -3187,12 +3119,19 @@ class ServiceState:
             context.workflow_stage = "implementation-plan"
             context.design_review_session = None
             context.design_review_interactive = False
+            context.design_review_started = design_review_started
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
-            "status": "approved",
+            "status": "skipped" if skip_approval else "approved",
             "next_stage": "implementation-plan",
             "output": output,
+            "warning": (
+                "WARNING: design approval was skipped; advancing to "
+                "implementation planning with a forced approval record."
+                if skip_approval and not previously_approved
+                else None
+            ),
         }
 
     def requirements_document_root(self, context_id: str) -> Path:
@@ -3358,7 +3297,7 @@ class ServiceState:
             except StateError:
                 return
             if context.workflow_stage == "design-review":
-                context.workflow_stage = "design-approve"
+                context.design_review_started = True
 
     def _context_sessions_locked(
         self,
@@ -3873,17 +3812,26 @@ def project_payload(
         and design_review_session is not None
         and design_review_session.is_active()
     )
+    workflow_stage = (
+        _visible_workflow_stage(context.workflow_stage)
+        if active_root and context.workflow_stage
+        else ("requirements" if active_root else "project")
+    )
     return {
         "context_id": context.context_id,
         "service_root": str(service_root),
         "active_project_root": str(active_root) if active_root else None,
-        "workflow_stage": (
-            context.workflow_stage
-            if active_root and context.workflow_stage
-            else ("requirements" if active_root else "project")
-        ),
+        "workflow_stage": workflow_stage,
         "requirements_started": bool(active_root and context.requirements_started),
         "requirements_running": requirements_running,
+        "requirements_approved": bool(
+            active_root
+            and _stage_has_approvals(
+                active_root,
+                STAGE_REQUIREMENTS,
+                ["human-approval", "author-confirmation"],
+            )
+        ),
         "design_started": bool(active_root and context.design_started),
         "design_running": design_running,
         "design_review_started": bool(active_root and context.design_review_started),
@@ -3891,12 +3839,43 @@ def project_payload(
         "design_review_interactive": bool(
             active_root and design_review_running and context.design_review_interactive
         ),
+        "design_approved": bool(
+            active_root
+            and _stage_has_approvals(
+                active_root,
+                STAGE_DESIGN_ACCEPTANCE,
+                ["human-approval"],
+            )
+        ),
         "activate_command": (
             f"source {active_root / '.electroboy' / 'bin' / 'activate'}"
             if active_root
             else None
         ),
     }
+
+
+def _visible_workflow_stage(stage: str) -> str:
+    return APPROVAL_STAGE_OWNERS.get(stage, stage)
+
+
+def _stage_has_approvals(
+    project_root: Path | str,
+    stage: str,
+    approval_types: list[str],
+) -> bool:
+    try:
+        approvals = StateStore(project_root).read_approvals()
+    except OSError:
+        return False
+    return all(
+        any(
+            approval.get("stage") == stage
+            and approval.get("approval_type") == approval_type
+            for approval in approvals
+        )
+        for approval_type in approval_types
+    )
 
 
 def workflow_payload(active_project_root: Path | str | None = None) -> dict[str, object]:
@@ -4027,7 +4006,13 @@ def _stage_operations(
             operations.append("Deactivate")
         return operations
     if stage == "requirements" and active_project_root:
-        return ["Start", "Restart", "Complete", "Open requirements"]
+        return [
+            "Start",
+            "Restart",
+            "Approve",
+            "Skip approval",
+            "Open requirements",
+        ]
     if stage == "design" and active_project_root:
         return ["Start", "Restart", "Complete", "Open design"]
     if stage == "design-review" and active_project_root:
@@ -4035,13 +4020,12 @@ def _stage_operations(
             "Start automatic",
             "Start interactive",
             "Stop",
-            "Complete",
+            "Approve",
+            "Skip approval",
             "Restart review",
             "Open review",
             "Open design",
         ]
-    if stage == "design-approve" and active_project_root:
-        return ["Approve", "Open design", "Open review"]
     return []
 
 
@@ -4097,18 +4081,26 @@ def _reopen_design_for_restart(project_root: Path) -> None:
     )
 
 
-def _record_requirements_complete(project_root: Path) -> None:
+def _record_requirements_complete(project_root: Path, *, skipped: bool = False) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
+    action = (
+        "gui-requirements-approval-skipped"
+        if skipped
+        else "gui-requirements-authoring-completed"
+    )
+    summary = (
+        "Skipped explicit requirements approval from the GUI and advanced "
+        "with a forced approval warning."
+        if skipped
+        else "Completed requirements authoring and approved the requirements baseline."
+    )
     store.append_activity(
         ActivityEvent(
             actor="human-operator",
             stage=STAGE_REQUIREMENTS,
-            action="gui-requirements-authoring-completed",
-            summary=(
-                "Completed requirements authoring and moved to requirements "
-                "approval."
-            ),
+            action=action,
+            summary=summary,
             inputs=[manifest.active_stage],
         )
     )
@@ -4136,6 +4128,7 @@ def _should_force_completed_requirements_approval(store: StateStore) -> bool:
     completion_actions = {
         "gui-requirements-authoring-completed",
         "gui-requirements-authoring-skipped",
+        "gui-requirements-approval-skipped",
     }
     return any(
         event.get("actor") == "human-operator"
@@ -4558,7 +4551,10 @@ def _handler_for(
                 self._complete_requirements_agent(parsed.query)
                 return
             if path == "/api/agents/requirements/skip":
-                self._complete_requirements_agent(parsed.query)
+                self._skip_requirements_approval(parsed.query)
+                return
+            if path == "/api/agents/requirements/skip-approval":
+                self._skip_requirements_approval(parsed.query)
                 return
             if path == "/api/agents/requirements/approve":
                 self._approve_requirements(parsed.query)
@@ -4601,6 +4597,12 @@ def _handler_for(
                 return
             if path == "/api/agents/design-review/complete":
                 self._complete_design_review_agent(parsed.query)
+                return
+            if path == "/api/agents/design-review/approve":
+                self._approve_design(parsed.query)
+                return
+            if path == "/api/agents/design-review/skip-approval":
+                self._skip_design_approval(parsed.query)
                 return
             if path == "/api/agents/design-review/restart":
                 self._restart_design_review_agent(parsed.query)
@@ -4826,6 +4828,19 @@ def _handler_for(
             try:
                 context_id = self._context_id(query)
                 self._send_json(state.approve_requirements(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _skip_requirements_approval(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(
+                    state.approve_requirements(context_id, skip_approval=True)
+                )
             except (AgentSessionError, StateError) as error:
                 self._send_json(
                     {"error": str(error)},
@@ -5106,6 +5121,17 @@ def _handler_for(
             try:
                 context_id = self._context_id(query)
                 self._send_json(state.approve_design(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _skip_design_approval(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.approve_design(context_id, skip_approval=True))
             except (AgentSessionError, StateError) as error:
                 self._send_json(
                     {"error": str(error)},

@@ -99,22 +99,21 @@ The primary screen has three persistent regions:
 2. Main work area below the graph.
 3. Progress/activity side pane.
 
-The workflow graph shows the command-aligned stages:
+The workflow graph shows the operator-facing stages:
 
 - `requirements`
-- `requirements-approve`
 - `design`
 - `design-review`
-- `design-approve`
 - `implementation-plan`
-- `plan-approve`
 - `code`
 - `test-plan`
-- `test-plan-approve`
 - `validate`
-- `validation-approve`
 - `document`
-- `code-approve`
+
+Approval gates remain part of the underlying ElectroBoy state model, but the
+GUI presents approval as an action inside the stage that owns the gate. For
+example, the `requirements` menu exposes `Approve` and `Skip approval` rather
+than showing a separate `requirements-approve` node.
 
 Each node shows its state:
 
@@ -246,9 +245,10 @@ graph response that includes:
 - Blocking messages.
 - Force availability.
 
-The graph should represent approval commands as first-class nodes because they
-are operator actions. For example, after `implementation-plan`, the expected
-next stage is `plan-approve`, not `code`.
+The graph should not show approval commands as separate nodes. Approval commands
+are operator actions on the owning stage. For example, after requirements
+authoring, the operator approves or skips approval from the `requirements` menu
+and the visible workflow advances directly to `design`.
 
 Click behavior:
 
@@ -541,8 +541,8 @@ Exit criteria:
 
 Exit criteria:
 
-- The graph correctly distinguishes `implementation-plan`, `plan-approve`,
-  `code`, `test-plan`, and `test-plan-approve`.
+- The graph shows only operator-facing stages while approval actions remain
+  available from the owning stage menus.
 - There is no low-level stage-reset action in the UI.
 
 ### Phase 3. Command Execution
