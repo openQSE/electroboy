@@ -86,6 +86,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('const stageNodes = Array.from', INDEX_HTML)
         self.assertIn("const STAGE_DESCRIPTIONS = {", INDEX_HTML)
+        self.assertIn("const APPROVAL_STAGES = new Set", INDEX_HTML)
         self.assertIn("function applyStageDescriptions()", INDEX_HTML)
         self.assertIn("stageNode.title = description", INDEX_HTML)
         self.assertIn('stageNode.setAttribute("aria-label"', INDEX_HTML)
@@ -95,6 +96,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Run validation commands and tests", INDEX_HTML)
         self.assertIn("function updateStageNodes(hasActiveProject, workflowStage)", INDEX_HTML)
         self.assertIn("stageNode.disabled = !isEnabled", INDEX_HTML)
+        self.assertIn("!isApprovalStage || isActive", INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("available"', INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("active", isActive)', INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("complete", isComplete)', INDEX_HTML)
@@ -114,6 +116,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="closeBrowser"', INDEX_HTML)
         self.assertIn('id="deactivateProject"', INDEX_HTML)
         self.assertIn('id="requirementsMenu"', INDEX_HTML)
+        self.assertIn('id="requirementsApproveMenu"', INDEX_HTML)
+        self.assertIn('id="approveRequirements"', INDEX_HTML)
+        self.assertIn('id="openApprovedRequirements"', INDEX_HTML)
         self.assertIn('id="restartRequirements"', INDEX_HTML)
         self.assertIn('id="skipRequirements"', INDEX_HTML)
         self.assertIn('id="openRequirements"', INDEX_HTML)
@@ -157,6 +162,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/requirements/start"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/restart"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/skip"', INDEX_HTML)
+        self.assertIn('"/api/agents/requirements/approve"', INDEX_HTML)
+        self.assertIn("function approveRequirementsStage()", INDEX_HTML)
         self.assertIn(
             'agentInput.value = "";\n'
             "      clearAgentOutput();\n"
@@ -175,10 +182,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function openRequirementsDocument()", INDEX_HTML)
         self.assertIn("window.open(contextUrl(\"/artifacts/requirements\")", INDEX_HTML)
         self.assertIn("function positionStageMenu(menu, stage)", INDEX_HTML)
-        self.assertIn(
-            "toggleStageMenu(requirementsMenu, requirementsStage, projectMenu)",
-            INDEX_HTML,
-        )
+        self.assertIn("function hideStageMenus(exceptMenu = null)", INDEX_HTML)
+        self.assertIn("positionStageMenu(requirementsApproveMenu, requirementsApproveStage)", INDEX_HTML)
         self.assertIn("stageScroll.addEventListener(\"scroll\", repositionOpenStageMenu)", INDEX_HTML)
         self.assertIn('event.code === "NumpadEnter"', INDEX_HTML)
         self.assertIn("isEnter && event.shiftKey", INDEX_HTML)
@@ -442,6 +447,24 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
 
+    def test_service_state_rejects_direct_approval_stage_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with self.assertRaisesRegex(
+                StateError,
+                "approval stage is not directly selectable",
+            ):
+                state.select_workflow_stage(context_id, "requirements-approve")
+
     def test_service_state_rejects_workflow_stage_selection_before_activation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state = ServiceState(Path(tmp))
@@ -484,7 +507,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertIsNone(state.current_requirements_session(context_id))
 
-    def test_only_restart_and_document_are_available_after_requirements(self) -> None:
+    def test_requirements_approval_stage_blocks_requirements_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -507,19 +530,58 @@ class ServiceTests(unittest.TestCase):
                 "requirements stage is not active",
             ):
                 state.skip_requirements_agent(context_id)
+            with self.assertRaisesRegex(
+                AgentSessionError,
+                "requirements stage is not active",
+            ):
+                state.restart_requirements_agent(context_id)
             self.assertEqual(
                 state.requirements_document_root(context_id),
                 project_root.resolve(),
             )
 
-            with mock.patch("electroboy.service.AgentSession.start"):
-                _session, started = state.restart_requirements_agent(context_id)
-
             payload = state.project_payload(context_id)
 
-        self.assertTrue(started)
-        self.assertEqual(payload["workflow_stage"], "requirements")
-        self.assertTrue(payload["requirements_started"])
+        self.assertEqual(payload["workflow_stage"], "requirements-approve")
+
+    def test_requirements_approval_advances_to_design(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with state.lock:
+                state.contexts[context_id].workflow_stage = "requirements-approve"
+
+            with mock.patch("electroboy.cli._cmd_stage", return_value=0):
+                payload = state.approve_requirements(context_id)
+
+        self.assertEqual(payload["status"], "approved")
+        self.assertEqual(payload["workflow_stage"], "design")
+        self.assertEqual(payload["next_stage"], "design")
+
+    def test_requirements_approval_requires_approval_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with self.assertRaisesRegex(
+                AgentSessionError,
+                "requirements approval stage is not active",
+            ):
+                state.approve_requirements(context_id)
 
     def test_failed_requirements_start_does_not_unlock_later_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import fcntl
 import html
+import io
 import json
 import os
 import pty
@@ -17,6 +18,7 @@ import sys
 import termios
 import threading
 import time
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -56,6 +58,17 @@ WORKFLOW_STAGES = [
     "validation-approve",
     "document",
 ]
+
+APPROVAL_WORKFLOW_STAGES = frozenset(
+    {
+        "requirements-approve",
+        "design-approve",
+        "plan-approve",
+        "code-approve",
+        "test-plan-approve",
+        "validation-approve",
+    }
+)
 
 INDEX_HTML = """<!doctype html>
 <html lang="en">
@@ -605,6 +618,10 @@ INDEX_HTML = """<!doctype html>
         <button id="skipRequirements" type="button">Skip</button>
         <button id="openRequirements" type="button">Open requirements</button>
       </div>
+      <div id="requirementsApproveMenu" class="stage-menu" hidden>
+        <button id="approveRequirements" type="button">Approve</button>
+        <button id="openApprovedRequirements" type="button">Open requirements</button>
+      </div>
       <div id="projectPanel" class="project-panel" hidden>
         <input
           id="projectPath"
@@ -688,10 +705,22 @@ INDEX_HTML = """<!doctype html>
       "validation-approve": "Approve validation results and implementation handoff artifacts.",
       document: "Update final project documentation after validation passes.",
     };
+    const APPROVAL_STAGES = new Set([
+      "requirements-approve",
+      "design-approve",
+      "plan-approve",
+      "code-approve",
+      "test-plan-approve",
+      "validation-approve",
+    ]);
     const projectStage = document.querySelector("[data-stage='project']");
     const requirementsStage = document.querySelector("[data-stage='requirements']");
+    const requirementsApproveStage = document.querySelector(
+      "[data-stage='requirements-approve']",
+    );
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
+    const requirementsApproveMenu = document.getElementById("requirementsApproveMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
     const deactivateProject = document.getElementById("deactivateProject");
@@ -699,6 +728,8 @@ INDEX_HTML = """<!doctype html>
     const restartRequirements = document.getElementById("restartRequirements");
     const skipRequirements = document.getElementById("skipRequirements");
     const openRequirements = document.getElementById("openRequirements");
+    const approveRequirements = document.getElementById("approveRequirements");
+    const openApprovedRequirements = document.getElementById("openApprovedRequirements");
     const projectPanel = document.getElementById("projectPanel");
     const projectPath = document.getElementById("projectPath");
     const browseProject = document.getElementById("browseProject");
@@ -903,10 +934,12 @@ INDEX_HTML = """<!doctype html>
       for (const stageNode of stageNodes) {
         const stageId = stageNode.dataset.stage || "";
         const isProject = stageId === "project";
-        const isEnabled = isProject || hasActiveProject;
         const isActive = isProject
           ? !hasActiveProject
           : hasActiveProject && stageId === workflowStage;
+        const isApprovalStage = APPROVAL_STAGES.has(stageId);
+        const isEnabled =
+          isProject || (hasActiveProject && (!isApprovalStage || isActive));
         const isComplete = isProject && hasActiveProject;
         stageNode.disabled = !isEnabled;
         stageNode.setAttribute("aria-disabled", isEnabled ? "false" : "true");
@@ -942,7 +975,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function selectWorkflowStage(stageId) {
-      if (!activeProjectRoot || stageId === "project") {
+      if (!activeProjectRoot || stageId === "project" || APPROVAL_STAGES.has(stageId)) {
         return false;
       }
       const response = await fetch(contextUrl("/api/workflow/stage"), {
@@ -962,6 +995,26 @@ INDEX_HTML = """<!doctype html>
       }
       updateProjectState(payload);
       return true;
+    }
+
+    async function approveRequirementsStage() {
+      if (currentWorkflowStage !== "requirements-approve") {
+        return;
+      }
+      requirementsApproveMenu.hidden = true;
+      const response = await fetch(contextUrl("/api/agents/requirements/approve"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "approval failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "approval failed"}\\n`, "error");
+        if (payload.output) {
+          appendOutput(`${payload.output}\\n`, "error");
+        }
+        return;
+      }
+      appendOutput("requirements approved; next: design\\n", "system");
+      updateProjectState(payload);
     }
 
     async function browseDirectory(path = projectPath.value || ".") {
@@ -1219,7 +1272,7 @@ INDEX_HTML = """<!doctype html>
       if (currentWorkflowStage === "requirements" && !requirementsStarted) {
         return;
       }
-      requirementsMenu.hidden = true;
+      hideStageMenus();
       window.open(contextUrl("/artifacts/requirements"), "_blank", "noopener");
     }
 
@@ -1266,9 +1319,17 @@ INDEX_HTML = """<!doctype html>
       menu.style.top = `${stageRect.bottom - paneRect.top + inset}px`;
     }
 
-    function toggleStageMenu(menu, stage, otherMenu) {
+    function hideStageMenus(exceptMenu = null) {
+      for (const menu of [projectMenu, requirementsMenu, requirementsApproveMenu]) {
+        if (menu !== exceptMenu) {
+          menu.hidden = true;
+        }
+      }
+    }
+
+    function toggleStageMenu(menu, stage) {
       const shouldOpen = menu.hidden;
-      otherMenu.hidden = true;
+      hideStageMenus(menu);
       menu.hidden = !shouldOpen;
       if (shouldOpen) {
         positionStageMenu(menu, stage);
@@ -1282,6 +1343,9 @@ INDEX_HTML = """<!doctype html>
       if (!requirementsMenu.hidden) {
         positionStageMenu(requirementsMenu, requirementsStage);
       }
+      if (!requirementsApproveMenu.hidden) {
+        positionStageMenu(requirementsApproveMenu, requirementsApproveStage);
+      }
     }
 
     async function handleWorkflowStageClick(stageNode) {
@@ -1290,7 +1354,14 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       const wasCurrentStage = stageId === currentWorkflowStage;
-      projectMenu.hidden = true;
+      hideStageMenus();
+      if (APPROVAL_STAGES.has(stageId)) {
+        if (stageId === "requirements-approve" && wasCurrentStage) {
+          requirementsApproveMenu.hidden = false;
+          positionStageMenu(requirementsApproveMenu, requirementsApproveStage);
+        }
+        return;
+      }
       if (!wasCurrentStage) {
         const selected = await selectWorkflowStage(stageId);
         if (!selected) {
@@ -1299,18 +1370,18 @@ INDEX_HTML = """<!doctype html>
       }
       if (stageId === "requirements") {
         if (wasCurrentStage) {
-          toggleStageMenu(requirementsMenu, requirementsStage, projectMenu);
+          toggleStageMenu(requirementsMenu, requirementsStage);
         } else {
           requirementsMenu.hidden = false;
           positionStageMenu(requirementsMenu, requirementsStage);
         }
         return;
       }
-      requirementsMenu.hidden = true;
+      hideStageMenus();
     }
 
     projectStage.addEventListener("click", () => {
-      toggleStageMenu(projectMenu, projectStage, requirementsMenu);
+      toggleStageMenu(projectMenu, projectStage);
     });
     for (const stageNode of stageNodes) {
       if (stageNode.dataset.stage === "project") {
@@ -1345,6 +1416,8 @@ INDEX_HTML = """<!doctype html>
     restartRequirements.addEventListener("click", restartRequirementsAgent);
     skipRequirements.addEventListener("click", skipRequirementsAgent);
     openRequirements.addEventListener("click", openRequirementsDocument);
+    approveRequirements.addEventListener("click", approveRequirementsStage);
+    openApprovedRequirements.addEventListener("click", openRequirementsDocument);
     interruptAgent.addEventListener("click", interruptRequirementsAgent);
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
@@ -1421,6 +1494,8 @@ class ServiceState:
         stage = stage.strip()
         if stage == "project" or stage not in WORKFLOW_STAGES:
             raise StateError(f"unknown workflow stage: {stage}")
+        if stage in APPROVAL_WORKFLOW_STAGES:
+            raise StateError(f"approval stage is not directly selectable: {stage}")
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
@@ -1447,6 +1522,44 @@ class ServiceState:
             "status": "selected",
             "previous_stage": previous_stage,
             "terminated_agent": terminated_agent,
+        }
+
+    def approve_requirements(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "requirements-approve":
+                raise AgentSessionError("requirements approval stage is not active")
+        from .cli import _cmd_stage, _stage_args
+        from .gates import GateEngine
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        store = StateStore(project_root)
+        engine = GateEngine(project_root)
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = _cmd_stage(
+                store,
+                engine,
+                _stage_args(STAGE_REQUIREMENTS, human=True, author=True),
+            )
+        output = "\n".join(
+            part.strip() for part in [stderr.getvalue(), stdout.getvalue()] if part.strip()
+        )
+        if code != 0:
+            raise AgentSessionError(output or "requirements approval failed")
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.workflow_stage = "design"
+            context.requirements_session = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "approved",
+            "next_stage": "design",
+            "output": output,
         }
 
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
@@ -1546,9 +1659,10 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "requirements":
+                raise AgentSessionError("requirements stage is not active")
             if (
-                context.workflow_stage == "requirements"
-                and not context.requirements_started
+                not context.requirements_started
             ):
                 raise AgentSessionError("start requirements first")
         self._terminate_requirements_session(context_id)
@@ -2421,6 +2535,9 @@ def _handler_for(
             if path == "/api/agents/requirements/skip":
                 self._skip_requirements_agent(parsed.query)
                 return
+            if path == "/api/agents/requirements/approve":
+                self._approve_requirements(parsed.query)
+                return
             if path == "/api/agents/requirements/message":
                 self._send_requirements_message(parsed.query)
                 return
@@ -2598,6 +2715,17 @@ def _handler_for(
             try:
                 context_id = self._context_id(query)
                 self._send_json(state.skip_requirements_agent(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _approve_requirements(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.approve_requirements(context_id))
             except (AgentSessionError, StateError) as error:
                 self._send_json(
                     {"error": str(error)},
