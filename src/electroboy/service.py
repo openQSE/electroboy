@@ -840,7 +840,7 @@ INDEX_HTML = """<!doctype html>
       const hasActiveProject = Boolean(activeProjectRoot);
       startRequirements.disabled = !hasActiveProject || requirementsRunning;
       restartRequirements.disabled = !hasActiveProject || !requirementsStarted;
-      skipRequirements.disabled = !hasActiveProject || !requirementsStarted;
+      skipRequirements.disabled = !hasActiveProject;
       openRequirements.disabled = !hasActiveProject || !requirementsStarted;
     }
 
@@ -1075,7 +1075,10 @@ INDEX_HTML = """<!doctype html>
         appendOutput("activate a project first\\n", "error");
         return;
       }
-      if (!requirementsStarted) {
+      if (
+        !requirementsStarted &&
+        !window.confirm("Requirements phase is not complete.\\n\\nSkip at your own risk.")
+      ) {
         return;
       }
       requirementsMenu.hidden = true;
@@ -1371,14 +1374,14 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            self._require_requirements_started_locked(context)
+            requirements_started = context.requirements_started
         self._terminate_requirements_session(context_id)
         _record_requirements_skip(project_root)
         with self.lock:
             context = self._context_locked(context_id)
             context.workflow_stage = "requirements-approve"
             context.requirements_session = None
-            context.requirements_started = True
+            context.requirements_started = requirements_started
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -1915,8 +1918,8 @@ def _record_requirements_skip(project_root: Path) -> None:
             stage=STAGE_REQUIREMENTS,
             action="gui-requirements-authoring-skipped",
             summary=(
-                "Skipped the active requirements authoring session and moved "
-                "to requirements approval."
+                "Skipped requirements authoring and moved to requirements "
+                "approval."
             ),
             inputs=[manifest.active_stage],
         )

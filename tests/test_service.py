@@ -101,8 +101,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("requirementsStarted = Boolean(payload.requirements_started)", INDEX_HTML)
         self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
         self.assertIn("restartRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
-        self.assertIn("skipRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
+        self.assertIn("skipRequirements.disabled = !hasActiveProject", INDEX_HTML)
         self.assertIn("openRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
+        self.assertIn("window.confirm", INDEX_HTML)
+        self.assertIn("Requirements phase is not complete", INDEX_HTML)
+        self.assertIn("Skip at your own risk.", INDEX_HTML)
         self.assertIn("function contextUrl(path)", INDEX_HTML)
         self.assertIn('contextUrl("/api/project")', INDEX_HTML)
         self.assertIn('"/api/project/open"', INDEX_HTML)
@@ -341,7 +344,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
         self.assertIsNone(state.current_requirements_session(context_id))
 
-    def test_requirements_actions_require_start_first(self) -> None:
+    def test_requirements_restart_and_document_require_start_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -354,11 +357,29 @@ class ServiceTests(unittest.TestCase):
             state.open_project(context_id, str(project_root))
 
             with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
-                state.skip_requirements_agent(context_id)
-            with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
                 state.restart_requirements_agent(context_id)
             with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
                 state.requirements_document_root(context_id)
+
+    def test_requirements_skip_can_run_before_start(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            payload = state.skip_requirements_agent(context_id)
+
+        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["workflow_stage"], "requirements-approve")
+        self.assertFalse(payload["requirements_started"])
+        self.assertEqual(payload["next_stage"], "requirements-approve")
+        self.assertIsNone(state.current_requirements_session(context_id))
 
     def test_failed_requirements_start_does_not_unlock_later_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
