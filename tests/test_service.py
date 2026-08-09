@@ -23,6 +23,8 @@ from electroboy.service import (  # noqa: E402
     ServiceState,
     _agent_process_env,
     _clean_terminal_output,
+    _progress_once_command,
+    _progress_snapshot,
     _reopen_requirements_for_restart,
     _requirements_command,
     _terminal_input_chunks_for_message,
@@ -138,13 +140,28 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="approveDesign"', INDEX_HTML)
         self.assertIn('id="openApprovedDesign"', INDEX_HTML)
         self.assertIn('id="openApprovedDesignReview"', INDEX_HTML)
+        self.assertIn('id="agentPane"', INDEX_HTML)
+        self.assertIn('id="outputSplit"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
+        self.assertIn('id="progressOutput"', INDEX_HTML)
+        self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
         self.assertIn('id="interruptAgent"', INDEX_HTML)
+        self.assertIn(".output-split.split", INDEX_HTML)
+        self.assertIn(".agent-pane.noninteractive", INDEX_HTML)
         self.assertIn("xterm@5.3.0", INDEX_HTML)
         self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
         self.assertIn("new window.Terminal", INDEX_HTML)
         self.assertIn("disableStdin: true", INDEX_HTML)
+        self.assertIn("let progressEventSource = null;", INDEX_HTML)
+        self.assertIn("let progressTerminal = null;", INDEX_HTML)
+        self.assertIn("function initializeProgressTerminal()", INDEX_HTML)
+        self.assertIn("function showProgressPane(show)", INDEX_HTML)
+        self.assertIn("function connectProgressEvents()", INDEX_HTML)
+        self.assertIn("function closeProgressEventStream()", INDEX_HTML)
+        self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
+        self.assertIn('"progress-event"', INDEX_HTML)
+        self.assertIn("payload.running === false", INDEX_HTML)
         self.assertIn('const CONTEXT_STORAGE_KEY = "electroboy.contextId";', INDEX_HTML)
         self.assertIn("window.sessionStorage.getItem", INDEX_HTML)
         self.assertIn("window.sessionStorage.setItem", INDEX_HTML)
@@ -164,6 +181,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("if (payload.requirements_running)", INDEX_HTML)
         self.assertIn("else if (payload.design_running)", INDEX_HTML)
         self.assertIn("else if (payload.design_review_running)", INDEX_HTML)
+        self.assertIn("connectProgressEvents();", INDEX_HTML)
         self.assertIn("await restoreContext();", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
         self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
@@ -200,6 +218,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/artifacts/requirements")', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/design")', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/design-review")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
         self.assertIn("/api/files/browse?path=", INDEX_HTML)
         self.assertIn("function selectCurrentDirectory()", INDEX_HTML)
         self.assertIn("activating:", INDEX_HTML)
@@ -1223,6 +1242,44 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(command[:2], ["/bin/sh", "-c"])
         self.assertIn(". ", command[2])
         self.assertIn("electroboy requirements", command[2])
+
+    def test_progress_command_sources_project_activation_when_available(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            activate = root / ".electroboy" / "bin" / "activate"
+            activate.parent.mkdir(parents=True)
+            activate.write_text("export ELECTROBOY_PROJECT_ROOT=x\n", encoding="utf-8")
+
+            command = _progress_once_command(root)
+
+        self.assertEqual(command[:2], ["/bin/sh", "-c"])
+        self.assertIn(". ", command[2])
+        self.assertIn("electroboy progress --once", command[2])
+
+    def test_progress_snapshot_reads_progress_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            progress = (
+                root
+                / ".electroboy"
+                / "shared"
+                / "runs"
+                / "run-1"
+                / "progress"
+                / "design-review-progress.md"
+            )
+            progress.parent.mkdir(parents=True)
+            progress.write_text("- reviewing design\n", encoding="utf-8")
+
+            output, ok = _progress_snapshot(root)
+
+        self.assertTrue(ok)
+        self.assertIn("design-review-progress.md", output)
+        self.assertIn("- reviewing design", output)
 
     def test_serve_accepts_subcommand_root_argument(self) -> None:
         parser = build_parser()

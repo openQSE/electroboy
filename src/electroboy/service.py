@@ -411,9 +411,25 @@ INDEX_HTML = """<!doctype html>
       background: var(--terminal);
     }
 
-    .agent-output {
+    .agent-pane.noninteractive {
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .output-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
       min-height: 0;
-      overflow: auto;
+      background: var(--terminal);
+    }
+
+    .output-split.split {
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 0.42fr);
+    }
+
+    .agent-output,
+    .progress-output {
+      min-height: 0;
+      overflow: hidden;
       padding: 0;
       color: var(--terminal-text);
       font-family:
@@ -423,20 +439,32 @@ INDEX_HTML = """<!doctype html>
       white-space: pre-wrap;
     }
 
-    .agent-output .xterm {
+    .progress-output {
+      border-left: 1px solid #2a3142;
+    }
+
+    .progress-output[hidden] {
+      display: none;
+    }
+
+    .agent-output .xterm,
+    .progress-output .xterm {
       height: 100%;
       padding: 10px 12px;
     }
 
-    .agent-output .xterm-viewport {
+    .agent-output .xterm-viewport,
+    .progress-output .xterm-viewport {
       background: var(--terminal);
     }
 
-    .agent-output .system {
+    .agent-output .system,
+    .progress-output .system {
       color: #8bd8ca;
     }
 
-    .agent-output .error {
+    .agent-output .error,
+    .progress-output .error {
       color: #ffb4a9;
     }
 
@@ -447,6 +475,10 @@ INDEX_HTML = """<!doctype html>
       border-top: 1px solid #2a3142;
       background: #151b29;
       padding: 12px;
+    }
+
+    .input-pane[hidden] {
+      display: none;
     }
 
     .agent-input {
@@ -531,6 +563,16 @@ INDEX_HTML = """<!doctype html>
 
       .browser-toolbar {
         grid-template-columns: 1fr;
+      }
+
+      .output-split.split {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) minmax(180px, 0.45fr);
+      }
+
+      .progress-output {
+        border-top: 1px solid #2a3142;
+        border-left: 0;
       }
     }
   </style>
@@ -684,9 +726,17 @@ INDEX_HTML = """<!doctype html>
         <div id="directoryList" class="directory-list"></div>
       </div>
     </section>
-    <section class="agent-pane" aria-label="Requirements agent">
-      <div id="agentOutput" class="agent-output" aria-live="polite"></div>
-      <div class="input-pane">
+    <section id="agentPane" class="agent-pane" aria-label="Agent session">
+      <div id="outputSplit" class="output-split">
+        <div id="agentOutput" class="agent-output" aria-live="polite"></div>
+        <div
+          id="progressOutput"
+          class="progress-output"
+          aria-live="polite"
+          hidden
+        ></div>
+      </div>
+      <div id="inputPane" class="input-pane">
         <textarea
           id="agentInput"
           class="agent-input"
@@ -783,13 +833,20 @@ INDEX_HTML = """<!doctype html>
     const selectDirectory = document.getElementById("selectDirectory");
     const closeBrowser = document.getElementById("closeBrowser");
     const directoryList = document.getElementById("directoryList");
+    const agentPane = document.getElementById("agentPane");
+    const outputSplit = document.getElementById("outputSplit");
     const agentOutput = document.getElementById("agentOutput");
+    const progressOutput = document.getElementById("progressOutput");
+    const inputPane = document.getElementById("inputPane");
     const agentInput = document.getElementById("agentInput");
     const interruptAgent = document.getElementById("interruptAgent");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     let eventSource = null;
+    let progressEventSource = null;
     let terminal = null;
     let terminalFit = null;
+    let progressTerminal = null;
+    let progressTerminalFit = null;
     let resizeTimer = null;
     let activeAgentKind = "";
     let requirementsRunning = false;
@@ -811,7 +868,30 @@ INDEX_HTML = """<!doctype html>
         appendPlainOutput("terminal renderer unavailable; using plain text\\n", "error");
         return;
       }
-      terminal = new window.Terminal({
+      terminal = new window.Terminal(terminalOptions());
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        terminalFit = new window.FitAddon.FitAddon();
+        terminal.loadAddon(terminalFit);
+      }
+      terminal.open(agentOutput);
+      fitTerminal();
+      window.addEventListener("resize", fitTerminal);
+    }
+
+    function initializeProgressTerminal() {
+      if (progressTerminal || !window.Terminal) {
+        return;
+      }
+      progressTerminal = new window.Terminal(terminalOptions());
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        progressTerminalFit = new window.FitAddon.FitAddon();
+        progressTerminal.loadAddon(progressTerminalFit);
+      }
+      progressTerminal.open(progressOutput);
+    }
+
+    function terminalOptions() {
+      return {
         allowProposedApi: false,
         convertEol: true,
         cursorBlink: false,
@@ -825,23 +905,20 @@ INDEX_HTML = """<!doctype html>
           cursor: "#e7edf7",
           selectionBackground: "#2b6173",
         },
-      });
-      if (window.FitAddon && window.FitAddon.FitAddon) {
-        terminalFit = new window.FitAddon.FitAddon();
-        terminal.loadAddon(terminalFit);
-      }
-      terminal.open(agentOutput);
-      fitTerminal();
-      window.addEventListener("resize", fitTerminal);
+      };
     }
 
     function fitTerminal() {
-      if (!terminal) {
-        return;
-      }
       if (terminalFit) {
         try {
           terminalFit.fit();
+        } catch (error) {
+          return;
+        }
+      }
+      if (progressTerminalFit && !progressOutput.hidden) {
+        try {
+          progressTerminalFit.fit();
         } catch (error) {
           return;
         }
@@ -903,6 +980,49 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       agentOutput.replaceChildren();
+    }
+
+    function appendProgressOutput(text, className = "") {
+      if (progressTerminal) {
+        progressTerminal.write(formatTerminalMessage(text, className));
+        return;
+      }
+      const span = document.createElement("span");
+      span.textContent = text;
+      if (className) {
+        span.className = className;
+      }
+      progressOutput.appendChild(span);
+      progressOutput.scrollTop = progressOutput.scrollHeight;
+    }
+
+    function clearProgressOutput() {
+      if (progressTerminal) {
+        progressTerminal.clear();
+        return;
+      }
+      progressOutput.replaceChildren();
+    }
+
+    function setAgentInputVisible(isVisible) {
+      inputPane.hidden = !isVisible;
+      agentPane.classList.toggle("noninteractive", !isVisible);
+      if (!isVisible) {
+        agentInput.disabled = true;
+      }
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function showProgressPane(show) {
+      if (show) {
+        progressOutput.hidden = false;
+        initializeProgressTerminal();
+      } else {
+        progressOutput.hidden = true;
+        closeProgressEventStream();
+      }
+      outputSplit.classList.toggle("split", show);
+      window.requestAnimationFrame(fitTerminal);
     }
 
     function formatTerminalMessage(text, className) {
@@ -998,18 +1118,26 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
       if (payload.requirements_running) {
         clearAgentOutput();
+        showProgressPane(false);
+        setAgentInputVisible(true);
         setAgentRunning("requirements", true);
         connectAgentEvents("requirements");
         sendTerminalResize();
       } else if (payload.design_running) {
         clearAgentOutput();
+        showProgressPane(false);
+        setAgentInputVisible(true);
         setAgentRunning("design", true);
         connectAgentEvents("design");
         sendTerminalResize();
       } else if (payload.design_review_running) {
         clearAgentOutput();
+        clearProgressOutput();
+        showProgressPane(true);
+        setAgentInputVisible(false);
         setAgentRunning("design-review", true);
         connectAgentEvents("design-review");
+        connectProgressEvents();
         sendTerminalResize();
       }
     }
@@ -1139,6 +1267,8 @@ INDEX_HTML = """<!doctype html>
       }
       if (payload.terminated_agent || payload.workflow_stage !== "requirements") {
         closeAgentEventStream();
+        showProgressPane(false);
+        setAgentInputVisible(true);
         setRequirementsRunning(false);
         agentInput.value = "";
       }
@@ -1287,6 +1417,8 @@ INDEX_HTML = """<!doctype html>
         eventSource.close();
         eventSource = null;
       }
+      closeProgressEventStream();
+      showProgressPane(false);
       activeProjectRoot = "";
       projectPath.value = serviceRoot;
       projectMenu.hidden = true;
@@ -1302,7 +1434,9 @@ INDEX_HTML = """<!doctype html>
       designReviewRunning = false;
       activeAgentKind = "";
       agentInput.value = "";
+      setAgentInputVisible(true);
       clearAgentOutput();
+      clearProgressOutput();
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
       updateProjectState(payload);
     }
@@ -1326,6 +1460,9 @@ INDEX_HTML = """<!doctype html>
           appendOutput(`${payload.text}\\n`, "error");
         } else if (payload.type === "completed") {
           appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
+          if (kind === "design-review") {
+            closeProgressEventStream();
+          }
           setAgentRunning(kind, false);
           refreshProject();
         }
@@ -1333,10 +1470,37 @@ INDEX_HTML = """<!doctype html>
       eventSource.onerror = () => {};
     }
 
+    function connectProgressEvents() {
+      if (progressEventSource) {
+        progressEventSource.close();
+      }
+      showProgressPane(true);
+      progressEventSource = new EventSource(contextUrl("/api/progress/events"));
+      progressEventSource.addEventListener("progress-event", (event) => {
+        const payload = JSON.parse(event.data);
+        clearProgressOutput();
+        appendProgressOutput(
+          payload.text || "",
+          payload.type === "error" ? "error" : "",
+        );
+        if (payload.running === false) {
+          closeProgressEventStream();
+        }
+      });
+      progressEventSource.onerror = () => {};
+    }
+
     function closeAgentEventStream() {
       if (eventSource) {
         eventSource.close();
         eventSource = null;
+      }
+    }
+
+    function closeProgressEventStream() {
+      if (progressEventSource) {
+        progressEventSource.close();
+        progressEventSource = null;
       }
     }
 
@@ -1385,6 +1549,13 @@ INDEX_HTML = """<!doctype html>
       }
       hideStageMenus();
       closeAgentEventStream();
+      if (acceptsInput) {
+        showProgressPane(false);
+      } else {
+        showProgressPane(true);
+        clearProgressOutput();
+      }
+      setAgentInputVisible(acceptsInput);
       if (clearOutput) {
         clearAgentOutput();
       }
@@ -1400,6 +1571,11 @@ INDEX_HTML = """<!doctype html>
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
         appendOutput(`${payload.error || "start failed"}\\n`, "error");
+        if (!acceptsInput) {
+          closeProgressEventStream();
+          showProgressPane(false);
+          setAgentInputVisible(true);
+        }
         setAgentRunning(kind, false);
         return;
       }
@@ -1407,6 +1583,9 @@ INDEX_HTML = """<!doctype html>
       setAgentRunning(kind, true);
       agentInput.disabled = !acceptsInput;
       connectAgentEvents(kind);
+      if (!acceptsInput) {
+        connectProgressEvents();
+      }
       sendTerminalResize();
     }
 
@@ -1555,6 +1734,7 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       closeAgentEventStream();
+      closeProgressEventStream();
       setAgentRunning("design-review", false);
       appendOutput("design review stopped\\n", "system");
       updateProjectState(payload);
@@ -2348,6 +2528,15 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             return context.design_review_session
+
+    def has_running_progress_agent(self, context_id: str) -> bool:
+        with self.lock:
+            context = self._context_locked(context_id)
+            design_review_session = context.design_review_session
+            return bool(
+                design_review_session is not None
+                and design_review_session.is_active()
+            )
 
     def resize_requirements_agent(
         self,
@@ -3186,7 +3375,7 @@ def _render_markdown(text: str) -> str:
 
 
 def _requirements_command(root: Path) -> list[str]:
-    return _stage_command(root, "requirements")
+    return _electroboy_command(root, ["requirements"])
 
 
 def _stage_command(
@@ -3196,12 +3385,21 @@ def _stage_command(
     force: bool = False,
     reason: str | None = None,
 ) -> list[str]:
-    activate_script = root / ".electroboy" / "bin" / "activate"
     command_parts = ["electroboy", command]
     if force:
         command_parts.append("--force")
     if reason:
         command_parts.extend(["--reason", reason])
+    return _electroboy_command(root, command_parts[1:])
+
+
+def _progress_once_command(root: Path) -> list[str]:
+    return _electroboy_command(root, ["progress", "--once"])
+
+
+def _electroboy_command(root: Path, args: list[str]) -> list[str]:
+    activate_script = root / ".electroboy" / "bin" / "activate"
+    command_parts = ["electroboy", *args]
     command_text = " ".join(shlex.quote(part) for part in command_parts)
     if activate_script.exists():
         return [
@@ -3216,8 +3414,43 @@ def _stage_command(
         "electroboy",
         "--root",
         str(root),
-        *command_parts[1:],
+        *args,
     ]
+
+
+def _progress_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, bool]:
+    project_root = Path(root).expanduser().resolve()
+    try:
+        completed = subprocess.run(
+            _progress_once_command(project_root),
+            cwd=project_root,
+            env=_agent_process_env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        output = _subprocess_output_text(error.stdout)
+        if output and not output.endswith("\n"):
+            output += "\n"
+        return f"{output}progress command timed out\n", False
+    output = completed.stdout or ""
+    if completed.returncode != 0:
+        if output and not output.endswith("\n"):
+            output += "\n"
+        output += f"progress command exited with code {completed.returncode}\n"
+        return output, False
+    return output or "progress: none\n", True
+
+
+def _subprocess_output_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def _terminal_input_for_message(message: str) -> str:
@@ -3407,6 +3640,9 @@ def _handler_for(
                 return
             if path == "/artifacts/design-review":
                 self._send_design_review_document(parsed.query)
+                return
+            if path == "/api/progress/events":
+                self._send_progress_events(parsed.query)
                 return
             if path == "/api/agents/requirements/events":
                 self._send_agent_events(parsed.query)
@@ -3983,6 +4219,18 @@ def _handler_for(
                 "design review has not been started",
             )
 
+        def _send_progress_events(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+            except StateError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._stream_progress_events(context_id, project_root)
+
         def _resize_design_agent(self, query: str) -> None:
             self._send_resize(query, state.resize_design_agent)
 
@@ -4102,6 +4350,40 @@ def _handler_for(
                     if not session.is_active():
                         break
             except (BrokenPipeError, ConnectionError, OSError):
+                return
+
+        def _stream_progress_events(self, context_id: str, project_root: Path) -> None:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            last_snapshot = ""
+            event_id = 1
+            try:
+                while True:
+                    text, ok = _progress_snapshot(project_root)
+                    running = state.has_running_progress_agent(context_id)
+                    payload = {
+                        "type": "snapshot" if ok else "error",
+                        "text": text,
+                        "running": running,
+                    }
+                    snapshot = json.dumps(payload, sort_keys=True)
+                    if snapshot != last_snapshot:
+                        self.wfile.write(f"id: {event_id}\n".encode("utf-8"))
+                        self.wfile.write(b"event: progress-event\n")
+                        self.wfile.write(f"data: {snapshot}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                        event_id += 1
+                        last_snapshot = snapshot
+                    else:
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                    if not running:
+                        break
+                    time.sleep(1)
+            except (BrokenPipeError, ConnectionError, OSError, StateError):
                 return
 
         def _send_resize(
