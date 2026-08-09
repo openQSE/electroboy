@@ -20,13 +20,16 @@ from electroboy.service import (  # noqa: E402
     ServiceState,
     _agent_process_env,
     _clean_terminal_output,
+    _reopen_requirements_for_restart,
     _requirements_command,
     _terminal_input_chunks_for_message,
     _terminal_input_for_message,
     browse_directories,
     create_server,
+    requirements_document_html,
     workflow_payload,
 )
+from electroboy.models import STAGE_DESIGN, STAGE_REQUIREMENTS  # noqa: E402
 from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 
@@ -66,6 +69,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("z-index: 0;", INDEX_HTML)
         self.assertIn('data-stage="project"', INDEX_HTML)
         self.assertIn('data-stage="requirements"', INDEX_HTML)
+        self.assertIn('data-stage="requirements-approve"', INDEX_HTML)
         self.assertIn('id="projectMenu"', INDEX_HTML)
         self.assertIn("openProject.disabled = hasActiveProject", INDEX_HTML)
         self.assertIn("newProject.disabled = hasActiveProject", INDEX_HTML)
@@ -79,6 +83,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="closeBrowser"', INDEX_HTML)
         self.assertIn('id="deactivateProject"', INDEX_HTML)
         self.assertIn('id="requirementsMenu"', INDEX_HTML)
+        self.assertIn('id="restartRequirements"', INDEX_HTML)
+        self.assertIn('id="skipRequirements"', INDEX_HTML)
+        self.assertIn('id="openRequirements"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
         self.assertIn('id="interruptAgent"', INDEX_HTML)
@@ -93,6 +100,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/project/open"', INDEX_HTML)
         self.assertIn('"/api/project/new"', INDEX_HTML)
         self.assertIn('contextUrl("/api/project/deactivate")', INDEX_HTML)
+        self.assertIn('contextUrl("/artifacts/requirements")', INDEX_HTML)
         self.assertIn("/api/files/browse?path=", INDEX_HTML)
         self.assertIn("function selectCurrentDirectory()", INDEX_HTML)
         self.assertIn("activating:", INDEX_HTML)
@@ -103,7 +111,9 @@ class ServiceTests(unittest.TestCase):
             'EventSource(contextUrl("/api/agents/requirements/events"))',
             INDEX_HTML,
         )
-        self.assertIn('contextUrl("/api/agents/requirements/start")', INDEX_HTML)
+        self.assertIn('"/api/agents/requirements/start"', INDEX_HTML)
+        self.assertIn('"/api/agents/requirements/restart"', INDEX_HTML)
+        self.assertIn('"/api/agents/requirements/skip"', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/message")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/resize")', INDEX_HTML)
@@ -111,6 +121,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function clearAgentOutput()", INDEX_HTML)
         self.assertIn("terminal.clear();", INDEX_HTML)
         self.assertIn("agentInput.value = \"\";", INDEX_HTML)
+        self.assertIn("function restartRequirementsAgent()", INDEX_HTML)
+        self.assertIn("function skipRequirementsAgent()", INDEX_HTML)
+        self.assertIn("function openRequirementsDocument()", INDEX_HTML)
+        self.assertIn("window.open(contextUrl(\"/artifacts/requirements\")", INDEX_HTML)
         self.assertIn("function positionStageMenu(menu, stage)", INDEX_HTML)
         self.assertIn(
             "toggleStageMenu(requirementsMenu, requirementsStage, projectMenu)",
@@ -149,7 +163,10 @@ class ServiceTests(unittest.TestCase):
         }
 
         self.assertEqual(operations["project"], ["Open", "Create", "Deactivate"])
-        self.assertEqual(operations["requirements"], ["Start"])
+        self.assertEqual(
+            operations["requirements"],
+            ["Start", "Restart", "Skip", "Open requirements"],
+        )
 
     def test_service_state_opens_existing_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -278,6 +295,56 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNone(payload["active_project_root"])
         self.assertIsNone(state.current_requirements_session(context_id))
 
+    def test_requirements_skip_terminates_agent_and_moves_to_approval_node(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
+
+            payload = state.skip_requirements_agent(context_id)
+
+        self.assertTrue(session.terminated)
+        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["workflow_stage"], "requirements-approve")
+        self.assertEqual(payload["next_stage"], "requirements-approve")
+        self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
+        self.assertIsNone(state.current_requirements_session(context_id))
+
+    def test_requirements_restart_reopens_requirements_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            store = StateStore(project_root)
+            manifest = store.init_run(run_id="run-1")
+            manifest.set_active_stage(STAGE_DESIGN)
+            store.save_manifest(manifest)
+
+            _reopen_requirements_for_restart(project_root)
+
+            manifest = store.load_current_manifest()
+            change_requests = store.read_change_requests()
+
+        self.assertEqual(manifest.active_stage, STAGE_REQUIREMENTS)
+        self.assertTrue(change_requests)
+
     def test_service_state_rejects_unknown_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state = ServiceState(Path(tmp))
@@ -298,6 +365,22 @@ class ServiceTests(unittest.TestCase):
             {"name": "alpha", "path": str((root / "alpha").resolve())},
             payload["entries"],
         )
+
+    def test_requirements_document_html_renders_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "requirements.md").write_text(
+                "# Requirements\n\n- First requirement\n",
+                encoding="utf-8",
+            )
+
+            page, status = requirements_document_html(root)
+
+        self.assertEqual(status.value, 200)
+        self.assertIn("<h1>Requirements</h1>", page)
+        self.assertIn("First requirement", page)
 
     def test_agent_session_streams_output_and_accepts_messages(self) -> None:
         script = (

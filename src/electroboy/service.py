@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import html
 import json
 import os
 import pty
@@ -25,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from .artifacts import ArtifactManager
+from .models import ActivityEvent, STAGE_REQUIREMENTS
 from .state_store import StateError, StateStore
 
 
@@ -517,7 +519,11 @@ INDEX_HTML = """<!doctype html>
           >
             requirements
           </button>
-          <div class="stage-node disabled" aria-disabled="true">
+          <div
+            class="stage-node disabled"
+            data-stage="requirements-approve"
+            aria-disabled="true"
+          >
             requirements-approve
           </div>
           <div class="stage-node disabled" aria-disabled="true">design</div>
@@ -543,6 +549,9 @@ INDEX_HTML = """<!doctype html>
       </div>
       <div id="requirementsMenu" class="stage-menu" hidden>
         <button id="startRequirements" type="button">Start</button>
+        <button id="restartRequirements" type="button">Restart</button>
+        <button id="skipRequirements" type="button">Skip</button>
+        <button id="openRequirements" type="button">Open requirements</button>
       </div>
       <div id="projectPanel" class="project-panel" hidden>
         <input
@@ -611,12 +620,18 @@ INDEX_HTML = """<!doctype html>
     const stageScroll = document.querySelector(".stage-scroll");
     const projectStage = document.querySelector("[data-stage='project']");
     const requirementsStage = document.querySelector("[data-stage='requirements']");
+    const requirementsApproveStage = document.querySelector(
+      "[data-stage='requirements-approve']",
+    );
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
     const deactivateProject = document.getElementById("deactivateProject");
     const startRequirements = document.getElementById("startRequirements");
+    const restartRequirements = document.getElementById("restartRequirements");
+    const skipRequirements = document.getElementById("skipRequirements");
+    const openRequirements = document.getElementById("openRequirements");
     const projectPanel = document.getElementById("projectPanel");
     const projectPath = document.getElementById("projectPath");
     const browseProject = document.getElementById("browseProject");
@@ -785,6 +800,7 @@ INDEX_HTML = """<!doctype html>
       serviceRoot = payload.service_root || "";
       activeProjectRoot = payload.active_project_root || "";
       const hasActiveProject = Boolean(activeProjectRoot);
+      const workflowStage = payload.workflow_stage || (hasActiveProject ? "requirements" : "project");
       if (!projectPath.value) {
         projectPath.value = activeProjectRoot || serviceRoot;
       }
@@ -793,7 +809,22 @@ INDEX_HTML = """<!doctype html>
       projectStage.classList.toggle("active", !hasActiveProject);
       requirementsStage.disabled = !hasActiveProject;
       requirementsStage.classList.toggle("disabled", !hasActiveProject);
-      requirementsStage.classList.toggle("active", hasActiveProject);
+      requirementsStage.classList.toggle(
+        "active",
+        hasActiveProject && workflowStage === "requirements",
+      );
+      requirementsStage.classList.toggle(
+        "complete",
+        hasActiveProject && workflowStage === "requirements-approve",
+      );
+      requirementsApproveStage.classList.toggle(
+        "active",
+        hasActiveProject && workflowStage === "requirements-approve",
+      );
+      requirementsApproveStage.classList.toggle(
+        "disabled",
+        !hasActiveProject || workflowStage !== "requirements-approve",
+      );
       openProject.disabled = hasActiveProject;
       newProject.disabled = hasActiveProject;
       deactivateProject.disabled = !hasActiveProject;
@@ -972,32 +1003,90 @@ INDEX_HTML = """<!doctype html>
       eventSource.onerror = () => {};
     }
 
-    async function startRequirementsAgent() {
+    function closeAgentEventStream() {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    }
+
+    function setRequirementsRunning(isRunning) {
+      requirementsRunning = isRunning;
+      agentInput.disabled = !isRunning;
+      interruptAgent.disabled = !isRunning;
+      startRequirements.disabled = isRunning;
+    }
+
+    async function runRequirementsAgent(endpoint, label, clearOutput = false) {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
         return;
       }
       requirementsMenu.hidden = true;
-      startRequirements.disabled = true;
-      requirementsRunning = true;
-      agentInput.disabled = false;
-      interruptAgent.disabled = false;
+      closeAgentEventStream();
+      if (clearOutput) {
+        clearAgentOutput();
+      }
+      setRequirementsRunning(true);
       agentInput.focus();
-      appendOutput("$ electroboy requirements\\n", "system");
-      const response = await fetch(contextUrl("/api/agents/requirements/start"), {
+      appendOutput(`${label}\\n`, "system");
+      const response = await fetch(contextUrl(endpoint), {
         method: "POST",
       });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({ error: "start failed" }));
         appendOutput(`${payload.error || "start failed"}\\n`, "error");
-        agentInput.disabled = true;
-        interruptAgent.disabled = true;
-        startRequirements.disabled = false;
-        requirementsRunning = false;
+        setRequirementsRunning(false);
         return;
       }
+      updateProjectState(payload);
       connectAgentEvents();
       sendTerminalResize();
+    }
+
+    async function startRequirementsAgent() {
+      await runRequirementsAgent(
+        "/api/agents/requirements/start",
+        "$ electroboy requirements",
+      );
+    }
+
+    async function restartRequirementsAgent() {
+      await runRequirementsAgent(
+        "/api/agents/requirements/restart",
+        "$ restart requirements authoring",
+        true,
+      );
+    }
+
+    async function skipRequirementsAgent() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      requirementsMenu.hidden = true;
+      closeAgentEventStream();
+      const response = await fetch(contextUrl("/api/agents/requirements/skip"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "skip failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "skip failed"}\\n`, "error");
+        return;
+      }
+      setRequirementsRunning(false);
+      agentInput.value = "";
+      appendOutput("skipped requirements authoring; next: requirements-approve\\n", "system");
+      updateProjectState(payload);
+    }
+
+    function openRequirementsDocument() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      requirementsMenu.hidden = true;
+      window.open(contextUrl("/artifacts/requirements"), "_blank", "noopener");
     }
 
     async function sendMessage() {
@@ -1091,6 +1180,9 @@ INDEX_HTML = """<!doctype html>
     });
 
     startRequirements.addEventListener("click", startRequirementsAgent);
+    restartRequirements.addEventListener("click", restartRequirementsAgent);
+    skipRequirements.addEventListener("click", skipRequirementsAgent);
+    openRequirements.addEventListener("click", openRequirementsDocument);
     interruptAgent.addEventListener("click", interruptRequirementsAgent);
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
@@ -1124,6 +1216,7 @@ class BrowserContext:
     context_id: str
     active_project_root: Path | None = None
     requirements_session: AgentSession | None = None
+    workflow_stage: str | None = None
 
 
 @dataclass
@@ -1163,6 +1256,7 @@ class ServiceState:
             self._require_no_active_agent_locked(context)
             context.active_project_root = project_root
             context.requirements_session = None
+            context.workflow_stage = "requirements"
         return {
             **project_payload(self.root, context, project_root),
             "status": "opened",
@@ -1178,6 +1272,7 @@ class ServiceState:
             context = self._context_locked(context_id)
             context.active_project_root = project_root
             context.requirements_session = None
+            context.workflow_stage = "requirements"
         return {
             **project_payload(self.root, context, project_root),
             "status": "created",
@@ -1194,6 +1289,7 @@ class ServiceState:
             context = self._context_locked(context_id)
             context.active_project_root = None
             context.requirements_session = None
+            context.workflow_stage = None
         return {
             **project_payload(self.root, context, None),
             "status": "deactivated",
@@ -1218,8 +1314,49 @@ class ServiceState:
                 cwd=project_root,
             )
             context.requirements_session = session
+            context.workflow_stage = "requirements"
         session.start()
         return session, True
+
+    def restart_requirements_agent(
+        self,
+        context_id: str,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+        self._terminate_requirements_session(context_id)
+        _reopen_requirements_for_restart(project_root)
+        return self.start_requirements_agent(context_id)
+
+    def skip_requirements_agent(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+        self._terminate_requirements_session(context_id)
+        _record_requirements_skip(project_root)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.workflow_stage = "requirements-approve"
+            context.requirements_session = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "skipped",
+            "next_stage": "requirements-approve",
+        }
+
+    def active_project_root(self, context_id: str) -> Path:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+        if project_root is None:
+            raise StateError("activate a project first")
+        return project_root
 
     def current_requirements_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
@@ -1246,6 +1383,17 @@ class ServiceState:
         if session is None:
             raise AgentSessionError("requirements agent has not been started")
         session.interrupt()
+
+    def _terminate_requirements_session(self, context_id: str) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.requirements_session
+        if session is not None and session.is_active():
+            session.terminate()
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.requirements_session is session:
+                context.requirements_session = None
 
     def _context_locked(self, context_id: str) -> BrowserContext:
         context_id = context_id.strip()
@@ -1577,6 +1725,11 @@ def project_payload(
         "context_id": context.context_id,
         "service_root": str(service_root),
         "active_project_root": str(active_root) if active_root else None,
+        "workflow_stage": (
+            context.workflow_stage
+            if active_root and context.workflow_stage
+            else ("requirements" if active_root else "project")
+        ),
         "activate_command": (
             f"source {active_root / '.electroboy' / 'bin' / 'activate'}"
             if active_root
@@ -1681,8 +1834,118 @@ def _stage_operations(
             operations.append("Deactivate")
         return operations
     if stage == "requirements" and active_project_root:
-        return ["Start"]
+        return ["Start", "Restart", "Skip", "Open requirements"]
     return []
+
+
+def _reopen_requirements_for_restart(project_root: Path) -> None:
+    store = StateStore(project_root)
+    manifest = store.load_current_manifest()
+    from .cli import _is_backward_stage_request, _record_stage_reopen
+
+    if _is_backward_stage_request(manifest.active_stage, STAGE_REQUIREMENTS):
+        _record_stage_reopen(
+            store=store,
+            manifest=manifest,
+            target_stage=STAGE_REQUIREMENTS,
+            reason="Requirements authoring restarted from the GUI.",
+            actor="human-operator",
+            action="gui-requirements-restarted",
+            summary="Reopened requirements authoring from the GUI.",
+        )
+        return
+    store.append_activity(
+        ActivityEvent(
+            actor="human-operator",
+            stage=STAGE_REQUIREMENTS,
+            action="gui-requirements-restarted",
+            summary="Restarted requirements authoring from the GUI.",
+        )
+    )
+
+
+def _record_requirements_skip(project_root: Path) -> None:
+    store = StateStore(project_root)
+    manifest = store.load_current_manifest()
+    store.append_activity(
+        ActivityEvent(
+            actor="human-operator",
+            stage=STAGE_REQUIREMENTS,
+            action="gui-requirements-authoring-skipped",
+            summary=(
+                "Skipped the active requirements authoring session and moved "
+                "to requirements approval."
+            ),
+            inputs=[manifest.active_stage],
+        )
+    )
+
+
+def requirements_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
+    project_root = Path(project_root).expanduser().resolve()
+    document_path = project_root / "docs" / "requirements.md"
+    title = "Requirements"
+    if document_path.exists():
+        text = document_path.read_text(encoding="utf-8")
+        body = _render_markdown(text)
+        status = HTTPStatus.OK
+    else:
+        body = "<p>Requirements document does not exist yet.</p>"
+        status = HTTPStatus.NOT_FOUND
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{
+      margin: 0;
+      background: #f7f8fb;
+      color: #1b1f2a;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }}
+    main {{
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 40px 24px 64px;
+    }}
+    article {{
+      background: #ffffff;
+      border: 1px solid #d8dde8;
+      border-radius: 8px;
+      padding: 28px;
+    }}
+    pre, code {{
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }}
+    pre {{
+      overflow: auto;
+      padding: 12px;
+      background: #f1f4f9;
+      border-radius: 6px;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      {body}
+    </article>
+  </main>
+</body>
+</html>
+"""
+    return page, status
+
+
+def _render_markdown(text: str) -> str:
+    try:
+        import markdown as markdown_library
+    except ImportError:
+        return f"<pre>{html.escape(text)}</pre>"
+    return str(markdown_library.markdown(text, extensions=["extra", "sane_lists"]))
 
 
 def _requirements_command(root: Path) -> list[str]:
@@ -1882,6 +2145,9 @@ def _handler_for(
             if path == "/api/files/browse":
                 self._browse_files(parsed.query)
                 return
+            if path == "/artifacts/requirements":
+                self._send_requirements_document(parsed.query)
+                return
             if path == "/api/agents/requirements/events":
                 self._send_agent_events(parsed.query)
                 return
@@ -1907,6 +2173,12 @@ def _handler_for(
                 return
             if path == "/api/agents/requirements/start":
                 self._start_requirements_agent(parsed.query)
+                return
+            if path == "/api/agents/requirements/restart":
+                self._restart_requirements_agent(parsed.query)
+                return
+            if path == "/api/agents/requirements/skip":
+                self._skip_requirements_agent(parsed.query)
                 return
             if path == "/api/agents/requirements/message":
                 self._send_requirements_message(parsed.query)
@@ -2003,6 +2275,20 @@ def _handler_for(
                     status=HTTPStatus.CONFLICT,
                 )
 
+        def _send_requirements_document(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                page, status = requirements_document_html(project_root)
+            except (OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
         def _start_requirements_agent(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
@@ -2021,10 +2307,46 @@ def _handler_for(
                 return
             self._send_json(
                 {
+                    **state.project_payload(context_id),
                     "status": "started" if started else "running",
                     "command": session.command,
                 }
             )
+
+        def _restart_requirements_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, _started = state.restart_requirements_agent(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not restart requirements agent: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "restarted",
+                    "command": session.command,
+                }
+            )
+
+        def _skip_requirements_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.skip_requirements_agent(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
 
         def _send_requirements_message(self, query: str) -> None:
             try:
