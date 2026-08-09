@@ -21,6 +21,7 @@ from electroboy.service import (  # noqa: E402
     _agent_process_env,
     _clean_terminal_output,
     _requirements_command,
+    _terminal_input_chunks_for_message,
     _terminal_input_for_message,
     browse_directories,
     create_server,
@@ -97,7 +98,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/agents/requirements/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/resize")', INDEX_HTML)
         self.assertIn("payload.terminal || payload.text", INDEX_HTML)
-        self.assertIn('event.key === "Enter" && event.shiftKey', INDEX_HTML)
+        self.assertIn('event.code === "NumpadEnter"', INDEX_HTML)
+        self.assertIn("isEnter && event.shiftKey", INDEX_HTML)
 
     def test_workflow_payload_exposes_project_operations_before_activation(
         self,
@@ -271,6 +273,45 @@ class ServiceTests(unittest.TestCase):
             if session.is_active() and session.process is not None:
                 session.process.terminate()
 
+    def test_agent_session_submits_raw_terminal_input(self) -> None:
+        script = (
+            "import sys\n"
+            "import termios\n"
+            "import tty\n"
+            "print('ready', flush=True)\n"
+            "fd = sys.stdin.fileno()\n"
+            "old = termios.tcgetattr(fd)\n"
+            "chars = []\n"
+            "try:\n"
+            "    tty.setraw(fd)\n"
+            "    while True:\n"
+            "        ch = sys.stdin.read(1)\n"
+            "        if ch in {'\\r', '\\n'}:\n"
+            "            break\n"
+            "        chars.append(ch)\n"
+            "finally:\n"
+            "    termios.tcsetattr(fd, termios.TCSANOW, old)\n"
+            "print('raw:' + ''.join(chars), flush=True)\n"
+            "print('submit:' + repr(ch), flush=True)\n"
+        )
+        session = AgentSession([sys.executable, "-c", script], ROOT)
+        try:
+            try:
+                session.start()
+            except PermissionError as error:
+                self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+            self.assertIn("ready", wait_for_output(self, session, "ready"))
+
+            session.send("hello agent")
+
+            self.assertIn("raw:hello agent", wait_for_output(self, session, "raw:"))
+            self.assertIn("submit:'\\r'", wait_for_output(self, session, "submit:"))
+            wait_for_exit(self, session)
+            self.assertFalse(session.is_active())
+        finally:
+            if session.is_active() and session.process is not None:
+                session.process.terminate()
+
     def test_agent_session_interrupts_running_process(self) -> None:
         script = (
             "import os\n"
@@ -396,11 +437,16 @@ class ServiceTests(unittest.TestCase):
 
     def test_terminal_input_uses_enter_key_for_single_line_submit(self) -> None:
         self.assertEqual(_terminal_input_for_message("hello"), "hello\r")
+        self.assertEqual(_terminal_input_chunks_for_message("hello"), ["hello", "\r"])
 
     def test_terminal_input_uses_bracketed_paste_for_multiline_submit(self) -> None:
         self.assertEqual(
             _terminal_input_for_message("line one\nline two\n"),
             "\x1b[200~line one\nline two\x1b[201~\r",
+        )
+        self.assertEqual(
+            _terminal_input_chunks_for_message("line one\nline two\n"),
+            ["\x1b[200~line one\nline two\x1b[201~", "\r"],
         )
 
     def test_requirements_command_sources_project_activation_when_available(

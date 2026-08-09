@@ -29,6 +29,7 @@ from .state_store import StateError, StateStore
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+TERMINAL_SUBMIT_DELAY_SECONDS = 0.08
 
 _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
@@ -1003,7 +1004,11 @@ INDEX_HTML = """<!doctype html>
     interruptAgent.addEventListener("click", interruptRequirementsAgent);
 
     agentInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && event.shiftKey) {
+      const isEnter =
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter";
+      if (isEnter && event.shiftKey) {
         event.preventDefault();
         sendMessage();
       }
@@ -1250,9 +1255,11 @@ class AgentSession:
             raise AgentSessionError("requirements agent is not running")
         if self._master_fd is None:
             raise AgentSessionError("requirements agent input is not available")
-        text = _terminal_input_for_message(message)
         try:
-            os.write(self._master_fd, text.encode("utf-8"))
+            for index, text in enumerate(_terminal_input_chunks_for_message(message)):
+                if index > 0:
+                    time.sleep(TERMINAL_SUBMIT_DELAY_SECONDS)
+                os.write(self._master_fd, text.encode("utf-8"))
         except OSError as error:
             raise AgentSessionError(f"could not write to requirements agent: {error}")
 
@@ -1569,11 +1576,15 @@ def _requirements_command(root: Path) -> list[str]:
 
 
 def _terminal_input_for_message(message: str) -> str:
+    return "".join(_terminal_input_chunks_for_message(message))
+
+
+def _terminal_input_chunks_for_message(message: str) -> list[str]:
     text = message.replace("\r\n", "\n").replace("\r", "\n")
     text = text.rstrip("\n")
     if "\n" in text:
-        return f"\x1b[200~{text}\x1b[201~\r"
-    return f"{text}\r"
+        return [f"\x1b[200~{text}\x1b[201~", "\r"]
+    return [text, "\r"]
 
 
 def _disable_terminal_echo(slave_fd: int) -> None:
