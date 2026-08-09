@@ -131,6 +131,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="completeDesign"', INDEX_HTML)
         self.assertIn('id="openDesign"', INDEX_HTML)
         self.assertIn('id="startDesignReview"', INDEX_HTML)
+        self.assertIn('id="stopDesignReview"', INDEX_HTML)
         self.assertIn('id="restartDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignFromReview"', INDEX_HTML)
@@ -179,6 +180,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("openApprovedRequirements.disabled = !inRequirementsApproveStage", INDEX_HTML)
         self.assertIn("restartDesign.disabled = !hasActiveProject || inDesignStage", INDEX_HTML)
         self.assertIn("completeDesign.disabled = !hasActiveProject || !inDesignStage", INDEX_HTML)
+        self.assertIn(
+            "startDesignReview.disabled =\n"
+            "        !hasActiveProject || !inDesignReviewStage || designReviewRunning || designReviewStarted",
+            INDEX_HTML,
+        )
+        self.assertIn("stopDesignReview.disabled =", INDEX_HTML)
+        self.assertIn("!hasActiveProject || !inDesignReviewStage || !designReviewRunning", INDEX_HTML)
         self.assertIn("openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("approveDesign.disabled = !inDesignApproveStage", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
@@ -207,6 +215,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/design/restart"', INDEX_HTML)
         self.assertIn('"/api/agents/design/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/start"', INDEX_HTML)
+        self.assertIn('"/api/agents/design-review/stop"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/restart"', INDEX_HTML)
         self.assertIn('"/api/agents/design-approve/approve"', INDEX_HTML)
         self.assertIn("function approveRequirementsStage()", INDEX_HTML)
@@ -228,6 +237,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function completeRequirementsAgent()", INDEX_HTML)
         self.assertIn("function restartDesignAgent()", INDEX_HTML)
         self.assertIn("function completeDesignAgent()", INDEX_HTML)
+        self.assertIn("function stopDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function restartDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function openRequirementsDocument()", INDEX_HTML)
         self.assertIn("function openDesignDocument()", INDEX_HTML)
@@ -285,7 +295,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             operations["design-review"],
-            ["Start review", "Restart review", "Open review", "Open design"],
+            ["Start review", "Stop", "Restart review", "Open review", "Open design"],
         )
         self.assertEqual(
             operations["design-approve"],
@@ -791,6 +801,42 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(failed_payload["workflow_stage"], "design-review")
         self.assertEqual(passed_payload["workflow_stage"], "design-approve")
+
+    def test_design_review_stop_terminates_session_without_advancing(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                context = state.contexts[context_id]
+                context.workflow_stage = "design-review"
+                context.design_review_started = True
+                context.design_review_session = session  # type: ignore[assignment]
+
+            payload = state.stop_design_review_agent(context_id)
+
+        self.assertTrue(session.terminated)
+        self.assertEqual(payload["status"], "stopped")
+        self.assertEqual(payload["workflow_stage"], "design-review")
+        self.assertTrue(payload["design_review_started"])
+        self.assertFalse(payload["design_review_running"])
 
     def test_design_approval_advances_to_implementation_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

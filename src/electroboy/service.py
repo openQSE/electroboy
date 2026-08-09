@@ -636,6 +636,7 @@ INDEX_HTML = """<!doctype html>
       </div>
       <div id="designReviewMenu" class="stage-menu" hidden>
         <button id="startDesignReview" type="button">Start review</button>
+        <button id="stopDesignReview" type="button">Stop</button>
         <button id="restartDesignReview" type="button">Restart review</button>
         <button id="openDesignReview" type="button">Open review</button>
         <button id="openDesignFromReview" type="button">Open design</button>
@@ -764,6 +765,7 @@ INDEX_HTML = """<!doctype html>
     const completeDesign = document.getElementById("completeDesign");
     const openDesign = document.getElementById("openDesign");
     const startDesignReview = document.getElementById("startDesignReview");
+    const stopDesignReview = document.getElementById("stopDesignReview");
     const restartDesignReview = document.getElementById("restartDesignReview");
     const openDesignReview = document.getElementById("openDesignReview");
     const openDesignFromReview = document.getElementById("openDesignFromReview");
@@ -1092,7 +1094,9 @@ INDEX_HTML = """<!doctype html>
       const hasActiveProject = Boolean(activeProjectRoot);
       const inDesignReviewStage = currentWorkflowStage === "design-review";
       startDesignReview.disabled =
-        !hasActiveProject || !inDesignReviewStage || designReviewRunning;
+        !hasActiveProject || !inDesignReviewStage || designReviewRunning || designReviewStarted;
+      stopDesignReview.disabled =
+        !hasActiveProject || !inDesignReviewStage || !designReviewRunning;
       restartDesignReview.disabled =
         !hasActiveProject || (inDesignReviewStage && !designReviewStarted);
       openDesignReview.disabled =
@@ -1537,6 +1541,25 @@ INDEX_HTML = """<!doctype html>
       );
     }
 
+    async function stopDesignReviewAgent() {
+      if (currentWorkflowStage !== "design-review" || !designReviewRunning) {
+        return;
+      }
+      designReviewMenu.hidden = true;
+      const response = await fetch(contextUrl("/api/agents/design-review/stop"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "stop failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "stop failed"}\\n`, "error");
+        return;
+      }
+      closeAgentEventStream();
+      setAgentRunning("design-review", false);
+      appendOutput("design review stopped\\n", "system");
+      updateProjectState(payload);
+    }
+
     async function approveDesignStage() {
       if (currentWorkflowStage !== "design-approve") {
         return;
@@ -1775,6 +1798,7 @@ INDEX_HTML = """<!doctype html>
     completeDesign.addEventListener("click", completeDesignAgent);
     openDesign.addEventListener("click", openDesignDocument);
     startDesignReview.addEventListener("click", startDesignReviewAgent);
+    stopDesignReview.addEventListener("click", stopDesignReviewAgent);
     restartDesignReview.addEventListener("click", restartDesignReviewAgent);
     openDesignReview.addEventListener("click", openDesignReviewDocument);
     openDesignFromReview.addEventListener("click", openDesignDocument);
@@ -2226,6 +2250,28 @@ class ServiceState:
             force=force,
             allow_stage_reopen=True,
         )
+
+    def stop_design_review_agent(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "design-review":
+                raise AgentSessionError("design review stage is not active")
+            session = context.design_review_session
+            if session is None or not session.is_active():
+                raise AgentSessionError("design review is not running")
+        session.terminate()
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.design_review_session is session:
+                context.design_review_session = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "stopped",
+        }
 
     def approve_design(self, context_id: str) -> dict[str, object]:
         with self.lock:
@@ -2935,7 +2981,7 @@ def _stage_operations(
     if stage == "design" and active_project_root:
         return ["Start", "Restart", "Complete", "Open design"]
     if stage == "design-review" and active_project_root:
-        return ["Start review", "Restart review", "Open review", "Open design"]
+        return ["Start review", "Stop", "Restart review", "Open review", "Open design"]
     if stage == "design-approve" and active_project_root:
         return ["Approve", "Open design", "Open review"]
     return []
@@ -3439,6 +3485,9 @@ def _handler_for(
             if path == "/api/agents/design-review/start":
                 self._start_design_review_agent(parsed.query)
                 return
+            if path == "/api/agents/design-review/stop":
+                self._stop_design_review_agent(parsed.query)
+                return
             if path == "/api/agents/design-review/restart":
                 self._restart_design_review_agent(parsed.query)
                 return
@@ -3884,6 +3933,17 @@ def _handler_for(
                     "command": session.command,
                 }
             )
+
+        def _stop_design_review_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.stop_design_review_agent(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
 
         def _approve_design(self, query: str) -> None:
             try:
