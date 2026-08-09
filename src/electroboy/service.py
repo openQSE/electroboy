@@ -208,9 +208,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     .stage-node.active {
-      border-color: var(--active);
-      background: var(--active-soft);
-      color: #064e49;
+      border-color: #005f66;
+      background: #007f8a;
+      color: #ffffff;
+    }
+
+    .stage-node.available {
+      border-color: #6f91a8;
+      background: #ffffff;
+      color: #243f53;
     }
 
     .stage-node.complete {
@@ -220,7 +226,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     .stage-node.disabled {
+      border-color: var(--border);
+      background: var(--disabled);
+      color: var(--muted);
       cursor: default;
+    }
+
+    button.stage-node.available:hover {
+      border-color: #1d7180;
+      background: #effbfc;
     }
 
     .stage-menu {
@@ -860,14 +874,16 @@ INDEX_HTML = """<!doctype html>
         const stageId = stageNode.dataset.stage || "";
         const isProject = stageId === "project";
         const isEnabled = isProject || hasActiveProject;
+        const isActive = isProject
+          ? !hasActiveProject
+          : hasActiveProject && stageId === workflowStage;
+        const isComplete = isProject && hasActiveProject;
         stageNode.disabled = !isEnabled;
         stageNode.setAttribute("aria-disabled", isEnabled ? "false" : "true");
         stageNode.classList.toggle("disabled", !isEnabled);
-        stageNode.classList.toggle(
-          "active",
-          isProject ? !hasActiveProject : hasActiveProject && stageId === workflowStage,
-        );
-        stageNode.classList.toggle("complete", isProject && hasActiveProject);
+        stageNode.classList.toggle("available", isEnabled && !isActive && !isComplete);
+        stageNode.classList.toggle("active", isActive);
+        stageNode.classList.toggle("complete", isComplete);
       }
     }
 
