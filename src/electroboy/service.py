@@ -31,10 +31,16 @@ from .artifacts import ArtifactManager
 from .models import (
     ActivityEvent,
     GATE_DESIGN,
+    STAGE_COMPLETE,
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
     STAGE_DESIGN_REVIEW,
+    STAGE_DOCS_REVIEW,
+    STAGE_IMPLEMENTATION,
+    STAGE_PLAN,
     STAGE_REQUIREMENTS,
+    STAGE_TEST_PLAN,
+    STAGE_VALIDATION,
 )
 from .state_store import StateError, StateStore
 
@@ -78,6 +84,16 @@ APPROVAL_STAGE_OWNERS = {
     "code-approve": "code",
     "test-plan-approve": "test-plan",
     "validation-approve": "validate",
+}
+
+DURABLE_STAGE_OWNERS = {
+    STAGE_DESIGN_ACCEPTANCE: "design-review",
+    STAGE_PLAN: "implementation-plan",
+    STAGE_IMPLEMENTATION: "code",
+    STAGE_TEST_PLAN: "test-plan",
+    STAGE_VALIDATION: "validate",
+    STAGE_DOCS_REVIEW: "document",
+    STAGE_COMPLETE: "document",
 }
 
 INDEX_HTML = """<!doctype html>
@@ -2720,6 +2736,7 @@ class ServiceState:
 
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _existing_project_root(path)
+        workflow_stage = _active_workflow_stage(project_root)
         with self.lock:
             context = self._context_locked(context_id)
             self._require_no_active_agent_locked(context)
@@ -2727,7 +2744,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.workflow_stage = "requirements"
+            context.workflow_stage = workflow_stage
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
@@ -2749,7 +2766,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.workflow_stage = "requirements"
+            context.workflow_stage = _visible_workflow_stage(manifest.active_stage)
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
@@ -3856,7 +3873,15 @@ def project_payload(
 
 
 def _visible_workflow_stage(stage: str) -> str:
-    return APPROVAL_STAGE_OWNERS.get(stage, stage)
+    return DURABLE_STAGE_OWNERS.get(stage, APPROVAL_STAGE_OWNERS.get(stage, stage))
+
+
+def _active_workflow_stage(project_root: Path | str) -> str:
+    try:
+        manifest = StateStore(project_root).load_current_manifest()
+    except OSError as error:
+        raise StateError(f"could not read ElectroBoy project: {error}") from error
+    return _visible_workflow_stage(manifest.active_stage)
 
 
 def _stage_has_approvals(

@@ -466,6 +466,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "opened")
         self.assertEqual(payload["context_id"], context_id)
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
+        self.assertEqual(payload["workflow_stage"], "requirements")
         self.assertFalse(payload["requirements_started"])
         self.assertFalse(payload["requirements_running"])
         self.assertFalse(payload["design_started"])
@@ -477,6 +478,44 @@ class ServiceTests(unittest.TestCase):
             payload["activate_command"],
             f"source {project_root.resolve() / '.electroboy' / 'bin' / 'activate'}",
         )
+
+    def test_service_state_opens_existing_project_at_manifest_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            store = StateStore(project_root)
+            manifest = store.init_run(run_id="run-1")
+            manifest.set_active_stage(STAGE_DESIGN)
+            store.save_manifest(manifest)
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            payload = state.open_project(context_id, str(project_root))
+
+        self.assertEqual(payload["status"], "opened")
+        self.assertEqual(payload["workflow_stage"], "design")
+        self.assertFalse(payload["requirements_started"])
+        self.assertFalse(payload["design_started"])
+
+    def test_service_state_opens_existing_project_at_visible_approval_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            store = StateStore(project_root)
+            manifest = store.init_run(run_id="run-1")
+            manifest.set_active_stage(STAGE_DESIGN_ACCEPTANCE)
+            store.save_manifest(manifest)
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            payload = state.open_project(context_id, str(project_root))
+
+        self.assertEqual(payload["status"], "opened")
+        self.assertEqual(payload["workflow_stage"], "design-review")
 
     def test_new_context_starts_without_active_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
