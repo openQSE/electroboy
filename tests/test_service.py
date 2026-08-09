@@ -59,6 +59,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('fetch("/api/health"', INDEX_HTML)
         self.assertIn('connection.textContent = activeProjectRoot', INDEX_HTML)
         self.assertIn('class="stage-scroll"', INDEX_HTML)
+        self.assertIn('const workflowPane = document.querySelector(".workflow-pane");', INDEX_HTML)
+        self.assertIn('const stageScroll = document.querySelector(".stage-scroll");', INDEX_HTML)
         self.assertIn("overflow: visible;", INDEX_HTML)
         self.assertIn("z-index: 30;", INDEX_HTML)
         self.assertIn("z-index: 0;", INDEX_HTML)
@@ -102,6 +104,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/agents/requirements/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/resize")', INDEX_HTML)
         self.assertIn("payload.terminal || payload.text", INDEX_HTML)
+        self.assertIn("function positionStageMenu(menu, stage)", INDEX_HTML)
+        self.assertIn(
+            "toggleStageMenu(requirementsMenu, requirementsStage, projectMenu)",
+            INDEX_HTML,
+        )
+        self.assertIn("stageScroll.addEventListener(\"scroll\", repositionOpenStageMenu)", INDEX_HTML)
         self.assertIn('event.code === "NumpadEnter"', INDEX_HTML)
         self.assertIn("isEnter && event.shiftKey", INDEX_HTML)
 

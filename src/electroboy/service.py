@@ -606,6 +606,8 @@ INDEX_HTML = """<!doctype html>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script>
     const connection = document.getElementById("connection");
+    const workflowPane = document.querySelector(".workflow-pane");
+    const stageScroll = document.querySelector(".stage-scroll");
     const projectStage = document.querySelector("[data-stage='project']");
     const requirementsStage = document.querySelector("[data-stage='requirements']");
     const projectMenu = document.getElementById("projectMenu");
@@ -1011,17 +1013,46 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function positionStageMenu(menu, stage) {
+      const paneRect = workflowPane.getBoundingClientRect();
+      const stageRect = stage.getBoundingClientRect();
+      const menuWidth = menu.offsetWidth || 192;
+      const inset = 8;
+      const left = Math.max(
+        inset,
+        Math.min(stageRect.left - paneRect.left, workflowPane.clientWidth - menuWidth - inset),
+      );
+      menu.style.left = `${left}px`;
+      menu.style.top = `${stageRect.bottom - paneRect.top + inset}px`;
+    }
+
+    function toggleStageMenu(menu, stage, otherMenu) {
+      const shouldOpen = menu.hidden;
+      otherMenu.hidden = true;
+      menu.hidden = !shouldOpen;
+      if (shouldOpen) {
+        positionStageMenu(menu, stage);
+      }
+    }
+
+    function repositionOpenStageMenu() {
+      if (!projectMenu.hidden) {
+        positionStageMenu(projectMenu, projectStage);
+      }
+      if (!requirementsMenu.hidden) {
+        positionStageMenu(requirementsMenu, requirementsStage);
+      }
+    }
+
     requirementsStage.addEventListener("click", () => {
       if (requirementsStage.disabled) {
         return;
       }
-      projectMenu.hidden = true;
-      requirementsMenu.hidden = !requirementsMenu.hidden;
+      toggleStageMenu(requirementsMenu, requirementsStage, projectMenu);
     });
 
     projectStage.addEventListener("click", () => {
-      requirementsMenu.hidden = true;
-      projectMenu.hidden = !projectMenu.hidden;
+      toggleStageMenu(projectMenu, projectStage, requirementsMenu);
     });
 
     openProject.addEventListener("click", () => showProjectPanel("open"));
@@ -1044,6 +1075,8 @@ INDEX_HTML = """<!doctype html>
 
     startRequirements.addEventListener("click", startRequirementsAgent);
     interruptAgent.addEventListener("click", interruptRequirementsAgent);
+    stageScroll.addEventListener("scroll", repositionOpenStageMenu);
+    window.addEventListener("resize", repositionOpenStageMenu);
 
     agentInput.addEventListener("keydown", (event) => {
       const isEnter =
