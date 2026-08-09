@@ -757,6 +757,7 @@ INDEX_HTML = """<!doctype html>
     .input-pane {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
+      min-height: 0;
       gap: 8px;
       border-top: 1px solid #2a3142;
       background: #151b29;
@@ -771,6 +772,7 @@ INDEX_HTML = """<!doctype html>
       display: block;
       width: 100%;
       height: 100%;
+      min-height: 0;
       resize: none;
       border: 1px solid #364156;
       border-radius: 8px;
@@ -792,8 +794,11 @@ INDEX_HTML = """<!doctype html>
     .agent-actions {
       display: grid;
       grid-template-rows: auto auto auto auto;
+      min-height: 0;
       gap: 8px;
       align-self: stretch;
+      overflow: auto;
+      scrollbar-width: thin;
       width: 196px;
     }
 
@@ -1364,6 +1369,7 @@ INDEX_HTML = """<!doctype html>
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
+    const MIN_INPUT_PANE_HEIGHT = 56;
     let eventSource = null;
     let progressEventSource = null;
     let terminal = null;
@@ -1666,6 +1672,11 @@ INDEX_HTML = """<!doctype html>
       window.requestAnimationFrame(fitTerminal);
     }
 
+    function prepareTerminalStream() {
+      applyTerminalFontSize();
+      fitTerminal();
+    }
+
     function fitTerminal() {
       if (terminalFit) {
         try {
@@ -1830,7 +1841,7 @@ INDEX_HTML = """<!doctype html>
       resizeInputState = {
         startY: event.clientY,
         startHeight: inputRect.height,
-        maxHeight: Math.max(96, agentRect.height - 160),
+        maxHeight: Math.max(MIN_INPUT_PANE_HEIGHT, agentRect.height - 160),
       };
       inputResizeHandle.setPointerCapture(event.pointerId);
       agentPane.classList.add("resizing-input");
@@ -1843,7 +1854,7 @@ INDEX_HTML = """<!doctype html>
       const deltaY = resizeInputState.startY - event.clientY;
       const nextHeight = clampValue(
         resizeInputState.startHeight + deltaY,
-        96,
+        MIN_INPUT_PANE_HEIGHT,
         resizeInputState.maxHeight,
       );
       agentPane.style.setProperty("--input-pane-height", `${nextHeight}px`);
@@ -1970,6 +1981,7 @@ INDEX_HTML = """<!doctype html>
         outputSplit.style.gridTemplateRows = "";
         applyStoredProgressPaneSize();
         initializeProgressTerminal();
+        prepareTerminalStream();
       } else {
         progressOutput.hidden = true;
         outputResizeHandle.hidden = true;
@@ -2921,6 +2933,7 @@ INDEX_HTML = """<!doctype html>
         eventSource.close();
       }
       activeAgentKind = kind;
+      prepareTerminalStream();
       eventSource = new EventSource(contextUrl(`/api/agents/${kind}/events`));
       eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);
@@ -2955,6 +2968,7 @@ INDEX_HTML = """<!doctype html>
       selectedSessionId = sessionId;
       const session = selectedSession();
       activeAgentKind = session ? session.kind || "" : activeAgentKind;
+      prepareTerminalStream();
       eventSource = new EventSource(
         contextUrl(`/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`),
       );
