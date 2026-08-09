@@ -29,8 +29,12 @@ Operator workflow commands:
 - `progress [--once|--follow] [--interval <seconds>]` prints or follows hidden
   progress files for the active run. `monitor` is an alias.
 - `serve [--root <path>] [--host <host>] [--port <port>]` starts the local
-  browser service. The initial web interface fetches `/api/health` and prints
-  `connected` when the browser can reach ElectroBoy.
+  browser service. The web interface fetches `/api/health`, shows a workflow
+  stage graphic beginning with `project`, lets the operator open or create and
+  activate a project for the service through a service-backed directory browser,
+  exposes `Start` on the requirements stage after activation, and opens a bottom
+  requirements-agent pane with
+  streamed output and a multi-line input.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes
   requirements authoring.
 - `requirements-approve` records human and Design Author approval.
@@ -115,6 +119,33 @@ Passing `--session-id <id>` writes that id to the stage's local session record
 before the agent starts. If a record already exists for the same run, stage,
 and role, the explicit id replaces it and becomes the id used by later
 authoring resumes.
+
+The local browser service exposes the first GUI slice through stdlib HTTP
+handlers. `GET /` serves the workflow page. `GET /api/health` returns
+`status: connected`. Each loaded browser page creates an isolated service
+context with `POST /api/contexts`; project activation and running agents are
+scoped to that returned `context_id`. `GET /api/project?context_id=<id>`
+returns the service root, the context's active project root, and terminal
+activation command. `POST /api/project/open?context_id=<id>` activates an
+existing ElectroBoy project for that browser context, and
+`POST /api/project/new?context_id=<id>` initializes a new project with the same
+setup helpers used by `electroboy new` before activating it for that context.
+`POST /api/project/deactivate?context_id=<id>` clears only that context's
+active project. `GET /api/files/browse?path=<path>` returns child directories
+for the service-backed browser. The browser opens this directory browser inside
+the web UI because ordinary browser file pickers do not reliably expose
+absolute local directory paths to JavaScript. GUI activation means the service
+records an active project root for the browser context; each requirements
+process sources that project's activation script when one exists. `GET
+/api/workflow?context_id=<id>` returns the stage list, exposes `Open` and
+`Create` for `project`, adds `Deactivate` once a project is active, and exposes
+`Start` for `requirements` once a project is active. Other stages remain
+inactive until later GUI work wires them up. The requirements agent uses
+`POST /api/agents/requirements/start?context_id=<id>`,
+`POST /api/agents/requirements/message?context_id=<id>`, and
+`GET /api/agents/requirements/events?context_id=<id>`. The event stream is
+Server-Sent Events and carries normal child-process output from the same
+`electroboy requirements` command path used by the CLI.
 
 `feature start` records feature metadata in the current run's `feature.json`.
 When `--name` is omitted in an interactive shell, ElectroBoy prompts for the
@@ -466,5 +497,6 @@ blocks the stage instead of being interpreted.
 - `electroboy.planning` parses implementation phases and optional
   traceability hints.
 - `electroboy.runtime` selects configured agent runtimes.
-- `electroboy.service` runs the local browser service and health endpoint.
+- `electroboy.service` runs the local browser service, workflow page, health
+  endpoint, and requirements-agent process bridge.
 - `electroboy.adapters.*` implements runtime adapter contracts.
