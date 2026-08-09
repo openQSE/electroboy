@@ -72,6 +72,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-stage="project"', INDEX_HTML)
         self.assertIn('data-stage="requirements"', INDEX_HTML)
         self.assertIn('data-stage="requirements-approve"', INDEX_HTML)
+        self.assertIn('data-stage="design"', INDEX_HTML)
+        self.assertIn('data-stage="code-approve"', INDEX_HTML)
+        self.assertIn('const stageNodes = Array.from', INDEX_HTML)
+        self.assertIn("function updateStageNodes(hasActiveProject, workflowStage)", INDEX_HTML)
+        self.assertIn("stageNode.disabled = !isEnabled", INDEX_HTML)
+        self.assertIn("function selectWorkflowStage(stageId)", INDEX_HTML)
+        self.assertIn('contextUrl("/api/workflow/stage")', INDEX_HTML)
+        self.assertIn("function handleWorkflowStageClick(stageNode)", INDEX_HTML)
         self.assertIn('id="projectMenu"', INDEX_HTML)
         self.assertIn("openProject.disabled = hasActiveProject", INDEX_HTML)
         self.assertIn("newProject.disabled = hasActiveProject", INDEX_HTML)
@@ -388,6 +396,68 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "requirements-approve")
         self.assertFalse(payload["requirements_started"])
         self.assertEqual(payload["next_stage"], "requirements-approve")
+        self.assertIsNone(state.current_requirements_session(context_id))
+
+    def test_service_state_selects_workflow_stage_after_activation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            payload = state.select_workflow_stage(context_id, "design")
+
+        self.assertEqual(payload["status"], "selected")
+        self.assertEqual(payload["previous_stage"], "requirements")
+        self.assertFalse(payload["terminated_agent"])
+        self.assertEqual(payload["workflow_stage"], "design")
+        self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
+
+    def test_service_state_rejects_workflow_stage_selection_before_activation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            context_id = str(state.create_context()["context_id"])
+
+            with self.assertRaisesRegex(StateError, "activate a project first"):
+                state.select_workflow_stage(context_id, "design")
+            with self.assertRaisesRegex(StateError, "unknown workflow stage"):
+                state.select_workflow_stage(context_id, "project")
+
+    def test_service_state_terminates_requirements_agent_when_jumping_stage(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
+
+            payload = state.select_workflow_stage(context_id, "design")
+
+        self.assertTrue(session.terminated)
+        self.assertTrue(payload["terminated_agent"])
+        self.assertEqual(payload["workflow_stage"], "design")
         self.assertIsNone(state.current_requirements_session(context_id))
 
     def test_only_restart_and_document_are_available_after_requirements(self) -> None:

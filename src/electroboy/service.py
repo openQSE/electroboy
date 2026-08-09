@@ -519,27 +519,65 @@ INDEX_HTML = """<!doctype html>
           >
             requirements
           </button>
-          <div
+          <button
             class="stage-node disabled"
+            type="button"
             data-stage="requirements-approve"
-            aria-disabled="true"
+            disabled
           >
             requirements-approve
-          </div>
-          <div class="stage-node disabled" aria-disabled="true">design</div>
-          <div class="stage-node disabled" aria-disabled="true">design-review</div>
-          <div class="stage-node disabled" aria-disabled="true">design-approve</div>
-          <div class="stage-node disabled" aria-disabled="true">
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="design" disabled>
+            design
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="design-review" disabled>
+            design-review
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="design-approve" disabled>
+            design-approve
+          </button>
+          <button
+            class="stage-node disabled"
+            type="button"
+            data-stage="implementation-plan"
+            disabled
+          >
             implementation-plan
-          </div>
-          <div class="stage-node disabled" aria-disabled="true">plan-approve</div>
-          <div class="stage-node disabled" aria-disabled="true">code</div>
-          <div class="stage-node disabled" aria-disabled="true">test-plan</div>
-          <div class="stage-node disabled" aria-disabled="true">test-plan-approve</div>
-          <div class="stage-node disabled" aria-disabled="true">validate</div>
-          <div class="stage-node disabled" aria-disabled="true">validation-approve</div>
-          <div class="stage-node disabled" aria-disabled="true">document</div>
-          <div class="stage-node disabled" aria-disabled="true">code-approve</div>
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="plan-approve" disabled>
+            plan-approve
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="code" disabled>
+            code
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="test-plan" disabled>
+            test-plan
+          </button>
+          <button
+            class="stage-node disabled"
+            type="button"
+            data-stage="test-plan-approve"
+            disabled
+          >
+            test-plan-approve
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="validate" disabled>
+            validate
+          </button>
+          <button
+            class="stage-node disabled"
+            type="button"
+            data-stage="validation-approve"
+            disabled
+          >
+            validation-approve
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="document" disabled>
+            document
+          </button>
+          <button class="stage-node disabled" type="button" data-stage="code-approve" disabled>
+            code-approve
+          </button>
         </div>
       </div>
       <div id="projectMenu" class="stage-menu" hidden>
@@ -618,11 +656,9 @@ INDEX_HTML = """<!doctype html>
     const connection = document.getElementById("connection");
     const workflowPane = document.querySelector(".workflow-pane");
     const stageScroll = document.querySelector(".stage-scroll");
+    const stageNodes = Array.from(document.querySelectorAll(".stage-node[data-stage]"));
     const projectStage = document.querySelector("[data-stage='project']");
     const requirementsStage = document.querySelector("[data-stage='requirements']");
-    const requirementsApproveStage = document.querySelector(
-      "[data-stage='requirements-approve']",
-    );
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const openProject = document.getElementById("openProject");
@@ -809,26 +845,7 @@ INDEX_HTML = """<!doctype html>
         projectPath.value = activeProjectRoot || serviceRoot;
       }
       setConnected();
-      projectStage.classList.toggle("complete", hasActiveProject);
-      projectStage.classList.toggle("active", !hasActiveProject);
-      requirementsStage.disabled = !hasActiveProject;
-      requirementsStage.classList.toggle("disabled", !hasActiveProject);
-      requirementsStage.classList.toggle(
-        "active",
-        hasActiveProject && workflowStage === "requirements",
-      );
-      requirementsStage.classList.toggle(
-        "complete",
-        hasActiveProject && workflowStage === "requirements-approve",
-      );
-      requirementsApproveStage.classList.toggle(
-        "active",
-        hasActiveProject && workflowStage === "requirements-approve",
-      );
-      requirementsApproveStage.classList.toggle(
-        "disabled",
-        !hasActiveProject || workflowStage !== "requirements-approve",
-      );
+      updateStageNodes(hasActiveProject, workflowStage);
       openProject.disabled = hasActiveProject;
       newProject.disabled = hasActiveProject;
       deactivateProject.disabled = !hasActiveProject;
@@ -836,6 +853,22 @@ INDEX_HTML = """<!doctype html>
       projectStatus.textContent = activeProjectRoot
         ? `active: ${activeProjectRoot}`
         : "";
+    }
+
+    function updateStageNodes(hasActiveProject, workflowStage) {
+      for (const stageNode of stageNodes) {
+        const stageId = stageNode.dataset.stage || "";
+        const isProject = stageId === "project";
+        const isEnabled = isProject || hasActiveProject;
+        stageNode.disabled = !isEnabled;
+        stageNode.setAttribute("aria-disabled", isEnabled ? "false" : "true");
+        stageNode.classList.toggle("disabled", !isEnabled);
+        stageNode.classList.toggle(
+          "active",
+          isProject ? !hasActiveProject : hasActiveProject && stageId === workflowStage,
+        );
+        stageNode.classList.toggle("complete", isProject && hasActiveProject);
+      }
     }
 
     function updateRequirementsMenuState() {
@@ -860,6 +893,29 @@ INDEX_HTML = """<!doctype html>
       }
       const payload = await response.json();
       updateProjectState(payload);
+    }
+
+    async function selectWorkflowStage(stageId) {
+      if (!activeProjectRoot || stageId === "project") {
+        return false;
+      }
+      const response = await fetch(contextUrl("/api/workflow/stage"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: stageId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "stage update failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "stage update failed"}\\n`, "error");
+        return false;
+      }
+      if (payload.terminated_agent || payload.workflow_stage !== "requirements") {
+        closeAgentEventStream();
+        setRequirementsRunning(false);
+        agentInput.value = "";
+      }
+      updateProjectState(payload);
+      return true;
     }
 
     async function browseDirectory(path = projectPath.value || ".") {
@@ -1182,16 +1238,44 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    requirementsStage.addEventListener("click", () => {
-      if (requirementsStage.disabled) {
+    async function handleWorkflowStageClick(stageNode) {
+      const stageId = stageNode.dataset.stage || "";
+      if (!activeProjectRoot || stageNode.disabled) {
         return;
       }
-      toggleStageMenu(requirementsMenu, requirementsStage, projectMenu);
-    });
+      const wasCurrentStage = stageId === currentWorkflowStage;
+      projectMenu.hidden = true;
+      if (!wasCurrentStage) {
+        const selected = await selectWorkflowStage(stageId);
+        if (!selected) {
+          return;
+        }
+      }
+      if (stageId === "requirements") {
+        if (wasCurrentStage) {
+          toggleStageMenu(requirementsMenu, requirementsStage, projectMenu);
+        } else {
+          requirementsMenu.hidden = false;
+          positionStageMenu(requirementsMenu, requirementsStage);
+        }
+        return;
+      }
+      requirementsMenu.hidden = true;
+    }
 
     projectStage.addEventListener("click", () => {
       toggleStageMenu(projectMenu, projectStage, requirementsMenu);
     });
+    for (const stageNode of stageNodes) {
+      if (stageNode.dataset.stage === "project") {
+        continue;
+      }
+      stageNode.addEventListener("click", () => {
+        handleWorkflowStageClick(stageNode).catch((error) => {
+          appendOutput(`stage update failed: ${error}\\n`, "error");
+        });
+      });
+    }
 
     openProject.addEventListener("click", () => showProjectPanel("open"));
     newProject.addEventListener("click", () => showProjectPanel("new"));
@@ -1281,6 +1365,42 @@ class ServiceState:
             context = self._context_locked(context_id)
             active_project_root = context.active_project_root
         return workflow_payload(active_project_root)
+
+    def select_workflow_stage(
+        self,
+        context_id: str,
+        stage: str,
+    ) -> dict[str, object]:
+        stage = stage.strip()
+        if stage == "project" or stage not in WORKFLOW_STAGES:
+            raise StateError(f"unknown workflow stage: {stage}")
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise StateError("activate a project first")
+            previous_stage = context.workflow_stage
+            session = (
+                context.requirements_session
+                if previous_stage != stage
+                else None
+            )
+        terminated_agent = False
+        if session is not None and session.is_active():
+            session.terminate()
+            terminated_agent = True
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.workflow_stage = stage
+            if context.requirements_session is session:
+                context.requirements_session = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "selected",
+            "previous_stage": previous_stage,
+            "terminated_agent": terminated_agent,
+        }
 
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _existing_project_root(path)
@@ -2242,6 +2362,9 @@ def _handler_for(
             if path == "/api/project/deactivate":
                 self._deactivate_project(parsed.query)
                 return
+            if path == "/api/workflow/stage":
+                self._select_workflow_stage(parsed.query)
+                return
             if path == "/api/agents/requirements/start":
                 self._start_requirements_agent(parsed.query)
                 return
@@ -2341,6 +2464,22 @@ def _handler_for(
                 context_id = self._context_id(query)
                 self._send_json(state.deactivate_project(context_id))
             except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _select_workflow_stage(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.select_workflow_stage(
+                        context_id,
+                        str(payload.get("stage") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
