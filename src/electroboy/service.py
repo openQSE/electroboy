@@ -41,6 +41,7 @@ from .models import (
     STAGE_REQUIREMENTS,
     STAGE_TEST_PLAN,
     STAGE_VALIDATION,
+    utc_now,
 )
 from .state_store import StateError, StateStore
 
@@ -48,6 +49,7 @@ from .state_store import StateError, StateStore
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 TERMINAL_SUBMIT_DELAY_SECONDS = 0.08
+META_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "repositories.json"
 
 _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
@@ -94,6 +96,25 @@ DURABLE_STAGE_OWNERS = {
     STAGE_VALIDATION: "validate",
     STAGE_DOCS_REVIEW: "document",
     STAGE_COMPLETE: "document",
+}
+
+SESSION_ARTIFACT_LOCKS = {
+    "requirements": frozenset({"docs/requirements.md", "docs/requirements.jsonl"}),
+    "design": frozenset({"docs/detailed-design.md", "docs/detailed-design.jsonl"}),
+    "design-review": frozenset(
+        {
+            "docs/detailed-design.md",
+            "docs/detailed-design.jsonl",
+            "design-review.jsonl",
+        }
+    ),
+    "documentation": frozenset(
+        {
+            "documentation.jsonl",
+            "README.md",
+            "docs/api.md",
+        }
+    ),
 }
 
 INDEX_HTML = """<!doctype html>
@@ -162,7 +183,9 @@ INDEX_HTML = """<!doctype html>
 
     .shell-resize-handle,
     .input-resize-handle,
-    .output-resize-handle {
+    .output-resize-handle,
+    .workbench-resize-handle,
+    .side-pane-resize-handle {
       touch-action: none;
       user-select: none;
     }
@@ -229,7 +252,7 @@ INDEX_HTML = """<!doctype html>
       position: absolute;
       top: 77px;
       left: 56px;
-      right: 56px;
+      right: 204px;
       height: 2px;
       background: var(--border);
       content: "";
@@ -293,6 +316,16 @@ INDEX_HTML = """<!doctype html>
       cursor: default;
     }
 
+    .stage-node.sidecar {
+      border-style: dashed;
+    }
+
+    .stage-node.sidecar.available {
+      border-color: #7b8fb1;
+      background: #f8fbff;
+      color: #314763;
+    }
+
     button.stage-node.available:hover {
       border-color: #1d7180;
       background: #effbfc;
@@ -304,6 +337,8 @@ INDEX_HTML = """<!doctype html>
       top: 128px;
       left: 24px;
       width: 192px;
+      display: grid;
+      gap: 6px;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--panel);
@@ -328,13 +363,50 @@ INDEX_HTML = """<!doctype html>
       font-weight: 700;
     }
 
-    .stage-menu button + button {
-      margin-top: 6px;
-    }
-
     .stage-menu button:disabled {
       cursor: default;
       opacity: 0.65;
+    }
+
+    .menu-branch {
+      position: relative;
+    }
+
+    .menu-branch > button {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .menu-branch > button::after {
+      content: ">";
+      color: currentColor;
+      font-weight: 800;
+    }
+
+    .stage-submenu {
+      position: absolute;
+      z-index: 40;
+      top: 0;
+      left: calc(100% + 8px);
+      display: grid;
+      width: 220px;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 14px 34px rgb(17 24 39 / 14%);
+      padding: 8px;
+    }
+
+    .stage-submenu[hidden] {
+      display: none;
+    }
+
+    .repo-menu-item.active-repo {
+      border-color: #005f66;
+      background: #007f8a;
     }
 
     .project-panel {
@@ -469,6 +541,22 @@ INDEX_HTML = """<!doctype html>
       grid-template-rows: minmax(0, 1fr);
     }
 
+    .output-workbench {
+      display: grid;
+      grid-template-columns:
+        minmax(0, 1fr) 7px
+        minmax(260px, var(--right-pane-width, 360px));
+      min-height: 0;
+      background: var(--terminal);
+    }
+
+    .left-output-pane {
+      display: grid;
+      min-height: 0;
+      min-width: 0;
+      background: var(--terminal);
+    }
+
     .output-split {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
@@ -488,8 +576,18 @@ INDEX_HTML = """<!doctype html>
       cursor: col-resize;
     }
 
+    .workbench-resize-handle {
+      min-height: 0;
+      background: #253044;
+      cursor: col-resize;
+    }
+
     .output-resize-handle:hover,
-    .output-split.resizing .output-resize-handle {
+    .output-split.resizing .output-resize-handle,
+    .workbench-resize-handle:hover,
+    .output-workbench.resizing .workbench-resize-handle,
+    .side-pane-resize-handle:hover,
+    .side-pane.resizing .side-pane-resize-handle {
       background: #3a78a0;
     }
 
@@ -551,6 +649,69 @@ INDEX_HTML = """<!doctype html>
       color: #ffb4a9;
     }
 
+    .side-pane {
+      display: grid;
+      grid-template-rows:
+        minmax(120px, var(--scratch-pane-height, 50%)) 7px
+        minmax(120px, 1fr);
+      min-height: 0;
+      min-width: 0;
+      border-left: 1px solid #2a3142;
+      background: #111827;
+    }
+
+    .side-pane-resize-handle {
+      min-height: 0;
+      background: #253044;
+      cursor: row-resize;
+    }
+
+    .scratch-pane,
+    .project-status-pane {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+      min-width: 0;
+    }
+
+    .side-pane-header {
+      display: flex;
+      align-items: center;
+      min-height: 34px;
+      border-bottom: 1px solid #2a3142;
+      padding: 0 12px;
+      color: #aab8cf;
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .scratch-pad,
+    .project-status-output {
+      min-height: 0;
+      width: 100%;
+      margin: 0;
+      border: 0;
+      background: #10141f;
+      color: var(--terminal-text);
+      padding: 10px 12px;
+      font-family:
+        "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.45;
+      outline: none;
+      white-space: pre-wrap;
+    }
+
+    .scratch-pad {
+      display: block;
+      resize: none;
+    }
+
+    .project-status-output {
+      overflow: auto;
+    }
+
     .input-pane {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -588,10 +749,29 @@ INDEX_HTML = """<!doctype html>
 
     .agent-actions {
       display: grid;
-      grid-template-rows: auto auto auto;
+      grid-template-rows: auto auto auto auto;
       gap: 8px;
       align-self: stretch;
       width: 112px;
+    }
+
+    .session-switcher {
+      width: 100%;
+      height: 38px;
+      min-width: 0;
+      border: 1px solid #303746;
+      border-radius: 6px;
+      background: #171d2b;
+      color: #e7edf7;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 650;
+      padding: 0 8px;
+    }
+
+    .session-switcher:disabled {
+      color: #667085;
+      cursor: default;
     }
 
     .terminal-font-controls {
@@ -667,6 +847,12 @@ INDEX_HTML = """<!doctype html>
         top: 120px;
       }
 
+      .stage-submenu {
+        position: static;
+        width: auto;
+        margin-top: 6px;
+      }
+
       .project-panel {
         left: 16px;
         right: 16px;
@@ -680,6 +866,22 @@ INDEX_HTML = """<!doctype html>
 
       .browser-toolbar {
         grid-template-columns: 1fr;
+      }
+
+      .output-workbench {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows:
+          minmax(0, 1fr) 7px
+          minmax(200px, var(--right-pane-height, 38%));
+      }
+
+      .workbench-resize-handle {
+        cursor: row-resize;
+      }
+
+      .side-pane {
+        border-top: 1px solid #2a3142;
+        border-left: 0;
       }
 
       .output-split.split {
@@ -739,14 +941,53 @@ INDEX_HTML = """<!doctype html>
           <button class="stage-node disabled" type="button" data-stage="validate" disabled>
             validate
           </button>
-          <button class="stage-node disabled" type="button" data-stage="document" disabled>
+          <button class="stage-node disabled sidecar" type="button" data-stage="document" disabled>
             document
           </button>
         </div>
       </div>
       <div id="projectMenu" class="stage-menu" hidden>
-        <button id="openProject" type="button">Open</button>
-        <button id="newProject" type="button">Create</button>
+        <button id="openProject" type="button">Open project</button>
+        <button id="newProject" type="button">New project</button>
+        <div id="metaProjectBranch" class="menu-branch">
+          <button
+            id="metaProjectMenuButton"
+            type="button"
+            aria-haspopup="true"
+            aria-expanded="false"
+          >
+            Meta project
+          </button>
+          <div id="metaProjectSubmenu" class="stage-submenu" hidden>
+            <button id="openMetaProject" type="button">Open</button>
+            <button id="newMetaProject" type="button">New</button>
+            <button id="addMetaRepository" type="button" disabled>Add repo</button>
+            <div id="startMetaRepositoryBranch" class="menu-branch">
+              <button
+                id="startMetaRepository"
+                type="button"
+                disabled
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                Start repo
+              </button>
+              <div id="startMetaRepositorySubmenu" class="stage-submenu" hidden></div>
+            </div>
+            <div id="removeMetaRepositoryBranch" class="menu-branch">
+              <button
+                id="removeMetaRepository"
+                type="button"
+                disabled
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                Remove repo
+              </button>
+              <div id="removeMetaRepositorySubmenu" class="stage-submenu" hidden></div>
+            </div>
+          </div>
+        </div>
         <button id="deactivateProject" type="button" disabled>Deactivate</button>
       </div>
       <div id="requirementsMenu" class="stage-menu" hidden>
@@ -771,6 +1012,9 @@ INDEX_HTML = """<!doctype html>
         <button id="restartDesignReview" type="button">Restart review</button>
         <button id="openDesignReview" type="button">Open review</button>
         <button id="openDesignFromReview" type="button">Open design</button>
+      </div>
+      <div id="documentMenu" class="stage-menu" hidden>
+        <button id="startDocumentation" type="button">Start documentation</button>
       </div>
       <div id="projectPanel" class="project-panel" hidden>
         <input
@@ -818,22 +1062,55 @@ INDEX_HTML = """<!doctype html>
       aria-label="Resize workflow and agent panes"
     ></div>
     <section id="agentPane" class="agent-pane" aria-label="Agent session">
-      <div id="outputSplit" class="output-split">
-        <div id="agentOutput" class="agent-output" aria-live="polite"></div>
+      <div id="outputWorkbench" class="output-workbench">
+        <div class="left-output-pane">
+          <div id="outputSplit" class="output-split">
+            <div id="agentOutput" class="agent-output" aria-live="polite"></div>
+            <div
+              id="outputResizeHandle"
+              class="output-resize-handle"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize agent and progress panes"
+              hidden
+            ></div>
+            <div
+              id="progressOutput"
+              class="progress-output"
+              aria-live="polite"
+              hidden
+            ></div>
+          </div>
+        </div>
         <div
-          id="outputResizeHandle"
-          class="output-resize-handle"
+          id="workbenchResizeHandle"
+          class="workbench-resize-handle"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize output panes"
-          hidden
+          aria-label="Resize terminal and side panes"
         ></div>
-        <div
-          id="progressOutput"
-          class="progress-output"
-          aria-live="polite"
-          hidden
-        ></div>
+        <aside id="sidePane" class="side-pane" aria-label="Scratch pad and status">
+          <section class="scratch-pane" aria-label="Scratch pad">
+            <div class="side-pane-header">Scratch pad</div>
+            <textarea
+              id="scratchPad"
+              class="scratch-pad"
+              spellcheck="false"
+              aria-label="Scratch pad"
+            ></textarea>
+          </section>
+          <div
+            id="sidePaneResizeHandle"
+            class="side-pane-resize-handle"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize scratch pad and status panes"
+          ></div>
+          <section class="project-status-pane" aria-label="Project status">
+            <div class="side-pane-header">Project status</div>
+            <pre id="projectStatusOutput" class="project-status-output">no active project</pre>
+          </section>
+        </aside>
       </div>
       <div
         id="inputResizeHandle"
@@ -851,6 +1128,12 @@ INDEX_HTML = """<!doctype html>
           aria-label="Requirements agent input"
         ></textarea>
         <div class="agent-actions">
+          <select
+            id="sessionSwitcher"
+            class="session-switcher"
+            disabled
+            aria-label="Agent stream"
+          ></select>
           <div class="terminal-font-controls" aria-label="Terminal font size">
             <button
               id="decreaseTerminalFont"
@@ -915,12 +1198,26 @@ INDEX_HTML = """<!doctype html>
     const requirementsStage = document.querySelector("[data-stage='requirements']");
     const designStage = document.querySelector("[data-stage='design']");
     const designReviewStage = document.querySelector("[data-stage='design-review']");
+    const documentStage = document.querySelector("[data-stage='document']");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const designMenu = document.getElementById("designMenu");
     const designReviewMenu = document.getElementById("designReviewMenu");
+    const documentMenu = document.getElementById("documentMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
+    const metaProjectBranch = document.getElementById("metaProjectBranch");
+    const metaProjectMenuButton = document.getElementById("metaProjectMenuButton");
+    const metaProjectSubmenu = document.getElementById("metaProjectSubmenu");
+    const openMetaProject = document.getElementById("openMetaProject");
+    const newMetaProject = document.getElementById("newMetaProject");
+    const addMetaRepository = document.getElementById("addMetaRepository");
+    const startMetaRepositoryBranch = document.getElementById("startMetaRepositoryBranch");
+    const startMetaRepository = document.getElementById("startMetaRepository");
+    const startMetaRepositorySubmenu = document.getElementById("startMetaRepositorySubmenu");
+    const removeMetaRepositoryBranch = document.getElementById("removeMetaRepositoryBranch");
+    const removeMetaRepository = document.getElementById("removeMetaRepository");
+    const removeMetaRepositorySubmenu = document.getElementById("removeMetaRepositorySubmenu");
     const deactivateProject = document.getElementById("deactivateProject");
     const startRequirements = document.getElementById("startRequirements");
     const restartRequirements = document.getElementById("restartRequirements");
@@ -939,6 +1236,7 @@ INDEX_HTML = """<!doctype html>
     const restartDesignReview = document.getElementById("restartDesignReview");
     const openDesignReview = document.getElementById("openDesignReview");
     const openDesignFromReview = document.getElementById("openDesignFromReview");
+    const startDocumentation = document.getElementById("startDocumentation");
     const projectPanel = document.getElementById("projectPanel");
     const projectPath = document.getElementById("projectPath");
     const browseProject = document.getElementById("browseProject");
@@ -951,13 +1249,20 @@ INDEX_HTML = """<!doctype html>
     const closeBrowser = document.getElementById("closeBrowser");
     const directoryList = document.getElementById("directoryList");
     const agentPane = document.getElementById("agentPane");
+    const outputWorkbench = document.getElementById("outputWorkbench");
+    const workbenchResizeHandle = document.getElementById("workbenchResizeHandle");
     const outputSplit = document.getElementById("outputSplit");
     const agentOutput = document.getElementById("agentOutput");
     const outputResizeHandle = document.getElementById("outputResizeHandle");
     const progressOutput = document.getElementById("progressOutput");
+    const sidePane = document.getElementById("sidePane");
+    const sidePaneResizeHandle = document.getElementById("sidePaneResizeHandle");
+    const scratchPad = document.getElementById("scratchPad");
+    const projectStatusOutput = document.getElementById("projectStatusOutput");
     const inputResizeHandle = document.getElementById("inputResizeHandle");
     const inputPane = document.getElementById("inputPane");
     const agentInput = document.getElementById("agentInput");
+    const sessionSwitcher = document.getElementById("sessionSwitcher");
     const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
     const interruptAgent = document.getElementById("interruptAgent");
@@ -968,6 +1273,10 @@ INDEX_HTML = """<!doctype html>
     const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
     const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";
+    const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
+    const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
+    const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
+    const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
@@ -981,7 +1290,11 @@ INDEX_HTML = """<!doctype html>
     let resizeShellState = null;
     let resizeInputState = null;
     let resizeOutputState = null;
+    let resizeWorkbenchState = null;
+    let resizeSidePaneState = null;
     let resizeTimer = null;
+    let statusRefreshTimer = null;
+    let statusRefreshSequence = 0;
     let activeAgentKind = "";
     let requirementsRunning = false;
     let requirementsStarted = false;
@@ -992,11 +1305,18 @@ INDEX_HTML = """<!doctype html>
     let designReviewStarted = false;
     let designReviewInteractive = false;
     let designApproved = false;
+    let documentationRunning = false;
     let currentWorkflowStage = "project";
+    let agentSessions = [];
+    let selectedSessionId = "";
     let contextId = "";
     let projectMode = "open";
     let serviceRoot = "";
+    let activationRoot = "";
+    let activeProjectMode = "none";
     let activeProjectRoot = "";
+    let activeRepositoryName = "";
+    let registeredRepositories = [];
     let currentBrowsePath = "";
     let currentBrowseParent = "";
     let currentBrowserMode = "project";
@@ -1082,12 +1402,55 @@ INDEX_HTML = """<!doctype html>
       applyStoredProgressPaneHeight();
     }
 
+    function applyStoredWorkbenchPaneSize() {
+      const rightWidth = storedNumber(RIGHT_PANE_WIDTH_STORAGE_KEY);
+      if (rightWidth) {
+        outputWorkbench.style.setProperty("--right-pane-width", `${rightWidth}px`);
+      }
+      const rightHeight = storedNumber(RIGHT_PANE_HEIGHT_STORAGE_KEY);
+      if (rightHeight) {
+        outputWorkbench.style.setProperty("--right-pane-height", `${rightHeight}px`);
+      }
+      const scratchHeight = storedNumber(SCRATCH_PANE_HEIGHT_STORAGE_KEY);
+      if (scratchHeight) {
+        sidePane.style.setProperty("--scratch-pane-height", `${scratchHeight}px`);
+      }
+    }
+
     function saveProgressPaneWidth(width) {
       saveNumber(PROGRESS_PANE_WIDTH_STORAGE_KEY, width);
     }
 
     function saveProgressPaneHeight(height) {
       saveNumber(PROGRESS_PANE_HEIGHT_STORAGE_KEY, height);
+    }
+
+    function saveRightPaneWidth(width) {
+      saveNumber(RIGHT_PANE_WIDTH_STORAGE_KEY, width);
+    }
+
+    function saveRightPaneHeight(height) {
+      saveNumber(RIGHT_PANE_HEIGHT_STORAGE_KEY, height);
+    }
+
+    function saveScratchPaneHeight(height) {
+      saveNumber(SCRATCH_PANE_HEIGHT_STORAGE_KEY, height);
+    }
+
+    function restoreScratchPad() {
+      try {
+        scratchPad.value = window.localStorage.getItem(SCRATCH_PAD_STORAGE_KEY) || "";
+      } catch (error) {
+        scratchPad.value = "";
+      }
+    }
+
+    function saveScratchPad() {
+      try {
+        window.localStorage.setItem(SCRATCH_PAD_STORAGE_KEY, scratchPad.value);
+      } catch (error) {
+        return;
+      }
     }
 
     function initializeTerminal() {
@@ -1168,6 +1531,8 @@ INDEX_HTML = """<!doctype html>
         progressTerminal.options.fontSize = terminalFontSize;
       }
       agentInput.style.fontSize = `${terminalFontSize}px`;
+      scratchPad.style.fontSize = `${terminalFontSize}px`;
+      projectStatusOutput.style.fontSize = `${terminalFontSize}px`;
       decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
       increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
       window.requestAnimationFrame(fitTerminal);
@@ -1192,7 +1557,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function queueTerminalResize() {
-      if (!agentProcessRunning() || !contextId || !terminal || !activeAgentKind) {
+      if (!agentProcessRunning() || !contextId || !terminal || !selectedSessionId) {
         return;
       }
       window.clearTimeout(resizeTimer);
@@ -1200,10 +1565,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function sendTerminalResize() {
-      if (!agentProcessRunning() || !contextId || !terminal || !activeAgentKind) {
+      if (!agentProcessRunning() || !contextId || !terminal || !selectedSessionId) {
         return;
       }
-      await fetch(contextUrl(`/api/agents/${activeAgentKind}/resize`), {
+      await fetch(contextUrl("/api/sessions/resize"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1372,6 +1737,104 @@ INDEX_HTML = """<!doctype html>
       fitTerminal();
     }
 
+    function startWorkbenchResize(event) {
+      event.preventDefault();
+      const workbenchRect = outputWorkbench.getBoundingClientRect();
+      const sideRect = sidePane.getBoundingClientRect();
+      resizeWorkbenchState = {
+        vertical: window.matchMedia("(max-width: 760px)").matches,
+        startX: event.clientX,
+        startY: event.clientY,
+        startWidth: sideRect.width,
+        startHeight: sideRect.height,
+        maxWidth: Math.max(260, workbenchRect.width - 340),
+        maxHeight: Math.max(200, workbenchRect.height - 220),
+      };
+      workbenchResizeHandle.setPointerCapture(event.pointerId);
+      outputWorkbench.classList.add("resizing");
+    }
+
+    function updateWorkbenchResize(event) {
+      if (!resizeWorkbenchState) {
+        return;
+      }
+      if (resizeWorkbenchState.vertical) {
+        const deltaY = resizeWorkbenchState.startY - event.clientY;
+        const nextHeight = clampValue(
+          resizeWorkbenchState.startHeight + deltaY,
+          200,
+          resizeWorkbenchState.maxHeight,
+        );
+        outputWorkbench.style.setProperty("--right-pane-height", `${nextHeight}px`);
+        outputWorkbench.style.gridTemplateRows = `minmax(0, 1fr) 7px ${nextHeight}px`;
+        saveRightPaneHeight(nextHeight);
+      } else {
+        const deltaX = resizeWorkbenchState.startX - event.clientX;
+        const nextWidth = clampValue(
+          resizeWorkbenchState.startWidth + deltaX,
+          260,
+          resizeWorkbenchState.maxWidth,
+        );
+        outputWorkbench.style.setProperty("--right-pane-width", `${nextWidth}px`);
+        saveRightPaneWidth(nextWidth);
+      }
+      fitTerminal();
+    }
+
+    function finishWorkbenchResize(event) {
+      if (!resizeWorkbenchState) {
+        return;
+      }
+      resizeWorkbenchState = null;
+      outputWorkbench.classList.remove("resizing");
+      try {
+        workbenchResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+      fitTerminal();
+    }
+
+    function startSidePaneResize(event) {
+      event.preventDefault();
+      const sideRect = sidePane.getBoundingClientRect();
+      const scratchRect = scratchPad.getBoundingClientRect();
+      resizeSidePaneState = {
+        startY: event.clientY,
+        startHeight: scratchRect.height,
+        maxHeight: Math.max(120, sideRect.height - 150),
+      };
+      sidePaneResizeHandle.setPointerCapture(event.pointerId);
+      sidePane.classList.add("resizing");
+    }
+
+    function updateSidePaneResize(event) {
+      if (!resizeSidePaneState) {
+        return;
+      }
+      const deltaY = event.clientY - resizeSidePaneState.startY;
+      const nextHeight = clampValue(
+        resizeSidePaneState.startHeight + deltaY,
+        120,
+        resizeSidePaneState.maxHeight,
+      );
+      sidePane.style.setProperty("--scratch-pane-height", `${nextHeight}px`);
+      saveScratchPaneHeight(nextHeight);
+    }
+
+    function finishSidePaneResize(event) {
+      if (!resizeSidePaneState) {
+        return;
+      }
+      resizeSidePaneState = null;
+      sidePane.classList.remove("resizing");
+      try {
+        sidePaneResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+    }
+
     function showProgressPane(show) {
       if (show) {
         progressOutput.hidden = false;
@@ -1466,8 +1929,8 @@ INDEX_HTML = """<!doctype html>
     }
 
     function setConnected() {
-      connection.textContent = activeProjectRoot
-        ? `connected · ${activeProjectRoot}`
+      connection.textContent = activationRoot
+        ? `connected · ${activationRoot}`
         : "connected";
     }
 
@@ -1546,23 +2009,11 @@ INDEX_HTML = """<!doctype html>
       contextId = payload.context_id || existingContextId;
       saveContextId(contextId);
       updateProjectState(payload);
-      if (payload.requirements_running) {
+      const session = selectedSession();
+      if (session) {
         clearAgentOutput();
-        showProgressPane(false);
-        setAgentInputVisible(true);
-        setAgentRunning("requirements", true);
-        connectAgentEvents("requirements");
-        sendTerminalResize();
-      } else if (payload.design_running) {
-        clearAgentOutput();
-        showProgressPane(false);
-        setAgentInputVisible(true);
-        setAgentRunning("design", true);
-        connectAgentEvents("design");
-        sendTerminalResize();
-      } else if (payload.design_review_running) {
-        clearAgentOutput();
-        if (payload.design_review_interactive) {
+        const isInteractive = Boolean(session.interactive);
+        if (isInteractive) {
           showProgressPane(false);
           setAgentInputVisible(true);
         } else {
@@ -1570,9 +2021,9 @@ INDEX_HTML = """<!doctype html>
           showProgressPane(true);
           setAgentInputVisible(false);
         }
-        setAgentRunning("design-review", true);
-        connectAgentEvents("design-review");
-        if (!payload.design_review_interactive) {
+        activeAgentKind = session.kind || "";
+        connectSessionEvents(session.session_id);
+        if (session.kind === "design-review" && !isInteractive && session.status === "running") {
           connectProgressEvents();
         }
         sendTerminalResize();
@@ -1581,7 +2032,13 @@ INDEX_HTML = """<!doctype html>
 
     function updateProjectState(payload) {
       serviceRoot = payload.service_root || "";
+      activationRoot = payload.activation_root || payload.active_project_root || "";
+      activeProjectMode = payload.project_mode || (activationRoot ? "project" : "none");
       activeProjectRoot = payload.active_project_root || "";
+      activeRepositoryName = payload.active_repository_name || "";
+      registeredRepositories = Array.isArray(payload.registered_repositories)
+        ? payload.registered_repositories
+        : [];
       requirementsStarted = Boolean(payload.requirements_started);
       requirementsRunning = Boolean(payload.requirements_running);
       requirementsApproved = Boolean(payload.requirements_approved);
@@ -1591,41 +2048,197 @@ INDEX_HTML = """<!doctype html>
       designReviewRunning = Boolean(payload.design_review_running);
       designReviewInteractive = Boolean(payload.design_review_interactive);
       designApproved = Boolean(payload.design_approved);
+      documentationRunning = Boolean(payload.documentation_running);
+      agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      selectedSessionId = payload.selected_session_id || selectedSessionId || "";
+      if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
+        const selected = agentSessions.find((session) => session.selected) || agentSessions[0];
+        selectedSessionId = selected ? selected.session_id : "";
+      }
+      renderSessionSwitcher();
       updateAgentControls();
-      const hasActiveProject = Boolean(activeProjectRoot);
-      const workflowStage = payload.workflow_stage || (hasActiveProject ? "requirements" : "project");
+      const hasProjectContext = Boolean(activationRoot);
+      const hasStageTarget = Boolean(activeProjectRoot);
+      const workflowStage = payload.workflow_stage || (hasStageTarget ? "requirements" : "project");
       currentWorkflowStage = workflowStage;
       if (!projectPath.value) {
-        projectPath.value = activeProjectRoot || serviceRoot;
+        projectPath.value = activeProjectRoot || activationRoot || serviceRoot;
       }
       setConnected();
-      updateStageNodes(hasActiveProject, workflowStage);
-      openProject.disabled = hasActiveProject;
-      newProject.disabled = hasActiveProject;
-      deactivateProject.disabled = !hasActiveProject;
+      updateStageNodes(hasProjectContext, hasStageTarget, workflowStage);
+      openProject.disabled = hasProjectContext;
+      newProject.disabled = hasProjectContext;
+      openMetaProject.disabled = hasProjectContext;
+      newMetaProject.disabled = hasProjectContext;
+      addMetaRepository.disabled = activeProjectMode !== "meta";
+      startMetaRepository.disabled =
+        activeProjectMode !== "meta" || registeredRepositories.length === 0;
+      removeMetaRepository.disabled =
+        activeProjectMode !== "meta" || registeredRepositories.length === 0;
+      deactivateProject.disabled = !hasProjectContext;
+      renderMetaRepositoryMenus();
       updateRequirementsMenuState();
       updateDesignMenuState();
       updateDesignReviewMenuState();
-      projectStatus.textContent = activeProjectRoot
-        ? `active: ${activeProjectRoot}`
-        : "";
+      updateDocumentMenuState();
+      projectStatus.textContent = projectStatusLine();
+      queueProjectStatusRefresh();
     }
 
-    function updateStageNodes(hasActiveProject, workflowStage) {
+    function projectStatusLine() {
+      if (!activationRoot) {
+        return "";
+      }
+      if (activeProjectMode === "meta") {
+        if (activeProjectRoot) {
+          return `meta: ${activationRoot} · active repo: ${activeRepositoryName || activeProjectRoot}`;
+        }
+        return activeRepositoryName
+          ? `meta: ${activationRoot} · active repo: ${activeRepositoryName} (not initialized)`
+          : `meta: ${activationRoot} · active repo: none`;
+      }
+      return `active: ${activeProjectRoot || activationRoot}`;
+    }
+
+    function repositoryLabel(repository) {
+      const name = String(repository.name || "");
+      const path = String(repository.path || "");
+      return name || path || "repo";
+    }
+
+    function renderMetaRepositoryMenus() {
+      renderMetaRepositoryMenu(startMetaRepositorySubmenu, startMetaRepositoryFromMenu);
+      renderMetaRepositoryMenu(removeMetaRepositorySubmenu, removeMetaRepositoryFromMenu);
+      if (startMetaRepository.disabled) {
+        hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
+      }
+      if (removeMetaRepository.disabled) {
+        hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
+      }
+    }
+
+    function renderMetaRepositoryMenu(submenu, handler) {
+      submenu.replaceChildren();
+      if (registeredRepositories.length === 0) {
+        const emptyButton = document.createElement("button");
+        emptyButton.type = "button";
+        emptyButton.disabled = true;
+        emptyButton.textContent = "No repos";
+        submenu.append(emptyButton);
+        return;
+      }
+      for (const repository of registeredRepositories) {
+        const button = document.createElement("button");
+        const label = repositoryLabel(repository);
+        const path = String(repository.path || "");
+        button.type = "button";
+        button.className = "repo-menu-item";
+        button.textContent = label;
+        button.title = path || label;
+        button.classList.toggle("active-repo", label === activeRepositoryName);
+        button.addEventListener("click", () => handler(repository));
+        submenu.append(button);
+      }
+    }
+
+    function selectedSession() {
+      return agentSessions.find((session) => session.session_id === selectedSessionId) || null;
+    }
+
+    function sessionIsRunning(session) {
+      return session && session.status === "running";
+    }
+
+    function selectedSessionAcceptsInput() {
+      const session = selectedSession();
+      return Boolean(session && session.interactive && sessionIsRunning(session));
+    }
+
+    function renderSessionSwitcher() {
+      sessionSwitcher.replaceChildren();
+      if (agentSessions.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No streams";
+        sessionSwitcher.append(option);
+        sessionSwitcher.disabled = true;
+        return;
+      }
+      for (const session of agentSessions) {
+        const option = document.createElement("option");
+        option.value = session.session_id;
+        const status = session.status === "running" ? "running" : session.status || "done";
+        option.textContent = `${session.kind || "agent"} · ${status}`;
+        sessionSwitcher.append(option);
+      }
+      sessionSwitcher.disabled = false;
+      sessionSwitcher.value = selectedSessionId || agentSessions[0].session_id;
+    }
+
+    async function selectAgentSession(sessionId) {
+      if (!sessionId || sessionId === selectedSessionId) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/sessions/select"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "session switch failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "session switch failed"}\\n`, "error");
+        renderSessionSwitcher();
+        return;
+      }
+      agentSessions = Array.isArray(payload.sessions) ? payload.sessions : agentSessions;
+      selectedSessionId = payload.selected_session_id || sessionId;
+      renderSessionSwitcher();
+      const session = selectedSession();
+      activeAgentKind = session ? session.kind || "" : "";
+      clearAgentOutput();
+      connectSessionEvents(selectedSessionId);
+      updateAgentControls();
+      sendTerminalResize();
+    }
+
+    function showSubmenu(submenu, button) {
+      if (button.disabled) {
+        return;
+      }
+      submenu.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+    }
+
+    function hideSubmenu(submenu, button) {
+      submenu.hidden = true;
+      button.setAttribute("aria-expanded", "false");
+    }
+
+    function toggleSubmenu(submenu, button) {
+      if (submenu.hidden) {
+        showSubmenu(submenu, button);
+      } else {
+        hideSubmenu(submenu, button);
+      }
+    }
+
+    function updateStageNodes(hasProjectContext, hasStageTarget, workflowStage) {
       for (const stageNode of stageNodes) {
         const stageId = stageNode.dataset.stage || "";
         const isProject = stageId === "project";
+        const isSidecar = stageId === "document";
         const isActive = isProject
-          ? !hasActiveProject
-          : hasActiveProject && stageId === workflowStage;
-        const isEnabled = isProject || hasActiveProject;
-        const isComplete = isProject && hasActiveProject;
+          ? !hasProjectContext
+          : hasStageTarget && !isSidecar && stageId === workflowStage;
+        const isEnabled = isProject || hasStageTarget;
+        const isComplete = isProject && hasProjectContext;
         stageNode.disabled = !isEnabled;
         stageNode.setAttribute("aria-disabled", isEnabled ? "false" : "true");
         stageNode.classList.toggle("disabled", !isEnabled);
         stageNode.classList.toggle("available", isEnabled && !isActive && !isComplete);
         stageNode.classList.toggle("active", isActive);
         stageNode.classList.toggle("complete", isComplete);
+        stageNode.classList.toggle("sidecar", isSidecar);
       }
     }
 
@@ -1670,6 +2283,11 @@ INDEX_HTML = """<!doctype html>
       openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage;
     }
 
+    function updateDocumentMenuState() {
+      const hasActiveProject = Boolean(activeProjectRoot);
+      startDocumentation.disabled = !hasActiveProject || documentationRunning;
+    }
+
     async function refreshProject() {
       if (!contextId) {
         return;
@@ -1680,6 +2298,37 @@ INDEX_HTML = """<!doctype html>
       }
       const payload = await response.json();
       updateProjectState(payload);
+    }
+
+    function queueProjectStatusRefresh(delay = 120) {
+      window.clearTimeout(statusRefreshTimer);
+      if (!contextId || !activationRoot) {
+        statusRefreshSequence += 1;
+        projectStatusOutput.textContent = "no active project";
+        return;
+      }
+      statusRefreshTimer = window.setTimeout(refreshProjectStatus, delay);
+    }
+
+    async function refreshProjectStatus() {
+      if (!contextId || !activationRoot) {
+        projectStatusOutput.textContent = "no active project";
+        return;
+      }
+      const sequence = ++statusRefreshSequence;
+      projectStatusOutput.textContent = "refreshing status...\\n";
+      const response = await fetch(contextUrl("/api/project/status"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ error: "status failed" }));
+      if (sequence !== statusRefreshSequence) {
+        return;
+      }
+      if (!response.ok) {
+        projectStatusOutput.textContent = `${payload.error || "status failed"}\\n`;
+        return;
+      }
+      projectStatusOutput.textContent = payload.output || "status: none\\n";
     }
 
     async function selectWorkflowStage(stageId) {
@@ -1715,7 +2364,7 @@ INDEX_HTML = """<!doctype html>
       if (currentWorkflowStage !== "requirements") {
         return;
       }
-      requirementsMenu.hidden = true;
+      hideStageMenus();
       closeAgentEventStream();
       const endpoint = skipApproval
         ? "/api/agents/requirements/skip-approval"
@@ -1821,18 +2470,35 @@ INDEX_HTML = """<!doctype html>
     }
 
     function showProjectPanel(mode) {
-      if (activeProjectRoot) {
+      const isMetaAction = mode === "meta-add" || mode === "meta-start";
+      if (activationRoot && !isMetaAction) {
+        return;
+      }
+      if (isMetaAction && activeProjectMode !== "meta") {
         return;
       }
       projectMode = mode;
-      projectMenu.hidden = true;
-      requirementsMenu.hidden = true;
-      designMenu.hidden = true;
-      designReviewMenu.hidden = true;
+      hideStageMenus();
       projectPanel.hidden = false;
-      activateProject.textContent = mode === "new" ? "Create" : "Activate";
-      projectStatus.textContent = activeProjectRoot ? `active: ${activeProjectRoot}` : "";
+      activateProject.textContent = projectActionLabel(mode);
+      projectStatus.textContent = projectStatusLine();
       projectPath.focus();
+    }
+
+    function projectActionLabel(mode) {
+      if (mode === "new") {
+        return "Create";
+      }
+      if (mode === "meta-new") {
+        return "Create meta";
+      }
+      if (mode === "meta-add") {
+        return "Add repo";
+      }
+      if (mode === "meta-start") {
+        return "Start repo";
+      }
+      return "Activate";
     }
 
     function selectCurrentDirectory() {
@@ -1871,22 +2537,24 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function applyProjectSelection() {
-      const endpoint = projectMode === "new" ? "/api/project/new" : "/api/project/open";
+      const endpoint = projectEndpoint(projectMode);
       const selectedPath = projectPath.value.trim();
       if (!selectedPath) {
-        projectStatus.textContent = "choose a project directory first";
-        appendOutput("choose a project directory first\\n", "error");
+        const message = projectMode === "meta-start"
+          ? "choose a repository name or path first"
+          : "choose a project directory first";
+        projectStatus.textContent = message;
+        appendOutput(`${message}\\n`, "error");
         return;
       }
       activateProject.disabled = true;
-      projectStatus.textContent =
-        projectMode === "new" ? `creating: ${selectedPath}` : `activating: ${selectedPath}`;
+      projectStatus.textContent = projectPendingLabel(projectMode, selectedPath);
       let response;
       try {
         response = await fetch(contextUrl(endpoint), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: selectedPath }),
+          body: JSON.stringify(projectRequestBody(projectMode, selectedPath)),
         });
       } catch (error) {
         projectStatus.textContent = `activation request failed: ${error}`;
@@ -1903,21 +2571,117 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       activeProjectRoot = payload.active_project_root || "";
-      projectPath.value = activeProjectRoot;
+      activationRoot = payload.activation_root || activeProjectRoot;
+      projectPath.value = activeProjectRoot || activationRoot;
       fileBrowser.hidden = true;
       projectPanel.hidden = true;
-      projectMenu.hidden = true;
-      projectStatus.textContent = `active: ${activeProjectRoot}`;
-      appendOutput(`${payload.status}: ${activeProjectRoot}\\n`, "system");
-      await refreshProject();
+      hideStageMenus();
+      appendOutput(`${payload.status}: ${activationRoot || activeProjectRoot}\\n`, "system");
+      updateProjectState(payload);
       activateProject.disabled = false;
     }
 
-    async function deactivateActiveProject() {
-      if (!activeProjectRoot) {
+    function projectEndpoint(mode) {
+      if (mode === "new") {
+        return "/api/project/new";
+      }
+      if (mode === "meta-new") {
+        return "/api/meta/init";
+      }
+      if (mode === "meta-add") {
+        return "/api/meta/add";
+      }
+      if (mode === "meta-start") {
+        return "/api/meta/start";
+      }
+      return "/api/project/open";
+    }
+
+    function projectRequestBody(mode, selectedPath) {
+      if (mode === "meta-start") {
+        return { repository: selectedPath };
+      }
+      return { path: selectedPath };
+    }
+
+    function projectPendingLabel(mode, selectedPath) {
+      if (mode === "new") {
+        return `creating: ${selectedPath}`;
+      }
+      if (mode === "meta-new") {
+        return `creating meta-project: ${selectedPath}`;
+      }
+      if (mode === "meta-add") {
+        return `adding repo: ${selectedPath}`;
+      }
+      if (mode === "meta-start") {
+        return `starting repo: ${selectedPath}`;
+      }
+      return `activating: ${selectedPath}`;
+    }
+
+    function repositoryReference(repository) {
+      return String(repository.name || repository.path || "").trim();
+    }
+
+    async function startMetaRepositoryFromMenu(repository) {
+      await applyMetaRepositoryAction("/api/meta/start", repository, "starting repo");
+    }
+
+    async function removeMetaRepositoryFromMenu(repository) {
+      const reference = repositoryReference(repository);
+      if (!reference) {
         return;
       }
-      const previousProject = activeProjectRoot;
+      const label = repositoryLabel(repository);
+      const shouldRemove = window.confirm(
+        `Remove ${label} from this meta-project? Repository files will not be deleted.`,
+      );
+      if (!shouldRemove) {
+        return;
+      }
+      await applyMetaRepositoryAction("/api/meta/remove", repository, "removing repo");
+    }
+
+    async function applyMetaRepositoryAction(endpoint, repository, pendingLabel) {
+      const reference = repositoryReference(repository);
+      if (!reference) {
+        return;
+      }
+      hideStageMenus();
+      projectStatus.textContent = `${pendingLabel}: ${reference}`;
+      let response;
+      try {
+        response = await fetch(contextUrl(endpoint), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repository: reference }),
+        });
+      } catch (error) {
+        projectStatus.textContent = `repo update failed: ${error}`;
+        appendOutput(`repo update failed: ${error}\\n`, "error");
+        return;
+      }
+      const payload = await response.json().catch(() => ({ error: "repo update failed" }));
+      if (!response.ok) {
+        const message = payload.error || "repo update failed";
+        projectStatus.textContent = message;
+        appendOutput(`${message}\\n`, "error");
+        return;
+      }
+      activeProjectRoot = payload.active_project_root || "";
+      activationRoot = payload.activation_root || activationRoot;
+      projectPath.value = activeProjectRoot || activationRoot;
+      clearAgentOutput();
+      appendOutput(`${payload.status}: ${reference}\\n`, "system");
+      updateProjectState(payload);
+    }
+
+    async function deactivateActiveProject() {
+      if (!activationRoot) {
+        return;
+      }
+      const previousProject = activationRoot;
       const response = await fetch(contextUrl("/api/project/deactivate"), {
         method: "POST",
       });
@@ -1932,18 +2696,27 @@ INDEX_HTML = """<!doctype html>
       }
       closeProgressEventStream();
       showProgressPane(false);
+      activationRoot = "";
+      activeProjectMode = "none";
       activeProjectRoot = "";
+      activeRepositoryName = "";
+      registeredRepositories = [];
       projectPath.value = serviceRoot;
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
-      designMenu.hidden = true;
-      designReviewMenu.hidden = true;
+      hideStageMenus();
+      hideStageMenus();
+      documentMenu.hidden = true;
       agentInput.disabled = true;
       interruptAgent.disabled = true;
       startRequirements.disabled = false;
       requirementsRunning = false;
       designRunning = false;
       designReviewRunning = false;
+      documentationRunning = false;
+      agentSessions = [];
+      selectedSessionId = "";
+      renderSessionSwitcher();
       activeAgentKind = "";
       agentInput.value = "";
       setAgentInputVisible(true);
@@ -1954,6 +2727,11 @@ INDEX_HTML = """<!doctype html>
     }
 
     function connectAgentEvents(kind) {
+      const session = agentSessions.find((candidate) => candidate.kind === kind);
+      if (session) {
+        connectSessionEvents(session.session_id);
+        return;
+      }
       if (eventSource) {
         eventSource.close();
       }
@@ -1976,6 +2754,38 @@ INDEX_HTML = """<!doctype html>
             closeProgressEventStream();
           }
           setAgentRunning(kind, false);
+          refreshProject();
+        }
+      });
+      eventSource.onerror = () => {};
+    }
+
+    function connectSessionEvents(sessionId) {
+      if (!sessionId) {
+        return;
+      }
+      if (eventSource) {
+        eventSource.close();
+      }
+      selectedSessionId = sessionId;
+      const session = selectedSession();
+      activeAgentKind = session ? session.kind || "" : activeAgentKind;
+      eventSource = new EventSource(
+        contextUrl(`/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`),
+      );
+      eventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          const outputText = terminal
+            ? payload.terminal || payload.text || ""
+            : payload.text || "";
+          appendAgentOutput(outputText);
+        } else if (payload.type === "system") {
+          appendOutput(`${payload.text}\\n`, "system");
+        } else if (payload.type === "error") {
+          appendOutput(`${payload.text}\\n`, "error");
+        } else if (payload.type === "completed") {
+          appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
           refreshProject();
         }
       });
@@ -2017,15 +2827,14 @@ INDEX_HTML = """<!doctype html>
     }
 
     function agentProcessRunning() {
-      return requirementsRunning || designRunning || designReviewRunning;
+      return agentSessions.some((session) => session.status === "running");
     }
 
     function updateAgentControls() {
-      const acceptsInput =
-        requirementsRunning || designRunning || (designReviewRunning && designReviewInteractive);
+      const acceptsInput = selectedSessionAcceptsInput();
       agentInput.disabled = !acceptsInput;
       insertFileLink.disabled = !acceptsInput;
-      interruptAgent.disabled = !agentProcessRunning();
+      interruptAgent.disabled = !sessionIsRunning(selectedSession());
     }
 
     function setAgentRunning(kind, isRunning) {
@@ -2038,6 +2847,8 @@ INDEX_HTML = """<!doctype html>
         if (!isRunning) {
           designReviewInteractive = false;
         }
+      } else if (kind === "documentation") {
+        documentationRunning = isRunning;
       }
       if (isRunning) {
         activeAgentKind = kind;
@@ -2048,6 +2859,7 @@ INDEX_HTML = """<!doctype html>
       updateRequirementsMenuState();
       updateDesignMenuState();
       updateDesignReviewMenuState();
+      updateDocumentMenuState();
     }
 
     function setRequirementsRunning(isRunning) {
@@ -2232,7 +3044,7 @@ INDEX_HTML = """<!doctype html>
       if (currentWorkflowStage !== "design-review" || !designReviewRunning) {
         return;
       }
-      designReviewMenu.hidden = true;
+      hideStageMenus();
       const response = await fetch(contextUrl("/api/agents/design-review/stop"), {
         method: "POST",
       });
@@ -2337,8 +3149,38 @@ INDEX_HTML = """<!doctype html>
       window.open(contextUrl("/artifacts/design-review"), "_blank", "noopener");
     }
 
+    async function startDocumentationAgent() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      showProgressPane(false);
+      setAgentInputVisible(true);
+      clearAgentOutput();
+      setAgentRunning("documentation", true);
+      agentInput.disabled = false;
+      agentInput.focus();
+      appendOutput("$ electroboy document --sidecar --interactive\\n", "system");
+      const response = await fetch(contextUrl("/api/agents/documentation/start"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "start failed"}\\n`, "error");
+        setAgentRunning("documentation", false);
+        return;
+      }
+      updateProjectState(payload);
+      setAgentRunning("documentation", true);
+      const sessionId = payload.session_id || selectedSessionId;
+      connectSessionEvents(sessionId);
+      sendTerminalResize();
+    }
+
     async function sendMessage() {
-      if (!activeAgentKind || activeAgentKind === "design-review") {
+      if (!selectedSessionAcceptsInput()) {
         return;
       }
       const message = agentInput.value;
@@ -2346,7 +3188,7 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       agentInput.value = "";
-      const response = await fetch(contextUrl(`/api/agents/${activeAgentKind}/message`), {
+      const response = await fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
@@ -2358,10 +3200,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function interruptActiveAgent() {
-      if (!agentProcessRunning() || !activeAgentKind) {
+      if (!sessionIsRunning(selectedSession())) {
         return;
       }
-      const response = await fetch(contextUrl(`/api/agents/${activeAgentKind}/interrupt`), {
+      const response = await fetch(contextUrl("/api/sessions/interrupt"), {
         method: "POST",
       });
       if (!response.ok) {
@@ -2389,12 +3231,18 @@ INDEX_HTML = """<!doctype html>
         requirementsMenu,
         designMenu,
         designReviewMenu,
+        documentMenu,
       ];
       for (const menu of menus) {
         if (menu !== exceptMenu) {
           menu.hidden = true;
         }
       }
+      if (exceptMenu !== projectMenu) {
+        hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
+      }
+      hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
+      hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
     }
 
     function toggleStageMenu(menu, stage) {
@@ -2403,6 +3251,10 @@ INDEX_HTML = """<!doctype html>
       menu.hidden = !shouldOpen;
       if (shouldOpen) {
         positionStageMenu(menu, stage);
+      } else if (menu === projectMenu) {
+        hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
+        hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
+        hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
       }
     }
 
@@ -2418,6 +3270,9 @@ INDEX_HTML = """<!doctype html>
       }
       if (!designReviewMenu.hidden) {
         positionStageMenu(designReviewMenu, designReviewStage);
+      }
+      if (!documentMenu.hidden) {
+        positionStageMenu(documentMenu, documentStage);
       }
     }
 
@@ -2455,6 +3310,10 @@ INDEX_HTML = """<!doctype html>
         }
         return;
       }
+      if (stageId === "document") {
+        toggleStageMenu(documentMenu, documentStage);
+        return;
+      }
       if (!wasCurrentStage) {
         const selected = await selectWorkflowStage(stageId);
         if (!selected) {
@@ -2480,10 +3339,40 @@ INDEX_HTML = """<!doctype html>
 
     openProject.addEventListener("click", () => showProjectPanel("open"));
     newProject.addEventListener("click", () => showProjectPanel("new"));
+    openMetaProject.addEventListener("click", () => showProjectPanel("open"));
+    newMetaProject.addEventListener("click", () => showProjectPanel("meta-new"));
+    addMetaRepository.addEventListener("click", () => showProjectPanel("meta-add"));
+    metaProjectMenuButton.addEventListener("click", () => {
+      toggleSubmenu(metaProjectSubmenu, metaProjectMenuButton);
+    });
+    metaProjectBranch.addEventListener("mouseenter", () => {
+      showSubmenu(metaProjectSubmenu, metaProjectMenuButton);
+    });
+    metaProjectBranch.addEventListener("mouseleave", () => {
+      hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
+    });
+    startMetaRepository.addEventListener("click", () => {
+      toggleSubmenu(startMetaRepositorySubmenu, startMetaRepository);
+    });
+    startMetaRepositoryBranch.addEventListener("mouseenter", () => {
+      showSubmenu(startMetaRepositorySubmenu, startMetaRepository);
+    });
+    startMetaRepositoryBranch.addEventListener("mouseleave", () => {
+      hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
+    });
+    removeMetaRepository.addEventListener("click", () => {
+      toggleSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
+    });
+    removeMetaRepositoryBranch.addEventListener("mouseenter", () => {
+      showSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
+    });
+    removeMetaRepositoryBranch.addEventListener("mouseleave", () => {
+      hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
+    });
     deactivateProject.addEventListener("click", deactivateActiveProject);
     browseProject.addEventListener("click", () => {
       browseDirectory(
-        projectPath.value || activeProjectRoot || serviceRoot || ".",
+        projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".",
         "project",
       );
     });
@@ -2520,6 +3409,12 @@ INDEX_HTML = """<!doctype html>
     restartDesignReview.addEventListener("click", restartDesignReviewAgent);
     openDesignReview.addEventListener("click", openDesignReviewDocument);
     openDesignFromReview.addEventListener("click", openDesignDocument);
+    startDocumentation.addEventListener("click", startDocumentationAgent);
+    sessionSwitcher.addEventListener("change", () => {
+      selectAgentSession(sessionSwitcher.value).catch((error) => {
+        appendOutput(`session switch failed: ${error}\\n`, "error");
+      });
+    });
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
     shellResizeHandle.addEventListener("pointerdown", startShellResize);
@@ -2534,6 +3429,14 @@ INDEX_HTML = """<!doctype html>
     outputResizeHandle.addEventListener("pointermove", updateOutputResize);
     outputResizeHandle.addEventListener("pointerup", finishOutputResize);
     outputResizeHandle.addEventListener("pointercancel", finishOutputResize);
+    workbenchResizeHandle.addEventListener("pointerdown", startWorkbenchResize);
+    workbenchResizeHandle.addEventListener("pointermove", updateWorkbenchResize);
+    workbenchResizeHandle.addEventListener("pointerup", finishWorkbenchResize);
+    workbenchResizeHandle.addEventListener("pointercancel", finishWorkbenchResize);
+    sidePaneResizeHandle.addEventListener("pointerdown", startSidePaneResize);
+    sidePaneResizeHandle.addEventListener("pointermove", updateSidePaneResize);
+    sidePaneResizeHandle.addEventListener("pointerup", finishSidePaneResize);
+    sidePaneResizeHandle.addEventListener("pointercancel", finishSidePaneResize);
     interruptAgent.addEventListener("click", interruptActiveAgent);
     insertFileLink.addEventListener("click", () => {
       if (insertFileLink.disabled) {
@@ -2554,11 +3457,14 @@ INDEX_HTML = """<!doctype html>
         sendMessage();
       }
     });
+    scratchPad.addEventListener("input", saveScratchPad);
 
     async function initialize() {
       applyStageDescriptions();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
+      applyStoredWorkbenchPaneSize();
+      restoreScratchPad();
       initializeTerminal();
       await checkConnection();
       await restoreContext();
@@ -2574,10 +3480,16 @@ INDEX_HTML = """<!doctype html>
 @dataclass
 class BrowserContext:
     context_id: str
+    activation_root: Path | None = None
+    project_mode: str = "none"
     active_project_root: Path | None = None
+    active_repository_name: str | None = None
+    registered_repositories: list[dict[str, object]] = field(default_factory=list)
     requirements_session: AgentSession | None = None
     design_session: AgentSession | None = None
     design_review_session: AgentSession | None = None
+    documentation_session: AgentSession | None = None
+    selected_session_id: str | None = None
     workflow_stage: str | None = None
     requirements_started: bool = False
     design_started: bool = False
@@ -2614,6 +3526,18 @@ class ServiceState:
             context = self._context_locked(context_id)
             active_project_root = context.active_project_root
         return workflow_payload(active_project_root)
+
+    def project_status_payload(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            command_root = self._command_root_locked(context)
+        if command_root is None:
+            raise StateError("activate a project first")
+        output, ok = _status_snapshot(command_root)
+        return {
+            "ok": ok,
+            "output": output,
+        }
 
     def select_workflow_stage(
         self,
@@ -2735,15 +3659,23 @@ class ServiceState:
         }
 
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
+        if _is_meta_project_path(path):
+            return self.open_meta_project(context_id, path)
         project_root = _existing_project_root(path)
         workflow_stage = _active_workflow_stage(project_root)
         with self.lock:
             context = self._context_locked(context_id)
             self._require_no_active_agent_locked(context)
+            context.activation_root = project_root
+            context.project_mode = "project"
             context.active_project_root = project_root
+            context.active_repository_name = None
+            context.registered_repositories = []
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
+            context.documentation_session = None
+            context.selected_session_id = None
             context.workflow_stage = workflow_stage
             context.requirements_started = False
             context.design_started = False
@@ -2762,10 +3694,16 @@ class ServiceState:
         manifest = initialize_project(project_root)
         with self.lock:
             context = self._context_locked(context_id)
+            context.activation_root = project_root
+            context.project_mode = "project"
             context.active_project_root = project_root
+            context.active_repository_name = None
+            context.registered_repositories = []
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
+            context.documentation_session = None
+            context.selected_session_id = None
             context.workflow_stage = _visible_workflow_stage(manifest.active_stage)
             context.requirements_started = False
             context.design_started = False
@@ -2777,6 +3715,136 @@ class ServiceState:
             "run_id": manifest.run_id,
         }
 
+    def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
+        meta_context = _existing_meta_context(path)
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+            context.activation_root = meta_context["meta_root"]
+            context.project_mode = "meta"
+            context.active_project_root = meta_context["active_project_root"]
+            context.active_repository_name = meta_context["active_repository_name"]
+            context.registered_repositories = meta_context["registered_repositories"]
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_session = None
+            context.selected_session_id = None
+            context.workflow_stage = meta_context["workflow_stage"]
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "opened",
+        }
+
+    def create_meta_project(self, context_id: str, path: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+        meta_root, registry = initialize_meta_project(path)
+        repositories = _meta_repository_payloads(registry)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.activation_root = meta_root
+            context.project_mode = "meta"
+            context.active_project_root = None
+            context.active_repository_name = None
+            context.registered_repositories = repositories
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_session = None
+            context.selected_session_id = None
+            context.workflow_stage = None
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+        return {
+            **project_payload(self.root, context, None),
+            "status": "created",
+        }
+
+    def add_meta_repository(self, context_id: str, path: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+            meta_root = context.activation_root
+            if meta_root is None or context.project_mode != "meta":
+                raise StateError("activate a meta-project first")
+        meta_context = _add_meta_repository(meta_root, path)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.registered_repositories = meta_context["registered_repositories"]
+            context.active_repository_name = meta_context["active_repository_name"]
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "registered",
+        }
+
+    def start_meta_repository(self, context_id: str, repository: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+            meta_root = context.activation_root
+            if meta_root is None or context.project_mode != "meta":
+                raise StateError("activate a meta-project first")
+        meta_context = _start_meta_repository(meta_root, repository)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.active_project_root = meta_context["active_project_root"]
+            context.active_repository_name = meta_context["active_repository_name"]
+            context.registered_repositories = meta_context["registered_repositories"]
+            context.workflow_stage = meta_context["workflow_stage"]
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_session = None
+            context.selected_session_id = None
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "started",
+        }
+
+    def remove_meta_repository(self, context_id: str, repository: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+            meta_root = context.activation_root
+            if meta_root is None or context.project_mode != "meta":
+                raise StateError("activate a meta-project first")
+        meta_context = _remove_meta_repository(meta_root, repository)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.active_project_root = meta_context["active_project_root"]
+            context.active_repository_name = meta_context["active_repository_name"]
+            context.registered_repositories = meta_context["registered_repositories"]
+            context.workflow_stage = meta_context["workflow_stage"]
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_session = None
+            context.selected_session_id = None
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "removed",
+        }
+
     def deactivate_project(self, context_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
@@ -2784,10 +3852,16 @@ class ServiceState:
         self._terminate_sessions(sessions)
         with self.lock:
             context = self._context_locked(context_id)
+            context.activation_root = None
+            context.project_mode = "none"
             context.active_project_root = None
+            context.active_repository_name = None
+            context.registered_repositories = []
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
+            context.documentation_session = None
+            context.selected_session_id = None
             context.workflow_stage = None
             context.requirements_started = False
             context.design_started = False
@@ -2807,6 +3881,7 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
+            command_root = self._command_root_locked(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != "requirements" and not allow_stage_reopen:
@@ -2816,12 +3891,18 @@ class ServiceState:
                 and context.requirements_session.is_active()
             ):
                 return context.requirements_session, False
+            lock_names = SESSION_ARTIFACT_LOCKS["requirements"]
+            self._require_session_locks_available_locked(context, lock_names)
             session = AgentSession(
-                command=_requirements_command(project_root),
-                cwd=project_root,
+                command=_requirements_command(command_root),
+                cwd=command_root,
                 label="requirements agent",
+                kind="requirements",
+                interactive=True,
+                lock_names=lock_names,
             )
             context.requirements_session = session
+            context.selected_session_id = session.session_id
             context.workflow_stage = "requirements"
         try:
             session.start()
@@ -2830,6 +3911,8 @@ class ServiceState:
                 context = self._context_locked(context_id)
                 if context.requirements_session is session:
                     context.requirements_session = None
+                    if context.selected_session_id == session.session_id:
+                        context.selected_session_id = None
                     context.requirements_started = False
             raise
         with self.lock:
@@ -2871,6 +3954,7 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
+            command_root = self._command_root_locked(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != "design" and not allow_stage_reopen:
@@ -2880,12 +3964,18 @@ class ServiceState:
                 and context.design_session.is_active()
             ):
                 return context.design_session, False
+            lock_names = SESSION_ARTIFACT_LOCKS["design"]
+            self._require_session_locks_available_locked(context, lock_names)
             session = AgentSession(
-                command=_stage_command(project_root, "design"),
-                cwd=project_root,
+                command=_stage_command(command_root, "design"),
+                cwd=command_root,
                 label="design agent",
+                kind="design",
+                interactive=True,
+                lock_names=lock_names,
             )
             context.design_session = session
+            context.selected_session_id = session.session_id
             context.workflow_stage = "design"
         try:
             session.start()
@@ -2894,6 +3984,8 @@ class ServiceState:
                 context = self._context_locked(context_id)
                 if context.design_session is session:
                     context.design_session = None
+                    if context.selected_session_id == session.session_id:
+                        context.selected_session_id = None
                     context.design_started = False
             raise
         with self.lock:
@@ -2913,7 +4005,7 @@ class ServiceState:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage == "design":
                 raise AgentSessionError("design stage is already active")
-        self._terminate_all_context_sessions(context_id)
+        self._terminate_workflow_sessions(context_id)
         _reopen_design_for_restart(project_root)
         return self.start_design_agent(context_id, allow_stage_reopen=True)
 
@@ -2951,6 +4043,7 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
+            command_root = self._command_root_locked(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != "design-review" and not allow_stage_reopen:
@@ -2960,19 +4053,24 @@ class ServiceState:
                 and context.design_review_session.is_active()
             ):
                 return context.design_review_session, False
+            lock_names = SESSION_ARTIFACT_LOCKS["design-review"]
+            self._require_session_locks_available_locked(context, lock_names)
             session = AgentSession(
                 command=_stage_command(
-                    project_root,
+                    command_root,
                     "design-review",
                     force=force,
                     interactive=interactive,
                 ),
-                cwd=project_root,
+                cwd=command_root,
                 label=(
                     "interactive design-review agent"
                     if interactive
                     else "design-review agent"
                 ),
+                kind="design-review",
+                interactive=interactive,
+                lock_names=lock_names,
                 on_completed=(
                     None
                     if interactive
@@ -2983,6 +4081,7 @@ class ServiceState:
                 ),
             )
             context.design_review_session = session
+            context.selected_session_id = session.session_id
             context.design_review_interactive = interactive
             context.workflow_stage = "design-review"
         try:
@@ -2992,6 +4091,8 @@ class ServiceState:
                 context = self._context_locked(context_id)
                 if context.design_review_session is session:
                     context.design_review_session = None
+                    if context.selected_session_id == session.session_id:
+                        context.selected_session_id = None
                     context.design_review_started = False
                     context.design_review_interactive = False
             raise
@@ -3013,12 +4114,57 @@ class ServiceState:
             force = context.workflow_stage != "design-review"
             if context.workflow_stage == "design-review" and not context.design_review_started:
                 raise AgentSessionError("start design review first")
-        self._terminate_all_context_sessions(context_id)
+        self._terminate_workflow_sessions(context_id)
         return self.start_design_review_agent(
             context_id,
             force=force,
             allow_stage_reopen=True,
         )
+
+    def start_documentation_agent(
+        self,
+        context_id: str,
+        *,
+        interactive: bool = True,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            command_root = self._command_root_locked(context)
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if (
+                context.documentation_session is not None
+                and context.documentation_session.is_active()
+            ):
+                context.selected_session_id = context.documentation_session.session_id
+                return context.documentation_session, False
+            lock_names = SESSION_ARTIFACT_LOCKS["documentation"]
+            self._require_session_locks_available_locked(context, lock_names)
+            session = AgentSession(
+                command=_documentation_command(command_root, interactive=interactive),
+                cwd=command_root,
+                label=(
+                    "interactive documentation agent"
+                    if interactive
+                    else "documentation agent"
+                ),
+                kind="documentation",
+                interactive=interactive,
+                lock_names=lock_names,
+            )
+            context.documentation_session = session
+            context.selected_session_id = session.session_id
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.documentation_session is session:
+                    context.documentation_session = None
+                    context.selected_session_id = None
+            raise
+        return session, True
 
     def stop_design_review_agent(self, context_id: str) -> dict[str, object]:
         with self.lock:
@@ -3037,6 +4183,9 @@ class ServiceState:
             if context.design_review_session is session:
                 context.design_review_session = None
                 context.design_review_interactive = False
+            session_id = getattr(session, "session_id", None)
+            if session_id is not None and context.selected_session_id == session_id:
+                context.selected_session_id = None
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -3093,6 +4242,12 @@ class ServiceState:
                     context = self._context_locked(context_id)
                     if context.design_review_session is session:
                         context.design_review_session = None
+                        if (
+                            session is not None
+                            and context.selected_session_id
+                            == getattr(session, "session_id", None)
+                        ):
+                            context.selected_session_id = None
                         context.design_review_interactive = False
                 raise AgentSessionError(output or "design review completion failed")
             store = StateStore(project_root)
@@ -3172,6 +4327,14 @@ class ServiceState:
                 raise StateError("activate a project first")
             return project_root
 
+    def command_root(self, context_id: str) -> Path:
+        with self.lock:
+            context = self._context_locked(context_id)
+            command_root = self._command_root_locked(context)
+            if command_root is None:
+                raise StateError("activate a project first")
+            return command_root
+
     def current_requirements_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
             context = self._context_locked(context_id)
@@ -3186,6 +4349,69 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             return context.design_review_session
+
+    def current_documentation_session(self, context_id: str) -> AgentSession | None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return context.documentation_session
+
+    def session_payload(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            selected_session = self._selected_session_locked(context)
+            return {
+                "context_id": context.context_id,
+                "selected_session_id": (
+                    selected_session.session_id if selected_session is not None else None
+                ),
+                "sessions": _session_payloads(context),
+            }
+
+    def select_session(self, context_id: str, session_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = self._session_by_id_locked(context, session_id)
+            context.selected_session_id = session.session_id
+            return {
+                "context_id": context.context_id,
+                "selected_session_id": session.session_id,
+                "sessions": _session_payloads(context),
+            }
+
+    def selected_session(self, context_id: str) -> AgentSession | None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return self._selected_session_locked(context)
+
+    def session_by_id(self, context_id: str, session_id: str) -> AgentSession:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return self._session_by_id_locked(context, session_id)
+
+    def send_selected_session_message(self, context_id: str, message: str) -> None:
+        session = self.selected_session(context_id)
+        if session is None:
+            raise AgentSessionError("no agent session is selected")
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send(message)
+
+    def interrupt_selected_session(self, context_id: str) -> None:
+        session = self.selected_session(context_id)
+        if session is None:
+            raise AgentSessionError("no agent session is selected")
+        session.interrupt()
+
+    def resize_selected_session(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        session = self.selected_session(context_id)
+        if session is None:
+            raise AgentSessionError("no agent session is selected")
+        session.resize(columns, rows)
 
     def has_running_progress_agent(self, context_id: str) -> bool:
         with self.lock:
@@ -3270,6 +4496,9 @@ class ServiceState:
             context = self._context_locked(context_id)
             if context.requirements_session is session:
                 context.requirements_session = None
+            session_id = getattr(session, "session_id", None)
+            if session_id is not None and context.selected_session_id == session_id:
+                context.selected_session_id = None
 
     def _terminate_design_session(self, context_id: str) -> None:
         with self.lock:
@@ -3281,11 +4510,32 @@ class ServiceState:
             context = self._context_locked(context_id)
             if context.design_session is session:
                 context.design_session = None
+            session_id = getattr(session, "session_id", None)
+            if session_id is not None and context.selected_session_id == session_id:
+                context.selected_session_id = None
 
     def _terminate_all_context_sessions(self, context_id: str) -> bool:
         with self.lock:
             context = self._context_locked(context_id)
             sessions = self._context_sessions_locked(context)
+        terminated = self._terminate_sessions(sessions)
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._clear_sessions_locked(context, sessions)
+        return terminated
+
+    def _terminate_workflow_sessions(self, context_id: str) -> bool:
+        with self.lock:
+            context = self._context_locked(context_id)
+            sessions = [
+                session
+                for session in [
+                    context.requirements_session,
+                    context.design_session,
+                    context.design_review_session,
+                ]
+                if session is not None
+            ]
         terminated = self._terminate_sessions(sessions)
         with self.lock:
             context = self._context_locked(context_id)
@@ -3326,6 +4576,7 @@ class ServiceState:
                 context.requirements_session,
                 context.design_session,
                 context.design_review_session,
+                context.documentation_session,
             ]
             if session is not None
         ]
@@ -3355,6 +4606,11 @@ class ServiceState:
             if context.design_review_session is session:
                 context.design_review_session = None
                 context.design_review_interactive = False
+            if context.documentation_session is session:
+                context.documentation_session = None
+            session_id = getattr(session, "session_id", None)
+            if session_id is not None and context.selected_session_id == session_id:
+                context.selected_session_id = None
 
     def _terminate_sessions(self, sessions: list[AgentSession]) -> bool:
         terminated = False
@@ -3373,9 +4629,43 @@ class ServiceState:
             raise StateError("unknown browser context; refresh the page")
         return context
 
+    def _session_by_id_locked(
+        self,
+        context: BrowserContext,
+        session_id: str,
+    ) -> AgentSession:
+        session_id = session_id.strip()
+        for session in self._context_sessions_locked(context):
+            if session.session_id == session_id:
+                return session
+        raise AgentSessionError("unknown agent session")
+
+    def _selected_session_locked(
+        self,
+        context: BrowserContext,
+    ) -> AgentSession | None:
+        selected_session_id = context.selected_session_id
+        sessions = self._context_sessions_locked(context)
+        if selected_session_id:
+            for session in sessions:
+                if session.session_id == selected_session_id:
+                    return session
+        for session in sessions:
+            if session.is_active():
+                context.selected_session_id = session.session_id
+                return session
+        if sessions:
+            context.selected_session_id = sessions[-1].session_id
+            return sessions[-1]
+        context.selected_session_id = None
+        return None
+
+    def _command_root_locked(self, context: BrowserContext) -> Path | None:
+        return context.activation_root or context.active_project_root
+
     def _require_no_active_agent_locked(self, context: BrowserContext) -> None:
         active_labels = [
-            session.label
+            getattr(session, "label", "agent")
             for session in self._context_sessions_locked(context)
             if session.is_active()
         ]
@@ -3384,6 +4674,22 @@ class ServiceState:
                 "cannot change projects while this context's "
                 f"{active_labels[0]} is running"
             )
+
+    def _require_session_locks_available_locked(
+        self,
+        context: BrowserContext,
+        lock_names: frozenset[str],
+    ) -> None:
+        if not lock_names:
+            return
+        for session in self._context_sessions_locked(context):
+            if not session.is_active():
+                continue
+            overlap = sorted(frozenset(getattr(session, "lock_names", ())).intersection(lock_names))
+            if overlap:
+                raise AgentSessionError(
+                    f"{session.label} is already using {', '.join(overlap)}"
+                )
 
     def _require_requirements_started_locked(self, context: BrowserContext) -> None:
         if not context.requirements_started:
@@ -3411,13 +4717,21 @@ class AgentSession:
         columns: int = 120,
         rows: int = 32,
         label: str = "agent",
+        kind: str = "agent",
+        interactive: bool = True,
+        lock_names: frozenset[str] | set[str] | None = None,
         on_completed: Callable[[int], None] | None = None,
     ) -> None:
+        self.session_id = uuid4().hex
         self.command = command
         self.cwd = Path(cwd).resolve()
         self.columns = columns
         self.rows = rows
         self.label = label
+        self.kind = kind
+        self.interactive = interactive
+        self.lock_names = frozenset(lock_names or ())
+        self.created_at = utc_now()
         self.on_completed = on_completed
         self.process: subprocess.Popen[bytes] | None = None
         self.status = "created"
@@ -3429,6 +4743,20 @@ class AgentSession:
         self._condition = threading.Condition()
         self._reader_thread: threading.Thread | None = None
         self._waiter_thread: threading.Thread | None = None
+
+    def payload(self, selected: bool = False) -> dict[str, object]:
+        return {
+            "session_id": self.session_id,
+            "kind": self.kind,
+            "label": self.label,
+            "status": "running" if self.is_active() else self.status,
+            "returncode": self.returncode,
+            "interactive": self.interactive,
+            "locks": sorted(self.lock_names),
+            "selected": selected,
+            "created_at": self.created_at,
+            "command": list(self.command),
+        }
 
     def start(self) -> None:
         if self.process is not None:
@@ -3811,6 +5139,11 @@ def project_payload(
         if active_project_root
         else None
     )
+    activation_root = (
+        Path(context.activation_root).expanduser().resolve()
+        if context.activation_root
+        else active_root
+    )
     requirements_session = context.requirements_session
     requirements_running = bool(
         active_root
@@ -3829,6 +5162,12 @@ def project_payload(
         and design_review_session is not None
         and design_review_session.is_active()
     )
+    documentation_session = context.documentation_session
+    documentation_running = bool(
+        active_root
+        and documentation_session is not None
+        and documentation_session.is_active()
+    )
     workflow_stage = (
         _visible_workflow_stage(context.workflow_stage)
         if active_root and context.workflow_stage
@@ -3837,7 +5176,11 @@ def project_payload(
     return {
         "context_id": context.context_id,
         "service_root": str(service_root),
+        "activation_root": str(activation_root) if activation_root else None,
+        "project_mode": context.project_mode,
         "active_project_root": str(active_root) if active_root else None,
+        "active_repository_name": context.active_repository_name,
+        "registered_repositories": context.registered_repositories,
         "workflow_stage": workflow_stage,
         "requirements_started": bool(active_root and context.requirements_started),
         "requirements_running": requirements_running,
@@ -3856,6 +5199,7 @@ def project_payload(
         "design_review_interactive": bool(
             active_root and design_review_running and context.design_review_interactive
         ),
+        "documentation_running": documentation_running,
         "design_approved": bool(
             active_root
             and _stage_has_approvals(
@@ -3865,11 +5209,47 @@ def project_payload(
             )
         ),
         "activate_command": (
-            f"source {active_root / '.electroboy' / 'bin' / 'activate'}"
-            if active_root
+            f"source {activation_root / '.electroboy' / 'bin' / 'activate'}"
+            if activation_root
             else None
         ),
+        "selected_session_id": context.selected_session_id,
+        "sessions": _session_payloads(context),
     }
+
+
+def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
+    selected_session_id = context.selected_session_id
+    payloads: list[dict[str, object]] = []
+    for session in [
+        context.requirements_session,
+        context.design_session,
+        context.design_review_session,
+        context.documentation_session,
+    ]:
+        if session is None:
+            continue
+        session_id = str(getattr(session, "session_id", f"legacy-{id(session)}"))
+        if hasattr(session, "payload"):
+            payloads.append(
+                session.payload(selected=session_id == selected_session_id)  # type: ignore[attr-defined]
+            )
+            continue
+        payloads.append(
+            {
+                "session_id": session_id,
+                "kind": getattr(session, "kind", "agent"),
+                "label": getattr(session, "label", "agent"),
+                "status": "running" if session.is_active() else "completed",
+                "returncode": getattr(session, "returncode", None),
+                "interactive": bool(getattr(session, "interactive", True)),
+                "locks": sorted(getattr(session, "lock_names", [])),
+                "selected": session_id == selected_session_id,
+                "created_at": getattr(session, "created_at", ""),
+                "command": list(getattr(session, "command", [])),
+            }
+        )
+    return payloads
 
 
 def _visible_workflow_stage(stage: str) -> str:
@@ -3997,11 +5377,162 @@ def initialize_project(project_root: Path | str):
     return store.init_run()
 
 
+def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:
+    from .cli import (
+        _meta_registry_file,
+        _read_meta_registry,
+        _write_meta_environment,
+        _write_meta_registry,
+    )
+
+    meta_root = _resolve_project_path(str(path))
+    meta_root.mkdir(parents=True, exist_ok=True)
+    _write_meta_environment(meta_root)
+    registry_exists = _meta_registry_file(meta_root).exists()
+    registry = _read_meta_registry(meta_root)
+    if not registry_exists:
+        _write_meta_registry(meta_root, registry)
+    return meta_root, registry
+
+
 def _resolve_project_path(path: str) -> Path:
     path = path.strip()
     if not path:
         raise StateError("project path is required")
     return Path(path).expanduser().resolve()
+
+
+def _is_meta_project_path(path: str | Path) -> bool:
+    try:
+        project_root = Path(path).expanduser().resolve()
+    except OSError:
+        return False
+    return (project_root / META_REGISTRY_RELATIVE_PATH).exists()
+
+
+def _existing_meta_context(path: str | Path) -> dict[str, object]:
+    meta_root = _resolve_project_path(str(path))
+    if not meta_root.exists():
+        raise StateError(f"meta-project directory does not exist: {meta_root}")
+    if not meta_root.is_dir():
+        raise StateError(f"meta-project path is not a directory: {meta_root}")
+    if not _is_meta_project_path(meta_root):
+        raise StateError(
+            "no ElectroBoy meta-project exists at this path; create it first"
+        )
+    return _meta_context(meta_root)
+
+
+def _meta_context(meta_root: Path) -> dict[str, object]:
+    from .cli import _meta_repository_by_name, _read_meta_registry
+
+    registry = _read_meta_registry(meta_root)
+    repositories = _meta_repository_payloads(registry)
+    active_name = str(registry.get("active") or "")
+    active_project_root: Path | None = None
+    workflow_stage: str | None = None
+    if active_name:
+        record = _meta_repository_by_name(registry, active_name)
+        if record is not None:
+            candidate = Path(str(record.get("path", ""))).expanduser().resolve()
+            if (
+                candidate.exists()
+                and candidate.is_dir()
+                and StateStore(candidate).current_run_id()
+            ):
+                active_project_root = candidate
+                workflow_stage = _active_workflow_stage(candidate)
+    return {
+        "meta_root": meta_root,
+        "active_project_root": active_project_root,
+        "active_repository_name": active_name or None,
+        "registered_repositories": repositories,
+        "workflow_stage": workflow_stage,
+    }
+
+
+def _meta_repository_payloads(registry: dict[str, object]) -> list[dict[str, object]]:
+    from .cli import _meta_repositories
+
+    return [
+        {
+            "name": str(repo.get("name") or ""),
+            "path": str(repo.get("path") or ""),
+        }
+        for repo in _meta_repositories(registry)
+    ]
+
+
+def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
+    from .cli import (
+        _read_meta_registry,
+        _register_meta_repository,
+        _resolve_existing_repo_path,
+    )
+
+    registry = _read_meta_registry(meta_root)
+    repo_path = _resolve_existing_repo_path(meta_root, path)
+    _register_meta_repository(meta_root, repo_path, registry)
+    return _meta_context(meta_root)
+
+
+def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
+    from .cli import (
+        _ensure_target_pipeline_project,
+        _read_meta_registry,
+        _register_meta_repository,
+        _resolve_meta_repository,
+        _write_meta_registry,
+    )
+
+    repository = repository.strip()
+    if not repository:
+        raise StateError("repository is required")
+    registry = _read_meta_registry(meta_root)
+    repo_path, record = _resolve_meta_repository(meta_root, registry, repository)
+    registry, record = _register_meta_repository(meta_root, repo_path, registry)
+    registry["active"] = record["name"]
+    _write_meta_registry(meta_root, registry)
+    _ensure_target_pipeline_project(repo_path)
+    return _meta_context(meta_root)
+
+
+def _remove_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
+    from .cli import (
+        _candidate_repo_path,
+        _meta_repository_by_name,
+        _meta_repositories,
+        _read_meta_registry,
+        _write_meta_registry,
+    )
+
+    repository = repository.strip()
+    if not repository:
+        raise StateError("repository is required")
+    registry = _read_meta_registry(meta_root)
+    record = _meta_repository_by_name(registry, repository)
+    if record is None:
+        candidate_path = _candidate_repo_path(meta_root, repository)
+        for repo in _meta_repositories(registry):
+            repo_path = Path(str(repo.get("path", ""))).expanduser().resolve()
+            if repo_path == candidate_path:
+                record = repo
+                break
+    if record is None:
+        raise StateError(f"repository is not registered: {repository}")
+    name = str(record.get("name") or "")
+    path = Path(str(record.get("path", ""))).expanduser().resolve()
+    remaining = [
+        repo
+        for repo in _meta_repositories(registry)
+        if str(repo.get("name") or "") != name
+        and Path(str(repo.get("path", ""))).expanduser().resolve() != path
+    ]
+    registry["repositories"] = remaining
+    if registry.get("active") == name:
+        registry["active"] = None
+    _write_meta_registry(meta_root, registry)
+    return _meta_context(meta_root)
 
 
 def _existing_project_root(path: str) -> Path:
@@ -4287,6 +5818,17 @@ def _progress_once_command(root: Path) -> list[str]:
     return _electroboy_command(root, ["progress", "--once"])
 
 
+def _status_command(root: Path) -> list[str]:
+    return _electroboy_command(root, ["status"])
+
+
+def _documentation_command(root: Path, *, interactive: bool = True) -> list[str]:
+    args = ["document", "--sidecar"]
+    if interactive:
+        args.append("--interactive")
+    return _electroboy_command(root, args)
+
+
 def _electroboy_command(root: Path, args: list[str]) -> list[str]:
     activate_script = root / ".electroboy" / "bin" / "activate"
     command_parts = ["electroboy", *args]
@@ -4333,6 +5875,33 @@ def _progress_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, boo
         output += f"progress command exited with code {completed.returncode}\n"
         return output, False
     return output or "progress: none\n", True
+
+
+def _status_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, bool]:
+    project_root = Path(root).expanduser().resolve()
+    try:
+        completed = subprocess.run(
+            _status_command(project_root),
+            cwd=project_root,
+            env=_agent_process_env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        output = _subprocess_output_text(error.stdout)
+        if output and not output.endswith("\n"):
+            output += "\n"
+        return f"{output}status command timed out\n", False
+    output = completed.stdout or ""
+    if completed.returncode != 0:
+        if output and not output.endswith("\n"):
+            output += "\n"
+        output += f"status command exited with code {completed.returncode}\n"
+        return output, False
+    return output or "status: none\n", True
 
 
 def _subprocess_output_text(value: str | bytes | None) -> str:
@@ -4513,10 +6082,22 @@ def _handler_for(
                     lambda context_id: state.project_payload(context_id),
                 )
                 return
+            if path == "/api/project/status":
+                self._send_context_json(
+                    parsed.query,
+                    lambda context_id: state.project_status_payload(context_id),
+                )
+                return
             if path == "/api/workflow":
                 self._send_context_json(
                     parsed.query,
                     lambda context_id: state.workflow_payload(context_id),
+                )
+                return
+            if path == "/api/sessions":
+                self._send_context_json(
+                    parsed.query,
+                    lambda context_id: state.session_payload(context_id),
                 )
                 return
             if path == "/api/files/browse":
@@ -4533,6 +6114,9 @@ def _handler_for(
                 return
             if path == "/api/progress/events":
                 self._send_progress_events(parsed.query)
+                return
+            if path == "/api/sessions/events":
+                self._send_selected_session_events(parsed.query)
                 return
             if path == "/api/agents/requirements/events":
                 self._send_agent_events(parsed.query)
@@ -4560,11 +6144,35 @@ def _handler_for(
             if path == "/api/project/new":
                 self._create_project(parsed.query)
                 return
+            if path == "/api/meta/init":
+                self._create_meta_project(parsed.query)
+                return
+            if path == "/api/meta/add":
+                self._add_meta_repository(parsed.query)
+                return
+            if path == "/api/meta/start":
+                self._start_meta_repository(parsed.query)
+                return
+            if path == "/api/meta/remove":
+                self._remove_meta_repository(parsed.query)
+                return
             if path == "/api/project/deactivate":
                 self._deactivate_project(parsed.query)
                 return
             if path == "/api/workflow/stage":
                 self._select_workflow_stage(parsed.query)
+                return
+            if path == "/api/sessions/select":
+                self._select_session(parsed.query)
+                return
+            if path == "/api/sessions/message":
+                self._send_selected_session_message(parsed.query)
+                return
+            if path == "/api/sessions/interrupt":
+                self._interrupt_selected_session(parsed.query)
+                return
+            if path == "/api/sessions/resize":
+                self._resize_selected_session(parsed.query)
                 return
             if path == "/api/agents/requirements/start":
                 self._start_requirements_agent(parsed.query)
@@ -4637,6 +6245,9 @@ def _handler_for(
                 return
             if path == "/api/agents/design-review/resize":
                 self._resize_design_review_agent(parsed.query)
+                return
+            if path == "/api/agents/documentation/start":
+                self._start_documentation_agent(parsed.query)
                 return
             if path == "/api/agents/design-approve/approve":
                 self._approve_design(parsed.query)
@@ -4722,6 +6333,72 @@ def _handler_for(
                     status=HTTPStatus.CONFLICT,
                 )
 
+        def _create_meta_project(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_meta_project(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _add_meta_repository(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.add_meta_repository(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _start_meta_repository(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                repository = payload.get("repository") or payload.get("path") or ""
+                self._send_json(
+                    state.start_meta_repository(
+                        context_id,
+                        str(repository),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _remove_meta_repository(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                repository = payload.get("repository") or payload.get("path") or ""
+                self._send_json(
+                    state.remove_meta_repository(
+                        context_id,
+                        str(repository),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
         def _deactivate_project(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
@@ -4747,6 +6424,93 @@ def _handler_for(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
                 )
+
+        def _select_session(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.select_session(
+                        context_id,
+                        str(payload.get("session_id") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _send_selected_session_events(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                params = parse_qs(query)
+                session_id = str((params.get("session_id") or [""])[0])
+                session = (
+                    state.session_by_id(context_id, session_id)
+                    if session_id
+                    else state.selected_session(context_id)
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            if session is None:
+                self._send_json(
+                    {"error": "no agent session is selected"},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._stream_session_events(session)
+
+        def _send_selected_session_message(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                message = str(payload.get("message") or "")
+                if not message.strip():
+                    self._send_json(
+                        {"error": "message is empty"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                state.send_selected_session_message(context_id, message)
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "sent"})
+
+        def _interrupt_selected_session(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                state.interrupt_selected_session(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "interrupted"})
+
+        def _resize_selected_session(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                columns = int(payload.get("columns") or 120)
+                rows = int(payload.get("rows") or 32)
+                state.resize_selected_session(context_id, columns, rows)
+            except (AgentSessionError, StateError, TypeError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "resized"})
 
         def _send_requirements_document(self, query: str) -> None:
             try:
@@ -5096,6 +6860,34 @@ def _handler_for(
                 }
             )
 
+        def _start_documentation_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, started = state.start_documentation_agent(
+                    context_id,
+                    interactive=True,
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not start documentation agent: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "started" if started else "running",
+                    "command": session.command,
+                    "session_id": session.session_id,
+                }
+            )
+
         def _restart_design_review_agent(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
@@ -5194,14 +6986,14 @@ def _handler_for(
         def _send_progress_events(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
+                command_root = state.command_root(context_id)
             except StateError as error:
                 self._send_json(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
                 )
                 return
-            self._stream_progress_events(context_id, project_root)
+            self._stream_progress_events(context_id, command_root)
 
         def _resize_design_agent(self, query: str) -> None:
             self._send_resize(query, state.resize_design_agent)

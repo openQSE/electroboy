@@ -21,6 +21,7 @@ from electroboy.service import (  # noqa: E402
     INDEX_HTML,
     AgentSession,
     AgentSessionError,
+    SESSION_ARTIFACT_LOCKS,
     ServiceState,
     _agent_process_env,
     _clean_terminal_output,
@@ -28,6 +29,8 @@ from electroboy.service import (  # noqa: E402
     _progress_snapshot,
     _reopen_requirements_for_restart,
     _requirements_command,
+    _status_command,
+    _status_snapshot,
     _terminal_input_chunks_for_message,
     _terminal_input_for_message,
     browse_directories,
@@ -102,7 +105,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_index_page_fetches_health_and_prints_connected(self) -> None:
         self.assertIn('fetch("/api/health"', INDEX_HTML)
-        self.assertIn('connection.textContent = activeProjectRoot', INDEX_HTML)
+        self.assertIn('connection.textContent = activationRoot', INDEX_HTML)
         self.assertIn('class="stage-scroll"', INDEX_HTML)
         self.assertIn('const workflowPane = document.querySelector(".workflow-pane");', INDEX_HTML)
         self.assertIn('const stageScroll = document.querySelector(".stage-scroll");', INDEX_HTML)
@@ -121,6 +124,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-stage="test-plan"', INDEX_HTML)
         self.assertIn('data-stage="validate"', INDEX_HTML)
         self.assertIn('data-stage="document"', INDEX_HTML)
+        self.assertIn('class="stage-node disabled sidecar"', INDEX_HTML)
+        self.assertIn(".stage-node.sidecar", INDEX_HTML)
         self.assertNotIn('data-stage="requirements-approve"', INDEX_HTML)
         self.assertNotIn('data-stage="design-approve"', INDEX_HTML)
         self.assertNotIn('data-stage="plan-approve"', INDEX_HTML)
@@ -137,7 +142,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Open an existing ElectroBoy project", INDEX_HTML)
         self.assertIn("Author or resume docs/requirements.md", INDEX_HTML)
         self.assertIn("Run validation commands and tests", INDEX_HTML)
-        self.assertIn("function updateStageNodes(hasActiveProject, workflowStage)", INDEX_HTML)
+        self.assertIn("function updateStageNodes(hasProjectContext, hasStageTarget, workflowStage)", INDEX_HTML)
         self.assertIn("stageNode.disabled = !isEnabled", INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("available"', INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("active", isActive)', INDEX_HTML)
@@ -146,9 +151,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/workflow/stage")', INDEX_HTML)
         self.assertIn("function handleWorkflowStageClick(stageNode)", INDEX_HTML)
         self.assertIn('id="projectMenu"', INDEX_HTML)
-        self.assertIn("openProject.disabled = hasActiveProject", INDEX_HTML)
-        self.assertIn("newProject.disabled = hasActiveProject", INDEX_HTML)
-        self.assertIn("deactivateProject.disabled = !hasActiveProject", INDEX_HTML)
+        self.assertIn("openProject.disabled = hasProjectContext", INDEX_HTML)
+        self.assertIn("newProject.disabled = hasProjectContext", INDEX_HTML)
+        self.assertIn('id="metaProjectSubmenu"', INDEX_HTML)
+        self.assertIn('id="openMetaProject"', INDEX_HTML)
+        self.assertIn('id="newMetaProject"', INDEX_HTML)
+        self.assertIn('id="addMetaRepository"', INDEX_HTML)
+        self.assertIn('id="startMetaRepository"', INDEX_HTML)
+        self.assertIn('id="startMetaRepositorySubmenu"', INDEX_HTML)
+        self.assertIn('id="removeMetaRepository"', INDEX_HTML)
+        self.assertIn('id="removeMetaRepositorySubmenu"', INDEX_HTML)
+        self.assertIn("function renderMetaRepositoryMenus()", INDEX_HTML)
+        self.assertIn("function startMetaRepositoryFromMenu(repository)", INDEX_HTML)
+        self.assertIn("function removeMetaRepositoryFromMenu(repository)", INDEX_HTML)
+        self.assertIn("function applyMetaRepositoryAction(endpoint, repository, pendingLabel)", INDEX_HTML)
+        self.assertIn("openMetaProject.disabled = hasProjectContext", INDEX_HTML)
+        self.assertIn("newMetaProject.disabled = hasProjectContext", INDEX_HTML)
+        self.assertIn('addMetaRepository.disabled = activeProjectMode !== "meta"', INDEX_HTML)
+        self.assertIn('activeProjectMode !== "meta" || registeredRepositories.length === 0', INDEX_HTML)
+        self.assertIn('"/api/meta/remove"', INDEX_HTML)
+        self.assertIn("deactivateProject.disabled = !hasProjectContext", INDEX_HTML)
         self.assertIn("if (activeProjectRoot)", INDEX_HTML)
         self.assertIn('id="projectPanel"', INDEX_HTML)
         self.assertIn('id="projectPath"', INDEX_HTML)
@@ -161,6 +183,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('id="requirementsApproveMenu"', INDEX_HTML)
         self.assertIn('id="designMenu"', INDEX_HTML)
         self.assertIn('id="designReviewMenu"', INDEX_HTML)
+        self.assertIn('id="documentMenu"', INDEX_HTML)
         self.assertNotIn('id="designApproveMenu"', INDEX_HTML)
         self.assertIn('id="approveRequirements"', INDEX_HTML)
         self.assertIn('id="skipRequirementsApproval"', INDEX_HTML)
@@ -181,24 +204,37 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="restartDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignFromReview"', INDEX_HTML)
+        self.assertIn('id="startDocumentation"', INDEX_HTML)
         self.assertNotIn('id="approveDesign"', INDEX_HTML)
         self.assertNotIn('id="openApprovedDesign"', INDEX_HTML)
         self.assertNotIn('id="openApprovedDesignReview"', INDEX_HTML)
         self.assertIn('id="agentPane"', INDEX_HTML)
         self.assertIn('id="shellResizeHandle"', INDEX_HTML)
+        self.assertIn('id="outputWorkbench"', INDEX_HTML)
+        self.assertIn('id="workbenchResizeHandle"', INDEX_HTML)
         self.assertIn('id="outputSplit"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
         self.assertIn('id="outputResizeHandle"', INDEX_HTML)
         self.assertIn('id="progressOutput"', INDEX_HTML)
+        self.assertIn('id="sidePane"', INDEX_HTML)
+        self.assertIn('id="sidePaneResizeHandle"', INDEX_HTML)
+        self.assertIn('id="scratchPad"', INDEX_HTML)
+        self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
+        self.assertIn('id="sessionSwitcher"', INDEX_HTML)
         self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
         self.assertIn('id="increaseTerminalFont"', INDEX_HTML)
         self.assertIn('id="interruptAgent"', INDEX_HTML)
         self.assertIn('id="insertFileLink"', INDEX_HTML)
         self.assertIn('class="agent-actions"', INDEX_HTML)
         self.assertIn(".output-split.split", INDEX_HTML)
+        self.assertIn(".output-workbench", INDEX_HTML)
+        self.assertIn(".workbench-resize-handle", INDEX_HTML)
+        self.assertIn(".side-pane-resize-handle", INDEX_HTML)
+        self.assertIn(".scratch-pad", INDEX_HTML)
+        self.assertIn(".project-status-output", INDEX_HTML)
         self.assertIn(".shell-resize-handle", INDEX_HTML)
         self.assertIn(".input-resize-handle", INDEX_HTML)
         self.assertIn(".output-resize-handle", INDEX_HTML)
@@ -225,11 +261,26 @@ class ServiceTests(unittest.TestCase):
             'const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";',
             INDEX_HTML,
         )
+        self.assertIn('const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";', INDEX_HTML)
+        self.assertIn(
+            'const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";',
+            INDEX_HTML,
+        )
+        self.assertIn(
+            'const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";',
+            INDEX_HTML,
+        )
+        self.assertIn('const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";', INDEX_HTML)
         self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
         self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
         self.assertIn("terminal.options.fontSize = terminalFontSize", INDEX_HTML)
         self.assertIn("progressTerminal.options.fontSize = terminalFontSize", INDEX_HTML)
         self.assertIn("agentInput.style.fontSize = `${terminalFontSize}px`;", INDEX_HTML)
+        self.assertIn("scratchPad.style.fontSize = `${terminalFontSize}px`;", INDEX_HTML)
+        self.assertIn(
+            "projectStatusOutput.style.fontSize = `${terminalFontSize}px`;",
+            INDEX_HTML,
+        )
         self.assertIn("function startShellResize(event)", INDEX_HTML)
         self.assertIn("function updateShellResize(event)", INDEX_HTML)
         self.assertIn("function finishShellResize(event)", INDEX_HTML)
@@ -239,14 +290,30 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startOutputResize(event)", INDEX_HTML)
         self.assertIn("function updateOutputResize(event)", INDEX_HTML)
         self.assertIn("function finishOutputResize(event)", INDEX_HTML)
+        self.assertIn("function startWorkbenchResize(event)", INDEX_HTML)
+        self.assertIn("function updateWorkbenchResize(event)", INDEX_HTML)
+        self.assertIn("function finishWorkbenchResize(event)", INDEX_HTML)
+        self.assertIn("function startSidePaneResize(event)", INDEX_HTML)
+        self.assertIn("function updateSidePaneResize(event)", INDEX_HTML)
+        self.assertIn("function finishSidePaneResize(event)", INDEX_HTML)
         self.assertIn("applyStoredPaneSizes();", INDEX_HTML)
         self.assertIn("applyStoredProgressPaneSize();", INDEX_HTML)
+        self.assertIn("applyStoredWorkbenchPaneSize();", INDEX_HTML)
+        self.assertIn("restoreScratchPad();", INDEX_HTML)
         self.assertIn("saveNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
         self.assertIn("saveNumber(INPUT_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
         self.assertIn("saveProgressPaneHeight(nextHeight);", INDEX_HTML)
+        self.assertIn("saveRightPaneWidth(nextWidth);", INDEX_HTML)
+        self.assertIn("saveScratchPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("shellResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("inputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("outputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("workbenchResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("sidePaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn('scratchPad.addEventListener("input", saveScratchPad);', INDEX_HTML)
+        self.assertIn('contextUrl("/api/project/status")', INDEX_HTML)
+        self.assertIn("function queueProjectStatusRefresh", INDEX_HTML)
+        self.assertIn("async function refreshProjectStatus()", INDEX_HTML)
         self.assertIn("black: \"#151923\"", INDEX_HTML)
         self.assertIn("brightCyan: \"#99e9f2\"", INDEX_HTML)
         self.assertIn("let progressEventSource = null;", INDEX_HTML)
@@ -266,6 +333,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function restoreContext()", INDEX_HTML)
         self.assertIn('fetch("/api/contexts"', INDEX_HTML)
         self.assertIn('let contextId = "";', INDEX_HTML)
+        self.assertIn('let activationRoot = "";', INDEX_HTML)
+        self.assertIn('let activeProjectMode = "none";', INDEX_HTML)
+        self.assertIn('let activeRepositoryName = "";', INDEX_HTML)
+        self.assertIn("let registeredRepositories = [];", INDEX_HTML)
         self.assertIn("let requirementsStarted = false;", INDEX_HTML)
         self.assertIn('let currentWorkflowStage = "project";', INDEX_HTML)
         self.assertIn("requirementsStarted = Boolean(payload.requirements_started)", INDEX_HTML)
@@ -277,10 +348,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("designReviewRunning = Boolean(payload.design_review_running)", INDEX_HTML)
         self.assertIn("designReviewInteractive = Boolean(payload.design_review_interactive)", INDEX_HTML)
         self.assertIn("designApproved = Boolean(payload.design_approved)", INDEX_HTML)
-        self.assertIn("if (payload.requirements_running)", INDEX_HTML)
-        self.assertIn("else if (payload.design_running)", INDEX_HTML)
-        self.assertIn("else if (payload.design_review_running)", INDEX_HTML)
-        self.assertIn("if (payload.design_review_interactive)", INDEX_HTML)
+        self.assertIn("documentationRunning = Boolean(payload.documentation_running)", INDEX_HTML)
+        self.assertIn("function renderSessionSwitcher()", INDEX_HTML)
+        self.assertIn("function selectAgentSession(sessionId)", INDEX_HTML)
+        self.assertIn("function connectSessionEvents(sessionId)", INDEX_HTML)
+        self.assertIn("function startDocumentationAgent()", INDEX_HTML)
+        self.assertIn("const session = selectedSession();", INDEX_HTML)
+        self.assertIn("connectSessionEvents(session.session_id)", INDEX_HTML)
+        self.assertIn('session.kind === "design-review"', INDEX_HTML)
         self.assertIn("connectProgressEvents();", INDEX_HTML)
         self.assertIn("await restoreContext();", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
@@ -288,6 +363,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
         self.assertIn("function updateDesignMenuState()", INDEX_HTML)
         self.assertIn("function updateDesignReviewMenuState()", INDEX_HTML)
+        self.assertIn("function updateDocumentMenuState()", INDEX_HTML)
         self.assertNotIn("function updateDesignApproveMenuState()", INDEX_HTML)
         self.assertIn('const inRequirementsStage = currentWorkflowStage === "requirements";', INDEX_HTML)
         self.assertIn("!hasActiveProject || !inRequirementsStage || requirementsRunning", INDEX_HTML)
@@ -315,6 +391,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/project")', INDEX_HTML)
         self.assertIn('"/api/project/open"', INDEX_HTML)
         self.assertIn('"/api/project/new"', INDEX_HTML)
+        self.assertIn('"/api/meta/init"', INDEX_HTML)
+        self.assertIn('"/api/meta/add"', INDEX_HTML)
+        self.assertIn('"/api/meta/start"', INDEX_HTML)
+        self.assertIn('"/api/meta/remove"', INDEX_HTML)
+        self.assertIn('"/api/sessions/select"', INDEX_HTML)
+        self.assertIn('"/api/sessions/message"', INDEX_HTML)
+        self.assertIn('"/api/sessions/interrupt"', INDEX_HTML)
+        self.assertIn('"/api/sessions/resize"', INDEX_HTML)
+        self.assertIn('"/api/agents/documentation/start"', INDEX_HTML)
         self.assertIn('contextUrl("/api/project/deactivate")', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/requirements")', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/design")', INDEX_HTML)
@@ -355,9 +440,9 @@ class ServiceTests(unittest.TestCase):
             "      updateProjectState(payload);",
             INDEX_HTML,
         )
-        self.assertIn("contextUrl(`/api/agents/${activeAgentKind}/message`)", INDEX_HTML)
-        self.assertIn("contextUrl(`/api/agents/${activeAgentKind}/interrupt`)", INDEX_HTML)
-        self.assertIn("contextUrl(`/api/agents/${activeAgentKind}/resize`)", INDEX_HTML)
+        self.assertIn('contextUrl("/api/sessions/message")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/sessions/interrupt")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/sessions/resize")', INDEX_HTML)
         self.assertIn("payload.terminal || payload.text", INDEX_HTML)
         self.assertIn("function clearAgentOutput()", INDEX_HTML)
         self.assertIn("terminal.clear();", INDEX_HTML)
@@ -466,6 +551,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "opened")
         self.assertEqual(payload["context_id"], context_id)
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
+        self.assertEqual(payload["activation_root"], str(project_root.resolve()))
+        self.assertEqual(payload["project_mode"], "project")
+        self.assertIsNone(payload["active_repository_name"])
+        self.assertEqual(payload["registered_repositories"], [])
         self.assertEqual(payload["workflow_stage"], "requirements")
         self.assertFalse(payload["requirements_started"])
         self.assertFalse(payload["requirements_running"])
@@ -474,6 +563,9 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
         self.assertFalse(payload["design_review_interactive"])
+        self.assertFalse(payload["documentation_running"])
+        self.assertIsNone(payload["selected_session_id"])
+        self.assertEqual(payload["sessions"], [])
         self.assertEqual(
             payload["activate_command"],
             f"source {project_root.resolve() / '.electroboy' / 'bin' / 'activate'}",
@@ -517,6 +609,262 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "opened")
         self.assertEqual(payload["workflow_stage"], "design-review")
 
+    def test_service_state_creates_meta_project_without_active_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            meta_root = Path(tmp) / "openQSE"
+            service_root.mkdir()
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            payload = state.create_meta_project(context_id, str(meta_root))
+
+        self.assertEqual(payload["status"], "created")
+        self.assertEqual(payload["project_mode"], "meta")
+        self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
+        self.assertIsNone(payload["active_project_root"])
+        self.assertIsNone(payload["active_repository_name"])
+        self.assertEqual(payload["registered_repositories"], [])
+        self.assertEqual(payload["workflow_stage"], "project")
+        self.assertEqual(
+            payload["activate_command"],
+            f"source {meta_root.resolve() / '.electroboy' / 'bin' / 'activate'}",
+        )
+
+    def test_service_state_open_auto_detects_meta_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            meta_root = Path(tmp) / "openQSE"
+            service_root.mkdir()
+
+            state = ServiceState(service_root)
+            first_context = str(state.create_context()["context_id"])
+            state.create_meta_project(first_context, str(meta_root))
+            second_context = str(state.create_context()["context_id"])
+
+            payload = state.open_project(second_context, str(meta_root))
+
+        self.assertEqual(payload["status"], "opened")
+        self.assertEqual(payload["project_mode"], "meta")
+        self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
+        self.assertIsNone(payload["active_project_root"])
+
+    def test_service_state_meta_add_and_start_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            meta_root = Path(tmp) / "openQSE"
+            repo_root = meta_root / "QFw"
+            service_root.mkdir()
+            repo_root.mkdir(parents=True)
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_meta_project(context_id, str(meta_root))
+
+            add_payload = state.add_meta_repository(context_id, "QFw")
+            start_payload = state.start_meta_repository(context_id, "QFw")
+            current_run_exists = (
+                repo_root / ".electroboy" / "shared" / "current-run"
+            ).exists()
+
+        self.assertEqual(add_payload["status"], "registered")
+        self.assertEqual(add_payload["project_mode"], "meta")
+        self.assertIsNone(add_payload["active_project_root"])
+        self.assertEqual(add_payload["registered_repositories"][0]["name"], "QFw")
+        self.assertEqual(start_payload["status"], "started")
+        self.assertEqual(start_payload["project_mode"], "meta")
+        self.assertEqual(start_payload["activation_root"], str(meta_root.resolve()))
+        self.assertEqual(start_payload["active_project_root"], str(repo_root.resolve()))
+        self.assertEqual(start_payload["active_repository_name"], "QFw")
+        self.assertEqual(start_payload["workflow_stage"], "requirements")
+        self.assertTrue(current_run_exists)
+
+    def test_service_state_meta_start_switches_registered_repositories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            meta_root = Path(tmp) / "openQSE"
+            first_repo = meta_root / "QFw"
+            second_repo = meta_root / "qSchedSim"
+            service_root.mkdir()
+            first_repo.mkdir(parents=True)
+            second_repo.mkdir(parents=True)
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_meta_project(context_id, str(meta_root))
+            state.add_meta_repository(context_id, "QFw")
+            state.add_meta_repository(context_id, "qSchedSim")
+            first_payload = state.start_meta_repository(context_id, "QFw")
+            second_payload = state.start_meta_repository(context_id, "qSchedSim")
+
+        self.assertEqual(first_payload["active_repository_name"], "QFw")
+        self.assertEqual(first_payload["active_project_root"], str(first_repo.resolve()))
+        self.assertEqual(second_payload["status"], "started")
+        self.assertEqual(second_payload["active_repository_name"], "qSchedSim")
+        self.assertEqual(second_payload["active_project_root"], str(second_repo.resolve()))
+        self.assertEqual(
+            [repo["name"] for repo in second_payload["registered_repositories"]],
+            ["QFw", "qSchedSim"],
+        )
+
+    def test_service_state_meta_remove_repository_clears_active_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            meta_root = Path(tmp) / "openQSE"
+            repo_root = meta_root / "QFw"
+            service_root.mkdir()
+            repo_root.mkdir(parents=True)
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_meta_project(context_id, str(meta_root))
+            state.add_meta_repository(context_id, "QFw")
+            state.start_meta_repository(context_id, "QFw")
+            payload = state.remove_meta_repository(context_id, "QFw")
+
+        self.assertEqual(payload["status"], "removed")
+        self.assertEqual(payload["project_mode"], "meta")
+        self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
+        self.assertIsNone(payload["active_project_root"])
+        self.assertIsNone(payload["active_repository_name"])
+        self.assertEqual(payload["registered_repositories"], [])
+        self.assertEqual(payload["workflow_stage"], "project")
+
+    def test_project_status_payload_uses_meta_activation_root_without_active_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            meta_root = Path(tmp) / "openQSE"
+            service_root.mkdir()
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_meta_project(context_id, str(meta_root))
+
+            with mock.patch(
+                "electroboy.service._status_snapshot",
+                return_value=("meta-project status\n", True),
+            ) as status_snapshot:
+                payload = state.project_status_payload(context_id)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["output"], "meta-project status\n")
+        status_snapshot.assert_called_once_with(meta_root.resolve())
+
+    def test_meta_stage_agent_runs_from_meta_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            meta_root = Path(tmp) / "openQSE"
+            repo_root = meta_root / "QFw"
+            service_root.mkdir()
+            repo_root.mkdir(parents=True)
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_meta_project(context_id, str(meta_root))
+            state.start_meta_repository(context_id, "QFw")
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_requirements_agent(context_id)
+
+        self.assertTrue(started)
+        self.assertEqual(session.cwd, meta_root.resolve())
+        self.assertEqual(session.command[:2], ["/bin/sh", "-c"])
+        self.assertIn(str(meta_root.resolve() / ".electroboy" / "bin" / "activate"), session.command[2])
+        self.assertIn("electroboy requirements", session.command[2])
+
+    def test_documentation_sidecar_session_does_not_change_workflow_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_documentation_agent(context_id)
+            payload = state.project_payload(context_id)
+
+        self.assertTrue(started)
+        self.assertEqual(session.kind, "documentation")
+        self.assertTrue(session.interactive)
+        command_text = " ".join(session.command)
+        self.assertIn("document", command_text)
+        self.assertIn("--sidecar", command_text)
+        self.assertIn("--interactive", command_text)
+        self.assertEqual(payload["workflow_stage"], "requirements")
+        self.assertEqual(payload["selected_session_id"], session.session_id)
+        self.assertEqual(payload["sessions"][0]["kind"], "documentation")
+
+    def test_documentation_sidecar_can_run_while_design_lock_is_active(self) -> None:
+        class FakeActiveSession:
+            label = "design agent"
+            kind = "design"
+            interactive = True
+            lock_names = SESSION_ARTIFACT_LOCKS["design"]
+            session_id = "design-session"
+            returncode = None
+            command: list[str] = []
+            created_at = ""
+
+            def is_active(self) -> bool:
+                return True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with state.lock:
+                context = state.contexts[context_id]
+                context.design_session = FakeActiveSession()  # type: ignore[assignment]
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_documentation_agent(context_id)
+
+        self.assertTrue(started)
+        self.assertEqual(session.kind, "documentation")
+
+    def test_artifact_lock_blocks_conflicting_design_review_session(self) -> None:
+        class FakeActiveSession:
+            label = "design agent"
+            kind = "design"
+            interactive = True
+            lock_names = SESSION_ARTIFACT_LOCKS["design"]
+            session_id = "design-session"
+            returncode = None
+            command: list[str] = []
+            created_at = ""
+
+            def is_active(self) -> bool:
+                return True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with state.lock:
+                context = state.contexts[context_id]
+                context.workflow_stage = "design-review"
+                context.design_session = FakeActiveSession()  # type: ignore[assignment]
+
+            with self.assertRaisesRegex(AgentSessionError, "docs/detailed-design"):
+                state.start_design_review_agent(context_id)
+
     def test_new_context_starts_without_active_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -526,6 +874,10 @@ class ServiceTests(unittest.TestCase):
             payload = state.create_context()
 
         self.assertIsNone(payload["active_project_root"])
+        self.assertIsNone(payload["activation_root"])
+        self.assertEqual(payload["project_mode"], "none")
+        self.assertIsNone(payload["active_repository_name"])
+        self.assertEqual(payload["registered_repositories"], [])
         self.assertEqual(payload["service_root"], str(root.resolve()))
         self.assertFalse(payload["requirements_started"])
         self.assertFalse(payload["requirements_running"])
@@ -534,6 +886,36 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
         self.assertFalse(payload["design_review_interactive"])
+
+    def test_project_status_payload_requires_active_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            context_id = str(state.create_context()["context_id"])
+
+            with self.assertRaisesRegex(StateError, "activate a project first"):
+                state.project_status_payload(context_id)
+
+    def test_project_status_payload_reads_active_project_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch(
+                "electroboy.service._status_snapshot",
+                return_value=("active stage: requirements\n", True),
+            ) as status_snapshot:
+                payload = state.project_status_payload(context_id)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["output"], "active stage: requirements\n")
+        status_snapshot.assert_called_once_with(project_root.resolve())
 
     def test_project_payload_reports_running_requirements_session(self) -> None:
         class FakeSession:
@@ -1643,6 +2025,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(". ", command[2])
         self.assertIn("electroboy progress --once", command[2])
 
+    def test_status_command_sources_project_activation_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            activate = root / ".electroboy" / "bin" / "activate"
+            activate.parent.mkdir(parents=True)
+            activate.write_text("export ELECTROBOY_PROJECT_ROOT=x\n", encoding="utf-8")
+
+            command = _status_command(root)
+
+        self.assertEqual(command[:2], ["/bin/sh", "-c"])
+        self.assertIn(". ", command[2])
+        self.assertIn("electroboy status", command[2])
+
     def test_progress_snapshot_reads_progress_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1666,6 +2061,25 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("design-review-progress.md", output)
         self.assertIn("- reviewing design", output)
 
+    def test_status_snapshot_runs_status_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            completed = subprocess.CompletedProcess(
+                args=["electroboy", "status"],
+                returncode=0,
+                stdout="active stage: requirements\n",
+            )
+
+            with mock.patch(
+                "electroboy.service.subprocess.run",
+                return_value=completed,
+            ) as run:
+                output, ok = _status_snapshot(root)
+
+        self.assertTrue(ok)
+        self.assertEqual(output, "active stage: requirements\n")
+        self.assertEqual(run.call_args.kwargs["cwd"], root.resolve())
+
     def test_serve_accepts_subcommand_root_argument(self) -> None:
         parser = build_parser()
 
@@ -1675,6 +2089,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(args.root, "/tmp/example")
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 0)
+
+    def test_document_accepts_sidecar_option(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["document", "--sidecar", "--interactive"])
+
+        self.assertEqual(args.command, "document")
+        self.assertTrue(args.sidecar)
+        self.assertTrue(args.interactive)
 
 
 def request(

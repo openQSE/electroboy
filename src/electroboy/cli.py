@@ -747,6 +747,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="open an interactive documentation session",
     )
+    document.add_argument(
+        "--sidecar",
+        action="store_true",
+        help=(
+            "run documentation as an out-of-band helper without changing the "
+            "active workflow stage"
+        ),
+    )
     code_approve = subparsers.add_parser(
         "code-approve",
         help="approve completed pipeline",
@@ -5588,6 +5596,11 @@ def _cmd_document(
     engine: GateEngine,
     args: argparse.Namespace,
 ) -> int:
+    if getattr(args, "sidecar", False):
+        return _cmd_document_sidecar(
+            store,
+            interactive=bool(getattr(args, "interactive", False)),
+        )
     manifest = store.load_current_manifest()
     reason = getattr(args, "reason", None)
     if getattr(args, "force", False):
@@ -5661,6 +5674,44 @@ def _cmd_document_interactive(store: StateStore) -> int:
     )
     print("interactive documentation session completed")
     print("next: run `electroboy document` to continue documentation review")
+    return 0
+
+
+def _cmd_document_sidecar(store: StateStore, interactive: bool = False) -> int:
+    role = "documentation_interactive" if interactive else "documentation"
+    prompt = _documentation_prompt(store)
+    if interactive:
+        prompt = _interactive_step_prompt(prompt)
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role=role,
+        prompt=prompt,
+        context_paths=[
+            *_implementation_context_paths(store),
+            "README.md",
+            "docs/api.md",
+        ],
+        session_stage="documentation-sidecar" if interactive else None,
+        session_artifact="documentation.jsonl" if interactive else None,
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    store.append_activity(
+        ActivityEvent(
+            actor=role,
+            stage=store.load_current_manifest().active_stage,
+            action="documentation-sidecar-session-recorded",
+            summary="Ran documentation sidecar without changing workflow stage.",
+            inputs=[*_implementation_context_paths(store), "README.md", "docs/api.md"],
+            outputs=["README.md", "docs/api.md", "documentation.jsonl"],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print("documentation sidecar completed")
     return 0
 
 
