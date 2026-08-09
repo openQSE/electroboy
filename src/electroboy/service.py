@@ -775,16 +775,19 @@ INDEX_HTML = """<!doctype html>
     function updateProjectState(payload) {
       serviceRoot = payload.service_root || "";
       activeProjectRoot = payload.active_project_root || "";
+      const hasActiveProject = Boolean(activeProjectRoot);
       if (!projectPath.value) {
         projectPath.value = activeProjectRoot || serviceRoot;
       }
       setConnected();
-      projectStage.classList.toggle("complete", Boolean(activeProjectRoot));
-      projectStage.classList.toggle("active", !activeProjectRoot);
-      requirementsStage.disabled = !activeProjectRoot;
-      requirementsStage.classList.toggle("disabled", !activeProjectRoot);
-      requirementsStage.classList.toggle("active", Boolean(activeProjectRoot));
-      deactivateProject.disabled = !activeProjectRoot;
+      projectStage.classList.toggle("complete", hasActiveProject);
+      projectStage.classList.toggle("active", !hasActiveProject);
+      requirementsStage.disabled = !hasActiveProject;
+      requirementsStage.classList.toggle("disabled", !hasActiveProject);
+      requirementsStage.classList.toggle("active", hasActiveProject);
+      openProject.disabled = hasActiveProject;
+      newProject.disabled = hasActiveProject;
+      deactivateProject.disabled = !hasActiveProject;
       projectStatus.textContent = activeProjectRoot
         ? `active: ${activeProjectRoot}`
         : "";
@@ -837,6 +840,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     function showProjectPanel(mode) {
+      if (activeProjectRoot) {
+        return;
+      }
       projectMode = mode;
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
