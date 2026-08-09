@@ -363,7 +363,7 @@ INDEX_HTML = """<!doctype html>
 
     .file-browser {
       position: fixed;
-      z-index: 20;
+      z-index: 60;
       inset: 72px;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -744,6 +744,7 @@ INDEX_HTML = """<!doctype html>
     const agentOutput = document.getElementById("agentOutput");
     const agentInput = document.getElementById("agentInput");
     const interruptAgent = document.getElementById("interruptAgent");
+    const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     let eventSource = null;
     let terminal = null;
     let terminalFit = null;
@@ -898,6 +899,26 @@ INDEX_HTML = """<!doctype html>
       return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
     }
 
+    function storedContextId() {
+      try {
+        return window.sessionStorage.getItem(CONTEXT_STORAGE_KEY) || "";
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function saveContextId(value) {
+      try {
+        if (value) {
+          window.sessionStorage.setItem(CONTEXT_STORAGE_KEY, value);
+        } else {
+          window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY);
+        }
+      } catch (error) {
+        return;
+      }
+    }
+
     async function createContext() {
       const response = await fetch("/api/contexts", { method: "POST" });
       if (!response.ok) {
@@ -906,13 +927,43 @@ INDEX_HTML = """<!doctype html>
       }
       const payload = await response.json();
       contextId = payload.context_id || "";
+      saveContextId(contextId);
       updateProjectState(payload);
+    }
+
+    async function restoreContext() {
+      const existingContextId = storedContextId();
+      if (!existingContextId) {
+        await createContext();
+        return;
+      }
+      contextId = existingContextId;
+      const response = await fetch(contextUrl("/api/project"), { cache: "no-store" });
+      if (!response.ok) {
+        saveContextId("");
+        contextId = "";
+        await createContext();
+        return;
+      }
+      const payload = await response.json();
+      contextId = payload.context_id || existingContextId;
+      saveContextId(contextId);
+      updateProjectState(payload);
+      if (payload.requirements_running) {
+        clearAgentOutput();
+        setRequirementsRunning(true);
+        connectAgentEvents();
+        sendTerminalResize();
+      }
     }
 
     function updateProjectState(payload) {
       serviceRoot = payload.service_root || "";
       activeProjectRoot = payload.active_project_root || "";
       requirementsStarted = Boolean(payload.requirements_started);
+      requirementsRunning = Boolean(payload.requirements_running);
+      agentInput.disabled = !requirementsRunning;
+      interruptAgent.disabled = !requirementsRunning;
       const hasActiveProject = Boolean(activeProjectRoot);
       const workflowStage = payload.workflow_stage || (hasActiveProject ? "requirements" : "project");
       currentWorkflowStage = workflowStage;
@@ -1442,7 +1493,7 @@ INDEX_HTML = """<!doctype html>
       applyStageDescriptions();
       initializeTerminal();
       await checkConnection();
-      await createContext();
+      await restoreContext();
     }
 
     initialize().catch(() => {});
@@ -2089,6 +2140,12 @@ def project_payload(
         if active_project_root
         else None
     )
+    requirements_session = context.requirements_session
+    requirements_running = bool(
+        active_root
+        and requirements_session is not None
+        and requirements_session.is_active()
+    )
     return {
         "context_id": context.context_id,
         "service_root": str(service_root),
@@ -2099,6 +2156,7 @@ def project_payload(
             else ("requirements" if active_root else "project")
         ),
         "requirements_started": bool(active_root and context.requirements_started),
+        "requirements_running": requirements_running,
         "activate_command": (
             f"source {active_root / '.electroboy' / 'bin' / 'activate'}"
             if active_root

@@ -69,6 +69,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const stageScroll = document.querySelector(".stage-scroll");', INDEX_HTML)
         self.assertIn("overflow: visible;", INDEX_HTML)
         self.assertIn("z-index: 30;", INDEX_HTML)
+        self.assertIn("z-index: 60;", INDEX_HTML)
         self.assertIn("z-index: 0;", INDEX_HTML)
         self.assertIn(".stage-node.available", INDEX_HTML)
         self.assertIn("button.stage-node.available:hover", INDEX_HTML)
@@ -129,11 +130,20 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
         self.assertIn("new window.Terminal", INDEX_HTML)
         self.assertIn("disableStdin: true", INDEX_HTML)
+        self.assertIn('const CONTEXT_STORAGE_KEY = "electroboy.contextId";', INDEX_HTML)
+        self.assertIn("window.sessionStorage.getItem", INDEX_HTML)
+        self.assertIn("window.sessionStorage.setItem", INDEX_HTML)
+        self.assertIn("function storedContextId()", INDEX_HTML)
+        self.assertIn("function saveContextId(value)", INDEX_HTML)
+        self.assertIn("async function restoreContext()", INDEX_HTML)
         self.assertIn('fetch("/api/contexts"', INDEX_HTML)
         self.assertIn('let contextId = "";', INDEX_HTML)
         self.assertIn("let requirementsStarted = false;", INDEX_HTML)
         self.assertIn('let currentWorkflowStage = "project";', INDEX_HTML)
         self.assertIn("requirementsStarted = Boolean(payload.requirements_started)", INDEX_HTML)
+        self.assertIn("requirementsRunning = Boolean(payload.requirements_running)", INDEX_HTML)
+        self.assertIn("if (payload.requirements_running)", INDEX_HTML)
+        self.assertIn("await restoreContext();", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
         self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
         self.assertIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
@@ -245,6 +255,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["context_id"], context_id)
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
         self.assertFalse(payload["requirements_started"])
+        self.assertFalse(payload["requirements_running"])
         self.assertEqual(
             payload["activate_command"],
             f"source {project_root.resolve() / '.electroboy' / 'bin' / 'activate'}",
@@ -261,6 +272,36 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNone(payload["active_project_root"])
         self.assertEqual(payload["service_root"], str(root.resolve()))
         self.assertFalse(payload["requirements_started"])
+        self.assertFalse(payload["requirements_running"])
+
+    def test_project_payload_reports_running_requirements_session(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
+
+            running_payload = state.project_payload(context_id)
+            session.terminated = True
+            stopped_payload = state.project_payload(context_id)
+
+        self.assertTrue(running_payload["requirements_running"])
+        self.assertFalse(stopped_payload["requirements_running"])
 
     def test_service_state_keeps_project_activation_per_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
