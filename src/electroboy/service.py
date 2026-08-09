@@ -28,7 +28,13 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from .artifacts import ArtifactManager
-from .models import ActivityEvent, STAGE_REQUIREMENTS
+from .models import (
+    ActivityEvent,
+    STAGE_DESIGN,
+    STAGE_DESIGN_ACCEPTANCE,
+    STAGE_DESIGN_REVIEW,
+    STAGE_REQUIREMENTS,
+)
 from .state_store import StateError, StateStore
 
 
@@ -622,6 +628,23 @@ INDEX_HTML = """<!doctype html>
         <button id="approveRequirements" type="button">Approve</button>
         <button id="openApprovedRequirements" type="button">Open requirements</button>
       </div>
+      <div id="designMenu" class="stage-menu" hidden>
+        <button id="startDesign" type="button">Start</button>
+        <button id="restartDesign" type="button">Restart</button>
+        <button id="completeDesign" type="button">Complete</button>
+        <button id="openDesign" type="button">Open design</button>
+      </div>
+      <div id="designReviewMenu" class="stage-menu" hidden>
+        <button id="startDesignReview" type="button">Start review</button>
+        <button id="restartDesignReview" type="button">Restart review</button>
+        <button id="openDesignReview" type="button">Open review</button>
+        <button id="openDesignFromReview" type="button">Open design</button>
+      </div>
+      <div id="designApproveMenu" class="stage-menu" hidden>
+        <button id="approveDesign" type="button">Approve</button>
+        <button id="openApprovedDesign" type="button">Open design</button>
+        <button id="openApprovedDesignReview" type="button">Open review</button>
+      </div>
       <div id="projectPanel" class="project-panel" hidden>
         <input
           id="projectPath"
@@ -718,9 +741,15 @@ INDEX_HTML = """<!doctype html>
     const requirementsApproveStage = document.querySelector(
       "[data-stage='requirements-approve']",
     );
+    const designStage = document.querySelector("[data-stage='design']");
+    const designReviewStage = document.querySelector("[data-stage='design-review']");
+    const designApproveStage = document.querySelector("[data-stage='design-approve']");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const requirementsApproveMenu = document.getElementById("requirementsApproveMenu");
+    const designMenu = document.getElementById("designMenu");
+    const designReviewMenu = document.getElementById("designReviewMenu");
+    const designApproveMenu = document.getElementById("designApproveMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
     const deactivateProject = document.getElementById("deactivateProject");
@@ -730,6 +759,17 @@ INDEX_HTML = """<!doctype html>
     const openRequirements = document.getElementById("openRequirements");
     const approveRequirements = document.getElementById("approveRequirements");
     const openApprovedRequirements = document.getElementById("openApprovedRequirements");
+    const startDesign = document.getElementById("startDesign");
+    const restartDesign = document.getElementById("restartDesign");
+    const completeDesign = document.getElementById("completeDesign");
+    const openDesign = document.getElementById("openDesign");
+    const startDesignReview = document.getElementById("startDesignReview");
+    const restartDesignReview = document.getElementById("restartDesignReview");
+    const openDesignReview = document.getElementById("openDesignReview");
+    const openDesignFromReview = document.getElementById("openDesignFromReview");
+    const approveDesign = document.getElementById("approveDesign");
+    const openApprovedDesign = document.getElementById("openApprovedDesign");
+    const openApprovedDesignReview = document.getElementById("openApprovedDesignReview");
     const projectPanel = document.getElementById("projectPanel");
     const projectPath = document.getElementById("projectPath");
     const browseProject = document.getElementById("browseProject");
@@ -749,8 +789,13 @@ INDEX_HTML = """<!doctype html>
     let terminal = null;
     let terminalFit = null;
     let resizeTimer = null;
+    let activeAgentKind = "";
     let requirementsRunning = false;
     let requirementsStarted = false;
+    let designRunning = false;
+    let designStarted = false;
+    let designReviewRunning = false;
+    let designReviewStarted = false;
     let currentWorkflowStage = "project";
     let contextId = "";
     let projectMode = "open";
@@ -803,7 +848,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function queueTerminalResize() {
-      if (!requirementsRunning || !contextId || !terminal) {
+      if (!agentProcessRunning() || !contextId || !terminal || !activeAgentKind) {
         return;
       }
       window.clearTimeout(resizeTimer);
@@ -811,10 +856,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function sendTerminalResize() {
-      if (!requirementsRunning || !contextId || !terminal) {
+      if (!agentProcessRunning() || !contextId || !terminal || !activeAgentKind) {
         return;
       }
-      await fetch(contextUrl("/api/agents/requirements/resize"), {
+      await fetch(contextUrl(`/api/agents/${activeAgentKind}/resize`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -951,8 +996,18 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
       if (payload.requirements_running) {
         clearAgentOutput();
-        setRequirementsRunning(true);
-        connectAgentEvents();
+        setAgentRunning("requirements", true);
+        connectAgentEvents("requirements");
+        sendTerminalResize();
+      } else if (payload.design_running) {
+        clearAgentOutput();
+        setAgentRunning("design", true);
+        connectAgentEvents("design");
+        sendTerminalResize();
+      } else if (payload.design_review_running) {
+        clearAgentOutput();
+        setAgentRunning("design-review", true);
+        connectAgentEvents("design-review");
         sendTerminalResize();
       }
     }
@@ -962,8 +1017,11 @@ INDEX_HTML = """<!doctype html>
       activeProjectRoot = payload.active_project_root || "";
       requirementsStarted = Boolean(payload.requirements_started);
       requirementsRunning = Boolean(payload.requirements_running);
-      agentInput.disabled = !requirementsRunning;
-      interruptAgent.disabled = !requirementsRunning;
+      designStarted = Boolean(payload.design_started);
+      designRunning = Boolean(payload.design_running);
+      designReviewStarted = Boolean(payload.design_review_started);
+      designReviewRunning = Boolean(payload.design_review_running);
+      updateAgentControls();
       const hasActiveProject = Boolean(activeProjectRoot);
       const workflowStage = payload.workflow_stage || (hasActiveProject ? "requirements" : "project");
       currentWorkflowStage = workflowStage;
@@ -977,6 +1035,9 @@ INDEX_HTML = """<!doctype html>
       deactivateProject.disabled = !hasActiveProject;
       updateRequirementsMenuState();
       updateRequirementsApproveMenuState();
+      updateDesignMenuState();
+      updateDesignReviewMenuState();
+      updateDesignApproveMenuState();
       projectStatus.textContent = activeProjectRoot
         ? `active: ${activeProjectRoot}`
         : "";
@@ -1016,6 +1077,34 @@ INDEX_HTML = """<!doctype html>
       const inRequirementsApproveStage = currentWorkflowStage === "requirements-approve";
       approveRequirements.disabled = !inRequirementsApproveStage;
       openApprovedRequirements.disabled = !inRequirementsApproveStage;
+    }
+
+    function updateDesignMenuState() {
+      const hasActiveProject = Boolean(activeProjectRoot);
+      const inDesignStage = currentWorkflowStage === "design";
+      startDesign.disabled = !hasActiveProject || !inDesignStage || designRunning;
+      restartDesign.disabled = !hasActiveProject || inDesignStage;
+      completeDesign.disabled = !hasActiveProject || !inDesignStage;
+      openDesign.disabled = !hasActiveProject || !inDesignStage || !designStarted;
+    }
+
+    function updateDesignReviewMenuState() {
+      const hasActiveProject = Boolean(activeProjectRoot);
+      const inDesignReviewStage = currentWorkflowStage === "design-review";
+      startDesignReview.disabled =
+        !hasActiveProject || !inDesignReviewStage || designReviewRunning;
+      restartDesignReview.disabled =
+        !hasActiveProject || (inDesignReviewStage && !designReviewStarted);
+      openDesignReview.disabled =
+        !hasActiveProject || !inDesignReviewStage || !designReviewStarted;
+      openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage;
+    }
+
+    function updateDesignApproveMenuState() {
+      const inDesignApproveStage = currentWorkflowStage === "design-approve";
+      approveDesign.disabled = !inDesignApproveStage;
+      openApprovedDesign.disabled = !inDesignApproveStage;
+      openApprovedDesignReview.disabled = !inDesignApproveStage;
     }
 
     async function refreshProject() {
@@ -1114,6 +1203,10 @@ INDEX_HTML = """<!doctype html>
       projectMode = mode;
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
+      requirementsApproveMenu.hidden = true;
+      designMenu.hidden = true;
+      designReviewMenu.hidden = true;
+      designApproveMenu.hidden = true;
       projectPanel.hidden = false;
       activateProject.textContent = mode === "new" ? "Create" : "Activate";
       projectStatus.textContent = activeProjectRoot ? `active: ${activeProjectRoot}` : "";
@@ -1194,21 +1287,28 @@ INDEX_HTML = """<!doctype html>
       projectPath.value = serviceRoot;
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
+      designMenu.hidden = true;
+      designReviewMenu.hidden = true;
+      designApproveMenu.hidden = true;
       agentInput.disabled = true;
       interruptAgent.disabled = true;
       startRequirements.disabled = false;
       requirementsRunning = false;
+      designRunning = false;
+      designReviewRunning = false;
+      activeAgentKind = "";
       agentInput.value = "";
       clearAgentOutput();
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
       updateProjectState(payload);
     }
 
-    function connectAgentEvents() {
+    function connectAgentEvents(kind) {
       if (eventSource) {
         eventSource.close();
       }
-      eventSource = new EventSource(contextUrl("/api/agents/requirements/events"));
+      activeAgentKind = kind;
+      eventSource = new EventSource(contextUrl(`/api/agents/${kind}/events`));
       eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
@@ -1222,7 +1322,8 @@ INDEX_HTML = """<!doctype html>
           appendOutput(`${payload.text}\\n`, "error");
         } else if (payload.type === "completed") {
           appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
-          setRequirementsRunning(false);
+          setAgentRunning(kind, false);
+          refreshProject();
         }
       });
       eventSource.onerror = () => {};
@@ -1235,25 +1336,59 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function setRequirementsRunning(isRunning) {
-      requirementsRunning = isRunning;
-      agentInput.disabled = !isRunning;
-      interruptAgent.disabled = !isRunning;
-      updateRequirementsMenuState();
+    function agentProcessRunning() {
+      return requirementsRunning || designRunning || designReviewRunning;
     }
 
-    async function runRequirementsAgent(endpoint, label, clearOutput = false) {
+    function updateAgentControls() {
+      agentInput.disabled = !(requirementsRunning || designRunning);
+      interruptAgent.disabled = !agentProcessRunning();
+    }
+
+    function setAgentRunning(kind, isRunning) {
+      if (kind === "requirements") {
+        requirementsRunning = isRunning;
+      } else if (kind === "design") {
+        designRunning = isRunning;
+      } else if (kind === "design-review") {
+        designReviewRunning = isRunning;
+      }
+      if (isRunning) {
+        activeAgentKind = kind;
+      } else if (activeAgentKind === kind) {
+        activeAgentKind = "";
+      }
+      updateAgentControls();
+      updateRequirementsMenuState();
+      updateDesignMenuState();
+      updateDesignReviewMenuState();
+    }
+
+    function setRequirementsRunning(isRunning) {
+      setAgentRunning("requirements", isRunning);
+    }
+
+    async function runStageAgent(
+      kind,
+      endpoint,
+      label,
+      clearOutput = false,
+      acceptsInput = true,
+    ) {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
         return;
       }
-      requirementsMenu.hidden = true;
+      hideStageMenus();
       closeAgentEventStream();
       if (clearOutput) {
         clearAgentOutput();
       }
-      setRequirementsRunning(true);
-      agentInput.focus();
+      setAgentRunning(kind, true);
+      agentInput.disabled = !acceptsInput;
+      if (acceptsInput) {
+        agentInput.focus();
+      }
       appendOutput(`${label}\\n`, "system");
       const response = await fetch(contextUrl(endpoint), {
         method: "POST",
@@ -1261,12 +1396,18 @@ INDEX_HTML = """<!doctype html>
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
         appendOutput(`${payload.error || "start failed"}\\n`, "error");
-        setRequirementsRunning(false);
+        setAgentRunning(kind, false);
         return;
       }
       updateProjectState(payload);
-      connectAgentEvents();
+      setAgentRunning(kind, true);
+      agentInput.disabled = !acceptsInput;
+      connectAgentEvents(kind);
       sendTerminalResize();
+    }
+
+    async function runRequirementsAgent(endpoint, label, clearOutput = false) {
+      await runStageAgent("requirements", endpoint, label, clearOutput, true);
     }
 
     async function startRequirementsAgent() {
@@ -1320,6 +1461,102 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
     }
 
+    async function startDesignAgent() {
+      if (currentWorkflowStage !== "design") {
+        return;
+      }
+      await runStageAgent(
+        "design",
+        "/api/agents/design/start",
+        "$ electroboy design",
+        false,
+        true,
+      );
+    }
+
+    async function restartDesignAgent() {
+      if (currentWorkflowStage === "design") {
+        return;
+      }
+      await runStageAgent(
+        "design",
+        "/api/agents/design/restart",
+        "$ restart design authoring",
+        true,
+        true,
+      );
+    }
+
+    async function completeDesignAgent() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== "design") {
+        return;
+      }
+      designMenu.hidden = true;
+      closeAgentEventStream();
+      const response = await fetch(contextUrl("/api/agents/design/complete"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "complete failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "complete failed"}\\n`, "error");
+        return;
+      }
+      setAgentRunning("design", false);
+      agentInput.value = "";
+      clearAgentOutput();
+      updateProjectState(payload);
+    }
+
+    async function startDesignReviewAgent() {
+      if (currentWorkflowStage !== "design-review") {
+        return;
+      }
+      await runStageAgent(
+        "design-review",
+        "/api/agents/design-review/start",
+        "$ electroboy design-review",
+        true,
+        false,
+      );
+    }
+
+    async function restartDesignReviewAgent() {
+      if (currentWorkflowStage === "design-review" && !designReviewStarted) {
+        return;
+      }
+      await runStageAgent(
+        "design-review",
+        "/api/agents/design-review/restart",
+        "$ restart design review",
+        true,
+        false,
+      );
+    }
+
+    async function approveDesignStage() {
+      if (currentWorkflowStage !== "design-approve") {
+        return;
+      }
+      designApproveMenu.hidden = true;
+      const response = await fetch(contextUrl("/api/agents/design-approve/approve"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "approval failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "approval failed"}\\n`, "error");
+        if (payload.output) {
+          appendOutput(`${payload.output}\\n`, "error");
+        }
+        return;
+      }
+      appendOutput("design approved; next: implementation-plan\\n", "system");
+      updateProjectState(payload);
+    }
+
     function openRequirementsDocument() {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
@@ -1332,13 +1569,34 @@ INDEX_HTML = """<!doctype html>
       window.open(contextUrl("/artifacts/requirements"), "_blank", "noopener");
     }
 
+    function openDesignDocument() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      hideStageMenus();
+      window.open(contextUrl("/artifacts/design"), "_blank", "noopener");
+    }
+
+    function openDesignReviewDocument() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      hideStageMenus();
+      window.open(contextUrl("/artifacts/design-review"), "_blank", "noopener");
+    }
+
     async function sendMessage() {
+      if (!activeAgentKind || activeAgentKind === "design-review") {
+        return;
+      }
       const message = agentInput.value;
       if (!message.trim()) {
         return;
       }
       agentInput.value = "";
-      const response = await fetch(contextUrl("/api/agents/requirements/message"), {
+      const response = await fetch(contextUrl(`/api/agents/${activeAgentKind}/message`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
@@ -1349,11 +1607,11 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    async function interruptRequirementsAgent() {
-      if (!requirementsRunning) {
+    async function interruptActiveAgent() {
+      if (!agentProcessRunning() || !activeAgentKind) {
         return;
       }
-      const response = await fetch(contextUrl("/api/agents/requirements/interrupt"), {
+      const response = await fetch(contextUrl(`/api/agents/${activeAgentKind}/interrupt`), {
         method: "POST",
       });
       if (!response.ok) {
@@ -1376,7 +1634,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     function hideStageMenus(exceptMenu = null) {
-      for (const menu of [projectMenu, requirementsMenu, requirementsApproveMenu]) {
+      const menus = [
+        projectMenu,
+        requirementsMenu,
+        requirementsApproveMenu,
+        designMenu,
+        designReviewMenu,
+        designApproveMenu,
+      ];
+      for (const menu of menus) {
         if (menu !== exceptMenu) {
           menu.hidden = true;
         }
@@ -1402,6 +1668,15 @@ INDEX_HTML = """<!doctype html>
       if (!requirementsApproveMenu.hidden) {
         positionStageMenu(requirementsApproveMenu, requirementsApproveStage);
       }
+      if (!designMenu.hidden) {
+        positionStageMenu(designMenu, designStage);
+      }
+      if (!designReviewMenu.hidden) {
+        positionStageMenu(designReviewMenu, designReviewStage);
+      }
+      if (!designApproveMenu.hidden) {
+        positionStageMenu(designApproveMenu, designApproveStage);
+      }
     }
 
     async function handleWorkflowStageClick(stageNode) {
@@ -1415,6 +1690,9 @@ INDEX_HTML = """<!doctype html>
         if (stageId === "requirements-approve") {
           requirementsApproveMenu.hidden = false;
           positionStageMenu(requirementsApproveMenu, requirementsApproveStage);
+        } else if (stageId === "design-approve") {
+          designApproveMenu.hidden = false;
+          positionStageMenu(designApproveMenu, designApproveStage);
         }
         return;
       }
@@ -1424,6 +1702,24 @@ INDEX_HTML = """<!doctype html>
         } else {
           requirementsMenu.hidden = false;
           positionStageMenu(requirementsMenu, requirementsStage);
+        }
+        return;
+      }
+      if (stageId === "design") {
+        if (wasCurrentStage) {
+          toggleStageMenu(designMenu, designStage);
+        } else {
+          designMenu.hidden = false;
+          positionStageMenu(designMenu, designStage);
+        }
+        return;
+      }
+      if (stageId === "design-review") {
+        if (wasCurrentStage) {
+          toggleStageMenu(designReviewMenu, designReviewStage);
+        } else {
+          designReviewMenu.hidden = false;
+          positionStageMenu(designReviewMenu, designReviewStage);
         }
         return;
       }
@@ -1474,7 +1770,18 @@ INDEX_HTML = """<!doctype html>
     openRequirements.addEventListener("click", openRequirementsDocument);
     approveRequirements.addEventListener("click", approveRequirementsStage);
     openApprovedRequirements.addEventListener("click", openRequirementsDocument);
-    interruptAgent.addEventListener("click", interruptRequirementsAgent);
+    startDesign.addEventListener("click", startDesignAgent);
+    restartDesign.addEventListener("click", restartDesignAgent);
+    completeDesign.addEventListener("click", completeDesignAgent);
+    openDesign.addEventListener("click", openDesignDocument);
+    startDesignReview.addEventListener("click", startDesignReviewAgent);
+    restartDesignReview.addEventListener("click", restartDesignReviewAgent);
+    openDesignReview.addEventListener("click", openDesignReviewDocument);
+    openDesignFromReview.addEventListener("click", openDesignDocument);
+    approveDesign.addEventListener("click", approveDesignStage);
+    openApprovedDesign.addEventListener("click", openDesignDocument);
+    openApprovedDesignReview.addEventListener("click", openDesignReviewDocument);
+    interruptAgent.addEventListener("click", interruptActiveAgent);
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
 
@@ -1508,8 +1815,12 @@ class BrowserContext:
     context_id: str
     active_project_root: Path | None = None
     requirements_session: AgentSession | None = None
+    design_session: AgentSession | None = None
+    design_review_session: AgentSession | None = None
     workflow_stage: str | None = None
     requirements_started: bool = False
+    design_started: bool = False
+    design_review_started: bool = False
 
 
 @dataclass
@@ -1558,20 +1869,18 @@ class ServiceState:
             if project_root is None:
                 raise StateError("activate a project first")
             previous_stage = context.workflow_stage
-            session = (
-                context.requirements_session
+            sessions = (
+                self._context_sessions_locked(context)
                 if previous_stage != stage
-                else None
+                else []
             )
         terminated_agent = False
-        if session is not None and session.is_active():
-            session.terminate()
-            terminated_agent = True
+        if sessions:
+            terminated_agent = self._terminate_sessions(sessions)
         with self.lock:
             context = self._context_locked(context_id)
             context.workflow_stage = stage
-            if context.requirements_session is session:
-                context.requirements_session = None
+            self._clear_sessions_locked(context, sessions)
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -1639,8 +1948,12 @@ class ServiceState:
             self._require_no_active_agent_locked(context)
             context.active_project_root = project_root
             context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
             context.workflow_stage = "requirements"
             context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
         return {
             **project_payload(self.root, context, project_root),
             "status": "opened",
@@ -1656,8 +1969,12 @@ class ServiceState:
             context = self._context_locked(context_id)
             context.active_project_root = project_root
             context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
             context.workflow_stage = "requirements"
             context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
         return {
             **project_payload(self.root, context, project_root),
             "status": "created",
@@ -1667,15 +1984,18 @@ class ServiceState:
     def deactivate_project(self, context_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
-            session = context.requirements_session
-        if session is not None and session.is_active():
-            session.terminate()
+            sessions = self._context_sessions_locked(context)
+        self._terminate_sessions(sessions)
         with self.lock:
             context = self._context_locked(context_id)
             context.active_project_root = None
             context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
             context.workflow_stage = None
             context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
         return {
             **project_payload(self.root, context, None),
             "status": "deactivated",
@@ -1702,6 +2022,7 @@ class ServiceState:
             session = AgentSession(
                 command=_requirements_command(project_root),
                 cwd=project_root,
+                label="requirements agent",
             )
             context.requirements_session = session
             context.workflow_stage = "requirements"
@@ -1764,6 +2085,188 @@ class ServiceState:
     def skip_requirements_agent(self, context_id: str) -> dict[str, object]:
         return self.complete_requirements_agent(context_id)
 
+    def start_design_agent(
+        self,
+        context_id: str,
+        *,
+        allow_stage_reopen: bool = False,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "design" and not allow_stage_reopen:
+                raise AgentSessionError("design stage is not active")
+            if (
+                context.design_session is not None
+                and context.design_session.is_active()
+            ):
+                return context.design_session, False
+            session = AgentSession(
+                command=_stage_command(project_root, "design"),
+                cwd=project_root,
+                label="design agent",
+            )
+            context.design_session = session
+            context.workflow_stage = "design"
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.design_session is session:
+                    context.design_session = None
+                    context.design_started = False
+            raise
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.design_session is session:
+                context.design_started = True
+        return session, True
+
+    def restart_design_agent(
+        self,
+        context_id: str,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage == "design":
+                raise AgentSessionError("design stage is already active")
+        self._terminate_all_context_sessions(context_id)
+        _reopen_design_for_restart(project_root)
+        return self.start_design_agent(context_id, allow_stage_reopen=True)
+
+    def complete_design_agent(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "design":
+                raise AgentSessionError("design stage is not active")
+            design_started = context.design_started
+        self._terminate_design_session(context_id)
+        _record_design_complete(project_root)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.workflow_stage = "design-review"
+            context.design_session = None
+            context.design_started = design_started
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "completed",
+            "next_stage": "design-review",
+        }
+
+    def start_design_review_agent(
+        self,
+        context_id: str,
+        *,
+        force: bool = False,
+        allow_stage_reopen: bool = False,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "design-review" and not allow_stage_reopen:
+                raise AgentSessionError("design review stage is not active")
+            if (
+                context.design_review_session is not None
+                and context.design_review_session.is_active()
+            ):
+                return context.design_review_session, False
+            session = AgentSession(
+                command=_stage_command(project_root, "design-review", force=force),
+                cwd=project_root,
+                label="design-review agent",
+                on_completed=lambda returncode: self._mark_design_review_completed(
+                    context_id,
+                    returncode,
+                ),
+            )
+            context.design_review_session = session
+            context.workflow_stage = "design-review"
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.design_review_session is session:
+                    context.design_review_session = None
+                    context.design_review_started = False
+            raise
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.design_review_session is session:
+                context.design_review_started = True
+        return session, True
+
+    def restart_design_review_agent(
+        self,
+        context_id: str,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            force = context.workflow_stage != "design-review"
+            if context.workflow_stage == "design-review" and not context.design_review_started:
+                raise AgentSessionError("start design review first")
+        self._terminate_all_context_sessions(context_id)
+        return self.start_design_review_agent(
+            context_id,
+            force=force,
+            allow_stage_reopen=True,
+        )
+
+    def approve_design(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "design-approve":
+                raise AgentSessionError("design approval stage is not active")
+        from .cli import _cmd_stage, _stage_args
+        from .gates import GateEngine
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        store = StateStore(project_root)
+        engine = GateEngine(project_root)
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = _cmd_stage(
+                store,
+                engine,
+                _stage_args(STAGE_DESIGN_ACCEPTANCE, human=True),
+            )
+        output = "\n".join(
+            part.strip()
+            for part in [stderr.getvalue(), stdout.getvalue()]
+            if part.strip()
+        )
+        if code != 0:
+            raise AgentSessionError(output or "design approval failed")
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.workflow_stage = "implementation-plan"
+            context.design_review_session = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "approved",
+            "next_stage": "implementation-plan",
+            "output": output,
+        }
+
     def requirements_document_root(self, context_id: str) -> Path:
         with self.lock:
             context = self._context_locked(context_id)
@@ -1777,10 +2280,28 @@ class ServiceState:
                 raise AgentSessionError("start requirements first")
             return project_root
 
+    def active_project_root(self, context_id: str) -> Path:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise StateError("activate a project first")
+            return project_root
+
     def current_requirements_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
             context = self._context_locked(context_id)
             return context.requirements_session
+
+    def current_design_session(self, context_id: str) -> AgentSession | None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return context.design_session
+
+    def current_design_review_session(self, context_id: str) -> AgentSession | None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return context.design_review_session
 
     def resize_requirements_agent(
         self,
@@ -1795,12 +2316,54 @@ class ServiceState:
             raise AgentSessionError("requirements agent has not been started")
         session.resize(columns, rows)
 
+    def resize_design_agent(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.design_session
+        if session is None:
+            raise AgentSessionError("design agent has not been started")
+        session.resize(columns, rows)
+
+    def resize_design_review_agent(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.design_review_session
+        if session is None:
+            raise AgentSessionError("design review agent has not been started")
+        session.resize(columns, rows)
+
     def interrupt_requirements_agent(self, context_id: str) -> None:
         with self.lock:
             context = self._context_locked(context_id)
             session = context.requirements_session
         if session is None:
             raise AgentSessionError("requirements agent has not been started")
+        session.interrupt()
+
+    def interrupt_design_agent(self, context_id: str) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.design_session
+        if session is None:
+            raise AgentSessionError("design agent has not been started")
+        session.interrupt()
+
+    def interrupt_design_review_agent(self, context_id: str) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.design_review_session
+        if session is None:
+            raise AgentSessionError("design review agent has not been started")
         session.interrupt()
 
     def _terminate_requirements_session(self, context_id: str) -> None:
@@ -1814,6 +2377,77 @@ class ServiceState:
             if context.requirements_session is session:
                 context.requirements_session = None
 
+    def _terminate_design_session(self, context_id: str) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.design_session
+        if session is not None and session.is_active():
+            session.terminate()
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.design_session is session:
+                context.design_session = None
+
+    def _terminate_all_context_sessions(self, context_id: str) -> bool:
+        with self.lock:
+            context = self._context_locked(context_id)
+            sessions = self._context_sessions_locked(context)
+        terminated = self._terminate_sessions(sessions)
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._clear_sessions_locked(context, sessions)
+        return terminated
+
+    def _mark_design_review_completed(
+        self,
+        context_id: str,
+        returncode: int,
+    ) -> None:
+        if returncode != 0:
+            return
+        with self.lock:
+            try:
+                context = self._context_locked(context_id)
+            except StateError:
+                return
+            if context.workflow_stage == "design-review":
+                context.workflow_stage = "design-approve"
+
+    def _context_sessions_locked(
+        self,
+        context: BrowserContext,
+    ) -> list[AgentSession]:
+        return [
+            session
+            for session in [
+                context.requirements_session,
+                context.design_session,
+                context.design_review_session,
+            ]
+            if session is not None
+        ]
+
+    def _clear_sessions_locked(
+        self,
+        context: BrowserContext,
+        sessions: list[AgentSession],
+    ) -> None:
+        for session in sessions:
+            if context.requirements_session is session:
+                context.requirements_session = None
+            if context.design_session is session:
+                context.design_session = None
+            if context.design_review_session is session:
+                context.design_review_session = None
+
+    def _terminate_sessions(self, sessions: list[AgentSession]) -> bool:
+        terminated = False
+        for session in sessions:
+            if session.is_active():
+                session.terminate()
+                terminated = True
+        return terminated
+
     def _context_locked(self, context_id: str) -> BrowserContext:
         context_id = context_id.strip()
         if not context_id:
@@ -1824,13 +2458,15 @@ class ServiceState:
         return context
 
     def _require_no_active_agent_locked(self, context: BrowserContext) -> None:
-        if (
-            context.requirements_session is not None
-            and context.requirements_session.is_active()
-        ):
+        active_labels = [
+            session.label
+            for session in self._context_sessions_locked(context)
+            if session.is_active()
+        ]
+        if active_labels:
             raise AgentSessionError(
-                "cannot change projects while this context's requirements "
-                "agent is running"
+                "cannot change projects while this context's "
+                f"{active_labels[0]} is running"
             )
 
     def _require_requirements_started_locked(self, context: BrowserContext) -> None:
@@ -1858,11 +2494,15 @@ class AgentSession:
         cwd: Path | str,
         columns: int = 120,
         rows: int = 32,
+        label: str = "agent",
+        on_completed: Callable[[int], None] | None = None,
     ) -> None:
         self.command = command
         self.cwd = Path(cwd).resolve()
         self.columns = columns
         self.rows = rows
+        self.label = label
+        self.on_completed = on_completed
         self.process: subprocess.Popen[bytes] | None = None
         self.status = "created"
         self.returncode: int | None = None
@@ -1924,27 +2564,27 @@ class AgentSession:
 
     def send(self, message: str) -> None:
         if not self.is_active():
-            raise AgentSessionError("requirements agent is not running")
+            raise AgentSessionError(f"{self.label} is not running")
         if self._master_fd is None:
-            raise AgentSessionError("requirements agent input is not available")
+            raise AgentSessionError(f"{self.label} input is not available")
         try:
             for index, text in enumerate(_terminal_input_chunks_for_message(message)):
                 if index > 0:
                     time.sleep(TERMINAL_SUBMIT_DELAY_SECONDS)
                 os.write(self._master_fd, text.encode("utf-8"))
         except OSError as error:
-            raise AgentSessionError(f"could not write to requirements agent: {error}")
+            raise AgentSessionError(f"could not write to {self.label}: {error}")
 
     def interrupt(self) -> None:
         if not self.is_active():
-            raise AgentSessionError("requirements agent is not running")
+            raise AgentSessionError(f"{self.label} is not running")
         fd = self._master_fd
         if fd is not None:
             try:
                 os.write(fd, b"\x1b")
             except OSError as error:
                 raise AgentSessionError(
-                    f"could not interrupt requirements agent: {error}"
+                    f"could not interrupt {self.label}: {error}"
                 )
 
     def terminate(self, timeout: float = 2.0) -> None:
@@ -2061,6 +2701,16 @@ class AgentSession:
         time.sleep(0.05)
         self.returncode = returncode
         self.status = "completed"
+        if self.on_completed is not None:
+            try:
+                self.on_completed(returncode)
+            except Exception as error:
+                self._append_event(
+                    {
+                        "type": "error",
+                        "text": f"completion hook failed: {error}",
+                    }
+                )
         self._append_event(
             {
                 "type": "completed",
@@ -2150,6 +2800,18 @@ def project_payload(
         and requirements_session is not None
         and requirements_session.is_active()
     )
+    design_session = context.design_session
+    design_running = bool(
+        active_root
+        and design_session is not None
+        and design_session.is_active()
+    )
+    design_review_session = context.design_review_session
+    design_review_running = bool(
+        active_root
+        and design_review_session is not None
+        and design_review_session.is_active()
+    )
     return {
         "context_id": context.context_id,
         "service_root": str(service_root),
@@ -2161,6 +2823,10 @@ def project_payload(
         ),
         "requirements_started": bool(active_root and context.requirements_started),
         "requirements_running": requirements_running,
+        "design_started": bool(active_root and context.design_started),
+        "design_running": design_running,
+        "design_review_started": bool(active_root and context.design_review_started),
+        "design_review_running": design_review_running,
         "activate_command": (
             f"source {active_root / '.electroboy' / 'bin' / 'activate'}"
             if active_root
@@ -2266,6 +2932,12 @@ def _stage_operations(
         return operations
     if stage == "requirements" and active_project_root:
         return ["Start", "Restart", "Complete", "Open requirements"]
+    if stage == "design" and active_project_root:
+        return ["Start", "Restart", "Complete", "Open design"]
+    if stage == "design-review" and active_project_root:
+        return ["Start review", "Restart review", "Open review", "Open design"]
+    if stage == "design-approve" and active_project_root:
+        return ["Approve", "Open design", "Open review"]
     return []
 
 
@@ -2295,6 +2967,32 @@ def _reopen_requirements_for_restart(project_root: Path) -> None:
     )
 
 
+def _reopen_design_for_restart(project_root: Path) -> None:
+    store = StateStore(project_root)
+    manifest = store.load_current_manifest()
+    from .cli import _is_backward_stage_request, _record_stage_reopen
+
+    if _is_backward_stage_request(manifest.active_stage, STAGE_DESIGN):
+        _record_stage_reopen(
+            store=store,
+            manifest=manifest,
+            target_stage=STAGE_DESIGN,
+            reason="Design authoring restarted from the GUI.",
+            actor="human-operator",
+            action="gui-design-restarted",
+            summary="Reopened design authoring from the GUI.",
+        )
+        return
+    store.append_activity(
+        ActivityEvent(
+            actor="human-operator",
+            stage=STAGE_DESIGN,
+            action="gui-design-restarted",
+            summary="Restarted design authoring from the GUI.",
+        )
+    )
+
+
 def _record_requirements_complete(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
@@ -2307,6 +3005,20 @@ def _record_requirements_complete(project_root: Path) -> None:
                 "Completed requirements authoring and moved to requirements "
                 "approval."
             ),
+            inputs=[manifest.active_stage],
+        )
+    )
+
+
+def _record_design_complete(project_root: Path) -> None:
+    store = StateStore(project_root)
+    manifest = store.load_current_manifest()
+    store.append_activity(
+        ActivityEvent(
+            actor="human-operator",
+            stage=STAGE_DESIGN,
+            action="gui-design-authoring-completed",
+            summary="Completed design authoring and moved to design review.",
             inputs=[manifest.active_stage],
         )
     )
@@ -2330,15 +3042,46 @@ def _should_force_completed_requirements_approval(store: StateStore) -> bool:
 
 
 def requirements_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
+    return markdown_document_html(
+        project_root,
+        "docs/requirements.md",
+        "Requirements",
+        "Requirements document does not exist yet.",
+    )
+
+
+def design_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
+    return markdown_document_html(
+        project_root,
+        "docs/detailed-design.md",
+        "Design",
+        "Design document does not exist yet.",
+    )
+
+
+def design_review_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
+    return markdown_document_html(
+        project_root,
+        "docs/design-review.md",
+        "Design Review",
+        "Design review document does not exist yet.",
+    )
+
+
+def markdown_document_html(
+    project_root: Path | str,
+    relative_path: str,
+    title: str,
+    missing_message: str,
+) -> tuple[str, HTTPStatus]:
     project_root = Path(project_root).expanduser().resolve()
-    document_path = project_root / "docs" / "requirements.md"
-    title = "Requirements"
+    document_path = project_root / relative_path
     if document_path.exists():
         text = document_path.read_text(encoding="utf-8")
         body = _render_markdown(text)
         status = HTTPStatus.OK
     else:
-        body = "<p>Requirements document does not exist yet.</p>"
+        body = f"<p>{html.escape(missing_message)}</p>"
         status = HTTPStatus.NOT_FOUND
     page = f"""<!doctype html>
 <html lang="en">
@@ -2397,13 +3140,29 @@ def _render_markdown(text: str) -> str:
 
 
 def _requirements_command(root: Path) -> list[str]:
+    return _stage_command(root, "requirements")
+
+
+def _stage_command(
+    root: Path,
+    command: str,
+    *,
+    force: bool = False,
+    reason: str | None = None,
+) -> list[str]:
     activate_script = root / ".electroboy" / "bin" / "activate"
+    command_parts = ["electroboy", command]
+    if force:
+        command_parts.append("--force")
+    if reason:
+        command_parts.extend(["--reason", reason])
+    command_text = " ".join(shlex.quote(part) for part in command_parts)
     if activate_script.exists():
         return [
             "/bin/sh",
             "-c",
             f". {shlex.quote(str(activate_script))} >/dev/null && "
-            "electroboy requirements",
+            f"{command_text}",
         ]
     return [
         sys.executable,
@@ -2411,7 +3170,7 @@ def _requirements_command(root: Path) -> list[str]:
         "electroboy",
         "--root",
         str(root),
-        "requirements",
+        *command_parts[1:],
     ]
 
 
@@ -2597,8 +3356,20 @@ def _handler_for(
             if path == "/artifacts/requirements":
                 self._send_requirements_document(parsed.query)
                 return
+            if path == "/artifacts/design":
+                self._send_design_document(parsed.query)
+                return
+            if path == "/artifacts/design-review":
+                self._send_design_review_document(parsed.query)
+                return
             if path == "/api/agents/requirements/events":
                 self._send_agent_events(parsed.query)
+                return
+            if path == "/api/agents/design/events":
+                self._send_design_agent_events(parsed.query)
+                return
+            if path == "/api/agents/design-review/events":
+                self._send_design_review_agent_events(parsed.query)
                 return
             self._send_json(
                 {"error": "not found"},
@@ -2646,6 +3417,39 @@ def _handler_for(
                 return
             if path == "/api/agents/requirements/resize":
                 self._resize_requirements_agent(parsed.query)
+                return
+            if path == "/api/agents/design/start":
+                self._start_design_agent(parsed.query)
+                return
+            if path == "/api/agents/design/restart":
+                self._restart_design_agent(parsed.query)
+                return
+            if path == "/api/agents/design/complete":
+                self._complete_design_agent(parsed.query)
+                return
+            if path == "/api/agents/design/message":
+                self._send_design_message(parsed.query)
+                return
+            if path == "/api/agents/design/interrupt":
+                self._interrupt_design_agent(parsed.query)
+                return
+            if path == "/api/agents/design/resize":
+                self._resize_design_agent(parsed.query)
+                return
+            if path == "/api/agents/design-review/start":
+                self._start_design_review_agent(parsed.query)
+                return
+            if path == "/api/agents/design-review/restart":
+                self._restart_design_review_agent(parsed.query)
+                return
+            if path == "/api/agents/design-review/interrupt":
+                self._interrupt_design_review_agent(parsed.query)
+                return
+            if path == "/api/agents/design-review/resize":
+                self._resize_design_review_agent(parsed.query)
+                return
+            if path == "/api/agents/design-approve/approve":
+                self._approve_design(parsed.query)
                 return
             self._send_json(
                 {"error": "not found"},
@@ -2755,6 +3559,34 @@ def _handler_for(
                 project_root = state.requirements_document_root(context_id)
                 page, status = requirements_document_html(project_root)
             except (AgentSessionError, OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _send_design_document(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                page, status = design_document_html(project_root)
+            except (OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _send_design_review_document(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                page, status = design_review_document_html(project_root)
+            except (OSError, StateError) as error:
                 self._send_text(
                     f"<p>{html.escape(str(error))}</p>",
                     "text/html; charset=utf-8",
@@ -2938,6 +3770,291 @@ def _handler_for(
                 columns = int(payload.get("columns") or 120)
                 rows = int(payload.get("rows") or 32)
                 state.resize_requirements_agent(context_id, columns, rows)
+            except (AgentSessionError, StateError, TypeError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "resized"})
+
+        def _start_design_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, started = state.start_design_agent(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not start design agent: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "started" if started else "running",
+                    "command": session.command,
+                }
+            )
+
+        def _restart_design_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, _started = state.restart_design_agent(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not restart design agent: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "restarted",
+                    "command": session.command,
+                }
+            )
+
+        def _complete_design_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.complete_design_agent(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _start_design_review_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, started = state.start_design_review_agent(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not start design review: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "started" if started else "running",
+                    "command": session.command,
+                }
+            )
+
+        def _restart_design_review_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, _started = state.restart_design_review_agent(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not restart design review: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "restarted",
+                    "command": session.command,
+                }
+            )
+
+        def _approve_design(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.approve_design(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _send_design_message(self, query: str) -> None:
+            self._send_agent_message(
+                query,
+                state.current_design_session,
+                "design agent has not been started",
+            )
+
+        def _interrupt_design_agent(self, query: str) -> None:
+            self._send_interrupt(query, state.interrupt_design_agent)
+
+        def _interrupt_design_review_agent(self, query: str) -> None:
+            self._send_interrupt(query, state.interrupt_design_review_agent)
+
+        def _send_design_agent_events(self, query: str) -> None:
+            self._send_session_events(
+                query,
+                state.current_design_session,
+                "design agent has not been started",
+            )
+
+        def _send_design_review_agent_events(self, query: str) -> None:
+            self._send_session_events(
+                query,
+                state.current_design_review_session,
+                "design review has not been started",
+            )
+
+        def _resize_design_agent(self, query: str) -> None:
+            self._send_resize(query, state.resize_design_agent)
+
+        def _resize_design_review_agent(self, query: str) -> None:
+            self._send_resize(query, state.resize_design_review_agent)
+
+        def _send_interrupt(
+            self,
+            query: str,
+            interrupt: Callable[[str], None],
+        ) -> None:
+            try:
+                context_id = self._context_id(query)
+                interrupt(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "interrupted"})
+
+        def _send_agent_message(
+            self,
+            query: str,
+            session_for_context: Callable[[str], AgentSession | None],
+            missing_message: str,
+        ) -> None:
+            try:
+                context_id = self._context_id(query)
+                session = session_for_context(context_id)
+            except StateError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            if session is None:
+                self._send_json(
+                    {"error": missing_message},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            try:
+                payload = self._read_json_body()
+            except ValueError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            message = str(payload.get("message") or "")
+            if not message.strip():
+                self._send_json(
+                    {"error": "message is empty"},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            try:
+                session.send(message)
+            except AgentSessionError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "sent"})
+
+        def _send_session_events(
+            self,
+            query: str,
+            session_for_context: Callable[[str], AgentSession | None],
+            missing_message: str,
+        ) -> None:
+            try:
+                context_id = self._context_id(query)
+                session = session_for_context(context_id)
+            except StateError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            if session is None:
+                self._send_json(
+                    {"error": missing_message},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._stream_session_events(session)
+
+        def _stream_session_events(self, session: AgentSession) -> None:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            last_event_id = self._last_event_id()
+            try:
+                while True:
+                    events = session.wait_for_events_after(last_event_id, timeout=15)
+                    if not events and session.is_active():
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                        continue
+                    for event in events:
+                        event_id = int(event["id"])
+                        self.wfile.write(f"id: {event_id}\n".encode("utf-8"))
+                        self.wfile.write(b"event: agent-event\n")
+                        self.wfile.write(
+                            f"data: {json.dumps(event, sort_keys=True)}\n\n".encode(
+                                "utf-8"
+                            )
+                        )
+                        self.wfile.flush()
+                        last_event_id = event_id
+                    if not session.is_active():
+                        break
+            except (BrokenPipeError, ConnectionError, OSError):
+                return
+
+        def _send_resize(
+            self,
+            query: str,
+            resize: Callable[[str, int, int], None],
+        ) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                columns = int(payload.get("columns") or 120)
+                rows = int(payload.get("rows") or 32)
+                resize(context_id, columns, rows)
             except (AgentSessionError, StateError, TypeError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},
