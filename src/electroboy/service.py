@@ -671,6 +671,23 @@ INDEX_HTML = """<!doctype html>
     const workflowPane = document.querySelector(".workflow-pane");
     const stageScroll = document.querySelector(".stage-scroll");
     const stageNodes = Array.from(document.querySelectorAll(".stage-node[data-stage]"));
+    const STAGE_DESCRIPTIONS = {
+      project: "Open an existing ElectroBoy project or create a new one.",
+      requirements: "Author or resume docs/requirements.md with the requirements agent.",
+      "requirements-approve": "Review and approve the requirements baseline before design.",
+      design: "Author docs/detailed-design.md from the approved requirements.",
+      "design-review": "Review the detailed design and capture blocking design issues.",
+      "design-approve": "Approve the detailed design baseline.",
+      "implementation-plan": "Author docs/implementation-plan.md with the implementation phases.",
+      "plan-approve": "Approve the implementation plan before coding.",
+      code: "Implement and commit the planned code changes.",
+      "code-approve": "Approve the completed code handoff before test planning.",
+      "test-plan": "Author docs/test-plan.md with validation commands and acceptance checks.",
+      "test-plan-approve": "Approve the test plan as the validation baseline.",
+      validate: "Run validation commands and tests, then write the validation report.",
+      "validation-approve": "Approve validation results and implementation handoff artifacts.",
+      document: "Update final project documentation after validation passes.",
+    };
     const projectStage = document.querySelector("[data-stage='project']");
     const requirementsStage = document.querySelector("[data-stage='requirements']");
     const projectMenu = document.getElementById("projectMenu");
@@ -823,6 +840,19 @@ INDEX_HTML = """<!doctype html>
       connection.textContent = activeProjectRoot
         ? `connected · ${activeProjectRoot}`
         : "connected";
+    }
+
+    function applyStageDescriptions() {
+      for (const stageNode of stageNodes) {
+        const stageId = stageNode.dataset.stage || "";
+        const description = STAGE_DESCRIPTIONS[stageId] || "";
+        if (!description) {
+          continue;
+        }
+        const label = stageNode.textContent.trim();
+        stageNode.title = description;
+        stageNode.setAttribute("aria-label", `${label}: ${description}`);
+      }
     }
 
     async function checkConnection() {
@@ -1331,6 +1361,7 @@ INDEX_HTML = """<!doctype html>
     });
 
     async function initialize() {
+      applyStageDescriptions();
       initializeTerminal();
       await checkConnection();
       await createContext();
