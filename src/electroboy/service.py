@@ -925,6 +925,7 @@ INDEX_HTML = """<!doctype html>
       newProject.disabled = hasActiveProject;
       deactivateProject.disabled = !hasActiveProject;
       updateRequirementsMenuState();
+      updateRequirementsApproveMenuState();
       projectStatus.textContent = activeProjectRoot
         ? `active: ${activeProjectRoot}`
         : "";
@@ -937,9 +938,7 @@ INDEX_HTML = """<!doctype html>
         const isActive = isProject
           ? !hasActiveProject
           : hasActiveProject && stageId === workflowStage;
-        const isApprovalStage = APPROVAL_STAGES.has(stageId);
-        const isEnabled =
-          isProject || (hasActiveProject && (!isApprovalStage || isActive));
+        const isEnabled = isProject || hasActiveProject;
         const isComplete = isProject && hasActiveProject;
         stageNode.disabled = !isEnabled;
         stageNode.setAttribute("aria-disabled", isEnabled ? "false" : "true");
@@ -959,7 +958,13 @@ INDEX_HTML = """<!doctype html>
         !hasActiveProject || (inRequirementsStage && !requirementsStarted);
       skipRequirements.disabled = !hasActiveProject || !inRequirementsStage;
       openRequirements.disabled =
-        !hasActiveProject || (inRequirementsStage && !requirementsStarted);
+        !hasActiveProject || !inRequirementsStage || !requirementsStarted;
+    }
+
+    function updateRequirementsApproveMenuState() {
+      const inRequirementsApproveStage = currentWorkflowStage === "requirements-approve";
+      approveRequirements.disabled = !inRequirementsApproveStage;
+      openApprovedRequirements.disabled = !inRequirementsApproveStage;
     }
 
     async function refreshProject() {
@@ -1356,17 +1361,11 @@ INDEX_HTML = """<!doctype html>
       const wasCurrentStage = stageId === currentWorkflowStage;
       hideStageMenus();
       if (APPROVAL_STAGES.has(stageId)) {
-        if (stageId === "requirements-approve" && wasCurrentStage) {
+        if (stageId === "requirements-approve") {
           requirementsApproveMenu.hidden = false;
           positionStageMenu(requirementsApproveMenu, requirementsApproveStage);
         }
         return;
-      }
-      if (!wasCurrentStage) {
-        const selected = await selectWorkflowStage(stageId);
-        if (!selected) {
-          return;
-        }
       }
       if (stageId === "requirements") {
         if (wasCurrentStage) {
@@ -1376,6 +1375,12 @@ INDEX_HTML = """<!doctype html>
           positionStageMenu(requirementsMenu, requirementsStage);
         }
         return;
+      }
+      if (!wasCurrentStage) {
+        const selected = await selectWorkflowStage(stageId);
+        if (!selected) {
+          return;
+        }
       }
       hideStageMenus();
     }
@@ -1659,10 +1664,9 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            if context.workflow_stage != "requirements":
-                raise AgentSessionError("requirements stage is not active")
             if (
-                not context.requirements_started
+                context.workflow_stage == "requirements"
+                and not context.requirements_started
             ):
                 raise AgentSessionError("start requirements first")
         self._terminate_requirements_session(context_id)
@@ -2360,6 +2364,7 @@ def _agent_process_env() -> dict[str, str]:
     env["PYTHONUNBUFFERED"] = "1"
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
+    env["ELECTROBOY_DISABLE_SESSION_RESUME"] = "1"
     env.pop("NO_COLOR", None)
     env.pop("CLICOLOR", None)
     env.pop("FORCE_COLOR", None)

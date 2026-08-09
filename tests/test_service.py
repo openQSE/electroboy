@@ -96,7 +96,6 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Run validation commands and tests", INDEX_HTML)
         self.assertIn("function updateStageNodes(hasActiveProject, workflowStage)", INDEX_HTML)
         self.assertIn("stageNode.disabled = !isEnabled", INDEX_HTML)
-        self.assertIn("!isApprovalStage || isActive", INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("available"', INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("active", isActive)', INDEX_HTML)
         self.assertIn('stageNode.classList.toggle("complete", isComplete)', INDEX_HTML)
@@ -136,10 +135,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("requirementsStarted = Boolean(payload.requirements_started)", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
         self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
+        self.assertIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
         self.assertIn('const inRequirementsStage = currentWorkflowStage === "requirements";', INDEX_HTML)
         self.assertIn("!hasActiveProject || !inRequirementsStage || requirementsRunning", INDEX_HTML)
         self.assertIn("!hasActiveProject || (inRequirementsStage && !requirementsStarted)", INDEX_HTML)
         self.assertIn("skipRequirements.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
+        self.assertIn("openRequirements.disabled =", INDEX_HTML)
+        self.assertIn("approveRequirements.disabled = !inRequirementsApproveStage", INDEX_HTML)
+        self.assertIn("openApprovedRequirements.disabled = !inRequirementsApproveStage", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
         self.assertIn("Requirements phase is not complete", INDEX_HTML)
         self.assertIn("Skip at your own risk.", INDEX_HTML)
@@ -507,7 +510,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertIsNone(state.current_requirements_session(context_id))
 
-    def test_requirements_approval_stage_blocks_requirements_actions(self) -> None:
+    def test_requirements_approval_stage_only_allows_requirements_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -530,19 +533,19 @@ class ServiceTests(unittest.TestCase):
                 "requirements stage is not active",
             ):
                 state.skip_requirements_agent(context_id)
-            with self.assertRaisesRegex(
-                AgentSessionError,
-                "requirements stage is not active",
-            ):
-                state.restart_requirements_agent(context_id)
             self.assertEqual(
                 state.requirements_document_root(context_id),
                 project_root.resolve(),
             )
 
+            with mock.patch("electroboy.service.AgentSession.start"):
+                _session, started = state.restart_requirements_agent(context_id)
+
             payload = state.project_payload(context_id)
 
-        self.assertEqual(payload["workflow_stage"], "requirements-approve")
+        self.assertTrue(started)
+        self.assertEqual(payload["workflow_stage"], "requirements")
+        self.assertTrue(payload["requirements_started"])
 
     def test_requirements_approval_advances_to_design(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -830,6 +833,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("src", entries)
         self.assertEqual(env["TERM"], "xterm-256color")
         self.assertEqual(env["COLORTERM"], "truecolor")
+        self.assertEqual(env["ELECTROBOY_DISABLE_SESSION_RESUME"], "1")
         self.assertNotIn("NO_COLOR", env)
         self.assertNotIn("CLICOLOR", env)
         self.assertNotIn("FORCE_COLOR", env)

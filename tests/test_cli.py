@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -236,6 +237,37 @@ class CliTests(unittest.TestCase):
         self.assertIn("Previous local session record:", prompt)
         self.assertIn("Current docs/requirements.md:", prompt)
         self.assertIn("REQ-1", prompt)
+
+    def test_requirements_authoring_can_disable_implicit_session_resume(self) -> None:
+        original = os.environ.get("ELECTROBOY_DISABLE_SESSION_RESUME")
+        try:
+            with temp_project() as root:
+                store = StateStore(root)
+                store.init_run(run_id="run-1")
+                write_file(root / "docs" / "requirements.md", "# Requirements\n\nREQ-1\n")
+                write_manual_runtime(root)
+                self.assertEqual(
+                    self.run_cli(["--root", str(root), "requirements"])[0],
+                    0,
+                )
+
+                os.environ["ELECTROBOY_DISABLE_SESSION_RESUME"] = "1"
+                code, _stdout, stderr = self.run_cli(
+                    ["--root", str(root), "requirements"]
+                )
+                prompt_files = sorted(
+                    (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+                )
+                prompt = prompt_files[-1].read_text(encoding="utf-8")
+        finally:
+            if original is None:
+                os.environ.pop("ELECTROBOY_DISABLE_SESSION_RESUME", None)
+            else:
+                os.environ["ELECTROBOY_DISABLE_SESSION_RESUME"] = original
+
+        self.assertEqual(code, 0, stderr)
+        self.assertNotIn("Session recovery context:", prompt)
+        self.assertNotIn("Previous local session record:", prompt)
 
     def test_requirements_authoring_accepts_explicit_session_id(self) -> None:
         session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"

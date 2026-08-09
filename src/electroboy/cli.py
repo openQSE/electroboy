@@ -6846,10 +6846,13 @@ def _invoke_agent_role(
 ) -> tuple[AgentResult, str, str | None]:
     manifest = store.load_current_manifest()
     event_id = f"agent-{len(store.read_activity()) + 1:05d}"
-    session_record = (
-        store.read_session_record(session_stage, role) if session_stage else None
-    )
     provider_session_id = _explicit_session_id(explicit_session_id)
+    auto_resume_disabled = _agent_session_auto_resume_disabled()
+    session_record = (
+        store.read_session_record(session_stage, role)
+        if session_stage and (provider_session_id or not auto_resume_disabled)
+        else None
+    )
     if session_stage and provider_session_id:
         _write_attached_agent_session_record(
             store,
@@ -6859,7 +6862,7 @@ def _invoke_agent_role(
             event_id,
             provider_session_id,
         )
-    if provider_session_id is None:
+    if provider_session_id is None and not auto_resume_disabled:
         provider_session_id = _session_provider_session_id(session_record)
     if session_stage and session_record and not provider_session_id:
         prompt = _prompt_with_session_recovery(
@@ -7352,6 +7355,11 @@ def _explicit_session_id(session_id: str | None) -> str | None:
         return None
     session_id = session_id.strip()
     return session_id or None
+
+
+def _agent_session_auto_resume_disabled() -> bool:
+    value = os.environ.get("ELECTROBOY_DISABLE_SESSION_RESUME", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _session_provider_session_id(record: dict[str, object] | None) -> str | None:
