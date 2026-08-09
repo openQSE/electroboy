@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,7 @@ from electroboy.cli import build_parser  # noqa: E402
 from electroboy.service import (  # noqa: E402
     INDEX_HTML,
     AgentSession,
+    AgentSessionError,
     ServiceState,
     _agent_process_env,
     _clean_terminal_output,
@@ -95,6 +97,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("disableStdin: true", INDEX_HTML)
         self.assertIn('fetch("/api/contexts"', INDEX_HTML)
         self.assertIn('let contextId = "";', INDEX_HTML)
+        self.assertIn("let requirementsStarted = false;", INDEX_HTML)
+        self.assertIn("requirementsStarted = Boolean(payload.requirements_started)", INDEX_HTML)
+        self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
+        self.assertIn("restartRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
+        self.assertIn("skipRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
+        self.assertIn("openRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
         self.assertIn("function contextUrl(path)", INDEX_HTML)
         self.assertIn('contextUrl("/api/project")', INDEX_HTML)
         self.assertIn('"/api/project/open"', INDEX_HTML)
@@ -183,6 +191,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "opened")
         self.assertEqual(payload["context_id"], context_id)
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
+        self.assertFalse(payload["requirements_started"])
         self.assertEqual(
             payload["activate_command"],
             f"source {project_root.resolve() / '.electroboy' / 'bin' / 'activate'}",
@@ -198,6 +207,7 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIsNone(payload["active_project_root"])
         self.assertEqual(payload["service_root"], str(root.resolve()))
+        self.assertFalse(payload["requirements_started"])
 
     def test_service_state_keeps_project_activation_per_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -319,15 +329,58 @@ class ServiceTests(unittest.TestCase):
             session = FakeSession()
             with state.lock:
                 state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
+                state.contexts[context_id].requirements_started = True
 
             payload = state.skip_requirements_agent(context_id)
 
         self.assertTrue(session.terminated)
         self.assertEqual(payload["status"], "skipped")
         self.assertEqual(payload["workflow_stage"], "requirements-approve")
+        self.assertTrue(payload["requirements_started"])
         self.assertEqual(payload["next_stage"], "requirements-approve")
         self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
         self.assertIsNone(state.current_requirements_session(context_id))
+
+    def test_requirements_actions_require_start_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
+                state.skip_requirements_agent(context_id)
+            with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
+                state.restart_requirements_agent(context_id)
+            with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
+                state.requirements_document_root(context_id)
+
+    def test_failed_requirements_start_does_not_unlock_later_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch(
+                "electroboy.service.AgentSession.start",
+                side_effect=OSError("boom"),
+            ):
+                with self.assertRaisesRegex(OSError, "boom"):
+                    state.start_requirements_agent(context_id)
+
+            self.assertFalse(state.project_payload(context_id)["requirements_started"])
+            self.assertIsNone(state.current_requirements_session(context_id))
 
     def test_requirements_restart_reopens_requirements_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

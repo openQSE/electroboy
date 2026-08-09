@@ -651,6 +651,7 @@ INDEX_HTML = """<!doctype html>
     let terminalFit = null;
     let resizeTimer = null;
     let requirementsRunning = false;
+    let requirementsStarted = false;
     let contextId = "";
     let projectMode = "open";
     let serviceRoot = "";
@@ -799,6 +800,7 @@ INDEX_HTML = """<!doctype html>
     function updateProjectState(payload) {
       serviceRoot = payload.service_root || "";
       activeProjectRoot = payload.active_project_root || "";
+      requirementsStarted = Boolean(payload.requirements_started);
       const hasActiveProject = Boolean(activeProjectRoot);
       const workflowStage = payload.workflow_stage || (hasActiveProject ? "requirements" : "project");
       if (!projectPath.value) {
@@ -828,9 +830,18 @@ INDEX_HTML = """<!doctype html>
       openProject.disabled = hasActiveProject;
       newProject.disabled = hasActiveProject;
       deactivateProject.disabled = !hasActiveProject;
+      updateRequirementsMenuState();
       projectStatus.textContent = activeProjectRoot
         ? `active: ${activeProjectRoot}`
         : "";
+    }
+
+    function updateRequirementsMenuState() {
+      const hasActiveProject = Boolean(activeProjectRoot);
+      startRequirements.disabled = !hasActiveProject || requirementsRunning;
+      restartRequirements.disabled = !hasActiveProject || !requirementsStarted;
+      skipRequirements.disabled = !hasActiveProject || !requirementsStarted;
+      openRequirements.disabled = !hasActiveProject || !requirementsStarted;
     }
 
     async function refreshProject() {
@@ -994,10 +1005,7 @@ INDEX_HTML = """<!doctype html>
           appendOutput(`${payload.text}\\n`, "error");
         } else if (payload.type === "completed") {
           appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
-          agentInput.disabled = true;
-          interruptAgent.disabled = true;
-          startRequirements.disabled = false;
-          requirementsRunning = false;
+          setRequirementsRunning(false);
         }
       });
       eventSource.onerror = () => {};
@@ -1014,7 +1022,7 @@ INDEX_HTML = """<!doctype html>
       requirementsRunning = isRunning;
       agentInput.disabled = !isRunning;
       interruptAgent.disabled = !isRunning;
-      startRequirements.disabled = isRunning;
+      updateRequirementsMenuState();
     }
 
     async function runRequirementsAgent(endpoint, label, clearOutput = false) {
@@ -1052,6 +1060,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function restartRequirementsAgent() {
+      if (!requirementsStarted) {
+        return;
+      }
       await runRequirementsAgent(
         "/api/agents/requirements/restart",
         "$ restart requirements authoring",
@@ -1062,6 +1073,9 @@ INDEX_HTML = """<!doctype html>
     async function skipRequirementsAgent() {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      if (!requirementsStarted) {
         return;
       }
       requirementsMenu.hidden = true;
@@ -1083,6 +1097,9 @@ INDEX_HTML = """<!doctype html>
     function openRequirementsDocument() {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      if (!requirementsStarted) {
         return;
       }
       requirementsMenu.hidden = true;
@@ -1217,6 +1234,7 @@ class BrowserContext:
     active_project_root: Path | None = None
     requirements_session: AgentSession | None = None
     workflow_stage: str | None = None
+    requirements_started: bool = False
 
 
 @dataclass
@@ -1257,6 +1275,7 @@ class ServiceState:
             context.active_project_root = project_root
             context.requirements_session = None
             context.workflow_stage = "requirements"
+            context.requirements_started = False
         return {
             **project_payload(self.root, context, project_root),
             "status": "opened",
@@ -1273,6 +1292,7 @@ class ServiceState:
             context.active_project_root = project_root
             context.requirements_session = None
             context.workflow_stage = "requirements"
+            context.requirements_started = False
         return {
             **project_payload(self.root, context, project_root),
             "status": "created",
@@ -1290,6 +1310,7 @@ class ServiceState:
             context.active_project_root = None
             context.requirements_session = None
             context.workflow_stage = None
+            context.requirements_started = False
         return {
             **project_payload(self.root, context, None),
             "status": "deactivated",
@@ -1315,7 +1336,19 @@ class ServiceState:
             )
             context.requirements_session = session
             context.workflow_stage = "requirements"
-        session.start()
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.requirements_session is session:
+                    context.requirements_session = None
+                    context.requirements_started = False
+            raise
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.requirements_session is session:
+                context.requirements_started = True
         return session, True
 
     def restart_requirements_agent(
@@ -1327,6 +1360,7 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
+            self._require_requirements_started_locked(context)
         self._terminate_requirements_session(context_id)
         _reopen_requirements_for_restart(project_root)
         return self.start_requirements_agent(context_id)
@@ -1337,12 +1371,14 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
+            self._require_requirements_started_locked(context)
         self._terminate_requirements_session(context_id)
         _record_requirements_skip(project_root)
         with self.lock:
             context = self._context_locked(context_id)
             context.workflow_stage = "requirements-approve"
             context.requirements_session = None
+            context.requirements_started = True
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -1350,13 +1386,14 @@ class ServiceState:
             "next_stage": "requirements-approve",
         }
 
-    def active_project_root(self, context_id: str) -> Path:
+    def requirements_document_root(self, context_id: str) -> Path:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
-        if project_root is None:
-            raise StateError("activate a project first")
-        return project_root
+            if project_root is None:
+                raise StateError("activate a project first")
+            self._require_requirements_started_locked(context)
+            return project_root
 
     def current_requirements_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
@@ -1413,6 +1450,10 @@ class ServiceState:
                 "cannot change projects while this context's requirements "
                 "agent is running"
             )
+
+    def _require_requirements_started_locked(self, context: BrowserContext) -> None:
+        if not context.requirements_started:
+            raise AgentSessionError("start requirements first")
 
 
 @dataclass(frozen=True)
@@ -1730,6 +1771,7 @@ def project_payload(
             if active_root and context.workflow_stage
             else ("requirements" if active_root else "project")
         ),
+        "requirements_started": bool(active_root and context.requirements_started),
         "activate_command": (
             f"source {active_root / '.electroboy' / 'bin' / 'activate'}"
             if active_root
@@ -2278,9 +2320,9 @@ def _handler_for(
         def _send_requirements_document(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
+                project_root = state.requirements_document_root(context_id)
                 page, status = requirements_document_html(project_root)
-            except (OSError, StateError) as error:
+            except (AgentSessionError, OSError, StateError) as error:
                 self._send_text(
                     f"<p>{html.escape(str(error))}</p>",
                     "text/html; charset=utf-8",
