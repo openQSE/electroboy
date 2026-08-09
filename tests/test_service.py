@@ -19,12 +19,14 @@ sys.path.insert(0, str(ROOT / "src"))
 from electroboy.cli import build_parser  # noqa: E402
 from electroboy.service import (  # noqa: E402
     INDEX_HTML,
+    PANE_WINDOW_HTML,
     AgentSession,
     AgentSessionError,
     SESSION_ARTIFACT_LOCKS,
     ServiceState,
     _agent_process_env,
     _clean_terminal_output,
+    _file_signature,
     _progress_once_command,
     _progress_snapshot,
     _reopen_requirements_for_restart,
@@ -36,6 +38,7 @@ from electroboy.service import (  # noqa: E402
     browse_directories,
     browse_files,
     create_server,
+    pane_window_html,
     requirements_document_html,
     workflow_payload,
 )
@@ -72,6 +75,39 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "connected")
         self.assertEqual(payload["service"], "electroboy")
         self.assertEqual(payload["root"], str(root.resolve()))
+
+    def test_pane_window_endpoint_serves_stripped_down_pane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(server, "/pane/agent")
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const PANE_KIND = "agent";', body)
+        self.assertIn("Dock", body)
+        self.assertIn("xterm@5.3.0", body)
+        self.assertNotIn("__PANE_KIND__", body)
+
+    def test_pane_window_html_includes_reconnect_streams(self) -> None:
+        page = pane_window_html("artifact")
+
+        self.assertIn("__PANE_KIND__", PANE_WINDOW_HTML)
+        self.assertIn('const PANE_KIND = "artifact";', page)
+        self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', page)
+        self.assertIn('contextUrl("/api/progress/events")', page)
+        self.assertIn('contextUrl("/api/sessions/message")', page)
 
     def test_server_close_terminates_context_agent_sessions(self) -> None:
         class FakeSession:
@@ -217,13 +253,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="outputWorkbench"', INDEX_HTML)
         self.assertIn('id="workbenchResizeHandle"', INDEX_HTML)
         self.assertIn('id="outputSplit"', INDEX_HTML)
+        self.assertIn('id="agentOutputPane"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
         self.assertIn('id="outputResizeHandle"', INDEX_HTML)
+        self.assertIn('id="progressOutputPane"', INDEX_HTML)
         self.assertIn('id="progressOutput"', INDEX_HTML)
         self.assertIn('id="sidePane"', INDEX_HTML)
         self.assertIn('id="sidePaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="scratchPad"', INDEX_HTML)
         self.assertIn('id="artifactPreviewPane"', INDEX_HTML)
+        self.assertIn('id="artifactPreviewTitle"', INDEX_HTML)
         self.assertIn('id="artifactPreviewFrame"', INDEX_HTML)
         self.assertIn('id="artifactPaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
@@ -240,13 +279,23 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('id="interruptAgent"', INDEX_HTML)
         self.assertIn('id="insertFileLink"', INDEX_HTML)
+        self.assertIn('id="popoutAgentPane"', INDEX_HTML)
+        self.assertIn('id="popoutArtifactPane"', INDEX_HTML)
+        self.assertIn('id="popoutProgressPane"', INDEX_HTML)
+        self.assertIn('id="popoutScratchPane"', INDEX_HTML)
+        self.assertIn('id="popoutStatusPane"', INDEX_HTML)
+        self.assertIn('id="popoutInputPane"', INDEX_HTML)
         self.assertIn('class="agent-actions"', INDEX_HTML)
+        self.assertIn(".output-split.artifact-visible", INDEX_HTML)
         self.assertIn(".output-split.split", INDEX_HTML)
+        self.assertIn(".output-split.split.artifact-visible", INDEX_HTML)
         self.assertIn(".output-workbench", INDEX_HTML)
+        self.assertIn(".output-workbench.side-popped", INDEX_HTML)
         self.assertIn(".workbench-resize-handle", INDEX_HTML)
         self.assertIn(".side-pane-resize-handle", INDEX_HTML)
         self.assertIn(".artifact-pane-resize-handle", INDEX_HTML)
-        self.assertIn(".side-pane.preview-visible", INDEX_HTML)
+        self.assertNotIn(".side-pane.preview-visible", INDEX_HTML)
+        self.assertIn(".pane-popout-button", INDEX_HTML)
         self.assertIn(".artifact-preview-frame", INDEX_HTML)
         self.assertIn(".scratch-pad", INDEX_HTML)
         self.assertIn(".project-status-output", INDEX_HTML)
@@ -286,10 +335,15 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn(
+            'const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";',
+            INDEX_HTML,
+        )
+        self.assertIn(
             'const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";',
             INDEX_HTML,
         )
         self.assertIn('const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";', INDEX_HTML)
+        self.assertIn("const PANE_POPUP_FEATURES =", INDEX_HTML)
         self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
         self.assertIn("const MIN_INPUT_PANE_HEIGHT = 56;", INDEX_HTML)
         self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
@@ -318,18 +372,25 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startSidePaneResize(event)", INDEX_HTML)
         self.assertIn("function updateSidePaneResize(event)", INDEX_HTML)
         self.assertIn("function finishSidePaneResize(event)", INDEX_HTML)
+        self.assertIn("function applyOutputPaneVisibility()", INDEX_HTML)
         self.assertIn("function startArtifactPaneResize(event)", INDEX_HTML)
         self.assertIn("function updateArtifactPaneResize(event)", INDEX_HTML)
         self.assertIn("function finishArtifactPaneResize(event)", INDEX_HTML)
+        self.assertIn("function popOutPane(kind)", INDEX_HTML)
+        self.assertIn("function setPanePoppedOut(kind, poppedOut)", INDEX_HTML)
+        self.assertIn("function applySidePaneVisibility()", INDEX_HTML)
         self.assertIn("applyStoredPaneSizes();", INDEX_HTML)
         self.assertIn("applyStoredProgressPaneSize();", INDEX_HTML)
+        self.assertIn("applyStoredArtifactPaneSize();", INDEX_HTML)
         self.assertIn("applyStoredWorkbenchPaneSize();", INDEX_HTML)
+        self.assertIn("applySidePaneVisibility();", INDEX_HTML)
         self.assertIn("restoreScratchPad();", INDEX_HTML)
         self.assertIn("saveNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
         self.assertIn("saveNumber(INPUT_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
         self.assertIn("saveProgressPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("saveRightPaneWidth(nextWidth);", INDEX_HTML)
         self.assertIn("saveScratchPaneHeight(nextHeight);", INDEX_HTML)
+        self.assertIn("saveArtifactPaneWidth(nextWidth);", INDEX_HTML)
         self.assertIn("saveArtifactPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("shellResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("inputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
@@ -339,7 +400,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("artifactPaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn('scratchPad.addEventListener("input", saveScratchPad);', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/requirements?embed=1")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', INDEX_HTML)
+        self.assertIn('"artifact-event"', INDEX_HTML)
+        self.assertNotIn("ARTIFACT_PREVIEW_REFRESH_MS", INDEX_HTML)
         self.assertIn("function showArtifactPreview(kind)", INDEX_HTML)
+        self.assertIn("function connectArtifactEvents(kind)", INDEX_HTML)
+        self.assertIn("function closeArtifactEventStream()", INDEX_HTML)
         self.assertIn("function syncArtifactPreviewWithProject()", INDEX_HTML)
         self.assertIn("showArtifactPreview(\"requirements\")", INDEX_HTML)
         self.assertIn('contextUrl("/api/project/status")', INDEX_HTML)
@@ -442,6 +508,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/artifacts/design")', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/design-review")', INDEX_HTML)
         self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
+        self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
         self.assertIn("/api/files/browse?path=", INDEX_HTML)
         self.assertIn("&mode=file", INDEX_HTML)
         self.assertIn("function selectCurrentDirectory()", INDEX_HTML)
@@ -1786,6 +1853,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status.value, 200)
         self.assertIn("padding: 16px;", page)
         self.assertIn("border: 0;", page)
+
+    def test_file_signature_reports_artifact_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "docs" / "requirements.md"
+            missing = _file_signature(path)
+            path.parent.mkdir()
+            path.write_text("# Requirements\n", encoding="utf-8")
+            present = _file_signature(path)
+
+        self.assertFalse(missing["exists"])
+        self.assertEqual(missing["size"], 0)
+        self.assertTrue(present["exists"])
+        self.assertEqual(present["size"], len("# Requirements\n"))
+        self.assertIsInstance(present["mtime_ns"], int)
 
     def test_agent_session_streams_output_and_accepts_messages(self) -> None:
         script = (

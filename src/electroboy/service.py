@@ -593,6 +593,10 @@ INDEX_HTML = """<!doctype html>
       background: var(--terminal);
     }
 
+    .output-workbench.side-popped {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .left-output-pane {
       display: grid;
       min-height: 0;
@@ -607,13 +611,38 @@ INDEX_HTML = """<!doctype html>
       background: var(--terminal);
     }
 
+    .output-split.artifact-visible {
+      grid-template-columns:
+        minmax(0, 1fr) 7px
+        minmax(320px, var(--artifact-pane-width, 42%));
+    }
+
     .output-split.split {
       grid-template-columns:
         minmax(0, 1fr) 7px
         minmax(280px, var(--progress-pane-width, 42%));
     }
 
-    .output-resize-handle {
+    .output-split.split.artifact-visible {
+      grid-template-columns:
+        minmax(0, 1fr) 7px
+        minmax(320px, var(--artifact-pane-width, 36%)) 7px
+        minmax(280px, var(--progress-pane-width, 30%));
+    }
+
+    .output-split.agent-popped.artifact-visible:not(.split),
+    .output-split.agent-popped.split:not(.artifact-visible) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .output-split.agent-popped.split.artifact-visible {
+      grid-template-columns:
+        minmax(320px, 1fr) 7px
+        minmax(280px, var(--progress-pane-width, 34%));
+    }
+
+    .output-resize-handle,
+    .artifact-pane-resize-handle {
       min-height: 0;
       background: #202838;
       cursor: col-resize;
@@ -632,7 +661,7 @@ INDEX_HTML = """<!doctype html>
     .side-pane-resize-handle:hover,
     .side-pane.resizing .side-pane-resize-handle,
     .artifact-pane-resize-handle:hover,
-    .side-pane.resizing-artifact .artifact-pane-resize-handle {
+    .output-split.resizing-artifact .artifact-pane-resize-handle {
       background: #3a78a0;
     }
 
@@ -648,8 +677,69 @@ INDEX_HTML = """<!doctype html>
     }
 
     .input-resize-handle[hidden],
-    .output-resize-handle[hidden] {
+    .output-resize-handle[hidden],
+    .workbench-resize-handle[hidden],
+    .side-pane-resize-handle[hidden] {
       display: none;
+    }
+
+    .terminal-pane,
+    .artifact-preview-pane {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+      background: var(--terminal);
+    }
+
+    .terminal-pane[hidden],
+    .artifact-preview-pane[hidden],
+    .artifact-pane-resize-handle[hidden] {
+      display: none;
+    }
+
+    .pane-header,
+    .side-pane-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 34px;
+      border-bottom: 1px solid #2a3142;
+      padding: 0 10px 0 12px;
+      color: #aab8cf;
+      font-size: var(--ui-small-font-size);
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .pane-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pane-popout-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 42px;
+      height: 26px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      line-height: 1;
+    }
+
+    .pane-popout-button:hover {
+      border-color: #4e7f9d;
+      background: #22314a;
     }
 
     .agent-output,
@@ -667,10 +757,6 @@ INDEX_HTML = """<!doctype html>
 
     .progress-output {
       border-left: 0;
-    }
-
-    .progress-output[hidden] {
-      display: none;
     }
 
     .agent-output .xterm,
@@ -705,11 +791,9 @@ INDEX_HTML = """<!doctype html>
       background: #111827;
     }
 
-    .side-pane.preview-visible {
-      grid-template-rows:
-        minmax(100px, var(--scratch-pane-height, 30%)) 7px
-        minmax(140px, var(--artifact-pane-height, 36%)) 7px
-        minmax(100px, 1fr);
+    .side-pane.scratch-popped,
+    .side-pane.status-popped {
+      grid-template-rows: minmax(0, 1fr);
     }
 
     .side-pane-resize-handle {
@@ -718,14 +802,7 @@ INDEX_HTML = """<!doctype html>
       cursor: row-resize;
     }
 
-    .artifact-pane-resize-handle {
-      min-height: 0;
-      background: #253044;
-      cursor: row-resize;
-    }
-
     .scratch-pane,
-    .artifact-preview-pane,
     .project-status-pane {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -733,21 +810,9 @@ INDEX_HTML = """<!doctype html>
       min-width: 0;
     }
 
-    .artifact-preview-pane[hidden],
-    .artifact-pane-resize-handle[hidden] {
+    .scratch-pane[hidden],
+    .project-status-pane[hidden] {
       display: none;
-    }
-
-    .side-pane-header {
-      display: flex;
-      align-items: center;
-      min-height: 34px;
-      border-bottom: 1px solid #2a3142;
-      padding: 0 12px;
-      color: #aab8cf;
-      font-size: var(--ui-small-font-size);
-      font-weight: 750;
-      text-transform: uppercase;
     }
 
     .scratch-pad,
@@ -891,6 +956,12 @@ INDEX_HTML = """<!doctype html>
       height: calc(var(--ui-font-size) + 25px);
     }
 
+    .agent-popout {
+      border: 1px solid #364156;
+      background: #1d2638;
+      color: var(--terminal-text);
+    }
+
     .agent-interrupt {
       border: 1px solid #73342f;
       background: #3b1718;
@@ -979,6 +1050,13 @@ INDEX_HTML = """<!doctype html>
         border-left: 0;
       }
 
+      .output-split.artifact-visible {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows:
+          minmax(0, 1fr) 7px
+          minmax(220px, var(--artifact-pane-height, 45%));
+      }
+
       .output-split.split {
         grid-template-columns: minmax(0, 1fr);
         grid-template-rows:
@@ -986,7 +1064,22 @@ INDEX_HTML = """<!doctype html>
           minmax(180px, var(--progress-pane-height, 45%));
       }
 
-      .output-resize-handle {
+      .output-split.split.artifact-visible {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows:
+          minmax(0, 1fr) 7px
+          minmax(220px, var(--artifact-pane-height, 38%)) 7px
+          minmax(180px, var(--progress-pane-height, 32%));
+      }
+
+      .output-split.agent-popped.split.artifact-visible {
+        grid-template-rows:
+          minmax(220px, 1fr) 7px
+          minmax(180px, var(--progress-pane-height, 35%));
+      }
+
+      .output-resize-handle,
+      .artifact-pane-resize-handle {
         cursor: row-resize;
       }
 
@@ -1172,7 +1265,50 @@ INDEX_HTML = """<!doctype html>
       <div id="outputWorkbench" class="output-workbench">
         <div class="left-output-pane">
           <div id="outputSplit" class="output-split">
-            <div id="agentOutput" class="agent-output" aria-live="polite"></div>
+            <section id="agentOutputPane" class="terminal-pane" aria-label="Agent output">
+              <div class="pane-header">
+                <span class="pane-title">Agent output</span>
+                <button
+                  id="popoutAgentPane"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Pop out agent output"
+                  aria-label="Pop out agent output"
+                >Pop</button>
+              </div>
+              <div id="agentOutput" class="agent-output" aria-live="polite"></div>
+            </section>
+            <div
+              id="artifactPaneResizeHandle"
+              class="artifact-pane-resize-handle"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize agent and artifact panes"
+              hidden
+            ></div>
+            <section
+              id="artifactPreviewPane"
+              class="artifact-preview-pane"
+              aria-label="Artifact preview"
+              hidden
+            >
+              <div id="artifactPreviewHeader" class="pane-header">
+                <span id="artifactPreviewTitle" class="pane-title">Requirements</span>
+                <button
+                  id="popoutArtifactPane"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Pop out artifact preview"
+                  aria-label="Pop out artifact preview"
+                >Pop</button>
+              </div>
+              <iframe
+                id="artifactPreviewFrame"
+                class="artifact-preview-frame"
+                title="Rendered artifact preview"
+                sandbox=""
+              ></iframe>
+            </section>
             <div
               id="outputResizeHandle"
               class="output-resize-handle"
@@ -1181,12 +1317,24 @@ INDEX_HTML = """<!doctype html>
               aria-label="Resize agent and progress panes"
               hidden
             ></div>
-            <div
-              id="progressOutput"
-              class="progress-output"
-              aria-live="polite"
+            <section
+              id="progressOutputPane"
+              class="terminal-pane"
+              aria-label="Progress output"
               hidden
-            ></div>
+            >
+              <div class="pane-header">
+                <span class="pane-title">Progress</span>
+                <button
+                  id="popoutProgressPane"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Pop out progress output"
+                  aria-label="Pop out progress output"
+                >Pop</button>
+              </div>
+              <div id="progressOutput" class="progress-output" aria-live="polite"></div>
+            </section>
           </div>
         </div>
         <div
@@ -1199,10 +1347,19 @@ INDEX_HTML = """<!doctype html>
         <aside
           id="sidePane"
           class="side-pane"
-          aria-label="Scratch pad, artifact preview, and status"
+          aria-label="Scratch pad and status"
         >
           <section class="scratch-pane" aria-label="Scratch pad">
-            <div class="side-pane-header">Scratch pad</div>
+            <div class="side-pane-header">
+              <span class="pane-title">Scratch pad</span>
+              <button
+                id="popoutScratchPane"
+                class="pane-popout-button"
+                type="button"
+                title="Pop out scratch pad"
+                aria-label="Pop out scratch pad"
+              >Pop</button>
+            </div>
             <textarea
               id="scratchPad"
               class="scratch-pad"
@@ -1217,30 +1374,17 @@ INDEX_HTML = """<!doctype html>
             aria-orientation="horizontal"
             aria-label="Resize scratch pad and status panes"
           ></div>
-          <section
-            id="artifactPreviewPane"
-            class="artifact-preview-pane"
-            aria-label="Artifact preview"
-            hidden
-          >
-            <div id="artifactPreviewHeader" class="side-pane-header">Requirements</div>
-            <iframe
-              id="artifactPreviewFrame"
-              class="artifact-preview-frame"
-              title="Rendered artifact preview"
-              sandbox=""
-            ></iframe>
-          </section>
-          <div
-            id="artifactPaneResizeHandle"
-            class="artifact-pane-resize-handle"
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize artifact preview and status panes"
-            hidden
-          ></div>
           <section class="project-status-pane" aria-label="Project status">
-            <div class="side-pane-header">Project status</div>
+            <div class="side-pane-header">
+              <span class="pane-title">Project status</span>
+              <button
+                id="popoutStatusPane"
+                class="pane-popout-button"
+                type="button"
+                title="Pop out project status"
+                aria-label="Pop out project status"
+              >Pop</button>
+            </div>
             <pre id="projectStatusOutput" class="project-status-output">no active project</pre>
           </section>
         </aside>
@@ -1305,6 +1449,14 @@ INDEX_HTML = """<!doctype html>
             disabled
           >
             Link file
+          </button>
+          <button
+            id="popoutInputPane"
+            class="agent-action-button agent-popout"
+            type="button"
+            title="Pop out input pane"
+          >
+            Pop out input
           </button>
         </div>
       </div>
@@ -1392,16 +1544,20 @@ INDEX_HTML = """<!doctype html>
     const outputWorkbench = document.getElementById("outputWorkbench");
     const workbenchResizeHandle = document.getElementById("workbenchResizeHandle");
     const outputSplit = document.getElementById("outputSplit");
+    const agentOutputPane = document.getElementById("agentOutputPane");
     const agentOutput = document.getElementById("agentOutput");
     const outputResizeHandle = document.getElementById("outputResizeHandle");
+    const progressOutputPane = document.getElementById("progressOutputPane");
     const progressOutput = document.getElementById("progressOutput");
     const sidePane = document.getElementById("sidePane");
     const sidePaneResizeHandle = document.getElementById("sidePaneResizeHandle");
+    const scratchPane = document.querySelector(".scratch-pane");
     const scratchPad = document.getElementById("scratchPad");
     const artifactPreviewPane = document.getElementById("artifactPreviewPane");
     const artifactPaneResizeHandle = document.getElementById("artifactPaneResizeHandle");
-    const artifactPreviewHeader = document.getElementById("artifactPreviewHeader");
+    const artifactPreviewTitle = document.getElementById("artifactPreviewTitle");
     const artifactPreviewFrame = document.getElementById("artifactPreviewFrame");
+    const projectStatusPane = document.querySelector(".project-status-pane");
     const projectStatusOutput = document.getElementById("projectStatusOutput");
     const inputResizeHandle = document.getElementById("inputResizeHandle");
     const inputPane = document.getElementById("inputPane");
@@ -1411,6 +1567,12 @@ INDEX_HTML = """<!doctype html>
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
     const interruptAgent = document.getElementById("interruptAgent");
     const insertFileLink = document.getElementById("insertFileLink");
+    const popoutAgentPane = document.getElementById("popoutAgentPane");
+    const popoutArtifactPane = document.getElementById("popoutArtifactPane");
+    const popoutProgressPane = document.getElementById("popoutProgressPane");
+    const popoutScratchPane = document.getElementById("popoutScratchPane");
+    const popoutStatusPane = document.getElementById("popoutStatusPane");
+    const popoutInputPane = document.getElementById("popoutInputPane");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";
@@ -1420,9 +1582,12 @@ INDEX_HTML = """<!doctype html>
     const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
     const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
+    const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";
     const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
+    const PANE_POPUP_FEATURES =
+      "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
     const DEFAULT_DOCUMENT_TARGETS = [
       { label: "README", path: "README.md" },
       { label: "API", path: "docs/api.md" },
@@ -1431,9 +1596,9 @@ INDEX_HTML = """<!doctype html>
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
     const MIN_INPUT_PANE_HEIGHT = 56;
-    const ARTIFACT_PREVIEW_REFRESH_MS = 1500;
     let eventSource = null;
     let progressEventSource = null;
+    let artifactEventSource = null;
     let terminal = null;
     let terminalFit = null;
     let progressTerminal = null;
@@ -1448,8 +1613,13 @@ INDEX_HTML = """<!doctype html>
     let resizeTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
-    let artifactRefreshTimer = null;
     let artifactPreviewKind = "";
+    let artifactPreviewVersion = 0;
+    let progressPaneRequested = false;
+    let artifactPaneRequested = false;
+    let inputPaneRequested = true;
+    const poppedPanes = new Set();
+    const poppedPaneWindows = new Map();
     let activeAgentKind = "";
     let requirementsRunning = false;
     let requirementsStarted = false;
@@ -1571,9 +1741,16 @@ INDEX_HTML = """<!doctype html>
       if (scratchHeight) {
         sidePane.style.setProperty("--scratch-pane-height", `${scratchHeight}px`);
       }
+    }
+
+    function applyStoredArtifactPaneSize() {
+      const artifactWidth = storedNumber(ARTIFACT_PANE_WIDTH_STORAGE_KEY);
+      if (artifactWidth) {
+        outputSplit.style.setProperty("--artifact-pane-width", `${artifactWidth}px`);
+      }
       const artifactHeight = storedNumber(ARTIFACT_PANE_HEIGHT_STORAGE_KEY);
       if (artifactHeight) {
-        sidePane.style.setProperty("--artifact-pane-height", `${artifactHeight}px`);
+        outputSplit.style.setProperty("--artifact-pane-height", `${artifactHeight}px`);
       }
     }
 
@@ -1595,6 +1772,10 @@ INDEX_HTML = """<!doctype html>
 
     function saveScratchPaneHeight(height) {
       saveNumber(SCRATCH_PANE_HEIGHT_STORAGE_KEY, height);
+    }
+
+    function saveArtifactPaneWidth(width) {
+      saveNumber(ARTIFACT_PANE_WIDTH_STORAGE_KEY, width);
     }
 
     function saveArtifactPaneHeight(height) {
@@ -1758,7 +1939,7 @@ INDEX_HTML = """<!doctype html>
           return;
         }
       }
-      if (progressTerminalFit && !progressOutput.hidden) {
+      if (progressTerminalFit && !progressOutputPane.hidden) {
         try {
           progressTerminalFit.fit();
         } catch (error) {
@@ -1847,9 +2028,11 @@ INDEX_HTML = """<!doctype html>
     }
 
     function setAgentInputVisible(isVisible) {
-      inputPane.hidden = !isVisible;
-      inputResizeHandle.hidden = !isVisible;
-      agentPane.classList.toggle("noninteractive", !isVisible);
+      inputPaneRequested = isVisible;
+      const visible = isVisible && !poppedPanes.has("input");
+      inputPane.hidden = !visible;
+      inputResizeHandle.hidden = !visible;
+      agentPane.classList.toggle("noninteractive", !visible);
       if (isVisible) {
         applyStoredPaneSizes();
       }
@@ -2048,33 +2231,50 @@ INDEX_HTML = """<!doctype html>
     }
 
     function startArtifactPaneResize(event) {
-      if (artifactPreviewPane.hidden) {
+      if (artifactPreviewPane.hidden || poppedPanes.has("agent")) {
         return;
       }
       event.preventDefault();
-      const sideRect = sidePane.getBoundingClientRect();
+      const splitRect = outputSplit.getBoundingClientRect();
       const artifactRect = artifactPreviewPane.getBoundingClientRect();
       resizeArtifactPaneState = {
+        vertical: window.matchMedia("(max-width: 760px)").matches,
+        startX: event.clientX,
         startY: event.clientY,
+        startWidth: artifactRect.width,
         startHeight: artifactRect.height,
-        maxHeight: Math.max(140, sideRect.height - 180),
+        maxWidth: Math.max(320, splitRect.width - 360),
+        maxHeight: Math.max(220, splitRect.height - 240),
       };
       artifactPaneResizeHandle.setPointerCapture(event.pointerId);
-      sidePane.classList.add("resizing-artifact");
+      outputSplit.classList.add("resizing-artifact");
     }
 
     function updateArtifactPaneResize(event) {
       if (!resizeArtifactPaneState) {
         return;
       }
-      const deltaY = event.clientY - resizeArtifactPaneState.startY;
-      const nextHeight = clampValue(
-        resizeArtifactPaneState.startHeight + deltaY,
-        140,
-        resizeArtifactPaneState.maxHeight,
-      );
-      sidePane.style.setProperty("--artifact-pane-height", `${nextHeight}px`);
-      saveArtifactPaneHeight(nextHeight);
+      if (resizeArtifactPaneState.vertical) {
+        const deltaY = resizeArtifactPaneState.startY - event.clientY;
+        const nextHeight = clampValue(
+          resizeArtifactPaneState.startHeight + deltaY,
+          220,
+          resizeArtifactPaneState.maxHeight,
+        );
+        outputSplit.style.setProperty("--artifact-pane-height", `${nextHeight}px`);
+        outputSplit.style.gridTemplateRows = `minmax(0, 1fr) 7px ${nextHeight}px`;
+        saveArtifactPaneHeight(nextHeight);
+      } else {
+        const deltaX = resizeArtifactPaneState.startX - event.clientX;
+        const nextWidth = clampValue(
+          resizeArtifactPaneState.startWidth + deltaX,
+          320,
+          resizeArtifactPaneState.maxWidth,
+        );
+        outputSplit.style.setProperty("--artifact-pane-width", `${nextWidth}px`);
+        saveArtifactPaneWidth(nextWidth);
+      }
+      fitTerminal();
     }
 
     function finishArtifactPaneResize(event) {
@@ -2082,7 +2282,7 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       resizeArtifactPaneState = null;
-      sidePane.classList.remove("resizing-artifact");
+      outputSplit.classList.remove("resizing-artifact");
       try {
         artifactPaneResizeHandle.releasePointerCapture(event.pointerId);
       } catch (error) {
@@ -2090,31 +2290,45 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function applyOutputPaneVisibility() {
+      const agentVisible = !poppedPanes.has("agent");
+      const artifactVisible =
+        artifactPaneRequested && artifactPreviewKind && !poppedPanes.has("artifact");
+      const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
+      agentOutputPane.hidden = !agentVisible;
+      artifactPreviewPane.hidden = !artifactVisible;
+      progressOutputPane.hidden = !progressVisible;
+      artifactPaneResizeHandle.hidden = !artifactVisible || !agentVisible;
+      outputResizeHandle.hidden =
+        !progressVisible || (!agentVisible && !artifactVisible);
+      outputSplit.classList.toggle("agent-popped", !agentVisible);
+      outputSplit.classList.toggle("artifact-visible", Boolean(artifactVisible));
+      outputSplit.classList.toggle("split", progressVisible);
+      window.requestAnimationFrame(fitTerminal);
+    }
+
     function showProgressPane(show) {
+      progressPaneRequested = show;
       if (show) {
-        progressOutput.hidden = false;
-        outputResizeHandle.hidden = false;
         outputSplit.style.gridTemplateRows = "";
         applyStoredProgressPaneSize();
         initializeProgressTerminal();
         prepareTerminalStream();
       } else {
-        progressOutput.hidden = true;
-        outputResizeHandle.hidden = true;
         outputSplit.style.gridTemplateRows = "";
         closeProgressEventStream();
       }
-      outputSplit.classList.toggle("split", show);
+      applyOutputPaneVisibility();
       window.requestAnimationFrame(fitTerminal);
     }
 
     function startOutputResize(event) {
-      if (progressOutput.hidden) {
+      if (progressOutputPane.hidden) {
         return;
       }
       event.preventDefault();
       const splitRect = outputSplit.getBoundingClientRect();
-      const progressRect = progressOutput.getBoundingClientRect();
+      const progressRect = progressOutputPane.getBoundingClientRect();
       resizeOutputState = {
         vertical: window.matchMedia("(max-width: 760px)").matches,
         startX: event.clientX,
@@ -2214,6 +2428,99 @@ INDEX_HTML = """<!doctype html>
       const separator = path.includes("?") ? "&" : "?";
       return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
     }
+
+    function paneUrl(kind) {
+      const parameters = new URLSearchParams();
+      if (contextId) {
+        parameters.set("context_id", contextId);
+      }
+      if (selectedSessionId) {
+        parameters.set("session_id", selectedSessionId);
+      }
+      if (artifactPreviewKind) {
+        parameters.set("artifact", artifactPreviewKind);
+      }
+      parameters.set("font_size", String(terminalFontSize));
+      return `/pane/${encodeURIComponent(kind)}?${parameters.toString()}`;
+    }
+
+    function popOutPane(kind) {
+      if (!contextId && kind !== "scratch") {
+        appendOutput("create a browser context first\\n", "error");
+        return;
+      }
+      const popup = window.open(
+        paneUrl(kind),
+        `electroboy-${kind}-${contextId || "local"}`,
+        PANE_POPUP_FEATURES,
+      );
+      if (!popup) {
+        appendOutput("popup was blocked by the browser\\n", "error");
+        return;
+      }
+      const existing = poppedPaneWindows.get(kind);
+      if (existing) {
+        window.clearInterval(existing.poll);
+      }
+      setPanePoppedOut(kind, true);
+      const poll = window.setInterval(() => {
+        if (!popup.closed) {
+          return;
+        }
+        window.clearInterval(poll);
+        poppedPaneWindows.delete(kind);
+        setPanePoppedOut(kind, false);
+      }, 500);
+      poppedPaneWindows.set(kind, { popup, poll });
+    }
+
+    function setPanePoppedOut(kind, poppedOut) {
+      if (poppedOut) {
+        poppedPanes.add(kind);
+      } else {
+        poppedPanes.delete(kind);
+      }
+      if (kind === "scratch" || kind === "status") {
+        applySidePaneVisibility();
+      }
+      if (kind === "input") {
+        setAgentInputVisible(inputPaneRequested);
+      }
+      if (kind === "agent" || kind === "artifact" || kind === "progress") {
+        applyOutputPaneVisibility();
+      }
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function applySidePaneVisibility() {
+      const scratchPopped = poppedPanes.has("scratch");
+      const statusPopped = poppedPanes.has("status");
+      const sideVisible = !(scratchPopped && statusPopped);
+      scratchPane.hidden = scratchPopped;
+      projectStatusPane.hidden = statusPopped;
+      sidePaneResizeHandle.hidden = scratchPopped || statusPopped;
+      sidePane.hidden = !sideVisible;
+      workbenchResizeHandle.hidden = !sideVisible;
+      outputWorkbench.classList.toggle("side-popped", !sideVisible);
+      sidePane.classList.toggle("scratch-popped", scratchPopped && !statusPopped);
+      sidePane.classList.toggle("status-popped", statusPopped && !scratchPopped);
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      const data = event.data || {};
+      if (data.type !== "electroboy-pane-restore" || !data.pane) {
+        return;
+      }
+      const entry = poppedPaneWindows.get(data.pane);
+      if (entry) {
+        window.clearInterval(entry.poll);
+        poppedPaneWindows.delete(data.pane);
+      }
+      setPanePoppedOut(data.pane, false);
+    });
 
     function storedContextId() {
       try {
@@ -2604,7 +2911,7 @@ INDEX_HTML = """<!doctype html>
 
     function artifactPreviewUrl(kind) {
       if (kind === "requirements") {
-        return `${contextUrl("/artifacts/requirements?embed=1")}&refresh=${Date.now()}`;
+        return `${contextUrl("/artifacts/requirements?embed=1")}&version=${artifactPreviewVersion}`;
       }
       return "";
     }
@@ -2619,26 +2926,25 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       artifactPreviewKind = kind;
-      artifactPreviewHeader.textContent =
+      artifactPaneRequested = true;
+      artifactPreviewTitle.textContent =
         kind === "requirements" ? "Requirements" : "Artifact";
-      artifactPreviewPane.hidden = false;
-      artifactPaneResizeHandle.hidden = false;
-      sidePane.classList.add("preview-visible");
+      applyStoredArtifactPaneSize();
+      applyOutputPaneVisibility();
       refreshArtifactPreview();
-      scheduleArtifactPreviewRefresh();
+      connectArtifactEvents(kind);
     }
 
     function hideArtifactPreview() {
-      window.clearTimeout(artifactRefreshTimer);
-      artifactRefreshTimer = null;
       artifactPreviewKind = "";
-      artifactPreviewPane.hidden = true;
-      artifactPaneResizeHandle.hidden = true;
+      artifactPaneRequested = false;
+      closeArtifactEventStream();
       artifactPreviewFrame.removeAttribute("src");
-      sidePane.classList.remove("preview-visible");
+      applyOutputPaneVisibility();
     }
 
     function refreshArtifactPreview() {
+      artifactPreviewVersion += 1;
       const url = artifactPreviewUrl(artifactPreviewKind);
       if (!url) {
         return;
@@ -2646,16 +2952,25 @@ INDEX_HTML = """<!doctype html>
       artifactPreviewFrame.src = url;
     }
 
-    function scheduleArtifactPreviewRefresh() {
-      window.clearTimeout(artifactRefreshTimer);
-      artifactRefreshTimer = null;
-      if (artifactPreviewKind !== "requirements" || !requirementsRunning) {
+    function connectArtifactEvents(kind) {
+      closeArtifactEventStream();
+      if (kind !== "requirements" || !requirementsRunning) {
         return;
       }
-      artifactRefreshTimer = window.setTimeout(() => {
+      artifactEventSource = new EventSource(
+        contextUrl("/api/artifacts/events?artifact=requirements"),
+      );
+      artifactEventSource.addEventListener("artifact-event", () => {
         refreshArtifactPreview();
-        scheduleArtifactPreviewRefresh();
-      }, ARTIFACT_PREVIEW_REFRESH_MS);
+      });
+      artifactEventSource.onerror = () => {};
+    }
+
+    function closeArtifactEventStream() {
+      if (artifactEventSource) {
+        artifactEventSource.close();
+        artifactEventSource = null;
+      }
     }
 
     function syncArtifactPreviewWithProject() {
@@ -2671,7 +2986,9 @@ INDEX_HTML = """<!doctype html>
         hideArtifactPreview();
         return;
       }
-      scheduleArtifactPreviewRefresh();
+      if (artifactPreviewKind) {
+        connectArtifactEvents(artifactPreviewKind);
+      }
     }
 
     async function refreshProject() {
@@ -3249,9 +3566,9 @@ INDEX_HTML = """<!doctype html>
         if (isRunning) {
           showArtifactPreview("requirements");
         } else {
+          closeArtifactEventStream();
           refreshArtifactPreview();
         }
-        scheduleArtifactPreviewRefresh();
       }
       if (isRunning) {
         activeAgentKind = kind;
@@ -3838,6 +4155,12 @@ INDEX_HTML = """<!doctype html>
     });
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
+    popoutAgentPane.addEventListener("click", () => popOutPane("agent"));
+    popoutArtifactPane.addEventListener("click", () => popOutPane("artifact"));
+    popoutProgressPane.addEventListener("click", () => popOutPane("progress"));
+    popoutScratchPane.addEventListener("click", () => popOutPane("scratch"));
+    popoutStatusPane.addEventListener("click", () => popOutPane("status"));
+    popoutInputPane.addEventListener("click", () => popOutPane("input"));
     shellResizeHandle.addEventListener("pointerdown", startShellResize);
     shellResizeHandle.addEventListener("pointermove", updateShellResize);
     shellResizeHandle.addEventListener("pointerup", finishShellResize);
@@ -3888,7 +4211,9 @@ INDEX_HTML = """<!doctype html>
       applyStageDescriptions();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
+      applyStoredArtifactPaneSize();
       applyStoredWorkbenchPaneSize();
+      applySidePaneVisibility();
       restoreScratchPad();
       applyTerminalFontSize();
       initializeTerminal();
@@ -3901,6 +4226,446 @@ INDEX_HTML = """<!doctype html>
 </body>
 </html>
 """
+
+
+PANE_WINDOW_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ElectroBoy Pane</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
+  >
+  <style>
+    :root {
+      --terminal: #10141f;
+      --terminal-text: #e7edf7;
+      --border: #2a3142;
+      --font-size: 15px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      background: var(--terminal);
+      color: var(--terminal-text);
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      font-size: var(--font-size);
+      overflow: hidden;
+    }
+
+    .pane-window {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100vh;
+      min-height: 0;
+    }
+
+    .pane-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 38px;
+      border-bottom: 1px solid var(--border);
+      background: #151b29;
+      padding: 0 10px 0 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .pane-toolbar button,
+    .input-actions button {
+      min-height: 30px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: var(--terminal-text);
+      cursor: pointer;
+      font: inherit;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 750;
+    }
+
+    .pane-body {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .terminal-host,
+    .artifact-frame,
+    .scratch-pad,
+    .status-output,
+    .input-text {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      border: 0;
+      background: var(--terminal);
+      color: var(--terminal-text);
+      font-family:
+        "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: var(--font-size);
+      line-height: 1.45;
+      outline: none;
+    }
+
+    .terminal-host .xterm {
+      height: 100%;
+      padding: 10px 12px;
+    }
+
+    .artifact-frame {
+      background: #f7f8fb;
+    }
+
+    .scratch-pad,
+    .status-output,
+    .input-text {
+      padding: 10px 12px;
+      resize: none;
+      white-space: pre-wrap;
+    }
+
+    .status-output {
+      margin: 0;
+      overflow: auto;
+    }
+
+    .input-layout {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .input-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      border-top: 1px solid var(--border);
+      background: #151b29;
+      padding: 8px;
+    }
+
+    [hidden] {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="pane-window">
+    <header class="pane-toolbar">
+      <span id="paneTitle">Pane</span>
+      <button id="dockPane" type="button">Dock</button>
+    </header>
+    <section class="pane-body">
+      <div id="terminalHost" class="terminal-host" hidden></div>
+      <iframe
+        id="artifactFrame"
+        class="artifact-frame"
+        title="Rendered artifact preview"
+        sandbox=""
+        hidden
+      ></iframe>
+      <textarea id="scratchPad" class="scratch-pad" spellcheck="false" hidden></textarea>
+      <pre id="statusOutput" class="status-output" hidden></pre>
+      <div id="inputLayout" class="input-layout" hidden>
+        <textarea id="agentInput" class="input-text" spellcheck="false"></textarea>
+        <div class="input-actions">
+          <button id="interruptAgent" type="button">Interrupt</button>
+          <button id="sendAgentInput" type="button">Send</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script>
+    const PANE_KIND = __PANE_KIND__;
+    const params = new URLSearchParams(window.location.search);
+    const contextId = params.get("context_id") || "";
+    const sessionId = params.get("session_id") || "";
+    const artifactKind = params.get("artifact") || "requirements";
+    const fontSize = Number(params.get("font_size") || "15") || 15;
+    const scratchKey = "electroboy.scratchPad";
+    const paneTitle = document.getElementById("paneTitle");
+    const dockPane = document.getElementById("dockPane");
+    const terminalHost = document.getElementById("terminalHost");
+    const artifactFrame = document.getElementById("artifactFrame");
+    const scratchPad = document.getElementById("scratchPad");
+    const statusOutput = document.getElementById("statusOutput");
+    const inputLayout = document.getElementById("inputLayout");
+    const agentInput = document.getElementById("agentInput");
+    const sendAgentInput = document.getElementById("sendAgentInput");
+    const interruptAgent = document.getElementById("interruptAgent");
+    let terminal = null;
+    let terminalFit = null;
+    let eventSource = null;
+    let artifactEventSource = null;
+    let artifactVersion = 0;
+    let statusTimer = null;
+
+    document.documentElement.style.setProperty("--font-size", `${fontSize}px`);
+
+    function titleForPane(kind) {
+      if (kind === "agent") return "Agent output";
+      if (kind === "artifact") return "Artifact preview";
+      if (kind === "progress") return "Progress";
+      if (kind === "scratch") return "Scratch pad";
+      if (kind === "status") return "Project status";
+      if (kind === "input") return "Agent input";
+      return "Pane";
+    }
+
+    function contextUrl(path) {
+      const separator = path.includes("?") ? "&" : "?";
+      return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
+    }
+
+    function terminalOptions() {
+      return {
+        allowProposedApi: false,
+        convertEol: true,
+        cursorBlink: false,
+        disableStdin: true,
+        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+        fontSize,
+        scrollback: 10000,
+        termName: "xterm-256color",
+        theme: {
+          background: "#10141f",
+          foreground: "#e7edf7",
+          cursor: "#e7edf7",
+          selectionBackground: "#2b6173",
+          black: "#151923",
+          red: "#ff6b6b",
+          green: "#51cf66",
+          yellow: "#ffd43b",
+          blue: "#74c0fc",
+          magenta: "#da77f2",
+          cyan: "#66d9e8",
+          white: "#f1f3f5",
+          brightBlack: "#5c677d",
+          brightRed: "#ff8787",
+          brightGreen: "#69db7c",
+          brightYellow: "#ffe066",
+          brightBlue: "#91caff",
+          brightMagenta: "#e599f7",
+          brightCyan: "#99e9f2",
+          brightWhite: "#ffffff",
+        },
+      };
+    }
+
+    function showTerminal() {
+      terminalHost.hidden = false;
+      terminal = new window.Terminal(terminalOptions());
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        terminalFit = new window.FitAddon.FitAddon();
+        terminal.loadAddon(terminalFit);
+      }
+      terminal.open(terminalHost);
+      fitTerminal();
+      window.addEventListener("resize", fitTerminal);
+    }
+
+    function fitTerminal() {
+      if (!terminalFit) {
+        return;
+      }
+      try {
+        terminalFit.fit();
+      } catch (error) {
+        return;
+      }
+    }
+
+    function formatTerminalMessage(text, type) {
+      if (type === "error") return `\x1b[31m${text}\x1b[0m`;
+      if (type === "system") return `\x1b[36m${text}\x1b[0m`;
+      return text;
+    }
+
+    function connectAgentStream() {
+      showTerminal();
+      if (!contextId || !sessionId) {
+        terminal.write("\x1b[31mno selected stream\x1b[0m\r\n");
+        return;
+      }
+      eventSource = new EventSource(
+        contextUrl(`/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`),
+      );
+      eventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          terminal.write(payload.terminal || payload.text || "");
+        } else if (payload.type === "system" || payload.type === "error") {
+          terminal.write(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
+        } else if (payload.type === "completed") {
+          terminal.write(formatTerminalMessage(
+            `\r\nprocess exited with code ${payload.returncode}\r\n`,
+            "system",
+          ));
+        }
+      });
+      eventSource.onerror = () => {};
+    }
+
+    function connectProgressStream() {
+      showTerminal();
+      if (!contextId) {
+        terminal.write("\x1b[31mno active context\x1b[0m\r\n");
+        return;
+      }
+      eventSource = new EventSource(contextUrl("/api/progress/events"));
+      eventSource.addEventListener("progress-event", (event) => {
+        const payload = JSON.parse(event.data);
+        terminal.clear();
+        terminal.write(formatTerminalMessage(payload.text || "", payload.type));
+        if (payload.running === false) {
+          eventSource.close();
+        }
+      });
+      eventSource.onerror = () => {};
+    }
+
+    function artifactUrl() {
+      if (artifactKind === "requirements") {
+        return `${contextUrl("/artifacts/requirements?embed=1")}&version=${artifactVersion}`;
+      }
+      return "";
+    }
+
+    function refreshArtifact() {
+      artifactVersion += 1;
+      artifactFrame.src = artifactUrl();
+    }
+
+    function connectArtifactStream() {
+      artifactFrame.hidden = false;
+      refreshArtifact();
+      if (!contextId || artifactKind !== "requirements") {
+        return;
+      }
+      artifactEventSource = new EventSource(
+        contextUrl("/api/artifacts/events?artifact=requirements"),
+      );
+      artifactEventSource.addEventListener("artifact-event", refreshArtifact);
+      artifactEventSource.onerror = () => {};
+    }
+
+    function showScratchPad() {
+      scratchPad.hidden = false;
+      try {
+        scratchPad.value = window.localStorage.getItem(scratchKey) || "";
+      } catch (error) {
+        scratchPad.value = "";
+      }
+      scratchPad.addEventListener("input", () => {
+        try {
+          window.localStorage.setItem(scratchKey, scratchPad.value);
+        } catch (error) {
+          return;
+        }
+      });
+      scratchPad.focus();
+    }
+
+    async function refreshStatus() {
+      if (!contextId) {
+        statusOutput.textContent = "no active project\n";
+        return;
+      }
+      const response = await fetch(contextUrl("/api/project/status"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ error: "status failed" }));
+      statusOutput.textContent = response.ok
+        ? payload.output || "status: none\n"
+        : `${payload.error || "status failed"}\n`;
+    }
+
+    function showStatus() {
+      statusOutput.hidden = false;
+      refreshStatus();
+      statusTimer = window.setInterval(refreshStatus, 2500);
+    }
+
+    async function sendMessage() {
+      const message = agentInput.value;
+      if (!message.trim()) {
+        return;
+      }
+      agentInput.value = "";
+      await fetch(contextUrl("/api/sessions/message"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+    }
+
+    async function interruptAgentSession() {
+      await fetch(contextUrl("/api/sessions/interrupt"), { method: "POST" });
+    }
+
+    function showInput() {
+      inputLayout.hidden = false;
+      agentInput.focus();
+    }
+
+    dockPane.addEventListener("click", () => {
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: "electroboy-pane-restore", pane: PANE_KIND },
+          window.location.origin,
+        );
+      }
+      window.close();
+    });
+    sendAgentInput.addEventListener("click", sendMessage);
+    interruptAgent.addEventListener("click", interruptAgentSession);
+    agentInput.addEventListener("keydown", (event) => {
+      const isEnter =
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter";
+      if (isEnter && event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+
+    paneTitle.textContent = titleForPane(PANE_KIND);
+    if (PANE_KIND === "agent") connectAgentStream();
+    else if (PANE_KIND === "progress") connectProgressStream();
+    else if (PANE_KIND === "artifact") connectArtifactStream();
+    else if (PANE_KIND === "scratch") showScratchPad();
+    else if (PANE_KIND === "status") showStatus();
+    else if (PANE_KIND === "input") showInput();
+
+    window.addEventListener("beforeunload", () => {
+      if (eventSource) eventSource.close();
+      if (artifactEventSource) artifactEventSource.close();
+      if (statusTimer) window.clearInterval(statusTimer);
+    });
+  </script>
+</body>
+</html>
+"""
+
+
+def pane_window_html(kind: str) -> str:
+    return PANE_WINDOW_HTML.replace("__PANE_KIND__", json.dumps(kind))
 
 
 @dataclass
@@ -6228,12 +6993,67 @@ def markdown_document_html(
     return page, status
 
 
+def _file_signature(path: Path) -> dict[str, object]:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return {"exists": False, "mtime_ns": 0, "size": 0}
+    return {
+        "exists": True,
+        "mtime_ns": stat.st_mtime_ns,
+        "size": stat.st_size,
+    }
+
+
 def _render_markdown(text: str) -> str:
     try:
         import markdown as markdown_library
     except ImportError:
-        return f"<pre>{html.escape(text)}</pre>"
+        return _render_basic_markdown(text)
     return str(markdown_library.markdown(text, extensions=["extra", "sane_lists"]))
+
+
+def _render_basic_markdown(text: str) -> str:
+    blocks: list[str] = []
+    paragraph: list[str] = []
+    list_items: list[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            blocks.append(f"<p>{html.escape(' '.join(paragraph))}</p>")
+            paragraph.clear()
+
+    def flush_list() -> None:
+        if list_items:
+            items = "".join(f"<li>{html.escape(item)}</li>" for item in list_items)
+            blocks.append(f"<ul>{items}</ul>")
+            list_items.clear()
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            flush_paragraph()
+            flush_list()
+            continue
+        if line.startswith("# "):
+            flush_paragraph()
+            flush_list()
+            blocks.append(f"<h1>{html.escape(line[2:].strip())}</h1>")
+            continue
+        if line.startswith("## "):
+            flush_paragraph()
+            flush_list()
+            blocks.append(f"<h2>{html.escape(line[3:].strip())}</h2>")
+            continue
+        if line.startswith("- "):
+            flush_paragraph()
+            list_items.append(line[2:].strip())
+            continue
+        flush_list()
+        paragraph.append(line)
+    flush_paragraph()
+    flush_list()
+    return "\n".join(blocks) if blocks else "<p></p>"
 
 
 def _requirements_command(root: Path) -> list[str]:
@@ -6524,6 +7344,9 @@ def _handler_for(
             if path in {"/", "/index.html"}:
                 self._send_text(INDEX_HTML, "text/html; charset=utf-8")
                 return
+            if path.startswith("/pane/"):
+                self._send_pane_window(path)
+                return
             if path == "/api/health":
                 self._send_json(health_payload(config.root))
                 return
@@ -6565,6 +7388,9 @@ def _handler_for(
                 return
             if path == "/api/progress/events":
                 self._send_progress_events(parsed.query)
+                return
+            if path == "/api/artifacts/events":
+                self._send_artifact_events(parsed.query)
                 return
             if path == "/api/sessions/events":
                 self._send_selected_session_events(parsed.query)
@@ -6981,6 +7807,26 @@ def _handler_for(
                 )
                 return
             self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _send_pane_window(self, path: str) -> None:
+            kind = path.rsplit("/", 1)[-1].strip()
+            if kind not in {
+                "agent",
+                "artifact",
+                "progress",
+                "scratch",
+                "status",
+                "input",
+            }:
+                self._send_json(
+                    {"error": "unknown pane"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._send_text(
+                pane_window_html(kind),
+                "text/html; charset=utf-8",
+            )
 
         def _send_design_document(self, query: str) -> None:
             try:
@@ -7459,6 +8305,29 @@ def _handler_for(
                 return
             self._stream_progress_events(context_id, command_root)
 
+        def _send_artifact_events(self, query: str) -> None:
+            params = parse_qs(query)
+            artifact = str((params.get("artifact") or [""])[0]).strip()
+            if artifact != "requirements":
+                self._send_json(
+                    {"error": "unknown artifact"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            try:
+                context_id = self._context_id(query)
+                project_root = state.requirements_document_root(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._stream_artifact_events(
+                artifact,
+                project_root / "docs" / "requirements.md",
+            )
+
         def _resize_design_agent(self, query: str) -> None:
             self._send_resize(query, state.resize_design_agent)
 
@@ -7577,6 +8446,40 @@ def _handler_for(
                         last_event_id = event_id
                     if not session.is_active():
                         break
+            except (BrokenPipeError, ConnectionError, OSError):
+                return
+
+        def _stream_artifact_events(self, artifact: str, document_path: Path) -> None:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            last_signature: dict[str, object] | None = None
+            event_id = 1
+            try:
+                while True:
+                    signature = _file_signature(document_path)
+                    if signature != last_signature:
+                        payload = {
+                            "artifact": artifact,
+                            "path": str(document_path),
+                            "signature": signature,
+                        }
+                        self.wfile.write(f"id: {event_id}\n".encode("utf-8"))
+                        self.wfile.write(b"event: artifact-event\n")
+                        self.wfile.write(
+                            f"data: {json.dumps(payload, sort_keys=True)}\n\n".encode(
+                                "utf-8"
+                            )
+                        )
+                        self.wfile.flush()
+                        event_id += 1
+                        last_signature = signature
+                    else:
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                    time.sleep(0.75)
             except (BrokenPipeError, ConnectionError, OSError):
                 return
 
