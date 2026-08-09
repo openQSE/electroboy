@@ -98,11 +98,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('fetch("/api/contexts"', INDEX_HTML)
         self.assertIn('let contextId = "";', INDEX_HTML)
         self.assertIn("let requirementsStarted = false;", INDEX_HTML)
+        self.assertIn('let currentWorkflowStage = "project";', INDEX_HTML)
         self.assertIn("requirementsStarted = Boolean(payload.requirements_started)", INDEX_HTML)
+        self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
         self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
-        self.assertIn("restartRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
-        self.assertIn("skipRequirements.disabled = !hasActiveProject", INDEX_HTML)
-        self.assertIn("openRequirements.disabled = !hasActiveProject || !requirementsStarted", INDEX_HTML)
+        self.assertIn('const inRequirementsStage = currentWorkflowStage === "requirements";', INDEX_HTML)
+        self.assertIn("!hasActiveProject || !inRequirementsStage || requirementsRunning", INDEX_HTML)
+        self.assertIn("!hasActiveProject || (inRequirementsStage && !requirementsStarted)", INDEX_HTML)
+        self.assertIn("skipRequirements.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
         self.assertIn("Requirements phase is not complete", INDEX_HTML)
         self.assertIn("Skip at your own risk.", INDEX_HTML)
@@ -380,6 +383,43 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(payload["requirements_started"])
         self.assertEqual(payload["next_stage"], "requirements-approve")
         self.assertIsNone(state.current_requirements_session(context_id))
+
+    def test_only_restart_and_document_are_available_after_requirements(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            state.skip_requirements_agent(context_id)
+
+            with self.assertRaisesRegex(
+                AgentSessionError,
+                "requirements stage is not active",
+            ):
+                state.start_requirements_agent(context_id)
+            with self.assertRaisesRegex(
+                AgentSessionError,
+                "requirements stage is not active",
+            ):
+                state.skip_requirements_agent(context_id)
+            self.assertEqual(
+                state.requirements_document_root(context_id),
+                project_root.resolve(),
+            )
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                _session, started = state.restart_requirements_agent(context_id)
+
+            payload = state.project_payload(context_id)
+
+        self.assertTrue(started)
+        self.assertEqual(payload["workflow_stage"], "requirements")
+        self.assertTrue(payload["requirements_started"])
 
     def test_failed_requirements_start_does_not_unlock_later_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

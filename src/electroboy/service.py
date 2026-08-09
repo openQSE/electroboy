@@ -652,6 +652,7 @@ INDEX_HTML = """<!doctype html>
     let resizeTimer = null;
     let requirementsRunning = false;
     let requirementsStarted = false;
+    let currentWorkflowStage = "project";
     let contextId = "";
     let projectMode = "open";
     let serviceRoot = "";
@@ -803,6 +804,7 @@ INDEX_HTML = """<!doctype html>
       requirementsStarted = Boolean(payload.requirements_started);
       const hasActiveProject = Boolean(activeProjectRoot);
       const workflowStage = payload.workflow_stage || (hasActiveProject ? "requirements" : "project");
+      currentWorkflowStage = workflowStage;
       if (!projectPath.value) {
         projectPath.value = activeProjectRoot || serviceRoot;
       }
@@ -838,10 +840,14 @@ INDEX_HTML = """<!doctype html>
 
     function updateRequirementsMenuState() {
       const hasActiveProject = Boolean(activeProjectRoot);
-      startRequirements.disabled = !hasActiveProject || requirementsRunning;
-      restartRequirements.disabled = !hasActiveProject || !requirementsStarted;
-      skipRequirements.disabled = !hasActiveProject;
-      openRequirements.disabled = !hasActiveProject || !requirementsStarted;
+      const inRequirementsStage = currentWorkflowStage === "requirements";
+      startRequirements.disabled =
+        !hasActiveProject || !inRequirementsStage || requirementsRunning;
+      restartRequirements.disabled =
+        !hasActiveProject || (inRequirementsStage && !requirementsStarted);
+      skipRequirements.disabled = !hasActiveProject || !inRequirementsStage;
+      openRequirements.disabled =
+        !hasActiveProject || (inRequirementsStage && !requirementsStarted);
     }
 
     async function refreshProject() {
@@ -1053,6 +1059,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function startRequirementsAgent() {
+      if (currentWorkflowStage !== "requirements") {
+        return;
+      }
       await runRequirementsAgent(
         "/api/agents/requirements/start",
         "$ electroboy requirements",
@@ -1060,7 +1069,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function restartRequirementsAgent() {
-      if (!requirementsStarted) {
+      if (currentWorkflowStage === "requirements" && !requirementsStarted) {
         return;
       }
       await runRequirementsAgent(
@@ -1073,6 +1082,9 @@ INDEX_HTML = """<!doctype html>
     async function skipRequirementsAgent() {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== "requirements") {
         return;
       }
       if (
@@ -1102,7 +1114,7 @@ INDEX_HTML = """<!doctype html>
         appendOutput("activate a project first\\n", "error");
         return;
       }
-      if (!requirementsStarted) {
+      if (currentWorkflowStage === "requirements" && !requirementsStarted) {
         return;
       }
       requirementsMenu.hidden = true;
@@ -1322,12 +1334,16 @@ class ServiceState:
     def start_requirements_agent(
         self,
         context_id: str,
+        *,
+        allow_stage_reopen: bool = False,
     ) -> tuple[AgentSession, bool]:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "requirements" and not allow_stage_reopen:
+                raise AgentSessionError("requirements stage is not active")
             if (
                 context.requirements_session is not None
                 and context.requirements_session.is_active()
@@ -1363,10 +1379,14 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            self._require_requirements_started_locked(context)
+            if (
+                context.workflow_stage == "requirements"
+                and not context.requirements_started
+            ):
+                raise AgentSessionError("start requirements first")
         self._terminate_requirements_session(context_id)
         _reopen_requirements_for_restart(project_root)
-        return self.start_requirements_agent(context_id)
+        return self.start_requirements_agent(context_id, allow_stage_reopen=True)
 
     def skip_requirements_agent(self, context_id: str) -> dict[str, object]:
         with self.lock:
@@ -1374,6 +1394,8 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "requirements":
+                raise AgentSessionError("requirements stage is not active")
             requirements_started = context.requirements_started
         self._terminate_requirements_session(context_id)
         _record_requirements_skip(project_root)
@@ -1395,7 +1417,11 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise StateError("activate a project first")
-            self._require_requirements_started_locked(context)
+            if (
+                context.workflow_stage == "requirements"
+                and not context.requirements_started
+            ):
+                raise AgentSessionError("start requirements first")
             return project_root
 
     def current_requirements_session(self, context_id: str) -> AgentSession | None:
