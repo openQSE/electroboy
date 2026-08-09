@@ -273,16 +273,22 @@ class ServiceTests(unittest.TestCase):
 
     def test_agent_session_interrupts_running_process(self) -> None:
         script = (
-            "import signal\n"
+            "import os\n"
             "import sys\n"
-            "import time\n"
-            "def handle_interrupt(signum, frame):\n"
-            "    print('interrupted', flush=True)\n"
-            "    sys.exit(0)\n"
-            "signal.signal(signal.SIGINT, handle_interrupt)\n"
+            "import termios\n"
+            "import tty\n"
             "print('ready', flush=True)\n"
-            "while True:\n"
-            "    time.sleep(0.1)\n"
+            "fd = sys.stdin.fileno()\n"
+            "old = termios.tcgetattr(fd)\n"
+            "try:\n"
+            "    tty.setraw(fd)\n"
+            "    key = sys.stdin.read(1)\n"
+            "finally:\n"
+            "    termios.tcsetattr(fd, termios.TCSANOW, old)\n"
+            "if key == '\\x1b':\n"
+            "    print('interrupted', flush=True)\n"
+            "    os._exit(0)\n"
+            "os._exit(1)\n"
         )
         session = AgentSession([sys.executable, "-c", script], ROOT)
         try:
@@ -450,7 +456,7 @@ def wait_for_output(
         output = "".join(
             str(event.get("text", ""))
             for event in session.events_after(0)
-            if event.get("type") in {"output", "system", "error"}
+            if event.get("type") == "output"
         )
         if expected in output:
             return output

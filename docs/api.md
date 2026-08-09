@@ -151,7 +151,8 @@ renderer plus cleaned text fallback output for non-terminal clients. The browser
 keeps a normal textarea composer at the bottom; `Enter` inserts a newline and
 `Shift+Enter` sends the composed message to the requirements agent as terminal
 input, ending with a carriage-return Enter key. Multiline composer content is
-sent through bracketed paste before the submit Enter.
+sent through bracketed paste before the submit Enter. The interrupt endpoint
+sends an Escape key to the PTY, matching Codex's interactive interrupt control.
 
 `feature start` records feature metadata in the current run's `feature.json`.
 When `--name` is omitted in an interactive shell, ElectroBoy prompts for the

@@ -9,7 +9,6 @@ import os
 import pty
 import re
 import shlex
-import signal
 import struct
 import subprocess
 import sys
@@ -1219,7 +1218,6 @@ class AgentSession:
                 stderr=slave_fd,
                 env=env,
                 close_fds=True,
-                start_new_session=True,
             )
         except Exception:
             os.close(master_fd)
@@ -1261,18 +1259,10 @@ class AgentSession:
     def interrupt(self) -> None:
         if not self.is_active():
             raise AgentSessionError("requirements agent is not running")
-        process = self.process
-        if process is not None:
-            try:
-                os.killpg(process.pid, signal.SIGINT)
-            except ProcessLookupError:
-                return
-            except OSError:
-                pass
         fd = self._master_fd
         if fd is not None:
             try:
-                os.write(fd, b"\x03")
+                os.write(fd, b"\x1b")
             except OSError as error:
                 raise AgentSessionError(
                     f"could not interrupt requirements agent: {error}"
