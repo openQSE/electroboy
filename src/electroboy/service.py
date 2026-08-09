@@ -9,6 +9,7 @@ import os
 import pty
 import re
 import shlex
+import signal
 import struct
 import subprocess
 import sys
@@ -374,6 +375,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     .input-pane {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
       border-top: 1px solid #2a3142;
       background: #151b29;
       padding: 12px;
@@ -398,6 +402,25 @@ INDEX_HTML = """<!doctype html>
     .agent-input:disabled {
       color: #7c879a;
       background: #121827;
+      cursor: default;
+    }
+
+    .agent-interrupt {
+      width: 104px;
+      border: 1px solid #73342f;
+      border-radius: 8px;
+      background: #3b1718;
+      color: #ffd9d5;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .agent-interrupt:disabled {
+      border-color: #303746;
+      background: #171d2b;
+      color: #667085;
       cursor: default;
     }
 
@@ -526,6 +549,14 @@ INDEX_HTML = """<!doctype html>
           disabled
           aria-label="Requirements agent input"
         ></textarea>
+        <button
+          id="interruptAgent"
+          class="agent-interrupt"
+          type="button"
+          disabled
+        >
+          Interrupt
+        </button>
       </div>
     </section>
   </main>
@@ -554,6 +585,7 @@ INDEX_HTML = """<!doctype html>
     const directoryList = document.getElementById("directoryList");
     const agentOutput = document.getElementById("agentOutput");
     const agentInput = document.getElementById("agentInput");
+    const interruptAgent = document.getElementById("interruptAgent");
     let eventSource = null;
     let terminal = null;
     let terminalFit = null;
@@ -845,6 +877,7 @@ INDEX_HTML = """<!doctype html>
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
       agentInput.disabled = true;
+      interruptAgent.disabled = true;
       startRequirements.disabled = false;
       requirementsRunning = false;
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
@@ -870,6 +903,7 @@ INDEX_HTML = """<!doctype html>
         } else if (payload.type === "completed") {
           appendOutput(`\\nprocess exited with code ${payload.returncode}\\n`, "system");
           agentInput.disabled = true;
+          interruptAgent.disabled = true;
           startRequirements.disabled = false;
           requirementsRunning = false;
         }
@@ -886,6 +920,7 @@ INDEX_HTML = """<!doctype html>
       startRequirements.disabled = true;
       requirementsRunning = true;
       agentInput.disabled = false;
+      interruptAgent.disabled = false;
       agentInput.focus();
       appendOutput("$ electroboy requirements\\n", "system");
       const response = await fetch(contextUrl("/api/agents/requirements/start"), {
@@ -895,6 +930,7 @@ INDEX_HTML = """<!doctype html>
         const payload = await response.json().catch(() => ({ error: "start failed" }));
         appendOutput(`${payload.error || "start failed"}\\n`, "error");
         agentInput.disabled = true;
+        interruptAgent.disabled = true;
         startRequirements.disabled = false;
         requirementsRunning = false;
         return;
@@ -917,6 +953,19 @@ INDEX_HTML = """<!doctype html>
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: "send failed" }));
         appendOutput(`${payload.error || "send failed"}\\n`, "error");
+      }
+    }
+
+    async function interruptRequirementsAgent() {
+      if (!requirementsRunning) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/agents/requirements/interrupt"), {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: "interrupt failed" }));
+        appendOutput(`${payload.error || "interrupt failed"}\\n`, "error");
       }
     }
 
@@ -952,6 +1001,7 @@ INDEX_HTML = """<!doctype html>
     });
 
     startRequirements.addEventListener("click", startRequirementsAgent);
+    interruptAgent.addEventListener("click", interruptRequirementsAgent);
 
     agentInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && event.shiftKey) {
@@ -1089,6 +1139,14 @@ class ServiceState:
             raise AgentSessionError("requirements agent has not been started")
         session.resize(columns, rows)
 
+    def interrupt_requirements_agent(self, context_id: str) -> None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.requirements_session
+        if session is None:
+            raise AgentSessionError("requirements agent has not been started")
+        session.interrupt()
+
     def _context_locked(self, context_id: str) -> BrowserContext:
         context_id = context_id.strip()
         if not context_id:
@@ -1161,6 +1219,7 @@ class AgentSession:
                 stderr=slave_fd,
                 env=env,
                 close_fds=True,
+                start_new_session=True,
             )
         except Exception:
             os.close(master_fd)
@@ -1193,11 +1252,31 @@ class AgentSession:
             raise AgentSessionError("requirements agent is not running")
         if self._master_fd is None:
             raise AgentSessionError("requirements agent input is not available")
-        text = message if message.endswith("\n") else f"{message}\n"
+        text = _terminal_input_for_message(message)
         try:
             os.write(self._master_fd, text.encode("utf-8"))
         except OSError as error:
             raise AgentSessionError(f"could not write to requirements agent: {error}")
+
+    def interrupt(self) -> None:
+        if not self.is_active():
+            raise AgentSessionError("requirements agent is not running")
+        process = self.process
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                return
+            except OSError:
+                pass
+        fd = self._master_fd
+        if fd is not None:
+            try:
+                os.write(fd, b"\x03")
+            except OSError as error:
+                raise AgentSessionError(
+                    f"could not interrupt requirements agent: {error}"
+                )
 
     def resize(self, columns: int, rows: int) -> None:
         self.columns = max(20, min(columns, 300))
@@ -1499,6 +1578,14 @@ def _requirements_command(root: Path) -> list[str]:
     ]
 
 
+def _terminal_input_for_message(message: str) -> str:
+    text = message.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.rstrip("\n")
+    if "\n" in text:
+        return f"\x1b[200~{text}\x1b[201~\r"
+    return f"{text}\r"
+
+
 def _disable_terminal_echo(slave_fd: int) -> None:
     try:
         attributes = termios.tcgetattr(slave_fd)
@@ -1694,6 +1781,9 @@ def _handler_for(
             if path == "/api/agents/requirements/message":
                 self._send_requirements_message(parsed.query)
                 return
+            if path == "/api/agents/requirements/interrupt":
+                self._interrupt_requirements_agent(parsed.query)
+                return
             if path == "/api/agents/requirements/resize":
                 self._resize_requirements_agent(parsed.query)
                 return
@@ -1846,6 +1936,18 @@ def _handler_for(
                 )
                 return
             self._send_json({"status": "sent"})
+
+        def _interrupt_requirements_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                state.interrupt_requirements_agent(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "interrupted"})
 
         def _send_agent_events(self, query: str) -> None:
             try:

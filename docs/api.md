@@ -142,13 +142,16 @@ process sources that project's activation script when one exists. `GET
 `Start` for `requirements` once a project is active. Other stages remain
 inactive until later GUI work wires them up. The requirements agent uses
 `POST /api/agents/requirements/start?context_id=<id>`,
-`POST /api/agents/requirements/message?context_id=<id>`, and
+`POST /api/agents/requirements/message?context_id=<id>`,
+`POST /api/agents/requirements/interrupt?context_id=<id>`,
 `POST /api/agents/requirements/resize?context_id=<id>`, and
 `GET /api/agents/requirements/events?context_id=<id>`. The event stream is
 Server-Sent Events and carries raw terminal output for the browser's xterm
 renderer plus cleaned text fallback output for non-terminal clients. The browser
 keeps a normal textarea composer at the bottom; `Enter` inserts a newline and
-`Shift+Enter` sends the composed message to the requirements agent.
+`Shift+Enter` sends the composed message to the requirements agent as terminal
+input, ending with a carriage-return Enter key. Multiline composer content is
+sent through bracketed paste before the submit Enter.
 
 `feature start` records feature metadata in the current run's `feature.json`.
 When `--name` is omitted in an interactive shell, ElectroBoy prompts for the

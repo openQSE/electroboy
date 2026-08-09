@@ -21,6 +21,7 @@ from electroboy.service import (  # noqa: E402
     _agent_process_env,
     _clean_terminal_output,
     _requirements_command,
+    _terminal_input_for_message,
     browse_directories,
     create_server,
     workflow_payload,
@@ -69,6 +70,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="requirementsMenu"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
+        self.assertIn('id="interruptAgent"', INDEX_HTML)
         self.assertIn("xterm@5.3.0", INDEX_HTML)
         self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
         self.assertIn("new window.Terminal", INDEX_HTML)
@@ -92,6 +94,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('contextUrl("/api/agents/requirements/start")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/message")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/agents/requirements/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/resize")', INDEX_HTML)
         self.assertIn("payload.terminal || payload.text", INDEX_HTML)
         self.assertIn('event.key === "Enter" && event.shiftKey', INDEX_HTML)
@@ -268,6 +271,39 @@ class ServiceTests(unittest.TestCase):
             if session.is_active() and session.process is not None:
                 session.process.terminate()
 
+    def test_agent_session_interrupts_running_process(self) -> None:
+        script = (
+            "import signal\n"
+            "import sys\n"
+            "import time\n"
+            "def handle_interrupt(signum, frame):\n"
+            "    print('interrupted', flush=True)\n"
+            "    sys.exit(0)\n"
+            "signal.signal(signal.SIGINT, handle_interrupt)\n"
+            "print('ready', flush=True)\n"
+            "while True:\n"
+            "    time.sleep(0.1)\n"
+        )
+        session = AgentSession([sys.executable, "-c", script], ROOT)
+        try:
+            try:
+                session.start()
+            except PermissionError as error:
+                self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+            self.assertIn("ready", wait_for_output(self, session, "ready"))
+
+            session.interrupt()
+
+            self.assertIn(
+                "interrupted",
+                wait_for_output(self, session, "interrupted"),
+            )
+            wait_for_exit(self, session)
+            self.assertFalse(session.is_active())
+        finally:
+            if session.is_active() and session.process is not None:
+                session.process.terminate()
+
     def test_agent_session_preserves_raw_terminal_output(self) -> None:
         script = (
             "import sys\n"
@@ -351,6 +387,15 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(pending, "")
         self.assertEqual(cleaned, "first\nsecond\nthir")
+
+    def test_terminal_input_uses_enter_key_for_single_line_submit(self) -> None:
+        self.assertEqual(_terminal_input_for_message("hello"), "hello\r")
+
+    def test_terminal_input_uses_bracketed_paste_for_multiline_submit(self) -> None:
+        self.assertEqual(
+            _terminal_input_for_message("line one\nline two\n"),
+            "\x1b[200~line one\nline two\x1b[201~\r",
+        )
 
     def test_requirements_command_sources_project_activation_when_available(
         self,
