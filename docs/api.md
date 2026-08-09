@@ -48,7 +48,7 @@ Operator workflow commands:
   bug-fix run through evidence gathering, repair, validation, and handoff.
 - `code [--reason <text>] [--msg <text>] [--review-msg <text>]
   [--blockers-only]
-  [--list-phases|--set-phase <n>] [--phased|--interactive]` starts or
+  [--list-phases|--set-phase <n>] [--phased|--interactive|--commit]` starts or
   resumes implementation work.
 - `code-review [list [<cr-id>] | <cr-id> | <sha> | <sha1>..<sha2>]
   [--fix-followup|--fix-in-place] [--msg <text>] [--verbose]
@@ -67,9 +67,6 @@ Operator workflow commands:
 - `deactivate` leaves an activated project shell environment.
 - `report summary` writes or prints a run summary.
 - `report trace` writes or prints the activity trace.
-- `stage <stage> --force [--reason <text>]` resets directly to a
-  command-aligned stage name, such as `implementation-plan` or `code`, for
-  expert recovery and existing-project adoption.
 - `completion bash` prints the Bash completion script.
 
 Workflow commands also accept `--force` for expert recovery. A forced command
@@ -170,11 +167,9 @@ electroboy code --force
 electroboy validate --force
 ```
 
-The low-level `stage <stage> --force [--reason <text>]` command uses the same
-reset behavior when a named stage is more convenient. It accepts
-command-aligned stage names such as `implementation-plan`, `code`, and
-`validate`. Approval commands can also be forced; they reset to their target
-stage, satisfy predecessor gates, and then approve that stage.
+Approval commands can also be forced; they reset to their target stage,
+satisfy predecessor gates, and then approve that stage. There is no separate
+low-level stage-reset command; use the workflow command for the stage you want.
 
 ## Project Environment Commands
 
@@ -266,11 +261,26 @@ code-review attempt. Use `--blockers-only` to make only blocker findings
 trigger another automatic coding pass; major findings are recorded as deferred
 follow-up items.
 
+Before it lists, selects, or runs phases, `electroboy code` ensures the
+structured implementation plan exists. If the run's
+`docs/implementation-plan.jsonl`, or feature-tagged equivalent, is missing,
+ElectroBoy creates it from the Markdown plan's commit breakdown. If no commit
+breakdown table is present, it creates one fallback unit per Markdown phase.
+
+`electroboy code --commit` is an expert recovery command for an active
+implementation phase. It skips coding and code review, runs the dedicated
+coding-agent commit pass immediately, records the commit as operator-forced,
+and leaves any open review findings in the ledger. It does not mark code review
+as passed.
+
 `electroboy code --interactive` starts or resumes the active implementation
 phase, opens the configured interactive coding runtime, records the session,
 and then returns control without running code review or phase commit handling.
 Use it for operator-guided fine tuning, then run
-`electroboy code` to continue the automated implementation loop.
+`electroboy code` to continue the automated implementation loop. If every
+planned phase is already committed, `electroboy code --interactive --force`
+re-enters the code stage and opens a follow-up implementation session instead
+of completing the stage again.
 
 `electroboy design-review --interactive`,
 `electroboy code-review --interactive`, `electroboy validate --interactive`,

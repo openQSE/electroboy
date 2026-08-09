@@ -15,6 +15,7 @@ from electroboy.artifacts import ArtifactManager  # noqa: E402
 from electroboy.cli import main  # noqa: E402
 from electroboy.models import (  # noqa: E402
     GATE_IMPLEMENTATION,
+    ReviewIssue,
     STAGE_IMPLEMENTATION,
     STAGE_TEST_PLAN,
 )
@@ -120,14 +121,20 @@ class PhaseLoopTests(unittest.TestCase):
             code, stdout, stderr = self.run_cli(
                 ["--root", str(root), "code", "--list-phase"]
             )
+            jsonl_exists = (root / "docs" / "implementation-plan.jsonl").exists()
 
         self.assertEqual(code, 0, stderr)
+        self.assertTrue(jsonl_exists)
+        self.assertIn("structured plan: docs/implementation-plan.jsonl", stdout)
         self.assertIn("active phase: 1", stdout)
         self.assertIn("phase 1: active", stdout)
         self.assertIn("objective: Phase 1. First Work", stdout)
         self.assertIn("code review: passed", stdout)
         self.assertIn("commit: abc123", stdout)
+        self.assertIn("units: PH1-C01", stdout)
+        self.assertIn("active unit: PH1-C01", stdout)
         self.assertIn("phase 2: planned", stdout)
+        self.assertIn("units: PH2-C01", stdout)
 
     def test_code_set_phase_requires_reason(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -194,6 +201,7 @@ class PhaseLoopTests(unittest.TestCase):
 
         self.assertEqual(set_code, 0, set_stderr)
         self.assertIn("active phase: 2", set_stdout)
+        self.assertIn("active unit: PH2-C01", set_stdout)
         self.assertIn("operator-skipped phases:", set_stdout)
         self.assertIn("  - 1", set_stdout)
         self.assertIn("next: electroboy code", set_stdout)
@@ -204,6 +212,7 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertFalse(phase1_output_exists)
         self.assertTrue(phase2_output_exists)
         self.assertTrue(status.phases["2"]["force_selected"])
+        self.assertEqual(status.phases["2"]["active_unit"], "PH2-C01")
         self.assertEqual(status.phases["2"]["status"], "committed")
         self.assertEqual(
             status.phases["2"]["force_reason"],
@@ -269,6 +278,65 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertIn("Work interactively with the operator", prompt)
         self.assertIn("focus on scheduler dispatch", prompt)
         self.assertIn("Do not run the automated code review", prompt)
+
+    def test_code_interactive_force_allows_followup_after_committed_phases(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_manual_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n## Phase 1. First Work\n\nRequirements: REQ-1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+            sha = create_git_commit(
+                root,
+                "phase 1: first work",
+                relative_path="src/phase1/output.txt",
+            )
+            store = StateStore(root)
+            status = store.load_phase_status()
+            status.active_phase = None
+            status.phases["1"] = {
+                "status": "committed",
+                "objective": "Phase 1. First Work",
+                "commit": sha,
+            }
+            store.save_phase_status(status)
+            manifest = store.load_current_manifest()
+            manifest.set_active_stage(STAGE_TEST_PLAN)
+            store.save_manifest(manifest)
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "code",
+                    "--interactive",
+                    "--force",
+                    "--msg",
+                    "make one final cleanup",
+                ]
+            )
+
+            manifest = store.load_current_manifest()
+            status = store.load_phase_status()
+            prompts = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompts[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(manifest.active_stage, STAGE_IMPLEMENTATION)
+        self.assertIsNone(status.active_phase)
+        self.assertIn("interactive code session completed", stdout)
+        self.assertIn("active phase: none", stdout)
+        self.assertIn("mode: follow-up implementation", stdout)
+        self.assertIn("all planned phases are committed", stdout)
+        self.assertIn("follow-up implementation work", prompt)
+        self.assertIn("make one final cleanup", prompt)
 
     def test_code_command_automates_all_planned_phases_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -652,6 +720,82 @@ class PhaseLoopTests(unittest.TestCase):
         self.assertIn("CR-001", code_review_text)
         self.assertIn("Severity: major", code_review_text)
         self.assertIn("Status: deferred", code_review_text)
+
+    def test_code_commit_forces_phase_commit_with_open_review_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_generic_agent_runtime(root)
+            write_file(
+                root / "docs" / "implementation-plan.md",
+                "# Plan\n\n"
+                "## Phase 1. First Work\n\n"
+                "Requirements: REQ-1\n"
+                "Paths: src/phase1\n",
+            )
+            initialize_git_repo(root)
+            self.prepare_implementation_run(root)
+            start_phase(root, 1)
+            write_file(root / "src" / "phase1" / "output.txt", "phase 1\n")
+            store = StateStore(root)
+            store.append_review_issue(
+                "phase-1-code-review.jsonl",
+                ReviewIssue(
+                    issue_id="CR-001",
+                    source="code_review",
+                    severity="major",
+                    status="open",
+                    summary="Phase output still needs review.",
+                    artifact="src/phase1/output.txt",
+                    location="src/phase1/output.txt:1",
+                ),
+            )
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "code",
+                    "--commit",
+                    "--msg",
+                    "Commit this checkpoint despite review churn.",
+                ]
+            )
+
+            store = StateStore(root)
+            status = store.load_phase_status()
+            phase = status.phases["1"]
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+            committed_files = git_show_names(root)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("forced commit: yes", stdout)
+        self.assertIn("open blocking review issues: 1", stdout)
+        self.assertIn("review gate: operator-forced", stdout)
+        self.assertEqual(phase["status"], "committed")
+        self.assertEqual(phase["commit_gate"], "operator-forced")
+        self.assertTrue(phase["forced_commit"])
+        self.assertNotEqual(phase.get("code_review"), "passed")
+        self.assertIn("src/phase1/output.txt", committed_files)
+        self.assertIn("Operator requested this commit", prompt)
+        self.assertIn("Do not claim code review passed", prompt)
+        self.assertIn("CR-001 [major/open]", prompt)
+        self.assertIn("Commit this checkpoint despite review churn.", prompt)
+
+    def test_code_commit_requires_active_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_generic_agent_runtime(root)
+            self.prepare_implementation_run(root)
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "code", "--commit"]
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("requires an active implementation phase", stderr)
 
     def test_phase_commit_allows_arbitrary_commit_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -641,6 +641,14 @@ Exit criteria:
 ### Stage 6. Phase Implementation Loop
 
 The coding agent implements one phase from `docs/implementation-plan.md`.
+The current implementation treats a phase as the durable implementation unit.
+Before implementation starts, the orchestrator ensures a structured
+implementation plan exists beside the Markdown plan. If the JSONL artifact is
+missing, it is bootstrapped from the Markdown commit breakdown, or from the
+phase headings as a compatibility fallback. The planned implementation-unit
+refinement makes each commit-breakdown row in the implementation plan the
+normal automation unit, so one row is coded, self-reviewed, code-reviewed,
+fixed, and committed before the next row starts.
 
 The basic loop is:
 
@@ -664,6 +672,10 @@ are recorded for follow-up and do not block the phase. After code review
 passes, the orchestrator starts a coding-agent commit pass and records the
 resulting SHA. `electroboy code --phased` runs one phase and leaves commit
 creation or commit recording to the operator before the next phase can start.
+`electroboy code --commit` is an expert escape hatch for an active phase. It
+skips new coding and review turns, runs the dedicated coding-agent commit pass,
+records the commit as operator-forced, and leaves unresolved review findings in
+the ledger instead of marking code review as passed.
 
 The orchestrator writes human-readable phase review attempt reports under
 `docs/reviews/`, with filenames that include the review kind, feature tag when
@@ -770,13 +782,16 @@ User-facing stage commands follow stable transition rules:
   passed.
 - Running `electroboy code` after interruption resumes the active phase or the
   next uncommitted phase from durable state.
+- Running `electroboy code --interactive --force` after every planned phase is
+  committed re-enters the code stage for operator-directed follow-up work
+  without creating a synthetic phase.
 - Running `electroboy document` resumes the documentation stage after
   validation testing passes.
 - Running a public workflow command after pipeline completion starts a new
   controlled iteration from that stage.
 - Running `<command> --force` resets the active stage to that command's stage,
   marks predecessor gates satisfied, records predecessor snapshots, and records
-  an audit decision.
+  an audit decision. There is no separate low-level stage-reset command.
 
 Allowed operator actions:
 

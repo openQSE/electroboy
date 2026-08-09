@@ -263,6 +263,13 @@ phase changes, records the resulting commit, and continues until every planned
 phase is complete. Blocker and major findings stop the phase after the retry
 limit. Minor findings are recorded for follow-up and do not block progress.
 
+Before phase lookup, `code` ensures the structured implementation plan exists.
+If `docs/implementation-plan.jsonl` is missing, ElectroBoy creates it from the
+Markdown implementation plan's commit breakdown. Feature runs use the matching
+feature-tagged path, such as `docs/implementation-plan-<feature>.jsonl`. If no
+commit breakdown table is present, ElectroBoy falls back to one structured unit
+per Markdown phase so existing plans still run.
+
 Pass `--msg "<instruction>"` to append an operator instruction to the coding
 agent's implementation, fix, and commit prompts for that `code` run. The
 message cannot broaden the active phase scope. Coding and fix passes leave
@@ -276,6 +283,13 @@ on every code-review attempt and is not passed to coding or commit agents.
 Pass `--blockers-only` when the automated `code` loop should run another
 coding pass only for blocker review findings. Major findings are recorded as
 deferred follow-up items and the phase can continue.
+
+Use `code --commit` as an expert escape hatch when an active phase has working
+tree changes ready to checkpoint but the automated review loop is no longer
+productive. The command skips coding and code review, runs the dedicated
+coding-agent commit pass immediately, records the commit as operator-forced,
+and does not mark code review as passed. Open blocker and major review issues
+remain in the review ledger for follow-up.
 
 Use `code --list-phases` to inspect planned implementation phases and the
 recorded state for each phase. Expert recovery can move the active phase with
@@ -307,6 +321,13 @@ the feature tag in those filenames. The top-level `docs/code-review.md` file
 remains a latest-summary index that points to the per-attempt reports.
 Generated review reports are human-readable pipeline output and should not be
 included in phase implementation commits.
+
+The structured implementation plan records the implementation-plan commit
+breakdown as machine-readable implementation units. Current implementation
+still runs the phase-level loop, but `code --list-phases` displays the units
+and `code --set-phase <n>` seeds the first unit in that phase. The planned
+implementation-unit workflow will use one structured unit as the
+code/self-review/code-review/fix/commit boundary.
 
 Use `code-review` to audit the current codebase, a single commit, or an
 already-written commit range without advancing the pipeline:
@@ -423,7 +444,20 @@ electroboy phase commit <phase> --sha <commit-sha>
 phase agents and leaves commit creation or commit recording to the operator.
 `code --interactive` opens an interactive coding-agent shell for the active or
 next planned phase and leaves the implementation loop paused when the shell
-exits.
+exits. If every planned phase is already committed, use
+`electroboy code --interactive --force`. It re-enters the code stage and opens
+a follow-up implementation session instead of creating a fake new phase.
+
+Use forced commit mode only when a human wants to stop an unproductive
+automated review loop and checkpoint the active phase as-is:
+
+```bash
+electroboy code --commit --msg "Commit current phase despite review churn"
+```
+
+`code --commit` runs the dedicated coding-agent commit pass immediately,
+records the commit as operator-forced, and leaves unresolved review findings in
+the ledger for follow-up.
 
 Expert users can force a workflow command when adopting or repairing an
 existing project. `--force` resets the state machine to that command's stage
@@ -435,10 +469,11 @@ electroboy code --force
 electroboy validate --force
 ```
 
-The low-level `stage <stage> --force` command remains available for resetting
-directly to a command-aligned stage name, such as `implementation-plan` or
-`code`. A `--reason` can be provided on any forced command and is recorded in
-the decision log.
+`code --force` alone resets the workflow to the code stage. If every planned
+phase is already committed, it leaves the stage at code and prints the next
+interactive or phase-selection command instead of immediately advancing to
+test planning. A `--reason` can be provided on any forced command that exposes
+one, and is recorded in the decision log.
 
 Resume an interrupted run from the same project:
 

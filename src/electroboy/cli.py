@@ -62,7 +62,12 @@ from .models import (
     STAGE_VALIDATION,
     utc_now,
 )
-from .planning import planned_phases
+from .planning import (
+    ensure_implementation_plan_jsonl,
+    implementation_plan_jsonl_path,
+    read_implementation_units,
+    planned_phases,
+)
 from .adapters.base import AgentInvocation, AgentResult
 from .runtime import runtime_for_role
 from .state_store import StateError, StateStore
@@ -89,13 +94,6 @@ PUBLIC_STAGE_NAMES = {
     STAGE_DOCS_REVIEW: "document",
     STAGE_COMPLETE: "code-approve",
 }
-
-PUBLIC_STAGE_ALIASES = {
-    **{public_name: stage for stage, public_name in PUBLIC_STAGE_NAMES.items()},
-    **{stage: stage for stage in STAGES},
-}
-
-PUBLIC_STAGE_CHOICES = list(PUBLIC_STAGE_NAMES.values())
 
 STATUS_NEXT_STAGE_NAMES = {
     STAGE_REQUIREMENTS: "requirements-approve",
@@ -632,6 +630,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="open an interactive coding agent shell for the active phase",
     )
+    code_mode.add_argument(
+        "--commit",
+        action="store_true",
+        help=(
+            "expert: skip automated coding/review and run the phase commit "
+            "pass for the active phase"
+        ),
+    )
     code.add_argument(
         "--msg",
         action="append",
@@ -734,19 +740,6 @@ def build_parser() -> argparse.ArgumentParser:
     report_summary.add_argument("--output", help="write report to this path")
     report_trace = report_subparsers.add_parser("trace", help="show activity trace")
     report_trace.add_argument("--output", help="write report to this path")
-
-    stage = subparsers.add_parser("stage", help="force-reset to a stage")
-    stage.add_argument(
-        "stage",
-        metavar="stage",
-        help="stage command name, such as implementation-plan or code",
-    )
-    stage.add_argument(
-        "--force",
-        action="store_true",
-        help="required to reset to the named stage",
-    )
-    stage.add_argument("--reason", help="reason for forcing the stage reset")
 
     phase = subparsers.add_parser("phase", help="record manual phase commits")
     phase_subparsers = phase.add_subparsers(dest="phase_command", required=True)
@@ -957,8 +950,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_code_approve(store, engine, args)
         if args.command == "report":
             return _cmd_report(store, engine, args)
-        if args.command == "stage":
-            return _cmd_set_stage(store, args)
         if args.command == "phase":
             return _cmd_phase(store, engine, args)
         if args.command == "validate":
@@ -1375,7 +1366,6 @@ def _bash_completion_script() -> str:
     replacements = {
         "__COMMANDS__": _shell_words(sorted(command_parsers)),
         "__GLOBAL_OPTIONS__": _shell_words(_option_strings(parser)),
-        "__STAGE_CHOICES__": _shell_words(PUBLIC_STAGE_CHOICES),
         "__COMPLETION_SHELLS__": "bash",
         "__COMMAND_OPTIONS_CASES__": _bash_case_entries(command_options),
         "__SUBCOMMAND_CASES__": _bash_case_entries(nested_subcommands),
@@ -1441,7 +1431,6 @@ _BASH_COMPLETION_TEMPLATE = """# bash completion for ElectroBoy.
 
 __electroboy_commands='__COMMANDS__'
 __electroboy_global_options='__GLOBAL_OPTIONS__'
-__electroboy_stage_choices='__STAGE_CHOICES__'
 __electroboy_completion_shells='__COMPLETION_SHELLS__'
 
 __electroboy_command_options() {
@@ -1474,7 +1463,7 @@ __electroboy_option_expects_value() {
 
 __electroboy_complete() {
     local cur prev command subcommand word options subcommands
-    local command_index i have_stage
+    local i
 
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -1490,7 +1479,6 @@ __electroboy_complete() {
 
     command=""
     subcommand=""
-    command_index=0
     for ((i = 1; i < COMP_CWORD; i++)); do
         word="${COMP_WORDS[i]}"
         if __electroboy_option_expects_value "$word"; then
@@ -1502,7 +1490,6 @@ __electroboy_complete() {
         fi
         if [ -z "$command" ]; then
             command="$word"
-            command_index="$i"
             continue
         fi
         if [ -z "$subcommand" ]; then
@@ -1539,25 +1526,6 @@ __electroboy_complete() {
             COMPREPLY=( $(compgen -W "$options" -- "$cur") )
         fi
         return 0
-    fi
-
-    if [ "$command" = "stage" ]; then
-        have_stage=0
-        for ((i = command_index + 1; i < COMP_CWORD; i++)); do
-            word="${COMP_WORDS[i]}"
-            if __electroboy_option_expects_value "$word"; then
-                ((i++))
-                continue
-            fi
-            if [[ "$word" == -* ]]; then
-                continue
-            fi
-            have_stage=1
-        done
-        if [ "$have_stage" = "0" ] && [[ "$cur" != -* ]]; then
-            COMPREPLY=( $(compgen -W "$__electroboy_stage_choices" -- "$cur") )
-            return 0
-        fi
     fi
 
     if [ "$command" = "completion" ] && [[ "$cur" != -* ]]; then
@@ -2931,6 +2899,70 @@ def _cmd_design_review_interactive(store: StateStore) -> int:
     return 0
 
 
+def _implementation_plan_jsonl_artifact_path(store: StateStore) -> str:
+    plan_path = _artifact_path(store, "docs/implementation-plan.md")
+    return implementation_plan_jsonl_path(plan_path)
+
+
+def _ensure_structured_implementation_plan(store: StateStore) -> None:
+    plan_path = _artifact_path(store, "docs/implementation-plan.md")
+    jsonl_path = _implementation_plan_jsonl_artifact_path(store)
+    units, created = ensure_implementation_plan_jsonl(
+        store.root,
+        plan_path,
+        jsonl_path,
+    )
+    if not created:
+        return
+    store.append_activity(
+        ActivityEvent(
+            actor="orchestrator",
+            stage=STAGE_IMPLEMENTATION,
+            action="structured-plan-created",
+            summary=(
+                "Created structured implementation plan from Markdown "
+                "implementation plan."
+            ),
+            inputs=[plan_path],
+            outputs=[jsonl_path],
+            artifact_changes=[jsonl_path],
+        )
+    )
+    print(f"structured plan: {jsonl_path}")
+    print(f"implementation units: {len(units)}")
+
+
+def _structured_implementation_units(store: StateStore):
+    return read_implementation_units(
+        store.root,
+        _implementation_plan_jsonl_artifact_path(store),
+    )
+
+
+def _first_unit_id_for_phase(
+    store: StateStore,
+    phase_number: int,
+) -> str | None:
+    for unit in _structured_implementation_units(store):
+        if unit.phase == phase_number:
+            return unit.unit_id
+    return None
+
+
+def _ensure_active_phase_unit(store: StateStore) -> None:
+    status = store.load_phase_status()
+    if status.active_phase is None:
+        return
+    phase = status.phases.setdefault(str(status.active_phase), {})
+    if str(phase.get("active_unit", "")).strip():
+        return
+    first_unit = _first_unit_id_for_phase(store, status.active_phase)
+    if not first_unit:
+        return
+    phase["active_unit"] = first_unit
+    store.save_phase_status(status)
+
+
 def _cmd_code(
     store: StateStore,
     engine: GateEngine,
@@ -2976,16 +3008,21 @@ def _cmd_code(
         _print_gate_failure(["implementation gate has not passed"])
         return 1
 
+    _ensure_structured_implementation_plan(store)
+    _ensure_active_phase_unit(store)
+
     list_phases = bool(getattr(args, "list_phases", False))
     set_phase = getattr(args, "set_phase", None)
     if list_phases and set_phase is not None:
         raise StateError("code phase listing cannot be combined with --set-phase")
     if (list_phases or set_phase is not None) and (
-        getattr(args, "interactive", False) or getattr(args, "phased", False)
+        getattr(args, "interactive", False)
+        or getattr(args, "phased", False)
+        or getattr(args, "commit", False)
     ):
         raise StateError(
             "code phase state commands cannot be combined with --interactive "
-            "or --phased"
+            "or --phased or --commit"
         )
     if list_phases:
         return _cmd_code_list_phases(store)
@@ -2994,8 +3031,13 @@ def _cmd_code(
 
     operator_messages = _code_operator_messages(args)
     review_messages = _code_review_operator_messages(args)
+    if getattr(args, "commit", False):
+        return _cmd_code_commit(store, engine, operator_messages)
     if getattr(args, "interactive", False):
         return _cmd_code_interactive(store, engine, args, operator_messages)
+    if getattr(args, "force", False) and _implementation_phases_complete(store):
+        _print_code_force_reset_without_active_phase()
+        return 0
     if getattr(args, "phased", False):
         return _cmd_code_phased(
             store,
@@ -3013,6 +3055,22 @@ def _cmd_code(
     )
 
 
+def _implementation_phases_complete(store: StateStore) -> bool:
+    phase_status = store.load_phase_status()
+    return (
+        phase_status.active_phase is None
+        and _next_uncommitted_phase(store) is None
+    )
+
+
+def _print_code_force_reset_without_active_phase() -> None:
+    _print_progress("implementation", "all planned phases are committed")
+    print("active stage: code")
+    print("active phase: none")
+    print("next: electroboy code --interactive --force")
+    print("or: electroboy code --set-phase <n> --reason \"<why>\" --force")
+
+
 def _cmd_code_list_phases(store: StateStore) -> int:
     status = store.load_phase_status()
     planned = {
@@ -3022,7 +3080,11 @@ def _cmd_code_list_phases(store: StateStore) -> int:
             _artifact_path(store, "docs/implementation-plan.md"),
         )
     }
+    units_by_phase: dict[int, list[str]] = {}
+    for unit in _structured_implementation_units(store):
+        units_by_phase.setdefault(unit.phase, []).append(unit.unit_id)
     numbers = set(planned)
+    numbers.update(units_by_phase)
     for key in status.phases:
         try:
             numbers.add(int(key))
@@ -3055,6 +3117,12 @@ def _cmd_code_list_phases(store: StateStore) -> int:
         print(f"    objective: {objective}")
         print(f"    code review: {code_review}")
         print(f"    commit: {commit}")
+        units = units_by_phase.get(number, [])
+        if units:
+            print(f"    units: {', '.join(units)}")
+        active_unit = str(phase.get("active_unit", "")).strip()
+        if active_unit:
+            print(f"    active unit: {active_unit}")
         if bool(phase.get("force_selected")):
             print("    force-selected: yes")
             reason = str(phase.get("force_reason", "")).strip()
@@ -3128,6 +3196,9 @@ def _cmd_code_set_phase(
     phase["force_selected"] = True
     phase["force_reason"] = reason_text
     phase["force_selected_at"] = utc_now()
+    first_unit = _first_unit_id_for_phase(store, phase_number)
+    if first_unit:
+        phase["active_unit"] = first_unit
     if previous_phase is not None and previous_phase != phase_number:
         phase["previous_active_phase"] = previous_phase
     store.save_phase_status(status)
@@ -3161,6 +3232,8 @@ def _cmd_code_set_phase(
     existing_commit = phase.get("commit")
     if existing_commit:
         print(f"existing commit: {existing_commit}")
+    if first_unit:
+        print(f"active unit: {first_unit}")
     print("next: electroboy code")
     return 0
 
@@ -3181,6 +3254,32 @@ def _code_review_operator_messages(args: argparse.Namespace) -> list[str]:
     ]
 
 
+def _cmd_code_commit(
+    store: StateStore,
+    engine: GateEngine,
+    operator_messages: list[str],
+) -> int:
+    phase_status = store.load_phase_status()
+    if phase_status.active_phase is None:
+        print(
+            "error: code --commit requires an active implementation phase",
+            file=sys.stderr,
+        )
+        return 1
+    phase_number = phase_status.active_phase
+    _print_progress(
+        "implementation",
+        f"operator-forced commit for phase {phase_number}",
+    )
+    return _commit_active_phase_with_agent(
+        store,
+        engine,
+        phase_number,
+        operator_messages,
+        forced=True,
+    )
+
+
 def _cmd_code_interactive(
     store: StateStore,
     engine: GateEngine,
@@ -3192,7 +3291,7 @@ def _cmd_code_interactive(
         next_phase = _next_uncommitted_phase(store)
         if next_phase is None:
             _print_progress("implementation", "all planned phases are committed")
-            return _complete_implementation_stage(store, engine)
+            return _cmd_code_interactive_followup(store, operator_messages)
         _start_code_phase(store, next_phase)
         phase = next_phase
         _print_progress("implementation", f"started phase {phase}")
@@ -3218,7 +3317,7 @@ def _cmd_code_interactive(
             phase,
             operator_messages,
         ),
-        context_paths=_implementation_context_paths(store),
+        context_paths=_implementation_agent_context_paths(store),
         session_stage=STAGE_IMPLEMENTATION,
         session_artifact=plan_path,
     )
@@ -3243,6 +3342,43 @@ def _cmd_code_interactive(
     print("interactive code session completed")
     print(f"active phase: {phase}")
     print("next: run `electroboy code` to continue automated review and commit")
+    return 0
+
+
+def _cmd_code_interactive_followup(
+    store: StateStore,
+    operator_messages: list[str],
+) -> int:
+    plan_path = _artifact_path(store, "docs/implementation-plan.md")
+    result, event_id, _issue_file = _invoke_agent_role(
+        store,
+        role="coding_interactive",
+        prompt=_interactive_followup_coding_prompt(store, operator_messages),
+        context_paths=_implementation_agent_context_paths(store),
+        session_stage=STAGE_IMPLEMENTATION,
+        session_artifact=plan_path,
+    )
+    if not result.ok:
+        print(
+            result.final_message,
+            end="" if result.final_message.endswith("\n") else "\n",
+        )
+        return 1
+    store.append_activity(
+        ActivityEvent(
+            actor="coding-agent",
+            stage=STAGE_IMPLEMENTATION,
+            action="interactive-code-followup-recorded",
+            summary="Completed interactive follow-up implementation session.",
+            inputs=_implementation_context_paths(store),
+            outputs=[],
+            message_ref=f"messages/{event_id}-response.md",
+        )
+    )
+    print("interactive code session completed")
+    print("active phase: none")
+    print("mode: follow-up implementation")
+    print("next: run `electroboy code-review` or continue to test planning")
     return 0
 
 
@@ -4469,6 +4605,9 @@ def _cmd_code_phased(
             "plan_current": True,
         }
     )
+    first_unit = _first_unit_id_for_phase(store, next_phase)
+    if first_unit:
+        phase["active_unit"] = first_unit
     store.save_phase_status(phase_status)
     store.append_activity(
         ActivityEvent(
@@ -4558,6 +4697,9 @@ def _start_code_phase(store: StateStore, phase_number: int) -> None:
             "plan_current": True,
         }
     )
+    first_unit = _first_unit_id_for_phase(store, phase_number)
+    if first_unit:
+        phase["active_unit"] = first_unit
     store.save_phase_status(phase_status)
     store.append_activity(
         ActivityEvent(
@@ -4636,7 +4778,7 @@ def _run_code_review_cycle(
                 review_messages,
                 blockers_only=blockers_only,
             ),
-            context_paths=_implementation_context_paths(store),
+            context_paths=_implementation_agent_context_paths(store),
         )
         review_issue_file = review_issue_file or issue_file
         if blockers_only:
@@ -4718,7 +4860,7 @@ def _run_coding_pass(
     operator_messages: list[str] | None = None,
     blockers_only: bool = False,
 ) -> tuple[AgentResult, str]:
-    context_paths = _implementation_context_paths(store)
+    context_paths = _implementation_agent_context_paths(store)
     if summary_path and (store.root / summary_path).exists():
         context_paths.append(summary_path)
     before_heads = _git_repository_heads(store.root)
@@ -5231,6 +5373,27 @@ def _review_issue_detail_lines(issue: dict[str, object], issue_file: str) -> lis
     return lines
 
 
+def _review_issue_prompt_lines(issues: list[dict[str, object]]) -> list[str]:
+    if not issues:
+        return ["- none"]
+    lines: list[str] = []
+    for issue in issues:
+        issue_id = str(issue.get("issue_id") or "unknown")
+        severity = str(issue.get("severity") or "unknown")
+        status = str(issue.get("status") or "unknown")
+        summary = str(issue.get("summary") or "").strip() or "unspecified"
+        artifact = str(issue.get("artifact") or "").strip()
+        location = str(issue.get("location") or "").strip()
+        location_text = ""
+        if artifact or location:
+            separator = ":" if artifact and location else ""
+            location_text = f" ({artifact}{separator}{location})"
+        lines.append(
+            f"- {issue_id} [{severity}/{status}]{location_text}: {summary}"
+        )
+    return lines
+
+
 def _issue_is_blocking(
     issue: dict[str, object],
     *,
@@ -5247,25 +5410,75 @@ def _phase_review_artifact_paths(store: StateStore) -> list[str]:
     return []
 
 
+def _forced_phase_commit_gate_messages(
+    store: StateStore,
+    engine: GateEngine,
+    manifest,
+) -> list[str]:
+    messages: list[str] = []
+    if not manifest.has_gate(GATE_IMPLEMENTATION):
+        messages.append("implementation gate is not complete")
+    messages.extend(engine.implementation_plan_currency().messages)
+    return messages
+
+
 def _commit_active_phase_with_agent(
     store: StateStore,
     engine: GateEngine,
     phase_number: int,
     operator_messages: list[str],
+    *,
+    forced: bool = False,
 ) -> int:
     manifest = store.load_current_manifest()
-    result = engine.evaluate(GATE_COMMIT, manifest)
-    if not result.passed:
-        _print_gate_failure(result.messages)
-        return 1
+    if forced:
+        forced_gate_messages = _forced_phase_commit_gate_messages(
+            store,
+            engine,
+            manifest,
+        )
+        if forced_gate_messages:
+            _print_gate_failure(forced_gate_messages)
+            return 1
+    else:
+        result = engine.evaluate(GATE_COMMIT, manifest)
+        if not result.passed:
+            _print_gate_failure(result.messages)
+            return 1
 
     status = store.load_phase_status()
     if status.active_phase != phase_number:
         print("error: requested phase is not active", file=sys.stderr)
         return 1
     phase = status.phases.setdefault(str(phase_number), {})
+    open_review_issues = _blocking_issues(
+        store,
+        f"phase-{phase_number}-code-review.jsonl",
+    )
+    if forced:
+        store.append_activity(
+            ActivityEvent(
+                actor="human-operator",
+                stage=STAGE_IMPLEMENTATION,
+                phase=phase_number,
+                action="forced-phase-commit-requested",
+                status="pass",
+                summary=(
+                    "Requested phase commit without requiring code-review "
+                    "gate completion."
+                ),
+                inputs=[
+                    f"open blocking review issues: {len(open_review_issues)}",
+                ],
+            )
+        )
+        print("forced commit: yes")
+        print(f"open blocking review issues: {len(open_review_issues)}")
     before_head = _git_current_head(store.root)
-    _print_progress("implementation", f"asking coding agent to commit phase {phase_number}")
+    _print_progress(
+        "implementation",
+        f"asking coding agent to commit phase {phase_number}",
+    )
     commit_result, commit_event, _issue_file = _invoke_agent_role(
         store,
         role="coding",
@@ -5274,6 +5487,8 @@ def _commit_active_phase_with_agent(
             phase_number,
             phase,
             operator_messages,
+            forced=forced,
+            open_review_issues=open_review_issues,
         ),
         context_paths=_phase_commit_context_paths(store),
     )
@@ -5310,6 +5525,7 @@ def _commit_active_phase_with_agent(
         phase_number,
         commit_sha,
         commit_event=commit_event,
+        forced=forced,
     )
     store.append_activity(
         ActivityEvent(
@@ -5323,6 +5539,8 @@ def _commit_active_phase_with_agent(
         )
     )
     print(f"committed phase: {phase_number}")
+    if forced:
+        print("review gate: operator-forced")
     print(f"commit: {commit_sha}")
     return 0
 
@@ -6063,21 +6281,6 @@ def _cmd_report(
     return 2
 
 
-def _cmd_set_stage(store: StateStore, args: argparse.Namespace) -> int:
-    if not args.force:
-        raise StateError("stage changes require --force")
-    _force_reset_to_stage(store, _normalize_stage_name(args.stage), args.reason)
-    return 0
-
-
-def _normalize_stage_name(value: str) -> str:
-    stage = PUBLIC_STAGE_ALIASES.get(value)
-    if stage:
-        return stage
-    choices = ", ".join(PUBLIC_STAGE_CHOICES)
-    raise StateError(f"unknown stage {value!r}; choose one of: {choices}")
-
-
 def _cmd_stage(
     store: StateStore,
     engine: GateEngine,
@@ -6356,7 +6559,7 @@ def _cmd_validation_test_review_interactive(
                 blockers_only=blockers_only,
             )
         ),
-        context_paths=_implementation_context_paths(store),
+        context_paths=_implementation_agent_context_paths(store),
         session_stage=STAGE_VALIDATION,
         session_artifact=artifact,
     )
@@ -6400,7 +6603,7 @@ def _run_validation_test_review(
             commands,
             blockers_only=blockers_only,
         ),
-        context_paths=_implementation_context_paths(store),
+        context_paths=_implementation_agent_context_paths(store),
         issue_file_override=issue_file,
     )
     review_issue_file = review_issue_file or issue_file
@@ -7349,6 +7552,14 @@ def _implementation_context_paths(store: StateStore) -> list[str]:
     )
 
 
+def _implementation_agent_context_paths(store: StateStore) -> list[str]:
+    paths = list(_implementation_context_paths(store))
+    jsonl_path = _implementation_plan_jsonl_artifact_path(store)
+    if (store.root / jsonl_path).exists():
+        paths.append(jsonl_path)
+    return paths
+
+
 def _coding_prompt(
     store: StateStore,
     phase_number: int,
@@ -7436,6 +7647,41 @@ def _interactive_coding_prompt(
             "and commit workflow.",
             "Do not update requirements, design, plan, or test-plan documents",
             "unless the operator explicitly asks you to.",
+            "Before ending the session, summarize files changed, tests run,",
+            "and any remaining work.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _interactive_followup_coding_prompt(
+    store: StateStore,
+    operator_messages: list[str],
+) -> str:
+    requirements_path, design_path, plan_path, test_plan_path = (
+        _implementation_context_paths(store)
+    )
+    lines = [
+        "Work interactively with the operator on follow-up implementation work.",
+        "",
+        "All planned implementation phases are already recorded as committed.",
+        "This session is for operator-directed follow-up coding or fine tuning,",
+        "not for re-running the implementation plan from the beginning.",
+        f"Use {requirements_path}, {design_path}, {plan_path}, and",
+        f"{test_plan_path} when present as the approved context.",
+        "Continue from the current working tree and inspect only the files",
+        "needed for the requested follow-up task.",
+        "Do not update requirements, design, plan, or test-plan documents",
+        "unless the operator explicitly asks you to.",
+        "If the follow-up work implies upstream requirements, design, plan, or",
+        "test-plan changes, report that clearly before ending the session.",
+        "Do not create git commits unless the operator explicitly asks you to",
+        "commit during this interactive session.",
+    ]
+    lines.extend(_coding_operator_instruction_lines(operator_messages))
+    lines.extend(
+        [
+            "",
             "Before ending the session, summarize files changed, tests run,",
             "and any remaining work.",
         ]
@@ -7544,6 +7790,9 @@ def _coding_commit_prompt(
     phase_number: int,
     phase: dict[str, object],
     operator_messages: list[str],
+    *,
+    forced: bool = False,
+    open_review_issues: list[dict[str, object]] | None = None,
 ) -> str:
     requirements_path, design_path, plan_path, test_plan_path = (
         _implementation_context_paths(store)
@@ -7552,10 +7801,6 @@ def _coding_commit_prompt(
     objective = _phase_commit_objective(phase_number, phase)
     lines = [
         f"Commit implementation phase {phase_number}: {objective}.",
-        "",
-        "Code review has passed. Do not change file contents",
-        "unless committing is impossible without a small metadata-only update",
-        "such as a submodule pointer after committing a nested repository.",
         "",
         f"Use {requirements_path}, {design_path}, {plan_path}, and",
         f"{test_plan_path} when present as the approved context.",
@@ -7583,6 +7828,30 @@ def _coding_commit_prompt(
         "Report the commit SHA or SHAs, files committed, and concise",
         "commit_message when finished.",
     ]
+    if forced:
+        lines[2:2] = [
+            "Operator requested this commit before the code-review gate passed.",
+            "Do not claim code review passed. Commit the current phase changes",
+            "as-is unless committing is impossible without a small metadata-only",
+            "update such as a submodule pointer after committing a nested",
+            "repository.",
+            "",
+        ]
+        issues = open_review_issues or []
+        lines.extend(
+            [
+                "",
+                "Open blocker/major review issues at forced commit time:",
+                *_review_issue_prompt_lines(issues),
+            ]
+        )
+    else:
+        lines[2:2] = [
+            "Code review has passed. Do not change file contents",
+            "unless committing is impossible without a small metadata-only update",
+            "such as a submodule pointer after committing a nested repository.",
+            "",
+        ]
     lines.extend(_coding_operator_instruction_lines(operator_messages))
     return "\n".join(lines)
 
@@ -10278,12 +10547,17 @@ def _record_phase_commit(
     phase_number: int,
     sha: str,
     commit_event: str | None = None,
+    *,
+    forced: bool = False,
 ) -> None:
     status = store.load_phase_status()
     phase = status.phases.setdefault(str(phase_number), {})
     phase["status"] = "committed"
     phase["commit"] = sha
-    phase["commit_gate"] = "passed"
+    phase["commit_gate"] = "operator-forced" if forced else "passed"
+    if forced:
+        phase["forced_commit"] = True
+        phase["forced_commit_at"] = utc_now()
     if commit_event:
         phase["commit_event"] = commit_event
     status.active_phase = None
@@ -10294,9 +10568,14 @@ def _record_phase_commit(
             stage=manifest.active_stage,
             phase=phase_number,
             gate=GATE_COMMIT,
-            action="phase-committed",
+            action="phase-committed-forced" if forced else "phase-committed",
             status="pass",
-            summary=f"Committed implementation phase {phase_number}.",
+            summary=(
+                f"Committed implementation phase {phase_number} "
+                "through operator-forced commit."
+                if forced
+                else f"Committed implementation phase {phase_number}."
+            ),
             commit=sha,
         )
     )

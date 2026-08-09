@@ -531,7 +531,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(manifest.active_stage, STAGE_VALIDATION)
         self.assertIn("docs/test-plan.md", committed_files)
 
-    def test_stage_force_sets_active_stage(self) -> None:
+    def test_public_command_force_sets_active_stage(self) -> None:
         with temp_project() as root:
             store = StateStore(root)
             store.init_run(run_id="run-1")
@@ -540,7 +540,6 @@ class CliTests(unittest.TestCase):
                 [
                     "--root",
                     str(root),
-                    "stage",
                     "code",
                     "--force",
                     "--reason",
@@ -559,13 +558,13 @@ class CliTests(unittest.TestCase):
         self.assertTrue(order.passed, order.messages)
         self.assertEqual(activity[-1]["action"], "forced-predecessor-gates-completed")
 
-    def test_stage_force_reason_is_optional(self) -> None:
+    def test_public_command_force_reason_is_optional(self) -> None:
         with temp_project() as root:
             store = StateStore(root)
             store.init_run(run_id="run-1")
 
             code, stdout, stderr = self.run_cli(
-                ["--root", str(root), "stage", STAGE_IMPLEMENTATION, "--force"]
+                ["--root", str(root), "code", "--force"]
             )
             manifest = store.load_current_manifest()
 
@@ -1214,7 +1213,7 @@ domains = ["tracker.example.com"]
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.splitlines(), ["implementation-plan"])
 
-    def test_completion_bash_completes_stage_choices(self) -> None:
+    def test_completion_bash_does_not_offer_removed_stage_command(self) -> None:
         with temp_project() as root:
             code, script, stderr = self.run_cli(["completion", "bash"])
             script_path = root / "completion.bash"
@@ -1228,8 +1227,8 @@ domains = ["tracker.example.com"]
                     "-c",
                     (
                         'source "$SCRIPT"\n'
-                        "COMP_WORDS=(electroboy stage imple)\n"
-                        "COMP_CWORD=2\n"
+                        "COMP_WORDS=(electroboy sta)\n"
+                        "COMP_CWORD=1\n"
                         "__electroboy_complete\n"
                         'printf "%s\\n" "${COMPREPLY[@]}"\n'
                     ),
@@ -1243,7 +1242,10 @@ domains = ["tracker.example.com"]
 
         self.assertEqual(code, 0, stderr)
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout.splitlines(), ["implementation-plan"])
+        completions = completed.stdout.splitlines()
+        self.assertIn("start", completions)
+        self.assertIn("status", completions)
+        self.assertNotIn("stage", completions)
 
 
 class temp_project:

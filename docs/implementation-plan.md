@@ -439,15 +439,15 @@ electroboy implementation-plan [--reason <text>]
 electroboy plan-approve
 electroboy test-plan [--reason <text>]
 electroboy test-plan-approve
-electroboy code [--reason <text>] [--msg <text>] [--phased]
-electroboy validate
+electroboy code [--force] [--reason <text>] [--msg <text>]
+electroboy code [--phased|--interactive|--commit]
+electroboy validate [--force] [--interactive]
 electroboy validation-approve
-electroboy document [--reason <text>]
+electroboy document [--force] [--reason <text>] [--interactive]
 electroboy code-approve
 electroboy deactivate
 electroboy report summary
 electroboy report trace
-electroboy stage <stage> --force [--reason <text>]
 electroboy completion bash
 ```
 
@@ -472,8 +472,15 @@ every remaining planned phase, invokes coding, code review, and test review
 agents, asks the coding agent to commit reviewed phase changes, records each
 valid phase commit, and advances to test-plan review when the implementation
 plan is complete. `code --phased` runs one phase and leaves commit creation or
-commit recording to the operator before the next phase can start. During
-`code`, the orchestrator uses Rich progress
+commit recording to the operator before the next phase can start.
+Before phase lookup, `code` bootstraps the structured
+`docs/implementation-plan.jsonl` artifact from the Markdown commit breakdown
+when the JSONL file is missing. Feature runs use the matching feature-tagged
+JSONL path.
+`code --commit` skips new coding and review turns for the active phase, invokes
+the dedicated coding-agent commit pass, records the result as an
+operator-forced commit, and leaves unresolved review issues in the ledger.
+During `code`, the orchestrator uses Rich progress
 indicators for the active phase, code review, test review, escalations, and
 resumable checkpoints. Long-running non-interactive agent roles also receive a
 run-local Markdown progress file. The orchestrator prints the path, instructs
@@ -515,7 +522,8 @@ stores the supplied reason, invalidates downstream gates after approval, and
 re-enters the ordered pipeline at that stage. Later stage commands are blocked
 until all predecessor gates pass. Expert users can use `<command> --force` to
 reset to a workflow point, record an audit decision, mark predecessor gates
-satisfied, and record predecessor snapshots.
+satisfied, and record predecessor snapshots. There is no separate stage-reset
+command; the workflow command itself is the reset interface.
 
 ## Flow Enforcement
 
@@ -893,15 +901,21 @@ Scope:
 - Write per-attempt review reports under `docs/reviews/` and keep
   `docs/code-review.md` as the latest-summary index, using feature-tagged
   names during feature work.
+- Bootstrap `docs/implementation-plan.jsonl`, or the feature-tagged
+  equivalent, from Markdown commit breakdown rows before code phase lookup.
 - Detect active-phase drift from `docs/implementation-plan.md`.
 - Invoke the coding agent to create the verified phase commit by default.
 - Record the coding-agent commit SHA after validation.
 - Add `electroboy code --msg <text>` for operator instructions appended to
   coding-agent prompts.
+- Add `electroboy code --commit` for operator-forced phase commits when the
+  automated review loop is no longer productive.
 - Preserve manual commit recording through phased mode.
 - Update `phase-status.json`.
 - Persist checkpoints before and after each agent turn.
 - Render stage, phase, review, test, and escalation progress with Rich.
+- Track the follow-up implementation-unit workflow in which each
+  commit-breakdown row becomes the normal code/review/fix/commit unit.
 
 Acceptance criteria:
 
@@ -911,6 +925,12 @@ Acceptance criteria:
 - `electroboy code --msg <text>` appends the text to coding-agent prompts.
 - `electroboy code --phased` runs only the active phase and waits for manual
   commit recording.
+- `electroboy code --commit` commits the active phase through the dedicated
+  coding-agent commit pass without marking code review as passed.
+- If the structured implementation-plan JSONL is missing, `electroboy code`
+  creates it before listing, selecting, or running phases.
+- `electroboy code --set-phase <n>` records the first structured unit for the
+  selected phase when units are available.
 - Each phase records an independent git commit before the next phase starts.
 - A new phase cannot start while another phase is active.
 - Phase review can update only the active phase.
