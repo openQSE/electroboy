@@ -30,11 +30,16 @@ from electroboy.service import (  # noqa: E402
     _terminal_input_chunks_for_message,
     _terminal_input_for_message,
     browse_directories,
+    browse_files,
     create_server,
     requirements_document_html,
     workflow_payload,
 )
-from electroboy.models import STAGE_DESIGN, STAGE_REQUIREMENTS  # noqa: E402
+from electroboy.models import (  # noqa: E402
+    STAGE_DESIGN,
+    STAGE_DESIGN_REVIEW,
+    STAGE_REQUIREMENTS,
+)
 from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 
@@ -134,6 +139,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="openDesign"', INDEX_HTML)
         self.assertIn('id="startDesignReview"', INDEX_HTML)
         self.assertIn('id="stopDesignReview"', INDEX_HTML)
+        self.assertIn('id="completeDesignReview"', INDEX_HTML)
         self.assertIn('id="restartDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignFromReview"', INDEX_HTML)
@@ -146,13 +152,25 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="progressOutput"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
+        self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
+        self.assertIn('id="increaseTerminalFont"', INDEX_HTML)
         self.assertIn('id="interruptAgent"', INDEX_HTML)
+        self.assertIn('id="insertFileLink"', INDEX_HTML)
+        self.assertIn('class="agent-actions"', INDEX_HTML)
         self.assertIn(".output-split.split", INDEX_HTML)
         self.assertIn(".agent-pane.noninteractive", INDEX_HTML)
+        self.assertIn(".terminal-font-controls", INDEX_HTML)
+        self.assertIn(".directory-entry.file", INDEX_HTML)
+        self.assertIn(".directory-entry.selected", INDEX_HTML)
         self.assertIn("xterm@5.3.0", INDEX_HTML)
         self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
         self.assertIn("new window.Terminal", INDEX_HTML)
         self.assertIn("disableStdin: true", INDEX_HTML)
+        self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
+        self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
+        self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
+        self.assertIn("terminal.options.fontSize = terminalFontSize", INDEX_HTML)
+        self.assertIn("progressTerminal.options.fontSize = terminalFontSize", INDEX_HTML)
         self.assertIn("let progressEventSource = null;", INDEX_HTML)
         self.assertIn("let progressTerminal = null;", INDEX_HTML)
         self.assertIn("function initializeProgressTerminal()", INDEX_HTML)
@@ -205,6 +223,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("stopDesignReview.disabled =", INDEX_HTML)
         self.assertIn("!hasActiveProject || !inDesignReviewStage || !designReviewRunning", INDEX_HTML)
+        self.assertIn("completeDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("approveDesign.disabled = !inDesignApproveStage", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
@@ -220,7 +239,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/artifacts/design-review")', INDEX_HTML)
         self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
         self.assertIn("/api/files/browse?path=", INDEX_HTML)
+        self.assertIn("&mode=file", INDEX_HTML)
         self.assertIn("function selectCurrentDirectory()", INDEX_HTML)
+        self.assertIn("function insertSelectedFilePath()", INDEX_HTML)
+        self.assertIn("function insertTextAtCursor(text)", INDEX_HTML)
+        self.assertIn("function selectFileForInput(path, button)", INDEX_HTML)
         self.assertIn("activating:", INDEX_HTML)
         self.assertIn("activation request failed:", INDEX_HTML)
         self.assertIn("choose a project directory first", INDEX_HTML)
@@ -235,6 +258,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/design/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/start"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/stop"', INDEX_HTML)
+        self.assertIn('"/api/agents/design-review/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/restart"', INDEX_HTML)
         self.assertIn('"/api/agents/design-approve/approve"', INDEX_HTML)
         self.assertIn("function approveRequirementsStage()", INDEX_HTML)
@@ -257,6 +281,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function restartDesignAgent()", INDEX_HTML)
         self.assertIn("function completeDesignAgent()", INDEX_HTML)
         self.assertIn("function stopDesignReviewAgent()", INDEX_HTML)
+        self.assertIn("function completeDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function restartDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function openRequirementsDocument()", INDEX_HTML)
         self.assertIn("function openDesignDocument()", INDEX_HTML)
@@ -314,7 +339,14 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             operations["design-review"],
-            ["Start review", "Stop", "Restart review", "Open review", "Open design"],
+            [
+                "Start review",
+                "Stop",
+                "Complete",
+                "Restart review",
+                "Open review",
+                "Open design",
+            ],
         )
         self.assertEqual(
             operations["design-approve"],
@@ -857,6 +889,48 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
 
+    def test_design_review_complete_terminates_session_and_advances(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                context = state.contexts[context_id]
+                context.workflow_stage = "design-review"
+                context.design_review_started = True
+                context.design_review_session = session  # type: ignore[assignment]
+
+            with mock.patch("electroboy.cli._cmd_stage", return_value=0) as cmd_stage:
+                payload = state.complete_design_review_agent(context_id)
+
+            stage_args = cmd_stage.call_args.args[2]
+
+        self.assertTrue(session.terminated)
+        self.assertTrue(stage_args.force)
+        self.assertEqual(stage_args.stage, STAGE_DESIGN_REVIEW)
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["workflow_stage"], "design-approve")
+        self.assertEqual(payload["next_stage"], "design-approve")
+        self.assertTrue(payload["design_review_started"])
+        self.assertFalse(payload["design_review_running"])
+
     def test_design_approval_advances_to_implementation_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -984,6 +1058,31 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["path"], str(root.resolve()))
         self.assertIn(
             {"name": "alpha", "path": str((root / "alpha").resolve())},
+            payload["entries"],
+        )
+
+    def test_browse_files_lists_directories_and_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "alpha").mkdir()
+            (root / "example.txt").write_text("example\n", encoding="utf-8")
+
+            payload = browse_files(root)
+
+        self.assertIn(
+            {
+                "name": "alpha",
+                "path": str((root / "alpha").resolve()),
+                "type": "directory",
+            },
+            payload["entries"],
+        )
+        self.assertIn(
+            {
+                "name": "example.txt",
+                "path": str((root / "example.txt").resolve()),
+                "type": "file",
+            },
             payload["entries"],
         )
 

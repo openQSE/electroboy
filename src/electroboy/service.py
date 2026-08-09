@@ -367,6 +367,16 @@ INDEX_HTML = """<!doctype html>
       white-space: nowrap;
     }
 
+    .directory-entry.file {
+      color: #243f53;
+      font-weight: 550;
+    }
+
+    .directory-entry.selected {
+      border-color: #007f8a;
+      background: #effbfc;
+    }
+
     .file-browser {
       position: fixed;
       z-index: 60;
@@ -503,19 +513,53 @@ INDEX_HTML = """<!doctype html>
       cursor: default;
     }
 
-    .agent-interrupt {
-      width: 104px;
-      border: 1px solid #73342f;
+    .agent-actions {
+      display: grid;
+      grid-template-rows: auto auto auto;
+      gap: 8px;
+      align-self: stretch;
+      width: 112px;
+    }
+
+    .terminal-font-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .terminal-font-button,
+    .agent-action-button {
       border-radius: 8px;
-      background: #3b1718;
-      color: #ffd9d5;
       cursor: pointer;
       font-family: inherit;
       font-size: 13px;
       font-weight: 750;
     }
 
-    .agent-interrupt:disabled {
+    .terminal-font-button {
+      height: 32px;
+      border: 1px solid #364156;
+      background: #1d2638;
+      color: var(--terminal-text);
+    }
+
+    .agent-action-button {
+      height: 38px;
+    }
+
+    .agent-interrupt {
+      border: 1px solid #73342f;
+      background: #3b1718;
+      color: #ffd9d5;
+    }
+
+    .agent-link {
+      border: 1px solid #305e6f;
+      background: #12303b;
+      color: #d5f4ff;
+    }
+
+    .agent-action-button:disabled {
       border-color: #303746;
       background: #171d2b;
       color: #667085;
@@ -679,6 +723,7 @@ INDEX_HTML = """<!doctype html>
       <div id="designReviewMenu" class="stage-menu" hidden>
         <button id="startDesignReview" type="button">Start review</button>
         <button id="stopDesignReview" type="button">Stop</button>
+        <button id="completeDesignReview" type="button">Complete</button>
         <button id="restartDesignReview" type="button">Restart review</button>
         <button id="openDesignReview" type="button">Open review</button>
         <button id="openDesignFromReview" type="button">Open design</button>
@@ -744,14 +789,44 @@ INDEX_HTML = """<!doctype html>
           disabled
           aria-label="Requirements agent input"
         ></textarea>
-        <button
-          id="interruptAgent"
-          class="agent-interrupt"
-          type="button"
-          disabled
-        >
-          Interrupt
-        </button>
+        <div class="agent-actions">
+          <div class="terminal-font-controls" aria-label="Terminal font size">
+            <button
+              id="decreaseTerminalFont"
+              class="terminal-font-button"
+              type="button"
+              title="Decrease terminal font size"
+              aria-label="Decrease terminal font size"
+            >
+              A-
+            </button>
+            <button
+              id="increaseTerminalFont"
+              class="terminal-font-button"
+              type="button"
+              title="Increase terminal font size"
+              aria-label="Increase terminal font size"
+            >
+              A+
+            </button>
+          </div>
+          <button
+            id="interruptAgent"
+            class="agent-action-button agent-interrupt"
+            type="button"
+            disabled
+          >
+            Interrupt
+          </button>
+          <button
+            id="insertFileLink"
+            class="agent-action-button agent-link"
+            type="button"
+            disabled
+          >
+            Link file
+          </button>
+        </div>
       </div>
     </section>
   </main>
@@ -816,6 +891,7 @@ INDEX_HTML = """<!doctype html>
     const openDesign = document.getElementById("openDesign");
     const startDesignReview = document.getElementById("startDesignReview");
     const stopDesignReview = document.getElementById("stopDesignReview");
+    const completeDesignReview = document.getElementById("completeDesignReview");
     const restartDesignReview = document.getElementById("restartDesignReview");
     const openDesignReview = document.getElementById("openDesignReview");
     const openDesignFromReview = document.getElementById("openDesignFromReview");
@@ -839,14 +915,22 @@ INDEX_HTML = """<!doctype html>
     const progressOutput = document.getElementById("progressOutput");
     const inputPane = document.getElementById("inputPane");
     const agentInput = document.getElementById("agentInput");
+    const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
+    const increaseTerminalFont = document.getElementById("increaseTerminalFont");
     const interruptAgent = document.getElementById("interruptAgent");
+    const insertFileLink = document.getElementById("insertFileLink");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
+    const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
+    const DEFAULT_TERMINAL_FONT_SIZE = 15;
+    const MIN_TERMINAL_FONT_SIZE = 11;
+    const MAX_TERMINAL_FONT_SIZE = 24;
     let eventSource = null;
     let progressEventSource = null;
     let terminal = null;
     let terminalFit = null;
     let progressTerminal = null;
     let progressTerminalFit = null;
+    let terminalFontSize = storedTerminalFontSize();
     let resizeTimer = null;
     let activeAgentKind = "";
     let requirementsRunning = false;
@@ -862,6 +946,38 @@ INDEX_HTML = """<!doctype html>
     let activeProjectRoot = "";
     let currentBrowsePath = "";
     let currentBrowseParent = "";
+    let currentBrowserMode = "project";
+    let currentSelectedFile = "";
+
+    function storedTerminalFontSize() {
+      try {
+        const stored = Number(window.localStorage.getItem(TERMINAL_FONT_STORAGE_KEY));
+        if (Number.isFinite(stored)) {
+          return clampTerminalFontSize(stored);
+        }
+      } catch (error) {
+        return DEFAULT_TERMINAL_FONT_SIZE;
+      }
+      return DEFAULT_TERMINAL_FONT_SIZE;
+    }
+
+    function saveTerminalFontSize() {
+      try {
+        window.localStorage.setItem(
+          TERMINAL_FONT_STORAGE_KEY,
+          String(terminalFontSize),
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function clampTerminalFontSize(value) {
+      return Math.max(
+        MIN_TERMINAL_FONT_SIZE,
+        Math.min(MAX_TERMINAL_FONT_SIZE, value),
+      );
+    }
 
     function initializeTerminal() {
       if (!window.Terminal) {
@@ -874,6 +990,7 @@ INDEX_HTML = """<!doctype html>
         terminal.loadAddon(terminalFit);
       }
       terminal.open(agentOutput);
+      applyTerminalFontSize();
       fitTerminal();
       window.addEventListener("resize", fitTerminal);
     }
@@ -888,6 +1005,7 @@ INDEX_HTML = """<!doctype html>
         progressTerminal.loadAddon(progressTerminalFit);
       }
       progressTerminal.open(progressOutput);
+      applyTerminalFontSize();
     }
 
     function terminalOptions() {
@@ -897,7 +1015,7 @@ INDEX_HTML = """<!doctype html>
         cursorBlink: false,
         disableStdin: true,
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-        fontSize: 13,
+        fontSize: terminalFontSize,
         scrollback: 10000,
         theme: {
           background: "#10141f",
@@ -906,6 +1024,24 @@ INDEX_HTML = """<!doctype html>
           selectionBackground: "#2b6173",
         },
       };
+    }
+
+    function changeTerminalFontSize(delta) {
+      terminalFontSize = clampTerminalFontSize(terminalFontSize + delta);
+      saveTerminalFontSize();
+      applyTerminalFontSize();
+    }
+
+    function applyTerminalFontSize() {
+      if (terminal) {
+        terminal.options.fontSize = terminalFontSize;
+      }
+      if (progressTerminal) {
+        progressTerminal.options.fontSize = terminalFontSize;
+      }
+      decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
+      increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
+      window.requestAnimationFrame(fitTerminal);
     }
 
     function fitTerminal() {
@@ -1009,6 +1145,7 @@ INDEX_HTML = """<!doctype html>
       agentPane.classList.toggle("noninteractive", !isVisible);
       if (!isVisible) {
         agentInput.disabled = true;
+        insertFileLink.disabled = true;
       }
       window.requestAnimationFrame(fitTerminal);
     }
@@ -1225,6 +1362,7 @@ INDEX_HTML = """<!doctype html>
         !hasActiveProject || !inDesignReviewStage || designReviewRunning || designReviewStarted;
       stopDesignReview.disabled =
         !hasActiveProject || !inDesignReviewStage || !designReviewRunning;
+      completeDesignReview.disabled = !hasActiveProject || !inDesignReviewStage;
       restartDesignReview.disabled =
         !hasActiveProject || (inDesignReviewStage && !designReviewStarted);
       openDesignReview.disabled =
@@ -1296,12 +1434,21 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
     }
 
-    async function browseDirectory(path = projectPath.value || ".") {
+    async function browseDirectory(path = projectPath.value || ".", mode = currentBrowserMode) {
+      currentBrowserMode = mode;
+      currentSelectedFile = "";
       fileBrowser.hidden = false;
       browserPath.value = path;
+      selectDirectory.textContent = mode === "link" ? "Insert" : "Select";
+      selectDirectory.disabled = mode === "link";
+      fileBrowser.setAttribute(
+        "aria-label",
+        mode === "link" ? "File browser" : "Directory browser",
+      );
       directoryList.replaceChildren();
+      const modeParameter = mode === "link" ? "&mode=file" : "";
       const response = await fetch(
-        `/api/files/browse?path=${encodeURIComponent(path)}`,
+        `/api/files/browse?path=${encodeURIComponent(path)}${modeParameter}`,
         { cache: "no-store" },
       );
       if (!response.ok) {
@@ -1316,18 +1463,34 @@ INDEX_HTML = """<!doctype html>
       upDirectory.disabled = !currentBrowseParent;
       directoryList.replaceChildren();
       for (const entry of payload.entries) {
-        directoryList.appendChild(directoryButton(entry.name, entry.path));
+        directoryList.appendChild(
+          directoryButton(entry.name, entry.path, entry.type || "directory"),
+        );
       }
     }
 
-    function directoryButton(label, path) {
+    function directoryButton(label, path, type = "directory") {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "directory-entry";
+      button.className = `directory-entry ${type === "file" ? "file" : "directory"}`;
       button.textContent = label;
       button.title = path;
-      button.addEventListener("click", () => browseDirectory(path));
+      button.addEventListener("click", () => {
+        if (type === "file") {
+          selectFileForInput(path, button);
+        } else {
+          browseDirectory(path, currentBrowserMode);
+        }
+      });
       return button;
+    }
+
+    function selectFileForInput(path, button) {
+      currentSelectedFile = path;
+      for (const entry of directoryList.querySelectorAll(".directory-entry")) {
+        entry.classList.toggle("selected", entry === button);
+      }
+      selectDirectory.disabled = false;
     }
 
     function showProjectPanel(mode) {
@@ -1348,6 +1511,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     function selectCurrentDirectory() {
+      if (currentBrowserMode === "link") {
+        insertSelectedFilePath();
+        return;
+      }
       if (!currentBrowsePath) {
         return;
       }
@@ -1355,6 +1522,27 @@ INDEX_HTML = """<!doctype html>
       projectStatus.textContent = `selected: ${currentBrowsePath}`;
       fileBrowser.hidden = true;
       projectPath.focus();
+    }
+
+    function insertSelectedFilePath() {
+      if (!currentSelectedFile) {
+        return;
+      }
+      insertTextAtCursor(currentSelectedFile);
+      fileBrowser.hidden = true;
+      currentSelectedFile = "";
+      agentInput.focus();
+    }
+
+    function insertTextAtCursor(text) {
+      const start = agentInput.selectionStart ?? agentInput.value.length;
+      const end = agentInput.selectionEnd ?? start;
+      const value = agentInput.value;
+      const needsLeadingSpace = start > 0 && !/\\s/.test(value[start - 1]);
+      const insertion = `${needsLeadingSpace ? " " : ""}${text}`;
+      agentInput.value = `${value.slice(0, start)}${insertion}${value.slice(end)}`;
+      const cursor = start + insertion.length;
+      agentInput.setSelectionRange(cursor, cursor);
     }
 
     async function applyProjectSelection() {
@@ -1509,7 +1697,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     function updateAgentControls() {
-      agentInput.disabled = !(requirementsRunning || designRunning);
+      const acceptsInput = requirementsRunning || designRunning;
+      agentInput.disabled = !acceptsInput;
+      insertFileLink.disabled = !acceptsInput;
       interruptAgent.disabled = !agentProcessRunning();
     }
 
@@ -1740,6 +1930,38 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
     }
 
+    async function completeDesignReviewAgent() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== "design-review") {
+        return;
+      }
+      designReviewMenu.hidden = true;
+      closeAgentEventStream();
+      closeProgressEventStream();
+      const response = await fetch(contextUrl("/api/agents/design-review/complete"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "complete failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "complete failed"}\\n`, "error");
+        if (payload.output) {
+          appendOutput(`${payload.output}\\n`, "error");
+        }
+        setAgentRunning("design-review", false);
+        refreshProject();
+        return;
+      }
+      setAgentRunning("design-review", false);
+      if (payload.output) {
+        appendOutput(`${payload.output}\\n`, "system");
+      }
+      appendOutput("design review completed; next: design-approve\\n", "system");
+      updateProjectState(payload);
+    }
+
     async function approveDesignStage() {
       if (currentWorkflowStage !== "design-approve") {
         return;
@@ -1953,18 +2175,25 @@ INDEX_HTML = """<!doctype html>
     newProject.addEventListener("click", () => showProjectPanel("new"));
     deactivateProject.addEventListener("click", deactivateActiveProject);
     browseProject.addEventListener("click", () => {
-      browseDirectory(projectPath.value || activeProjectRoot || serviceRoot || ".");
+      browseDirectory(
+        projectPath.value || activeProjectRoot || serviceRoot || ".",
+        "project",
+      );
     });
     activateProject.addEventListener("click", applyProjectSelection);
     upDirectory.addEventListener("click", () => {
       if (currentBrowseParent) {
-        browseDirectory(currentBrowseParent);
+        browseDirectory(currentBrowseParent, currentBrowserMode);
       }
     });
     selectDirectory.addEventListener("click", selectCurrentDirectory);
     closeBrowser.addEventListener("click", () => {
       fileBrowser.hidden = true;
-      projectPath.focus();
+      if (currentBrowserMode === "link") {
+        agentInput.focus();
+      } else {
+        projectPath.focus();
+      }
     });
 
     startRequirements.addEventListener("click", startRequirementsAgent);
@@ -1979,13 +2208,22 @@ INDEX_HTML = """<!doctype html>
     openDesign.addEventListener("click", openDesignDocument);
     startDesignReview.addEventListener("click", startDesignReviewAgent);
     stopDesignReview.addEventListener("click", stopDesignReviewAgent);
+    completeDesignReview.addEventListener("click", completeDesignReviewAgent);
     restartDesignReview.addEventListener("click", restartDesignReviewAgent);
     openDesignReview.addEventListener("click", openDesignReviewDocument);
     openDesignFromReview.addEventListener("click", openDesignDocument);
     approveDesign.addEventListener("click", approveDesignStage);
     openApprovedDesign.addEventListener("click", openDesignDocument);
     openApprovedDesignReview.addEventListener("click", openDesignReviewDocument);
+    decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
+    increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
     interruptAgent.addEventListener("click", interruptActiveAgent);
+    insertFileLink.addEventListener("click", () => {
+      if (insertFileLink.disabled) {
+        return;
+      }
+      browseDirectory(activeProjectRoot || serviceRoot || ".", "link");
+    });
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
 
@@ -2451,6 +2689,66 @@ class ServiceState:
         return {
             **project_payload(self.root, context, project_root),
             "status": "stopped",
+        }
+
+    def complete_design_review_agent(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != "design-review":
+                raise AgentSessionError("design review stage is not active")
+            session = context.design_review_session
+            design_review_started = context.design_review_started
+        if session is not None and session.is_active():
+            session.terminate()
+
+        from .cli import _cmd_stage, _stage_args
+        from .gates import GateEngine
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        store = StateStore(project_root)
+        engine = GateEngine(project_root)
+        reason = "Design review was completed manually from the GUI."
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = _cmd_stage(
+                    store,
+                    engine,
+                    _stage_args(STAGE_DESIGN_REVIEW, force=True, reason=reason),
+                )
+        except StateError:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.design_review_session is session:
+                    context.design_review_session = None
+            raise
+        output = "\n".join(
+            part.strip()
+            for part in [stderr.getvalue(), stdout.getvalue()]
+            if part.strip()
+        )
+        if code != 0:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.design_review_session is session:
+                    context.design_review_session = None
+            raise AgentSessionError(output or "design review completion failed")
+
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.design_review_session is session:
+                context.design_review_session = None
+            context.workflow_stage = "design-approve"
+            context.design_review_started = design_review_started
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "completed",
+            "next_stage": "design-approve",
+            "output": output,
         }
 
     def approve_design(self, context_id: str) -> dict[str, object]:
@@ -3110,6 +3408,38 @@ def browse_directories(path: Path | str) -> dict[str, object]:
     }
 
 
+def browse_files(path: Path | str) -> dict[str, object]:
+    directory = Path(path).expanduser().resolve()
+    if not directory.exists():
+        raise StateError(f"directory does not exist: {directory}")
+    if not directory.is_dir():
+        raise StateError(f"path is not a directory: {directory}")
+
+    try:
+        children = sorted(
+            [
+                child
+                for child in directory.iterdir()
+                if child.is_dir() or child.is_file()
+            ],
+            key=lambda child: (not child.is_dir(), child.name.lower()),
+        )
+    except OSError as error:
+        raise StateError(f"could not read directory: {error}") from error
+    return {
+        "path": str(directory),
+        "parent": str(directory.parent) if directory.parent != directory else None,
+        "entries": [
+            {
+                "name": child.name,
+                "path": str(child),
+                "type": "directory" if child.is_dir() else "file",
+            }
+            for child in children[:300]
+        ],
+    }
+
+
 def initialize_project(project_root: Path | str):
     from .cli import (
         _init_git_repository,
@@ -3170,7 +3500,14 @@ def _stage_operations(
     if stage == "design" and active_project_root:
         return ["Start", "Restart", "Complete", "Open design"]
     if stage == "design-review" and active_project_root:
-        return ["Start review", "Stop", "Restart review", "Open review", "Open design"]
+        return [
+            "Start review",
+            "Stop",
+            "Complete",
+            "Restart review",
+            "Open review",
+            "Open design",
+        ]
     if stage == "design-approve" and active_project_root:
         return ["Approve", "Open design", "Open review"]
     return []
@@ -3724,6 +4061,9 @@ def _handler_for(
             if path == "/api/agents/design-review/stop":
                 self._stop_design_review_agent(parsed.query)
                 return
+            if path == "/api/agents/design-review/complete":
+                self._complete_design_review_agent(parsed.query)
+                return
             if path == "/api/agents/design-review/restart":
                 self._restart_design_review_agent(parsed.query)
                 return
@@ -3770,8 +4110,13 @@ def _handler_for(
         def _browse_files(self, query: str) -> None:
             params = parse_qs(query)
             path = (params.get("path") or [str(state.root)])[0]
+            mode = (params.get("mode") or ["directory"])[0]
             try:
-                payload = browse_directories(path)
+                payload = (
+                    browse_files(path)
+                    if mode == "file"
+                    else browse_directories(path)
+                )
             except StateError as error:
                 self._send_json(
                     {"error": str(error)},
@@ -4174,6 +4519,17 @@ def _handler_for(
             try:
                 context_id = self._context_id(query)
                 self._send_json(state.stop_design_review_agent(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _complete_design_review_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.complete_design_review_agent(context_id))
             except (AgentSessionError, StateError) as error:
                 self._send_json(
                     {"error": str(error)},
