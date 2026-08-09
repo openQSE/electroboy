@@ -124,7 +124,9 @@ INDEX_HTML = """<!doctype html>
     .shell {
       position: relative;
       display: grid;
-      grid-template-rows: 230px minmax(0, 1fr);
+      grid-template-rows:
+        var(--workflow-pane-height, 230px) 7px
+        minmax(0, 1fr);
       height: 100vh;
       min-height: 560px;
     }
@@ -136,6 +138,26 @@ INDEX_HTML = """<!doctype html>
       border-bottom: 1px solid var(--border);
       background: var(--panel);
       overflow: visible;
+    }
+
+    .shell-resize-handle,
+    .input-resize-handle,
+    .output-resize-handle {
+      touch-action: none;
+      user-select: none;
+    }
+
+    .shell-resize-handle {
+      position: relative;
+      z-index: 8;
+      min-height: 0;
+      background: #d0d9e6;
+      cursor: row-resize;
+    }
+
+    .shell-resize-handle:hover,
+    .shell.resizing .shell-resize-handle {
+      background: #7398b4;
     }
 
     .stage-scroll {
@@ -416,7 +438,9 @@ INDEX_HTML = """<!doctype html>
       position: relative;
       z-index: 0;
       display: grid;
-      grid-template-rows: minmax(0, 1fr) 148px;
+      grid-template-rows:
+        minmax(0, 1fr) 7px
+        var(--input-pane-height, 148px);
       min-height: 0;
       background: var(--terminal);
     }
@@ -449,6 +473,18 @@ INDEX_HTML = """<!doctype html>
       background: #3a78a0;
     }
 
+    .input-resize-handle {
+      min-height: 0;
+      background: #202838;
+      cursor: row-resize;
+    }
+
+    .input-resize-handle:hover,
+    .agent-pane.resizing-input .input-resize-handle {
+      background: #3a78a0;
+    }
+
+    .input-resize-handle[hidden],
     .output-resize-handle[hidden] {
       display: none;
     }
@@ -628,7 +664,9 @@ INDEX_HTML = """<!doctype html>
 
       .output-split.split {
         grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: minmax(0, 1fr) 7px minmax(180px, 0.45fr);
+        grid-template-rows:
+          minmax(0, 1fr) 7px
+          minmax(180px, var(--progress-pane-height, 45%));
       }
 
       .output-resize-handle {
@@ -792,6 +830,13 @@ INDEX_HTML = """<!doctype html>
         <div id="directoryList" class="directory-list"></div>
       </div>
     </section>
+    <div
+      id="shellResizeHandle"
+      class="shell-resize-handle"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize workflow and agent panes"
+    ></div>
     <section id="agentPane" class="agent-pane" aria-label="Agent session">
       <div id="outputSplit" class="output-split">
         <div id="agentOutput" class="agent-output" aria-live="polite"></div>
@@ -810,6 +855,13 @@ INDEX_HTML = """<!doctype html>
           hidden
         ></div>
       </div>
+      <div
+        id="inputResizeHandle"
+        class="input-resize-handle"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize output and input panes"
+      ></div>
       <div id="inputPane" class="input-pane">
         <textarea
           id="agentInput"
@@ -862,8 +914,10 @@ INDEX_HTML = """<!doctype html>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script>
+    const shell = document.querySelector(".shell");
     const connection = document.getElementById("connection");
     const workflowPane = document.querySelector(".workflow-pane");
+    const shellResizeHandle = document.getElementById("shellResizeHandle");
     const stageScroll = document.querySelector(".stage-scroll");
     const stageNodes = Array.from(document.querySelectorAll(".stage-node[data-stage]"));
     const STAGE_DESCRIPTIONS = {
@@ -944,6 +998,7 @@ INDEX_HTML = """<!doctype html>
     const agentOutput = document.getElementById("agentOutput");
     const outputResizeHandle = document.getElementById("outputResizeHandle");
     const progressOutput = document.getElementById("progressOutput");
+    const inputResizeHandle = document.getElementById("inputResizeHandle");
     const inputPane = document.getElementById("inputPane");
     const agentInput = document.getElementById("agentInput");
     const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
@@ -952,7 +1007,10 @@ INDEX_HTML = """<!doctype html>
     const insertFileLink = document.getElementById("insertFileLink");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
+    const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";
+    const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
+    const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
@@ -963,6 +1021,8 @@ INDEX_HTML = """<!doctype html>
     let progressTerminal = null;
     let progressTerminalFit = null;
     let terminalFontSize = storedTerminalFontSize();
+    let resizeShellState = null;
+    let resizeInputState = null;
     let resizeOutputState = null;
     let resizeTimer = null;
     let activeAgentKind = "";
@@ -1013,26 +1073,62 @@ INDEX_HTML = """<!doctype html>
       );
     }
 
-    function applyStoredProgressPaneWidth() {
+    function storedNumber(key) {
       try {
-        const stored = Number(window.localStorage.getItem(PROGRESS_PANE_WIDTH_STORAGE_KEY));
+        const stored = Number(window.localStorage.getItem(key));
         if (Number.isFinite(stored) && stored > 0) {
-          outputSplit.style.setProperty("--progress-pane-width", `${stored}px`);
+          return stored;
         }
+      } catch (error) {
+        return 0;
+      }
+      return 0;
+    }
+
+    function saveNumber(key, value) {
+      try {
+        window.localStorage.setItem(key, String(Math.round(value)));
       } catch (error) {
         return;
       }
     }
 
-    function saveProgressPaneWidth(width) {
-      try {
-        window.localStorage.setItem(
-          PROGRESS_PANE_WIDTH_STORAGE_KEY,
-          String(Math.round(width)),
-        );
-      } catch (error) {
-        return;
+    function applyStoredPaneSizes() {
+      const workflowHeight = storedNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY);
+      if (workflowHeight) {
+        shell.style.setProperty("--workflow-pane-height", `${workflowHeight}px`);
       }
+      const inputHeight = storedNumber(INPUT_PANE_HEIGHT_STORAGE_KEY);
+      if (inputHeight) {
+        agentPane.style.setProperty("--input-pane-height", `${inputHeight}px`);
+      }
+    }
+
+    function applyStoredProgressPaneWidth() {
+      const stored = storedNumber(PROGRESS_PANE_WIDTH_STORAGE_KEY);
+      if (stored) {
+        outputSplit.style.setProperty("--progress-pane-width", `${stored}px`);
+      }
+    }
+
+    function applyStoredProgressPaneHeight() {
+      const stored = storedNumber(PROGRESS_PANE_HEIGHT_STORAGE_KEY);
+      if (stored) {
+        outputSplit.style.setProperty("--progress-pane-height", `${stored}px`);
+      }
+    }
+
+    function applyStoredProgressPaneSize() {
+      applyStoredProgressPaneWidth();
+      applyStoredProgressPaneHeight();
+    }
+
+    function saveProgressPaneWidth(width) {
+      saveNumber(PROGRESS_PANE_WIDTH_STORAGE_KEY, width);
+    }
+
+    function saveProgressPaneHeight(height) {
+      saveNumber(PROGRESS_PANE_HEIGHT_STORAGE_KEY, height);
     }
 
     function initializeTerminal() {
@@ -1214,7 +1310,11 @@ INDEX_HTML = """<!doctype html>
 
     function setAgentInputVisible(isVisible) {
       inputPane.hidden = !isVisible;
+      inputResizeHandle.hidden = !isVisible;
       agentPane.classList.toggle("noninteractive", !isVisible);
+      if (isVisible) {
+        applyStoredPaneSizes();
+      }
       if (!isVisible) {
         agentInput.disabled = true;
         insertFileLink.disabled = true;
@@ -1222,15 +1322,106 @@ INDEX_HTML = """<!doctype html>
       window.requestAnimationFrame(fitTerminal);
     }
 
+    function startShellResize(event) {
+      event.preventDefault();
+      const shellRect = shell.getBoundingClientRect();
+      const workflowRect = workflowPane.getBoundingClientRect();
+      resizeShellState = {
+        startY: event.clientY,
+        startHeight: workflowRect.height,
+        maxHeight: Math.max(140, shellRect.height - 240),
+      };
+      shellResizeHandle.setPointerCapture(event.pointerId);
+      shell.classList.add("resizing");
+    }
+
+    function updateShellResize(event) {
+      if (!resizeShellState) {
+        return;
+      }
+      const deltaY = event.clientY - resizeShellState.startY;
+      const nextHeight = clampValue(
+        resizeShellState.startHeight + deltaY,
+        140,
+        resizeShellState.maxHeight,
+      );
+      shell.style.setProperty("--workflow-pane-height", `${nextHeight}px`);
+      saveNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY, nextHeight);
+      repositionOpenStageMenu();
+      fitTerminal();
+    }
+
+    function finishShellResize(event) {
+      if (!resizeShellState) {
+        return;
+      }
+      resizeShellState = null;
+      shell.classList.remove("resizing");
+      try {
+        shellResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+      repositionOpenStageMenu();
+      fitTerminal();
+    }
+
+    function startInputResize(event) {
+      if (inputPane.hidden) {
+        return;
+      }
+      event.preventDefault();
+      const agentRect = agentPane.getBoundingClientRect();
+      const inputRect = inputPane.getBoundingClientRect();
+      resizeInputState = {
+        startY: event.clientY,
+        startHeight: inputRect.height,
+        maxHeight: Math.max(96, agentRect.height - 160),
+      };
+      inputResizeHandle.setPointerCapture(event.pointerId);
+      agentPane.classList.add("resizing-input");
+    }
+
+    function updateInputResize(event) {
+      if (!resizeInputState) {
+        return;
+      }
+      const deltaY = resizeInputState.startY - event.clientY;
+      const nextHeight = clampValue(
+        resizeInputState.startHeight + deltaY,
+        96,
+        resizeInputState.maxHeight,
+      );
+      agentPane.style.setProperty("--input-pane-height", `${nextHeight}px`);
+      saveNumber(INPUT_PANE_HEIGHT_STORAGE_KEY, nextHeight);
+      fitTerminal();
+    }
+
+    function finishInputResize(event) {
+      if (!resizeInputState) {
+        return;
+      }
+      resizeInputState = null;
+      agentPane.classList.remove("resizing-input");
+      try {
+        inputResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+      fitTerminal();
+    }
+
     function showProgressPane(show) {
       if (show) {
         progressOutput.hidden = false;
         outputResizeHandle.hidden = false;
-        applyStoredProgressPaneWidth();
+        outputSplit.style.gridTemplateRows = "";
+        applyStoredProgressPaneSize();
         initializeProgressTerminal();
       } else {
         progressOutput.hidden = true;
         outputResizeHandle.hidden = true;
+        outputSplit.style.gridTemplateRows = "";
         closeProgressEventStream();
       }
       outputSplit.classList.toggle("split", show);
@@ -1268,7 +1459,9 @@ INDEX_HTML = """<!doctype html>
           180,
           resizeOutputState.maxHeight,
         );
+        outputSplit.style.setProperty("--progress-pane-height", `${nextHeight}px`);
         outputSplit.style.gridTemplateRows = `minmax(0, 1fr) 7px ${nextHeight}px`;
+        saveProgressPaneHeight(nextHeight);
       } else {
         const deltaX = resizeOutputState.startX - event.clientX;
         const nextWidth = clampValue(
@@ -1297,7 +1490,8 @@ INDEX_HTML = """<!doctype html>
     }
 
     function clampValue(value, minimum, maximum) {
-      return Math.max(minimum, Math.min(maximum, value));
+      const upper = Math.max(minimum, maximum);
+      return Math.max(minimum, Math.min(upper, value));
     }
 
     function formatTerminalMessage(text, className) {
@@ -2386,6 +2580,14 @@ INDEX_HTML = """<!doctype html>
     openApprovedDesignReview.addEventListener("click", openDesignReviewDocument);
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
+    shellResizeHandle.addEventListener("pointerdown", startShellResize);
+    shellResizeHandle.addEventListener("pointermove", updateShellResize);
+    shellResizeHandle.addEventListener("pointerup", finishShellResize);
+    shellResizeHandle.addEventListener("pointercancel", finishShellResize);
+    inputResizeHandle.addEventListener("pointerdown", startInputResize);
+    inputResizeHandle.addEventListener("pointermove", updateInputResize);
+    inputResizeHandle.addEventListener("pointerup", finishInputResize);
+    inputResizeHandle.addEventListener("pointercancel", finishInputResize);
     outputResizeHandle.addEventListener("pointerdown", startOutputResize);
     outputResizeHandle.addEventListener("pointermove", updateOutputResize);
     outputResizeHandle.addEventListener("pointerup", finishOutputResize);
@@ -2413,7 +2615,8 @@ INDEX_HTML = """<!doctype html>
 
     async function initialize() {
       applyStageDescriptions();
-      applyStoredProgressPaneWidth();
+      applyStoredPaneSizes();
+      applyStoredProgressPaneSize();
       initializeTerminal();
       await checkConnection();
       await restoreContext();

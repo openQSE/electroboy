@@ -179,10 +179,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="openApprovedDesign"', INDEX_HTML)
         self.assertIn('id="openApprovedDesignReview"', INDEX_HTML)
         self.assertIn('id="agentPane"', INDEX_HTML)
+        self.assertIn('id="shellResizeHandle"', INDEX_HTML)
         self.assertIn('id="outputSplit"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
         self.assertIn('id="outputResizeHandle"', INDEX_HTML)
         self.assertIn('id="progressOutput"', INDEX_HTML)
+        self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
         self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
@@ -191,6 +193,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="insertFileLink"', INDEX_HTML)
         self.assertIn('class="agent-actions"', INDEX_HTML)
         self.assertIn(".output-split.split", INDEX_HTML)
+        self.assertIn(".shell-resize-handle", INDEX_HTML)
+        self.assertIn(".input-resize-handle", INDEX_HTML)
         self.assertIn(".output-resize-handle", INDEX_HTML)
         self.assertIn(".agent-pane.noninteractive", INDEX_HTML)
         self.assertIn(".terminal-font-controls", INDEX_HTML)
@@ -201,15 +205,39 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("new window.Terminal", INDEX_HTML)
         self.assertIn("disableStdin: true", INDEX_HTML)
         self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
+        self.assertIn(
+            'const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";',
+            INDEX_HTML,
+        )
+        self.assertIn(
+            'const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";',
+            INDEX_HTML,
+        )
         self.assertIn('const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";', INDEX_HTML)
+        self.assertIn(
+            'const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";',
+            INDEX_HTML,
+        )
         self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
         self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
         self.assertIn("terminal.options.fontSize = terminalFontSize", INDEX_HTML)
         self.assertIn("progressTerminal.options.fontSize = terminalFontSize", INDEX_HTML)
+        self.assertIn("function startShellResize(event)", INDEX_HTML)
+        self.assertIn("function updateShellResize(event)", INDEX_HTML)
+        self.assertIn("function finishShellResize(event)", INDEX_HTML)
+        self.assertIn("function startInputResize(event)", INDEX_HTML)
+        self.assertIn("function updateInputResize(event)", INDEX_HTML)
+        self.assertIn("function finishInputResize(event)", INDEX_HTML)
         self.assertIn("function startOutputResize(event)", INDEX_HTML)
         self.assertIn("function updateOutputResize(event)", INDEX_HTML)
         self.assertIn("function finishOutputResize(event)", INDEX_HTML)
-        self.assertIn("applyStoredProgressPaneWidth();", INDEX_HTML)
+        self.assertIn("applyStoredPaneSizes();", INDEX_HTML)
+        self.assertIn("applyStoredProgressPaneSize();", INDEX_HTML)
+        self.assertIn("saveNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
+        self.assertIn("saveNumber(INPUT_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
+        self.assertIn("saveProgressPaneHeight(nextHeight);", INDEX_HTML)
+        self.assertIn("shellResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("inputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("outputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("black: \"#151923\"", INDEX_HTML)
         self.assertIn("brightCyan: \"#99e9f2\"", INDEX_HTML)
