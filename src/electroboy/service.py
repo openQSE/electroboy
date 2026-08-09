@@ -23,11 +23,13 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from .artifacts import ArtifactManager
+from .feature_artifacts import read_feature_record
 from .models import (
     ActivityEvent,
     GATE_DESIGN,
@@ -50,6 +52,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 TERMINAL_SUBMIT_DELAY_SECONDS = 0.08
 META_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "repositories.json"
+WORK_ITEM_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "work-items.json"
 
 _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
@@ -452,7 +455,8 @@ INDEX_HTML = """<!doctype html>
       font: inherit;
     }
 
-    .project-panel {
+    .project-panel,
+    .work-item-panel {
       position: absolute;
       z-index: 25;
       top: 176px;
@@ -469,7 +473,14 @@ INDEX_HTML = """<!doctype html>
       padding: 10px;
     }
 
-    .project-panel[hidden] {
+    .work-item-panel {
+      grid-template-columns:
+        minmax(220px, 1.4fr) minmax(160px, 1fr) minmax(160px, 0.8fr)
+        auto auto auto;
+    }
+
+    .project-panel[hidden],
+    .work-item-panel[hidden] {
       display: none;
     }
 
@@ -506,6 +517,22 @@ INDEX_HTML = """<!doctype html>
       min-height: 20px;
       color: var(--muted);
       font-size: var(--ui-font-size);
+    }
+
+    .work-item-select {
+      background: #ffffff;
+      color: var(--ink);
+      border-color: var(--border);
+    }
+
+    .work-item-checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 38px;
+      color: var(--ink);
+      font-weight: 650;
+      white-space: nowrap;
     }
 
     .directory-list {
@@ -1019,7 +1046,8 @@ INDEX_HTML = """<!doctype html>
         margin-top: 6px;
       }
 
-      .project-panel {
+      .project-panel,
+      .work-item-panel {
         left: 16px;
         right: 16px;
         top: 168px;
@@ -1176,6 +1204,61 @@ INDEX_HTML = """<!doctype html>
             </div>
           </div>
         </div>
+        <div id="workItemBranch" class="menu-branch">
+          <button
+            id="workItemMenuButton"
+            type="button"
+            disabled
+            aria-haspopup="true"
+            aria-expanded="false"
+          >
+            Work items
+          </button>
+          <div id="workItemSubmenu" class="stage-submenu" hidden>
+            <button id="newFeatureCollection" type="button" disabled>
+              New feature collection
+            </button>
+            <div id="switchFeatureCollectionBranch" class="menu-branch">
+              <button
+                id="switchFeatureCollection"
+                type="button"
+                disabled
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                Switch collection
+              </button>
+              <div id="switchFeatureCollectionSubmenu" class="stage-submenu" hidden></div>
+            </div>
+            <button id="newFeatureWorkItem" type="button" disabled>New feature</button>
+            <button id="addSubfeatureWorkItem" type="button" disabled>Add subfeature</button>
+            <div id="switchFeatureWorkItemBranch" class="menu-branch">
+              <button
+                id="switchFeatureWorkItem"
+                type="button"
+                disabled
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                Switch feature
+              </button>
+              <div id="switchFeatureWorkItemSubmenu" class="stage-submenu" hidden></div>
+            </div>
+            <button id="newBugWorkItem" type="button" disabled>New bug</button>
+            <div id="switchBugWorkItemBranch" class="menu-branch">
+              <button
+                id="switchBugWorkItem"
+                type="button"
+                disabled
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                Switch bug
+              </button>
+              <div id="switchBugWorkItemSubmenu" class="stage-submenu" hidden></div>
+            </div>
+          </div>
+        </div>
         <button id="deactivateProject" type="button" disabled>Deactivate</button>
       </div>
       <div id="requirementsMenu" class="stage-menu" hidden>
@@ -1229,6 +1312,36 @@ INDEX_HTML = """<!doctype html>
           Activate
         </button>
         <div id="projectStatus" class="project-status"></div>
+      </div>
+      <div id="workItemPanel" class="work-item-panel" hidden>
+        <input
+          id="workItemTitle"
+          class="project-path"
+          type="text"
+          autocomplete="off"
+          aria-label="Work item title"
+        >
+        <input
+          id="workItemName"
+          class="project-path"
+          type="text"
+          autocomplete="off"
+          aria-label="Work item name"
+        >
+        <select
+          id="workItemCollection"
+          class="session-switcher work-item-select"
+          aria-label="Feature collection"
+        ></select>
+        <label id="workItemBranchLabel" class="work-item-checkbox">
+          <input id="workItemBranchCheckbox" type="checkbox">
+          Branch
+        </label>
+        <button id="applyWorkItem" class="project-command primary" type="button">
+          Start
+        </button>
+        <button id="cancelWorkItem" class="project-command" type="button">Cancel</button>
+        <div id="workItemStatus" class="project-status"></div>
       </div>
       <div
         id="fileBrowser"
@@ -1506,6 +1619,24 @@ INDEX_HTML = """<!doctype html>
     const removeMetaRepositoryBranch = document.getElementById("removeMetaRepositoryBranch");
     const removeMetaRepository = document.getElementById("removeMetaRepository");
     const removeMetaRepositorySubmenu = document.getElementById("removeMetaRepositorySubmenu");
+    const workItemBranch = document.getElementById("workItemBranch");
+    const workItemMenuButton = document.getElementById("workItemMenuButton");
+    const workItemSubmenu = document.getElementById("workItemSubmenu");
+    const newFeatureCollection = document.getElementById("newFeatureCollection");
+    const switchFeatureCollectionBranch = document.getElementById("switchFeatureCollectionBranch");
+    const switchFeatureCollection = document.getElementById("switchFeatureCollection");
+    const switchFeatureCollectionSubmenu =
+      document.getElementById("switchFeatureCollectionSubmenu");
+    const newFeatureWorkItem = document.getElementById("newFeatureWorkItem");
+    const addSubfeatureWorkItem = document.getElementById("addSubfeatureWorkItem");
+    const switchFeatureWorkItemBranch = document.getElementById("switchFeatureWorkItemBranch");
+    const switchFeatureWorkItem = document.getElementById("switchFeatureWorkItem");
+    const switchFeatureWorkItemSubmenu =
+      document.getElementById("switchFeatureWorkItemSubmenu");
+    const newBugWorkItem = document.getElementById("newBugWorkItem");
+    const switchBugWorkItemBranch = document.getElementById("switchBugWorkItemBranch");
+    const switchBugWorkItem = document.getElementById("switchBugWorkItem");
+    const switchBugWorkItemSubmenu = document.getElementById("switchBugWorkItemSubmenu");
     const deactivateProject = document.getElementById("deactivateProject");
     const startRequirements = document.getElementById("startRequirements");
     const restartRequirements = document.getElementById("restartRequirements");
@@ -1534,6 +1665,15 @@ INDEX_HTML = """<!doctype html>
     const browseProject = document.getElementById("browseProject");
     const activateProject = document.getElementById("activateProject");
     const projectStatus = document.getElementById("projectStatus");
+    const workItemPanel = document.getElementById("workItemPanel");
+    const workItemTitle = document.getElementById("workItemTitle");
+    const workItemName = document.getElementById("workItemName");
+    const workItemCollection = document.getElementById("workItemCollection");
+    const workItemBranchLabel = document.getElementById("workItemBranchLabel");
+    const workItemBranchCheckbox = document.getElementById("workItemBranchCheckbox");
+    const applyWorkItem = document.getElementById("applyWorkItem");
+    const cancelWorkItem = document.getElementById("cancelWorkItem");
+    const workItemStatus = document.getElementById("workItemStatus");
     const fileBrowser = document.getElementById("fileBrowser");
     const browserPath = document.getElementById("browserPath");
     const upDirectory = document.getElementById("upDirectory");
@@ -1642,6 +1782,9 @@ INDEX_HTML = """<!doctype html>
     let activeProjectRoot = "";
     let activeRepositoryName = "";
     let registeredRepositories = [];
+    let workItemState = { collections: [], features: [], bugs: [] };
+    let workItemMode = "";
+    let selectedParentFeatureSlug = "";
     let customDocumentTargets = storedDocumentTargets();
     let currentBrowsePath = "";
     let currentBrowseParent = "";
@@ -2602,6 +2745,7 @@ INDEX_HTML = """<!doctype html>
       registeredRepositories = Array.isArray(payload.registered_repositories)
         ? payload.registered_repositories
         : [];
+      workItemState = payload.work_items || { collections: [], features: [], bugs: [] };
       requirementsStarted = Boolean(payload.requirements_started);
       requirementsRunning = Boolean(payload.requirements_running);
       requirementsApproved = Boolean(payload.requirements_approved);
@@ -2638,8 +2782,20 @@ INDEX_HTML = """<!doctype html>
         activeProjectMode !== "meta" || registeredRepositories.length === 0;
       removeMetaRepository.disabled =
         activeProjectMode !== "meta" || registeredRepositories.length === 0;
+      workItemMenuButton.disabled = !hasStageTarget;
+      newFeatureCollection.disabled = !hasStageTarget;
+      switchFeatureCollection.disabled =
+        !hasStageTarget || workItemCollections().length === 0;
+      newFeatureWorkItem.disabled = !hasStageTarget;
+      addSubfeatureWorkItem.disabled =
+        !hasStageTarget || workItemFeatures().length === 0;
+      switchFeatureWorkItem.disabled =
+        !hasStageTarget || workItemFeatures().length === 0;
+      newBugWorkItem.disabled = !hasStageTarget;
+      switchBugWorkItem.disabled = !hasStageTarget || workItemBugs().length === 0;
       deactivateProject.disabled = !hasProjectContext;
       renderMetaRepositoryMenus();
+      renderWorkItemMenus();
       updateRequirementsMenuState();
       updateDesignMenuState();
       updateDesignReviewMenuState();
@@ -2655,13 +2811,59 @@ INDEX_HTML = """<!doctype html>
       }
       if (activeProjectMode === "meta") {
         if (activeProjectRoot) {
-          return `meta: ${activationRoot} · active repo: ${activeRepositoryName || activeProjectRoot}`;
+          return appendWorkItemStatus(
+            `meta: ${activationRoot} · active repo: ${activeRepositoryName || activeProjectRoot}`,
+          );
         }
         return activeRepositoryName
           ? `meta: ${activationRoot} · active repo: ${activeRepositoryName} (not initialized)`
           : `meta: ${activationRoot} · active repo: none`;
       }
-      return `active: ${activeProjectRoot || activationRoot}`;
+      return appendWorkItemStatus(`active: ${activeProjectRoot || activationRoot}`);
+    }
+
+    function appendWorkItemStatus(line) {
+      const parts = [];
+      const feature = activeWorkItemFeature();
+      const bug = activeWorkItemBug();
+      const collection = activeFeatureCollection();
+      if (collection) {
+        parts.push(`collection: ${collection.name || collection.id}`);
+      }
+      if (feature) {
+        parts.push(`feature: ${feature.name || feature.slug}`);
+      }
+      if (bug) {
+        parts.push(`bug: ${bug.title || bug.slug}`);
+      }
+      return parts.length ? `${line} · ${parts.join(" · ")}` : line;
+    }
+
+    function workItemCollections() {
+      return Array.isArray(workItemState.collections) ? workItemState.collections : [];
+    }
+
+    function workItemFeatures() {
+      return Array.isArray(workItemState.features) ? workItemState.features : [];
+    }
+
+    function workItemBugs() {
+      return Array.isArray(workItemState.bugs) ? workItemState.bugs : [];
+    }
+
+    function activeFeatureCollection() {
+      const activeId = workItemState.active_collection_id || "";
+      return workItemCollections().find((collection) => collection.id === activeId) || null;
+    }
+
+    function activeWorkItemFeature() {
+      const activeSlug = workItemState.active_feature_slug || "";
+      return workItemFeatures().find((feature) => feature.slug === activeSlug) || null;
+    }
+
+    function activeWorkItemBug() {
+      const activeSlug = workItemState.active_bug_slug || "";
+      return workItemBugs().find((bug) => bug.slug === activeSlug) || null;
     }
 
     function repositoryLabel(repository) {
@@ -2679,6 +2881,110 @@ INDEX_HTML = """<!doctype html>
       if (removeMetaRepository.disabled) {
         hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
       }
+    }
+
+    function renderWorkItemMenus() {
+      renderFeatureCollectionMenu();
+      renderFeatureMenu();
+      renderBugMenu();
+      renderWorkItemCollectionOptions();
+      if (workItemMenuButton.disabled) {
+        hideSubmenu(workItemSubmenu, workItemMenuButton);
+      }
+      if (switchFeatureCollection.disabled) {
+        hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
+      }
+      if (switchFeatureWorkItem.disabled) {
+        hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
+      }
+      if (switchBugWorkItem.disabled) {
+        hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
+      }
+    }
+
+    function renderFeatureCollectionMenu() {
+      switchFeatureCollectionSubmenu.replaceChildren();
+      const collections = workItemCollections();
+      if (collections.length === 0) {
+        appendDisabledMenuItem(switchFeatureCollectionSubmenu, "No collections");
+        return;
+      }
+      for (const collection of collections) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = collection.name || collection.id || "Collection";
+        button.classList.toggle(
+          "active-repo",
+          collection.id === workItemState.active_collection_id,
+        );
+        button.addEventListener("click", () => switchFeatureCollectionContext(collection.id));
+        switchFeatureCollectionSubmenu.append(button);
+      }
+    }
+
+    function renderFeatureMenu() {
+      switchFeatureWorkItemSubmenu.replaceChildren();
+      const features = workItemFeatures();
+      if (features.length === 0) {
+        appendDisabledMenuItem(switchFeatureWorkItemSubmenu, "No features");
+        return;
+      }
+      for (const feature of features) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = featureLabel(feature);
+        button.title = feature.title || feature.slug || "";
+        button.classList.toggle(
+          "active-repo",
+          feature.slug === workItemState.active_feature_slug,
+        );
+        button.addEventListener("click", () => switchFeatureWorkItemContext(feature.slug));
+        switchFeatureWorkItemSubmenu.append(button);
+      }
+    }
+
+    function renderBugMenu() {
+      switchBugWorkItemSubmenu.replaceChildren();
+      const bugs = workItemBugs();
+      if (bugs.length === 0) {
+        appendDisabledMenuItem(switchBugWorkItemSubmenu, "No bugs");
+        return;
+      }
+      for (const bug of bugs) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = bug.title || bug.slug || "Bug";
+        button.title = bug.reference || bug.slug || "";
+        button.classList.toggle("active-repo", bug.slug === workItemState.active_bug_slug);
+        button.addEventListener("click", () => switchBugWorkItemContext(bug.slug));
+        switchBugWorkItemSubmenu.append(button);
+      }
+    }
+
+    function appendDisabledMenuItem(menu, label) {
+      const emptyButton = document.createElement("button");
+      emptyButton.type = "button";
+      emptyButton.disabled = true;
+      emptyButton.textContent = label;
+      menu.append(emptyButton);
+    }
+
+    function renderWorkItemCollectionOptions() {
+      workItemCollection.replaceChildren();
+      for (const collection of workItemCollections()) {
+        const option = document.createElement("option");
+        option.value = collection.id || "";
+        option.textContent = collection.name || collection.id || "Collection";
+        workItemCollection.append(option);
+      }
+      if (workItemState.active_collection_id) {
+        workItemCollection.value = workItemState.active_collection_id;
+      }
+    }
+
+    function featureLabel(feature) {
+      const label = feature.name || feature.slug || "Feature";
+      return feature.parent_slug ? `${label} (subfeature)` : label;
     }
 
     function renderMetaRepositoryMenu(submenu, handler) {
@@ -3182,6 +3488,7 @@ INDEX_HTML = """<!doctype html>
       }
       projectMode = mode;
       hideStageMenus();
+      hideWorkItemPanel();
       projectPanel.hidden = false;
       activateProject.textContent = projectActionLabel(mode);
       projectStatus.textContent = projectStatusLine();
@@ -3380,6 +3687,185 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
     }
 
+    function showWorkItemPanel(mode) {
+      if (!activeProjectRoot) {
+        return;
+      }
+      workItemMode = mode;
+      hideStageMenus();
+      projectPanel.hidden = true;
+      workItemPanel.hidden = false;
+      selectedParentFeatureSlug = "";
+      workItemTitle.value = "";
+      workItemName.value = "";
+      workItemBranchCheckbox.checked = false;
+      workItemCollection.hidden = mode === "collection-new" || mode === "bug-new";
+      workItemName.hidden = mode === "collection-new" || mode === "bug-new";
+      workItemBranchLabel.hidden = mode === "collection-new";
+      if (mode === "collection-new") {
+        workItemTitle.placeholder = "Feature collection name";
+        workItemName.placeholder = "";
+        applyWorkItem.textContent = "Create";
+        workItemStatus.textContent = "Create a collection for related features.";
+      } else if (mode === "feature-sub") {
+        const parent = activeWorkItemFeature();
+        if (!parent) {
+          workItemStatus.textContent = "activate a parent feature first";
+          return;
+        }
+        selectedParentFeatureSlug = parent.slug || "";
+        workItemTitle.placeholder = "Subfeature title or issue URL";
+        workItemName.placeholder = "artifact name (optional)";
+        applyWorkItem.textContent = "Add subfeature";
+        workItemStatus.textContent = `parent: ${featureLabel(parent)}`;
+      } else if (mode === "bug-new") {
+        workItemTitle.placeholder = "Bug issue URL or reference";
+        workItemName.placeholder = "";
+        applyWorkItem.textContent = "Start bug";
+        workItemStatus.textContent = "Start a focused bug workflow.";
+      } else {
+        workItemTitle.placeholder = "Feature title or issue URL";
+        workItemName.placeholder = "artifact name (optional)";
+        applyWorkItem.textContent = "Start feature";
+        workItemStatus.textContent = "Start or register feature work.";
+      }
+      renderWorkItemCollectionOptions();
+      workItemTitle.focus();
+    }
+
+    function hideWorkItemPanel() {
+      workItemPanel.hidden = true;
+      workItemMode = "";
+      selectedParentFeatureSlug = "";
+    }
+
+    async function applyWorkItemSelection() {
+      if (!activeProjectRoot || !workItemMode) {
+        return;
+      }
+      const title = workItemTitle.value.trim();
+      if (!title) {
+        workItemStatus.textContent = "enter a title or reference first";
+        return;
+      }
+      applyWorkItem.disabled = true;
+      workItemStatus.textContent = workItemPendingLabel();
+      const endpoint = workItemEndpoint();
+      const body = workItemRequestBody(title);
+      let response;
+      try {
+        response = await fetch(contextUrl(endpoint), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (error) {
+        workItemStatus.textContent = `work item update failed: ${error}`;
+        applyWorkItem.disabled = false;
+        return;
+      }
+      const payload = await response.json().catch(() => ({ error: "work item failed" }));
+      if (!response.ok) {
+        const message = payload.error || "work item failed";
+        workItemStatus.textContent = message;
+        appendOutput(`${message}\\n`, "error");
+        applyWorkItem.disabled = false;
+        return;
+      }
+      hideWorkItemPanel();
+      appendOutput(`${payload.status}: ${payload.label || title}\\n`, "system");
+      if (payload.output) {
+        appendOutput(`${payload.output}\\n`, "system");
+      }
+      updateProjectState(payload);
+      applyWorkItem.disabled = false;
+    }
+
+    function workItemEndpoint() {
+      if (workItemMode === "collection-new") {
+        return "/api/work-items/collections";
+      }
+      if (workItemMode === "bug-new") {
+        return "/api/work-items/bugs";
+      }
+      return "/api/work-items/features";
+    }
+
+    function workItemRequestBody(title) {
+      if (workItemMode === "collection-new") {
+        return { name: title };
+      }
+      if (workItemMode === "bug-new") {
+        return {
+          issue_reference: title,
+          branch: workItemBranchCheckbox.checked,
+        };
+      }
+      return {
+        title,
+        name: workItemName.value.trim(),
+        collection_id: workItemCollection.value || workItemState.active_collection_id || "",
+        parent_slug: selectedParentFeatureSlug,
+        branch: workItemBranchCheckbox.checked,
+      };
+    }
+
+    function workItemPendingLabel() {
+      if (workItemMode === "collection-new") {
+        return "creating feature collection";
+      }
+      if (workItemMode === "bug-new") {
+        return "starting bug workflow";
+      }
+      if (workItemMode === "feature-sub") {
+        return "adding subfeature";
+      }
+      return "starting feature workflow";
+    }
+
+    async function switchFeatureCollectionContext(collectionId) {
+      await switchWorkItemContext(
+        "/api/work-items/collections/switch",
+        { collection_id: collectionId },
+        "switched collection",
+      );
+    }
+
+    async function switchFeatureWorkItemContext(slug) {
+      await switchWorkItemContext(
+        "/api/work-items/features/switch",
+        { slug },
+        "switched feature",
+      );
+    }
+
+    async function switchBugWorkItemContext(slug) {
+      await switchWorkItemContext(
+        "/api/work-items/bugs/switch",
+        { slug },
+        "switched bug",
+      );
+    }
+
+    async function switchWorkItemContext(endpoint, body, successLabel) {
+      if (!activeProjectRoot) {
+        return;
+      }
+      hideStageMenus();
+      const response = await fetch(contextUrl(endpoint), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({ error: "switch failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "switch failed"}\\n`, "error");
+        return;
+      }
+      appendOutput(`${successLabel}: ${payload.label || ""}\\n`, "system");
+      updateProjectState(payload);
+    }
+
     async function deactivateActiveProject() {
       if (!activationRoot) {
         return;
@@ -3404,6 +3890,7 @@ INDEX_HTML = """<!doctype html>
       activeProjectRoot = "";
       activeRepositoryName = "";
       registeredRepositories = [];
+      workItemState = { collections: [], features: [], bugs: [] };
       projectPath.value = serviceRoot;
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
@@ -3426,6 +3913,7 @@ INDEX_HTML = """<!doctype html>
       clearAgentOutput();
       clearProgressOutput();
       hideArtifactPreview();
+      hideWorkItemPanel();
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
       updateProjectState(payload);
     }
@@ -3966,9 +4454,13 @@ INDEX_HTML = """<!doctype html>
       }
       if (exceptMenu !== projectMenu) {
         hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
+        hideSubmenu(workItemSubmenu, workItemMenuButton);
       }
       hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
       hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
+      hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
+      hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
+      hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
     }
 
     function toggleStageMenu(menu, stage) {
@@ -3979,8 +4471,12 @@ INDEX_HTML = """<!doctype html>
         positionStageMenu(menu, stage);
       } else if (menu === projectMenu) {
         hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
+        hideSubmenu(workItemSubmenu, workItemMenuButton);
         hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
         hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
+        hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
+        hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
+        hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
       }
     }
 
@@ -4094,6 +4590,54 @@ INDEX_HTML = """<!doctype html>
     });
     removeMetaRepositoryBranch.addEventListener("mouseleave", () => {
       hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
+    });
+    workItemMenuButton.addEventListener("click", () => {
+      toggleSubmenu(workItemSubmenu, workItemMenuButton);
+    });
+    workItemBranch.addEventListener("mouseenter", () => {
+      showSubmenu(workItemSubmenu, workItemMenuButton);
+    });
+    workItemBranch.addEventListener("mouseleave", () => {
+      hideSubmenu(workItemSubmenu, workItemMenuButton);
+    });
+    switchFeatureCollection.addEventListener("click", () => {
+      toggleSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
+    });
+    switchFeatureCollectionBranch.addEventListener("mouseenter", () => {
+      showSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
+    });
+    switchFeatureCollectionBranch.addEventListener("mouseleave", () => {
+      hideSubmenu(switchFeatureCollectionSubmenu, switchFeatureCollection);
+    });
+    switchFeatureWorkItem.addEventListener("click", () => {
+      toggleSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
+    });
+    switchFeatureWorkItemBranch.addEventListener("mouseenter", () => {
+      showSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
+    });
+    switchFeatureWorkItemBranch.addEventListener("mouseleave", () => {
+      hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
+    });
+    switchBugWorkItem.addEventListener("click", () => {
+      toggleSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
+    });
+    switchBugWorkItemBranch.addEventListener("mouseenter", () => {
+      showSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
+    });
+    switchBugWorkItemBranch.addEventListener("mouseleave", () => {
+      hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
+    });
+    newFeatureCollection.addEventListener("click", () => showWorkItemPanel("collection-new"));
+    newFeatureWorkItem.addEventListener("click", () => showWorkItemPanel("feature-new"));
+    addSubfeatureWorkItem.addEventListener("click", () => showWorkItemPanel("feature-sub"));
+    newBugWorkItem.addEventListener("click", () => showWorkItemPanel("bug-new"));
+    applyWorkItem.addEventListener("click", applyWorkItemSelection);
+    cancelWorkItem.addEventListener("click", hideWorkItemPanel);
+    workItemTitle.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyWorkItemSelection();
+      }
     });
     deactivateProject.addEventListener("click", deactivateActiveProject);
     browseProject.addEventListener("click", () => {
@@ -4728,6 +5272,239 @@ class ServiceState:
         return {
             "ok": ok,
             "output": output,
+        }
+
+    def create_feature_collection(
+        self,
+        context_id: str,
+        name: str,
+    ) -> dict[str, object]:
+        collection_name = name.strip()
+        if not collection_name:
+            raise StateError("feature collection name is required")
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise StateError("activate a project first")
+            self._require_no_active_agent_locked(context)
+        registry = _load_work_item_registry(project_root)
+        collection = _upsert_feature_collection(registry, collection_name)
+        registry["active_collection_id"] = collection["id"]
+        _save_work_item_registry(project_root, registry)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "created collection",
+            "label": collection["name"],
+        }
+
+    def switch_feature_collection(
+        self,
+        context_id: str,
+        collection_id: str,
+    ) -> dict[str, object]:
+        collection_id = collection_id.strip()
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise StateError("activate a project first")
+            self._require_no_active_agent_locked(context)
+        registry = _load_work_item_registry(project_root)
+        collection = _feature_collection_by_id(registry, collection_id)
+        if collection is None:
+            raise StateError("unknown feature collection")
+        registry["active_collection_id"] = collection["id"]
+        _save_work_item_registry(project_root, registry)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "switched collection",
+            "label": collection["name"],
+        }
+
+    def start_feature_work_item(
+        self,
+        context_id: str,
+        *,
+        title: str,
+        feature_name: str | None = None,
+        collection_id: str | None = None,
+        parent_slug: str | None = None,
+        branch: bool = False,
+    ) -> dict[str, object]:
+        title = title.strip()
+        if not title:
+            raise AgentSessionError("feature title is required")
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            self._require_no_active_agent_locked(context)
+        output = _run_feature_start_context(
+            project_root,
+            title=title,
+            feature_name=feature_name,
+            amend=True,
+            branch=branch,
+        )
+        registry = _load_work_item_registry(project_root)
+        feature_record = _current_feature_record(project_root)
+        if feature_record is not None:
+            collection = _ensure_collection_for_feature(
+                registry,
+                collection_id,
+                parent_slug=parent_slug,
+            )
+            _upsert_feature_record(
+                registry,
+                feature_record,
+                collection_id=str(collection["id"]),
+                parent_slug=parent_slug,
+            )
+            registry["active_collection_id"] = collection["id"]
+            registry["active_feature_slug"] = feature_record.get("slug")
+            registry["active_bug_slug"] = None
+            _save_work_item_registry(project_root, registry)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.workflow_stage = _active_workflow_stage(project_root)
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "started feature",
+            "label": _feature_record_label(feature_record) if feature_record else title,
+            "output": output,
+        }
+
+    def switch_feature_work_item(
+        self,
+        context_id: str,
+        slug: str,
+    ) -> dict[str, object]:
+        slug = slug.strip()
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            self._require_no_active_agent_locked(context)
+        registry = _load_work_item_registry(project_root)
+        feature = _feature_by_slug(registry, slug)
+        if feature is None:
+            raise AgentSessionError("unknown feature")
+        output = _run_feature_start_context(
+            project_root,
+            title=str(feature.get("input") or feature.get("title") or slug),
+            feature_name=str(feature.get("name") or slug),
+            amend=True,
+            branch=bool(feature.get("branch")),
+            branch_name=(
+                str(feature.get("branch"))
+                if isinstance(feature.get("branch"), str)
+                and str(feature.get("branch")).strip()
+                else None
+            ),
+        )
+        feature_record = _current_feature_record(project_root)
+        if feature_record is not None:
+            _upsert_feature_record(
+                registry,
+                feature_record,
+                collection_id=str(feature.get("collection_id") or ""),
+                parent_slug=(
+                    str(feature.get("parent_slug"))
+                    if feature.get("parent_slug")
+                    else None
+                ),
+            )
+        registry["active_feature_slug"] = slug
+        registry["active_bug_slug"] = None
+        if feature.get("collection_id"):
+            registry["active_collection_id"] = feature.get("collection_id")
+        _save_work_item_registry(project_root, registry)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.workflow_stage = _active_workflow_stage(project_root)
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "switched feature",
+            "label": _feature_record_label(feature),
+            "output": output,
+        }
+
+    def start_bug_work_item(
+        self,
+        context_id: str,
+        *,
+        issue_reference: str,
+        branch: bool = False,
+    ) -> dict[str, object]:
+        issue_reference = issue_reference.strip()
+        if not issue_reference:
+            raise AgentSessionError("bug issue reference is required")
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            self._require_no_active_agent_locked(context)
+        output = _run_bug_start_context(
+            project_root,
+            issue_reference=issue_reference,
+            branch=branch,
+        )
+        registry = _load_work_item_registry(project_root)
+        bug_record = _current_bug_record(project_root)
+        if bug_record is not None:
+            _upsert_bug_record(registry, bug_record)
+            registry["active_bug_slug"] = bug_record.get("slug")
+            registry["active_feature_slug"] = None
+            _save_work_item_registry(project_root, registry)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "started bug",
+            "label": _bug_record_label(bug_record) if bug_record else issue_reference,
+            "output": output,
+        }
+
+    def switch_bug_work_item(
+        self,
+        context_id: str,
+        slug: str,
+    ) -> dict[str, object]:
+        slug = slug.strip()
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            self._require_no_active_agent_locked(context)
+        registry = _load_work_item_registry(project_root)
+        bug = _bug_by_slug(registry, slug)
+        if bug is None:
+            raise AgentSessionError("unknown bug")
+        _write_current_bug_record(project_root, bug)
+        registry["active_bug_slug"] = slug
+        registry["active_feature_slug"] = None
+        _save_work_item_registry(project_root, registry)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "switched bug",
+            "label": _bug_record_label(bug),
         }
 
     def select_workflow_stage(
@@ -6413,6 +7190,7 @@ def project_payload(
         ),
         "selected_session_id": context.selected_session_id,
         "sessions": _session_payloads(context),
+        "work_items": _work_item_payload(active_root) if active_root else _empty_work_item_payload(),
     }
 
 
@@ -6448,6 +7226,386 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
             }
         )
     return payloads
+
+
+def _empty_work_item_payload() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "active_collection_id": None,
+        "active_feature_slug": None,
+        "active_bug_slug": None,
+        "collections": [],
+        "features": [],
+        "bugs": [],
+    }
+
+
+def _work_item_payload(project_root: Path) -> dict[str, object]:
+    registry = _load_work_item_registry(project_root)
+    feature = _current_feature_record(project_root)
+    bug = _current_bug_record(project_root)
+    if feature is not None:
+        existing = _feature_by_slug(registry, str(feature.get("slug") or ""))
+        collection = _ensure_collection_for_feature(
+            registry,
+            (
+                str(existing.get("collection_id"))
+                if existing and existing.get("collection_id")
+                else None
+            ),
+            parent_slug=(
+                str(existing.get("parent_slug"))
+                if existing and existing.get("parent_slug")
+                else None
+            ),
+        )
+        _upsert_feature_record(
+            registry,
+            feature,
+            collection_id=str(collection["id"]),
+            parent_slug=(
+                str(existing.get("parent_slug"))
+                if existing and existing.get("parent_slug")
+                else None
+            ),
+        )
+        registry["active_collection_id"] = collection["id"]
+        registry["active_feature_slug"] = feature.get("slug")
+    if bug is not None:
+        _upsert_bug_record(registry, bug)
+        registry["active_bug_slug"] = bug.get("slug")
+    return {
+        "schema_version": 1,
+        "active_collection_id": registry.get("active_collection_id"),
+        "active_feature_slug": registry.get("active_feature_slug"),
+        "active_bug_slug": registry.get("active_bug_slug"),
+        "collections": _registry_list(registry, "collections"),
+        "features": _registry_list(registry, "features"),
+        "bugs": _registry_list(registry, "bugs"),
+    }
+
+
+def _registry_list(
+    registry: dict[str, object],
+    key: str,
+) -> list[dict[str, object]]:
+    values = registry.get(key)
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, dict)]
+
+
+def _load_work_item_registry(project_root: Path) -> dict[str, object]:
+    path = project_root / WORK_ITEM_REGISTRY_RELATIVE_PATH
+    if not path.exists():
+        return {
+            **_empty_work_item_payload(),
+            "collections": [_default_feature_collection()],
+            "active_collection_id": "default",
+        }
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    registry = {
+        **_empty_work_item_payload(),
+        **data,
+    }
+    collections = _registry_list(registry, "collections")
+    if not collections:
+        collections = [_default_feature_collection()]
+    registry["collections"] = collections
+    registry["features"] = _registry_list(registry, "features")
+    registry["bugs"] = _registry_list(registry, "bugs")
+    if not registry.get("active_collection_id"):
+        registry["active_collection_id"] = collections[0].get("id")
+    return registry
+
+
+def _save_work_item_registry(project_root: Path, registry: dict[str, object]) -> None:
+    path = project_root / WORK_ITEM_REGISTRY_RELATIVE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(registry, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _default_feature_collection() -> dict[str, object]:
+    return {
+        "id": "default",
+        "name": "Default",
+        "feature_slugs": [],
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+
+
+def _upsert_feature_collection(
+    registry: dict[str, object],
+    name: str,
+) -> dict[str, object]:
+    collections = _registry_list(registry, "collections")
+    collection_id = _slugify_work_item(name)
+    existing = _feature_collection_by_id(registry, collection_id)
+    if existing is not None:
+        existing["name"] = name
+        existing["updated_at"] = utc_now()
+        return existing
+    collection = {
+        "id": collection_id,
+        "name": name,
+        "feature_slugs": [],
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    collections.append(collection)
+    registry["collections"] = collections
+    return collection
+
+
+def _feature_collection_by_id(
+    registry: dict[str, object],
+    collection_id: str,
+) -> dict[str, object] | None:
+    for collection in _registry_list(registry, "collections"):
+        if collection.get("id") == collection_id:
+            return collection
+    return None
+
+
+def _ensure_collection_for_feature(
+    registry: dict[str, object],
+    collection_id: str | None,
+    *,
+    parent_slug: str | None = None,
+) -> dict[str, object]:
+    if collection_id:
+        collection = _feature_collection_by_id(registry, collection_id)
+        if collection is not None:
+            return collection
+    if parent_slug:
+        parent = _feature_by_slug(registry, parent_slug)
+        if parent and parent.get("collection_id"):
+            collection = _feature_collection_by_id(
+                registry,
+                str(parent.get("collection_id")),
+            )
+            if collection is not None:
+                return collection
+    active_id = registry.get("active_collection_id")
+    if active_id:
+        collection = _feature_collection_by_id(registry, str(active_id))
+        if collection is not None:
+            return collection
+    collections = _registry_list(registry, "collections")
+    if collections:
+        return collections[0]
+    collection = _default_feature_collection()
+    registry["collections"] = [collection]
+    registry["active_collection_id"] = collection["id"]
+    return collection
+
+
+def _feature_by_slug(
+    registry: dict[str, object],
+    slug: str,
+) -> dict[str, object] | None:
+    for feature in _registry_list(registry, "features"):
+        if feature.get("slug") == slug:
+            return feature
+    return None
+
+
+def _bug_by_slug(
+    registry: dict[str, object],
+    slug: str,
+) -> dict[str, object] | None:
+    for bug in _registry_list(registry, "bugs"):
+        if bug.get("slug") == slug:
+            return bug
+    return None
+
+
+def _upsert_feature_record(
+    registry: dict[str, object],
+    record: dict[str, object],
+    *,
+    collection_id: str,
+    parent_slug: str | None,
+) -> None:
+    slug = str(record.get("slug") or "").strip()
+    if not slug:
+        return
+    features = [
+        feature
+        for feature in _registry_list(registry, "features")
+        if feature.get("slug") != slug
+    ]
+    feature = dict(record)
+    feature["collection_id"] = collection_id
+    feature["parent_slug"] = parent_slug
+    feature["updated_at"] = utc_now()
+    features.append(feature)
+    registry["features"] = sorted(
+        features,
+        key=lambda item: str(item.get("name") or item.get("slug") or ""),
+    )
+    collection = _ensure_collection_for_feature(registry, collection_id)
+    feature_slugs = [
+        value
+        for value in collection.get("feature_slugs", [])
+        if isinstance(value, str) and value != slug
+    ]
+    feature_slugs.append(slug)
+    collection["feature_slugs"] = feature_slugs
+    collection["updated_at"] = utc_now()
+
+
+def _upsert_bug_record(
+    registry: dict[str, object],
+    record: dict[str, object],
+) -> None:
+    slug = str(record.get("slug") or "").strip()
+    if not slug:
+        return
+    bugs = [
+        bug
+        for bug in _registry_list(registry, "bugs")
+        if bug.get("slug") != slug
+    ]
+    bug = dict(record)
+    bug["updated_at"] = utc_now()
+    bugs.append(bug)
+    registry["bugs"] = sorted(
+        bugs,
+        key=lambda item: str(item.get("title") or item.get("slug") or ""),
+    )
+
+
+def _current_feature_record(project_root: Path) -> dict[str, object] | None:
+    store = StateStore(project_root)
+    run_id = store.current_run_id()
+    if not run_id:
+        return None
+    return read_feature_record(project_root, run_id)
+
+
+def _current_bug_record(project_root: Path) -> dict[str, object] | None:
+    store = StateStore(project_root)
+    run_id = store.current_run_id()
+    if not run_id:
+        return None
+    path = store.run_dir(run_id) / "bug.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_current_bug_record(project_root: Path, record: dict[str, object]) -> None:
+    store = StateStore(project_root)
+    run_id = store.current_run_id()
+    if not run_id:
+        raise StateError("project has no active run")
+    path = store.run_dir(run_id) / "bug.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _feature_record_label(record: dict[str, object] | None) -> str:
+    if not record:
+        return "feature"
+    return str(
+        record.get("name")
+        or record.get("title")
+        or record.get("slug")
+        or "feature"
+    )
+
+
+def _bug_record_label(record: dict[str, object] | None) -> str:
+    if not record:
+        return "bug"
+    return str(record.get("title") or record.get("slug") or "bug")
+
+
+def _run_feature_start_context(
+    project_root: Path,
+    *,
+    title: str,
+    feature_name: str | None,
+    amend: bool,
+    branch: bool,
+    branch_name: str | None = None,
+) -> str:
+    from .cli import _cmd_feature_start
+
+    args = SimpleNamespace(
+        title_or_issue_url=title,
+        feature_name=feature_name,
+        amend=amend,
+        branch=(branch_name or "") if branch else None,
+    )
+    return _run_orchestrator_command(project_root, _cmd_feature_start, args)
+
+
+def _run_bug_start_context(
+    project_root: Path,
+    *,
+    issue_reference: str,
+    branch: bool,
+) -> str:
+    from .cli import _cmd_bug_start
+
+    args = SimpleNamespace(
+        issue_reference=issue_reference,
+        provider=None,
+        branch="" if branch else None,
+    )
+    return _run_orchestrator_command(project_root, _cmd_bug_start, args)
+
+
+def _run_orchestrator_command(
+    project_root: Path,
+    command: Callable[[StateStore, Any], int],
+    args: Any,
+) -> str:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        code = command(StateStore(project_root), args)
+    output = "\n".join(
+        part.strip()
+        for part in [stderr.getvalue(), stdout.getvalue()]
+        if part.strip()
+    )
+    if code != 0:
+        raise AgentSessionError(output or "work item command failed")
+    return output
+
+
+def _slugify_work_item(value: str) -> str:
+    chars: list[str] = []
+    previous_dash = False
+    for char in value.lower():
+        if char.isalnum():
+            chars.append(char)
+            previous_dash = False
+            continue
+        if not previous_dash:
+            chars.append("-")
+            previous_dash = True
+    slug = "".join(chars).strip("-")
+    return slug or "default"
 
 
 def _visible_workflow_stage(stage: str) -> str:
@@ -7433,6 +8591,24 @@ def _handler_for(
             if path == "/api/meta/remove":
                 self._remove_meta_repository(parsed.query)
                 return
+            if path == "/api/work-items/collections":
+                self._create_feature_collection(parsed.query)
+                return
+            if path == "/api/work-items/collections/switch":
+                self._switch_feature_collection(parsed.query)
+                return
+            if path == "/api/work-items/features":
+                self._start_feature_work_item(parsed.query)
+                return
+            if path == "/api/work-items/features/switch":
+                self._switch_feature_work_item(parsed.query)
+                return
+            if path == "/api/work-items/bugs":
+                self._start_bug_work_item(parsed.query)
+                return
+            if path == "/api/work-items/bugs/switch":
+                self._switch_bug_work_item(parsed.query)
+                return
             if path == "/api/project/deactivate":
                 self._deactivate_project(parsed.query)
                 return
@@ -7668,6 +8844,107 @@ def _handler_for(
                     state.remove_meta_repository(
                         context_id,
                         str(repository),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _create_feature_collection(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_feature_collection(
+                        context_id,
+                        str(payload.get("name") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _switch_feature_collection(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.switch_feature_collection(
+                        context_id,
+                        str(payload.get("collection_id") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _start_feature_work_item(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.start_feature_work_item(
+                        context_id,
+                        title=str(payload.get("title") or ""),
+                        feature_name=str(payload.get("name") or "") or None,
+                        collection_id=str(payload.get("collection_id") or "") or None,
+                        parent_slug=str(payload.get("parent_slug") or "") or None,
+                        branch=bool(payload.get("branch")),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _switch_feature_work_item(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.switch_feature_work_item(
+                        context_id,
+                        str(payload.get("slug") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _start_bug_work_item(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.start_bug_work_item(
+                        context_id,
+                        issue_reference=str(payload.get("issue_reference") or ""),
+                        branch=bool(payload.get("branch")),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _switch_bug_work_item(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.switch_bug_work_item(
+                        context_id,
+                        str(payload.get("slug") or ""),
                     )
                 )
             except (AgentSessionError, StateError, ValueError) as error:
