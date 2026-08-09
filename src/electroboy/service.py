@@ -3131,6 +3131,15 @@ class ServiceState:
             self._clear_sessions_locked(context, sessions)
         return terminated
 
+    def terminate_all_sessions(self) -> bool:
+        with self.lock:
+            sessions = self._all_sessions_locked()
+        terminated = self._terminate_sessions(sessions)
+        with self.lock:
+            for context in self.contexts.values():
+                self._clear_sessions_locked(context, sessions)
+        return terminated
+
     def _mark_design_review_completed(
         self,
         context_id: str,
@@ -3159,6 +3168,18 @@ class ServiceState:
             ]
             if session is not None
         ]
+
+    def _all_sessions_locked(self) -> list[AgentSession]:
+        sessions: list[AgentSession] = []
+        seen: set[int] = set()
+        for context in self.contexts.values():
+            for session in self._context_sessions_locked(context):
+                identifier = id(session)
+                if identifier in seen:
+                    continue
+                seen.add(identifier)
+                sessions.append(session)
+        return sessions
 
     def _clear_sessions_locked(
         self,
@@ -3534,6 +3555,21 @@ class ElectroBoyHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        RequestHandlerClass: type[BaseHTTPRequestHandler],
+        bind_and_activate: bool = True,
+        service_state: ServiceState | None = None,
+    ) -> None:
+        self.service_state = service_state
+        super().__init__(server_address, RequestHandlerClass, bind_and_activate)
+
+    def server_close(self) -> None:
+        if self.service_state is not None:
+            self.service_state.terminate_all_sessions()
+        super().server_close()
+
 
 def create_server(
     root: Path | str,
@@ -3549,6 +3585,7 @@ def create_server(
     return ElectroBoyHTTPServer(
         (config.host, config.port),
         _handler_for(config, state),
+        service_state=state,
     )
 
 
@@ -3558,6 +3595,21 @@ def run_service(
     port: int = DEFAULT_PORT,
 ) -> int:
     server = create_server(root, host=host, port=port)
+    stop_signal: int | None = None
+    previous_signal_handlers: dict[int, Any] = {}
+
+    def handle_stop_signal(signum: int, _frame: Any) -> None:
+        nonlocal stop_signal
+        stop_signal = signum
+        raise KeyboardInterrupt
+
+    if threading.current_thread() is threading.main_thread():
+        for stop in [signal.SIGTERM, getattr(signal, "SIGHUP", None)]:
+            if stop is None:
+                continue
+            previous_signal_handlers[stop] = signal.getsignal(stop)
+            signal.signal(stop, handle_stop_signal)
+
     address, actual_port = server.server_address[:2]
     display_host = host if address in {"", "0.0.0.0"} else address
     print(
@@ -3569,8 +3621,12 @@ def run_service(
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nElectroBoy service stopped.")
+        if stop_signal is not None:
+            return 128 + stop_signal
         return 130
     finally:
+        for signum, previous_handler in previous_signal_handlers.items():
+            signal.signal(signum, previous_handler)
         server.server_close()
     return 0
 

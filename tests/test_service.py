@@ -69,6 +69,36 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["service"], "electroboy")
         self.assertEqual(payload["root"], str(root.resolve()))
 
+    def test_server_close_terminates_context_agent_sessions(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+
+            session = FakeSession()
+            self.assertIsNotNone(server.service_state)
+            payload = server.service_state.create_context()
+            context_id = str(payload["context_id"])
+            with server.service_state.lock:
+                context = server.service_state._context_locked(context_id)
+                context.requirements_session = session
+
+            server.server_close()
+
+        self.assertTrue(session.terminated)
+
     def test_index_page_fetches_health_and_prints_connected(self) -> None:
         self.assertIn('fetch("/api/health"', INDEX_HTML)
         self.assertIn('connection.textContent = activeProjectRoot', INDEX_HTML)
