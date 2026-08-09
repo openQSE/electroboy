@@ -615,7 +615,7 @@ INDEX_HTML = """<!doctype html>
       <div id="requirementsMenu" class="stage-menu" hidden>
         <button id="startRequirements" type="button">Start</button>
         <button id="restartRequirements" type="button">Restart</button>
-        <button id="skipRequirements" type="button">Skip</button>
+        <button id="completeRequirements" type="button">Complete</button>
         <button id="openRequirements" type="button">Open requirements</button>
       </div>
       <div id="requirementsApproveMenu" class="stage-menu" hidden>
@@ -726,7 +726,7 @@ INDEX_HTML = """<!doctype html>
     const deactivateProject = document.getElementById("deactivateProject");
     const startRequirements = document.getElementById("startRequirements");
     const restartRequirements = document.getElementById("restartRequirements");
-    const skipRequirements = document.getElementById("skipRequirements");
+    const completeRequirements = document.getElementById("completeRequirements");
     const openRequirements = document.getElementById("openRequirements");
     const approveRequirements = document.getElementById("approveRequirements");
     const openApprovedRequirements = document.getElementById("openApprovedRequirements");
@@ -1007,7 +1007,7 @@ INDEX_HTML = """<!doctype html>
         !hasActiveProject || !inRequirementsStage || requirementsRunning;
       restartRequirements.disabled =
         !hasActiveProject || (inRequirementsStage && !requirementsStarted);
-      skipRequirements.disabled = !hasActiveProject || !inRequirementsStage;
+      completeRequirements.disabled = !hasActiveProject || !inRequirementsStage;
       openRequirements.disabled =
         !hasActiveProject || !inRequirementsStage || !requirementsStarted;
     }
@@ -1290,7 +1290,7 @@ INDEX_HTML = """<!doctype html>
       );
     }
 
-    async function skipRequirementsAgent() {
+    async function completeRequirementsAgent() {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
         return;
@@ -1300,18 +1300,18 @@ INDEX_HTML = """<!doctype html>
       }
       if (
         !requirementsStarted &&
-        !window.confirm("Requirements phase is not complete.\\n\\nSkip at your own risk.")
+        !window.confirm("Requirements authoring has not been started.\\n\\nComplete anyway?")
       ) {
         return;
       }
       requirementsMenu.hidden = true;
       closeAgentEventStream();
-      const response = await fetch(contextUrl("/api/agents/requirements/skip"), {
+      const response = await fetch(contextUrl("/api/agents/requirements/complete"), {
         method: "POST",
       });
-      const payload = await response.json().catch(() => ({ error: "skip failed" }));
+      const payload = await response.json().catch(() => ({ error: "complete failed" }));
       if (!response.ok) {
-        appendOutput(`${payload.error || "skip failed"}\\n`, "error");
+        appendOutput(`${payload.error || "complete failed"}\\n`, "error");
         return;
       }
       setRequirementsRunning(false);
@@ -1470,7 +1470,7 @@ INDEX_HTML = """<!doctype html>
 
     startRequirements.addEventListener("click", startRequirementsAgent);
     restartRequirements.addEventListener("click", restartRequirementsAgent);
-    skipRequirements.addEventListener("click", skipRequirementsAgent);
+    completeRequirements.addEventListener("click", completeRequirementsAgent);
     openRequirements.addEventListener("click", openRequirementsDocument);
     approveRequirements.addEventListener("click", approveRequirementsStage);
     openApprovedRequirements.addEventListener("click", openRequirementsDocument);
@@ -1595,9 +1595,10 @@ class ServiceState:
         stderr = io.StringIO()
         store = StateStore(project_root)
         engine = GateEngine(project_root)
-        force_approval = _should_force_skipped_requirements_approval(store)
+        force_approval = _should_force_completed_requirements_approval(store)
         reason = (
-            "Requirements authoring was skipped from the GUI; approval "
+            "Requirements authoring was completed from the GUI without "
+            "agent confirmation; approval "
             "force-records the missing author confirmation."
             if force_approval
             else None
@@ -1737,7 +1738,7 @@ class ServiceState:
         _reopen_requirements_for_restart(project_root)
         return self.start_requirements_agent(context_id, allow_stage_reopen=True)
 
-    def skip_requirements_agent(self, context_id: str) -> dict[str, object]:
+    def complete_requirements_agent(self, context_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
@@ -1747,7 +1748,7 @@ class ServiceState:
                 raise AgentSessionError("requirements stage is not active")
             requirements_started = context.requirements_started
         self._terminate_requirements_session(context_id)
-        _record_requirements_skip(project_root)
+        _record_requirements_complete(project_root)
         with self.lock:
             context = self._context_locked(context_id)
             context.workflow_stage = "requirements-approve"
@@ -1756,9 +1757,12 @@ class ServiceState:
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
-            "status": "skipped",
+            "status": "completed",
             "next_stage": "requirements-approve",
         }
+
+    def skip_requirements_agent(self, context_id: str) -> dict[str, object]:
+        return self.complete_requirements_agent(context_id)
 
     def requirements_document_root(self, context_id: str) -> Path:
         with self.lock:
@@ -2261,7 +2265,7 @@ def _stage_operations(
             operations.append("Deactivate")
         return operations
     if stage == "requirements" and active_project_root:
-        return ["Start", "Restart", "Skip", "Open requirements"]
+        return ["Start", "Restart", "Complete", "Open requirements"]
     return []
 
 
@@ -2291,16 +2295,16 @@ def _reopen_requirements_for_restart(project_root: Path) -> None:
     )
 
 
-def _record_requirements_skip(project_root: Path) -> None:
+def _record_requirements_complete(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
     store.append_activity(
         ActivityEvent(
             actor="human-operator",
             stage=STAGE_REQUIREMENTS,
-            action="gui-requirements-authoring-skipped",
+            action="gui-requirements-authoring-completed",
             summary=(
-                "Skipped requirements authoring and moved to requirements "
+                "Completed requirements authoring and moved to requirements "
                 "approval."
             ),
             inputs=[manifest.active_stage],
@@ -2308,15 +2312,19 @@ def _record_requirements_skip(project_root: Path) -> None:
     )
 
 
-def _should_force_skipped_requirements_approval(store: StateStore) -> bool:
+def _should_force_completed_requirements_approval(store: StateStore) -> bool:
     from .cli import _has_successful_agent_event
 
     if _has_successful_agent_event(store, "design_author", STAGE_REQUIREMENTS):
         return False
+    completion_actions = {
+        "gui-requirements-authoring-completed",
+        "gui-requirements-authoring-skipped",
+    }
     return any(
         event.get("actor") == "human-operator"
         and event.get("stage") == STAGE_REQUIREMENTS
-        and event.get("action") == "gui-requirements-authoring-skipped"
+        and event.get("action") in completion_actions
         for event in store.read_activity()
     )
 
@@ -2621,8 +2629,11 @@ def _handler_for(
             if path == "/api/agents/requirements/restart":
                 self._restart_requirements_agent(parsed.query)
                 return
+            if path == "/api/agents/requirements/complete":
+                self._complete_requirements_agent(parsed.query)
+                return
             if path == "/api/agents/requirements/skip":
-                self._skip_requirements_agent(parsed.query)
+                self._complete_requirements_agent(parsed.query)
                 return
             if path == "/api/agents/requirements/approve":
                 self._approve_requirements(parsed.query)
@@ -2800,10 +2811,10 @@ def _handler_for(
                 }
             )
 
-        def _skip_requirements_agent(self, query: str) -> None:
+        def _complete_requirements_agent(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
-                self._send_json(state.skip_requirements_agent(context_id))
+                self._send_json(state.complete_requirements_agent(context_id))
             except (AgentSessionError, StateError) as error:
                 self._send_json(
                     {"error": str(error)},

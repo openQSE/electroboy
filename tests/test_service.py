@@ -121,7 +121,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="approveRequirements"', INDEX_HTML)
         self.assertIn('id="openApprovedRequirements"', INDEX_HTML)
         self.assertIn('id="restartRequirements"', INDEX_HTML)
-        self.assertIn('id="skipRequirements"', INDEX_HTML)
+        self.assertIn('id="completeRequirements"', INDEX_HTML)
         self.assertIn('id="openRequirements"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
@@ -150,13 +150,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const inRequirementsStage = currentWorkflowStage === "requirements";', INDEX_HTML)
         self.assertIn("!hasActiveProject || !inRequirementsStage || requirementsRunning", INDEX_HTML)
         self.assertIn("!hasActiveProject || (inRequirementsStage && !requirementsStarted)", INDEX_HTML)
-        self.assertIn("skipRequirements.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
+        self.assertIn("completeRequirements.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
         self.assertIn("openRequirements.disabled =", INDEX_HTML)
         self.assertIn("approveRequirements.disabled = !inRequirementsApproveStage", INDEX_HTML)
         self.assertIn("openApprovedRequirements.disabled = !inRequirementsApproveStage", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
-        self.assertIn("Requirements phase is not complete", INDEX_HTML)
-        self.assertIn("Skip at your own risk.", INDEX_HTML)
+        self.assertIn("Requirements authoring has not been started", INDEX_HTML)
+        self.assertIn("Complete anyway?", INDEX_HTML)
         self.assertIn("function contextUrl(path)", INDEX_HTML)
         self.assertIn('contextUrl("/api/project")', INDEX_HTML)
         self.assertIn('"/api/project/open"', INDEX_HTML)
@@ -175,7 +175,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('"/api/agents/requirements/start"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/restart"', INDEX_HTML)
-        self.assertIn('"/api/agents/requirements/skip"', INDEX_HTML)
+        self.assertIn('"/api/agents/requirements/complete"', INDEX_HTML)
         self.assertIn('"/api/agents/requirements/approve"', INDEX_HTML)
         self.assertIn("function approveRequirementsStage()", INDEX_HTML)
         self.assertIn(
@@ -192,7 +192,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("terminal.clear();", INDEX_HTML)
         self.assertIn("agentInput.value = \"\";", INDEX_HTML)
         self.assertIn("function restartRequirementsAgent()", INDEX_HTML)
-        self.assertIn("function skipRequirementsAgent()", INDEX_HTML)
+        self.assertIn("function completeRequirementsAgent()", INDEX_HTML)
         self.assertIn("function openRequirementsDocument()", INDEX_HTML)
         self.assertIn("window.open(contextUrl(\"/artifacts/requirements\")", INDEX_HTML)
         self.assertIn("function positionStageMenu(menu, stage)", INDEX_HTML)
@@ -236,7 +236,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(operations["project"], ["Open", "Create", "Deactivate"])
         self.assertEqual(
             operations["requirements"],
-            ["Start", "Restart", "Skip", "Open requirements"],
+            ["Start", "Restart", "Complete", "Open requirements"],
         )
 
     def test_service_state_opens_existing_project(self) -> None:
@@ -399,7 +399,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNone(payload["active_project_root"])
         self.assertIsNone(state.current_requirements_session(context_id))
 
-    def test_requirements_skip_terminates_agent_and_moves_to_approval_node(self) -> None:
+    def test_requirements_complete_terminates_agent_and_moves_to_approval_node(self) -> None:
         class FakeSession:
             def __init__(self) -> None:
                 self.terminated = False
@@ -425,10 +425,10 @@ class ServiceTests(unittest.TestCase):
                 state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
                 state.contexts[context_id].requirements_started = True
 
-            payload = state.skip_requirements_agent(context_id)
+            payload = state.complete_requirements_agent(context_id)
 
         self.assertTrue(session.terminated)
-        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["status"], "completed")
         self.assertEqual(payload["workflow_stage"], "requirements-approve")
         self.assertTrue(payload["requirements_started"])
         self.assertEqual(payload["next_stage"], "requirements-approve")
@@ -452,7 +452,7 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
                 state.requirements_document_root(context_id)
 
-    def test_requirements_skip_can_run_before_start(self) -> None:
+    def test_requirements_complete_can_run_before_start(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -464,9 +464,9 @@ class ServiceTests(unittest.TestCase):
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
 
-            payload = state.skip_requirements_agent(context_id)
+            payload = state.complete_requirements_agent(context_id)
 
-        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["status"], "completed")
         self.assertEqual(payload["workflow_stage"], "requirements-approve")
         self.assertFalse(payload["requirements_started"])
         self.assertEqual(payload["next_stage"], "requirements-approve")
@@ -563,7 +563,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
-            state.skip_requirements_agent(context_id)
+            state.complete_requirements_agent(context_id)
 
             with self.assertRaisesRegex(
                 AgentSessionError,
@@ -574,7 +574,7 @@ class ServiceTests(unittest.TestCase):
                 AgentSessionError,
                 "requirements stage is not active",
             ):
-                state.skip_requirements_agent(context_id)
+                state.complete_requirements_agent(context_id)
             self.assertEqual(
                 state.requirements_document_root(context_id),
                 project_root.resolve(),
@@ -610,7 +610,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertEqual(payload["next_stage"], "design")
 
-    def test_skipped_requirements_approval_force_records_confirmation(self) -> None:
+    def test_completed_requirements_approval_force_records_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -623,7 +623,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
-            state.skip_requirements_agent(context_id)
+            state.complete_requirements_agent(context_id)
 
             payload = state.approve_requirements(context_id)
             store = StateStore(project_root)
