@@ -100,6 +100,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     .shell {
+      position: relative;
       display: grid;
       grid-template-rows: 230px minmax(0, 1fr);
       height: 100vh;
@@ -108,11 +109,38 @@ INDEX_HTML = """<!doctype html>
 
     .workflow-pane {
       position: relative;
+      z-index: 10;
       padding: 20px 24px 16px;
       border-bottom: 1px solid var(--border);
       background: var(--panel);
+      overflow: visible;
+    }
+
+    .stage-scroll {
+      position: relative;
       overflow-x: auto;
-      overflow-y: visible;
+      overflow-y: hidden;
+      margin: 0 -24px;
+      padding: 0 24px 12px;
+    }
+
+    .stage-scroll::-webkit-scrollbar {
+      height: 10px;
+    }
+
+    .stage-scroll::-webkit-scrollbar-thumb {
+      border: 3px solid var(--panel);
+      border-radius: 999px;
+      background: #c6d1df;
+    }
+
+    .stage-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .stage-scroll {
+      scrollbar-color: #c6d1df transparent;
+      scrollbar-width: thin;
     }
 
     .connection {
@@ -194,7 +222,7 @@ INDEX_HTML = """<!doctype html>
 
     .stage-menu {
       position: absolute;
-      z-index: 3;
+      z-index: 30;
       top: 128px;
       left: 24px;
       width: 192px;
@@ -233,7 +261,7 @@ INDEX_HTML = """<!doctype html>
 
     .project-panel {
       position: absolute;
-      z-index: 2;
+      z-index: 25;
       top: 176px;
       left: 24px;
       right: 24px;
@@ -339,6 +367,8 @@ INDEX_HTML = """<!doctype html>
     }
 
     .agent-pane {
+      position: relative;
+      z-index: 0;
       display: grid;
       grid-template-rows: minmax(0, 1fr) 148px;
       min-height: 0;
@@ -433,6 +463,11 @@ INDEX_HTML = """<!doctype html>
         padding: 16px;
       }
 
+      .stage-scroll {
+        margin: 0 -16px;
+        padding: 0 16px 12px;
+      }
+
       .connection {
         right: 16px;
       }
@@ -468,30 +503,37 @@ INDEX_HTML = """<!doctype html>
   <main class="shell">
     <section class="workflow-pane" aria-label="Project workflow">
       <div id="connection" class="connection"></div>
-      <div class="stage-graph" aria-label="Project stages">
-        <button class="stage-node active" type="button" data-stage="project">
-          project
-        </button>
-        <button class="stage-node disabled" type="button" data-stage="requirements" disabled>
-          requirements
-        </button>
-        <div class="stage-node disabled" aria-disabled="true">
-          requirements-approve
+      <div class="stage-scroll">
+        <div class="stage-graph" aria-label="Project stages">
+          <button class="stage-node active" type="button" data-stage="project">
+            project
+          </button>
+          <button
+            class="stage-node disabled"
+            type="button"
+            data-stage="requirements"
+            disabled
+          >
+            requirements
+          </button>
+          <div class="stage-node disabled" aria-disabled="true">
+            requirements-approve
+          </div>
+          <div class="stage-node disabled" aria-disabled="true">design</div>
+          <div class="stage-node disabled" aria-disabled="true">design-review</div>
+          <div class="stage-node disabled" aria-disabled="true">design-approve</div>
+          <div class="stage-node disabled" aria-disabled="true">
+            implementation-plan
+          </div>
+          <div class="stage-node disabled" aria-disabled="true">plan-approve</div>
+          <div class="stage-node disabled" aria-disabled="true">code</div>
+          <div class="stage-node disabled" aria-disabled="true">test-plan</div>
+          <div class="stage-node disabled" aria-disabled="true">test-plan-approve</div>
+          <div class="stage-node disabled" aria-disabled="true">validate</div>
+          <div class="stage-node disabled" aria-disabled="true">validation-approve</div>
+          <div class="stage-node disabled" aria-disabled="true">document</div>
+          <div class="stage-node disabled" aria-disabled="true">code-approve</div>
         </div>
-        <div class="stage-node disabled" aria-disabled="true">design</div>
-        <div class="stage-node disabled" aria-disabled="true">design-review</div>
-        <div class="stage-node disabled" aria-disabled="true">design-approve</div>
-        <div class="stage-node disabled" aria-disabled="true">
-          implementation-plan
-        </div>
-        <div class="stage-node disabled" aria-disabled="true">plan-approve</div>
-        <div class="stage-node disabled" aria-disabled="true">code</div>
-        <div class="stage-node disabled" aria-disabled="true">test-plan</div>
-        <div class="stage-node disabled" aria-disabled="true">test-plan-approve</div>
-        <div class="stage-node disabled" aria-disabled="true">validate</div>
-        <div class="stage-node disabled" aria-disabled="true">validation-approve</div>
-        <div class="stage-node disabled" aria-disabled="true">document</div>
-        <div class="stage-node disabled" aria-disabled="true">code-approve</div>
       </div>
       <div id="projectMenu" class="stage-menu" hidden>
         <button id="openProject" type="button">Open</button>

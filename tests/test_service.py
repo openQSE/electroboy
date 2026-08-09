@@ -58,6 +58,10 @@ class ServiceTests(unittest.TestCase):
     def test_index_page_fetches_health_and_prints_connected(self) -> None:
         self.assertIn('fetch("/api/health"', INDEX_HTML)
         self.assertIn('connection.textContent = activeProjectRoot', INDEX_HTML)
+        self.assertIn('class="stage-scroll"', INDEX_HTML)
+        self.assertIn("overflow: visible;", INDEX_HTML)
+        self.assertIn("z-index: 30;", INDEX_HTML)
+        self.assertIn("z-index: 0;", INDEX_HTML)
         self.assertIn('data-stage="project"', INDEX_HTML)
         self.assertIn('data-stage="requirements"', INDEX_HTML)
         self.assertIn('id="projectMenu"', INDEX_HTML)
