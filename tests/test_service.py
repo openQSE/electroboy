@@ -108,6 +108,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/agents/requirements/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/agents/requirements/resize")', INDEX_HTML)
         self.assertIn("payload.terminal || payload.text", INDEX_HTML)
+        self.assertIn("function clearAgentOutput()", INDEX_HTML)
+        self.assertIn("terminal.clear();", INDEX_HTML)
+        self.assertIn("agentInput.value = \"\";", INDEX_HTML)
         self.assertIn("function positionStageMenu(menu, stage)", INDEX_HTML)
         self.assertIn(
             "toggleStageMenu(requirementsMenu, requirementsStage, projectMenu)",

@@ -734,6 +734,14 @@ INDEX_HTML = """<!doctype html>
       appendPlainOutput(text);
     }
 
+    function clearAgentOutput() {
+      if (terminal) {
+        terminal.clear();
+        return;
+      }
+      agentOutput.replaceChildren();
+    }
+
     function formatTerminalMessage(text, className) {
       if (className === "error") {
         return `\\x1b[31m${text}\\x1b[0m`;
@@ -931,6 +939,8 @@ INDEX_HTML = """<!doctype html>
       interruptAgent.disabled = true;
       startRequirements.disabled = false;
       requirementsRunning = false;
+      agentInput.value = "";
+      clearAgentOutput();
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
       updateProjectState(payload);
     }
