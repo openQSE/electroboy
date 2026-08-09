@@ -8,6 +8,7 @@ import json
 import os
 import pty
 import re
+import signal
 import shlex
 import struct
 import subprocess
@@ -1176,7 +1177,11 @@ class ServiceState:
     def deactivate_project(self, context_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
+            session = context.requirements_session
+        if session is not None and session.is_active():
+            session.terminate()
+        with self.lock:
+            context = self._context_locked(context_id)
             context.active_project_root = None
             context.requirements_session = None
         return {
@@ -1295,16 +1300,21 @@ class AgentSession:
         env = _agent_process_env()
         _disable_terminal_echo(slave_fd)
         _set_terminal_size(slave_fd, self.columns, self.rows)
+        popen_kwargs: dict[str, Any] = {
+            "args": self.command,
+            "cwd": self.cwd,
+            "stdin": slave_fd,
+            "stdout": slave_fd,
+            "stderr": slave_fd,
+            "env": env,
+            "close_fds": True,
+        }
+        if sys.version_info >= (3, 11):
+            popen_kwargs["process_group"] = 0
+        else:
+            popen_kwargs["start_new_session"] = True
         try:
-            self.process = subprocess.Popen(
-                self.command,
-                cwd=self.cwd,
-                stdin=slave_fd,
-                stdout=slave_fd,
-                stderr=slave_fd,
-                env=env,
-                close_fds=True,
-            )
+            self.process = subprocess.Popen(**popen_kwargs)
         except Exception:
             os.close(master_fd)
             os.close(slave_fd)
@@ -1355,6 +1365,34 @@ class AgentSession:
                 raise AgentSessionError(
                     f"could not interrupt requirements agent: {error}"
                 )
+
+    def terminate(self, timeout: float = 2.0) -> None:
+        process = self.process
+        if process is None:
+            self._close_master()
+            return
+        if process.poll() is not None:
+            self._close_master()
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            process.terminate()
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                process.kill()
+            process.wait(timeout=1)
+        self.returncode = process.returncode
+        self.status = "terminated"
+        self._close_master()
 
     def resize(self, columns: int, rows: int) -> None:
         self.columns = max(20, min(columns, 300))

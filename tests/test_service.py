@@ -243,6 +243,38 @@ class ServiceTests(unittest.TestCase):
                 str(second_project.resolve()),
             )
 
+    def test_project_deactivation_terminates_running_requirements_agent(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
+
+            payload = state.deactivate_project(context_id)
+
+        self.assertTrue(session.terminated)
+        self.assertEqual(payload["status"], "deactivated")
+        self.assertIsNone(payload["active_project_root"])
+        self.assertIsNone(state.current_requirements_session(context_id))
+
     def test_service_state_rejects_unknown_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state = ServiceState(Path(tmp))
@@ -366,6 +398,29 @@ class ServiceTests(unittest.TestCase):
         finally:
             if session.is_active() and session.process is not None:
                 session.process.terminate()
+
+    def test_agent_session_terminate_stops_running_process(self) -> None:
+        script = (
+            "import time\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(30)\n"
+        )
+        session = AgentSession([sys.executable, "-c", script], ROOT)
+        try:
+            try:
+                session.start()
+            except PermissionError as error:
+                self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+            self.assertIn("ready", wait_for_output(self, session, "ready"))
+
+            session.terminate()
+
+            self.assertFalse(session.is_active())
+            self.assertIsNotNone(session.returncode)
+            self.assertNotEqual(session.returncode, 0)
+        finally:
+            if session.is_active():
+                session.terminate()
 
     def test_agent_session_preserves_raw_terminal_output(self) -> None:
         script = (
