@@ -144,8 +144,9 @@ inactive until later GUI work wires them up. The requirements agent uses
 `POST /api/agents/requirements/start?context_id=<id>`,
 `POST /api/agents/requirements/message?context_id=<id>`, and
 `GET /api/agents/requirements/events?context_id=<id>`. The event stream is
-Server-Sent Events and carries normal child-process output from the same
-`electroboy requirements` command path used by the CLI.
+Server-Sent Events and carries cleaned text output from the same
+`electroboy requirements` command path used by the CLI, with terminal control
+sequences stripped before the browser receives them.
 
 `feature start` records feature metadata in the current run's `feature.json`.
 When `--name` is omitted in an interactive shell, ElectroBoy prompts for the

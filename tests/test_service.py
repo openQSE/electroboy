@@ -19,6 +19,7 @@ from electroboy.service import (  # noqa: E402
     AgentSession,
     ServiceState,
     _agent_process_env,
+    _clean_terminal_output,
     _requirements_command,
     browse_directories,
     create_server,
@@ -275,6 +276,44 @@ class ServiceTests(unittest.TestCase):
         entries = env["PYTHONPATH"].split(os.pathsep)
         self.assertEqual(entries[0], str((ROOT / "src").resolve()))
         self.assertIn("src", entries)
+        self.assertEqual(env["TERM"], "dumb")
+        self.assertEqual(env["NO_COLOR"], "1")
+        self.assertEqual(env["CLICOLOR"], "0")
+        self.assertEqual(env["FORCE_COLOR"], "0")
+
+    def test_terminal_output_cleaner_strips_ansi_screen_updates(self) -> None:
+        raw = (
+            "7 \x1b[1B\x1b[1G\x1b[K\x1b[1B\x1b[1G\x1b[K"
+            " 8 \x1b[39;49m\x1b[K   \x1b[38;5;6;49mq"
+            "\x1b[39m\x1b[49m\x1b[0m\n"
+            "\x1b[39;49m\x1b[K \x1b[39m\x1b[49m\x1b[0m\n"
+            "\x1b[?25l\x1b[?2026l\x1b]0;QFw\x1b\\\x1b[?2026h"
+        )
+
+        cleaned, pending = _clean_terminal_output(raw)
+
+        self.assertEqual(pending, "")
+        self.assertNotIn("\x1b", cleaned)
+        self.assertIn("q", cleaned)
+        self.assertNotIn("[1B", cleaned)
+        self.assertNotIn("[39;49m", cleaned)
+        self.assertNotIn("]0;QFw", cleaned)
+
+    def test_terminal_output_cleaner_buffers_split_escape_sequences(self) -> None:
+        cleaned, pending = _clean_terminal_output("plain \x1b[38;")
+        self.assertEqual(cleaned, "plain ")
+        self.assertEqual(pending, "\x1b[38;")
+
+        cleaned, pending = _clean_terminal_output("5;6mgreen\x1b[0m", pending)
+
+        self.assertEqual(cleaned, "green")
+        self.assertEqual(pending, "")
+
+    def test_terminal_output_cleaner_normalizes_carriage_returns(self) -> None:
+        cleaned, pending = _clean_terminal_output("first\rsecond\r\nthird\b")
+
+        self.assertEqual(pending, "")
+        self.assertEqual(cleaned, "first\nsecond\nthir")
 
     def test_requirements_command_sources_project_activation_when_available(
         self,

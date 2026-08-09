@@ -6,9 +6,11 @@ import errno
 import json
 import os
 import pty
+import re
 import shlex
 import subprocess
 import sys
+import termios
 import threading
 import time
 from dataclasses import dataclass, field
@@ -25,6 +27,11 @@ from .state_store import StateError, StateStore
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+
+_CONTROL_CHARS_TO_DROP = frozenset(
+    chr(code)
+    for code in [*range(0x00, 0x08), *range(0x0B, 0x0D), *range(0x0E, 0x20), 0x7F]
+)
 
 WORKFLOW_STAGES = [
     "project",
@@ -991,6 +998,7 @@ class AgentSession:
         self._master_fd: int | None = None
         self._events: list[dict[str, object]] = []
         self._next_event_id = 1
+        self._terminal_pending = ""
         self._condition = threading.Condition()
         self._reader_thread: threading.Thread | None = None
         self._waiter_thread: threading.Thread | None = None
@@ -1000,6 +1008,7 @@ class AgentSession:
             return
         master_fd, slave_fd = pty.openpty()
         env = _agent_process_env()
+        _disable_terminal_echo(slave_fd)
         try:
             self.process = subprocess.Popen(
                 self.command,
@@ -1102,10 +1111,16 @@ class AgentSession:
                 break
             if not chunk:
                 break
+            text, self._terminal_pending = _clean_terminal_output(
+                chunk.decode("utf-8", errors="replace"),
+                self._terminal_pending,
+            )
+            if not text:
+                continue
             self._append_event(
                 {
                     "type": "output",
-                    "text": chunk.decode("utf-8", errors="replace"),
+                    "text": text,
                 }
             )
 
@@ -1331,9 +1346,28 @@ def _requirements_command(root: Path) -> list[str]:
     ]
 
 
+def _disable_terminal_echo(slave_fd: int) -> None:
+    try:
+        attributes = termios.tcgetattr(slave_fd)
+        attributes[3] &= ~(
+            termios.ECHO
+            | termios.ECHOE
+            | termios.ECHOK
+            | termios.ECHONL
+        )
+        termios.tcsetattr(slave_fd, termios.TCSANOW, attributes)
+    except termios.error:
+        return
+
+
 def _agent_process_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env["TERM"] = "dumb"
+    env["NO_COLOR"] = "1"
+    env["CLICOLOR"] = "0"
+    env["FORCE_COLOR"] = "0"
+    env.pop("COLORTERM", None)
     module_path = str(_module_search_path())
     existing_pythonpath = env.get("PYTHONPATH", "")
     entries = [module_path]
@@ -1348,6 +1382,93 @@ def _agent_process_env() -> dict[str, str]:
 
 def _module_search_path() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _clean_terminal_output(
+    text: str,
+    pending: str = "",
+) -> tuple[str, str]:
+    combined = f"{pending}{text}"
+    output: list[str] = []
+    index = 0
+    while index < len(combined):
+        char = combined[index]
+        if char == "\x1b":
+            consumed, incomplete = _terminal_escape_length(combined, index)
+            if incomplete:
+                return _normalize_terminal_text("".join(output)), combined[index:]
+            index += consumed
+            continue
+        if char == "\r":
+            if index + 1 < len(combined) and combined[index + 1] == "\n":
+                output.append("\n")
+                index += 2
+            else:
+                output.append("\n")
+                index += 1
+            continue
+        if char == "\b":
+            if output and output[-1] != "\n":
+                output.pop()
+            index += 1
+            continue
+        if char in _CONTROL_CHARS_TO_DROP:
+            index += 1
+            continue
+        output.append(char)
+        index += 1
+    return _normalize_terminal_text("".join(output)), ""
+
+
+def _terminal_escape_length(text: str, index: int) -> tuple[int, bool]:
+    if index + 1 >= len(text):
+        return len(text) - index, True
+    introducer = text[index + 1]
+    if introducer == "[":
+        return _consume_until_final_byte(text, index, 2)
+    if introducer == "]":
+        return _consume_string_control(text, index)
+    if introducer in {"P", "^", "_", "X"}:
+        return _consume_string_control(text, index)
+    if introducer in {"(", ")", "*", "+", "-", ".", "/"}:
+        if index + 2 >= len(text):
+            return len(text) - index, True
+        return 3, False
+    if "@" <= introducer <= "_":
+        return 2, False
+    return 1, False
+
+
+def _consume_until_final_byte(
+    text: str,
+    index: int,
+    offset: int,
+) -> tuple[int, bool]:
+    cursor = index + offset
+    while cursor < len(text):
+        if "@" <= text[cursor] <= "~":
+            return cursor - index + 1, False
+        cursor += 1
+    return len(text) - index, True
+
+
+def _consume_string_control(text: str, index: int) -> tuple[int, bool]:
+    cursor = index + 2
+    while cursor < len(text):
+        char = text[cursor]
+        if char == "\x07":
+            return cursor - index + 1, False
+        if char == "\x1b":
+            if cursor + 1 < len(text) and text[cursor + 1] == "\\":
+                return cursor - index + 2, False
+            return cursor - index, False
+        cursor += 1
+    return len(text) - index, True
+
+
+def _normalize_terminal_text(text: str) -> str:
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text
 
 
 def _handler_for(
