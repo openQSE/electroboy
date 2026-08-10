@@ -122,6 +122,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("artifact", "route")', page)
         self.assertIn("function changeArtifactZoom(delta)", page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
+        self.assertLess(
+            PANE_WINDOW_HTML.index('event.key === "Escape"'),
+            PANE_WINDOW_HTML.index("if (agentInput.value.length > 0)"),
+        )
         self.assertIn('contextUrl("/api/sessions/key")', PANE_WINDOW_HTML)
         self.assertIn('id="decreasePaneFont"', PANE_WINDOW_HTML)
         self.assertIn('id="increasePaneFont"', PANE_WINDOW_HTML)
@@ -976,6 +980,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/sessions/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/sessions/resize")', INDEX_HTML)
         self.assertIn("function terminalKeyForInputEvent(event)", INDEX_HTML)
+        self.assertLess(
+            INDEX_HTML.index('event.key === "Escape"'),
+            INDEX_HTML.index("if (agentInput.value.length > 0)"),
+        )
         self.assertIn('if (event.key === "ArrowUp") return "up";', INDEX_HTML)
         self.assertIn("event.ctrlKey &&", INDEX_HTML)
         self.assertIn("/^[0-9]$/.test(event.key)", INDEX_HTML)
@@ -2906,6 +2914,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_terminal_input_supports_named_enter_key(self) -> None:
         self.assertEqual(_terminal_input_for_key("enter"), "\r")
+        self.assertEqual(_terminal_input_for_key("escape"), "\x1b")
         self.assertEqual(_terminal_input_for_key("up"), "\x1b[A")
         self.assertEqual(_terminal_input_for_key("down"), "\x1b[B")
         self.assertEqual(_terminal_input_for_key("1"), "1")

@@ -6075,6 +6075,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     function terminalKeyForInputEvent(event) {
+      if (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.key === "Escape"
+      ) {
+        return "escape";
+      }
       if (agentInput.value.length > 0) {
         return "";
       }
@@ -6101,7 +6110,6 @@ INDEX_HTML = """<!doctype html>
       if (event.key === "ArrowDown") return "down";
       if (event.key === "ArrowLeft") return "left";
       if (event.key === "ArrowRight") return "right";
-      if (event.key === "Escape") return "escape";
       if (event.key === "Tab") return "tab";
       return "";
     }
@@ -7331,6 +7339,15 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     function terminalKeyForInputEvent(event) {
+      if (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.key === "Escape"
+      ) {
+        return "escape";
+      }
       if (agentInput.value.length > 0) {
         return "";
       }
@@ -7357,7 +7374,6 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       if (event.key === "ArrowDown") return "down";
       if (event.key === "ArrowLeft") return "left";
       if (event.key === "ArrowRight") return "right";
-      if (event.key === "Escape") return "escape";
       if (event.key === "Tab") return "tab";
       return "";
     }
