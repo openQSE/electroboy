@@ -6884,10 +6884,11 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
 
     body {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
       gap: 10px;
-      min-height: 100vh;
+      height: 100vh;
       margin: 0;
+      overflow: hidden;
       background: var(--bg);
       color: var(--ink);
       padding: 14px;
