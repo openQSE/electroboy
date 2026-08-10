@@ -116,6 +116,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function changeArtifactZoom(delta)", page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/key")', PANE_WINDOW_HTML)
+        self.assertIn('id="decreasePaneFont"', PANE_WINDOW_HTML)
+        self.assertIn('id="increasePaneFont"', PANE_WINDOW_HTML)
+        self.assertIn('for="sessionSwitcher">Select Agent</label>', PANE_WINDOW_HTML)
+        self.assertIn('id="sessionSwitcher"', PANE_WINDOW_HTML)
+        self.assertIn("function refreshSessions()", PANE_WINDOW_HTML)
+        self.assertIn("function selectAgentSession(sessionId)", PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/project")', PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/sessions/select")', PANE_WINDOW_HTML)
+        self.assertIn('if (kind === "input") return "AI agent input";', PANE_WINDOW_HTML)
         self.assertIn('sandbox="allow-scripts allow-popups"', page)
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
@@ -420,6 +429,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
+        self.assertIn('class="workflow-toolbar"', INDEX_HTML)
+        self.assertIn('class="input-pane-header pane-header"', INDEX_HTML)
+        self.assertIn("AI agent input", INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
         self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
         self.assertIn('id="sessionSwitcher"', INDEX_HTML)
@@ -430,6 +442,10 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML.index('id="decreaseTerminalFont"'),
             INDEX_HTML.index('id="sessionSwitcher"'),
         )
+        self.assertLess(
+            INDEX_HTML.index('class="workflow-toolbar"'),
+            INDEX_HTML.index('data-stage="project"'),
+        )
         self.assertIn('id="interruptAgent"', INDEX_HTML)
         self.assertIn('id="insertFileLink"', INDEX_HTML)
         self.assertIn('id="popoutAgentPane"', INDEX_HTML)
@@ -438,6 +454,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="popoutScratchPane"', INDEX_HTML)
         self.assertIn('id="popoutStatusPane"', INDEX_HTML)
         self.assertIn('id="popoutInputPane"', INDEX_HTML)
+        self.assertIn('aria-label="Pop out AI agent input"', INDEX_HTML)
         self.assertIn('class="agent-actions"', INDEX_HTML)
         self.assertIn(".output-split.artifact-visible", INDEX_HTML)
         self.assertIn(".output-split.split", INDEX_HTML)
