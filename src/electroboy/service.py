@@ -878,11 +878,18 @@ INDEX_HTML = """<!doctype html>
     .terminal-pane,
     .artifact-preview-pane {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
       min-height: 0;
       min-width: 0;
       overflow: hidden;
       background: var(--terminal);
+    }
+
+    .terminal-pane {
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .artifact-preview-pane {
+      grid-template-rows: minmax(0, 1fr);
     }
 
     .terminal-pane[hidden],
@@ -979,6 +986,30 @@ INDEX_HTML = """<!doctype html>
       color: #aab8cf;
       font-size: var(--ui-small-font-size);
       font-weight: 750;
+    }
+
+    .artifact-preview-stack {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr);
+      min-height: 0;
+      min-width: 0;
+    }
+
+    .artifact-preview-stack.split {
+      grid-template-rows: minmax(0, 1fr) 1px minmax(0, 1fr);
+    }
+
+    .artifact-preview-item {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .artifact-preview-divider {
+      min-height: 1px;
+      background: #2a3142;
     }
 
     .agent-output,
@@ -1631,13 +1662,11 @@ INDEX_HTML = """<!doctype html>
         <button id="restartRequirements" type="button">Restart</button>
         <button id="approveRequirements" type="button">Approve</button>
         <button id="skipRequirementsApproval" type="button">Skip approval</button>
-        <button id="openRequirements" type="button">Open requirements</button>
       </div>
       <div id="designMenu" class="stage-menu" hidden>
         <button id="startDesign" type="button">Start</button>
         <button id="restartDesign" type="button">Restart</button>
         <button id="completeDesign" type="button">Complete</button>
-        <button id="openDesign" type="button">Open design</button>
       </div>
       <div id="designReviewMenu" class="stage-menu" hidden>
         <button id="startAutomaticDesignReview" type="button">Start automatic</button>
@@ -1646,15 +1675,12 @@ INDEX_HTML = """<!doctype html>
         <button id="approveDesignReview" type="button">Approve</button>
         <button id="skipDesignReviewApproval" type="button">Skip approval</button>
         <button id="restartDesignReview" type="button">Restart review</button>
-        <button id="openDesignReview" type="button">Open review</button>
-        <button id="openDesignFromReview" type="button">Open design</button>
       </div>
       <div id="implementationPlanMenu" class="stage-menu" hidden>
         <button id="startImplementationPlan" type="button">Start</button>
         <button id="restartImplementationPlan" type="button">Restart</button>
         <button id="approveImplementationPlan" type="button">Approve</button>
         <button id="skipImplementationPlanApproval" type="button">Skip approval</button>
-        <button id="openImplementationPlan" type="button">Open implementation plan</button>
       </div>
       <div id="codeMenu" class="stage-menu" hidden>
         <button id="startAutomaticCode" type="button">Start automatic</button>
@@ -1663,14 +1689,12 @@ INDEX_HTML = """<!doctype html>
         <button id="approveCode" type="button">Approve</button>
         <button id="skipCodeApproval" type="button">Skip approval</button>
         <button id="restartCode" type="button">Restart</button>
-        <button id="openImplementationReport" type="button">Open implementation report</button>
       </div>
       <div id="testPlanMenu" class="stage-menu" hidden>
         <button id="startTestPlan" type="button">Start</button>
         <button id="restartTestPlan" type="button">Restart</button>
         <button id="approveTestPlan" type="button">Approve</button>
         <button id="skipTestPlanApproval" type="button">Skip approval</button>
-        <button id="openTestPlan" type="button">Open test plan</button>
       </div>
       <div id="validateMenu" class="stage-menu" hidden>
         <button id="startAutomaticValidate" type="button">Start automatic</button>
@@ -1679,7 +1703,6 @@ INDEX_HTML = """<!doctype html>
         <button id="approveValidate" type="button">Approve</button>
         <button id="skipValidateApproval" type="button">Skip approval</button>
         <button id="restartValidate" type="button">Restart</button>
-        <button id="openValidationReport" type="button">Open validation report</button>
       </div>
       <div id="documentMenu" class="stage-menu" hidden>
         <div id="documentTargets" class="document-targets"></div>
@@ -1797,41 +1820,7 @@ INDEX_HTML = """<!doctype html>
               aria-label="Artifact preview"
               hidden
             >
-              <div id="artifactPreviewHeader" class="pane-header">
-                <span id="artifactPreviewTitle" class="pane-title">Requirements</span>
-                <div class="pane-actions">
-                  <div class="document-zoom-controls" aria-label="Document zoom">
-                    <button
-                      id="decreaseDocumentZoom"
-                      class="document-zoom-button"
-                      type="button"
-                      title="Zoom document out"
-                      aria-label="Zoom document out"
-                    >-</button>
-                    <span id="documentZoomLevel" class="document-zoom-level">100%</span>
-                    <button
-                      id="increaseDocumentZoom"
-                      class="document-zoom-button"
-                      type="button"
-                      title="Zoom document in"
-                      aria-label="Zoom document in"
-                    >+</button>
-                  </div>
-                  <button
-                    id="popoutArtifactPane"
-                    class="pane-popout-button"
-                    type="button"
-                    title="Pop out artifact preview"
-                    aria-label="Pop out artifact preview"
-                  >Pop</button>
-                </div>
-              </div>
-              <iframe
-        id="artifactPreviewFrame"
-        class="artifact-preview-frame"
-        title="Rendered artifact preview"
-        sandbox="allow-scripts allow-popups"
-      ></iframe>
+              <div id="artifactPreviewStack" class="artifact-preview-stack"></div>
             </section>
             <div
               id="outputResizeHandle"
@@ -2036,44 +2025,36 @@ INDEX_HTML = """<!doctype html>
     const restartRequirements = document.getElementById("restartRequirements");
     const approveRequirements = document.getElementById("approveRequirements");
     const skipRequirementsApproval = document.getElementById("skipRequirementsApproval");
-    const openRequirements = document.getElementById("openRequirements");
     const startDesign = document.getElementById("startDesign");
     const restartDesign = document.getElementById("restartDesign");
     const completeDesign = document.getElementById("completeDesign");
-    const openDesign = document.getElementById("openDesign");
     const startAutomaticDesignReview = document.getElementById("startAutomaticDesignReview");
     const startInteractiveDesignReview = document.getElementById("startInteractiveDesignReview");
     const stopDesignReview = document.getElementById("stopDesignReview");
     const approveDesignReview = document.getElementById("approveDesignReview");
     const skipDesignReviewApproval = document.getElementById("skipDesignReviewApproval");
     const restartDesignReview = document.getElementById("restartDesignReview");
-    const openDesignReview = document.getElementById("openDesignReview");
-    const openDesignFromReview = document.getElementById("openDesignFromReview");
     const startImplementationPlan = document.getElementById("startImplementationPlan");
     const restartImplementationPlan = document.getElementById("restartImplementationPlan");
     const approveImplementationPlan = document.getElementById("approveImplementationPlan");
     const skipImplementationPlanApproval =
       document.getElementById("skipImplementationPlanApproval");
-    const openImplementationPlan = document.getElementById("openImplementationPlan");
     const startAutomaticCode = document.getElementById("startAutomaticCode");
     const startInteractiveCode = document.getElementById("startInteractiveCode");
     const stopCode = document.getElementById("stopCode");
     const approveCode = document.getElementById("approveCode");
     const skipCodeApproval = document.getElementById("skipCodeApproval");
     const restartCode = document.getElementById("restartCode");
-    const openImplementationReport = document.getElementById("openImplementationReport");
     const startTestPlan = document.getElementById("startTestPlan");
     const restartTestPlan = document.getElementById("restartTestPlan");
     const approveTestPlan = document.getElementById("approveTestPlan");
     const skipTestPlanApproval = document.getElementById("skipTestPlanApproval");
-    const openTestPlan = document.getElementById("openTestPlan");
     const startAutomaticValidate = document.getElementById("startAutomaticValidate");
     const startInteractiveValidate = document.getElementById("startInteractiveValidate");
     const stopValidate = document.getElementById("stopValidate");
     const approveValidate = document.getElementById("approveValidate");
     const skipValidateApproval = document.getElementById("skipValidateApproval");
     const restartValidate = document.getElementById("restartValidate");
-    const openValidationReport = document.getElementById("openValidationReport");
     const documentTargets = document.getElementById("documentTargets");
     const createDocumentTarget = document.getElementById("createDocumentTarget");
     const customDocumentForm = document.getElementById("customDocumentForm");
@@ -2113,11 +2094,7 @@ INDEX_HTML = """<!doctype html>
     const scratchPad = document.getElementById("scratchPad");
     const artifactPreviewPane = document.getElementById("artifactPreviewPane");
     const artifactPaneResizeHandle = document.getElementById("artifactPaneResizeHandle");
-    const artifactPreviewTitle = document.getElementById("artifactPreviewTitle");
-    const artifactPreviewFrame = document.getElementById("artifactPreviewFrame");
-    const decreaseDocumentZoom = document.getElementById("decreaseDocumentZoom");
-    const documentZoomLevel = document.getElementById("documentZoomLevel");
-    const increaseDocumentZoom = document.getElementById("increaseDocumentZoom");
+    const artifactPreviewStack = document.getElementById("artifactPreviewStack");
     const projectStatusPane = document.querySelector(".project-status-pane");
     const projectStatusOutput = document.getElementById("projectStatusOutput");
     const inputResizeHandle = document.getElementById("inputResizeHandle");
@@ -2132,7 +2109,6 @@ INDEX_HTML = """<!doctype html>
     const interruptAgent = document.getElementById("interruptAgent");
     const insertFileLink = document.getElementById("insertFileLink");
     const popoutAgentPane = document.getElementById("popoutAgentPane");
-    const popoutArtifactPane = document.getElementById("popoutArtifactPane");
     const popoutProgressPane = document.getElementById("popoutProgressPane");
     const popoutScratchPane = document.getElementById("popoutScratchPane");
     const popoutStatusPane = document.getElementById("popoutStatusPane");
@@ -2158,6 +2134,65 @@ INDEX_HTML = """<!doctype html>
       { label: "README", path: "README.md" },
       { label: "API", path: "docs/api.md" },
     ];
+    const STAGE_ARTIFACT_PREVIEWS = {
+      requirements: [
+        { id: "requirements", kind: "requirements", title: "Requirements" },
+      ],
+      design: [
+        {
+          id: "design",
+          kind: "route",
+          title: "Detailed Design",
+          path: "/artifacts/design",
+        },
+      ],
+      "design-review": [
+        {
+          id: "design",
+          kind: "route",
+          title: "Detailed Design",
+          path: "/artifacts/design",
+        },
+        {
+          id: "design-review",
+          kind: "route",
+          title: "Design Review",
+          path: "/artifacts/design-review",
+        },
+      ],
+      "implementation-plan": [
+        {
+          id: "implementation-plan",
+          kind: "route",
+          title: "Implementation Plan",
+          path: "/artifacts/implementation-plan",
+        },
+      ],
+      code: [
+        {
+          id: "implementation-report",
+          kind: "route",
+          title: "Implementation Report",
+          path: "/artifacts/implementation-report",
+        },
+      ],
+      "test-plan": [
+        {
+          id: "test-plan",
+          kind: "route",
+          title: "Test Plan",
+          path: "/artifacts/test-plan",
+        },
+      ],
+      validate: [
+        {
+          id: "validation-report",
+          kind: "route",
+          title: "Validation Report",
+          path: "/artifacts/validation-report",
+        },
+      ],
+    };
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
@@ -2189,6 +2224,10 @@ INDEX_HTML = """<!doctype html>
     let statusRefreshSequence = 0;
     let artifactPreviewKind = "";
     let artifactPreviewDocumentTarget = null;
+    let artifactPreviewItems = [];
+    let manualArtifactPreview = false;
+    let manualArtifactPreviewStage = "";
+    let artifactPreviewStage = "";
     let artifactPreviewVersion = 0;
     let progressPaneRequested = false;
     let artifactPaneRequested = false;
@@ -2515,7 +2554,7 @@ INDEX_HTML = """<!doctype html>
       documentZoom = clampDocumentZoom(documentZoom + delta);
       saveDocumentZoom();
       applyDocumentZoom();
-      if (artifactPreviewKind) {
+      if (artifactPreviewItems.length > 0) {
         refreshArtifactPreview();
       }
     }
@@ -2550,9 +2589,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     function applyDocumentZoom() {
-      documentZoomLevel.textContent = `${documentZoom}%`;
-      decreaseDocumentZoom.disabled = documentZoom <= MIN_DOCUMENT_ZOOM;
-      increaseDocumentZoom.disabled = documentZoom >= MAX_DOCUMENT_ZOOM;
+      for (const level of artifactPreviewStack.querySelectorAll(".document-zoom-level")) {
+        level.textContent = `${documentZoom}%`;
+      }
+      for (const button of artifactPreviewStack.querySelectorAll("[data-zoom='out']")) {
+        button.disabled = documentZoom <= MIN_DOCUMENT_ZOOM;
+      }
+      for (const button of artifactPreviewStack.querySelectorAll("[data-zoom='in']")) {
+        button.disabled = documentZoom >= MAX_DOCUMENT_ZOOM;
+      }
     }
 
     function prepareTerminalStream() {
@@ -2977,7 +3022,7 @@ INDEX_HTML = """<!doctype html>
     function applyOutputPaneVisibility() {
       const agentVisible = !poppedPanes.has("agent");
       const artifactVisible =
-        artifactPaneRequested && artifactPreviewKind && !poppedPanes.has("artifact");
+        artifactPaneRequested && artifactPreviewItems.length > 0 && !poppedPanes.has("artifact");
       const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
       agentOutputPane.hidden = !agentVisible;
       artifactPreviewPane.hidden = !artifactVisible;
@@ -3131,12 +3176,13 @@ INDEX_HTML = """<!doctype html>
       if (selectedSessionId) {
         parameters.set("session_id", selectedSessionId);
       }
-      if (artifactPreviewKind) {
-        parameters.set("artifact", artifactPreviewKind);
+      const artifactItem = artifactPreviewItems[0] || null;
+      if (artifactItem) {
+        parameters.set("artifact", artifactKindForPane(artifactItem));
       }
-      if (artifactPreviewKind === "document" && artifactPreviewDocumentTarget) {
-        parameters.set("document_path", artifactPreviewDocumentTarget.path);
-        parameters.set("document_title", artifactPreviewDocumentTarget.label);
+      if (artifactItem && artifactItem.kind === "document" && artifactItem.target) {
+        parameters.set("document_path", artifactItem.target.path);
+        parameters.set("document_title", artifactItem.target.label);
       }
       parameters.set("font_size", String(terminalFontSize));
       parameters.set("document_zoom", String(documentZoom));
@@ -3293,10 +3339,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     function updateProjectState(payload) {
+      const previousActiveProjectRoot = activeProjectRoot;
+      const nextActiveProjectRoot = payload.active_project_root || "";
       serviceRoot = payload.service_root || "";
-      activationRoot = payload.activation_root || payload.active_project_root || "";
+      activationRoot = payload.activation_root || nextActiveProjectRoot || "";
       activeProjectMode = payload.project_mode || (activationRoot ? "project" : "none");
-      activeProjectRoot = payload.active_project_root || "";
+      activeProjectRoot = nextActiveProjectRoot;
+      if (previousActiveProjectRoot && previousActiveProjectRoot !== activeProjectRoot) {
+        hideArtifactPreview();
+      }
       activeRepositoryName = payload.active_repository_name || "";
       registeredRepositories = Array.isArray(payload.registered_repositories)
         ? payload.registered_repositories
@@ -3661,9 +3712,6 @@ INDEX_HTML = """<!doctype html>
         !hasActiveProject || (inRequirementsStage && !requirementsStarted);
       approveRequirements.disabled = !hasActiveProject || !inRequirementsStage;
       skipRequirementsApproval.disabled = !hasActiveProject || !inRequirementsStage;
-      openRequirements.disabled =
-        !hasActiveProject ||
-        (inRequirementsStage && !requirementsStarted && !requirementsApproved);
     }
 
     function updateDesignMenuState() {
@@ -3672,25 +3720,21 @@ INDEX_HTML = """<!doctype html>
       startDesign.disabled = !hasActiveProject || !inDesignStage || designRunning;
       restartDesign.disabled = !hasActiveProject || inDesignStage;
       completeDesign.disabled = !hasActiveProject || !inDesignStage;
-      openDesign.disabled = !hasActiveProject || !inDesignStage || !designStarted;
     }
 
     function updateDesignReviewMenuState() {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inDesignReviewStage = currentWorkflowStage === "design-review";
       startAutomaticDesignReview.disabled =
-        !hasActiveProject || !inDesignReviewStage || designReviewRunning || designReviewStarted;
+        !hasActiveProject || !inDesignReviewStage || designReviewRunning;
       startInteractiveDesignReview.disabled =
-        !hasActiveProject || !inDesignReviewStage || designReviewRunning || designReviewStarted;
+        !hasActiveProject || !inDesignReviewStage || designReviewRunning;
       stopDesignReview.disabled =
         !hasActiveProject || !inDesignReviewStage || !designReviewRunning;
       approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage;
       skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage;
       restartDesignReview.disabled =
         !hasActiveProject || (inDesignReviewStage && !designReviewStarted);
-      openDesignReview.disabled =
-        !hasActiveProject || !inDesignReviewStage || !designReviewStarted;
-      openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage;
     }
 
     function updateGenericStageMenuStates() {
@@ -3700,7 +3744,6 @@ INDEX_HTML = """<!doctype html>
         restartImplementationPlan,
         approveImplementationPlan,
         skipImplementationPlanApproval,
-        openImplementationPlan,
       );
       updateAutomaticStageMenuState(
         "code",
@@ -3710,7 +3753,6 @@ INDEX_HTML = """<!doctype html>
         approveCode,
         skipCodeApproval,
         restartCode,
-        openImplementationReport,
       );
       updateAuthoringStageMenuState(
         "test-plan",
@@ -3718,7 +3760,6 @@ INDEX_HTML = """<!doctype html>
         restartTestPlan,
         approveTestPlan,
         skipTestPlanApproval,
-        openTestPlan,
       );
       updateAutomaticStageMenuState(
         "validate",
@@ -3728,7 +3769,6 @@ INDEX_HTML = """<!doctype html>
         approveValidate,
         skipValidateApproval,
         restartValidate,
-        openValidationReport,
       );
     }
 
@@ -3738,7 +3778,6 @@ INDEX_HTML = """<!doctype html>
       restartButton,
       approveButton,
       skipButton,
-      openButton,
     ) {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inStage = currentWorkflowStage === stage;
@@ -3747,7 +3786,6 @@ INDEX_HTML = """<!doctype html>
       restartButton.disabled = !hasActiveProject || (inStage && !runState.started);
       approveButton.disabled = !hasActiveProject || !inStage;
       skipButton.disabled = !hasActiveProject || !inStage;
-      openButton.disabled = !hasActiveProject || (inStage && !runState.started);
     }
 
     function updateAutomaticStageMenuState(
@@ -3758,7 +3796,6 @@ INDEX_HTML = """<!doctype html>
       approveButton,
       skipButton,
       restartButton,
-      openButton,
     ) {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inStage = currentWorkflowStage === stage;
@@ -3771,7 +3808,6 @@ INDEX_HTML = """<!doctype html>
       approveButton.disabled = !hasActiveProject || !inStage;
       skipButton.disabled = !hasActiveProject || !inStage;
       restartButton.disabled = !hasActiveProject || (inStage && !runState.started);
-      openButton.disabled = !hasActiveProject || (inStage && !runState.started);
     }
 
     function genericStageRun(stage) {
@@ -3841,14 +3877,34 @@ INDEX_HTML = """<!doctype html>
       showDocumentPreview(target);
     }
 
-    function artifactPreviewUrl(kind) {
-      if (kind === "requirements") {
-        return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${documentZoom}&version=${artifactPreviewVersion}`;
+    function artifactKindForPane(item) {
+      if (!item) {
+        return "";
       }
-      if (kind === "document" && artifactPreviewDocumentTarget) {
+      if (item.kind === "route") {
+        return "route";
+      }
+      return item.kind || "";
+    }
+
+    function artifactRouteUrl(path, version = artifactPreviewVersion) {
+      return `${contextUrl(`${path}?embed=1`)}&zoom=${documentZoom}&version=${version}`;
+    }
+
+    function artifactPreviewUrl(item) {
+      if (!item) {
+        return "";
+      }
+      if (item.kind === "requirements") {
+        return artifactRouteUrl("/artifacts/requirements");
+      }
+      if (item.kind === "route" && item.path) {
+        return artifactRouteUrl(item.path);
+      }
+      if (item.kind === "document" && item.target) {
         const parameters = new URLSearchParams();
-        parameters.set("path", artifactPreviewDocumentTarget.path);
-        parameters.set("title", artifactPreviewDocumentTarget.label);
+        parameters.set("path", item.target.path);
+        parameters.set("title", item.target.label);
         parameters.set("embed", "1");
         parameters.set("create", "1");
         parameters.set("zoom", String(documentZoom));
@@ -3858,30 +3914,73 @@ INDEX_HTML = """<!doctype html>
       return "";
     }
 
-    function showArtifactPreview(kind, options = {}) {
+    function artifactPreviewsForStage(stage) {
+      return (STAGE_ARTIFACT_PREVIEWS[stage] || []).map((item) => ({ ...item }));
+    }
+
+    function setArtifactCompatibilityState(items) {
+      const first = items[0] || null;
+      artifactPreviewKind = first ? artifactKindForPane(first) : "";
+      artifactPreviewDocumentTarget =
+        first && first.kind === "document" && first.target ? first.target : null;
+    }
+
+    function showArtifactPreviews(items, options = {}) {
       if (!activeProjectRoot) {
         hideArtifactPreview();
         return;
       }
-      if (kind === "document") {
-        artifactPreviewDocumentTarget = options.target || artifactPreviewDocumentTarget;
-      } else {
-        artifactPreviewDocumentTarget = null;
-      }
-      const url = artifactPreviewUrl(kind);
-      if (!url) {
+      const nextItems = items.filter((item) => artifactPreviewUrl(item));
+      if (nextItems.length === 0) {
+        hideArtifactPreview();
         return;
       }
-      artifactPreviewKind = kind;
+      artifactPreviewItems = nextItems;
+      manualArtifactPreview = Boolean(options.manual);
+      manualArtifactPreviewStage = manualArtifactPreview ? currentWorkflowStage : "";
+      artifactPreviewStage = options.stage || currentWorkflowStage;
+      setArtifactCompatibilityState(nextItems);
       artifactPaneRequested = true;
-      artifactPreviewTitle.textContent =
-        kind === "requirements"
-          ? "Requirements"
-          : (artifactPreviewDocumentTarget?.label || "Document");
       applyStoredArtifactPaneSize();
+      renderArtifactPreviewItems();
       applyOutputPaneVisibility();
-      refreshArtifactPreview();
-      connectArtifactEvents(kind);
+      connectArtifactEvents();
+    }
+
+    function showStageArtifactPreview(stage) {
+      const previews = artifactPreviewsForStage(stage);
+      if (previews.length === 0) {
+        hideArtifactPreview();
+        return;
+      }
+      showArtifactPreviews(previews, { stage });
+    }
+
+    function showArtifactPreview(kind, options = {}) {
+      if (kind === "document") {
+        const target = options.target || artifactPreviewDocumentTarget;
+        if (!target) {
+          return;
+        }
+        showArtifactPreviews(
+          [
+            {
+              id: "document",
+              kind: "document",
+              title: target.label || target.path || "Document",
+              target,
+            },
+          ],
+          { manual: true },
+        );
+        return;
+      }
+      const item = kind === "requirements"
+        ? { id: "requirements", kind: "requirements", title: "Requirements" }
+        : null;
+      if (item) {
+        showArtifactPreviews([item], options);
+      }
     }
 
     function showDocumentPreview(target) {
@@ -3891,27 +3990,147 @@ INDEX_HTML = """<!doctype html>
       showArtifactPreview("document", { target });
     }
 
+    function renderArtifactPreviewItems() {
+      artifactPreviewStack.replaceChildren();
+      artifactPreviewStack.classList.toggle("split", artifactPreviewItems.length > 1);
+      for (const [index, item] of artifactPreviewItems.entries()) {
+        if (index > 0) {
+          const divider = document.createElement("div");
+          divider.className = "artifact-preview-divider";
+          artifactPreviewStack.append(divider);
+        }
+        const section = document.createElement("section");
+        section.className = "artifact-preview-item";
+        section.setAttribute("aria-label", `${item.title} preview`);
+
+        const header = document.createElement("div");
+        header.className = "pane-header";
+
+        const title = document.createElement("span");
+        title.className = "pane-title";
+        title.textContent = item.title;
+
+        const actions = document.createElement("div");
+        actions.className = "pane-actions";
+
+        const zoomControls = document.createElement("div");
+        zoomControls.className = "document-zoom-controls";
+        zoomControls.setAttribute("aria-label", "Document zoom");
+
+        const zoomOut = document.createElement("button");
+        zoomOut.className = "document-zoom-button";
+        zoomOut.type = "button";
+        zoomOut.title = "Zoom document out";
+        zoomOut.setAttribute("aria-label", "Zoom document out");
+        zoomOut.dataset.zoom = "out";
+        zoomOut.textContent = "-";
+        zoomOut.addEventListener("click", () => {
+          changeDocumentZoom(-DOCUMENT_ZOOM_STEP);
+        });
+
+        const zoomLevel = document.createElement("span");
+        zoomLevel.className = "document-zoom-level";
+        zoomLevel.textContent = `${documentZoom}%`;
+
+        const zoomIn = document.createElement("button");
+        zoomIn.className = "document-zoom-button";
+        zoomIn.type = "button";
+        zoomIn.title = "Zoom document in";
+        zoomIn.setAttribute("aria-label", "Zoom document in");
+        zoomIn.dataset.zoom = "in";
+        zoomIn.textContent = "+";
+        zoomIn.addEventListener("click", () => {
+          changeDocumentZoom(DOCUMENT_ZOOM_STEP);
+        });
+
+        const popout = document.createElement("button");
+        popout.className = "pane-popout-button";
+        popout.type = "button";
+        popout.title = `Pop out ${item.title}`;
+        popout.setAttribute("aria-label", `Pop out ${item.title}`);
+        popout.textContent = "Pop";
+        popout.addEventListener("click", () => {
+          popOutArtifactPreview(item);
+        });
+
+        zoomControls.append(zoomOut, zoomLevel, zoomIn);
+        actions.append(zoomControls, popout);
+        header.append(title, actions);
+
+        const frame = document.createElement("iframe");
+        frame.className = "artifact-preview-frame";
+        frame.title = `${item.title} preview`;
+        frame.setAttribute("sandbox", "allow-scripts allow-popups");
+        frame.dataset.artifactId = item.id;
+        frame.src = artifactPreviewUrl(item);
+
+        section.append(header, frame);
+        artifactPreviewStack.append(section);
+      }
+      applyDocumentZoom();
+    }
+
+    function popOutArtifactPreview(item) {
+      if (!contextId) {
+        appendOutput("create a browser context first\\n", "error");
+        return;
+      }
+      const parameters = new URLSearchParams();
+      parameters.set("context_id", contextId);
+      parameters.set("artifact", artifactKindForPane(item));
+      parameters.set("font_size", String(terminalFontSize));
+      parameters.set("document_zoom", String(documentZoom));
+      if (item.kind === "document" && item.target) {
+        parameters.set("document_path", item.target.path);
+        parameters.set("document_title", item.target.label);
+      }
+      if (item.kind === "route" && item.path) {
+        parameters.set("artifact_path", item.path);
+        parameters.set("artifact_title", item.title);
+      }
+      const popup = window.open(
+        `/pane/artifact?${parameters.toString()}`,
+        `electroboy-artifact-${item.id}-${contextId}`,
+        PANE_POPUP_FEATURES,
+      );
+      if (!popup) {
+        appendOutput("popup was blocked by the browser\\n", "error");
+      }
+    }
+
     function hideArtifactPreview() {
       artifactPreviewKind = "";
       artifactPreviewDocumentTarget = null;
+      artifactPreviewItems = [];
+      manualArtifactPreview = false;
+      manualArtifactPreviewStage = "";
+      artifactPreviewStage = "";
       artifactPaneRequested = false;
       closeArtifactEventStream();
-      artifactPreviewFrame.removeAttribute("src");
+      artifactPreviewStack.replaceChildren();
+      artifactPreviewStack.classList.remove("split");
       applyOutputPaneVisibility();
     }
 
     function refreshArtifactPreview() {
       artifactPreviewVersion += 1;
-      const url = artifactPreviewUrl(artifactPreviewKind);
-      if (!url) {
-        return;
+      for (const frame of artifactPreviewStack.querySelectorAll(".artifact-preview-frame")) {
+        const item = artifactPreviewItems.find(
+          (candidate) => candidate.id === frame.dataset.artifactId,
+        );
+        const url = artifactPreviewUrl(item);
+        if (url) {
+          frame.src = url;
+        }
       }
-      artifactPreviewFrame.src = url;
     }
 
-    function connectArtifactEvents(kind) {
+    function connectArtifactEvents() {
       closeArtifactEventStream();
-      if (kind !== "requirements" || !requirementsRunning) {
+      const hasRequirementsPreview = artifactPreviewItems.some(
+        (item) => item.kind === "requirements",
+      );
+      if (!hasRequirementsPreview || !requirementsRunning) {
         return;
       }
       artifactEventSource = new EventSource(
@@ -3930,25 +4149,40 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function stageIsRunning(stage) {
+      if (stage === "requirements") {
+        return requirementsRunning;
+      }
+      if (stage === "design") {
+        return designRunning;
+      }
+      if (stage === "design-review") {
+        return designReviewRunning;
+      }
+      return Boolean(genericStageRun(stage).running);
+    }
+
     function syncArtifactPreviewWithProject() {
       if (!activeProjectRoot) {
         hideArtifactPreview();
         return;
       }
-      if (artifactPreviewKind === "document") {
-        connectArtifactEvents(artifactPreviewKind);
+      if (manualArtifactPreview && manualArtifactPreviewStage === currentWorkflowStage) {
+        connectArtifactEvents();
         return;
       }
-      if (requirementsRunning) {
-        showArtifactPreview("requirements");
+      manualArtifactPreview = false;
+      manualArtifactPreviewStage = "";
+      if (artifactPreviewStage === currentWorkflowStage && artifactPreviewItems.length > 0) {
+        connectArtifactEvents();
         return;
       }
-      if (artifactPreviewKind === "requirements" && !requirementsStarted) {
+      if (stageIsRunning(currentWorkflowStage)) {
+        showStageArtifactPreview(currentWorkflowStage);
+        return;
+      }
+      if (artifactPreviewStage && artifactPreviewStage !== currentWorkflowStage) {
         hideArtifactPreview();
-        return;
-      }
-      if (artifactPreviewKind) {
-        connectArtifactEvents(artifactPreviewKind);
       }
     }
 
@@ -4707,7 +4941,7 @@ INDEX_HTML = """<!doctype html>
       }
       if (kind === "requirements") {
         if (isRunning) {
-          if (artifactPreviewKind !== "document") {
+          if (!manualArtifactPreview) {
             showArtifactPreview("requirements");
           }
         } else {
@@ -4751,6 +4985,7 @@ INDEX_HTML = """<!doctype html>
         showProgressPane(true);
         clearProgressOutput();
       }
+      showStageArtifactPreview(kind);
       setAgentInputVisible(acceptsInput);
       if (clearOutput) {
         clearAgentOutput();
@@ -4771,6 +5006,9 @@ INDEX_HTML = """<!doctype html>
           closeProgressEventStream();
           showProgressPane(false);
           setAgentInputVisible(true);
+        }
+        if (artifactPreviewStage === kind) {
+          hideArtifactPreview();
         }
         setAgentRunning(kind, false);
         return;
@@ -5082,44 +5320,6 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       await approveGenericStage(stage, label, true);
-    }
-
-    function openStageDocument(stage, path) {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\\n", "error");
-        return;
-      }
-      window.open(contextUrl(path), "_blank", "noopener");
-    }
-
-    function openRequirementsDocument() {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\\n", "error");
-        return;
-      }
-      if (currentWorkflowStage === "requirements" && !requirementsStarted) {
-        return;
-      }
-      hideStageMenus();
-      window.open(contextUrl("/artifacts/requirements"), "_blank", "noopener");
-    }
-
-    function openDesignDocument() {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\\n", "error");
-        return;
-      }
-      hideStageMenus();
-      window.open(contextUrl("/artifacts/design"), "_blank", "noopener");
-    }
-
-    function openDesignReviewDocument() {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\\n", "error");
-        return;
-      }
-      hideStageMenus();
-      window.open(contextUrl("/artifacts/design-review"), "_blank", "noopener");
     }
 
     async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {
@@ -5511,19 +5711,15 @@ INDEX_HTML = """<!doctype html>
     restartRequirements.addEventListener("click", restartRequirementsAgent);
     approveRequirements.addEventListener("click", approveRequirementsStage);
     skipRequirementsApproval.addEventListener("click", skipRequirementsApprovalStage);
-    openRequirements.addEventListener("click", openRequirementsDocument);
     startDesign.addEventListener("click", startDesignAgent);
     restartDesign.addEventListener("click", restartDesignAgent);
     completeDesign.addEventListener("click", completeDesignAgent);
-    openDesign.addEventListener("click", openDesignDocument);
     startAutomaticDesignReview.addEventListener("click", startAutomaticDesignReviewAgent);
     startInteractiveDesignReview.addEventListener("click", startInteractiveDesignReviewAgent);
     stopDesignReview.addEventListener("click", stopDesignReviewAgent);
     approveDesignReview.addEventListener("click", approveDesignReviewStage);
     skipDesignReviewApproval.addEventListener("click", skipDesignReviewApprovalStage);
     restartDesignReview.addEventListener("click", restartDesignReviewAgent);
-    openDesignReview.addEventListener("click", openDesignReviewDocument);
-    openDesignFromReview.addEventListener("click", openDesignDocument);
     startImplementationPlan.addEventListener("click", () => {
       startGenericStageAgent(
         "implementation-plan",
@@ -5544,9 +5740,6 @@ INDEX_HTML = """<!doctype html>
     skipImplementationPlanApproval.addEventListener("click", () => {
       skipGenericStageApproval("implementation-plan", "Implementation plan");
     });
-    openImplementationPlan.addEventListener("click", () => {
-      openStageDocument("implementation-plan", "/artifacts/implementation-plan");
-    });
     startAutomaticCode.addEventListener("click", () => {
       startGenericStageAgent("code", "$ electroboy code", false);
     });
@@ -5561,9 +5754,6 @@ INDEX_HTML = """<!doctype html>
     restartCode.addEventListener("click", () => {
       restartGenericStageAgent("code", "$ restart code", false);
     });
-    openImplementationReport.addEventListener("click", () => {
-      openStageDocument("code", "/artifacts/implementation-report");
-    });
     startTestPlan.addEventListener("click", () => {
       startGenericStageAgent("test-plan", "$ electroboy test-plan", true);
     });
@@ -5575,9 +5765,6 @@ INDEX_HTML = """<!doctype html>
     });
     skipTestPlanApproval.addEventListener("click", () => {
       skipGenericStageApproval("test-plan", "Test plan");
-    });
-    openTestPlan.addEventListener("click", () => {
-      openStageDocument("test-plan", "/artifacts/test-plan");
     });
     startAutomaticValidate.addEventListener("click", () => {
       startGenericStageAgent("validate", "$ electroboy validate", false);
@@ -5596,9 +5783,6 @@ INDEX_HTML = """<!doctype html>
     });
     restartValidate.addEventListener("click", () => {
       restartGenericStageAgent("validate", "$ restart validation", false);
-    });
-    openValidationReport.addEventListener("click", () => {
-      openStageDocument("validate", "/artifacts/validation-report");
     });
     createDocumentTarget.addEventListener("click", () => {
       customDocumentForm.hidden = !customDocumentForm.hidden;
@@ -5620,16 +5804,7 @@ INDEX_HTML = """<!doctype html>
     });
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
-    decreaseDocumentZoom.addEventListener(
-      "click",
-      () => changeDocumentZoom(-DOCUMENT_ZOOM_STEP),
-    );
-    increaseDocumentZoom.addEventListener(
-      "click",
-      () => changeDocumentZoom(DOCUMENT_ZOOM_STEP),
-    );
     popoutAgentPane.addEventListener("click", () => popOutPane("agent"));
-    popoutArtifactPane.addEventListener("click", () => popOutPane("artifact"));
     popoutProgressPane.addEventListener("click", () => popOutPane("progress"));
     popoutScratchPane.addEventListener("click", () => popOutPane("scratch"));
     popoutStatusPane.addEventListener("click", () => popOutPane("status"));
@@ -5974,6 +6149,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactKind = params.get("artifact") || "requirements";
     const artifactDocumentPath = params.get("document_path") || "";
     const artifactDocumentTitle = params.get("document_title") || "";
+    const artifactRoutePath = params.get("artifact_path") || "";
+    const artifactRouteTitle = params.get("artifact_title") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const DEFAULT_FONT_SIZE = 15;
     const MIN_FONT_SIZE = 11;
@@ -6060,6 +6237,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       if (kind === "artifact") {
         if (artifactKind === "document" && artifactDocumentTitle) {
           return artifactDocumentTitle;
+        }
+        if (artifactKind === "route" && artifactRouteTitle) {
+          return artifactRouteTitle;
         }
         return "Artifact preview";
       }
@@ -6286,6 +6466,10 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         parameters.set("zoom", String(artifactZoom));
         parameters.set("version", String(artifactVersion));
         return contextUrl(`/artifacts/document?${parameters.toString()}`);
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        const routeUrl = contextUrl(`${artifactRoutePath}?embed=1`);
+        return `${routeUrl}&zoom=${artifactZoom}&version=${artifactVersion}`;
       }
       return "";
     }
@@ -7265,6 +7449,10 @@ class ServiceState:
                 raise AgentSessionError("design stage is already active")
         self._terminate_workflow_sessions(context_id)
         _reopen_design_for_restart(project_root)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.design_review_started = False
+            context.design_review_interactive = False
         return self.start_design_agent(context_id, allow_stage_reopen=True)
 
     def complete_design_agent(self, context_id: str) -> dict[str, object]:
@@ -7283,6 +7471,9 @@ class ServiceState:
             context.workflow_stage = "design-review"
             context.design_session = None
             context.design_started = design_started
+            context.design_review_session = None
+            context.design_review_started = False
+            context.design_review_interactive = False
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
