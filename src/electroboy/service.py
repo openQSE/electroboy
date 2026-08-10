@@ -990,7 +990,9 @@ INDEX_HTML = """<!doctype html>
 
     .input-pane {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns:
+        minmax(260px, 1fr) 7px
+        minmax(160px, var(--input-actions-width, 196px));
       min-height: 0;
       gap: 8px;
       border-top: 1px solid #2a3142;
@@ -1025,15 +1027,27 @@ INDEX_HTML = """<!doctype html>
       cursor: default;
     }
 
+    .input-action-resize-handle {
+      min-height: 0;
+      border-radius: 4px;
+      background: #253044;
+      cursor: col-resize;
+    }
+
+    .input-action-resize-handle:hover,
+    .input-pane.resizing-actions .input-action-resize-handle {
+      background: #3a78a0;
+    }
+
     .agent-actions {
       display: grid;
       grid-template-rows: auto auto auto auto;
       min-height: 0;
+      min-width: 0;
       gap: 8px;
       align-self: stretch;
       overflow: auto;
       scrollbar-width: thin;
-      width: 196px;
     }
 
     .session-control {
@@ -1225,6 +1239,19 @@ INDEX_HTML = """<!doctype html>
 
       .progress-output {
         border-top: 0;
+      }
+
+      .input-pane {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) auto;
+      }
+
+      .input-action-resize-handle {
+        display: none;
+      }
+
+      .agent-actions {
+        grid-template-columns: minmax(0, 1fr);
       }
     }
   </style>
@@ -1659,6 +1686,13 @@ INDEX_HTML = """<!doctype html>
           disabled
           aria-label="Requirements agent input"
         ></textarea>
+        <div
+          id="inputActionResizeHandle"
+          class="input-action-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize agent input and controls"
+        ></div>
         <div class="agent-actions">
           <div class="terminal-font-controls" aria-label="UI font size">
             <button
@@ -1874,6 +1908,7 @@ INDEX_HTML = """<!doctype html>
     const inputResizeHandle = document.getElementById("inputResizeHandle");
     const inputPane = document.getElementById("inputPane");
     const agentInput = document.getElementById("agentInput");
+    const inputActionResizeHandle = document.getElementById("inputActionResizeHandle");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
     const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
@@ -1890,6 +1925,7 @@ INDEX_HTML = """<!doctype html>
     const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
     const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";
     const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
+    const INPUT_ACTIONS_WIDTH_STORAGE_KEY = "electroboy.inputActionsWidth";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
     const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";
     const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
@@ -1913,6 +1949,8 @@ INDEX_HTML = """<!doctype html>
     const MIN_DOCUMENT_ZOOM = 70;
     const MAX_DOCUMENT_ZOOM = 180;
     const MIN_INPUT_PANE_HEIGHT = 56;
+    const MIN_INPUT_ACTIONS_WIDTH = 160;
+    const MIN_AGENT_INPUT_WIDTH = 260;
     let eventSource = null;
     let progressEventSource = null;
     let artifactEventSource = null;
@@ -1924,6 +1962,7 @@ INDEX_HTML = """<!doctype html>
     let documentZoom = storedDocumentZoom();
     let resizeShellState = null;
     let resizeInputState = null;
+    let resizeInputActionsState = null;
     let resizeOutputState = null;
     let resizeWorkbenchState = null;
     let resizeSidePaneState = null;
@@ -2056,6 +2095,13 @@ INDEX_HTML = """<!doctype html>
       const inputHeight = storedNumber(INPUT_PANE_HEIGHT_STORAGE_KEY);
       if (inputHeight) {
         agentPane.style.setProperty("--input-pane-height", `${inputHeight}px`);
+      }
+      const inputActionsWidth = storedNumber(INPUT_ACTIONS_WIDTH_STORAGE_KEY);
+      if (inputActionsWidth) {
+        inputPane.style.setProperty(
+          "--input-actions-width",
+          `${inputActionsWidth}px`,
+        );
       }
     }
 
@@ -2495,6 +2541,61 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       fitTerminal();
+    }
+
+    function startInputActionsResize(event) {
+      if (inputPane.hidden || window.matchMedia("(max-width: 760px)").matches) {
+        return;
+      }
+      event.preventDefault();
+      const inputPaneRect = inputPane.getBoundingClientRect();
+      const inputPaneStyle = window.getComputedStyle(inputPane);
+      const horizontalPadding =
+        Number.parseFloat(inputPaneStyle.paddingLeft) +
+        Number.parseFloat(inputPaneStyle.paddingRight);
+      const columnGap = Number.parseFloat(inputPaneStyle.columnGap) || 0;
+      const handleWidth = inputActionResizeHandle.getBoundingClientRect().width;
+      const availableColumnWidth =
+        inputPaneRect.width - horizontalPadding - handleWidth - (columnGap * 2);
+      const actionsRect =
+        inputPane.querySelector(".agent-actions").getBoundingClientRect();
+      resizeInputActionsState = {
+        startX: event.clientX,
+        startWidth: actionsRect.width,
+        maxWidth: Math.max(
+          MIN_INPUT_ACTIONS_WIDTH,
+          availableColumnWidth - MIN_AGENT_INPUT_WIDTH,
+        ),
+      };
+      inputActionResizeHandle.setPointerCapture(event.pointerId);
+      inputPane.classList.add("resizing-actions");
+    }
+
+    function updateInputActionsResize(event) {
+      if (!resizeInputActionsState) {
+        return;
+      }
+      const deltaX = resizeInputActionsState.startX - event.clientX;
+      const nextWidth = clampValue(
+        resizeInputActionsState.startWidth + deltaX,
+        MIN_INPUT_ACTIONS_WIDTH,
+        resizeInputActionsState.maxWidth,
+      );
+      inputPane.style.setProperty("--input-actions-width", `${nextWidth}px`);
+      saveNumber(INPUT_ACTIONS_WIDTH_STORAGE_KEY, nextWidth);
+    }
+
+    function finishInputActionsResize(event) {
+      if (!resizeInputActionsState) {
+        return;
+      }
+      resizeInputActionsState = null;
+      inputPane.classList.remove("resizing-actions");
+      try {
+        inputActionResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
     }
 
     function startWorkbenchResize(event) {
@@ -5254,6 +5355,10 @@ INDEX_HTML = """<!doctype html>
     inputResizeHandle.addEventListener("pointermove", updateInputResize);
     inputResizeHandle.addEventListener("pointerup", finishInputResize);
     inputResizeHandle.addEventListener("pointercancel", finishInputResize);
+    inputActionResizeHandle.addEventListener("pointerdown", startInputActionsResize);
+    inputActionResizeHandle.addEventListener("pointermove", updateInputActionsResize);
+    inputActionResizeHandle.addEventListener("pointerup", finishInputActionsResize);
+    inputActionResizeHandle.addEventListener("pointercancel", finishInputActionsResize);
     outputResizeHandle.addEventListener("pointerdown", startOutputResize);
     outputResizeHandle.addEventListener("pointermove", updateOutputResize);
     outputResizeHandle.addEventListener("pointerup", finishOutputResize);

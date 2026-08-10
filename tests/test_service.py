@@ -411,6 +411,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
+        self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
         self.assertIn('id="sessionSwitcher"', INDEX_HTML)
         self.assertIn('for="sessionSwitcher">Select Agent</label>', INDEX_HTML)
         self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
@@ -443,6 +444,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".project-status-output", INDEX_HTML)
         self.assertIn(".shell-resize-handle", INDEX_HTML)
         self.assertIn(".input-resize-handle", INDEX_HTML)
+        self.assertIn(".input-action-resize-handle", INDEX_HTML)
         self.assertIn(".output-resize-handle", INDEX_HTML)
         self.assertIn(".agent-pane.noninteractive", INDEX_HTML)
         self.assertIn(".terminal-font-controls", INDEX_HTML)
@@ -455,6 +457,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('termName: "xterm-256color"', INDEX_HTML)
         self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
         self.assertIn('const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";', INDEX_HTML)
+        self.assertIn(
+            'const INPUT_ACTIONS_WIDTH_STORAGE_KEY = "electroboy.inputActionsWidth";',
+            INDEX_HTML,
+        )
         self.assertIn("function changeDocumentZoom(delta)", INDEX_HTML)
         self.assertIn('parameters.set("zoom", String(documentZoom));', INDEX_HTML)
         self.assertIn(
@@ -508,6 +514,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Math.max(MIN_INPUT_PANE_HEIGHT, agentRect.height - 160)", INDEX_HTML)
         self.assertIn("MIN_INPUT_PANE_HEIGHT,\n        resizeInputState.maxHeight", INDEX_HTML)
         self.assertIn("function finishInputResize(event)", INDEX_HTML)
+        self.assertIn("function startInputActionsResize(event)", INDEX_HTML)
+        self.assertIn("function updateInputActionsResize(event)", INDEX_HTML)
+        self.assertIn("function finishInputActionsResize(event)", INDEX_HTML)
         self.assertIn("function startOutputResize(event)", INDEX_HTML)
         self.assertIn("function updateOutputResize(event)", INDEX_HTML)
         self.assertIn("function finishOutputResize(event)", INDEX_HTML)
@@ -539,6 +548,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("saveArtifactPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("shellResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("inputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("inputActionResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("outputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("workbenchResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("sidePaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
