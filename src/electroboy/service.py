@@ -2635,6 +2635,10 @@ INDEX_HTML = """<!doctype html>
     const popoutStatusPane = document.getElementById("popoutStatusPane");
     const popoutInputPane = document.getElementById("popoutInputPane");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
+    const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
+    const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
+    const CONTEXT_OWNER_TTL_MS = 15000;
+    const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
@@ -2790,6 +2794,10 @@ INDEX_HTML = """<!doctype html>
     let agentSessions = [];
     let selectedSessionId = "";
     let contextId = "";
+    const pageInstanceId = newContextOwnerId();
+    let browserTabId = "";
+    let ownedContextId = "";
+    let contextOwnerTimer = null;
     let projectMode = "open";
     let serviceRoot = "";
     let activationRoot = "";
@@ -4276,15 +4284,173 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function saveContextId(value) {
+    function newContextOwnerId() {
+      try {
+        if (
+          window.crypto &&
+          typeof window.crypto.randomUUID === "function"
+        ) {
+          return window.crypto.randomUUID();
+        }
+      } catch (error) {
+        // Fall through to the timestamp/random fallback below.
+      }
+      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    function storedBrowserTabId() {
+      try {
+        return window.sessionStorage.getItem(CONTEXT_TAB_STORAGE_KEY) || "";
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function saveBrowserTabId(value) {
       try {
         if (value) {
-          window.sessionStorage.setItem(CONTEXT_STORAGE_KEY, value);
+          window.sessionStorage.setItem(CONTEXT_TAB_STORAGE_KEY, value);
         } else {
-          window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY);
+          window.sessionStorage.removeItem(CONTEXT_TAB_STORAGE_KEY);
         }
       } catch (error) {
         return;
+      }
+    }
+
+    function currentBrowserTabId() {
+      if (browserTabId) {
+        return browserTabId;
+      }
+      browserTabId = storedBrowserTabId();
+      if (!browserTabId) {
+        browserTabId = newContextOwnerId();
+        saveBrowserTabId(browserTabId);
+      }
+      return browserTabId;
+    }
+
+    function navigationType() {
+      try {
+        const entries = window.performance.getEntriesByType("navigation");
+        return entries.length ? entries[0].type || "" : "";
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function contextOwnerKey(value) {
+      return `${CONTEXT_OWNER_STORAGE_PREFIX}${value}`;
+    }
+
+    function readContextOwner(value) {
+      try {
+        const raw = window.localStorage.getItem(contextOwnerKey(value));
+        return raw ? JSON.parse(raw) : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeContextOwner(value) {
+      try {
+        window.localStorage.setItem(
+          contextOwnerKey(value),
+          JSON.stringify({
+            tab_id: currentBrowserTabId(),
+            page_id: pageInstanceId,
+            updated_at: Date.now(),
+          }),
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function contextOwnerIsFresh(owner) {
+      if (!owner || !owner.updated_at) {
+        return false;
+      }
+      return Date.now() - Number(owner.updated_at) < CONTEXT_OWNER_TTL_MS;
+    }
+
+    function hasConflictingContextOwner(value) {
+      const owner = readContextOwner(value);
+      if (!contextOwnerIsFresh(owner)) {
+        return false;
+      }
+      if (owner.page_id === pageInstanceId) {
+        return false;
+      }
+      if (owner.tab_id !== currentBrowserTabId()) {
+        return true;
+      }
+      const type = navigationType();
+      return type !== "reload" && type !== "back_forward";
+    }
+
+    function refreshContextOwner() {
+      if (ownedContextId) {
+        writeContextOwner(ownedContextId);
+      }
+    }
+
+    function releaseContextOwner() {
+      const releasedContextId = ownedContextId;
+      ownedContextId = "";
+      if (contextOwnerTimer) {
+        window.clearInterval(contextOwnerTimer);
+        contextOwnerTimer = null;
+      }
+      if (!releasedContextId) {
+        return;
+      }
+      try {
+        const owner = readContextOwner(releasedContextId);
+        if (owner && owner.page_id === pageInstanceId) {
+          window.localStorage.removeItem(contextOwnerKey(releasedContextId));
+        }
+      } catch (error) {
+        return;
+      }
+    }
+
+    function claimContextOwner(value) {
+      if (!value) {
+        releaseContextOwner();
+        return true;
+      }
+      if (ownedContextId === value) {
+        refreshContextOwner();
+        return true;
+      }
+      if (hasConflictingContextOwner(value)) {
+        return false;
+      }
+      releaseContextOwner();
+      ownedContextId = value;
+      refreshContextOwner();
+      contextOwnerTimer = window.setInterval(
+        refreshContextOwner,
+        CONTEXT_OWNER_HEARTBEAT_MS,
+      );
+      return true;
+    }
+
+    function saveContextId(value) {
+      try {
+        if (value) {
+          if (!claimContextOwner(value)) {
+            return false;
+          }
+          window.sessionStorage.setItem(CONTEXT_STORAGE_KEY, value);
+        } else {
+          releaseContextOwner();
+          window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY);
+        }
+        return true;
+      } catch (error) {
+        return false;
       }
     }
 
@@ -4302,7 +4468,10 @@ INDEX_HTML = """<!doctype html>
 
     async function restoreContext() {
       const existingContextId = storedContextId();
-      if (!existingContextId) {
+      if (!existingContextId || !claimContextOwner(existingContextId)) {
+        if (existingContextId) {
+          saveContextId("");
+        }
         await createContext();
         return;
       }
@@ -6992,6 +7161,13 @@ INDEX_HTML = """<!doctype html>
       await checkConnection();
       await restoreContext();
     }
+
+    window.addEventListener("pagehide", releaseContextOwner);
+    window.addEventListener("pageshow", () => {
+      if (contextId) {
+        claimContextOwner(contextId);
+      }
+    });
 
     initialize().catch(() => {});
   </script>
