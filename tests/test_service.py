@@ -141,7 +141,9 @@ class ServiceTests(unittest.TestCase):
 
     def test_index_page_fetches_health_and_prints_connected(self) -> None:
         self.assertIn('fetch("/api/health"', INDEX_HTML)
-        self.assertIn('connection.textContent = activationRoot', INDEX_HTML)
+        self.assertIn("connection.textContent = connectionBadgeLabel();", INDEX_HTML)
+        self.assertIn("function connectionBadgeLabel()", INDEX_HTML)
+        self.assertIn('parts.push(`feature: ${feature.name || feature.slug}`);', INDEX_HTML)
         self.assertIn('class="stage-scroll"', INDEX_HTML)
         self.assertIn('const workflowPane = document.querySelector(".workflow-pane");', INDEX_HTML)
         self.assertIn('const stageScroll = document.querySelector(".stage-scroll");', INDEX_HTML)

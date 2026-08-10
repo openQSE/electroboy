@@ -2513,9 +2513,19 @@ INDEX_HTML = """<!doctype html>
     }
 
     function setConnected() {
-      connection.textContent = activationRoot
-        ? `connected · ${activationRoot}`
-        : "connected";
+      connection.textContent = connectionBadgeLabel();
+    }
+
+    function connectionBadgeLabel() {
+      const parts = ["connected"];
+      if (activationRoot) {
+        parts.push(activationRoot);
+      }
+      const feature = activeWorkItemFeature();
+      if (feature) {
+        parts.push(`feature: ${feature.name || feature.slug}`);
+      }
+      return parts.join(" · ");
     }
 
     function applyStageDescriptions() {
