@@ -1669,12 +1669,11 @@ INDEX_HTML = """<!doctype html>
         <button id="completeDesign" type="button">Complete</button>
       </div>
       <div id="designReviewMenu" class="stage-menu" hidden>
-        <button id="startAutomaticDesignReview" type="button">Start automatic</button>
-        <button id="startInteractiveDesignReview" type="button">Start interactive</button>
-        <button id="stopDesignReview" type="button">Stop</button>
+        <button id="startAutomaticDesignReview" type="button">Run automatic review</button>
+        <button id="startInteractiveDesignReview" type="button">Run interactive review</button>
+        <button id="stopDesignReview" type="button">Stop review</button>
         <button id="approveDesignReview" type="button">Approve</button>
         <button id="skipDesignReviewApproval" type="button">Skip approval</button>
-        <button id="restartDesignReview" type="button">Restart review</button>
       </div>
       <div id="implementationPlanMenu" class="stage-menu" hidden>
         <button id="startImplementationPlan" type="button">Start</button>
@@ -2033,7 +2032,6 @@ INDEX_HTML = """<!doctype html>
     const stopDesignReview = document.getElementById("stopDesignReview");
     const approveDesignReview = document.getElementById("approveDesignReview");
     const skipDesignReviewApproval = document.getElementById("skipDesignReviewApproval");
-    const restartDesignReview = document.getElementById("restartDesignReview");
     const startImplementationPlan = document.getElementById("startImplementationPlan");
     const restartImplementationPlan = document.getElementById("restartImplementationPlan");
     const approveImplementationPlan = document.getElementById("approveImplementationPlan");
@@ -3733,8 +3731,6 @@ INDEX_HTML = """<!doctype html>
         !hasActiveProject || !inDesignReviewStage || !designReviewRunning;
       approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage;
       skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage;
-      restartDesignReview.disabled =
-        !hasActiveProject || (inDesignReviewStage && !designReviewStarted);
     }
 
     function updateGenericStageMenuStates() {
@@ -5130,20 +5126,6 @@ INDEX_HTML = """<!doctype html>
       );
     }
 
-    async function restartDesignReviewAgent() {
-      if (currentWorkflowStage === "design-review" && !designReviewStarted) {
-        return;
-      }
-      designReviewInteractive = false;
-      await runStageAgent(
-        "design-review",
-        "/api/agents/design-review/restart",
-        "$ restart design review",
-        true,
-        false,
-      );
-    }
-
     async function stopDesignReviewAgent() {
       if (currentWorkflowStage !== "design-review" || !designReviewRunning) {
         return;
@@ -5719,7 +5701,6 @@ INDEX_HTML = """<!doctype html>
     stopDesignReview.addEventListener("click", stopDesignReviewAgent);
     approveDesignReview.addEventListener("click", approveDesignReviewStage);
     skipDesignReviewApproval.addEventListener("click", skipDesignReviewApprovalStage);
-    restartDesignReview.addEventListener("click", restartDesignReviewAgent);
     startImplementationPlan.addEventListener("click", () => {
       startGenericStageAgent(
         "implementation-plan",
@@ -9733,14 +9714,11 @@ def _stage_operations(
         return ["Start", "Restart", "Complete", "Open design"]
     if stage == "design-review" and active_project_root:
         return [
-            "Start automatic",
-            "Start interactive",
-            "Stop",
+            "Run automatic review",
+            "Run interactive review",
+            "Stop review",
             "Approve",
             "Skip approval",
-            "Restart review",
-            "Open review",
-            "Open design",
         ]
     if stage == "implementation-plan" and active_project_root:
         return [

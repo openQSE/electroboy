@@ -383,7 +383,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="approveDesignReview"', INDEX_HTML)
         self.assertIn('id="skipDesignReviewApproval"', INDEX_HTML)
         self.assertNotIn('id="completeDesignReview"', INDEX_HTML)
-        self.assertIn('id="restartDesignReview"', INDEX_HTML)
+        self.assertNotIn('id="restartDesignReview"', INDEX_HTML)
         self.assertNotIn('id="openDesignReview"', INDEX_HTML)
         self.assertNotIn('id="openDesignFromReview"', INDEX_HTML)
         self.assertIn('id="startImplementationPlan"', INDEX_HTML)
@@ -773,7 +773,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/design-review/stop"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/approve"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/skip-approval"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-review/restart"', INDEX_HTML)
+        self.assertNotIn('"/api/agents/design-review/restart"', INDEX_HTML)
         self.assertNotIn('"/api/agents/design-approve/approve"', INDEX_HTML)
         self.assertIn("body: JSON.stringify({ target: documentTarget.path })", INDEX_HTML)
         self.assertIn("function approveRequirementsStage(skipApproval = false)", INDEX_HTML)
@@ -816,7 +816,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startInteractiveDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function stopDesignReviewAgent()", INDEX_HTML)
         self.assertIn("function completeDesignReviewAgent()", INDEX_HTML)
-        self.assertIn("function restartDesignReviewAgent()", INDEX_HTML)
+        self.assertNotIn("function restartDesignReviewAgent()", INDEX_HTML)
         self.assertNotIn("function openRequirementsDocument()", INDEX_HTML)
         self.assertNotIn("function openDesignDocument()", INDEX_HTML)
         self.assertNotIn("function openDesignReviewDocument()", INDEX_HTML)
@@ -890,14 +890,11 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             operations["design-review"],
             [
-                "Start automatic",
-                "Start interactive",
-                "Stop",
+                "Run automatic review",
+                "Run interactive review",
+                "Stop review",
                 "Approve",
                 "Skip approval",
-                "Restart review",
-                "Open review",
-                "Open design",
             ],
         )
         self.assertEqual(
