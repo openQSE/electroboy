@@ -131,7 +131,8 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("<title>Guide</title>", page)
-        self.assertIn("color: #243f53;", page)
+        self.assertIn("color: #0f3b5f;", page)
+        self.assertIn("article, p, li, td, dd", page)
         self.assertIn("background: #ffffff;", page)
 
     def test_document_target_renderer_rejects_unsafe_paths(self) -> None:
@@ -503,6 +504,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function connectArtifactEvents(kind)", INDEX_HTML)
         self.assertIn("function closeArtifactEventStream()", INDEX_HTML)
         self.assertIn("function syncArtifactPreviewWithProject()", INDEX_HTML)
+        self.assertIn('if (artifactPreviewKind === "document")', INDEX_HTML)
+        self.assertIn('if (artifactPreviewKind !== "document")', INDEX_HTML)
         self.assertIn("showArtifactPreview(\"requirements\")", INDEX_HTML)
         self.assertIn('contextUrl("/api/project/status")', INDEX_HTML)
         self.assertIn("function queueProjectStatusRefresh", INDEX_HTML)

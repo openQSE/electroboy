@@ -3474,6 +3474,10 @@ INDEX_HTML = """<!doctype html>
         hideArtifactPreview();
         return;
       }
+      if (artifactPreviewKind === "document") {
+        connectArtifactEvents(artifactPreviewKind);
+        return;
+      }
       if (requirementsRunning) {
         showArtifactPreview("requirements");
         return;
@@ -4242,7 +4246,9 @@ INDEX_HTML = """<!doctype html>
       }
       if (kind === "requirements") {
         if (isRunning) {
-          showArtifactPreview("requirements");
+          if (artifactPreviewKind !== "document") {
+            showArtifactPreview("requirements");
+          }
         } else {
           closeArtifactEventStream();
           refreshArtifactPreview();
@@ -8936,8 +8942,8 @@ def markdown_document_html(
   <style>
     body {{
       margin: 0;
-      background: #f7f8fb;
-      color: #243f53;
+      background: #ffffff;
+      color: #0f3b5f;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.55;
     }}
@@ -8952,8 +8958,11 @@ def markdown_document_html(
       border-radius: {article_radius};
       padding: {article_padding};
     }}
+    article, p, li, td, dd {{
+      color: #0f3b5f;
+    }}
     h1, h2, h3, h4, h5, h6 {{
-      color: #1f3446;
+      color: #0a2f4f;
       line-height: 1.2;
     }}
     a {{
@@ -8962,7 +8971,7 @@ def markdown_document_html(
     blockquote {{
       margin-left: 0;
       border-left: 4px solid #9fb4c9;
-      color: #314763;
+      color: #164a72;
       padding-left: 14px;
     }}
     table {{
@@ -8975,13 +8984,13 @@ def markdown_document_html(
     }}
     th {{
       background: #edf7ff;
-      color: #243f53;
+      color: #0a2f4f;
     }}
     pre, code {{
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     }}
     code {{
-      color: #1f3446;
+      color: #0a2f4f;
       background: #f1f4f9;
       border-radius: 4px;
       padding: 1px 4px;
@@ -8990,7 +8999,7 @@ def markdown_document_html(
       overflow: auto;
       padding: 12px;
       background: #f1f4f9;
-      color: #1f3446;
+      color: #0a2f4f;
       border: 1px solid #d8dde8;
       border-radius: 6px;
     }}
