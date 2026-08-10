@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.cli import build_parser  # noqa: E402
 from electroboy.service import (  # noqa: E402
+    FILE_BROWSER_WINDOW_HTML,
     GENERIC_STAGE_CONFIG,
     INDEX_HTML,
     PANE_WINDOW_HTML,
@@ -43,6 +44,7 @@ from electroboy.service import (  # noqa: E402
     browse_files,
     create_server,
     document_target_html,
+    file_browser_window_html,
     pane_window_html,
     requirements_document_html,
     workflow_payload,
@@ -134,6 +136,53 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
+
+    def test_file_browser_window_html_includes_tree_picker_controls(self) -> None:
+        page = file_browser_window_html("~/ORNL")
+
+        self.assertIn("ElectroBoy File Browser", page)
+        self.assertIn("__INITIAL_PATH__", FILE_BROWSER_WINDOW_HTML)
+        self.assertIn('const INITIAL_PATH = "~/ORNL";', page)
+        self.assertIn('id="pathInput"', page)
+        self.assertIn('id="searchInput"', page)
+        self.assertIn('id="showHidden"', page)
+        self.assertIn('id="breadcrumbs"', page)
+        self.assertIn('id="fileTree"', page)
+        self.assertIn("function toggleDirectory(entry)", page)
+        self.assertIn("function renderBreadcrumbs()", page)
+        self.assertIn("function moveSelection(delta)", page)
+        self.assertIn('event.key === "ArrowRight"', page)
+        self.assertIn('event.key === "ArrowLeft"', page)
+        self.assertIn("window.opener.postMessage", page)
+        self.assertIn("electroboy-file-browser-select", page)
+        self.assertIn("Open selected directory", page)
+        self.assertIn("Cancel", page)
+        self.assertIn("<svg viewBox=", page)
+
+    def test_file_browser_endpoint_serves_popout_picker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    "/file-browser?path=%2Ftmp",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const INITIAL_PATH = "/tmp";', body)
+        self.assertIn("Open selected directory", body)
 
     def test_document_target_renderer_creates_markdown_starter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -823,6 +872,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/artifacts/document", INDEX_HTML)
         self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
         self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
+        self.assertIn("function fileBrowserUrl(path)", INDEX_HTML)
+        self.assertIn('return `/file-browser?${parameters.toString()}`;', INDEX_HTML)
+        self.assertIn("function openProjectBrowser()", INDEX_HTML)
+        self.assertIn("electroboy-file-browser-select", INDEX_HTML)
+        self.assertIn("projectPath.value = data.path;", INDEX_HTML)
         self.assertIn("/api/files/browse?path=", INDEX_HTML)
         self.assertIn("&mode=file", INDEX_HTML)
         self.assertIn("function selectCurrentDirectory()", INDEX_HTML)
@@ -2299,6 +2353,21 @@ class ServiceTests(unittest.TestCase):
             },
             payload["entries"],
         )
+
+    def test_browse_files_hides_dotfiles_unless_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".hidden").mkdir()
+            (root / "visible").mkdir()
+
+            hidden_payload = browse_files(root)
+            visible_payload = browse_files(root, show_hidden=True)
+
+        hidden_names = {entry["name"] for entry in hidden_payload["entries"]}
+        visible_names = {entry["name"] for entry in visible_payload["entries"]}
+        self.assertNotIn(".hidden", hidden_names)
+        self.assertIn("visible", hidden_names)
+        self.assertIn(".hidden", visible_names)
 
     def test_requirements_document_html_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

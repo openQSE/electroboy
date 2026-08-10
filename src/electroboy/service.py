@@ -3405,6 +3405,12 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       const data = event.data || {};
+      if (data.type === "electroboy-file-browser-select" && data.path) {
+        projectPath.value = data.path;
+        projectStatus.textContent = `selected: ${data.path}`;
+        projectPath.focus();
+        return;
+      }
       if (data.type !== "electroboy-pane-restore" || !data.pane) {
         return;
       }
@@ -4254,6 +4260,24 @@ INDEX_HTML = """<!doctype html>
       );
       if (!popup) {
         appendOutput("popup was blocked by the browser\\n", "error");
+      }
+    }
+
+    function fileBrowserUrl(path) {
+      const parameters = new URLSearchParams();
+      parameters.set("path", path || activeProjectRoot || activationRoot || serviceRoot || ".");
+      return `/file-browser?${parameters.toString()}`;
+    }
+
+    function openProjectBrowser() {
+      const path = projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".";
+      const popup = window.open(
+        fileBrowserUrl(path),
+        "electroboy-file-browser",
+        PANE_POPUP_FEATURES,
+      );
+      if (!popup) {
+        projectStatus.textContent = "popup was blocked by the browser";
       }
     }
 
@@ -5822,10 +5846,7 @@ INDEX_HTML = """<!doctype html>
     });
     deactivateProject.addEventListener("click", deactivateActiveProject);
     browseProject.addEventListener("click", () => {
-      browseDirectory(
-        projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".",
-        "project",
-      );
+      openProjectBrowser();
     });
     activateProject.addEventListener("click", applyProjectSelection);
     upDirectory.addEventListener("click", () => {
@@ -6829,6 +6850,667 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
 def pane_window_html(kind: str) -> str:
     return PANE_WINDOW_HTML.replace("__PANE_KIND__", json.dumps(kind))
+
+
+FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ElectroBoy File Browser</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef3f7;
+      --panel: #ffffff;
+      --ink: #17212f;
+      --muted: #6c7788;
+      --border: #cfd9e3;
+      --active: #007f8a;
+      --active-soft: #e7f7f8;
+      --folder: #d48a1f;
+      --file: #5f6f85;
+      --markdown: #1c7ed6;
+      --git: #d9480f;
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 10px;
+      min-height: 100vh;
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      padding: 14px;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .path-form {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .path-input,
+    .search-input {
+      width: 100%;
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      padding: 0 10px;
+    }
+
+    .browser-button {
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 650;
+      padding: 0 12px;
+      white-space: nowrap;
+    }
+
+    .browser-button.primary {
+      border-color: var(--active);
+      background: var(--active);
+      color: #ffffff;
+    }
+
+    .browser-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .filter-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .hidden-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .breadcrumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-height: 28px;
+      align-items: center;
+    }
+
+    .breadcrumb-button {
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--active);
+      cursor: pointer;
+      padding: 3px 5px;
+      font: inherit;
+      font-weight: 650;
+    }
+
+    .breadcrumb-separator {
+      color: var(--muted);
+    }
+
+    .tree-panel {
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 6px;
+    }
+
+    .file-tree {
+      outline: none;
+    }
+
+    .file-tree-row {
+      display: grid;
+      grid-template-columns: 24px 22px minmax(0, 1fr);
+      gap: 6px;
+      align-items: center;
+      min-height: 30px;
+      border-radius: 5px;
+      color: var(--ink);
+      cursor: default;
+      padding: 2px 8px 2px 0;
+      user-select: none;
+    }
+
+    .file-tree-row:hover {
+      background: #f4f8fb;
+    }
+
+    .file-tree-row.selected {
+      background: var(--active-soft);
+      box-shadow: inset 3px 0 0 var(--active);
+    }
+
+    .file-tree-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-disclosure {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .file-disclosure:hover {
+      background: #e8eef5;
+      color: var(--ink);
+    }
+
+    .file-disclosure.placeholder {
+      cursor: default;
+    }
+
+    .file-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--file);
+    }
+
+    .file-icon.folder {
+      color: var(--folder);
+    }
+
+    .file-icon.markdown {
+      color: var(--markdown);
+    }
+
+    .file-icon.git {
+      color: var(--git);
+    }
+
+    .file-icon svg,
+    .file-disclosure svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+    }
+
+    .status-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+    }
+
+    .selected-path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <form id="pathForm" class="path-form">
+    <input
+      id="pathInput"
+      class="path-input"
+      type="text"
+      autocomplete="off"
+      aria-label="Path"
+    >
+    <button id="goPath" class="browser-button" type="submit">Go</button>
+    <button id="refreshPath" class="browser-button" type="button">Refresh</button>
+  </form>
+  <div class="filter-row">
+    <input
+      id="searchInput"
+      class="search-input"
+      type="search"
+      autocomplete="off"
+      placeholder="Search visible files and folders"
+      aria-label="Search visible files and folders"
+    >
+    <label class="hidden-toggle">
+      <input id="showHidden" type="checkbox">
+      Show hidden
+    </label>
+  </div>
+  <div id="breadcrumbs" class="breadcrumbs" aria-label="Breadcrumbs"></div>
+  <section class="tree-panel" aria-label="File tree">
+    <div id="fileTree" class="file-tree" role="tree" tabindex="0"></div>
+  </section>
+  <div class="status-row">
+    <div id="selectedPath" class="selected-path">Selected: none</div>
+    <button id="selectPath" class="browser-button primary" type="button" disabled>
+      Open selected directory
+    </button>
+    <button id="cancelBrowser" class="browser-button" type="button">Cancel</button>
+  </div>
+
+  <script>
+    const INITIAL_PATH = __INITIAL_PATH__;
+    const pathForm = document.getElementById("pathForm");
+    const pathInput = document.getElementById("pathInput");
+    const refreshPath = document.getElementById("refreshPath");
+    const searchInput = document.getElementById("searchInput");
+    const showHidden = document.getElementById("showHidden");
+    const breadcrumbs = document.getElementById("breadcrumbs");
+    const fileTree = document.getElementById("fileTree");
+    const selectedPathLabel = document.getElementById("selectedPath");
+    const selectPath = document.getElementById("selectPath");
+    const cancelBrowser = document.getElementById("cancelBrowser");
+
+    let rootPayload = null;
+    let currentPath = "";
+    let selectedPath = "";
+    let selectedType = "";
+    let expandedPaths = new Set();
+    let childCache = new Map();
+    let flatRows = [];
+    let selectedIndex = -1;
+
+    function iconSvg(name) {
+      const icons = {
+        "chevron-right": '<polyline points="9 18 15 12 9 6"></polyline>',
+        "chevron-down": '<polyline points="6 9 12 15 18 9"></polyline>',
+        folder: '<path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
+        "folder-open": '<path d="M3 7h7l2 2h9l-2 9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7v11"></path>',
+        file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path>',
+        markdown: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 15V9l3 3 3-3v6"></path><path d="M17 9v6"></path><path d="M15 13l2 2 2-2"></path>',
+        git: '<path d="M12 2 2 12l10 10 10-10z"></path><circle cx="9" cy="12" r="1.5"></circle><circle cx="15" cy="9" r="1.5"></circle><circle cx="15" cy="15" r="1.5"></circle><path d="M10.5 11 13.5 9.5"></path><path d="M10.5 13 13.5 14.5"></path>',
+      };
+      return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.file}</svg>`;
+    }
+
+    function baseName(path) {
+      const trimmed = String(path || "").replace(/\/+$/, "");
+      if (!trimmed || trimmed === "/") {
+        return trimmed || "/";
+      }
+      return trimmed.split("/").pop() || trimmed;
+    }
+
+    function iconName(entry, expanded) {
+      if ((entry.type || "directory") === "directory") {
+        if (entry.name === ".git") {
+          return "git";
+        }
+        return expanded ? "folder-open" : "folder";
+      }
+      if (/\.md$/i.test(entry.name || entry.path || "")) {
+        return "markdown";
+      }
+      return "file";
+    }
+
+    function iconClass(entry) {
+      if ((entry.type || "directory") === "directory") {
+        return entry.name === ".git" ? "git" : "folder";
+      }
+      return /\.md$/i.test(entry.name || entry.path || "") ? "markdown" : "file";
+    }
+
+    function browseUrl(path) {
+      const parameters = new URLSearchParams();
+      parameters.set("path", path || ".");
+      parameters.set("mode", "file");
+      parameters.set("hidden", showHidden.checked ? "1" : "0");
+      return `/api/files/browse?${parameters.toString()}`;
+    }
+
+    async function fetchDirectory(path) {
+      const response = await fetch(browseUrl(path), { cache: "no-store" });
+      const payload = await response.json().catch(() => ({ error: "browse failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || "browse failed");
+      }
+      return payload;
+    }
+
+    async function navigateTo(path) {
+      selectedPathLabel.textContent = "Loading...";
+      selectPath.disabled = true;
+      try {
+        const payload = await fetchDirectory(path);
+        rootPayload = payload;
+        currentPath = payload.path;
+        selectedPath = payload.path;
+        selectedType = "directory";
+        pathInput.value = payload.path;
+        expandedPaths.add(payload.path);
+        childCache.set(payload.path, payload.entries || []);
+        render();
+        updateSelectedPath();
+      } catch (error) {
+        selectedPathLabel.textContent = error.message || String(error);
+      }
+    }
+
+    async function toggleDirectory(entry) {
+      if ((entry.type || "directory") !== "directory") {
+        return;
+      }
+      if (expandedPaths.has(entry.path)) {
+        expandedPaths.delete(entry.path);
+        render();
+        return;
+      }
+      expandedPaths.add(entry.path);
+      if (!childCache.has(entry.path)) {
+        try {
+          const payload = await fetchDirectory(entry.path);
+          childCache.set(entry.path, payload.entries || []);
+        } catch (error) {
+          selectedPathLabel.textContent = error.message || String(error);
+          expandedPaths.delete(entry.path);
+        }
+      }
+      render();
+    }
+
+    function matchesFilter(entry) {
+      const filter = searchInput.value.trim().toLowerCase();
+      if (!filter) {
+        return true;
+      }
+      return (
+        String(entry.name || "").toLowerCase().includes(filter) ||
+        String(entry.path || "").toLowerCase().includes(filter)
+      );
+    }
+
+    function shouldShow(entry) {
+      if (matchesFilter(entry)) {
+        return true;
+      }
+      if ((entry.type || "directory") !== "directory") {
+        return false;
+      }
+      return (childCache.get(entry.path) || []).some(shouldShow);
+    }
+
+    function renderBreadcrumbs() {
+      breadcrumbs.replaceChildren();
+      if (!currentPath) {
+        return;
+      }
+      const parts = currentPath.split("/").filter(Boolean);
+      let path = currentPath.startsWith("/") ? "/" : "";
+      const rootButton = breadcrumbButton(path || parts[0] || currentPath, path || parts[0]);
+      breadcrumbs.append(rootButton);
+      const start = currentPath.startsWith("/") ? 0 : 1;
+      for (let index = start; index < parts.length; index += 1) {
+        const separator = document.createElement("span");
+        separator.className = "breadcrumb-separator";
+        separator.textContent = "/";
+        breadcrumbs.append(separator);
+        path = path === "/" ? `/${parts[index]}` : `${path}/${parts[index]}`;
+        breadcrumbs.append(breadcrumbButton(parts[index], path));
+      }
+    }
+
+    function breadcrumbButton(label, path) {
+      const button = document.createElement("button");
+      button.className = "breadcrumb-button";
+      button.type = "button";
+      button.textContent = label || "/";
+      button.title = path;
+      button.addEventListener("click", () => navigateTo(path));
+      return button;
+    }
+
+    function render() {
+      fileTree.replaceChildren();
+      flatRows = [];
+      selectedIndex = -1;
+      renderBreadcrumbs();
+      if (!rootPayload) {
+        return;
+      }
+      const rootEntry = {
+        name: baseName(rootPayload.path),
+        path: rootPayload.path,
+        type: "directory",
+      };
+      appendEntry(fileTree, rootEntry, 0, true);
+      updateSelectedPath();
+    }
+
+    function appendEntry(container, entry, depth, root = false) {
+      if (!root && !shouldShow(entry)) {
+        return;
+      }
+      const type = entry.type || "directory";
+      const expanded = root || expandedPaths.has(entry.path);
+      const row = document.createElement("div");
+      row.className = "file-tree-row";
+      row.setAttribute("role", "treeitem");
+      row.tabIndex = -1;
+      row.title = entry.path;
+      row.dataset.path = entry.path;
+      row.style.paddingLeft = `${depth * 18}px`;
+      if (entry.path === selectedPath) {
+        row.classList.add("selected");
+        selectedIndex = flatRows.length;
+      }
+
+      const disclosure = document.createElement("button");
+      disclosure.className = "file-disclosure";
+      disclosure.type = "button";
+      disclosure.tabIndex = -1;
+      if (type === "directory") {
+        disclosure.title = expanded ? "Collapse directory" : "Expand directory";
+        disclosure.innerHTML = iconSvg(expanded ? "chevron-down" : "chevron-right");
+        disclosure.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleDirectory(entry);
+        });
+      } else {
+        disclosure.classList.add("placeholder");
+        disclosure.disabled = true;
+      }
+
+      const icon = document.createElement("span");
+      icon.className = `file-icon ${iconClass(entry)}`;
+      icon.innerHTML = iconSvg(iconName(entry, expanded));
+
+      const name = document.createElement("span");
+      name.className = "file-tree-name";
+      name.textContent = entry.name || entry.path;
+
+      row.append(disclosure, icon, name);
+      row.addEventListener("click", () => selectEntry(entry));
+      row.addEventListener("dblclick", () => {
+        if (type === "directory") {
+          navigateTo(entry.path);
+        }
+      });
+      container.append(row);
+      flatRows.push(entry);
+
+      if (type !== "directory" || !expanded) {
+        return;
+      }
+      for (const child of childCache.get(entry.path) || []) {
+        appendEntry(container, child, depth + 1);
+      }
+    }
+
+    function selectEntry(entry, options = {}) {
+      selectedPath = entry.path;
+      selectedType = entry.type || "directory";
+      pathInput.value = entry.path;
+      updateSelectedPath();
+      if (options.render !== false) {
+        render();
+      }
+    }
+
+    function updateSelectedPath() {
+      if (!selectedPath) {
+        selectedPathLabel.textContent = "Selected: none";
+        selectPath.disabled = true;
+        return;
+      }
+      selectedPathLabel.textContent = `Selected: ${selectedPath}`;
+      selectPath.disabled = selectedType !== "directory";
+    }
+
+    function focusSelectedRow() {
+      const row = fileTree.querySelector(`[data-path="${CSS.escape(selectedPath)}"]`);
+      if (row) {
+        row.focus();
+        row.scrollIntoView({ block: "nearest" });
+      }
+    }
+
+    function moveSelection(delta) {
+      if (!flatRows.length) {
+        return;
+      }
+      const nextIndex = Math.max(
+        0,
+        Math.min(flatRows.length - 1, selectedIndex + delta),
+      );
+      selectEntry(flatRows[nextIndex]);
+      focusSelectedRow();
+    }
+
+    async function expandSelected() {
+      const entry = flatRows[selectedIndex];
+      if (!entry || (entry.type || "directory") !== "directory") {
+        return;
+      }
+      if (!expandedPaths.has(entry.path)) {
+        await toggleDirectory(entry);
+      }
+      focusSelectedRow();
+    }
+
+    function collapseSelected() {
+      const entry = flatRows[selectedIndex];
+      if (!entry || (entry.type || "directory") !== "directory") {
+        return;
+      }
+      if (expandedPaths.has(entry.path) && entry.path !== currentPath) {
+        expandedPaths.delete(entry.path);
+        render();
+        focusSelectedRow();
+        return;
+      }
+      const parent = flatRows
+        .slice(0, selectedIndex)
+        .reverse()
+        .find((candidate) => entry.path.startsWith(`${candidate.path}/`));
+      if (parent) {
+        selectEntry(parent);
+        focusSelectedRow();
+      }
+    }
+
+    function selectCurrentPath() {
+      if (!selectedPath || selectedType !== "directory") {
+        selectedPathLabel.textContent = "Select a directory first.";
+        return;
+      }
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: "electroboy-file-browser-select", path: selectedPath },
+          window.location.origin,
+        );
+      }
+      window.close();
+    }
+
+    pathForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      navigateTo(pathInput.value || ".");
+    });
+    refreshPath.addEventListener("click", () => {
+      childCache.clear();
+      navigateTo(currentPath || pathInput.value || ".");
+    });
+    searchInput.addEventListener("input", render);
+    showHidden.addEventListener("change", () => {
+      childCache.clear();
+      navigateTo(currentPath || pathInput.value || ".");
+    });
+    selectPath.addEventListener("click", selectCurrentPath);
+    cancelBrowser.addEventListener("click", () => window.close());
+    fileTree.addEventListener("keydown", async (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveSelection(1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        moveSelection(-1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        await expandSelected();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        collapseSelected();
+      } else if (event.key === "Enter" && event.ctrlKey) {
+        event.preventDefault();
+        selectCurrentPath();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const entry = flatRows[selectedIndex];
+        if (entry && (entry.type || "directory") === "directory") {
+          navigateTo(entry.path);
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        window.close();
+      }
+    });
+
+    navigateTo(INITIAL_PATH || ".");
+  </script>
+</body>
+</html>
+"""
+
+
+def file_browser_window_html(initial_path: str) -> str:
+    return FILE_BROWSER_WINDOW_HTML.replace(
+        "__INITIAL_PATH__",
+        json.dumps(initial_path),
+    )
 
 
 @dataclass
@@ -9658,7 +10340,7 @@ def workflow_payload(active_project_root: Path | str | None = None) -> dict[str,
     }
 
 
-def browse_directories(path: Path | str) -> dict[str, object]:
+def browse_directories(path: Path | str, *, show_hidden: bool = False) -> dict[str, object]:
     directory = Path(path).expanduser().resolve()
     if not directory.exists():
         raise StateError(f"directory does not exist: {directory}")
@@ -9667,7 +10349,11 @@ def browse_directories(path: Path | str) -> dict[str, object]:
 
     try:
         children = sorted(
-            [child for child in directory.iterdir() if child.is_dir()],
+            [
+                child
+                for child in directory.iterdir()
+                if child.is_dir() and _browser_entry_visible(child, show_hidden)
+            ],
             key=lambda child: child.name.lower(),
         )
     except OSError as error:
@@ -9685,7 +10371,7 @@ def browse_directories(path: Path | str) -> dict[str, object]:
     }
 
 
-def browse_files(path: Path | str) -> dict[str, object]:
+def browse_files(path: Path | str, *, show_hidden: bool = False) -> dict[str, object]:
     directory = Path(path).expanduser().resolve()
     if not directory.exists():
         raise StateError(f"directory does not exist: {directory}")
@@ -9698,6 +10384,7 @@ def browse_files(path: Path | str) -> dict[str, object]:
                 child
                 for child in directory.iterdir()
                 if child.is_dir() or child.is_file()
+                if _browser_entry_visible(child, show_hidden)
             ],
             key=lambda child: (not child.is_dir(), child.name.lower()),
         )
@@ -9715,6 +10402,10 @@ def browse_files(path: Path | str) -> dict[str, object]:
             for child in children[:300]
         ],
     }
+
+
+def _browser_entry_visible(path: Path, show_hidden: bool) -> bool:
+    return show_hidden or not path.name.startswith(".")
 
 
 def initialize_project(project_root: Path | str):
@@ -11212,6 +11903,9 @@ def _handler_for(
             if path in {"/", "/index.html"}:
                 self._send_text(INDEX_HTML, "text/html; charset=utf-8")
                 return
+            if path == "/file-browser":
+                self._send_file_browser_window(parsed.query)
+                return
             if path.startswith("/pane/"):
                 self._send_pane_window(path)
                 return
@@ -11473,11 +12167,12 @@ def _handler_for(
             params = parse_qs(query)
             path = (params.get("path") or [str(state.root)])[0]
             mode = (params.get("mode") or ["directory"])[0]
+            show_hidden = (params.get("hidden") or ["0"])[0] == "1"
             try:
                 payload = (
-                    browse_files(path)
+                    browse_files(path, show_hidden=show_hidden)
                     if mode == "file"
-                    else browse_directories(path)
+                    else browse_directories(path, show_hidden=show_hidden)
                 )
             except StateError as error:
                 self._send_json(
@@ -11869,6 +12564,14 @@ def _handler_for(
                 return
             self._send_text(
                 pane_window_html(kind),
+                "text/html; charset=utf-8",
+            )
+
+        def _send_file_browser_window(self, query: str) -> None:
+            params = parse_qs(query)
+            initial_path = (params.get("path") or [str(state.root)])[0]
+            self._send_text(
+                file_browser_window_html(initial_path),
                 "text/html; charset=utf-8",
             )
 
