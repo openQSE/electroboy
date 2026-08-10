@@ -412,6 +412,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function renderWorkItemMenus()", INDEX_HTML)
         self.assertIn("function showWorkItemPanel(mode)", INDEX_HTML)
         self.assertIn("function applyWorkItemSelection()", INDEX_HTML)
+        self.assertIn("function confirmWorkItemAgentStop()", INDEX_HTML)
+        self.assertIn("Starting or switching work items will stop that agent", INDEX_HTML)
+        self.assertIn("stopped running agent for work-item context", INDEX_HTML)
         self.assertIn("function shouldRetryWithSubrepoStash(payload, body)", INDEX_HTML)
         self.assertIn("stash_subrepo_changes_required", INDEX_HTML)
         self.assertIn("stash_subrepo_changes: true", INDEX_HTML)
@@ -1295,6 +1298,84 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(features["scheduler"]["parent_slug"], "admissions")
         self.assertEqual(features["admissions"]["collection_id"], "default")
         self.assertEqual(features["scheduler"]["collection_id"], "default")
+
+    def test_service_state_feature_start_stops_running_requirements_agent(self) -> None:
+        class FakeSession:
+            session_id = "requirements-session"
+            label = "requirements agent"
+
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                context = state.contexts[context_id]
+                context.requirements_session = session  # type: ignore[assignment]
+                context.selected_session_id = session.session_id
+
+            payload = state.start_feature_work_item(
+                context_id,
+                title="Add admissions",
+                feature_name="admissions",
+            )
+
+        self.assertTrue(session.terminated)
+        self.assertEqual(payload["status"], "started feature")
+        self.assertTrue(payload["terminated_agent"])
+        self.assertIsNone(state.current_requirements_session(context_id))
+        self.assertEqual(payload["selected_session_id"], None)
+
+    def test_unknown_feature_switch_keeps_running_requirements_agent(self) -> None:
+        class FakeSession:
+            session_id = "requirements-session"
+            label = "requirements agent"
+
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                context = state.contexts[context_id]
+                context.requirements_session = session  # type: ignore[assignment]
+                context.selected_session_id = session.session_id
+
+            with self.assertRaisesRegex(AgentSessionError, "unknown feature"):
+                state.switch_feature_work_item(context_id, "missing")
+
+        self.assertFalse(session.terminated)
+        self.assertIs(state.current_requirements_session(context_id), session)
 
     def test_service_state_starts_bug_work_item(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

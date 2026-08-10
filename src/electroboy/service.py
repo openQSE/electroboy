@@ -4829,6 +4829,9 @@ INDEX_HTML = """<!doctype html>
         workItemStatus.textContent = "enter a title or reference first";
         return;
       }
+      if (!confirmWorkItemAgentStop()) {
+        return;
+      }
       applyWorkItem.disabled = true;
       workItemStatus.textContent = workItemPendingLabel();
       const endpoint = workItemEndpoint();
@@ -4871,6 +4874,9 @@ INDEX_HTML = """<!doctype html>
       }
       hideWorkItemPanel();
       appendOutput(`${payload.status}: ${payload.label || title}\\n`, "system");
+      if (payload.terminated_agent) {
+        appendOutput("stopped running agent for work-item context\\n", "system");
+      }
       if (payload.output) {
         appendOutput(`${payload.output}\\n`, "system");
       }
@@ -4939,6 +4945,9 @@ INDEX_HTML = """<!doctype html>
       if (!activeProjectRoot) {
         return;
       }
+      if (!confirmWorkItemAgentStop()) {
+        return;
+      }
       hideStageMenus();
       const response = await fetch(contextUrl(endpoint), {
         method: "POST",
@@ -4951,7 +4960,19 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       appendOutput(`${successLabel}: ${payload.label || ""}\\n`, "system");
+      if (payload.terminated_agent) {
+        appendOutput("stopped running agent for work-item context\\n", "system");
+      }
       updateProjectState(payload);
+    }
+
+    function confirmWorkItemAgentStop() {
+      if (!agentProcessRunning()) {
+        return true;
+      }
+      return window.confirm(
+        "A workflow agent is running in this browser context.\\n\\nStarting or switching work items will stop that agent. Continue?",
+      );
     }
 
     async function deactivateActiveProject() {
@@ -7651,7 +7672,7 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            self._require_no_active_agent_locked(context)
+        terminated_agent = self._terminate_all_context_sessions(context_id)
         output = _run_feature_start_context(
             project_root,
             title=title,
@@ -7690,6 +7711,7 @@ class ServiceState:
             "status": "started feature",
             "label": _feature_record_label(feature_record) if feature_record else title,
             "output": output,
+            "terminated_agent": terminated_agent,
         }
 
     def switch_feature_work_item(
@@ -7703,11 +7725,11 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            self._require_no_active_agent_locked(context)
         registry = _load_work_item_registry(project_root)
         feature = _feature_by_slug(registry, slug)
         if feature is None:
             raise AgentSessionError("unknown feature")
+        terminated_agent = self._terminate_all_context_sessions(context_id)
         output = _run_feature_start_context(
             project_root,
             title=str(feature.get("input") or feature.get("title") or slug),
@@ -7747,6 +7769,7 @@ class ServiceState:
             "status": "switched feature",
             "label": _feature_record_label(feature),
             "output": output,
+            "terminated_agent": terminated_agent,
         }
 
     def start_bug_work_item(
@@ -7765,7 +7788,7 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            self._require_no_active_agent_locked(context)
+        terminated_agent = self._terminate_all_context_sessions(context_id)
         output = _run_bug_start_context(
             project_root,
             issue_reference=issue_reference,
@@ -7787,6 +7810,7 @@ class ServiceState:
             "status": "started bug resolution",
             "label": _bug_record_label(bug_record) if bug_record else issue_reference,
             "output": output,
+            "terminated_agent": terminated_agent,
         }
 
     def switch_bug_work_item(
@@ -7800,11 +7824,11 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            self._require_no_active_agent_locked(context)
         registry = _load_work_item_registry(project_root)
         bug = _bug_by_slug(registry, slug)
         if bug is None:
             raise AgentSessionError("unknown bug")
+        terminated_agent = self._terminate_all_context_sessions(context_id)
         _write_current_bug_record(project_root, bug)
         registry["active_bug_slug"] = slug
         registry["active_feature_slug"] = None
@@ -7816,6 +7840,7 @@ class ServiceState:
             **project_payload(self.root, context, project_root),
             "status": "switched bug resolution",
             "label": _bug_record_label(bug),
+            "terminated_agent": terminated_agent,
         }
 
     def select_workflow_stage(
