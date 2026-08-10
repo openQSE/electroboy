@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.cli import build_parser  # noqa: E402
 from electroboy.service import (  # noqa: E402
+    GENERIC_STAGE_CONFIG,
     INDEX_HTML,
     PANE_WINDOW_HTML,
     AgentSession,
@@ -251,6 +252,10 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('id="requirementsApproveMenu"', INDEX_HTML)
         self.assertIn('id="designMenu"', INDEX_HTML)
         self.assertIn('id="designReviewMenu"', INDEX_HTML)
+        self.assertIn('id="implementationPlanMenu"', INDEX_HTML)
+        self.assertIn('id="codeMenu"', INDEX_HTML)
+        self.assertIn('id="testPlanMenu"', INDEX_HTML)
+        self.assertIn('id="validateMenu"', INDEX_HTML)
         self.assertIn('id="documentMenu"', INDEX_HTML)
         self.assertNotIn('id="designApproveMenu"', INDEX_HTML)
         self.assertIn('id="approveRequirements"', INDEX_HTML)
@@ -272,6 +277,30 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="restartDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignReview"', INDEX_HTML)
         self.assertIn('id="openDesignFromReview"', INDEX_HTML)
+        self.assertIn('id="startImplementationPlan"', INDEX_HTML)
+        self.assertIn('id="restartImplementationPlan"', INDEX_HTML)
+        self.assertIn('id="approveImplementationPlan"', INDEX_HTML)
+        self.assertIn('id="skipImplementationPlanApproval"', INDEX_HTML)
+        self.assertIn('id="openImplementationPlan"', INDEX_HTML)
+        self.assertIn('id="startAutomaticCode"', INDEX_HTML)
+        self.assertIn('id="startInteractiveCode"', INDEX_HTML)
+        self.assertIn('id="stopCode"', INDEX_HTML)
+        self.assertIn('id="approveCode"', INDEX_HTML)
+        self.assertIn('id="skipCodeApproval"', INDEX_HTML)
+        self.assertIn('id="restartCode"', INDEX_HTML)
+        self.assertIn('id="openImplementationReport"', INDEX_HTML)
+        self.assertIn('id="startTestPlan"', INDEX_HTML)
+        self.assertIn('id="restartTestPlan"', INDEX_HTML)
+        self.assertIn('id="approveTestPlan"', INDEX_HTML)
+        self.assertIn('id="skipTestPlanApproval"', INDEX_HTML)
+        self.assertIn('id="openTestPlan"', INDEX_HTML)
+        self.assertIn('id="startAutomaticValidate"', INDEX_HTML)
+        self.assertIn('id="startInteractiveValidate"', INDEX_HTML)
+        self.assertIn('id="stopValidate"', INDEX_HTML)
+        self.assertIn('id="approveValidate"', INDEX_HTML)
+        self.assertIn('id="skipValidateApproval"', INDEX_HTML)
+        self.assertIn('id="restartValidate"', INDEX_HTML)
+        self.assertIn('id="openValidationReport"', INDEX_HTML)
         self.assertIn('id="documentTargets"', INDEX_HTML)
         self.assertIn('id="createDocumentTarget"', INDEX_HTML)
         self.assertIn('id="customDocumentName"', INDEX_HTML)
@@ -488,7 +517,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0])", INDEX_HTML)
         self.assertIn("const session = selectedSession();", INDEX_HTML)
         self.assertIn("connectSessionEvents(session.session_id)", INDEX_HTML)
-        self.assertIn('session.kind === "design-review"', INDEX_HTML)
+        self.assertIn('if (!isInteractive && session.status === "running")', INDEX_HTML)
         self.assertIn("connectProgressEvents();", INDEX_HTML)
         self.assertIn("await restoreContext();", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
@@ -496,6 +525,10 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
         self.assertIn("function updateDesignMenuState()", INDEX_HTML)
         self.assertIn("function updateDesignReviewMenuState()", INDEX_HTML)
+        self.assertIn("function updateGenericStageMenuStates()", INDEX_HTML)
+        self.assertIn("function updateAuthoringStageMenuState(", INDEX_HTML)
+        self.assertIn("function updateAutomaticStageMenuState(", INDEX_HTML)
+        self.assertIn("function genericStageRun(stage)", INDEX_HTML)
         self.assertIn("function updateDocumentMenuState()", INDEX_HTML)
         self.assertNotIn("function updateDesignApproveMenuState()", INDEX_HTML)
         self.assertIn('const inRequirementsStage = currentWorkflowStage === "requirements";', INDEX_HTML)
@@ -517,6 +550,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
+        self.assertIn('updateAuthoringStageMenuState(\n        "implementation-plan"', INDEX_HTML)
+        self.assertIn('updateAutomaticStageMenuState(\n        "code"', INDEX_HTML)
+        self.assertIn('updateAuthoringStageMenuState(\n        "test-plan"', INDEX_HTML)
+        self.assertIn('updateAutomaticStageMenuState(\n        "validate"', INDEX_HTML)
         self.assertIn("customDocumentName.disabled = !hasActiveProject", INDEX_HTML)
         self.assertIn("window.confirm", INDEX_HTML)
         self.assertIn("Requirements have not been explicitly approved", INDEX_HTML)
@@ -538,6 +575,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/artifacts/requirements")', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/design")', INDEX_HTML)
         self.assertIn('contextUrl("/artifacts/design-review")', INDEX_HTML)
+        self.assertIn('"/artifacts/implementation-plan"', INDEX_HTML)
+        self.assertIn('"/artifacts/implementation-report"', INDEX_HTML)
+        self.assertIn('"/artifacts/test-plan"', INDEX_HTML)
+        self.assertIn('"/artifacts/validation-report"', INDEX_HTML)
         self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
         self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
         self.assertIn("/api/files/browse?path=", INDEX_HTML)
@@ -570,6 +611,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function skipRequirementsApprovalStage()", INDEX_HTML)
         self.assertIn("function approveDesignReviewStage(skipApproval = false)", INDEX_HTML)
         self.assertIn("function skipDesignReviewApprovalStage()", INDEX_HTML)
+        self.assertIn("async function startGenericStageAgent(", INDEX_HTML)
+        self.assertIn("async function restartGenericStageAgent(", INDEX_HTML)
+        self.assertIn("async function stopGenericStageAgent(", INDEX_HTML)
+        self.assertIn("async function approveGenericStage(", INDEX_HTML)
+        self.assertIn("async function skipGenericStageApproval(", INDEX_HTML)
+        self.assertIn("function openStageDocument(stage, path)", INDEX_HTML)
+        self.assertIn('startGenericStageAgent(\n        "implementation-plan"', INDEX_HTML)
+        self.assertIn('startGenericStageAgent("code", "$ electroboy code", false)', INDEX_HTML)
+        self.assertIn('startGenericStageAgent("test-plan", "$ electroboy test-plan", true)', INDEX_HTML)
+        self.assertIn('startGenericStageAgent("validate", "$ electroboy validate", false)', INDEX_HTML)
         self.assertIn(
             'agentInput.value = "";\n'
             "      clearAgentOutput();\n"
@@ -601,6 +652,10 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("positionStageMenu(requirementsApproveMenu, requirementsApproveStage)", INDEX_HTML)
         self.assertIn("positionStageMenu(designMenu, designStage)", INDEX_HTML)
         self.assertIn("positionStageMenu(designReviewMenu, designReviewStage)", INDEX_HTML)
+        self.assertIn("positionStageMenu(implementationPlanMenu, implementationPlanStage)", INDEX_HTML)
+        self.assertIn("positionStageMenu(codeMenu, codeStage)", INDEX_HTML)
+        self.assertIn("positionStageMenu(testPlanMenu, testPlanStage)", INDEX_HTML)
+        self.assertIn("positionStageMenu(validateMenu, validateStage)", INDEX_HTML)
         self.assertNotIn("positionStageMenu(designApproveMenu, designApproveStage)", INDEX_HTML)
         self.assertIn("stageScroll.addEventListener(\"scroll\", repositionOpenStageMenu)", INDEX_HTML)
         self.assertIn('event.code === "NumpadEnter"', INDEX_HTML)
@@ -671,6 +726,48 @@ class ServiceTests(unittest.TestCase):
                 "Open design",
             ],
         )
+        self.assertEqual(
+            operations["implementation-plan"],
+            ["Start", "Restart", "Approve", "Skip approval", "Open implementation plan"],
+        )
+        self.assertEqual(
+            operations["code"],
+            [
+                "Start automatic",
+                "Start interactive",
+                "Stop",
+                "Approve",
+                "Skip approval",
+                "Restart",
+                "Open implementation report",
+            ],
+        )
+        self.assertEqual(
+            operations["test-plan"],
+            ["Start", "Restart", "Approve", "Skip approval", "Open test plan"],
+        )
+        self.assertEqual(
+            operations["validate"],
+            [
+                "Start automatic",
+                "Start interactive",
+                "Stop",
+                "Approve",
+                "Skip approval",
+                "Restart",
+                "Open validation report",
+            ],
+        )
+
+    def test_generic_stage_approval_config_matches_cli_parser(self) -> None:
+        parser = build_parser()
+        for stage, config in GENERIC_STAGE_CONFIG.items():
+            command = str(config["approval_command"])
+            argv = [command, "--force"]
+            if config.get("approval_reason_arg"):
+                argv.extend(["--reason", f"{stage} approval override"])
+            args = parser.parse_args(argv)
+            self.assertEqual(args.command, command)
 
     def test_service_state_opens_existing_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

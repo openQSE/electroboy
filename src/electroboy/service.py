@@ -111,6 +111,24 @@ SESSION_ARTIFACT_LOCKS = {
             "design-review.jsonl",
         }
     ),
+    "implementation-plan": frozenset(
+        {"docs/implementation-plan.md", "docs/implementation-plan.jsonl"}
+    ),
+    "code": frozenset(
+        {
+            "docs/implementation-log.md",
+            "docs/implementation-report.md",
+        }
+    ),
+    "test-plan": frozenset({"docs/test-plan.md", "docs/test-plan.jsonl"}),
+    "validate": frozenset(
+        {
+            "docs/test-review.md",
+            "docs/validation-report.md",
+            "validation-test-review.jsonl",
+            "validation-review.jsonl",
+        }
+    ),
     "documentation": frozenset(
         {
             "documentation.jsonl",
@@ -118,6 +136,53 @@ SESSION_ARTIFACT_LOCKS = {
             "docs/api.md",
         }
     ),
+}
+
+GENERIC_STAGE_CONFIG: dict[str, dict[str, object]] = {
+    "implementation-plan": {
+        "command": "implementation-plan",
+        "approval_command": "plan-approve",
+        "artifact_path": "docs/implementation-plan.md",
+        "artifact_title": "Implementation Plan",
+        "interactive_default": True,
+        "interactive_arg": False,
+        "reason_arg": True,
+        "approval_reason_arg": True,
+        "next_stage": "code",
+    },
+    "code": {
+        "command": "code",
+        "approval_command": "code-approve",
+        "artifact_path": "docs/implementation-report.md",
+        "artifact_title": "Implementation Report",
+        "interactive_default": False,
+        "interactive_arg": True,
+        "reason_arg": True,
+        "approval_reason_arg": False,
+        "next_stage": "test-plan",
+    },
+    "test-plan": {
+        "command": "test-plan",
+        "approval_command": "test-plan-approve",
+        "artifact_path": "docs/test-plan.md",
+        "artifact_title": "Test Plan",
+        "interactive_default": True,
+        "interactive_arg": False,
+        "reason_arg": True,
+        "approval_reason_arg": True,
+        "next_stage": "validate",
+    },
+    "validate": {
+        "command": "validate",
+        "approval_command": "validation-approve",
+        "artifact_path": "docs/validation-report.md",
+        "artifact_title": "Validation Report",
+        "interactive_default": False,
+        "interactive_arg": True,
+        "reason_arg": False,
+        "approval_reason_arg": True,
+        "next_stage": "document",
+    },
 }
 
 INDEX_HTML = """<!doctype html>
@@ -1268,6 +1333,38 @@ INDEX_HTML = """<!doctype html>
         <button id="openDesignReview" type="button">Open review</button>
         <button id="openDesignFromReview" type="button">Open design</button>
       </div>
+      <div id="implementationPlanMenu" class="stage-menu" hidden>
+        <button id="startImplementationPlan" type="button">Start</button>
+        <button id="restartImplementationPlan" type="button">Restart</button>
+        <button id="approveImplementationPlan" type="button">Approve</button>
+        <button id="skipImplementationPlanApproval" type="button">Skip approval</button>
+        <button id="openImplementationPlan" type="button">Open implementation plan</button>
+      </div>
+      <div id="codeMenu" class="stage-menu" hidden>
+        <button id="startAutomaticCode" type="button">Start automatic</button>
+        <button id="startInteractiveCode" type="button">Start interactive</button>
+        <button id="stopCode" type="button">Stop</button>
+        <button id="approveCode" type="button">Approve</button>
+        <button id="skipCodeApproval" type="button">Skip approval</button>
+        <button id="restartCode" type="button">Restart</button>
+        <button id="openImplementationReport" type="button">Open implementation report</button>
+      </div>
+      <div id="testPlanMenu" class="stage-menu" hidden>
+        <button id="startTestPlan" type="button">Start</button>
+        <button id="restartTestPlan" type="button">Restart</button>
+        <button id="approveTestPlan" type="button">Approve</button>
+        <button id="skipTestPlanApproval" type="button">Skip approval</button>
+        <button id="openTestPlan" type="button">Open test plan</button>
+      </div>
+      <div id="validateMenu" class="stage-menu" hidden>
+        <button id="startAutomaticValidate" type="button">Start automatic</button>
+        <button id="startInteractiveValidate" type="button">Start interactive</button>
+        <button id="stopValidate" type="button">Stop</button>
+        <button id="approveValidate" type="button">Approve</button>
+        <button id="skipValidateApproval" type="button">Skip approval</button>
+        <button id="restartValidate" type="button">Restart</button>
+        <button id="openValidationReport" type="button">Open validation report</button>
+      </div>
       <div id="documentMenu" class="stage-menu" hidden>
         <div id="documentTargets" class="document-targets"></div>
         <button id="createDocumentTarget" type="button">Create your own</button>
@@ -1578,11 +1675,20 @@ INDEX_HTML = """<!doctype html>
     const requirementsStage = document.querySelector("[data-stage='requirements']");
     const designStage = document.querySelector("[data-stage='design']");
     const designReviewStage = document.querySelector("[data-stage='design-review']");
+    const implementationPlanStage =
+      document.querySelector("[data-stage='implementation-plan']");
+    const codeStage = document.querySelector("[data-stage='code']");
+    const testPlanStage = document.querySelector("[data-stage='test-plan']");
+    const validateStage = document.querySelector("[data-stage='validate']");
     const documentStage = document.querySelector("[data-stage='document']");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const designMenu = document.getElementById("designMenu");
     const designReviewMenu = document.getElementById("designReviewMenu");
+    const implementationPlanMenu = document.getElementById("implementationPlanMenu");
+    const codeMenu = document.getElementById("codeMenu");
+    const testPlanMenu = document.getElementById("testPlanMenu");
+    const validateMenu = document.getElementById("validateMenu");
     const documentMenu = document.getElementById("documentMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
@@ -1628,6 +1734,31 @@ INDEX_HTML = """<!doctype html>
     const restartDesignReview = document.getElementById("restartDesignReview");
     const openDesignReview = document.getElementById("openDesignReview");
     const openDesignFromReview = document.getElementById("openDesignFromReview");
+    const startImplementationPlan = document.getElementById("startImplementationPlan");
+    const restartImplementationPlan = document.getElementById("restartImplementationPlan");
+    const approveImplementationPlan = document.getElementById("approveImplementationPlan");
+    const skipImplementationPlanApproval =
+      document.getElementById("skipImplementationPlanApproval");
+    const openImplementationPlan = document.getElementById("openImplementationPlan");
+    const startAutomaticCode = document.getElementById("startAutomaticCode");
+    const startInteractiveCode = document.getElementById("startInteractiveCode");
+    const stopCode = document.getElementById("stopCode");
+    const approveCode = document.getElementById("approveCode");
+    const skipCodeApproval = document.getElementById("skipCodeApproval");
+    const restartCode = document.getElementById("restartCode");
+    const openImplementationReport = document.getElementById("openImplementationReport");
+    const startTestPlan = document.getElementById("startTestPlan");
+    const restartTestPlan = document.getElementById("restartTestPlan");
+    const approveTestPlan = document.getElementById("approveTestPlan");
+    const skipTestPlanApproval = document.getElementById("skipTestPlanApproval");
+    const openTestPlan = document.getElementById("openTestPlan");
+    const startAutomaticValidate = document.getElementById("startAutomaticValidate");
+    const startInteractiveValidate = document.getElementById("startInteractiveValidate");
+    const stopValidate = document.getElementById("stopValidate");
+    const approveValidate = document.getElementById("approveValidate");
+    const skipValidateApproval = document.getElementById("skipValidateApproval");
+    const restartValidate = document.getElementById("restartValidate");
+    const openValidationReport = document.getElementById("openValidationReport");
     const documentTargets = document.getElementById("documentTargets");
     const createDocumentTarget = document.getElementById("createDocumentTarget");
     const customDocumentForm = document.getElementById("customDocumentForm");
@@ -1755,6 +1886,7 @@ INDEX_HTML = """<!doctype html>
     let activeRepositoryName = "";
     let registeredRepositories = [];
     let workItemState = { collections: [], features: [], bugs: [] };
+    let stageRunState = {};
     let workItemMode = "";
     let customDocumentTargets = storedDocumentTargets();
     let currentBrowsePath = "";
@@ -2710,7 +2842,7 @@ INDEX_HTML = """<!doctype html>
         }
         activeAgentKind = session.kind || "";
         connectSessionEvents(session.session_id);
-        if (session.kind === "design-review" && !isInteractive && session.status === "running") {
+        if (!isInteractive && session.status === "running") {
           connectProgressEvents();
         }
         sendTerminalResize();
@@ -2727,6 +2859,7 @@ INDEX_HTML = """<!doctype html>
         ? payload.registered_repositories
         : [];
       workItemState = payload.work_items || { collections: [], features: [], bugs: [] };
+      stageRunState = payload.stage_runs || {};
       requirementsStarted = Boolean(payload.requirements_started);
       requirementsRunning = Boolean(payload.requirements_running);
       requirementsApproved = Boolean(payload.requirements_approved);
@@ -2775,6 +2908,7 @@ INDEX_HTML = """<!doctype html>
       updateRequirementsMenuState();
       updateDesignMenuState();
       updateDesignReviewMenuState();
+      updateGenericStageMenuStates();
       updateDocumentMenuState();
       syncArtifactPreviewWithProject();
       projectStatus.textContent = projectStatusLine();
@@ -3092,6 +3226,91 @@ INDEX_HTML = """<!doctype html>
       openDesignReview.disabled =
         !hasActiveProject || !inDesignReviewStage || !designReviewStarted;
       openDesignFromReview.disabled = !hasActiveProject || !inDesignReviewStage;
+    }
+
+    function updateGenericStageMenuStates() {
+      updateAuthoringStageMenuState(
+        "implementation-plan",
+        startImplementationPlan,
+        restartImplementationPlan,
+        approveImplementationPlan,
+        skipImplementationPlanApproval,
+        openImplementationPlan,
+      );
+      updateAutomaticStageMenuState(
+        "code",
+        startAutomaticCode,
+        startInteractiveCode,
+        stopCode,
+        approveCode,
+        skipCodeApproval,
+        restartCode,
+        openImplementationReport,
+      );
+      updateAuthoringStageMenuState(
+        "test-plan",
+        startTestPlan,
+        restartTestPlan,
+        approveTestPlan,
+        skipTestPlanApproval,
+        openTestPlan,
+      );
+      updateAutomaticStageMenuState(
+        "validate",
+        startAutomaticValidate,
+        startInteractiveValidate,
+        stopValidate,
+        approveValidate,
+        skipValidateApproval,
+        restartValidate,
+        openValidationReport,
+      );
+    }
+
+    function updateAuthoringStageMenuState(
+      stage,
+      startButton,
+      restartButton,
+      approveButton,
+      skipButton,
+      openButton,
+    ) {
+      const hasActiveProject = Boolean(activeProjectRoot);
+      const inStage = currentWorkflowStage === stage;
+      const runState = genericStageRun(stage);
+      startButton.disabled = !hasActiveProject || !inStage || runState.running;
+      restartButton.disabled = !hasActiveProject || (inStage && !runState.started);
+      approveButton.disabled = !hasActiveProject || !inStage;
+      skipButton.disabled = !hasActiveProject || !inStage;
+      openButton.disabled = !hasActiveProject || (inStage && !runState.started);
+    }
+
+    function updateAutomaticStageMenuState(
+      stage,
+      startAutomaticButton,
+      startInteractiveButton,
+      stopButton,
+      approveButton,
+      skipButton,
+      restartButton,
+      openButton,
+    ) {
+      const hasActiveProject = Boolean(activeProjectRoot);
+      const inStage = currentWorkflowStage === stage;
+      const runState = genericStageRun(stage);
+      startAutomaticButton.disabled =
+        !hasActiveProject || !inStage || runState.running || runState.started;
+      startInteractiveButton.disabled =
+        !hasActiveProject || !inStage || runState.running || runState.started;
+      stopButton.disabled = !hasActiveProject || !inStage || !runState.running;
+      approveButton.disabled = !hasActiveProject || !inStage;
+      skipButton.disabled = !hasActiveProject || !inStage;
+      restartButton.disabled = !hasActiveProject || (inStage && !runState.started);
+      openButton.disabled = !hasActiveProject || (inStage && !runState.started);
+    }
+
+    function genericStageRun(stage) {
+      return stageRunState[stage] || { started: false, running: false, interactive: false };
     }
 
     function updateDocumentMenuState() {
@@ -3831,6 +4050,7 @@ INDEX_HTML = """<!doctype html>
       requirementsRunning = false;
       designRunning = false;
       designReviewRunning = false;
+      stageRunState = {};
       documentationRunning = false;
       agentSessions = [];
       selectedSessionId = "";
@@ -3914,6 +4134,9 @@ INDEX_HTML = """<!doctype html>
           if (session && session.kind === "requirements") {
             refreshArtifactPreview();
           }
+          if (session && !session.interactive) {
+            closeProgressEventStream();
+          }
           refreshProject();
         }
       });
@@ -3977,6 +4200,15 @@ INDEX_HTML = """<!doctype html>
         }
       } else if (kind === "documentation") {
         documentationRunning = isRunning;
+      } else if (stageRunState[kind]) {
+        stageRunState = {
+          ...stageRunState,
+          [kind]: {
+            ...stageRunState[kind],
+            running: isRunning,
+            started: stageRunState[kind].started || isRunning,
+          },
+        };
       }
       if (kind === "requirements") {
         if (isRunning) {
@@ -3995,6 +4227,7 @@ INDEX_HTML = """<!doctype html>
       updateRequirementsMenuState();
       updateDesignMenuState();
       updateDesignReviewMenuState();
+      updateGenericStageMenuStates();
       updateDocumentMenuState();
     }
 
@@ -4255,6 +4488,113 @@ INDEX_HTML = """<!doctype html>
       await approveDesignReviewStage(true);
     }
 
+    async function startGenericStageAgent(stage, label, acceptsInput = true) {
+      if (currentWorkflowStage !== stage) {
+        return;
+      }
+      const endpoint = acceptsInput
+        ? `/api/agents/${stage}/start-interactive`
+        : `/api/agents/${stage}/start`;
+      await runStageAgent(stage, endpoint, label, acceptsInput === false, acceptsInput);
+    }
+
+    async function restartGenericStageAgent(stage, label, acceptsInput = true) {
+      const runState = genericStageRun(stage);
+      if (currentWorkflowStage === stage && !runState.started) {
+        return;
+      }
+      await runStageAgent(
+        stage,
+        `/api/agents/${stage}/restart`,
+        label,
+        true,
+        acceptsInput,
+      );
+    }
+
+    async function stopGenericStageAgent(stage, label) {
+      const runState = genericStageRun(stage);
+      if (currentWorkflowStage !== stage || !runState.running) {
+        return;
+      }
+      hideStageMenus();
+      const response = await fetch(contextUrl(`/api/agents/${stage}/stop`), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "stop failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "stop failed"}\\n`, "error");
+        return;
+      }
+      closeAgentEventStream();
+      closeProgressEventStream();
+      setAgentRunning(stage, false);
+      appendOutput(`${label} stopped\\n`, "system");
+      updateProjectState(payload);
+    }
+
+    async function approveGenericStage(stage, label, skipApproval = false) {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== stage) {
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      closeProgressEventStream();
+      const endpoint = skipApproval
+        ? `/api/agents/${stage}/skip-approval`
+        : `/api/agents/${stage}/approve`;
+      const response = await fetch(contextUrl(endpoint), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "approval failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "approval failed"}\\n`, "error");
+        if (payload.output) {
+          appendOutput(`${payload.output}\\n`, "error");
+        }
+        setAgentRunning(stage, false);
+        refreshProject();
+        return;
+      }
+      setAgentRunning(stage, false);
+      if (payload.output) {
+        appendOutput(`${payload.output}\\n`, "system");
+      }
+      if (payload.warning) {
+        appendOutput(`${payload.warning}\\n`, "system");
+      }
+      appendOutput(
+        skipApproval
+          ? `${label} approval skipped\\n`
+          : `${label} approved\\n`,
+        "system",
+      );
+      updateProjectState(payload);
+    }
+
+    async function skipGenericStageApproval(stage, label) {
+      if (
+        !window.confirm(
+          `${label} has not been explicitly approved.\\n\\nSkip approval and advance anyway?`,
+        )
+      ) {
+        return;
+      }
+      await approveGenericStage(stage, label, true);
+    }
+
+    function openStageDocument(stage, path) {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      window.open(contextUrl(path), "_blank", "noopener");
+    }
+
     function openRequirementsDocument() {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\\n", "error");
@@ -4373,6 +4713,10 @@ INDEX_HTML = """<!doctype html>
         requirementsMenu,
         designMenu,
         designReviewMenu,
+        implementationPlanMenu,
+        codeMenu,
+        testPlanMenu,
+        validateMenu,
         documentMenu,
       ];
       for (const menu of menus) {
@@ -4419,6 +4763,18 @@ INDEX_HTML = """<!doctype html>
       if (!designReviewMenu.hidden) {
         positionStageMenu(designReviewMenu, designReviewStage);
       }
+      if (!implementationPlanMenu.hidden) {
+        positionStageMenu(implementationPlanMenu, implementationPlanStage);
+      }
+      if (!codeMenu.hidden) {
+        positionStageMenu(codeMenu, codeStage);
+      }
+      if (!testPlanMenu.hidden) {
+        positionStageMenu(testPlanMenu, testPlanStage);
+      }
+      if (!validateMenu.hidden) {
+        positionStageMenu(validateMenu, validateStage);
+      }
       if (!documentMenu.hidden) {
         positionStageMenu(documentMenu, documentStage);
       }
@@ -4458,6 +4814,26 @@ INDEX_HTML = """<!doctype html>
         }
         return;
       }
+      if (stageId === "implementation-plan") {
+        openWorkflowStageMenu(
+          implementationPlanMenu,
+          implementationPlanStage,
+          wasCurrentStage,
+        );
+        return;
+      }
+      if (stageId === "code") {
+        openWorkflowStageMenu(codeMenu, codeStage, wasCurrentStage);
+        return;
+      }
+      if (stageId === "test-plan") {
+        openWorkflowStageMenu(testPlanMenu, testPlanStage, wasCurrentStage);
+        return;
+      }
+      if (stageId === "validate") {
+        openWorkflowStageMenu(validateMenu, validateStage, wasCurrentStage);
+        return;
+      }
       if (stageId === "document") {
         toggleStageMenu(documentMenu, documentStage);
         return;
@@ -4469,6 +4845,15 @@ INDEX_HTML = """<!doctype html>
         }
       }
       hideStageMenus();
+    }
+
+    function openWorkflowStageMenu(menu, stageNode, wasCurrentStage) {
+      if (wasCurrentStage) {
+        toggleStageMenu(menu, stageNode);
+      } else {
+        menu.hidden = false;
+        positionStageMenu(menu, stageNode);
+      }
     }
 
     projectStage.addEventListener("click", () => {
@@ -4594,6 +4979,82 @@ INDEX_HTML = """<!doctype html>
     restartDesignReview.addEventListener("click", restartDesignReviewAgent);
     openDesignReview.addEventListener("click", openDesignReviewDocument);
     openDesignFromReview.addEventListener("click", openDesignDocument);
+    startImplementationPlan.addEventListener("click", () => {
+      startGenericStageAgent(
+        "implementation-plan",
+        "$ electroboy implementation-plan",
+        true,
+      );
+    });
+    restartImplementationPlan.addEventListener("click", () => {
+      restartGenericStageAgent(
+        "implementation-plan",
+        "$ restart implementation planning",
+        true,
+      );
+    });
+    approveImplementationPlan.addEventListener("click", () => {
+      approveGenericStage("implementation-plan", "implementation plan");
+    });
+    skipImplementationPlanApproval.addEventListener("click", () => {
+      skipGenericStageApproval("implementation-plan", "Implementation plan");
+    });
+    openImplementationPlan.addEventListener("click", () => {
+      openStageDocument("implementation-plan", "/artifacts/implementation-plan");
+    });
+    startAutomaticCode.addEventListener("click", () => {
+      startGenericStageAgent("code", "$ electroboy code", false);
+    });
+    startInteractiveCode.addEventListener("click", () => {
+      startGenericStageAgent("code", "$ electroboy code --interactive", true);
+    });
+    stopCode.addEventListener("click", () => stopGenericStageAgent("code", "code"));
+    approveCode.addEventListener("click", () => approveGenericStage("code", "code"));
+    skipCodeApproval.addEventListener("click", () => {
+      skipGenericStageApproval("code", "Code");
+    });
+    restartCode.addEventListener("click", () => {
+      restartGenericStageAgent("code", "$ restart code", false);
+    });
+    openImplementationReport.addEventListener("click", () => {
+      openStageDocument("code", "/artifacts/implementation-report");
+    });
+    startTestPlan.addEventListener("click", () => {
+      startGenericStageAgent("test-plan", "$ electroboy test-plan", true);
+    });
+    restartTestPlan.addEventListener("click", () => {
+      restartGenericStageAgent("test-plan", "$ restart test planning", true);
+    });
+    approveTestPlan.addEventListener("click", () => {
+      approveGenericStage("test-plan", "test plan");
+    });
+    skipTestPlanApproval.addEventListener("click", () => {
+      skipGenericStageApproval("test-plan", "Test plan");
+    });
+    openTestPlan.addEventListener("click", () => {
+      openStageDocument("test-plan", "/artifacts/test-plan");
+    });
+    startAutomaticValidate.addEventListener("click", () => {
+      startGenericStageAgent("validate", "$ electroboy validate", false);
+    });
+    startInteractiveValidate.addEventListener("click", () => {
+      startGenericStageAgent("validate", "$ electroboy validate --interactive", true);
+    });
+    stopValidate.addEventListener("click", () => {
+      stopGenericStageAgent("validate", "validation");
+    });
+    approveValidate.addEventListener("click", () => {
+      approveGenericStage("validate", "validation");
+    });
+    skipValidateApproval.addEventListener("click", () => {
+      skipGenericStageApproval("validate", "Validation");
+    });
+    restartValidate.addEventListener("click", () => {
+      restartGenericStageAgent("validate", "$ restart validation", false);
+    });
+    openValidationReport.addEventListener("click", () => {
+      openStageDocument("validate", "/artifacts/validation-report");
+    });
     createDocumentTarget.addEventListener("click", () => {
       customDocumentForm.hidden = !customDocumentForm.hidden;
       if (!customDocumentForm.hidden) {
@@ -5139,12 +5600,14 @@ class BrowserContext:
     design_session: AgentSession | None = None
     design_review_session: AgentSession | None = None
     documentation_session: AgentSession | None = None
+    stage_sessions: dict[str, AgentSession] = field(default_factory=dict)
     selected_session_id: str | None = None
     workflow_stage: str | None = None
     requirements_started: bool = False
     design_started: bool = False
     design_review_started: bool = False
     design_review_interactive: bool = False
+    stage_started: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -5565,12 +6028,14 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = workflow_stage
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
             context.design_review_interactive = False
+            context.stage_started = set()
         return {
             **project_payload(self.root, context, project_root),
             "status": "opened",
@@ -5593,12 +6058,14 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = _visible_workflow_stage(manifest.active_stage)
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
             context.design_review_interactive = False
+            context.stage_started = set()
         return {
             **project_payload(self.root, context, project_root),
             "status": "created",
@@ -5619,12 +6086,14 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = meta_context["workflow_stage"]
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
             context.design_review_interactive = False
+            context.stage_started = set()
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -5648,12 +6117,14 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = None
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
             context.design_review_interactive = False
+            context.stage_started = set()
         return {
             **project_payload(self.root, context, None),
             "status": "created",
@@ -5695,11 +6166,13 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.stage_sessions = {}
             context.selected_session_id = None
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
             context.design_review_interactive = False
+            context.stage_started = set()
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -5724,11 +6197,13 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.stage_sessions = {}
             context.selected_session_id = None
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
             context.design_review_interactive = False
+            context.stage_started = set()
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -5751,12 +6226,14 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = None
             context.requirements_started = False
             context.design_started = False
             context.design_review_started = False
             context.design_review_interactive = False
+            context.stage_started = set()
         return {
             **project_payload(self.root, context, None),
             "status": "deactivated",
@@ -6203,6 +6680,203 @@ class ServiceState:
             ),
         }
 
+    def start_workflow_stage_agent(
+        self,
+        context_id: str,
+        stage: str,
+        *,
+        interactive: bool | None = None,
+        force: bool = False,
+        allow_stage_reopen: bool = False,
+    ) -> tuple[AgentSession, bool]:
+        config = _generic_stage_config(stage)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            command_root = self._command_root_locked(context)
+            if project_root is None or command_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != stage and not allow_stage_reopen:
+                raise AgentSessionError(f"{stage} stage is not active")
+            existing = context.stage_sessions.get(stage)
+            if existing is not None and existing.is_active():
+                return existing, False
+            lock_names = SESSION_ARTIFACT_LOCKS.get(stage, frozenset())
+            self._require_session_locks_available_locked(context, lock_names)
+            accepts_input = (
+                bool(config["interactive_default"])
+                if interactive is None
+                else interactive
+            )
+            session = AgentSession(
+                command=_generic_stage_command(
+                    command_root,
+                    stage,
+                    force=force,
+                    reason=(
+                        f"{_stage_display_label(stage)} restarted from the GUI."
+                        if force and bool(config.get("reason_arg"))
+                        else None
+                    ),
+                    interactive=accepts_input,
+                ),
+                cwd=command_root,
+                label=(
+                    f"interactive {_stage_display_label(stage)} agent"
+                    if accepts_input
+                    else f"{_stage_display_label(stage)} agent"
+                ),
+                kind=stage,
+                interactive=accepts_input,
+                lock_names=lock_names,
+                on_completed=lambda returncode: self._mark_generic_stage_completed(
+                    context_id,
+                    stage,
+                    returncode,
+                ),
+            )
+            context.stage_sessions[stage] = session
+            context.selected_session_id = session.session_id
+            context.workflow_stage = stage
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.stage_sessions.get(stage) is session:
+                    context.stage_sessions.pop(stage, None)
+                    if context.selected_session_id == session.session_id:
+                        context.selected_session_id = None
+                    context.stage_started.discard(stage)
+            raise
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.stage_sessions.get(stage) is session:
+                context.stage_started.add(stage)
+        return session, True
+
+    def restart_workflow_stage_agent(
+        self,
+        context_id: str,
+        stage: str,
+        *,
+        interactive: bool | None = None,
+    ) -> tuple[AgentSession, bool]:
+        _generic_stage_config(stage)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage == stage and stage not in context.stage_started:
+                raise AgentSessionError(f"start {stage} first")
+        self._terminate_workflow_sessions(context_id)
+        return self.start_workflow_stage_agent(
+            context_id,
+            stage,
+            interactive=interactive,
+            force=True,
+            allow_stage_reopen=True,
+        )
+
+    def stop_workflow_stage_agent(self, context_id: str, stage: str) -> dict[str, object]:
+        _generic_stage_config(stage)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != stage:
+                raise AgentSessionError(f"{stage} stage is not active")
+            session = context.stage_sessions.get(stage)
+            if session is None or not session.is_active():
+                raise AgentSessionError(f"{stage} agent is not running")
+        session.terminate()
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.stage_sessions.get(stage) is session:
+                context.stage_sessions.pop(stage, None)
+            if context.selected_session_id == session.session_id:
+                context.selected_session_id = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "stopped",
+        }
+
+    def approve_workflow_stage(
+        self,
+        context_id: str,
+        stage: str,
+        *,
+        skip_approval: bool = False,
+    ) -> dict[str, object]:
+        config = _generic_stage_config(stage)
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != stage:
+                raise AgentSessionError(f"{stage} stage is not active")
+            session = context.stage_sessions.get(stage)
+        if session is not None and session.is_active():
+            session.terminate()
+        command = [str(config["approval_command"])]
+        warning = None
+        if skip_approval:
+            command.append("--force")
+            if bool(config.get("approval_reason_arg", config.get("reason_arg"))):
+                command.extend(
+                    [
+                        "--reason",
+                        (
+                            f"WARNING: {_stage_display_label(stage)} approval was "
+                            "skipped from the GUI. The operator accepted the risk "
+                            "that the stage was not explicitly approved."
+                        ),
+                    ]
+                )
+            warning = (
+                f"WARNING: {_stage_display_label(stage)} approval was skipped; "
+                "advancing with forced approval records."
+            )
+        output = _run_electroboy_cli_command(project_root, command)
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.stage_sessions.get(stage) is session:
+                context.stage_sessions.pop(stage, None)
+            context.stage_started.add(stage)
+            context.workflow_stage = _active_workflow_stage(project_root)
+            if session is not None and context.selected_session_id == session.session_id:
+                context.selected_session_id = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "skipped" if skip_approval else "approved",
+            "next_stage": context.workflow_stage,
+            "output": output,
+            "warning": warning,
+        }
+
+    def _mark_generic_stage_completed(
+        self,
+        context_id: str,
+        stage: str,
+        returncode: int,
+    ) -> None:
+        if returncode != 0:
+            return
+        with self.lock:
+            try:
+                context = self._context_locked(context_id)
+            except StateError:
+                return
+            context.stage_started.add(stage)
+            project_root = context.active_project_root
+            if project_root is not None:
+                context.workflow_stage = _active_workflow_stage(project_root)
+
     def requirements_document_root(self, context_id: str) -> Path:
         with self.lock:
             context = self._context_locked(context_id)
@@ -6314,10 +6988,17 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             design_review_session = context.design_review_session
+            generic_running = any(
+                session.is_active() and not session.interactive
+                for session in context.stage_sessions.values()
+            )
             return bool(
-                design_review_session is not None
-                and design_review_session.is_active()
-                and not context.design_review_interactive
+                (
+                    design_review_session is not None
+                    and design_review_session.is_active()
+                    and not context.design_review_interactive
+                )
+                or generic_running
             )
 
     def resize_requirements_agent(
@@ -6430,6 +7111,7 @@ class ServiceState:
                     context.requirements_session,
                     context.design_session,
                     context.design_review_session,
+                    *context.stage_sessions.values(),
                 ]
                 if session is not None
             ]
@@ -6473,6 +7155,7 @@ class ServiceState:
                 context.requirements_session,
                 context.design_session,
                 context.design_review_session,
+                *context.stage_sessions.values(),
                 context.documentation_session,
             ]
             if session is not None
@@ -6503,6 +7186,9 @@ class ServiceState:
             if context.design_review_session is session:
                 context.design_review_session = None
                 context.design_review_interactive = False
+            for stage, stage_session in list(context.stage_sessions.items()):
+                if stage_session is session:
+                    context.stage_sessions.pop(stage, None)
             if context.documentation_session is session:
                 context.documentation_session = None
             session_id = getattr(session, "session_id", None)
@@ -7096,6 +7782,7 @@ def project_payload(
         "design_review_interactive": bool(
             active_root and design_review_running and context.design_review_interactive
         ),
+        "stage_runs": _generic_stage_run_payload(context, active_root),
         "documentation_running": documentation_running,
         "design_approved": bool(
             active_root
@@ -7116,6 +7803,22 @@ def project_payload(
     }
 
 
+def _generic_stage_run_payload(
+    context: BrowserContext,
+    active_root: Path | None,
+) -> dict[str, dict[str, object]]:
+    payload: dict[str, dict[str, object]] = {}
+    for stage in GENERIC_STAGE_CONFIG:
+        session = context.stage_sessions.get(stage)
+        running = bool(active_root and session is not None and session.is_active())
+        payload[stage] = {
+            "started": bool(active_root and stage in context.stage_started),
+            "running": running,
+            "interactive": bool(running and session is not None and session.interactive),
+        }
+    return payload
+
+
 def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
     selected_session_id = context.selected_session_id
     payloads: list[dict[str, object]] = []
@@ -7123,6 +7826,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         context.requirements_session,
         context.design_session,
         context.design_review_session,
+        *context.stage_sessions.values(),
         context.documentation_session,
     ]:
         if session is None:
@@ -7521,12 +8225,74 @@ def _run_orchestrator_command(
     return output
 
 
+def _run_electroboy_cli_command(project_root: Path, args: list[str]) -> str:
+    from .cli import main
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        code = main(["--root", str(project_root), *args])
+    output = "\n".join(
+        part.strip()
+        for part in [stderr.getvalue(), stdout.getvalue()]
+        if part.strip()
+    )
+    if code != 0:
+        raise AgentSessionError(output or f"electroboy {' '.join(args)} failed")
+    return output
+
+
 def _work_item_error_payload(error: BaseException) -> dict[str, object]:
     message = str(error)
     payload: dict[str, object] = {"error": message}
     if "nested repository changes require stashing" in message:
         payload["stash_subrepo_changes_required"] = True
     return payload
+
+
+def _generic_stage_config(stage: str) -> dict[str, object]:
+    try:
+        return GENERIC_STAGE_CONFIG[stage]
+    except KeyError as error:
+        raise AgentSessionError(f"unsupported workflow stage: {stage}") from error
+
+
+def _stage_display_label(stage: str) -> str:
+    return str(
+        _generic_stage_config(stage).get("artifact_title")
+        or stage.replace("-", " ")
+    ).lower()
+
+
+def _generic_stage_command(
+    root: Path,
+    stage: str,
+    *,
+    force: bool = False,
+    reason: str | None = None,
+    interactive: bool = False,
+) -> list[str]:
+    config = _generic_stage_config(stage)
+    command_parts = [str(config["command"])]
+    if force:
+        command_parts.append("--force")
+    if reason and bool(config.get("reason_arg")):
+        command_parts.extend(["--reason", reason])
+    if interactive and bool(config.get("interactive_arg")):
+        command_parts.append("--interactive")
+    return _electroboy_command(root, command_parts)
+
+
+def _generic_agent_route(path: str) -> tuple[str, str] | None:
+    prefix = "/api/agents/"
+    if not path.startswith(prefix):
+        return None
+    suffix = path[len(prefix):]
+    for stage in GENERIC_STAGE_CONFIG:
+        stage_prefix = f"{stage}/"
+        if suffix.startswith(stage_prefix):
+            return stage, suffix[len(stage_prefix):]
+    return None
 
 
 def _slugify_work_item(value: str) -> str:
@@ -7874,6 +8640,42 @@ def _stage_operations(
             "Open review",
             "Open design",
         ]
+    if stage == "implementation-plan" and active_project_root:
+        return [
+            "Start",
+            "Restart",
+            "Approve",
+            "Skip approval",
+            "Open implementation plan",
+        ]
+    if stage == "code" and active_project_root:
+        return [
+            "Start automatic",
+            "Start interactive",
+            "Stop",
+            "Approve",
+            "Skip approval",
+            "Restart",
+            "Open implementation report",
+        ]
+    if stage == "test-plan" and active_project_root:
+        return [
+            "Start",
+            "Restart",
+            "Approve",
+            "Skip approval",
+            "Open test plan",
+        ]
+    if stage == "validate" and active_project_root:
+        return [
+            "Start automatic",
+            "Start interactive",
+            "Stop",
+            "Approve",
+            "Skip approval",
+            "Restart",
+            "Open validation report",
+        ]
     return []
 
 
@@ -8015,6 +8817,20 @@ def design_review_document_html(project_root: Path | str) -> tuple[str, HTTPStat
         "docs/design-review.md",
         "Design Review",
         "Design review document does not exist yet.",
+    )
+
+
+def stage_document_html(
+    project_root: Path | str,
+    stage: str,
+) -> tuple[str, HTTPStatus]:
+    config = _generic_stage_config(stage)
+    title = str(config["artifact_title"])
+    return markdown_document_html(
+        project_root,
+        str(config["artifact_path"]),
+        title,
+        f"{title} document does not exist yet.",
     )
 
 
@@ -8480,6 +9296,18 @@ def _handler_for(
             if path == "/artifacts/design-review":
                 self._send_design_review_document(parsed.query)
                 return
+            if path == "/artifacts/implementation-plan":
+                self._send_stage_document(parsed.query, "implementation-plan")
+                return
+            if path == "/artifacts/test-plan":
+                self._send_stage_document(parsed.query, "test-plan")
+                return
+            if path == "/artifacts/implementation-report":
+                self._send_stage_document(parsed.query, "code")
+                return
+            if path == "/artifacts/validation-report":
+                self._send_stage_document(parsed.query, "validate")
+                return
             if path == "/api/progress/events":
                 self._send_progress_events(parsed.query)
                 return
@@ -8634,6 +9462,11 @@ def _handler_for(
                 return
             if path == "/api/agents/design-review/resize":
                 self._resize_design_review_agent(parsed.query)
+                return
+            generic_route = _generic_agent_route(path)
+            if generic_route is not None:
+                stage, action = generic_route
+                self._handle_generic_stage_agent(parsed.query, stage, action)
                 return
             if path == "/api/agents/documentation/start":
                 self._start_documentation_agent(parsed.query)
@@ -9074,6 +9907,142 @@ def _handler_for(
                 )
                 return
             self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _send_stage_document(self, query: str, stage: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                page, status = stage_document_html(project_root, stage)
+            except (AgentSessionError, OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _handle_generic_stage_agent(
+            self,
+            query: str,
+            stage: str,
+            action: str,
+        ) -> None:
+            if action == "start":
+                self._start_generic_stage_agent(query, stage, interactive=None)
+                return
+            if action == "start-interactive":
+                self._start_generic_stage_agent(query, stage, interactive=True)
+                return
+            if action == "restart":
+                self._restart_generic_stage_agent(query, stage)
+                return
+            if action == "stop":
+                self._stop_generic_stage_agent(query, stage)
+                return
+            if action == "approve":
+                self._approve_generic_stage(query, stage, skip_approval=False)
+                return
+            if action == "skip-approval":
+                self._approve_generic_stage(query, stage, skip_approval=True)
+                return
+            self._send_json(
+                {"error": "not found"},
+                status=HTTPStatus.NOT_FOUND,
+            )
+
+        def _start_generic_stage_agent(
+            self,
+            query: str,
+            stage: str,
+            *,
+            interactive: bool | None,
+        ) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, started = state.start_workflow_stage_agent(
+                    context_id,
+                    stage,
+                    interactive=interactive,
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not start {stage}: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "started" if started else "running",
+                    "command": session.command,
+                }
+            )
+
+        def _restart_generic_stage_agent(self, query: str, stage: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, _started = state.restart_workflow_stage_agent(
+                    context_id,
+                    stage,
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not restart {stage}: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "restarted",
+                    "command": session.command,
+                }
+            )
+
+        def _stop_generic_stage_agent(self, query: str, stage: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.stop_workflow_stage_agent(context_id, stage))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _approve_generic_stage(
+            self,
+            query: str,
+            stage: str,
+            *,
+            skip_approval: bool,
+        ) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(
+                    state.approve_workflow_stage(
+                        context_id,
+                        stage,
+                        skip_approval=skip_approval,
+                    )
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
 
         def _start_requirements_agent(self, query: str) -> None:
             try:
