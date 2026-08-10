@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from http import HTTPStatus
 from unittest import mock
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from electroboy.service import (  # noqa: E402
     browse_directories,
     browse_files,
     create_server,
+    document_target_html,
     pane_window_html,
     requirements_document_html,
     workflow_payload,
@@ -107,8 +109,39 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("__PANE_KIND__", PANE_WINDOW_HTML)
         self.assertIn('const PANE_KIND = "artifact";', page)
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', page)
+        self.assertIn('params.get("document_path")', page)
+        self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
+
+    def test_document_target_renderer_creates_empty_markdown_template(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            page, status = document_target_html(
+                root,
+                "docs/guide.md",
+                title="Guide",
+                embedded=True,
+                create_missing=True,
+            )
+
+            target = root / "docs" / "guide.md"
+            self.assertTrue(target.exists())
+            self.assertEqual(target.read_text(encoding="utf-8"), "")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("<title>Guide</title>", page)
+        self.assertIn("color: #243f53;", page)
+        self.assertIn("background: #ffffff;", page)
+
+    def test_document_target_renderer_rejects_unsafe_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            with self.assertRaises(StateError):
+                document_target_html(root, "../outside.md", create_missing=True)
+            with self.assertRaises(StateError):
+                document_target_html(root, "docs/guide.txt", create_missing=True)
 
     def test_server_close_terminates_context_agent_sessions(self) -> None:
         class FakeSession:
@@ -463,7 +496,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', INDEX_HTML)
         self.assertIn('"artifact-event"', INDEX_HTML)
         self.assertNotIn("ARTIFACT_PREVIEW_REFRESH_MS", INDEX_HTML)
-        self.assertIn("function showArtifactPreview(kind)", INDEX_HTML)
+        self.assertIn("function showArtifactPreview(kind, options = {})", INDEX_HTML)
+        self.assertIn("function showDocumentPreview(target)", INDEX_HTML)
+        self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', INDEX_HTML)
+        self.assertIn("artifactPreviewDocumentTarget", INDEX_HTML)
         self.assertIn("function connectArtifactEvents(kind)", INDEX_HTML)
         self.assertIn("function closeArtifactEventStream()", INDEX_HTML)
         self.assertIn("function syncArtifactPreviewWithProject()", INDEX_HTML)
@@ -579,6 +615,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/artifacts/implementation-report"', INDEX_HTML)
         self.assertIn('"/artifacts/test-plan"', INDEX_HTML)
         self.assertIn('"/artifacts/validation-report"', INDEX_HTML)
+        self.assertIn("/artifacts/document", INDEX_HTML)
         self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
         self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
         self.assertIn("/api/files/browse?path=", INDEX_HTML)
@@ -1109,8 +1146,10 @@ class ServiceTests(unittest.TestCase):
                     target="README.md",
                 )
             payload = state.project_payload(context_id)
+            target_exists = (project_root / "README.md").exists()
 
         self.assertTrue(started)
+        self.assertTrue(target_exists)
         self.assertEqual(session.kind, "documentation")
         self.assertTrue(session.interactive)
         command_text = " ".join(session.command)

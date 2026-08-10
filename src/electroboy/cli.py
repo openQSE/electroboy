@@ -5844,17 +5844,25 @@ def _cmd_document_sidecar(
 ) -> int:
     role = "documentation_interactive" if interactive else "documentation"
     target_path = (target or "").strip()
-    prompt = _documentation_prompt(store, target=target_path or None)
+    prompt = (
+        _documentation_sidecar_prompt(target_path or None)
+        if interactive
+        else _documentation_prompt(store, target=target_path or None)
+    )
     if interactive:
         prompt = _interactive_step_prompt(prompt)
     session_artifact = None
     if interactive:
         session_artifact = target_path or "documentation.jsonl"
-    context_paths = [
-        *_implementation_context_paths(store),
-        "README.md",
-        "docs/api.md",
-    ]
+    context_paths = (
+        ["docs", "README.md"]
+        if interactive
+        else [
+            *_implementation_context_paths(store),
+            "README.md",
+            "docs/api.md",
+        ]
+    )
     if target_path and target_path not in context_paths:
         context_paths.append(target_path)
     result, event_id, _issue_file = _invoke_agent_role(
@@ -8550,6 +8558,28 @@ def _documentation_prompt(store: StateStore, target: str | None = None) -> str:
             "If requirements, design, plan, or test-plan artifacts need to",
             "change, report the required upstream change and why.",
             "Report files changed and a concise commit_message when finished.",
+        ]
+    )
+
+
+def _documentation_sidecar_prompt(target: str | None = None) -> str:
+    target_lines = []
+    if target:
+        target_lines = [
+            "",
+            f"Selected documentation target: {target}.",
+            "Treat that target as the document currently displayed in the GUI.",
+            "Do not create, rewrite, or update it until the operator explicitly asks.",
+        ]
+    return "\n".join(
+        [
+            "Read the project documentation under docs/ and wait for operator instructions.",
+            "",
+            "Do not proactively create, rewrite, or update documentation.",
+            "Do not review or edit README.md, docs/api.md, requirements, design,",
+            "implementation-plan, or test-plan artifacts unless the operator",
+            "explicitly asks for that specific work.",
+            *target_lines,
         ]
     )
 

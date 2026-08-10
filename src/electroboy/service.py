@@ -1857,6 +1857,7 @@ INDEX_HTML = """<!doctype html>
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
     let artifactPreviewKind = "";
+    let artifactPreviewDocumentTarget = null;
     let artifactPreviewVersion = 0;
     let progressPaneRequested = false;
     let artifactPaneRequested = false;
@@ -2696,6 +2697,10 @@ INDEX_HTML = """<!doctype html>
       if (artifactPreviewKind) {
         parameters.set("artifact", artifactPreviewKind);
       }
+      if (artifactPreviewKind === "document" && artifactPreviewDocumentTarget) {
+        parameters.set("document_path", artifactPreviewDocumentTarget.path);
+        parameters.set("document_title", artifactPreviewDocumentTarget.label);
+      }
       parameters.set("font_size", String(terminalFontSize));
       return `/pane/${encodeURIComponent(kind)}?${parameters.toString()}`;
     }
@@ -3373,19 +3378,34 @@ INDEX_HTML = """<!doctype html>
       customDocumentName.value = "";
       customDocumentForm.hidden = true;
       renderDocumentTargets();
+      showDocumentPreview(target);
     }
 
     function artifactPreviewUrl(kind) {
       if (kind === "requirements") {
         return `${contextUrl("/artifacts/requirements?embed=1")}&version=${artifactPreviewVersion}`;
       }
+      if (kind === "document" && artifactPreviewDocumentTarget) {
+        const parameters = new URLSearchParams();
+        parameters.set("path", artifactPreviewDocumentTarget.path);
+        parameters.set("title", artifactPreviewDocumentTarget.label);
+        parameters.set("embed", "1");
+        parameters.set("create", "1");
+        parameters.set("version", String(artifactPreviewVersion));
+        return contextUrl(`/artifacts/document?${parameters.toString()}`);
+      }
       return "";
     }
 
-    function showArtifactPreview(kind) {
+    function showArtifactPreview(kind, options = {}) {
       if (!activeProjectRoot) {
         hideArtifactPreview();
         return;
+      }
+      if (kind === "document") {
+        artifactPreviewDocumentTarget = options.target || artifactPreviewDocumentTarget;
+      } else {
+        artifactPreviewDocumentTarget = null;
       }
       const url = artifactPreviewUrl(kind);
       if (!url) {
@@ -3394,15 +3414,25 @@ INDEX_HTML = """<!doctype html>
       artifactPreviewKind = kind;
       artifactPaneRequested = true;
       artifactPreviewTitle.textContent =
-        kind === "requirements" ? "Requirements" : "Artifact";
+        kind === "requirements"
+          ? "Requirements"
+          : (artifactPreviewDocumentTarget?.label || "Document");
       applyStoredArtifactPaneSize();
       applyOutputPaneVisibility();
       refreshArtifactPreview();
       connectArtifactEvents(kind);
     }
 
+    function showDocumentPreview(target) {
+      if (!target) {
+        return;
+      }
+      showArtifactPreview("document", { target });
+    }
+
     function hideArtifactPreview() {
       artifactPreviewKind = "";
+      artifactPreviewDocumentTarget = null;
       artifactPaneRequested = false;
       closeArtifactEventStream();
       artifactPreviewFrame.removeAttribute("src");
@@ -4634,6 +4664,7 @@ INDEX_HTML = """<!doctype html>
       hideStageMenus();
       closeAgentEventStream();
       showProgressPane(false);
+      showDocumentPreview(documentTarget);
       setAgentInputVisible(true);
       clearAgentOutput();
       setAgentRunning("documentation", true);
@@ -5316,6 +5347,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const contextId = params.get("context_id") || "";
     const sessionId = params.get("session_id") || "";
     const artifactKind = params.get("artifact") || "requirements";
+    const artifactDocumentPath = params.get("document_path") || "";
+    const artifactDocumentTitle = params.get("document_title") || "";
     const fontSize = Number(params.get("font_size") || "15") || 15;
     const scratchKey = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
@@ -5339,7 +5372,12 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     function titleForPane(kind) {
       if (kind === "agent") return "Agent output";
-      if (kind === "artifact") return "Artifact preview";
+      if (kind === "artifact") {
+        if (artifactKind === "document" && artifactDocumentTitle) {
+          return artifactDocumentTitle;
+        }
+        return "Artifact preview";
+      }
       if (kind === "progress") return "Progress";
       if (kind === "scratch") return "Scratch pad";
       if (kind === "status") return "Project status";
@@ -5462,6 +5500,15 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     function artifactUrl() {
       if (artifactKind === "requirements") {
         return `${contextUrl("/artifacts/requirements?embed=1")}&version=${artifactVersion}`;
+      }
+      if (artifactKind === "document" && artifactDocumentPath) {
+        const parameters = new URLSearchParams();
+        parameters.set("path", artifactDocumentPath);
+        parameters.set("title", artifactDocumentTitle || artifactDocumentPath);
+        parameters.set("embed", "1");
+        parameters.set("create", "1");
+        parameters.set("version", String(artifactVersion));
+        return contextUrl(`/artifacts/document?${parameters.toString()}`);
       }
       return "";
     }
@@ -6510,6 +6557,8 @@ class ServiceState:
             lock_names = SESSION_ARTIFACT_LOCKS["documentation"]
             self._require_session_locks_available_locked(context, lock_names)
             target_path = (target or "").strip()
+            if target_path:
+                target_path = _ensure_document_target(project_root, target_path)
             label_target = f" ({target_path})" if target_path else ""
             session = AgentSession(
                 command=_documentation_command(
@@ -8834,6 +8883,29 @@ def stage_document_html(
     )
 
 
+def document_target_html(
+    project_root: Path | str,
+    relative_path: str,
+    *,
+    title: str | None = None,
+    embedded: bool = False,
+    create_missing: bool = False,
+) -> tuple[str, HTTPStatus]:
+    normalized_path = (
+        _ensure_document_target(project_root, relative_path)
+        if create_missing
+        else _document_target_path(project_root, relative_path)[0]
+    )
+    display_title = title or normalized_path
+    return markdown_document_html(
+        project_root,
+        normalized_path,
+        display_title,
+        f"{normalized_path} document does not exist yet.",
+        embedded=embedded,
+    )
+
+
 def markdown_document_html(
     project_root: Path | str,
     relative_path: str,
@@ -8865,7 +8937,7 @@ def markdown_document_html(
     body {{
       margin: 0;
       background: #f7f8fb;
-      color: #1b1f2a;
+      color: #243f53;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.55;
     }}
@@ -8880,14 +8952,52 @@ def markdown_document_html(
       border-radius: {article_radius};
       padding: {article_padding};
     }}
+    h1, h2, h3, h4, h5, h6 {{
+      color: #1f3446;
+      line-height: 1.2;
+    }}
+    a {{
+      color: #007f8a;
+    }}
+    blockquote {{
+      margin-left: 0;
+      border-left: 4px solid #9fb4c9;
+      color: #314763;
+      padding-left: 14px;
+    }}
+    table {{
+      border-collapse: collapse;
+      width: 100%;
+    }}
+    th, td {{
+      border: 1px solid #d8dde8;
+      padding: 8px 10px;
+    }}
+    th {{
+      background: #edf7ff;
+      color: #243f53;
+    }}
     pre, code {{
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }}
+    code {{
+      color: #1f3446;
+      background: #f1f4f9;
+      border-radius: 4px;
+      padding: 1px 4px;
     }}
     pre {{
       overflow: auto;
       padding: 12px;
       background: #f1f4f9;
+      color: #1f3446;
+      border: 1px solid #d8dde8;
       border-radius: 6px;
+    }}
+    pre code {{
+      background: transparent;
+      border-radius: 0;
+      padding: 0;
     }}
   </style>
 </head>
@@ -8901,6 +9011,41 @@ def markdown_document_html(
 </html>
 """
     return page, status
+
+
+def _normalize_document_target_path(relative_path: str) -> str:
+    raw = relative_path.strip().replace("\\", "/")
+    if not raw:
+        raise StateError("document path is required")
+    path = Path(raw)
+    if path.is_absolute():
+        raise StateError("document path must be relative")
+    if any(part in {"..", ""} for part in path.parts):
+        raise StateError("document path cannot escape the project")
+    if path.suffix.lower() != ".md":
+        raise StateError("document path must be a markdown file")
+    return path.as_posix()
+
+
+def _ensure_document_target(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, document_path = _document_target_path(project_root, relative_path)
+    if not document_path.exists():
+        document_path.parent.mkdir(parents=True, exist_ok=True)
+        document_path.write_text("", encoding="utf-8")
+    if not document_path.is_file():
+        raise StateError("document path must refer to a file")
+    return normalized_path
+
+
+def _document_target_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:
+    project_root = Path(project_root).expanduser().resolve()
+    normalized_path = _normalize_document_target_path(relative_path)
+    document_path = (project_root / normalized_path).resolve()
+    try:
+        document_path.relative_to(project_root)
+    except ValueError as error:
+        raise StateError("document path cannot escape the project") from error
+    return normalized_path, document_path
 
 
 def _file_signature(path: Path) -> dict[str, object]:
@@ -9307,6 +9452,9 @@ def _handler_for(
                 return
             if path == "/artifacts/validation-report":
                 self._send_stage_document(parsed.query, "validate")
+                return
+            if path == "/artifacts/document":
+                self._send_document_target(parsed.query)
                 return
             if path == "/api/progress/events":
                 self._send_progress_events(parsed.query)
@@ -9913,6 +10061,31 @@ def _handler_for(
                 context_id = self._context_id(query)
                 project_root = state.active_project_root(context_id)
                 page, status = stage_document_html(project_root, stage)
+            except (AgentSessionError, OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _send_document_target(self, query: str) -> None:
+            try:
+                params = parse_qs(query)
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                path = params.get("path", [""])[0]
+                title = params.get("title", [""])[0].strip() or None
+                embedded = params.get("embed", ["0"])[0] == "1"
+                create_missing = params.get("create", ["0"])[0] == "1"
+                page, status = document_target_html(
+                    project_root,
+                    path,
+                    title=title,
+                    embedded=embedded,
+                    create_missing=create_missing,
+                )
             except (AgentSessionError, OSError, StateError) as error:
                 self._send_text(
                     f"<p>{html.escape(str(error))}</p>",

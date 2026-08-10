@@ -155,6 +155,38 @@ class DocumentationReviewTests(unittest.TestCase):
         self.assertIn("Interactive mode:", prompt)
         self.assertIn("Review final documentation", prompt)
 
+    def test_document_sidecar_interactive_waits_for_operator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.prepare_docs_review_run(root)
+            write_docs(root, include_api=True)
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "document",
+                    "--sidecar",
+                    "--interactive",
+                    "--target",
+                    "docs/guide.md",
+                ]
+            )
+
+            prompt = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("documentation sidecar completed", stdout)
+        self.assertIn("Read the project documentation under docs/", prompt)
+        self.assertIn("wait for operator instructions", prompt)
+        self.assertIn("Selected documentation target: docs/guide.md.", prompt)
+        self.assertIn("Do not proactively create, rewrite, or update documentation.", prompt)
+        self.assertNotIn("Review final documentation against the completed codebase.", prompt)
+        self.assertNotIn("Report files changed and a concise commit_message", prompt)
+
     def test_code_approve_requires_documentation_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
