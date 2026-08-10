@@ -1098,11 +1098,12 @@ INDEX_HTML = """<!doctype html>
       gap: 8px;
       border-top: 1px solid #2a3142;
       background: #151b29;
-      padding: 12px;
+      padding: 0 12px 12px;
     }
 
     .input-pane-header {
       grid-column: 1 / -1;
+      margin: 0 -12px;
       background: #151b29;
     }
 

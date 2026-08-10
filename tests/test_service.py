@@ -443,6 +443,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('class="workflow-toolbar"', INDEX_HTML)
         self.assertIn('class="input-pane-header pane-header"', INDEX_HTML)
+        self.assertIn("padding: 0 12px 12px;", INDEX_HTML)
+        self.assertIn("margin: 0 -12px;", INDEX_HTML)
         self.assertIn("AI agent input", INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
         self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
