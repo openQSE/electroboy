@@ -224,7 +224,7 @@ def write_docs(root: Path, include_api: bool) -> None:
             "requirements-approve design design-review design-approve "
             "implementation-plan plan-approve test-plan test-plan-approve "
             "bug code code-review document code-approve progress monitor report "
-            "phase serve validate validation-approve completion feature.\n",
+            "phase refresh-runtime serve validate validation-approve completion feature.\n",
         )
 
 

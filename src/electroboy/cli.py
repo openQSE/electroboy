@@ -170,7 +170,7 @@ BUG_ARTIFACT_KEYS = {
 }
 META_REGISTRY_PATH = "repositories.json"
 META_MANAGEMENT_COMMANDS = {"add", "start"}
-ROOT_LOCAL_COMMANDS = {"completion", "deactivate", "new"}
+ROOT_LOCAL_COMMANDS = {"completion", "deactivate", "new", "refresh-runtime"}
 PROJECTLESS_COMMANDS = {
     "add",
     "bug",
@@ -179,6 +179,7 @@ PROJECTLESS_COMMANDS = {
     "feature",
     "meta",
     "new",
+    "refresh-runtime",
     "serve",
     "start",
 }
@@ -188,6 +189,7 @@ ACTIVATIONLESS_COMMANDS = {
     "feature",
     "meta",
     "new",
+    "refresh-runtime",
     "serve",
 }
 
@@ -456,6 +458,10 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "monitor",
         help_text="alias for `progress`",
+    )
+    subparsers.add_parser(
+        "refresh-runtime",
+        help="refresh this project's embedded ElectroBoy runtime",
     )
     serve = subparsers.add_parser("serve", help="run the local browser service")
     serve.add_argument(
@@ -908,6 +914,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if args.command == "serve":
             return _cmd_serve(args)
+        if args.command == "refresh-runtime":
+            return _cmd_refresh_runtime(root_store.root)
         if args.command == "meta":
             return _cmd_meta(args)
         if args.command == "add":
@@ -1620,6 +1628,16 @@ def _cmd_new(args: argparse.Namespace) -> int:
     print(f"project: {project_root}")
     print(f"created run: {manifest.run_id}")
     print(f"active stage: {_stage_display_name(manifest.active_stage)}")
+    print(f"activate: source {_project_bin_dir(project_root) / 'activate'}")
+    return 0
+
+
+def _cmd_refresh_runtime(project_root: Path) -> int:
+    project_root = project_root.resolve()
+    _write_project_runtime(project_root)
+    _write_project_bin(project_root)
+    runtime_src = project_root / ".electroboy" / "local" / "runtime" / "src"
+    print(f"runtime refreshed: {runtime_src}")
     print(f"activate: source {_project_bin_dir(project_root) / 'activate'}")
     return 0
 

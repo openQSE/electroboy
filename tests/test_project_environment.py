@@ -68,6 +68,28 @@ class ProjectEnvironmentTests(unittest.TestCase):
             self.assertIn(".electroboy/local/", gitignore)
             self.assertIn(".electroboy/shared/runs/*/progress/", gitignore)
 
+    def test_refresh_runtime_updates_existing_embedded_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            stale_package = root / ".electroboy" / "local" / "runtime" / "src" / "electroboy"
+            stale_package.mkdir(parents=True)
+            stale_cli = stale_package / "cli.py"
+            stale_cli.write_text("OLD_RUNTIME = True\n", encoding="utf-8")
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "refresh-runtime"]
+            )
+
+            refreshed_cli = stale_cli.read_text(encoding="utf-8")
+            wrapper = root / ".electroboy" / "bin" / "electroboy"
+            wrapper_exists = wrapper.exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("runtime refreshed:", stdout)
+        self.assertIn("_documentation_sidecar_prompt", refreshed_cli)
+        self.assertNotIn("OLD_RUNTIME", refreshed_cli)
+        self.assertTrue(wrapper_exists)
+
     def test_new_updates_existing_project_config_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "project"
