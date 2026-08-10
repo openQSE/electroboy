@@ -834,6 +834,53 @@ INDEX_HTML = """<!doctype html>
       background: #22314a;
     }
 
+    .pane-actions,
+    .document-zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .document-zoom-controls {
+      color: #d8e3f4;
+    }
+
+    .document-zoom-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 26px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      font-weight: 750;
+      line-height: 1;
+    }
+
+    .document-zoom-button:hover:not(:disabled) {
+      border-color: #4e7f9d;
+      background: #22314a;
+    }
+
+    .document-zoom-button:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+
+    .document-zoom-level {
+      min-width: 42px;
+      text-align: center;
+      color: #aab8cf;
+      font-size: var(--ui-small-font-size);
+      font-weight: 750;
+    }
+
     .agent-output,
     .progress-output {
       min-height: 0;
@@ -1483,13 +1530,32 @@ INDEX_HTML = """<!doctype html>
             >
               <div id="artifactPreviewHeader" class="pane-header">
                 <span id="artifactPreviewTitle" class="pane-title">Requirements</span>
-                <button
-                  id="popoutArtifactPane"
-                  class="pane-popout-button"
-                  type="button"
-                  title="Pop out artifact preview"
-                  aria-label="Pop out artifact preview"
-                >Pop</button>
+                <div class="pane-actions">
+                  <div class="document-zoom-controls" aria-label="Document zoom">
+                    <button
+                      id="decreaseDocumentZoom"
+                      class="document-zoom-button"
+                      type="button"
+                      title="Zoom document out"
+                      aria-label="Zoom document out"
+                    >-</button>
+                    <span id="documentZoomLevel" class="document-zoom-level">100%</span>
+                    <button
+                      id="increaseDocumentZoom"
+                      class="document-zoom-button"
+                      type="button"
+                      title="Zoom document in"
+                      aria-label="Zoom document in"
+                    >+</button>
+                  </div>
+                  <button
+                    id="popoutArtifactPane"
+                    class="pane-popout-button"
+                    type="button"
+                    title="Pop out artifact preview"
+                    aria-label="Pop out artifact preview"
+                  >Pop</button>
+                </div>
               </div>
               <iframe
         id="artifactPreviewFrame"
@@ -1800,6 +1866,9 @@ INDEX_HTML = """<!doctype html>
     const artifactPaneResizeHandle = document.getElementById("artifactPaneResizeHandle");
     const artifactPreviewTitle = document.getElementById("artifactPreviewTitle");
     const artifactPreviewFrame = document.getElementById("artifactPreviewFrame");
+    const decreaseDocumentZoom = document.getElementById("decreaseDocumentZoom");
+    const documentZoomLevel = document.getElementById("documentZoomLevel");
+    const increaseDocumentZoom = document.getElementById("increaseDocumentZoom");
     const projectStatusPane = document.querySelector(".project-status-pane");
     const projectStatusOutput = document.getElementById("projectStatusOutput");
     const inputResizeHandle = document.getElementById("inputResizeHandle");
@@ -1818,6 +1887,7 @@ INDEX_HTML = """<!doctype html>
     const popoutInputPane = document.getElementById("popoutInputPane");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
+    const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
     const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";
     const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
@@ -1838,6 +1908,10 @@ INDEX_HTML = """<!doctype html>
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
+    const DEFAULT_DOCUMENT_ZOOM = 100;
+    const DOCUMENT_ZOOM_STEP = 10;
+    const MIN_DOCUMENT_ZOOM = 70;
+    const MAX_DOCUMENT_ZOOM = 180;
     const MIN_INPUT_PANE_HEIGHT = 56;
     let eventSource = null;
     let progressEventSource = null;
@@ -1847,6 +1921,7 @@ INDEX_HTML = """<!doctype html>
     let progressTerminal = null;
     let progressTerminalFit = null;
     let terminalFontSize = storedTerminalFontSize();
+    let documentZoom = storedDocumentZoom();
     let resizeShellState = null;
     let resizeInputState = null;
     let resizeOutputState = null;
@@ -1918,11 +1993,39 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function storedDocumentZoom() {
+      try {
+        const stored = Number(window.localStorage.getItem(DOCUMENT_ZOOM_STORAGE_KEY));
+        if (Number.isFinite(stored)) {
+          return clampDocumentZoom(stored);
+        }
+      } catch (error) {
+        return DEFAULT_DOCUMENT_ZOOM;
+      }
+      return DEFAULT_DOCUMENT_ZOOM;
+    }
+
+    function saveDocumentZoom() {
+      try {
+        window.localStorage.setItem(DOCUMENT_ZOOM_STORAGE_KEY, String(documentZoom));
+      } catch (error) {
+        return;
+      }
+    }
+
     function clampTerminalFontSize(value) {
       return Math.max(
         MIN_TERMINAL_FONT_SIZE,
         Math.min(MAX_TERMINAL_FONT_SIZE, value),
       );
+    }
+
+    function clampDocumentZoom(value) {
+      if (!Number.isFinite(value)) {
+        return DEFAULT_DOCUMENT_ZOOM;
+      }
+      const stepped = Math.round(value / DOCUMENT_ZOOM_STEP) * DOCUMENT_ZOOM_STEP;
+      return Math.max(MIN_DOCUMENT_ZOOM, Math.min(MAX_DOCUMENT_ZOOM, stepped));
     }
 
     function storedNumber(key) {
@@ -2145,6 +2248,15 @@ INDEX_HTML = """<!doctype html>
       applyTerminalFontSize();
     }
 
+    function changeDocumentZoom(delta) {
+      documentZoom = clampDocumentZoom(documentZoom + delta);
+      saveDocumentZoom();
+      applyDocumentZoom();
+      if (artifactPreviewKind) {
+        refreshArtifactPreview();
+      }
+    }
+
     function applyTerminalFontSize() {
       document.documentElement.style.setProperty(
         "--terminal-font-size",
@@ -2171,6 +2283,12 @@ INDEX_HTML = """<!doctype html>
       decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
       increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
       window.requestAnimationFrame(fitTerminal);
+    }
+
+    function applyDocumentZoom() {
+      documentZoomLevel.textContent = `${documentZoom}%`;
+      decreaseDocumentZoom.disabled = documentZoom <= MIN_DOCUMENT_ZOOM;
+      increaseDocumentZoom.disabled = documentZoom >= MAX_DOCUMENT_ZOOM;
     }
 
     function prepareTerminalStream() {
@@ -2702,6 +2820,7 @@ INDEX_HTML = """<!doctype html>
         parameters.set("document_title", artifactPreviewDocumentTarget.label);
       }
       parameters.set("font_size", String(terminalFontSize));
+      parameters.set("document_zoom", String(documentZoom));
       return `/pane/${encodeURIComponent(kind)}?${parameters.toString()}`;
     }
 
@@ -3383,7 +3502,7 @@ INDEX_HTML = """<!doctype html>
 
     function artifactPreviewUrl(kind) {
       if (kind === "requirements") {
-        return `${contextUrl("/artifacts/requirements?embed=1")}&version=${artifactPreviewVersion}`;
+        return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${documentZoom}&version=${artifactPreviewVersion}`;
       }
       if (kind === "document" && artifactPreviewDocumentTarget) {
         const parameters = new URLSearchParams();
@@ -3391,6 +3510,7 @@ INDEX_HTML = """<!doctype html>
         parameters.set("title", artifactPreviewDocumentTarget.label);
         parameters.set("embed", "1");
         parameters.set("create", "1");
+        parameters.set("zoom", String(documentZoom));
         parameters.set("version", String(artifactPreviewVersion));
         return contextUrl(`/artifacts/document?${parameters.toString()}`);
       }
@@ -5112,6 +5232,14 @@ INDEX_HTML = """<!doctype html>
     });
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
+    decreaseDocumentZoom.addEventListener(
+      "click",
+      () => changeDocumentZoom(-DOCUMENT_ZOOM_STEP),
+    );
+    increaseDocumentZoom.addEventListener(
+      "click",
+      () => changeDocumentZoom(DOCUMENT_ZOOM_STEP),
+    );
     popoutAgentPane.addEventListener("click", () => popOutPane("agent"));
     popoutArtifactPane.addEventListener("click", () => popOutPane("artifact"));
     popoutProgressPane.addEventListener("click", () => popOutPane("progress"));
@@ -5173,6 +5301,7 @@ INDEX_HTML = """<!doctype html>
       applySidePaneVisibility();
       restoreScratchPad();
       applyTerminalFontSize();
+      applyDocumentZoom();
       initializeTerminal();
       await checkConnection();
       await restoreContext();
@@ -5253,6 +5382,26 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       font-weight: 750;
     }
 
+    .pane-actions,
+    .artifact-zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .artifact-zoom-controls[hidden] {
+      display: none;
+    }
+
+    .artifact-zoom-level {
+      min-width: 44px;
+      text-align: center;
+      color: #aab8cf;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 750;
+    }
+
     .pane-body {
       min-height: 0;
       overflow: hidden;
@@ -5323,7 +5472,24 @@ PANE_WINDOW_HTML = r"""<!doctype html>
   <main class="pane-window">
     <header class="pane-toolbar">
       <span id="paneTitle">Pane</span>
-      <button id="dockPane" type="button">Dock</button>
+      <div class="pane-actions">
+        <div id="artifactZoomControls" class="artifact-zoom-controls" hidden>
+          <button
+            id="decreaseArtifactZoom"
+            type="button"
+            title="Zoom document out"
+            aria-label="Zoom document out"
+          >-</button>
+          <span id="artifactZoomLevel" class="artifact-zoom-level">100%</span>
+          <button
+            id="increaseArtifactZoom"
+            type="button"
+            title="Zoom document in"
+            aria-label="Zoom document in"
+          >+</button>
+        </div>
+        <button id="dockPane" type="button">Dock</button>
+      </div>
     </header>
     <section class="pane-body">
       <div id="terminalHost" class="terminal-host" hidden></div>
@@ -5356,9 +5522,17 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactDocumentPath = params.get("document_path") || "";
     const artifactDocumentTitle = params.get("document_title") || "";
     const fontSize = Number(params.get("font_size") || "15") || 15;
+    const MIN_ARTIFACT_ZOOM = 70;
+    const MAX_ARTIFACT_ZOOM = 180;
+    const ARTIFACT_ZOOM_STEP = 10;
+    let artifactZoom = clampArtifactZoom(Number(params.get("document_zoom") || "100"));
     const scratchKey = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
     const dockPane = document.getElementById("dockPane");
+    const artifactZoomControls = document.getElementById("artifactZoomControls");
+    const decreaseArtifactZoom = document.getElementById("decreaseArtifactZoom");
+    const artifactZoomLevel = document.getElementById("artifactZoomLevel");
+    const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
     const terminalHost = document.getElementById("terminalHost");
     const artifactFrame = document.getElementById("artifactFrame");
     const scratchPad = document.getElementById("scratchPad");
@@ -5394,6 +5568,26 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     function contextUrl(path) {
       const separator = path.includes("?") ? "&" : "?";
       return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
+    }
+
+    function clampArtifactZoom(value) {
+      if (!Number.isFinite(value)) {
+        return 100;
+      }
+      const stepped = Math.round(value / ARTIFACT_ZOOM_STEP) * ARTIFACT_ZOOM_STEP;
+      return Math.max(MIN_ARTIFACT_ZOOM, Math.min(MAX_ARTIFACT_ZOOM, stepped));
+    }
+
+    function applyArtifactZoom() {
+      artifactZoomLevel.textContent = `${artifactZoom}%`;
+      decreaseArtifactZoom.disabled = artifactZoom <= MIN_ARTIFACT_ZOOM;
+      increaseArtifactZoom.disabled = artifactZoom >= MAX_ARTIFACT_ZOOM;
+    }
+
+    function changeArtifactZoom(delta) {
+      artifactZoom = clampArtifactZoom(artifactZoom + delta);
+      applyArtifactZoom();
+      refreshArtifact();
     }
 
     function terminalOptions() {
@@ -5505,7 +5699,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     function artifactUrl() {
       if (artifactKind === "requirements") {
-        return `${contextUrl("/artifacts/requirements?embed=1")}&version=${artifactVersion}`;
+        return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${artifactZoom}&version=${artifactVersion}`;
       }
       if (artifactKind === "document" && artifactDocumentPath) {
         const parameters = new URLSearchParams();
@@ -5513,6 +5707,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         parameters.set("title", artifactDocumentTitle || artifactDocumentPath);
         parameters.set("embed", "1");
         parameters.set("create", "1");
+        parameters.set("zoom", String(artifactZoom));
         parameters.set("version", String(artifactVersion));
         return contextUrl(`/artifacts/document?${parameters.toString()}`);
       }
@@ -5526,6 +5721,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     function connectArtifactStream() {
       artifactFrame.hidden = false;
+      artifactZoomControls.hidden = false;
+      applyArtifactZoom();
       refreshArtifact();
       if (!contextId || artifactKind !== "requirements") {
         return;
@@ -5605,6 +5802,14 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       }
       window.close();
     });
+    decreaseArtifactZoom.addEventListener(
+      "click",
+      () => changeArtifactZoom(-ARTIFACT_ZOOM_STEP),
+    );
+    increaseArtifactZoom.addEventListener(
+      "click",
+      () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
+    );
     sendAgentInput.addEventListener("click", sendMessage);
     interruptAgent.addEventListener("click", interruptAgentSession);
     agentInput.addEventListener("keydown", (event) => {
@@ -8847,6 +9052,7 @@ def requirements_document_html(
     project_root: Path | str,
     *,
     embedded: bool = False,
+    zoom_percent: int = 100,
 ) -> tuple[str, HTTPStatus]:
     return markdown_document_html(
         project_root,
@@ -8854,6 +9060,7 @@ def requirements_document_html(
         "Requirements",
         "Requirements document does not exist yet.",
         embedded=embedded,
+        zoom_percent=zoom_percent,
     )
 
 
@@ -8896,6 +9103,7 @@ def document_target_html(
     title: str | None = None,
     embedded: bool = False,
     create_missing: bool = False,
+    zoom_percent: int = 100,
 ) -> tuple[str, HTTPStatus]:
     normalized_path = (
         _ensure_document_target(project_root, relative_path)
@@ -8909,6 +9117,7 @@ def document_target_html(
         display_title,
         f"{normalized_path} document does not exist yet.",
         embedded=embedded,
+        zoom_percent=zoom_percent,
     )
 
 
@@ -8919,6 +9128,7 @@ def markdown_document_html(
     missing_message: str,
     *,
     embedded: bool = False,
+    zoom_percent: int = 100,
 ) -> tuple[str, HTTPStatus]:
     project_root = Path(project_root).expanduser().resolve()
     document_path = project_root / relative_path
@@ -8933,6 +9143,8 @@ def markdown_document_html(
     article_padding = "18px" if embedded else "28px"
     article_radius = "0" if embedded else "8px"
     article_border = "0" if embedded else "1px solid #d8dde8"
+    zoom_percent = _clamp_document_zoom(zoom_percent)
+    document_font_size = 16 * (zoom_percent / 100)
     mermaid_script = _mermaid_script(body)
     page = f"""<!doctype html>
 <html lang="en">
@@ -8941,11 +9153,30 @@ def markdown_document_html(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html.escape(title)}</title>
   <style>
+    :root {{
+      color-scheme: light;
+      --doc-bg: #f7f8fb;
+      --doc-surface: #ffffff;
+      --doc-text: #0f3b5f;
+      --doc-heading: #0a2f4f;
+      --doc-link: #007f8a;
+      --doc-muted: #4f6f8a;
+      --doc-border: #d8dde8;
+      --doc-code-bg: #edf4fb;
+      --doc-code-text: #0a2f4f;
+      --doc-table-head: #edf7ff;
+      --doc-accent: #0f766e;
+      --doc-font-size: {document_font_size:.2f}px;
+    }}
+    html {{
+      background: var(--doc-bg);
+    }}
     body {{
       margin: 0;
-      background: #ffffff;
-      color: #0f3b5f;
+      background: var(--doc-bg);
+      color: var(--doc-text);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: var(--doc-font-size);
       line-height: 1.55;
     }}
     main {{
@@ -8954,54 +9185,63 @@ def markdown_document_html(
       padding: {main_padding};
     }}
     article {{
-      background: #ffffff;
+      background: var(--doc-surface);
       border: {article_border};
       border-radius: {article_radius};
+      color: var(--doc-text);
       padding: {article_padding};
     }}
-    article, p, li, td, dd {{
-      color: #0f3b5f;
+    article, article :where(p, li, td, dd, strong, em, summary, details, figcaption) {{
+      color: var(--doc-text);
     }}
     h1, h2, h3, h4, h5, h6 {{
-      color: #0a2f4f;
+      color: var(--doc-heading);
       line-height: 1.2;
     }}
     a {{
-      color: #007f8a;
+      color: var(--doc-link);
     }}
     blockquote {{
       margin-left: 0;
       border-left: 4px solid #9fb4c9;
-      color: #164a72;
+      color: var(--doc-muted);
       padding-left: 14px;
+    }}
+    hr {{
+      border: 0;
+      border-top: 1px solid var(--doc-border);
+    }}
+    img {{
+      max-width: 100%;
+      height: auto;
     }}
     table {{
       border-collapse: collapse;
       width: 100%;
     }}
     th, td {{
-      border: 1px solid #d8dde8;
+      border: 1px solid var(--doc-border);
       padding: 8px 10px;
     }}
     th {{
-      background: #edf7ff;
-      color: #0a2f4f;
+      background: var(--doc-table-head);
+      color: var(--doc-heading);
     }}
     pre, code {{
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     }}
     code {{
-      color: #0a2f4f;
-      background: #f1f4f9;
+      color: var(--doc-code-text);
+      background: var(--doc-code-bg);
       border-radius: 4px;
       padding: 1px 4px;
     }}
     pre {{
       overflow: auto;
       padding: 12px;
-      background: #f1f4f9;
-      color: #0a2f4f;
-      border: 1px solid #d8dde8;
+      background: var(--doc-code-bg);
+      color: var(--doc-code-text);
+      border: 1px solid var(--doc-border);
       border-radius: 6px;
     }}
     pre code {{
@@ -9015,9 +9255,13 @@ def markdown_document_html(
       overflow: auto;
       margin: 16px 0;
       padding: 14px;
-      border: 1px solid #d8dde8;
+      border: 1px solid var(--doc-border);
       border-radius: 6px;
       background: #f8fbff;
+    }}
+    .mermaid svg {{
+      max-width: 100%;
+      height: auto;
     }}
   </style>
   {mermaid_script}
@@ -9032,6 +9276,19 @@ def markdown_document_html(
 </html>
 """
     return page, status
+
+
+def _clamp_document_zoom(value: int) -> int:
+    stepped = int(((value + 5) // 10) * 10)
+    return max(70, min(180, stepped))
+
+
+def _document_zoom_from_params(params: dict[str, list[str]]) -> int:
+    raw = params.get("zoom", ["100"])[0]
+    try:
+        return _clamp_document_zoom(int(raw))
+    except (TypeError, ValueError):
+        return 100
 
 
 def _normalize_document_target_path(relative_path: str) -> str:
@@ -9190,12 +9447,20 @@ def _mermaid_script(rendered: str) -> str:
         theme: "base",
         themeVariables: {
           background: "#ffffff",
+          mainBkg: "#edf7ff",
           primaryColor: "#edf7ff",
           primaryTextColor: "#0a2f4f",
           primaryBorderColor: "#9fb4c9",
           lineColor: "#164a72",
           secondaryColor: "#f8fbff",
+          secondaryTextColor: "#0f3b5f",
           tertiaryColor: "#ffffff",
+          tertiaryTextColor: "#0f3b5f",
+          textColor: "#0f3b5f",
+          nodeBorder: "#9fb4c9",
+          clusterBkg: "#f8fbff",
+          clusterBorder: "#d8dde8",
+          edgeLabelBackground: "#ffffff",
           fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
         },
       });
@@ -10088,9 +10353,11 @@ def _handler_for(
                 project_root = state.requirements_document_root(context_id)
                 params = parse_qs(query)
                 embedded = str((params.get("embed") or [""])[0]) == "1"
+                zoom_percent = _document_zoom_from_params(params)
                 page, status = requirements_document_html(
                     project_root,
                     embedded=embedded,
+                    zoom_percent=zoom_percent,
                 )
             except (AgentSessionError, OSError, StateError) as error:
                 self._send_text(
@@ -10172,12 +10439,14 @@ def _handler_for(
                 title = params.get("title", [""])[0].strip() or None
                 embedded = params.get("embed", ["0"])[0] == "1"
                 create_missing = params.get("create", ["0"])[0] == "1"
+                zoom_percent = _document_zoom_from_params(params)
                 page, status = document_target_html(
                     project_root,
                     path,
                     title=title,
                     embedded=embedded,
                     create_missing=create_missing,
+                    zoom_percent=zoom_percent,
                 )
             except (AgentSessionError, OSError, StateError) as error:
                 self._send_text(

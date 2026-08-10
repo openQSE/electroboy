@@ -110,6 +110,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const PANE_KIND = "artifact";', page)
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', page)
         self.assertIn('params.get("document_path")', page)
+        self.assertIn('params.get("document_zoom")', page)
+        self.assertIn('id="artifactZoomControls"', page)
+        self.assertIn("function changeArtifactZoom(delta)", page)
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
@@ -131,9 +134,19 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("<title>Guide</title>", page)
-        self.assertIn("color: #0f3b5f;", page)
-        self.assertIn("article, p, li, td, dd", page)
-        self.assertIn("background: #ffffff;", page)
+        self.assertIn("--doc-text: #0f3b5f;", page)
+        self.assertIn("article, article :where", page)
+        self.assertIn("--doc-surface: #ffffff;", page)
+
+    def test_document_target_renderer_accepts_zoom(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("# Project\n", encoding="utf-8")
+
+            page, status = document_target_html(root, "README.md", zoom_percent=130)
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("--doc-font-size: 20.80px;", page)
 
     def test_document_target_renderer_handles_code_fences_and_mermaid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -383,6 +396,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="artifactPreviewPane"', INDEX_HTML)
         self.assertIn('id="artifactPreviewTitle"', INDEX_HTML)
         self.assertIn('id="artifactPreviewFrame"', INDEX_HTML)
+        self.assertIn('id="decreaseDocumentZoom"', INDEX_HTML)
+        self.assertIn('id="documentZoomLevel"', INDEX_HTML)
+        self.assertIn('id="increaseDocumentZoom"', INDEX_HTML)
         self.assertIn('sandbox="allow-scripts"', INDEX_HTML)
         self.assertIn('id="artifactPaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
@@ -432,6 +448,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("disableStdin: true", INDEX_HTML)
         self.assertIn('termName: "xterm-256color"', INDEX_HTML)
         self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
+        self.assertIn('const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";', INDEX_HTML)
+        self.assertIn("function changeDocumentZoom(delta)", INDEX_HTML)
+        self.assertIn('parameters.set("zoom", String(documentZoom));', INDEX_HTML)
         self.assertIn(
             'const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";',
             INDEX_HTML,
