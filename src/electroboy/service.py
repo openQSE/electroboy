@@ -3976,7 +3976,7 @@ INDEX_HTML = """<!doctype html>
 
     function renderDocumentTargets() {
       documentTargets.replaceChildren();
-      const disabled = !activeProjectRoot || documentationRunning;
+      const disabled = !activeProjectRoot;
       for (const target of allDocumentTargets()) {
         const button = document.createElement("button");
         button.type = "button";
@@ -3984,7 +3984,12 @@ INDEX_HTML = """<!doctype html>
         button.title = target.path;
         button.disabled = disabled;
         button.addEventListener("click", () => {
-          startDocumentationAgent(target);
+          if (documentationRunning) {
+            hideStageMenus();
+            showDocumentPreview(target);
+          } else {
+            startDocumentationAgent(target);
+          }
         });
         documentTargets.append(button);
       }
