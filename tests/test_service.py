@@ -113,6 +113,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("document_zoom")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn("function changeArtifactZoom(delta)", page)
+        self.assertIn('sandbox="allow-scripts allow-popups"', page)
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
@@ -168,6 +169,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('<pre><code class="language-bash">mkdir -p qhpc', page)
         self.assertIn('<div class="mermaid">graph TD', page)
         self.assertIn("mermaid@10", page)
+        self.assertIn("function openMermaidPopup(diagram)", page)
+        self.assertIn("window.initializeDiagramPopup", page)
+        self.assertIn('securityLevel: "strict"', page)
+        self.assertIn('querySelector: ".mermaid"', page)
 
     def test_document_target_renderer_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -400,7 +405,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="decreaseDocumentZoom"', INDEX_HTML)
         self.assertIn('id="documentZoomLevel"', INDEX_HTML)
         self.assertIn('id="increaseDocumentZoom"', INDEX_HTML)
-        self.assertIn('sandbox="allow-scripts"', INDEX_HTML)
+        self.assertIn('sandbox="allow-scripts allow-popups"', INDEX_HTML)
         self.assertIn('id="artifactPaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)

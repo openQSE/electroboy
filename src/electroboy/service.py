@@ -1561,7 +1561,7 @@ INDEX_HTML = """<!doctype html>
         id="artifactPreviewFrame"
         class="artifact-preview-frame"
         title="Rendered artifact preview"
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-popups"
       ></iframe>
             </section>
             <div
@@ -5497,7 +5497,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         id="artifactFrame"
         class="artifact-frame"
         title="Rendered artifact preview"
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-popups"
         hidden
       ></iframe>
       <textarea id="scratchPad" class="scratch-pad" spellcheck="false" hidden></textarea>
@@ -9258,6 +9258,13 @@ def markdown_document_html(
       border: 1px solid var(--doc-border);
       border-radius: 6px;
       background: var(--doc-code-bg);
+      cursor: zoom-in;
+      transition: border-color 120ms ease, background 120ms ease;
+    }}
+    .mermaid:hover,
+    .mermaid:focus-visible {{
+      border-color: var(--doc-accent);
+      outline: none;
     }}
     .mermaid svg {{
       max-width: 100%;
@@ -9439,31 +9446,297 @@ def _mermaid_script(rendered: str) -> str:
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script>
     window.addEventListener("DOMContentLoaded", () => {
-      if (!window.mermaid) {
-        return;
+      const popupFeatures =
+        "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
+
+      function prepareMermaidPopouts() {
+        for (const diagram of document.querySelectorAll(".mermaid")) {
+          if (diagram.dataset.electroboyPopout === "1") {
+            continue;
+          }
+          diagram.dataset.electroboyPopout = "1";
+          diagram.tabIndex = 0;
+          diagram.setAttribute("role", "button");
+          diagram.setAttribute(
+            "aria-label",
+            "Open Mermaid diagram in a separate window",
+          );
+          diagram.title = "Open diagram";
+          diagram.addEventListener("click", () => openMermaidPopup(diagram));
+          diagram.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") {
+              return;
+            }
+            event.preventDefault();
+            openMermaidPopup(diagram);
+          });
+        }
       }
-      window.mermaid.initialize({
-        startOnLoad: true,
-        theme: "base",
-        themeVariables: {
-          background: "#10141f",
-          mainBkg: "#151b29",
-          primaryColor: "#151b29",
-          primaryTextColor: "#e7edf7",
-          primaryBorderColor: "#364156",
-          lineColor: "#66d9e8",
-          secondaryColor: "#1d2638",
-          secondaryTextColor: "#e7edf7",
-          tertiaryColor: "#10141f",
-          tertiaryTextColor: "#e7edf7",
-          textColor: "#e7edf7",
-          nodeBorder: "#364156",
-          clusterBkg: "#10141f",
-          clusterBorder: "#2a3142",
-          edgeLabelBackground: "#10141f",
-          fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
-        },
+
+      function openMermaidPopup(diagram) {
+        const popup = window.open(
+          "",
+          "electroboy-mermaid-diagram",
+          popupFeatures,
+        );
+        if (!popup) {
+          return;
+        }
+        try {
+          popup.document.open();
+          popup.document.write(mermaidPopupHtml());
+          popup.document.close();
+          const content = popup.document.getElementById("diagramContent");
+          const clone = popup.document.importNode(diagram, true);
+          clone.classList.add("popup-mermaid-diagram");
+          clone.removeAttribute("tabindex");
+          clone.removeAttribute("role");
+          clone.removeAttribute("title");
+          content.replaceChildren(clone);
+          if (typeof popup.initializeDiagramPopup === "function") {
+            popup.initializeDiagramPopup("Mermaid diagram");
+          }
+          popup.focus();
+        } catch (error) {
+          popup.close();
+        }
+      }
+
+      function mermaidPopupHtml() {
+        return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mermaid diagram</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #10141f;
+      --panel: #151b29;
+      --text: #e7edf7;
+      --muted: #aab8cf;
+      --border: #2a3142;
+      --button: #1d2638;
+      --accent: #66d9e8;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system,
+        BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    .diagram-window {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100vh;
+    }
+    .diagram-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 42px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      padding: 0 12px;
+    }
+    .diagram-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+    .diagram-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .diagram-controls button {
+      min-width: 34px;
+      height: 30px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: var(--button);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 750;
+    }
+    .diagram-controls button:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: #22314a;
+    }
+    .diagram-controls button:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+    .zoom-level {
+      min-width: 48px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .diagram-viewport {
+      min-height: 0;
+      overflow: auto;
+      background: var(--bg);
+    }
+    .diagram-content {
+      display: inline-block;
+      min-width: 100%;
+      padding: 24px;
+    }
+    .diagram-content .mermaid {
+      display: inline-block;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: default;
+    }
+    .diagram-content svg {
+      display: block;
+      max-width: none !important;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <main class="diagram-window">
+    <header class="diagram-toolbar">
+      <span id="diagramTitle" class="diagram-title">Mermaid diagram</span>
+      <div class="diagram-controls">
+        <button id="zoomOut" type="button" title="Zoom out" aria-label="Zoom out">-</button>
+        <span id="zoomLevel" class="zoom-level">100%</span>
+        <button id="zoomReset" type="button" title="Reset zoom" aria-label="Reset zoom">100%</button>
+        <button id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+      </div>
+    </header>
+    <section class="diagram-viewport">
+      <div id="diagramContent" class="diagram-content"></div>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const minimumZoom = 0.4;
+      const maximumZoom = 4;
+      const zoomStep = 0.25;
+      let zoom = 1;
+      let baseWidth = 0;
+      let baseHeight = 0;
+      const content = document.getElementById("diagramContent");
+      const zoomLevel = document.getElementById("zoomLevel");
+      const zoomOut = document.getElementById("zoomOut");
+      const zoomReset = document.getElementById("zoomReset");
+      const zoomIn = document.getElementById("zoomIn");
+
+      function readSvgDimensions(svg) {
+        const viewBox = (svg.getAttribute("viewBox") || "")
+          .trim()
+          .split(/\\s+/)
+          .map(Number);
+        const width = viewBox.length === 4 && Number.isFinite(viewBox[2])
+          ? viewBox[2]
+          : Number.parseFloat(svg.getAttribute("width")) || svg.clientWidth || 800;
+        const height = viewBox.length === 4 && Number.isFinite(viewBox[3])
+          ? viewBox[3]
+          : Number.parseFloat(svg.getAttribute("height")) || svg.clientHeight || 600;
+        return { width, height };
+      }
+
+      function applyZoom() {
+        const svg = content.querySelector("svg");
+        if (svg) {
+          svg.style.width = (baseWidth * zoom) + "px";
+          svg.style.height = (baseHeight * zoom) + "px";
+        } else {
+          content.style.fontSize = (16 * zoom) + "px";
+        }
+        zoomLevel.textContent = Math.round(zoom * 100) + "%";
+        zoomOut.disabled = zoom <= minimumZoom;
+        zoomIn.disabled = zoom >= maximumZoom;
+      }
+
+      function changeZoom(delta) {
+        zoom = Math.max(minimumZoom, Math.min(maximumZoom, zoom + delta));
+        applyZoom();
+      }
+
+      window.initializeDiagramPopup = (title) => {
+        document.title = title;
+        document.getElementById("diagramTitle").textContent = title;
+        const svg = content.querySelector("svg");
+        if (svg) {
+          const dimensions = readSvgDimensions(svg);
+          baseWidth = dimensions.width;
+          baseHeight = dimensions.height;
+        }
+        applyZoom();
+      };
+
+      zoomOut.addEventListener("click", () => changeZoom(-zoomStep));
+      zoomReset.addEventListener("click", () => {
+        zoom = 1;
+        applyZoom();
       });
+      zoomIn.addEventListener("click", () => changeZoom(zoomStep));
+    })();
+  <\\/script>
+</body>
+</html>`;
+      }
+
+      async function renderMermaidBlocks() {
+        if (!window.mermaid) {
+          prepareMermaidPopouts();
+          return;
+        }
+        window.mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "base",
+          themeVariables: {
+            background: "#10141f",
+            mainBkg: "#151b29",
+            primaryColor: "#151b29",
+            primaryTextColor: "#e7edf7",
+            primaryBorderColor: "#364156",
+            lineColor: "#66d9e8",
+            secondaryColor: "#1d2638",
+            secondaryTextColor: "#e7edf7",
+            tertiaryColor: "#10141f",
+            tertiaryTextColor: "#e7edf7",
+            textColor: "#e7edf7",
+            nodeBorder: "#364156",
+            clusterBkg: "#10141f",
+            clusterBorder: "#2a3142",
+            edgeLabelBackground: "#10141f",
+            fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+          },
+        });
+        try {
+          await window.mermaid.run({ querySelector: ".mermaid" });
+        } catch (error) {
+          console.warn("Mermaid render failed", error);
+        }
+        prepareMermaidPopouts();
+      }
+
+      renderMermaidBlocks();
     });
   </script>
 """
