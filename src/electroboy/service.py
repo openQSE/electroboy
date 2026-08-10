@@ -1008,7 +1008,8 @@ INDEX_HTML = """<!doctype html>
     }
 
     .pane-actions,
-    .document-zoom-controls {
+    .document-zoom-controls,
+    .pane-font-controls {
       display: flex;
       align-items: center;
       gap: 6px;
@@ -1036,17 +1037,45 @@ INDEX_HTML = """<!doctype html>
       line-height: 1;
     }
 
+    .pane-font-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 26px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      font-weight: 750;
+      line-height: 1;
+    }
+
+    .pane-font-reset {
+      min-width: 34px;
+    }
+
     .document-zoom-button:hover:not(:disabled) {
       border-color: #4e7f9d;
       background: #22314a;
     }
 
-    .document-zoom-button:disabled {
+    .pane-font-button:hover:not(:disabled) {
+      border-color: #4e7f9d;
+      background: #22314a;
+    }
+
+    .document-zoom-button:disabled,
+    .pane-font-button:disabled {
       cursor: default;
       opacity: 0.45;
     }
 
-    .document-zoom-level {
+    .document-zoom-level,
+    .pane-font-level {
       min-width: 42px;
       text-align: center;
       color: #aab8cf;
@@ -1087,9 +1116,20 @@ INDEX_HTML = """<!doctype html>
       color: var(--terminal-text);
       font-family:
         "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: var(--terminal-font-size);
       line-height: 1.45;
       white-space: pre-wrap;
+    }
+
+    .agent-output {
+      font-size: var(--agent-output-font-size, var(--terminal-font-size));
+    }
+
+    .progress-output {
+      font-size: var(--progress-output-font-size, var(--terminal-font-size));
+    }
+
+    .shell-output {
+      font-size: var(--project-shell-font-size, var(--terminal-font-size));
     }
 
     .progress-output,
@@ -1168,10 +1208,17 @@ INDEX_HTML = """<!doctype html>
       padding: 10px 12px;
       font-family:
         "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: var(--terminal-font-size);
       line-height: 1.45;
       outline: none;
       white-space: pre-wrap;
+    }
+
+    .scratch-pad {
+      font-size: var(--scratch-pad-font-size, var(--terminal-font-size));
+    }
+
+    .project-status-output {
+      font-size: var(--project-status-font-size, var(--terminal-font-size));
     }
 
     .scratch-pad {
@@ -1227,7 +1274,7 @@ INDEX_HTML = """<!doctype html>
       padding: 12px;
       font-family:
         "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: var(--terminal-font-size);
+      font-size: var(--agent-input-font-size, var(--terminal-font-size));
       line-height: 1.45;
     }
 
@@ -2021,13 +2068,46 @@ INDEX_HTML = """<!doctype html>
             <section id="agentOutputPane" class="terminal-pane" aria-label="Agent output">
               <div class="pane-header">
                 <span class="pane-title">Agent output</span>
-                <button
-                  id="popoutAgentPane"
-                  class="pane-popout-button"
-                  type="button"
-                  title="Pop out agent output"
-                  aria-label="Pop out agent output"
-                >Pop</button>
+                <div class="pane-actions">
+                  <div
+                    class="pane-font-controls"
+                    data-pane-font-controls="agent"
+                    aria-label="Agent output font size"
+                  >
+                    <button
+                      class="pane-font-button"
+                      type="button"
+                      data-pane-font="agent"
+                      data-pane-font-delta="-1"
+                      title="Decrease agent output font size"
+                      aria-label="Decrease agent output font size"
+                    >A-</button>
+                    <span class="pane-font-level" data-pane-font-level="agent">15px</span>
+                    <button
+                      class="pane-font-button pane-font-reset"
+                      type="button"
+                      data-pane-font="agent"
+                      data-pane-font-reset="1"
+                      title="Reset agent output font size"
+                      aria-label="Reset agent output font size"
+                    >0</button>
+                    <button
+                      class="pane-font-button"
+                      type="button"
+                      data-pane-font="agent"
+                      data-pane-font-delta="1"
+                      title="Increase agent output font size"
+                      aria-label="Increase agent output font size"
+                    >A+</button>
+                  </div>
+                  <button
+                    id="popoutAgentPane"
+                    class="pane-popout-button"
+                    type="button"
+                    title="Pop out agent output"
+                    aria-label="Pop out agent output"
+                  >Pop</button>
+                </div>
               </div>
               <div id="agentOutput" class="agent-output" aria-live="polite"></div>
             </section>
@@ -2063,13 +2143,46 @@ INDEX_HTML = """<!doctype html>
             >
               <div class="pane-header">
                 <span class="pane-title">Progress</span>
-                <button
-                  id="popoutProgressPane"
-                  class="pane-popout-button"
-                  type="button"
-                  title="Pop out progress output"
-                  aria-label="Pop out progress output"
-                >Pop</button>
+                <div class="pane-actions">
+                  <div
+                    class="pane-font-controls"
+                    data-pane-font-controls="progress"
+                    aria-label="Progress font size"
+                  >
+                    <button
+                      class="pane-font-button"
+                      type="button"
+                      data-pane-font="progress"
+                      data-pane-font-delta="-1"
+                      title="Decrease progress font size"
+                      aria-label="Decrease progress font size"
+                    >A-</button>
+                    <span class="pane-font-level" data-pane-font-level="progress">15px</span>
+                    <button
+                      class="pane-font-button pane-font-reset"
+                      type="button"
+                      data-pane-font="progress"
+                      data-pane-font-reset="1"
+                      title="Reset progress font size"
+                      aria-label="Reset progress font size"
+                    >0</button>
+                    <button
+                      class="pane-font-button"
+                      type="button"
+                      data-pane-font="progress"
+                      data-pane-font-delta="1"
+                      title="Increase progress font size"
+                      aria-label="Increase progress font size"
+                    >A+</button>
+                  </div>
+                  <button
+                    id="popoutProgressPane"
+                    class="pane-popout-button"
+                    type="button"
+                    title="Pop out progress output"
+                    aria-label="Pop out progress output"
+                  >Pop</button>
+                </div>
               </div>
               <div id="progressOutput" class="progress-output" aria-live="polite"></div>
             </section>
@@ -2091,6 +2204,37 @@ INDEX_HTML = """<!doctype html>
             <div class="pane-header">
               <span class="pane-title">Project shell</span>
               <div class="pane-actions">
+                <div
+                  class="pane-font-controls"
+                  data-pane-font-controls="shell"
+                  aria-label="Project shell font size"
+                >
+                  <button
+                    class="pane-font-button"
+                    type="button"
+                    data-pane-font="shell"
+                    data-pane-font-delta="-1"
+                    title="Decrease project shell font size"
+                    aria-label="Decrease project shell font size"
+                  >A-</button>
+                  <span class="pane-font-level" data-pane-font-level="shell">15px</span>
+                  <button
+                    class="pane-font-button pane-font-reset"
+                    type="button"
+                    data-pane-font="shell"
+                    data-pane-font-reset="1"
+                    title="Reset project shell font size"
+                    aria-label="Reset project shell font size"
+                  >0</button>
+                  <button
+                    class="pane-font-button"
+                    type="button"
+                    data-pane-font="shell"
+                    data-pane-font-delta="1"
+                    title="Increase project shell font size"
+                    aria-label="Increase project shell font size"
+                  >A+</button>
+                </div>
                 <button
                   id="closeProjectShellPane"
                   class="pane-popout-button"
@@ -2132,13 +2276,46 @@ INDEX_HTML = """<!doctype html>
           <section class="scratch-pane" aria-label="Scratch pad">
             <div class="side-pane-header">
               <span class="pane-title">Scratch pad</span>
-              <button
-                id="popoutScratchPane"
-                class="pane-popout-button"
-                type="button"
-                title="Pop out scratch pad"
-                aria-label="Pop out scratch pad"
-              >Pop</button>
+              <div class="pane-actions">
+                <div
+                  class="pane-font-controls"
+                  data-pane-font-controls="scratch"
+                  aria-label="Scratch pad font size"
+                >
+                  <button
+                    class="pane-font-button"
+                    type="button"
+                    data-pane-font="scratch"
+                    data-pane-font-delta="-1"
+                    title="Decrease scratch pad font size"
+                    aria-label="Decrease scratch pad font size"
+                  >A-</button>
+                  <span class="pane-font-level" data-pane-font-level="scratch">15px</span>
+                  <button
+                    class="pane-font-button pane-font-reset"
+                    type="button"
+                    data-pane-font="scratch"
+                    data-pane-font-reset="1"
+                    title="Reset scratch pad font size"
+                    aria-label="Reset scratch pad font size"
+                  >0</button>
+                  <button
+                    class="pane-font-button"
+                    type="button"
+                    data-pane-font="scratch"
+                    data-pane-font-delta="1"
+                    title="Increase scratch pad font size"
+                    aria-label="Increase scratch pad font size"
+                  >A+</button>
+                </div>
+                <button
+                  id="popoutScratchPane"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Pop out scratch pad"
+                  aria-label="Pop out scratch pad"
+                >Pop</button>
+              </div>
             </div>
             <textarea
               id="scratchPad"
@@ -2157,13 +2334,46 @@ INDEX_HTML = """<!doctype html>
           <section class="project-status-pane" aria-label="Project status">
             <div class="side-pane-header">
               <span class="pane-title">Project status</span>
-              <button
-                id="popoutStatusPane"
-                class="pane-popout-button"
-                type="button"
-                title="Pop out project status"
-                aria-label="Pop out project status"
-              >Pop</button>
+              <div class="pane-actions">
+                <div
+                  class="pane-font-controls"
+                  data-pane-font-controls="status"
+                  aria-label="Project status font size"
+                >
+                  <button
+                    class="pane-font-button"
+                    type="button"
+                    data-pane-font="status"
+                    data-pane-font-delta="-1"
+                    title="Decrease project status font size"
+                    aria-label="Decrease project status font size"
+                  >A-</button>
+                  <span class="pane-font-level" data-pane-font-level="status">15px</span>
+                  <button
+                    class="pane-font-button pane-font-reset"
+                    type="button"
+                    data-pane-font="status"
+                    data-pane-font-reset="1"
+                    title="Reset project status font size"
+                    aria-label="Reset project status font size"
+                  >0</button>
+                  <button
+                    class="pane-font-button"
+                    type="button"
+                    data-pane-font="status"
+                    data-pane-font-delta="1"
+                    title="Increase project status font size"
+                    aria-label="Increase project status font size"
+                  >A+</button>
+                </div>
+                <button
+                  id="popoutStatusPane"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Pop out project status"
+                  aria-label="Pop out project status"
+                >Pop</button>
+              </div>
             </div>
             <pre id="projectStatusOutput" class="project-status-output">no active project</pre>
           </section>
@@ -2179,13 +2389,46 @@ INDEX_HTML = """<!doctype html>
       <div id="inputPane" class="input-pane">
         <div class="input-pane-header pane-header">
           <span class="pane-title">AI agent input</span>
-          <button
-            id="popoutInputPane"
-            class="pane-popout-button"
-            type="button"
-            title="Pop out AI agent input"
-            aria-label="Pop out AI agent input"
-          >Pop</button>
+          <div class="pane-actions">
+            <div
+              class="pane-font-controls"
+              data-pane-font-controls="input"
+              aria-label="AI agent input font size"
+            >
+              <button
+                class="pane-font-button"
+                type="button"
+                data-pane-font="input"
+                data-pane-font-delta="-1"
+                title="Decrease AI agent input font size"
+                aria-label="Decrease AI agent input font size"
+              >A-</button>
+              <span class="pane-font-level" data-pane-font-level="input">15px</span>
+              <button
+                class="pane-font-button pane-font-reset"
+                type="button"
+                data-pane-font="input"
+                data-pane-font-reset="1"
+                title="Reset AI agent input font size"
+                aria-label="Reset AI agent input font size"
+              >0</button>
+              <button
+                class="pane-font-button"
+                type="button"
+                data-pane-font="input"
+                data-pane-font-delta="1"
+                title="Increase AI agent input font size"
+                aria-label="Increase AI agent input font size"
+              >A+</button>
+            </div>
+            <button
+              id="popoutInputPane"
+              class="pane-popout-button"
+              type="button"
+              title="Pop out AI agent input"
+              aria-label="Pop out AI agent input"
+            >Pop</button>
+          </div>
         </div>
         <textarea
           id="agentInput"
@@ -2393,6 +2636,7 @@ INDEX_HTML = """<!doctype html>
     const popoutInputPane = document.getElementById("popoutInputPane");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
+    const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
     const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";
     const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
@@ -2476,6 +2720,17 @@ INDEX_HTML = """<!doctype html>
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
+    const MIN_PANE_FONT_OFFSET = -6;
+    const MAX_PANE_FONT_OFFSET = 6;
+    const PANE_FONT_KEYS = ["agent", "progress", "shell", "input", "scratch", "status"];
+    const PANE_FONT_CSS_PROPERTIES = {
+      agent: "--agent-output-font-size",
+      progress: "--progress-output-font-size",
+      shell: "--project-shell-font-size",
+      input: "--agent-input-font-size",
+      scratch: "--scratch-pad-font-size",
+      status: "--project-status-font-size",
+    };
     const DEFAULT_DOCUMENT_ZOOM = 100;
     const DOCUMENT_ZOOM_STEP = 10;
     const MIN_DOCUMENT_ZOOM = 70;
@@ -2494,6 +2749,7 @@ INDEX_HTML = """<!doctype html>
     let projectShellTerminal = null;
     let projectShellTerminalFit = null;
     let terminalFontSize = storedTerminalFontSize();
+    let paneFontOffsets = storedPaneFontOffsets();
     let documentZoom = storedDocumentZoom();
     let resizeShellState = null;
     let resizeInputState = null;
@@ -2573,6 +2829,39 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function storedPaneFontOffsets() {
+      const offsets = {};
+      for (const pane of PANE_FONT_KEYS) {
+        offsets[pane] = storedPaneFontOffset(pane);
+      }
+      return offsets;
+    }
+
+    function storedPaneFontOffset(pane) {
+      try {
+        const stored = Number(
+          window.localStorage.getItem(PANE_FONT_OFFSET_STORAGE_PREFIX + pane),
+        );
+        if (Number.isFinite(stored)) {
+          return clampPaneFontOffset(stored);
+        }
+      } catch (error) {
+        return 0;
+      }
+      return 0;
+    }
+
+    function savePaneFontOffset(pane) {
+      try {
+        window.localStorage.setItem(
+          PANE_FONT_OFFSET_STORAGE_PREFIX + pane,
+          String(paneFontOffset(pane)),
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
     function storedDocumentZoom() {
       try {
         const stored = Number(window.localStorage.getItem(DOCUMENT_ZOOM_STORAGE_KEY));
@@ -2598,6 +2887,37 @@ INDEX_HTML = """<!doctype html>
         MIN_TERMINAL_FONT_SIZE,
         Math.min(MAX_TERMINAL_FONT_SIZE, value),
       );
+    }
+
+    function clampPaneFontOffset(value) {
+      return Math.max(
+        MIN_PANE_FONT_OFFSET,
+        Math.min(MAX_PANE_FONT_OFFSET, Math.round(value)),
+      );
+    }
+
+    function paneFontOffset(pane) {
+      return paneFontOffsets[pane] || 0;
+    }
+
+    function effectivePaneFontSize(pane) {
+      return clampTerminalFontSize(terminalFontSize + paneFontOffset(pane));
+    }
+
+    function paneFontKeyForKind(kind) {
+      if (kind === "shell") return "shell";
+      if (kind === "progress") return "progress";
+      if (kind === "input") return "input";
+      if (kind === "scratch") return "scratch";
+      if (kind === "status") return "status";
+      return "agent";
+    }
+
+    function terminalForPane(pane) {
+      if (pane === "agent") return terminal;
+      if (pane === "progress") return progressTerminal;
+      if (pane === "shell") return projectShellTerminal;
+      return null;
     }
 
     function clampDocumentZoom(value) {
@@ -2781,7 +3101,7 @@ INDEX_HTML = """<!doctype html>
         appendPlainOutput("terminal renderer unavailable; using plain text\\n", "error");
         return;
       }
-      terminal = new window.Terminal(terminalOptions());
+      terminal = new window.Terminal(terminalOptions(true, "agent"));
       if (window.FitAddon && window.FitAddon.FitAddon) {
         terminalFit = new window.FitAddon.FitAddon();
         terminal.loadAddon(terminalFit);
@@ -2796,7 +3116,7 @@ INDEX_HTML = """<!doctype html>
       if (progressTerminal || !window.Terminal) {
         return;
       }
-      progressTerminal = new window.Terminal(terminalOptions());
+      progressTerminal = new window.Terminal(terminalOptions(true, "progress"));
       if (window.FitAddon && window.FitAddon.FitAddon) {
         progressTerminalFit = new window.FitAddon.FitAddon();
         progressTerminal.loadAddon(progressTerminalFit);
@@ -2809,7 +3129,7 @@ INDEX_HTML = """<!doctype html>
       if (projectShellTerminal || !window.Terminal) {
         return;
       }
-      projectShellTerminal = new window.Terminal(terminalOptions(false));
+      projectShellTerminal = new window.Terminal(terminalOptions(false, "shell"));
       if (window.FitAddon && window.FitAddon.FitAddon) {
         projectShellTerminalFit = new window.FitAddon.FitAddon();
         projectShellTerminal.loadAddon(projectShellTerminalFit);
@@ -2821,14 +3141,14 @@ INDEX_HTML = """<!doctype html>
       applyTerminalFontSize();
     }
 
-    function terminalOptions(disableStdin = true) {
+    function terminalOptions(disableStdin = true, pane = "agent") {
       return {
         allowProposedApi: false,
         convertEol: true,
         cursorBlink: false,
         disableStdin,
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-        fontSize: terminalFontSize,
+        fontSize: effectivePaneFontSize(pane),
         scrollback: 10000,
         termName: "xterm-256color",
         theme: {
@@ -2862,6 +3182,24 @@ INDEX_HTML = """<!doctype html>
       applyTerminalFontSize();
     }
 
+    function changePaneFontOffset(pane, delta) {
+      if (!PANE_FONT_KEYS.includes(pane)) {
+        return;
+      }
+      paneFontOffsets[pane] = clampPaneFontOffset(paneFontOffset(pane) + delta);
+      savePaneFontOffset(pane);
+      applyPaneFontSize(pane);
+    }
+
+    function resetPaneFontOffset(pane) {
+      if (!PANE_FONT_KEYS.includes(pane)) {
+        return;
+      }
+      paneFontOffsets[pane] = 0;
+      savePaneFontOffset(pane);
+      applyPaneFontSize(pane);
+    }
+
     function changeDocumentZoom(delta) {
       documentZoom = clampDocumentZoom(documentZoom + delta);
       saveDocumentZoom();
@@ -2889,18 +3227,51 @@ INDEX_HTML = """<!doctype html>
         "--ui-menu-font-size",
         `${Math.max(11, terminalFontSize - 1)}px`,
       );
-      if (terminal) {
-        terminal.options.fontSize = terminalFontSize;
-      }
-      if (progressTerminal) {
-        progressTerminal.options.fontSize = terminalFontSize;
-      }
-      if (projectShellTerminal) {
-        projectShellTerminal.options.fontSize = terminalFontSize;
-      }
+      applyPaneFontSizes();
       decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
       increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
       window.requestAnimationFrame(fitTerminal);
+    }
+
+    function applyPaneFontSizes() {
+      for (const pane of PANE_FONT_KEYS) {
+        applyPaneFontSize(pane);
+      }
+    }
+
+    function applyPaneFontSize(pane) {
+      const cssProperty = PANE_FONT_CSS_PROPERTIES[pane];
+      const fontSize = effectivePaneFontSize(pane);
+      if (cssProperty) {
+        document.documentElement.style.setProperty(cssProperty, `${fontSize}px`);
+      }
+      const paneTerminal = terminalForPane(pane);
+      if (paneTerminal) {
+        paneTerminal.options.fontSize = fontSize;
+      }
+      updatePaneFontControls(pane);
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function updatePaneFontControls(pane) {
+      const offset = paneFontOffset(pane);
+      const fontSize = effectivePaneFontSize(pane);
+      for (const level of document.querySelectorAll(`[data-pane-font-level="${pane}"]`)) {
+        level.textContent = `${fontSize}px`;
+        level.title = offset === 0 ? "Global font size" : `Global ${offset > 0 ? "+" : ""}${offset}px`;
+      }
+      for (const button of document.querySelectorAll(`[data-pane-font="${pane}"]`)) {
+        if (button.dataset.paneFontReset) {
+          button.disabled = offset === 0;
+          continue;
+        }
+        const delta = Number(button.dataset.paneFontDelta || "0");
+        if (delta < 0) {
+          button.disabled = offset <= MIN_PANE_FONT_OFFSET;
+        } else if (delta > 0) {
+          button.disabled = offset >= MAX_PANE_FONT_OFFSET;
+        }
+      }
     }
 
     function applyDocumentZoom() {
@@ -3779,7 +4150,11 @@ INDEX_HTML = """<!doctype html>
         parameters.set("document_path", artifactItem.target.path);
         parameters.set("document_title", artifactItem.target.label);
       }
-      parameters.set("font_size", String(terminalFontSize));
+      const fontPane = paneFontKeyForKind(kind);
+      parameters.set("base_font_size", String(terminalFontSize));
+      parameters.set("font_pane", fontPane);
+      parameters.set("font_offset", String(paneFontOffset(fontPane)));
+      parameters.set("font_size", String(effectivePaneFontSize(fontPane)));
       parameters.set("document_zoom", String(documentZoom));
       return `/pane/${encodeURIComponent(kind)}?${parameters.toString()}`;
     }
@@ -3872,6 +4247,14 @@ INDEX_HTML = """<!doctype html>
         projectPath.value = data.path;
         projectStatus.textContent = `selected: ${data.path}`;
         projectPath.focus();
+        return;
+      }
+      if (
+        data.type === "electroboy-pane-font-offset" &&
+        PANE_FONT_KEYS.includes(data.pane)
+      ) {
+        paneFontOffsets[data.pane] = clampPaneFontOffset(Number(data.offset || 0));
+        applyPaneFontSize(data.pane);
         return;
       }
       if (data.type !== "electroboy-pane-restore" || !data.pane) {
@@ -4709,6 +5092,7 @@ INDEX_HTML = """<!doctype html>
       parameters.set("context_id", contextId);
       parameters.set("artifact", artifactKindForPane(item));
       parameters.set("font_size", String(terminalFontSize));
+      parameters.set("base_font_size", String(terminalFontSize));
       parameters.set("document_zoom", String(documentZoom));
       if (item.kind === "document" && item.target) {
         parameters.set("document_path", item.target.path);
@@ -6498,6 +6882,30 @@ INDEX_HTML = """<!doctype html>
     });
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
+    document.querySelectorAll("[data-pane-font-delta]").forEach((button) => {
+      button.addEventListener("click", () => {
+        changePaneFontOffset(
+          button.dataset.paneFont || "",
+          Number(button.dataset.paneFontDelta || "0"),
+        );
+      });
+    });
+    document.querySelectorAll("[data-pane-font-reset]").forEach((button) => {
+      button.addEventListener("click", () => {
+        resetPaneFontOffset(button.dataset.paneFont || "");
+      });
+    });
+    window.addEventListener("storage", (event) => {
+      if (!event.key || !event.key.startsWith(PANE_FONT_OFFSET_STORAGE_PREFIX)) {
+        return;
+      }
+      const pane = event.key.slice(PANE_FONT_OFFSET_STORAGE_PREFIX.length);
+      if (!PANE_FONT_KEYS.includes(pane)) {
+        return;
+      }
+      paneFontOffsets[pane] = storedPaneFontOffset(pane);
+      applyPaneFontSize(pane);
+    });
     popoutAgentPane.addEventListener("click", () => popOutPane("agent"));
     popoutProgressPane.addEventListener("click", () => popOutPane("progress"));
     popoutProjectShellPane.addEventListener("click", () => popOutPane("shell"));
@@ -6667,7 +7075,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     .pane-actions,
-    .artifact-zoom-controls {
+    .artifact-zoom-controls,
+    .pane-font-controls {
       display: flex;
       align-items: center;
       gap: 6px;
@@ -6679,6 +7088,14 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     .artifact-zoom-level {
+      min-width: 44px;
+      text-align: center;
+      color: #aab8cf;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 750;
+    }
+
+    .pane-font-level {
       min-width: 44px;
       text-align: center;
       color: #aab8cf;
@@ -6740,17 +7157,12 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     .input-actions {
       display: grid;
-      grid-template-columns: auto minmax(160px, 1fr) auto auto;
+      grid-template-columns: minmax(160px, 1fr) auto auto;
       align-items: end;
       gap: 8px;
       border-top: 1px solid var(--border);
       background: #151b29;
       padding: 8px;
-    }
-
-    .input-font-controls {
-      display: flex;
-      gap: 6px;
     }
 
     .input-session-control {
@@ -6780,6 +7192,27 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     <header class="pane-toolbar">
       <span id="paneTitle">Pane</span>
       <div class="pane-actions">
+        <div id="paneFontControls" class="pane-font-controls" aria-label="Pane font size">
+          <button
+            id="decreasePaneFont"
+            type="button"
+            title="Decrease pane font size"
+            aria-label="Decrease pane font size"
+          >A-</button>
+          <span id="paneFontLevel" class="pane-font-level">15px</span>
+          <button
+            id="resetPaneFont"
+            type="button"
+            title="Reset pane font size"
+            aria-label="Reset pane font size"
+          >0</button>
+          <button
+            id="increasePaneFont"
+            type="button"
+            title="Increase pane font size"
+            aria-label="Increase pane font size"
+          >A+</button>
+        </div>
         <div id="artifactZoomControls" class="artifact-zoom-controls" hidden>
           <button
             id="decreaseArtifactZoom"
@@ -6819,20 +7252,6 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       <div id="inputLayout" class="input-layout" hidden>
         <textarea id="agentInput" class="input-text" spellcheck="false"></textarea>
         <div class="input-actions">
-          <div class="input-font-controls" aria-label="UI font size">
-            <button
-              id="decreasePaneFont"
-              type="button"
-              title="Decrease font size"
-              aria-label="Decrease font size"
-            >A-</button>
-            <button
-              id="increasePaneFont"
-              type="button"
-              title="Increase font size"
-              aria-label="Increase font size"
-            >A+</button>
-          </div>
           <div class="input-session-control">
             <label for="sessionSwitcher">Select Agent</label>
             <select
@@ -6860,10 +7279,16 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactRoutePath = params.get("artifact_path") || "";
     const artifactRouteTitle = params.get("artifact_title") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
+    const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
     const MIN_FONT_SIZE = 11;
     const MAX_FONT_SIZE = 24;
-    let fontSize = storedFontSize();
+    const MIN_FONT_OFFSET = -6;
+    const MAX_FONT_OFFSET = 6;
+    const fontPane = params.get("font_pane") || paneFontKeyForKind(PANE_KIND);
+    let baseFontSize = storedBaseFontSize();
+    let fontOffset = storedFontOffset();
+    let fontSize = effectiveFontSize();
     const MIN_ARTIFACT_ZOOM = 70;
     const MAX_ARTIFACT_ZOOM = 180;
     const ARTIFACT_ZOOM_STEP = 10;
@@ -6871,6 +7296,11 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const scratchKey = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
     const dockPane = document.getElementById("dockPane");
+    const paneFontControls = document.getElementById("paneFontControls");
+    const decreasePaneFont = document.getElementById("decreasePaneFont");
+    const paneFontLevel = document.getElementById("paneFontLevel");
+    const resetPaneFont = document.getElementById("resetPaneFont");
+    const increasePaneFont = document.getElementById("increasePaneFont");
     const artifactZoomControls = document.getElementById("artifactZoomControls");
     const decreaseArtifactZoom = document.getElementById("decreaseArtifactZoom");
     const artifactZoomLevel = document.getElementById("artifactZoomLevel");
@@ -6882,8 +7312,6 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const statusOutput = document.getElementById("statusOutput");
     const inputLayout = document.getElementById("inputLayout");
     const agentInput = document.getElementById("agentInput");
-    const decreasePaneFont = document.getElementById("decreasePaneFont");
-    const increasePaneFont = document.getElementById("increasePaneFont");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
     const sendAgentInput = document.getElementById("sendAgentInput");
     const interruptAgent = document.getElementById("interruptAgent");
@@ -6897,8 +7325,19 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     applyFontSize();
 
-    function storedFontSize() {
-      const requested = Number(params.get("font_size") || "");
+    function paneFontKeyForKind(kind) {
+      if (kind === "shell") return "shell";
+      if (kind === "progress") return "progress";
+      if (kind === "input") return "input";
+      if (kind === "scratch") return "scratch";
+      if (kind === "status") return "status";
+      return "agent";
+    }
+
+    function storedBaseFontSize() {
+      const requested = Number(
+        params.get("base_font_size") || params.get("font_size") || "",
+      );
       if (Number.isFinite(requested) && requested > 0) {
         return clampFontSize(requested);
       }
@@ -6913,32 +7352,95 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       return DEFAULT_FONT_SIZE;
     }
 
+    function storedFontOffset() {
+      if (params.has("font_offset")) {
+        const requested = Number(params.get("font_offset") || "");
+        if (Number.isFinite(requested)) {
+          return clampFontOffset(requested);
+        }
+      }
+      return localStoredFontOffset();
+    }
+
+    function localStoredFontOffset() {
+      try {
+        const stored = Number(
+          window.localStorage.getItem(PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane),
+        );
+        if (Number.isFinite(stored)) {
+          return clampFontOffset(stored);
+        }
+      } catch (error) {
+        return 0;
+      }
+      return 0;
+    }
+
     function clampFontSize(value) {
       return Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(value)));
     }
 
-    function saveFontSize() {
+    function clampFontOffset(value) {
+      return Math.max(MIN_FONT_OFFSET, Math.min(MAX_FONT_OFFSET, Math.round(value)));
+    }
+
+    function effectiveFontSize() {
+      return clampFontSize(baseFontSize + fontOffset);
+    }
+
+    function saveFontOffset() {
       try {
-        window.localStorage.setItem(TERMINAL_FONT_STORAGE_KEY, String(fontSize));
+        window.localStorage.setItem(
+          PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane,
+          String(fontOffset),
+        );
       } catch (error) {
         return;
       }
     }
 
+    function notifyFontOffsetChanged() {
+      if (window.opener) {
+        window.opener.postMessage(
+          {
+            type: "electroboy-pane-font-offset",
+            pane: fontPane,
+            offset: fontOffset,
+          },
+          window.location.origin,
+        );
+      }
+    }
+
     function applyFontSize() {
+      fontSize = effectiveFontSize();
       document.documentElement.style.setProperty("--font-size", `${fontSize}px`);
       if (terminal) {
         terminal.options.fontSize = fontSize;
         window.requestAnimationFrame(fitTerminal);
       }
-      decreasePaneFont.disabled = fontSize <= MIN_FONT_SIZE;
-      increasePaneFont.disabled = fontSize >= MAX_FONT_SIZE;
+      paneFontControls.hidden = PANE_KIND === "artifact";
+      paneFontLevel.textContent = `${fontSize}px`;
+      paneFontLevel.title = fontOffset === 0
+        ? "Global font size"
+        : `Global ${fontOffset > 0 ? "+" : ""}${fontOffset}px`;
+      decreasePaneFont.disabled = fontOffset <= MIN_FONT_OFFSET;
+      resetPaneFont.disabled = fontOffset === 0;
+      increasePaneFont.disabled = fontOffset >= MAX_FONT_OFFSET;
     }
 
     function changeFontSize(delta) {
-      fontSize = clampFontSize(fontSize + delta);
-      saveFontSize();
+      fontOffset = clampFontOffset(fontOffset + delta);
+      saveFontOffset();
       applyFontSize();
+      notifyFontOffsetChanged();
+    }
+
+    function resetFontSize() {
+      fontOffset = 0;
+      saveFontOffset();
+      applyFontSize();
+      notifyFontOffsetChanged();
     }
 
     function titleForPane(kind) {
@@ -7408,7 +7910,23 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     );
     refreshArtifactButton.addEventListener("click", refreshArtifact);
     decreasePaneFont.addEventListener("click", () => changeFontSize(-1));
+    resetPaneFont.addEventListener("click", resetFontSize);
     increasePaneFont.addEventListener("click", () => changeFontSize(1));
+    window.addEventListener("storage", (event) => {
+      if (event.key === TERMINAL_FONT_STORAGE_KEY) {
+        const nextBase = Number(event.newValue || "");
+        if (Number.isFinite(nextBase) && nextBase > 0) {
+          baseFontSize = clampFontSize(nextBase);
+          applyFontSize();
+        }
+        return;
+      }
+      if (event.key !== PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane) {
+        return;
+      }
+      fontOffset = localStoredFontOffset();
+      applyFontSize();
+    });
     sessionSwitcher.addEventListener("change", () => {
       selectAgentSession(sessionSwitcher.value);
     });
