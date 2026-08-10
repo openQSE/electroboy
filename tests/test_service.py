@@ -36,6 +36,7 @@ from electroboy.service import (  # noqa: E402
     _status_command,
     _status_snapshot,
     _terminal_input_chunks_for_message,
+    _terminal_input_for_key,
     _terminal_input_for_message,
     browse_directories,
     browse_files,
@@ -113,6 +114,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("document_zoom")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn("function changeArtifactZoom(delta)", page)
+        self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/sessions/key")', PANE_WINDOW_HTML)
         self.assertIn('sandbox="allow-scripts allow-popups"', page)
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
@@ -736,8 +739,13 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn('contextUrl("/api/sessions/message")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/sessions/key")', INDEX_HTML)
         self.assertIn('contextUrl("/api/sessions/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/sessions/resize")', INDEX_HTML)
+        self.assertIn("function terminalKeyForInputEvent(event)", INDEX_HTML)
+        self.assertIn('if (event.key === "ArrowUp") return "up";', INDEX_HTML)
+        self.assertIn("event.ctrlKey &&", INDEX_HTML)
+        self.assertIn("/^[0-9]$/.test(event.key)", INDEX_HTML)
         self.assertIn("payload.terminal || payload.text", INDEX_HTML)
         self.assertIn("function clearAgentOutput()", INDEX_HTML)
         self.assertIn("terminal.clear();", INDEX_HTML)
@@ -2256,6 +2264,38 @@ class ServiceTests(unittest.TestCase):
             if session.is_active() and session.process is not None:
                 session.process.terminate()
 
+    def test_agent_session_sends_named_terminal_key(self) -> None:
+        script = (
+            "import sys\n"
+            "import termios\n"
+            "import tty\n"
+            "print('ready', flush=True)\n"
+            "fd = sys.stdin.fileno()\n"
+            "old = termios.tcgetattr(fd)\n"
+            "try:\n"
+            "    tty.setraw(fd)\n"
+            "    key = sys.stdin.read(1)\n"
+            "finally:\n"
+            "    termios.tcsetattr(fd, termios.TCSANOW, old)\n"
+            "print('key:' + repr(key), flush=True)\n"
+        )
+        session = AgentSession([sys.executable, "-c", script], ROOT)
+        try:
+            try:
+                session.start()
+            except PermissionError as error:
+                self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+            self.assertIn("ready", wait_for_output(self, session, "ready"))
+
+            session.send_key("enter")
+
+            self.assertIn("key:'\\r'", wait_for_output(self, session, "key:"))
+            wait_for_exit(self, session)
+            self.assertFalse(session.is_active())
+        finally:
+            if session.is_active() and session.process is not None:
+                session.process.terminate()
+
     def test_agent_session_interrupts_running_process(self) -> None:
         script = (
             "import os\n"
@@ -2449,6 +2489,14 @@ class ServiceTests(unittest.TestCase):
     def test_terminal_input_uses_enter_key_for_single_line_submit(self) -> None:
         self.assertEqual(_terminal_input_for_message("hello"), "hello\r")
         self.assertEqual(_terminal_input_chunks_for_message("hello"), ["hello", "\r"])
+
+    def test_terminal_input_supports_named_enter_key(self) -> None:
+        self.assertEqual(_terminal_input_for_key("enter"), "\r")
+        self.assertEqual(_terminal_input_for_key("up"), "\x1b[A")
+        self.assertEqual(_terminal_input_for_key("down"), "\x1b[B")
+        self.assertEqual(_terminal_input_for_key("1"), "1")
+        with self.assertRaises(AgentSessionError):
+            _terminal_input_for_key("space")
 
     def test_terminal_input_uses_bracketed_paste_for_multiline_submit(self) -> None:
         self.assertEqual(

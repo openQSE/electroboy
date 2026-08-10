@@ -4939,6 +4939,53 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    async function sendTerminalKey(key) {
+      if (!selectedSessionAcceptsInput()) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/sessions/key"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: "send failed" }));
+        appendOutput(`${payload.error || "send failed"}\\n`, "error");
+      }
+    }
+
+    function terminalKeyForInputEvent(event) {
+      if (agentInput.value.length > 0) {
+        return "";
+      }
+      if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        /^[0-9]$/.test(event.key)
+      ) {
+        return event.key;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Escape") return "escape";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
     async function interruptActiveAgent() {
       if (!sessionIsRunning(selectedSession())) {
         return;
@@ -5386,13 +5433,23 @@ INDEX_HTML = """<!doctype html>
     window.addEventListener("resize", repositionOpenStageMenu);
 
     agentInput.addEventListener("keydown", (event) => {
+      const terminalKey = terminalKeyForInputEvent(event);
+      if (terminalKey) {
+        event.preventDefault();
+        sendTerminalKey(terminalKey);
+        return;
+      }
       const isEnter =
         event.key === "Enter" ||
         event.code === "Enter" ||
         event.code === "NumpadEnter";
       if (isEnter && event.shiftKey) {
         event.preventDefault();
-        sendMessage();
+        if (agentInput.value.trim()) {
+          sendMessage();
+        } else {
+          sendTerminalKey("enter");
+        }
       }
     });
     scratchPad.addEventListener("input", saveScratchPad);
@@ -5889,6 +5946,46 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       });
     }
 
+    async function sendTerminalKey(key) {
+      await fetch(contextUrl("/api/sessions/key"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+    }
+
+    function terminalKeyForInputEvent(event) {
+      if (agentInput.value.length > 0) {
+        return "";
+      }
+      if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        /^[0-9]$/.test(event.key)
+      ) {
+        return event.key;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Escape") return "escape";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
     async function interruptAgentSession() {
       await fetch(contextUrl("/api/sessions/interrupt"), { method: "POST" });
     }
@@ -5918,13 +6015,23 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     sendAgentInput.addEventListener("click", sendMessage);
     interruptAgent.addEventListener("click", interruptAgentSession);
     agentInput.addEventListener("keydown", (event) => {
+      const terminalKey = terminalKeyForInputEvent(event);
+      if (terminalKey) {
+        event.preventDefault();
+        sendTerminalKey(terminalKey);
+        return;
+      }
       const isEnter =
         event.key === "Enter" ||
         event.code === "Enter" ||
         event.code === "NumpadEnter";
       if (isEnter && event.shiftKey) {
         event.preventDefault();
-        sendMessage();
+        if (agentInput.value.trim()) {
+          sendMessage();
+        } else {
+          sendTerminalKey("enter");
+        }
       }
     });
 
@@ -7332,6 +7439,14 @@ class ServiceState:
             raise AgentSessionError(f"{session.label} does not accept input")
         session.send(message)
 
+    def send_selected_session_key(self, context_id: str, key: str) -> None:
+        session = self.selected_session(context_id)
+        if session is None:
+            raise AgentSessionError("no agent session is selected")
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send_key(key)
+
     def interrupt_selected_session(self, context_id: str) -> None:
         session = self.selected_session(context_id)
         if session is None:
@@ -7764,6 +7879,16 @@ class AgentSession:
                 if index > 0:
                     time.sleep(TERMINAL_SUBMIT_DELAY_SECONDS)
                 os.write(self._master_fd, text.encode("utf-8"))
+        except OSError as error:
+            raise AgentSessionError(f"could not write to {self.label}: {error}")
+
+    def send_key(self, key: str) -> None:
+        if not self.is_active():
+            raise AgentSessionError(f"{self.label} is not running")
+        if self._master_fd is None:
+            raise AgentSessionError(f"{self.label} input is not available")
+        try:
+            os.write(self._master_fd, _terminal_input_for_key(key).encode("utf-8"))
         except OSError as error:
             raise AgentSessionError(f"could not write to {self.label}: {error}")
 
@@ -10055,6 +10180,27 @@ def _terminal_input_for_message(message: str) -> str:
     return "".join(_terminal_input_chunks_for_message(message))
 
 
+def _terminal_input_for_key(key: str) -> str:
+    if re.fullmatch(r"[0-9]", key):
+        return key
+    keys = {
+        "enter": "\r",
+        "escape": "\x1b",
+        "tab": "\t",
+        "up": "\x1b[A",
+        "down": "\x1b[B",
+        "right": "\x1b[C",
+        "left": "\x1b[D",
+    }
+    try:
+        return keys[key]
+    except KeyError:
+        choices = ", ".join(sorted(keys))
+        raise AgentSessionError(
+            f"unknown terminal key {key!r}; choose one of: {choices}, 0-9"
+        )
+
+
 def _terminal_input_chunks_for_message(message: str) -> list[str]:
     text = message.replace("\r\n", "\n").replace("\r", "\n")
     text = text.rstrip("\n")
@@ -10345,6 +10491,9 @@ def _handler_for(
                 return
             if path == "/api/sessions/message":
                 self._send_selected_session_message(parsed.query)
+                return
+            if path == "/api/sessions/key":
+                self._send_selected_session_key(parsed.query)
                 return
             if path == "/api/sessions/interrupt":
                 self._interrupt_selected_session(parsed.query)
@@ -10771,6 +10920,32 @@ def _handler_for(
                 self._send_json(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "sent"})
+
+        def _send_selected_session_key(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                key = str(payload.get("key") or "")
+                if not key:
+                    self._send_json(
+                        {"error": "key is required"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                state.send_selected_session_key(context_id, key)
+            except AgentSessionError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except (StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.BAD_REQUEST,
                 )
                 return
             self._send_json({"status": "sent"})
