@@ -10358,10 +10358,34 @@ def _ensure_document_target(project_root: Path | str, relative_path: str) -> str
     normalized_path, document_path = _document_target_path(project_root, relative_path)
     if not document_path.exists():
         document_path.parent.mkdir(parents=True, exist_ok=True)
-        document_path.write_text("", encoding="utf-8")
+        document_path.write_text(
+            _document_starter_markdown(normalized_path),
+            encoding="utf-8",
+        )
     if not document_path.is_file():
         raise StateError("document path must refer to a file")
+    if not document_path.read_text(encoding="utf-8").strip():
+        document_path.write_text(
+            _document_starter_markdown(normalized_path),
+            encoding="utf-8",
+        )
     return normalized_path
+
+
+def _document_starter_markdown(relative_path: str) -> str:
+    title = _document_starter_title(relative_path)
+    return f"# {title}\n\n## Overview\n\n## Notes\n"
+
+
+def _document_starter_title(relative_path: str) -> str:
+    stem = Path(relative_path).stem.strip()
+    if not stem:
+        return "Document"
+    if stem.lower() == "readme":
+        return "README"
+    if stem.lower() == "api":
+        return "API"
+    return stem.replace("-", " ").replace("_", " ").title()
 
 
 def _document_target_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:

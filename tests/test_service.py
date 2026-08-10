@@ -135,7 +135,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
 
-    def test_document_target_renderer_creates_empty_markdown_template(self) -> None:
+    def test_document_target_renderer_creates_markdown_starter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             page, status = document_target_html(
@@ -148,14 +148,38 @@ class ServiceTests(unittest.TestCase):
 
             target = root / "docs" / "guide.md"
             self.assertTrue(target.exists())
-            self.assertEqual(target.read_text(encoding="utf-8"), "")
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                "# Guide\n\n## Overview\n\n## Notes\n",
+            )
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("<title>Guide</title>", page)
+        self.assertIn("<h1>Guide</h1>", page)
+        self.assertIn("<h2>Overview</h2>", page)
         self.assertIn("--doc-bg: #10141f;", page)
         self.assertIn("--doc-text: #e7edf7;", page)
         self.assertIn("article, article :where", page)
         self.assertIn("--doc-surface: #10141f;", page)
+
+    def test_document_target_renderer_seeds_blank_existing_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "README.md"
+            target.write_text("\n", encoding="utf-8")
+
+            page, status = document_target_html(
+                root,
+                "README.md",
+                create_missing=True,
+            )
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                "# README\n\n## Overview\n\n## Notes\n",
+            )
+            self.assertIn("<h1>README</h1>", page)
 
     def test_document_target_renderer_accepts_zoom(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
