@@ -344,12 +344,31 @@ INDEX_HTML = """<!doctype html>
       background: #edf6fb;
     }
 
+    .shell-control {
+      width: clamp(150px, calc(var(--ui-font-size) * 12), 220px);
+    }
+
+    .toolbar-command-button {
+      flex: 1 1 auto;
+      align-self: stretch;
+      padding: 0 14px;
+      font-size: var(--ui-small-font-size);
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .toolbar-command-button.active {
+      background: #dff4ea;
+      color: #0f6648;
+    }
+
     .shell-resize-handle,
     .input-resize-handle,
     .output-resize-handle,
     .workbench-resize-handle,
     .side-pane-resize-handle,
-    .artifact-pane-resize-handle {
+    .artifact-pane-resize-handle,
+    .shell-pane-divider {
       touch-action: none;
       user-select: none;
     }
@@ -881,7 +900,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     .shell-pane-divider {
-      cursor: default;
+      cursor: row-resize;
     }
 
     .workbench-resize-handle {
@@ -897,7 +916,9 @@ INDEX_HTML = """<!doctype html>
     .side-pane-resize-handle:hover,
     .side-pane.resizing .side-pane-resize-handle,
     .artifact-pane-resize-handle:hover,
-    .output-split.resizing-artifact .artifact-pane-resize-handle {
+    .output-split.resizing-artifact .artifact-pane-resize-handle,
+    .shell-pane-divider:hover,
+    .left-output-pane.resizing-shell .shell-pane-divider {
       background: #3a78a0;
     }
 
@@ -1519,6 +1540,19 @@ INDEX_HTML = """<!doctype html>
             aria-label="Select Agent"
           ></select>
         </div>
+        <div class="shell-control toolbar-control-group">
+          <span class="toolbar-control-label">Shell</span>
+          <button
+            id="toggleProjectShellPane"
+            class="toolbar-command-button"
+            type="button"
+            disabled
+            title="Open or hide the project shell"
+            aria-label="Open or hide the project shell"
+          >
+            Shell
+          </button>
+        </div>
       </div>
       <div class="stage-scroll">
         <div class="stage-graph" aria-label="Project stages">
@@ -2058,6 +2092,13 @@ INDEX_HTML = """<!doctype html>
               <span class="pane-title">Project shell</span>
               <div class="pane-actions">
                 <button
+                  id="closeProjectShellPane"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Hide project shell"
+                  aria-label="Hide project shell"
+                >Close</button>
+                <button
                   id="stopProjectShell"
                   class="pane-popout-button"
                   type="button"
@@ -2321,6 +2362,7 @@ INDEX_HTML = """<!doctype html>
     const shellPaneDivider = document.getElementById("shellPaneDivider");
     const projectShellPane = document.getElementById("projectShellPane");
     const projectShellOutput = document.getElementById("projectShellOutput");
+    const closeProjectShellPane = document.getElementById("closeProjectShellPane");
     const stopProjectShell = document.getElementById("stopProjectShell");
     const sidePane = document.getElementById("sidePane");
     const sidePaneResizeHandle = document.getElementById("sidePaneResizeHandle");
@@ -2340,6 +2382,7 @@ INDEX_HTML = """<!doctype html>
     const terminalFontValue = document.getElementById("terminalFontValue");
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
     const agentSessionIndicator = document.getElementById("agentSessionIndicator");
+    const toggleProjectShellPane = document.getElementById("toggleProjectShellPane");
     const interruptAgent = document.getElementById("interruptAgent");
     const insertFileLink = document.getElementById("insertFileLink");
     const popoutAgentPane = document.getElementById("popoutAgentPane");
@@ -2356,6 +2399,8 @@ INDEX_HTML = """<!doctype html>
     const INPUT_ACTIONS_WIDTH_STORAGE_KEY = "electroboy.inputActionsWidth";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
     const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";
+    const PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY =
+      "electroboy.projectShellPaneHeight";
     const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
     const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
@@ -2457,6 +2502,7 @@ INDEX_HTML = """<!doctype html>
     let resizeWorkbenchState = null;
     let resizeSidePaneState = null;
     let resizeArtifactPaneState = null;
+    let resizeProjectShellState = null;
     let resizeTimer = null;
     let shellResizeTimer = null;
     let statusRefreshTimer = null;
@@ -2471,6 +2517,7 @@ INDEX_HTML = """<!doctype html>
     let progressPaneRequested = false;
     let artifactPaneRequested = false;
     let projectShellPaneRequested = false;
+    let projectShellPaneDismissed = false;
     let inputPaneRequested = true;
     let projectShellRunning = false;
     const poppedPanes = new Set();
@@ -2618,6 +2665,13 @@ INDEX_HTML = """<!doctype html>
       applyStoredProgressPaneHeight();
     }
 
+    function applyStoredProjectShellPaneHeight() {
+      const stored = storedNumber(PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY);
+      if (stored) {
+        leftOutputPane.style.setProperty("--shell-pane-height", `${stored}px`);
+      }
+    }
+
     function applyStoredWorkbenchPaneSize() {
       const rightWidth = storedNumber(RIGHT_PANE_WIDTH_STORAGE_KEY);
       if (rightWidth) {
@@ -2650,6 +2704,10 @@ INDEX_HTML = """<!doctype html>
 
     function saveProgressPaneHeight(height) {
       saveNumber(PROGRESS_PANE_HEIGHT_STORAGE_KEY, height);
+    }
+
+    function saveProjectShellPaneHeight(height) {
+      saveNumber(PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY, height);
     }
 
     function saveRightPaneWidth(width) {
@@ -3023,26 +3081,85 @@ INDEX_HTML = """<!doctype html>
       shellPaneDivider.hidden = !visible;
       leftOutputPane.classList.toggle("shell-visible", visible);
       if (visible) {
+        applyStoredProjectShellPaneHeight();
         initializeProjectShellTerminal();
       }
       window.requestAnimationFrame(fitTerminal);
+      updateProjectShellToggle();
     }
 
     function showProjectShellPane(show) {
+      if (show) {
+        projectShellPaneDismissed = false;
+      }
       projectShellPaneRequested = show;
       applyProjectShellPaneVisibility();
     }
 
+    function hideProjectShellPane() {
+      projectShellPaneDismissed = projectShellRunning;
+      projectShellPaneRequested = false;
+      applyProjectShellPaneVisibility();
+    }
+
     function syncProjectShellPane() {
-      if (projectShellRunning && !projectShellPaneRequested) {
+      if (
+        projectShellRunning &&
+        !projectShellPaneRequested &&
+        !projectShellPaneDismissed
+      ) {
         projectShellPaneRequested = true;
       }
-      if (!projectShellRunning && projectShellPaneRequested) {
+      if (!projectShellRunning) {
+        projectShellPaneDismissed = false;
         closeProjectShellEventStream();
       }
       applyProjectShellPaneVisibility();
       if (projectShellRunning && !projectShellEventSource) {
         window.setTimeout(connectProjectShellEvents, 0);
+      }
+    }
+
+    async function toggleProjectShellFromToolbar() {
+      if (!activeProjectRoot || !contextId) {
+        return;
+      }
+      const visible = projectShellPaneRequested && !poppedPanes.has("shell");
+      if (visible) {
+        hideProjectShellPane();
+        return;
+      }
+      if (poppedPanes.has("shell")) {
+        dockPoppedPane("shell");
+      }
+      if (projectShellRunning) {
+        showProjectShellPane(true);
+        projectShellTerminal?.focus();
+        return;
+      }
+      await startProjectShell();
+    }
+
+    function updateProjectShellToggle() {
+      if (!toggleProjectShellPane) {
+        return;
+      }
+      const hasActiveProject = Boolean(activeProjectRoot);
+      const visible = projectShellPaneRequested && !poppedPanes.has("shell");
+      toggleProjectShellPane.disabled = !hasActiveProject;
+      toggleProjectShellPane.classList.toggle("active", visible);
+      if (!hasActiveProject) {
+        toggleProjectShellPane.textContent = "Shell";
+        toggleProjectShellPane.title = "Activate a project to open a shell";
+      } else if (visible) {
+        toggleProjectShellPane.textContent = "Hide";
+        toggleProjectShellPane.title = "Hide the project shell pane";
+      } else if (projectShellRunning) {
+        toggleProjectShellPane.textContent = poppedPanes.has("shell") ? "Dock" : "Show";
+        toggleProjectShellPane.title = "Show the running project shell";
+      } else {
+        toggleProjectShellPane.textContent = "Open";
+        toggleProjectShellPane.title = "Open a shell in the active project";
       }
     }
 
@@ -3089,6 +3206,7 @@ INDEX_HTML = """<!doctype html>
             "system",
           );
           projectShellRunning = false;
+          projectShellPaneDismissed = false;
           closeProjectShellEventStream();
           refreshProject();
         }
@@ -3128,6 +3246,7 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       projectShellRunning = false;
+      projectShellPaneDismissed = false;
       closeProjectShellEventStream();
       updateProjectState(payload);
     }
@@ -3543,6 +3662,51 @@ INDEX_HTML = """<!doctype html>
       fitTerminal();
     }
 
+    function startProjectShellPaneResize(event) {
+      if (projectShellPane.hidden) {
+        return;
+      }
+      event.preventDefault();
+      const leftOutputRect = leftOutputPane.getBoundingClientRect();
+      const shellRect = projectShellPane.getBoundingClientRect();
+      resizeProjectShellState = {
+        startY: event.clientY,
+        startHeight: shellRect.height,
+        maxHeight: Math.max(180, leftOutputRect.height - 220),
+      };
+      shellPaneDivider.setPointerCapture(event.pointerId);
+      leftOutputPane.classList.add("resizing-shell");
+    }
+
+    function updateProjectShellPaneResize(event) {
+      if (!resizeProjectShellState) {
+        return;
+      }
+      const deltaY = resizeProjectShellState.startY - event.clientY;
+      const nextHeight = clampValue(
+        resizeProjectShellState.startHeight + deltaY,
+        180,
+        resizeProjectShellState.maxHeight,
+      );
+      leftOutputPane.style.setProperty("--shell-pane-height", `${nextHeight}px`);
+      saveProjectShellPaneHeight(nextHeight);
+      fitTerminal();
+    }
+
+    function finishProjectShellPaneResize(event) {
+      if (!resizeProjectShellState) {
+        return;
+      }
+      resizeProjectShellState = null;
+      leftOutputPane.classList.remove("resizing-shell");
+      try {
+        shellPaneDivider.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+      fitTerminal();
+    }
+
     function clampValue(value, minimum, maximum) {
       const upper = Math.max(minimum, maximum);
       return Math.max(minimum, Math.min(upper, value));
@@ -3648,6 +3812,20 @@ INDEX_HTML = """<!doctype html>
         setPanePoppedOut(kind, false);
       }, 500);
       poppedPaneWindows.set(kind, { popup, poll });
+    }
+
+    function dockPoppedPane(kind) {
+      const existing = poppedPaneWindows.get(kind);
+      if (existing) {
+        window.clearInterval(existing.poll);
+        try {
+          existing.popup.close();
+        } catch (error) {
+          // The browser may block closing a user-managed window.
+        }
+        poppedPaneWindows.delete(kind);
+      }
+      setPanePoppedOut(kind, false);
     }
 
     function setPanePoppedOut(kind, poppedOut) {
@@ -5333,6 +5511,7 @@ INDEX_HTML = """<!doctype html>
       stageRunState = {};
       documentationRunning = false;
       projectShellRunning = false;
+      projectShellPaneDismissed = false;
       agentSessions = [];
       selectedSessionId = "";
       renderSessionSwitcher();
@@ -6181,6 +6360,11 @@ INDEX_HTML = """<!doctype html>
     cancelWorkItem.addEventListener("click", hideWorkItemPanel);
     openProjectShell.addEventListener("click", startProjectShell);
     retryWorkItem.addEventListener("click", applyWorkItemSelection);
+    toggleProjectShellPane.addEventListener("click", () => {
+      toggleProjectShellFromToolbar().catch((error) => {
+        appendOutput(`project shell failed: ${error}\\n`, "error");
+      });
+    });
     workItemTitle.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -6328,6 +6512,10 @@ INDEX_HTML = """<!doctype html>
     outputResizeHandle.addEventListener("pointermove", updateOutputResize);
     outputResizeHandle.addEventListener("pointerup", finishOutputResize);
     outputResizeHandle.addEventListener("pointercancel", finishOutputResize);
+    shellPaneDivider.addEventListener("pointerdown", startProjectShellPaneResize);
+    shellPaneDivider.addEventListener("pointermove", updateProjectShellPaneResize);
+    shellPaneDivider.addEventListener("pointerup", finishProjectShellPaneResize);
+    shellPaneDivider.addEventListener("pointercancel", finishProjectShellPaneResize);
     workbenchResizeHandle.addEventListener("pointerdown", startWorkbenchResize);
     workbenchResizeHandle.addEventListener("pointermove", updateWorkbenchResize);
     workbenchResizeHandle.addEventListener("pointerup", finishWorkbenchResize);
@@ -6341,6 +6529,7 @@ INDEX_HTML = """<!doctype html>
     artifactPaneResizeHandle.addEventListener("pointerup", finishArtifactPaneResize);
     artifactPaneResizeHandle.addEventListener("pointercancel", finishArtifactPaneResize);
     interruptAgent.addEventListener("click", interruptActiveAgent);
+    closeProjectShellPane.addEventListener("click", hideProjectShellPane);
     stopProjectShell.addEventListener("click", stopProjectShellProcess);
     insertFileLink.addEventListener("click", () => {
       if (insertFileLink.disabled) {

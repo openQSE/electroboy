@@ -421,13 +421,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="workItemRecovery"', INDEX_HTML)
         self.assertIn('id="openProjectShell"', INDEX_HTML)
         self.assertIn('id="retryWorkItem"', INDEX_HTML)
+        self.assertIn('id="toggleProjectShellPane"', INDEX_HTML)
         self.assertIn("function recoverableWorkItemError(message", INDEX_HTML)
         self.assertIn("function startProjectShell()", INDEX_HTML)
+        self.assertIn("function toggleProjectShellFromToolbar()", INDEX_HTML)
+        self.assertIn("function updateProjectShellToggle()", INDEX_HTML)
+        self.assertIn("let projectShellPaneDismissed = false;", INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/start")', INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/input")', INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/events")', INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/stop")', INDEX_HTML)
         self.assertIn('id="projectShellPane"', INDEX_HTML)
+        self.assertIn('id="closeProjectShellPane"', INDEX_HTML)
         self.assertIn('id="popoutProjectShellPane"', INDEX_HTML)
         self.assertIn("Starting or switching work items will stop that agent", INDEX_HTML)
         self.assertIn("stopped running agent for work-item context", INDEX_HTML)
@@ -529,6 +534,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="outputResizeHandle"', INDEX_HTML)
         self.assertIn('id="progressOutputPane"', INDEX_HTML)
         self.assertIn('id="progressOutput"', INDEX_HTML)
+        self.assertIn('id="shellPaneDivider"', INDEX_HTML)
         self.assertIn('id="sidePane"', INDEX_HTML)
         self.assertIn('id="sidePaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="scratchPad"', INDEX_HTML)
@@ -553,6 +559,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
         self.assertIn('id="sessionSwitcher"', INDEX_HTML)
         self.assertIn('for="sessionSwitcher">Agent</label>', INDEX_HTML)
+        self.assertIn('class="shell-control toolbar-control-group"', INDEX_HTML)
+        self.assertIn(".toolbar-command-button.active", INDEX_HTML)
         self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
         self.assertIn('id="terminalFontValue"', INDEX_HTML)
         self.assertIn('id="increaseTerminalFont"', INDEX_HTML)
@@ -633,6 +641,10 @@ class ServiceTests(unittest.TestCase):
             'const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";',
             INDEX_HTML,
         )
+        self.assertIn(
+            'const PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY =',
+            INDEX_HTML,
+        )
         self.assertIn('const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";', INDEX_HTML)
         self.assertIn(
             'const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";',
@@ -687,7 +699,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startArtifactPaneResize(event)", INDEX_HTML)
         self.assertIn("function updateArtifactPaneResize(event)", INDEX_HTML)
         self.assertIn("function finishArtifactPaneResize(event)", INDEX_HTML)
+        self.assertIn("function startProjectShellPaneResize(event)", INDEX_HTML)
+        self.assertIn("function updateProjectShellPaneResize(event)", INDEX_HTML)
+        self.assertIn("function finishProjectShellPaneResize(event)", INDEX_HTML)
         self.assertIn("function popOutPane(kind)", INDEX_HTML)
+        self.assertIn("function dockPoppedPane(kind)", INDEX_HTML)
         self.assertIn("function setPanePoppedOut(kind, poppedOut)", INDEX_HTML)
         self.assertIn("function applySidePaneVisibility()", INDEX_HTML)
         self.assertIn("applyStoredPaneSizes();", INDEX_HTML)
@@ -703,6 +719,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("saveScratchPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("saveArtifactPaneWidth(nextWidth);", INDEX_HTML)
         self.assertIn("saveArtifactPaneHeight(nextHeight);", INDEX_HTML)
+        self.assertIn("saveProjectShellPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("shellResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("inputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("inputActionResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
@@ -710,6 +727,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("workbenchResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("sidePaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("artifactPaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("shellPaneDivider.addEventListener(\"pointerdown\"", INDEX_HTML)
+        self.assertIn("toggleProjectShellPane.addEventListener(\"click\"", INDEX_HTML)
+        self.assertIn(
+            'closeProjectShellPane.addEventListener("click", hideProjectShellPane);',
+            INDEX_HTML,
+        )
         self.assertIn('scratchPad.addEventListener("input", saveScratchPad);', INDEX_HTML)
         self.assertIn('artifactRouteUrl("/artifacts/requirements")', INDEX_HTML)
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', INDEX_HTML)
