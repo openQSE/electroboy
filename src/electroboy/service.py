@@ -3662,7 +3662,7 @@ INDEX_HTML = """<!doctype html>
       applyWorkItem.disabled = true;
       workItemStatus.textContent = workItemPendingLabel();
       const endpoint = workItemEndpoint();
-      const body = workItemRequestBody(title);
+      let body = workItemRequestBody(title);
       let response;
       try {
         response = await fetch(contextUrl(endpoint), {
@@ -3675,7 +3675,23 @@ INDEX_HTML = """<!doctype html>
         applyWorkItem.disabled = false;
         return;
       }
-      const payload = await response.json().catch(() => ({ error: "work item failed" }));
+      let payload = await response.json().catch(() => ({ error: "work item failed" }));
+      if (!response.ok && shouldRetryWithSubrepoStash(payload, body)) {
+        body = { ...body, stash_subrepo_changes: true };
+        workItemStatus.textContent = "stashing nested repository changes";
+        try {
+          response = await fetch(contextUrl(endpoint), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+        } catch (error) {
+          workItemStatus.textContent = `work item update failed: ${error}`;
+          applyWorkItem.disabled = false;
+          return;
+        }
+        payload = await response.json().catch(() => ({ error: "work item failed" }));
+      }
       if (!response.ok) {
         const message = payload.error || "work item failed";
         workItemStatus.textContent = message;
@@ -3690,6 +3706,19 @@ INDEX_HTML = """<!doctype html>
       }
       updateProjectState(payload);
       applyWorkItem.disabled = false;
+    }
+
+    function shouldRetryWithSubrepoStash(payload, body) {
+      if (
+        !body.branch ||
+        body.stash_subrepo_changes ||
+        !payload.stash_subrepo_changes_required
+      ) {
+        return false;
+      }
+      return window.confirm(
+        "Nested repositories have tracked changes.\\n\\nStash those changes before switching all repositories to the new branch?",
+      );
     }
 
     function workItemEndpoint() {
@@ -5213,6 +5242,7 @@ class ServiceState:
         collection_id: str | None = None,
         parent_slug: str | None = None,
         branch: bool = False,
+        stash_subrepo_changes: bool = False,
     ) -> dict[str, object]:
         title = title.strip()
         if not title:
@@ -5229,6 +5259,7 @@ class ServiceState:
             feature_name=feature_name,
             amend=True,
             branch=branch,
+            stash_subrepo_changes=stash_subrepo_changes,
         )
         registry = _load_work_item_registry(project_root)
         feature_record = _current_feature_record(project_root)
@@ -5325,6 +5356,7 @@ class ServiceState:
         *,
         issue_reference: str,
         branch: bool = False,
+        stash_subrepo_changes: bool = False,
     ) -> dict[str, object]:
         issue_reference = issue_reference.strip()
         if not issue_reference:
@@ -5339,6 +5371,7 @@ class ServiceState:
             project_root,
             issue_reference=issue_reference,
             branch=branch,
+            stash_subrepo_changes=stash_subrepo_changes,
         )
         registry = _load_work_item_registry(project_root)
         bug_record = _current_bug_record(project_root)
@@ -7426,6 +7459,7 @@ def _run_feature_start_context(
     feature_name: str | None,
     amend: bool,
     branch: bool,
+    stash_subrepo_changes: bool = False,
     branch_name: str | None = None,
 ) -> str:
     from .cli import _cmd_feature_start
@@ -7435,6 +7469,7 @@ def _run_feature_start_context(
         feature_name=feature_name,
         amend=amend,
         branch=(branch_name or "") if branch else None,
+        stash_subrepo_changes=stash_subrepo_changes,
     )
     return _run_orchestrator_command(project_root, _cmd_feature_start, args)
 
@@ -7444,6 +7479,7 @@ def _run_bug_start_context(
     *,
     issue_reference: str,
     branch: bool,
+    stash_subrepo_changes: bool = False,
 ) -> str:
     from .cli import _cmd_bug_start
 
@@ -7451,6 +7487,7 @@ def _run_bug_start_context(
         issue_reference=issue_reference,
         provider=None,
         branch="" if branch else None,
+        stash_subrepo_changes=stash_subrepo_changes,
     )
     return _run_orchestrator_command(project_root, _cmd_bug_start, args)
 
@@ -7472,6 +7509,14 @@ def _run_orchestrator_command(
     if code != 0:
         raise AgentSessionError(output or "work item command failed")
     return output
+
+
+def _work_item_error_payload(error: BaseException) -> dict[str, object]:
+    message = str(error)
+    payload: dict[str, object] = {"error": message}
+    if "nested repository changes require stashing" in message:
+        payload["stash_subrepo_changes_required"] = True
+    return payload
 
 
 def _slugify_work_item(value: str) -> str:
@@ -8777,11 +8822,14 @@ def _handler_for(
                         collection_id=str(payload.get("collection_id") or "") or None,
                         parent_slug=str(payload.get("parent_slug") or "") or None,
                         branch=bool(payload.get("branch")),
+                        stash_subrepo_changes=bool(
+                            payload.get("stash_subrepo_changes")
+                        ),
                     )
                 )
             except (AgentSessionError, StateError, ValueError) as error:
                 self._send_json(
-                    {"error": str(error)},
+                    _work_item_error_payload(error),
                     status=HTTPStatus.CONFLICT,
                 )
 
@@ -8810,11 +8858,14 @@ def _handler_for(
                         context_id,
                         issue_reference=str(payload.get("issue_reference") or ""),
                         branch=bool(payload.get("branch")),
+                        stash_subrepo_changes=bool(
+                            payload.get("stash_subrepo_changes")
+                        ),
                     )
                 )
             except (AgentSessionError, StateError, ValueError) as error:
                 self._send_json(
-                    {"error": str(error)},
+                    _work_item_error_payload(error),
                     status=HTTPStatus.CONFLICT,
                 )
 

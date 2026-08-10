@@ -507,6 +507,14 @@ def build_parser() -> argparse.ArgumentParser:
             "NAME is omitted"
         ),
     )
+    feature_start.add_argument(
+        "--stash-subrepo-changes",
+        action="store_true",
+        help=(
+            "stash tracked changes in nested git repositories before switching "
+            "them to the feature branch"
+        ),
+    )
 
     bug = subparsers.add_parser("bug", help="bug-fix workflow")
     bug_subparsers = bug.add_subparsers(dest="bug_command", required=True)
@@ -527,6 +535,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "create or switch to a focused bug branch; derive the name when "
             "NAME is omitted"
+        ),
+    )
+    bug_start.add_argument(
+        "--stash-subrepo-changes",
+        action="store_true",
+        help=(
+            "stash tracked changes in nested git repositories before switching "
+            "them to the bug branch"
         ),
     )
     bug_investigate = bug_subparsers.add_parser(
@@ -1685,7 +1701,13 @@ def _cmd_bug_start(store: StateStore, args: argparse.Namespace) -> int:
     branch_name: str | None = None
     if args.branch is not None:
         branch_name = args.branch or _bug_branch_name(issue)
-        branch_error = _switch_bug_branch(project_root, branch_name)
+        branch_error = _switch_bug_branch(
+            project_root,
+            branch_name,
+            stash_subrepo_changes=bool(
+                getattr(args, "stash_subrepo_changes", False)
+            ),
+        )
         if branch_error:
             print(f"error: {branch_error}", file=sys.stderr)
             return 1
@@ -2169,8 +2191,20 @@ def _bug_branch_name(issue: IssueRecord) -> str:
     return f"fix/{_bug_slug(issue)}"
 
 
-def _switch_bug_branch(root: Path, branch_name: str) -> str | None:
-    error = _switch_feature_branch(root, branch_name)
+SUBREPO_STASH_REQUIRED_MARKER = "nested repository changes require stashing"
+
+
+def _switch_bug_branch(
+    root: Path,
+    branch_name: str,
+    *,
+    stash_subrepo_changes: bool = False,
+) -> str | None:
+    error = _switch_feature_branch(
+        root,
+        branch_name,
+        stash_subrepo_changes=stash_subrepo_changes,
+    )
     if error is None:
         return None
     return error.replace("feature branch", "bug branch")
@@ -2194,7 +2228,13 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
     branch_name: str | None = None
     if args.branch is not None:
         branch_name = args.branch or _feature_branch_name(args.title_or_issue_url)
-        branch_error = _switch_feature_branch(project_root, branch_name)
+        branch_error = _switch_feature_branch(
+            project_root,
+            branch_name,
+            stash_subrepo_changes=bool(
+                getattr(args, "stash_subrepo_changes", False)
+            ),
+        )
         if branch_error:
             print(f"error: {branch_error}", file=sys.stderr)
             return 1
@@ -2426,13 +2466,79 @@ def _slugify(value: str) -> str:
     return slug or "work"
 
 
-def _switch_feature_branch(root: Path, branch_name: str) -> str | None:
-    changed_paths = _git_worktree_changed_paths(root, include_untracked=False)
-    if changed_paths:
+def _switch_feature_branch(
+    root: Path,
+    branch_name: str,
+    *,
+    stash_subrepo_changes: bool = False,
+) -> str | None:
+    repositories = _git_repository_roots(root)
+    if not repositories:
+        repositories = [root]
+    nested_repositories = [repo for repo in repositories if repo != root]
+    nested_gitlinks = {
+        _repo_relative_path(root, repo)
+        for repo in nested_repositories
+        if _git_index_mode(root, _repo_relative_path(root, repo)) == "160000"
+    }
+    root_changes = [
+        path
+        for path in _git_worktree_changed_paths(root, include_untracked=False)
+        if path not in nested_gitlinks
+    ]
+    if root_changes and _git_current_branch(root) != branch_name:
         return (
             "cannot create feature branch with uncommitted changes: "
-            + ", ".join(changed_paths)
+            + ", ".join(root_changes)
         )
+
+    dirty_nested = [
+        (repo, _git_worktree_changed_paths(repo, include_untracked=False))
+        for repo in nested_repositories
+        if _git_current_branch(repo) != branch_name
+    ]
+    dirty_nested = [(repo, paths) for repo, paths in dirty_nested if paths]
+    if dirty_nested and not stash_subrepo_changes:
+        labels = [
+            _nested_repo_change_label(root, repo, paths)
+            for repo, paths in dirty_nested
+        ]
+        if sys.stdin.isatty():
+            print(
+                "warning: nested repositories have tracked changes: "
+                + "; ".join(labels),
+                file=sys.stderr,
+            )
+            answer = input(
+                "Stash tracked nested repository changes before switching branches? [y/N]: "
+            ).strip().lower()
+            if answer in {"y", "yes"}:
+                stash_subrepo_changes = True
+        if not stash_subrepo_changes:
+            return (
+                f"{SUBREPO_STASH_REQUIRED_MARKER}: "
+                + "; ".join(labels)
+                + " (rerun with --stash-subrepo-changes or stash manually)"
+            )
+
+    if stash_subrepo_changes:
+        for repo, _paths in dirty_nested:
+            stash_error = _git_stash_tracked_changes(repo, branch_name)
+            if stash_error:
+                return (
+                    "cannot stash nested repository changes in "
+                    f"{_repo_relative_path(root, repo)}: {stash_error}"
+                )
+
+    for repo in repositories:
+        switch_error = _switch_single_git_branch(repo, branch_name)
+        if switch_error:
+            repo_label = _repo_relative_path(root, repo)
+            return f"{repo_label}: {switch_error}"
+    return None
+
+
+def _switch_single_git_branch(root: Path, branch_name: str) -> str | None:
     current_branch = _git_current_branch(root)
     if current_branch == branch_name:
         return None
@@ -2450,6 +2556,55 @@ def _switch_feature_branch(root: Path, branch_name: str) -> str | None:
     if completed.returncode == 0:
         return None
     return completed.stderr.strip() or completed.stdout.strip() or "git switch failed"
+
+
+def _repo_relative_path(root: Path, repo: Path) -> str:
+    if repo == root:
+        return "."
+    return _normalize_repo_path(str(repo.relative_to(root)))
+
+
+def _nested_repo_change_label(root: Path, repo: Path, paths: list[str]) -> str:
+    preview = ", ".join(paths[:3])
+    if len(paths) > 3:
+        preview = f"{preview}, ..."
+    return f"{_repo_relative_path(root, repo)} ({preview})"
+
+
+def _git_stash_tracked_changes(root: Path, branch_name: str) -> str | None:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "stash",
+            "push",
+            "-m",
+            f"ElectroBoy branch switch stash: {branch_name}",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    output = completed.stderr.strip() or completed.stdout.strip()
+    if completed.returncode == 0:
+        return None
+    return output or "git stash failed"
+
+
+def _git_index_mode(root: Path, path: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-s", "--", path],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    line = completed.stdout.splitlines()[0] if completed.stdout.splitlines() else ""
+    return line.split()[0] if line.split() else None
 
 
 def _git_current_branch(root: Path) -> str | None:

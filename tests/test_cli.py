@@ -891,6 +891,150 @@ class CliTests(unittest.TestCase):
         self.assertEqual(completed.stdout.strip(), "adm-sched-v01")
         self.assertEqual(feature["branch"], "adm-sched-v01")
 
+    def test_feature_start_branch_updates_nested_repositories(self) -> None:
+        with temp_project() as root:
+            nested = root / "DEFw"
+            nested.mkdir()
+            initialize_git_repo(nested)
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--branch",
+                ]
+            )
+            root_branch = git_current_branch(root)
+            nested_branch = git_current_branch(nested)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("branch: feature/add-dashboard", stdout)
+        self.assertEqual(root_branch, "feature/add-dashboard")
+        self.assertEqual(nested_branch, "feature/add-dashboard")
+
+    def test_feature_start_branch_allows_parent_subrepo_pointer_change(self) -> None:
+        with temp_project() as root:
+            nested = root / "DEFw"
+            nested.mkdir()
+            initialize_git_repo(nested)
+            write_file(nested / "model.txt", "initial\n")
+            subprocess.run(
+                ["git", "-C", str(nested), "add", "model.txt"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess.run(
+                ["git", "-C", str(nested), "commit", "-m", "Initial nested"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "add", "DEFw"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-m", "Track nested repo"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            write_file(nested / "model.txt", "updated\n")
+            subprocess.run(
+                ["git", "-C", str(nested), "add", "model.txt"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess.run(
+                ["git", "-C", str(nested), "commit", "-m", "Advance nested"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--branch",
+                ]
+            )
+            root_branch = git_current_branch(root)
+            nested_branch = git_current_branch(nested)
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("branch: feature/add-dashboard", stdout)
+        self.assertEqual(root_branch, "feature/add-dashboard")
+        self.assertEqual(nested_branch, "feature/add-dashboard")
+
+    def test_feature_start_branch_requires_stash_for_dirty_nested_repo(self) -> None:
+        with temp_project() as root:
+            nested = root / "DEFw"
+            nested.mkdir()
+            initialize_git_repo(nested)
+            write_file(nested / "model.txt", "initial\n")
+            subprocess.run(
+                ["git", "-C", str(nested), "add", "model.txt"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess.run(
+                ["git", "-C", str(nested), "commit", "-m", "Initial nested"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            write_file(nested / "model.txt", "dirty\n")
+
+            code, _stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--branch",
+                ]
+            )
+            retry_code, retry_stdout, retry_stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "feature",
+                    "start",
+                    "Add dashboard",
+                    "--branch",
+                    "--stash-subrepo-changes",
+                ]
+            )
+            stash_list = subprocess.run(
+                ["git", "-C", str(nested), "stash", "list"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            nested_branch = git_current_branch(nested)
+
+        self.assertEqual(code, 1)
+        self.assertIn("nested repository changes require stashing", stderr)
+        self.assertIn("DEFw", stderr)
+        self.assertEqual(retry_code, 0, retry_stderr)
+        self.assertIn("branch: feature/add-dashboard", retry_stdout)
+        self.assertEqual(nested_branch, "feature/add-dashboard")
+        self.assertIn("ElectroBoy branch switch stash", stash_list.stdout)
+
     def test_feature_branch_guard_is_added_to_mutating_agent_prompts(self) -> None:
         with temp_project() as root:
             self.assertEqual(
@@ -1315,6 +1459,17 @@ def initialize_git_repo(root: Path) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+
+def git_current_branch(root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "branch", "--show-current"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return completed.stdout.strip()
 
 
 def git_show_names(root: Path) -> str:
