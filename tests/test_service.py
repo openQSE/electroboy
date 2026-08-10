@@ -262,7 +262,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-stage="document"', INDEX_HTML)
         self.assertIn('class="stage-node disabled sidecar"', INDEX_HTML)
         self.assertIn(".stage-node.sidecar", INDEX_HTML)
-        self.assertIn(".stage-node.sidecar::before", INDEX_HTML)
+        self.assertIn('class="stage-connector"', INDEX_HTML)
+        self.assertEqual(INDEX_HTML.count('class="stage-connector"'), 7)
+        self.assertLess(
+            INDEX_HTML.index('data-stage="validate"'),
+            INDEX_HTML.index('data-stage="document"'),
+        )
         self.assertNotIn('data-stage="requirements-approve"', INDEX_HTML)
         self.assertNotIn('data-stage="design-approve"', INDEX_HTML)
         self.assertNotIn('data-stage="plan-approve"', INDEX_HTML)

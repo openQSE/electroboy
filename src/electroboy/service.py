@@ -261,16 +261,33 @@ INDEX_HTML = """<!doctype html>
       z-index: 12;
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 34px;
       min-width: 0;
       max-width: calc(100% - 180px);
+    }
+
+    .workflow-toolbar .toolbar-control-group + .toolbar-control-group {
+      position: relative;
+    }
+
+    .workflow-toolbar .toolbar-control-group + .toolbar-control-group::before {
+      position: absolute;
+      top: 50%;
+      left: -27px;
+      width: 20px;
+      height: 1px;
+      transform: translateY(-50%);
+      background: #b7c5d4;
+      content: "";
     }
 
     .toolbar-control-group {
       display: inline-flex;
       align-items: center;
       gap: 0;
-      min-height: 36px;
+      width: clamp(270px, calc(var(--ui-font-size) * 21), 360px);
+      height: calc(var(--ui-font-size) + 29px);
+      min-height: 38px;
       overflow: hidden;
       border: 1px solid #c8d5e2;
       border-radius: 8px;
@@ -284,6 +301,7 @@ INDEX_HTML = """<!doctype html>
       display: inline-flex;
       align-items: center;
       align-self: stretch;
+      flex: 0 0 calc(var(--ui-font-size) * 4.7);
       border-right: 1px solid #d8e1ec;
       color: #4a5a6d;
       padding: 0 10px;
@@ -367,35 +385,41 @@ INDEX_HTML = """<!doctype html>
 
     .stage-graph {
       position: relative;
-      display: grid;
-      grid-template-columns: repeat(9, minmax(136px, 1fr));
-      gap: 12px;
-      min-width: 1240px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 1180px;
       padding-top: 54px;
     }
 
     .stage-graph::before {
-      position: absolute;
-      top: 77px;
-      left: 56px;
-      right: calc(16.6667% - 4px);
-      height: 2px;
-      background: var(--border);
-      content: "";
+      content: none;
+    }
+
+    .stage-connector {
+      position: relative;
+      z-index: 1;
+      flex: 0 0 28px;
+      color: #6f7f90;
+      font-size: var(--ui-small-font-size);
+      font-weight: 850;
+      text-align: center;
+      pointer-events: none;
     }
 
     .stage-node {
       position: relative;
       z-index: 1;
+      flex: 1 0 112px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       min-width: 0;
-      min-height: 48px;
-      padding: 0 12px;
+      min-height: 46px;
+      padding: 0 10px;
       border: 1px solid var(--border);
       border-radius: 8px;
-      background: var(--disabled);
+      background: linear-gradient(180deg, #f8fbff 0%, #edf2f7 100%);
       color: var(--muted);
       font-size: var(--ui-font-size);
       font-weight: 650;
@@ -403,6 +427,9 @@ INDEX_HTML = """<!doctype html>
       white-space: normal;
       text-align: center;
       line-height: 1.15;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 90%) inset,
+        0 5px 14px rgb(17 24 39 / 7%);
     }
 
     button.stage-node {
@@ -419,54 +446,52 @@ INDEX_HTML = """<!doctype html>
 
     .stage-node.active {
       border-color: #005f66;
-      background: #007f8a;
+      background: linear-gradient(180deg, #008b94 0%, #006b73 100%);
       color: #ffffff;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 20%) inset,
+        0 8px 18px rgb(0 95 102 / 20%);
     }
 
     .stage-node.available {
       border-color: #6f91a8;
-      background: #ffffff;
+      background: linear-gradient(180deg, #ffffff 0%, #f4fbfc 100%);
       color: #243f53;
     }
 
     .stage-node.complete {
       border-color: #9fb4c9;
-      background: #edf7ff;
+      background: linear-gradient(180deg, #f4fbff 0%, #e2f2fb 100%);
       color: #27445e;
     }
 
     .stage-node.disabled {
       border-color: var(--border);
-      background: var(--disabled);
+      background: linear-gradient(180deg, #f3f5f8 0%, #e8edf3 100%);
       color: var(--muted);
       cursor: default;
     }
 
     .stage-node.sidecar {
+      margin-left: 22px;
       border-style: dashed;
-    }
-
-    .stage-node.sidecar::before {
-      position: absolute;
-      top: 50%;
-      left: -28px;
-      width: 28px;
-      height: 4px;
-      transform: translateY(-50%);
-      background: var(--paper);
-      content: "";
-      pointer-events: none;
+      border-color: #9b7a45;
+      background: linear-gradient(180deg, #fffdf7 0%, #f7efe0 100%);
+      color: #614a1e;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 90%) inset,
+        0 5px 14px rgb(97 74 30 / 8%);
     }
 
     .stage-node.sidecar.available {
-      border-color: #7b8fb1;
-      background: #f8fbff;
-      color: #314763;
+      border-color: #9b7a45;
+      background: linear-gradient(180deg, #fffaf0 0%, #f3e5c7 100%);
+      color: #614a1e;
     }
 
     button.stage-node.available:hover {
       border-color: #1d7180;
-      background: #effbfc;
+      background: linear-gradient(180deg, #f8ffff 0%, #e8f8fa 100%);
     }
 
     .stage-menu {
@@ -1109,7 +1134,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     .session-control {
-      min-width: 260px;
+      min-width: 0;
     }
 
     .agent-session-indicator {
@@ -1138,9 +1163,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     .session-switcher {
+      flex: 1 1 auto;
       width: 100%;
-      min-height: 38px;
-      height: calc(var(--ui-font-size) + 25px);
+      height: 100%;
       min-width: 0;
       font-size: var(--ui-font-size);
       font-weight: 650;
@@ -1166,9 +1191,9 @@ INDEX_HTML = """<!doctype html>
     }
 
     .terminal-font-button {
-      min-height: 32px;
-      height: calc(var(--ui-font-size) + 19px);
-      min-width: 38px;
+      align-self: stretch;
+      flex: 0 0 calc(var(--ui-font-size) + 31px);
+      min-width: 40px;
       border-radius: 0;
     }
 
@@ -1182,7 +1207,8 @@ INDEX_HTML = """<!doctype html>
       align-items: center;
       justify-content: center;
       align-self: stretch;
-      min-width: 48px;
+      flex: 1 1 auto;
+      min-width: 54px;
       color: #4a5a6d;
       font-size: var(--ui-small-font-size);
       font-weight: 800;
@@ -1232,12 +1258,7 @@ INDEX_HTML = """<!doctype html>
       }
 
       .stage-graph {
-        grid-template-columns: repeat(15, minmax(112px, 1fr));
-        min-width: 1840px;
-      }
-
-      .stage-graph::before {
-        right: 50%;
+        min-width: 1260px;
       }
 
       .stage-menu {
@@ -1386,6 +1407,7 @@ INDEX_HTML = """<!doctype html>
           <button class="stage-node active" type="button" data-stage="project">
             project
           </button>
+          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
           <button
             class="stage-node disabled"
             type="button"
@@ -1394,12 +1416,15 @@ INDEX_HTML = """<!doctype html>
           >
             requirements
           </button>
+          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
           <button class="stage-node disabled" type="button" data-stage="design" disabled>
             design
           </button>
+          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
           <button class="stage-node disabled" type="button" data-stage="design-review" disabled>
             design-review
           </button>
+          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
           <button
             class="stage-node disabled"
             type="button"
@@ -1408,12 +1433,15 @@ INDEX_HTML = """<!doctype html>
           >
             implementation-plan
           </button>
+          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
           <button class="stage-node disabled" type="button" data-stage="code" disabled>
             code
           </button>
+          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
           <button class="stage-node disabled" type="button" data-stage="test-plan" disabled>
             test-plan
           </button>
+          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
           <button class="stage-node disabled" type="button" data-stage="validate" disabled>
             validate
           </button>
