@@ -264,6 +264,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".stage-node.sidecar", INDEX_HTML)
         self.assertIn('class="stage-connector"', INDEX_HTML)
         self.assertEqual(INDEX_HTML.count('class="stage-connector"'), 7)
+        self.assertIn('id="stageDoubleArrowIcon"', INDEX_HTML)
+        self.assertIn('class="stage-connector-icon"', INDEX_HTML)
+        self.assertEqual(INDEX_HTML.count('href="#stageDoubleArrowIcon"'), 7)
+        self.assertIn("grid-template-columns:", INDEX_HTML)
+        self.assertIn("repeat(7, minmax(96px, 1fr) minmax(34px, 0.35fr))", INDEX_HTML)
+        self.assertIn('class="stage-spacer"', INDEX_HTML)
+        self.assertNotIn("&lt;-&gt;", INDEX_HTML)
         self.assertLess(
             INDEX_HTML.index('data-stage="validate"'),
             INDEX_HTML.index('data-stage="document"'),

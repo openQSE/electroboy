@@ -374,6 +374,13 @@ INDEX_HTML = """<!doctype html>
       scrollbar-width: thin;
     }
 
+    .stage-icon-defs {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
     .connection {
       position: absolute;
       right: 24px;
@@ -385,9 +392,13 @@ INDEX_HTML = """<!doctype html>
 
     .stage-graph {
       position: relative;
-      display: flex;
+      display: grid;
       align-items: center;
-      gap: 8px;
+      grid-template-columns:
+        repeat(7, minmax(96px, 1fr) minmax(34px, 0.35fr))
+        minmax(96px, 1fr) minmax(24px, 0.28fr) minmax(96px, 1fr);
+      gap: clamp(6px, 0.45vw, 10px);
+      width: 100%;
       min-width: 1180px;
       padding-top: 54px;
     }
@@ -399,22 +410,30 @@ INDEX_HTML = """<!doctype html>
     .stage-connector {
       position: relative;
       z-index: 1;
-      flex: 0 0 28px;
-      color: #6f7f90;
-      font-size: var(--ui-small-font-size);
-      font-weight: 850;
-      text-align: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-width: 34px;
+      color: #587086;
       pointer-events: none;
+    }
+
+    .stage-connector-icon {
+      width: clamp(30px, 2.6vw, 42px);
+      height: clamp(30px, 2.6vw, 42px);
+      filter: drop-shadow(0 1px 1px rgb(17 24 39 / 12%));
+      opacity: 0.9;
     }
 
     .stage-node {
       position: relative;
       z-index: 1;
-      flex: 1 0 112px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 0;
+      width: 100%;
+      min-width: 106px;
       min-height: 46px;
       padding: 0 10px;
       border: 1px solid var(--border);
@@ -427,6 +446,7 @@ INDEX_HTML = """<!doctype html>
       white-space: normal;
       text-align: center;
       line-height: 1.15;
+      overflow-wrap: anywhere;
       box-shadow:
         0 1px 0 rgb(255 255 255 / 90%) inset,
         0 5px 14px rgb(17 24 39 / 7%);
@@ -473,7 +493,6 @@ INDEX_HTML = """<!doctype html>
     }
 
     .stage-node.sidecar {
-      margin-left: 22px;
       border-style: dashed;
       border-color: #9b7a45;
       background: linear-gradient(180deg, #fffdf7 0%, #f7efe0 100%);
@@ -487,6 +506,10 @@ INDEX_HTML = """<!doctype html>
       border-color: #9b7a45;
       background: linear-gradient(180deg, #fffaf0 0%, #f3e5c7 100%);
       color: #614a1e;
+    }
+
+    .stage-spacer {
+      min-width: 24px;
     }
 
     button.stage-node.available:hover {
@@ -1257,10 +1280,6 @@ INDEX_HTML = """<!doctype html>
         right: 16px;
       }
 
-      .stage-graph {
-        min-width: 1260px;
-      }
-
       .stage-menu {
         left: 16px;
         top: 120px;
@@ -1358,6 +1377,22 @@ INDEX_HTML = """<!doctype html>
 </head>
 <body>
   <main class="shell">
+    <svg
+      class="stage-icon-defs"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <symbol id="stageDoubleArrowIcon" viewBox="0 0 58 58">
+        <path
+          fill="currentColor"
+          d="M57.484,28.125l-19-10.5c-0.311-0.171-0.687-0.165-0.992,0.014C37.187,17.818,37,18.146,37,18.5v5h-6c-0.552,0-1,0.448-1,1v9c0,0.552,0.448,1,1,1h6v5c0,0.354,0.187,0.682,0.492,0.861C37.648,40.453,37.824,40.5,38,40.5c0.167,0,0.333-0.042,0.484-0.125l19-10.5C57.802,29.699,58,29.364,58,29S57.802,28.301,57.484,28.125z M39,37.805V33.5c0-0.552-0.448-1-1-1h-6v-7h6c0.552,0,1-0.448,1-1v-4.305L54.933,29L39,37.805z"
+        />
+        <path
+          fill="currentColor"
+          d="M27,23.5h-6v-5c0-0.354-0.187-0.682-0.492-0.861c-0.305-0.179-0.682-0.185-0.992-0.014l-19,10.5C0.198,28.301,0,28.636,0,29c0,0.364,0.198,0.699,0.516,0.875l19,10.5C19.667,40.458,19.833,40.5,20,40.5c0.176,0,0.352-0.046,0.508-0.139C20.813,40.182,21,39.854,21,39.5v-5h6c0.552,0,1-0.448,1-1v-9C28,23.948,27.552,23.5,27,23.5z M26,32.5h-6c-0.552,0-1,0.448-1,1v4.305L3.067,29L19,20.195V24.5c0,0.552,0.448,1,1,1h6V32.5z"
+        />
+      </symbol>
+    </svg>
     <section class="workflow-pane" aria-label="Project workflow">
       <div id="connection" class="connection"></div>
       <div class="workflow-toolbar" aria-label="Agent controls">
@@ -1407,7 +1442,15 @@ INDEX_HTML = """<!doctype html>
           <button class="stage-node active" type="button" data-stage="project">
             project
           </button>
-          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
+          <span class="stage-connector" aria-hidden="true">
+            <svg
+              class="stage-connector-icon"
+              viewBox="0 0 58 58"
+              focusable="false"
+            >
+              <use href="#stageDoubleArrowIcon"></use>
+            </svg>
+          </span>
           <button
             class="stage-node disabled"
             type="button"
@@ -1416,15 +1459,39 @@ INDEX_HTML = """<!doctype html>
           >
             requirements
           </button>
-          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
+          <span class="stage-connector" aria-hidden="true">
+            <svg
+              class="stage-connector-icon"
+              viewBox="0 0 58 58"
+              focusable="false"
+            >
+              <use href="#stageDoubleArrowIcon"></use>
+            </svg>
+          </span>
           <button class="stage-node disabled" type="button" data-stage="design" disabled>
             design
           </button>
-          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
+          <span class="stage-connector" aria-hidden="true">
+            <svg
+              class="stage-connector-icon"
+              viewBox="0 0 58 58"
+              focusable="false"
+            >
+              <use href="#stageDoubleArrowIcon"></use>
+            </svg>
+          </span>
           <button class="stage-node disabled" type="button" data-stage="design-review" disabled>
             design-review
           </button>
-          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
+          <span class="stage-connector" aria-hidden="true">
+            <svg
+              class="stage-connector-icon"
+              viewBox="0 0 58 58"
+              focusable="false"
+            >
+              <use href="#stageDoubleArrowIcon"></use>
+            </svg>
+          </span>
           <button
             class="stage-node disabled"
             type="button"
@@ -1433,18 +1500,43 @@ INDEX_HTML = """<!doctype html>
           >
             implementation-plan
           </button>
-          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
+          <span class="stage-connector" aria-hidden="true">
+            <svg
+              class="stage-connector-icon"
+              viewBox="0 0 58 58"
+              focusable="false"
+            >
+              <use href="#stageDoubleArrowIcon"></use>
+            </svg>
+          </span>
           <button class="stage-node disabled" type="button" data-stage="code" disabled>
             code
           </button>
-          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
+          <span class="stage-connector" aria-hidden="true">
+            <svg
+              class="stage-connector-icon"
+              viewBox="0 0 58 58"
+              focusable="false"
+            >
+              <use href="#stageDoubleArrowIcon"></use>
+            </svg>
+          </span>
           <button class="stage-node disabled" type="button" data-stage="test-plan" disabled>
             test-plan
           </button>
-          <span class="stage-connector" aria-hidden="true">&lt;-&gt;</span>
+          <span class="stage-connector" aria-hidden="true">
+            <svg
+              class="stage-connector-icon"
+              viewBox="0 0 58 58"
+              focusable="false"
+            >
+              <use href="#stageDoubleArrowIcon"></use>
+            </svg>
+          </span>
           <button class="stage-node disabled" type="button" data-stage="validate" disabled>
             validate
           </button>
+          <span class="stage-spacer" aria-hidden="true"></span>
           <button class="stage-node disabled sidecar" type="button" data-stage="document" disabled>
             document
           </button>
