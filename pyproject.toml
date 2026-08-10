@@ -13,6 +13,7 @@ authors = [
   { name = "Amir Shehata", email = "shehataa@ornl.gov" }
 ]
 dependencies = [
+  "Markdown>=3.6",
   "rich>=13",
 ]
 

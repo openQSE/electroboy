@@ -1492,11 +1492,11 @@ INDEX_HTML = """<!doctype html>
                 >Pop</button>
               </div>
               <iframe
-                id="artifactPreviewFrame"
-                class="artifact-preview-frame"
-                title="Rendered artifact preview"
-                sandbox=""
-              ></iframe>
+        id="artifactPreviewFrame"
+        class="artifact-preview-frame"
+        title="Rendered artifact preview"
+        sandbox="allow-scripts"
+      ></iframe>
             </section>
             <div
               id="outputResizeHandle"
@@ -5331,7 +5331,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         id="artifactFrame"
         class="artifact-frame"
         title="Rendered artifact preview"
-        sandbox=""
+        sandbox="allow-scripts"
         hidden
       ></iframe>
       <textarea id="scratchPad" class="scratch-pad" spellcheck="false" hidden></textarea>
@@ -8933,6 +8933,7 @@ def markdown_document_html(
     article_padding = "18px" if embedded else "28px"
     article_radius = "0" if embedded else "8px"
     article_border = "0" if embedded else "1px solid #d8dde8"
+    mermaid_script = _mermaid_script(body)
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -9008,7 +9009,18 @@ def markdown_document_html(
       border-radius: 0;
       padding: 0;
     }}
+    .mermaid {{
+      display: flex;
+      justify-content: center;
+      overflow: auto;
+      margin: 16px 0;
+      padding: 14px;
+      border: 1px solid #d8dde8;
+      border-radius: 6px;
+      background: #f8fbff;
+    }}
   </style>
+  {mermaid_script}
 </head>
 <body>
   <main>
@@ -9074,13 +9086,16 @@ def _render_markdown(text: str) -> str:
         import markdown as markdown_library
     except ImportError:
         return _render_basic_markdown(text)
-    return str(markdown_library.markdown(text, extensions=["extra", "sane_lists"]))
+    rendered = str(markdown_library.markdown(text, extensions=["extra", "sane_lists"]))
+    return _promote_mermaid_blocks(rendered)
 
 
 def _render_basic_markdown(text: str) -> str:
     blocks: list[str] = []
     paragraph: list[str] = []
     list_items: list[str] = []
+    code_lines: list[str] = []
+    code_language = ""
 
     def flush_paragraph() -> None:
         if paragraph:
@@ -9093,21 +9108,46 @@ def _render_basic_markdown(text: str) -> str:
             blocks.append(f"<ul>{items}</ul>")
             list_items.clear()
 
+    def flush_code() -> None:
+        nonlocal code_language
+        escaped = html.escape("\n".join(code_lines))
+        language = code_language.strip().lower()
+        if language == "mermaid":
+            blocks.append(f'<div class="mermaid">{escaped}</div>')
+        else:
+            class_attr = (
+                f' class="language-{html.escape(language)}"'
+                if language
+                else ""
+            )
+            blocks.append(f"<pre><code{class_attr}>{escaped}</code></pre>")
+        code_lines.clear()
+        code_language = ""
+
     for raw_line in text.splitlines():
+        if code_language:
+            if raw_line.strip() == "```":
+                flush_code()
+            else:
+                code_lines.append(raw_line)
+            continue
         line = raw_line.strip()
+        if line.startswith("```"):
+            flush_paragraph()
+            flush_list()
+            code_language = line[3:].strip() or "plain"
+            continue
         if not line:
             flush_paragraph()
             flush_list()
             continue
-        if line.startswith("# "):
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading is not None:
             flush_paragraph()
             flush_list()
-            blocks.append(f"<h1>{html.escape(line[2:].strip())}</h1>")
-            continue
-        if line.startswith("## "):
-            flush_paragraph()
-            flush_list()
-            blocks.append(f"<h2>{html.escape(line[3:].strip())}</h2>")
+            level = len(heading.group(1))
+            title = html.escape(heading.group(2).strip())
+            blocks.append(f"<h{level}>{title}</h{level}>")
             continue
         if line.startswith("- "):
             flush_paragraph()
@@ -9115,9 +9155,53 @@ def _render_basic_markdown(text: str) -> str:
             continue
         flush_list()
         paragraph.append(line)
+    if code_language:
+        flush_code()
     flush_paragraph()
     flush_list()
     return "\n".join(blocks) if blocks else "<p></p>"
+
+
+_MERMAID_BLOCK_RE = re.compile(
+    r'<pre><code class="(?:language-)?mermaid">(?P<body>.*?)</code></pre>',
+    re.DOTALL,
+)
+
+
+def _promote_mermaid_blocks(rendered: str) -> str:
+    return _MERMAID_BLOCK_RE.sub(
+        lambda match: f'<div class="mermaid">{match.group("body")}</div>',
+        rendered,
+    )
+
+
+def _mermaid_script(rendered: str) -> str:
+    if 'class="mermaid"' not in rendered:
+        return ""
+    return """
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      if (!window.mermaid) {
+        return;
+      }
+      window.mermaid.initialize({
+        startOnLoad: true,
+        theme: "base",
+        themeVariables: {
+          background: "#ffffff",
+          primaryColor: "#edf7ff",
+          primaryTextColor: "#0a2f4f",
+          primaryBorderColor: "#9fb4c9",
+          lineColor: "#164a72",
+          secondaryColor: "#f8fbff",
+          tertiaryColor: "#ffffff",
+          fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+        },
+      });
+    });
+  </script>
+"""
 
 
 def _requirements_command(root: Path) -> list[str]:

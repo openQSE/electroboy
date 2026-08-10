@@ -135,6 +135,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("article, p, li, td, dd", page)
         self.assertIn("background: #ffffff;", page)
 
+    def test_document_target_renderer_handles_code_fences_and_mermaid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "README.md"
+            target.write_text(
+                "# Project\n\n"
+                "### Clone the repositories\n\n"
+                "```bash\nmkdir -p qhpc\ncd qhpc\n```\n\n"
+                "```mermaid\ngraph TD\n  A --> B\n```\n",
+                encoding="utf-8",
+            )
+
+            page, status = document_target_html(root, "README.md")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("<h3>Clone the repositories</h3>", page)
+        self.assertIn('<pre><code class="language-bash">mkdir -p qhpc', page)
+        self.assertIn('<div class="mermaid">graph TD', page)
+        self.assertIn("mermaid@10", page)
+
     def test_document_target_renderer_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -143,6 +163,11 @@ class ServiceTests(unittest.TestCase):
                 document_target_html(root, "../outside.md", create_missing=True)
             with self.assertRaises(StateError):
                 document_target_html(root, "docs/guide.txt", create_missing=True)
+
+    def test_project_declares_markdown_renderer_dependency(self) -> None:
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertIn('"Markdown>=3.6"', pyproject)
 
     def test_server_close_terminates_context_agent_sessions(self) -> None:
         class FakeSession:
@@ -358,6 +383,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="artifactPreviewPane"', INDEX_HTML)
         self.assertIn('id="artifactPreviewTitle"', INDEX_HTML)
         self.assertIn('id="artifactPreviewFrame"', INDEX_HTML)
+        self.assertIn('sandbox="allow-scripts"', INDEX_HTML)
         self.assertIn('id="artifactPaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
