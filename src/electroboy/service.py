@@ -720,6 +720,18 @@ INDEX_HTML = """<!doctype html>
       white-space: nowrap;
     }
 
+    .work-item-recovery {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .work-item-recovery[hidden] {
+      display: none;
+    }
+
     .directory-list {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -811,9 +823,16 @@ INDEX_HTML = """<!doctype html>
 
     .left-output-pane {
       display: grid;
+      grid-template-rows: minmax(0, 1fr);
       min-height: 0;
       min-width: 0;
       background: var(--terminal);
+    }
+
+    .left-output-pane.shell-visible {
+      grid-template-rows:
+        minmax(0, 1fr) 7px
+        minmax(180px, var(--shell-pane-height, 260px));
     }
 
     .output-split {
@@ -854,10 +873,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     .output-resize-handle,
-    .artifact-pane-resize-handle {
+    .artifact-pane-resize-handle,
+    .shell-pane-divider {
       min-height: 0;
       background: #202838;
       cursor: col-resize;
+    }
+
+    .shell-pane-divider {
+      cursor: default;
     }
 
     .workbench-resize-handle {
@@ -891,7 +915,8 @@ INDEX_HTML = """<!doctype html>
     .input-resize-handle[hidden],
     .output-resize-handle[hidden],
     .workbench-resize-handle[hidden],
-    .side-pane-resize-handle[hidden] {
+    .side-pane-resize-handle[hidden],
+    .shell-pane-divider[hidden] {
       display: none;
     }
 
@@ -1033,7 +1058,8 @@ INDEX_HTML = """<!doctype html>
     }
 
     .agent-output,
-    .progress-output {
+    .progress-output,
+    .shell-output {
       min-height: 0;
       overflow: hidden;
       padding: 0;
@@ -1045,28 +1071,33 @@ INDEX_HTML = """<!doctype html>
       white-space: pre-wrap;
     }
 
-    .progress-output {
+    .progress-output,
+    .shell-output {
       border-left: 0;
     }
 
     .agent-output .xterm,
-    .progress-output .xterm {
+    .progress-output .xterm,
+    .shell-output .xterm {
       height: 100%;
       padding: 10px 12px;
     }
 
     .agent-output .xterm-viewport,
-    .progress-output .xterm-viewport {
+    .progress-output .xterm-viewport,
+    .shell-output .xterm-viewport {
       background: var(--terminal);
     }
 
     .agent-output .system,
-    .progress-output .system {
+    .progress-output .system,
+    .shell-output .system {
       color: #8bd8ca;
     }
 
     .agent-output .error,
-    .progress-output .error {
+    .progress-output .error,
+    .shell-output .error {
       color: #ffb4a9;
     }
 
@@ -1909,6 +1940,14 @@ INDEX_HTML = """<!doctype html>
         </button>
         <button id="cancelWorkItem" class="project-command" type="button">Cancel</button>
         <div id="workItemStatus" class="project-status"></div>
+        <div id="workItemRecovery" class="work-item-recovery" hidden>
+          <button id="openProjectShell" class="project-command" type="button">
+            Open project shell
+          </button>
+          <button id="retryWorkItem" class="project-command primary" type="button">
+            Retry
+          </button>
+        </div>
       </div>
       <div
         id="fileBrowser"
@@ -2001,6 +2040,41 @@ INDEX_HTML = """<!doctype html>
               <div id="progressOutput" class="progress-output" aria-live="polite"></div>
             </section>
           </div>
+          <div
+            id="shellPaneDivider"
+            class="shell-pane-divider"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Project shell divider"
+            hidden
+          ></div>
+          <section
+            id="projectShellPane"
+            class="terminal-pane"
+            aria-label="Project shell"
+            hidden
+          >
+            <div class="pane-header">
+              <span class="pane-title">Project shell</span>
+              <div class="pane-actions">
+                <button
+                  id="stopProjectShell"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Stop project shell"
+                  aria-label="Stop project shell"
+                >Stop</button>
+                <button
+                  id="popoutProjectShellPane"
+                  class="pane-popout-button"
+                  type="button"
+                  title="Pop out project shell"
+                  aria-label="Pop out project shell"
+                >Pop</button>
+              </div>
+            </div>
+            <div id="projectShellOutput" class="shell-output" aria-live="polite"></div>
+          </section>
         </div>
         <div
           id="workbenchResizeHandle"
@@ -2225,6 +2299,9 @@ INDEX_HTML = """<!doctype html>
     const applyWorkItem = document.getElementById("applyWorkItem");
     const cancelWorkItem = document.getElementById("cancelWorkItem");
     const workItemStatus = document.getElementById("workItemStatus");
+    const workItemRecovery = document.getElementById("workItemRecovery");
+    const openProjectShell = document.getElementById("openProjectShell");
+    const retryWorkItem = document.getElementById("retryWorkItem");
     const fileBrowser = document.getElementById("fileBrowser");
     const browserPath = document.getElementById("browserPath");
     const upDirectory = document.getElementById("upDirectory");
@@ -2234,12 +2311,17 @@ INDEX_HTML = """<!doctype html>
     const agentPane = document.getElementById("agentPane");
     const outputWorkbench = document.getElementById("outputWorkbench");
     const workbenchResizeHandle = document.getElementById("workbenchResizeHandle");
+    const leftOutputPane = document.querySelector(".left-output-pane");
     const outputSplit = document.getElementById("outputSplit");
     const agentOutputPane = document.getElementById("agentOutputPane");
     const agentOutput = document.getElementById("agentOutput");
     const outputResizeHandle = document.getElementById("outputResizeHandle");
     const progressOutputPane = document.getElementById("progressOutputPane");
     const progressOutput = document.getElementById("progressOutput");
+    const shellPaneDivider = document.getElementById("shellPaneDivider");
+    const projectShellPane = document.getElementById("projectShellPane");
+    const projectShellOutput = document.getElementById("projectShellOutput");
+    const stopProjectShell = document.getElementById("stopProjectShell");
     const sidePane = document.getElementById("sidePane");
     const sidePaneResizeHandle = document.getElementById("sidePaneResizeHandle");
     const scratchPane = document.querySelector(".scratch-pane");
@@ -2262,6 +2344,7 @@ INDEX_HTML = """<!doctype html>
     const insertFileLink = document.getElementById("insertFileLink");
     const popoutAgentPane = document.getElementById("popoutAgentPane");
     const popoutProgressPane = document.getElementById("popoutProgressPane");
+    const popoutProjectShellPane = document.getElementById("popoutProjectShellPane");
     const popoutScratchPane = document.getElementById("popoutScratchPane");
     const popoutStatusPane = document.getElementById("popoutStatusPane");
     const popoutInputPane = document.getElementById("popoutInputPane");
@@ -2357,11 +2440,14 @@ INDEX_HTML = """<!doctype html>
     const MIN_AGENT_INPUT_WIDTH = 260;
     let eventSource = null;
     let progressEventSource = null;
+    let projectShellEventSource = null;
     let artifactEventSources = [];
     let terminal = null;
     let terminalFit = null;
     let progressTerminal = null;
     let progressTerminalFit = null;
+    let projectShellTerminal = null;
+    let projectShellTerminalFit = null;
     let terminalFontSize = storedTerminalFontSize();
     let documentZoom = storedDocumentZoom();
     let resizeShellState = null;
@@ -2372,6 +2458,7 @@ INDEX_HTML = """<!doctype html>
     let resizeSidePaneState = null;
     let resizeArtifactPaneState = null;
     let resizeTimer = null;
+    let shellResizeTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
     let artifactPreviewKind = "";
@@ -2383,7 +2470,9 @@ INDEX_HTML = """<!doctype html>
     let artifactPreviewVersion = 0;
     let progressPaneRequested = false;
     let artifactPaneRequested = false;
+    let projectShellPaneRequested = false;
     let inputPaneRequested = true;
+    let projectShellRunning = false;
     const poppedPanes = new Set();
     const poppedPaneWindows = new Map();
     let activeAgentKind = "";
@@ -2658,12 +2747,28 @@ INDEX_HTML = """<!doctype html>
       applyTerminalFontSize();
     }
 
-    function terminalOptions() {
+    function initializeProjectShellTerminal() {
+      if (projectShellTerminal || !window.Terminal) {
+        return;
+      }
+      projectShellTerminal = new window.Terminal(terminalOptions(false));
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        projectShellTerminalFit = new window.FitAddon.FitAddon();
+        projectShellTerminal.loadAddon(projectShellTerminalFit);
+      }
+      projectShellTerminal.onData((data) => {
+        sendProjectShellInput(data);
+      });
+      projectShellTerminal.open(projectShellOutput);
+      applyTerminalFontSize();
+    }
+
+    function terminalOptions(disableStdin = true) {
       return {
         allowProposedApi: false,
         convertEol: true,
         cursorBlink: false,
-        disableStdin: true,
+        disableStdin,
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
         fontSize: terminalFontSize,
         scrollback: 10000,
@@ -2732,6 +2837,9 @@ INDEX_HTML = """<!doctype html>
       if (progressTerminal) {
         progressTerminal.options.fontSize = terminalFontSize;
       }
+      if (projectShellTerminal) {
+        projectShellTerminal.options.fontSize = terminalFontSize;
+      }
       decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
       increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
       window.requestAnimationFrame(fitTerminal);
@@ -2769,7 +2877,15 @@ INDEX_HTML = """<!doctype html>
           return;
         }
       }
+      if (projectShellTerminalFit && !projectShellPane.hidden) {
+        try {
+          projectShellTerminalFit.fit();
+        } catch (error) {
+          return;
+        }
+      }
       queueTerminalResize();
+      queueProjectShellResize();
     }
 
     function queueTerminalResize() {
@@ -2790,6 +2906,33 @@ INDEX_HTML = """<!doctype html>
         body: JSON.stringify({
           columns: terminal.cols,
           rows: terminal.rows,
+        }),
+      }).catch(() => {});
+    }
+
+    function queueProjectShellResize() {
+      if (
+        !projectShellRunning ||
+        !contextId ||
+        !projectShellTerminal ||
+        projectShellPane.hidden
+      ) {
+        return;
+      }
+      window.clearTimeout(shellResizeTimer);
+      shellResizeTimer = window.setTimeout(sendProjectShellResize, 120);
+    }
+
+    async function sendProjectShellResize() {
+      if (!projectShellRunning || !contextId || !projectShellTerminal) {
+        return;
+      }
+      await fetch(contextUrl("/api/shell/resize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          columns: projectShellTerminal.cols,
+          rows: projectShellTerminal.rows,
         }),
       }).catch(() => {});
     }
@@ -2848,6 +2991,145 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       progressOutput.replaceChildren();
+    }
+
+    function appendProjectShellOutput(text, className = "") {
+      if (projectShellTerminal) {
+        projectShellTerminal.write(
+          className ? formatTerminalMessage(text, className) : text,
+        );
+        return;
+      }
+      const span = document.createElement("span");
+      span.textContent = text;
+      if (className) {
+        span.className = className;
+      }
+      projectShellOutput.appendChild(span);
+      projectShellOutput.scrollTop = projectShellOutput.scrollHeight;
+    }
+
+    function clearProjectShellOutput() {
+      if (projectShellTerminal) {
+        projectShellTerminal.clear();
+        return;
+      }
+      projectShellOutput.replaceChildren();
+    }
+
+    function applyProjectShellPaneVisibility() {
+      const visible = projectShellPaneRequested && !poppedPanes.has("shell");
+      projectShellPane.hidden = !visible;
+      shellPaneDivider.hidden = !visible;
+      leftOutputPane.classList.toggle("shell-visible", visible);
+      if (visible) {
+        initializeProjectShellTerminal();
+      }
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function showProjectShellPane(show) {
+      projectShellPaneRequested = show;
+      applyProjectShellPaneVisibility();
+    }
+
+    function syncProjectShellPane() {
+      if (projectShellRunning && !projectShellPaneRequested) {
+        projectShellPaneRequested = true;
+      }
+      if (!projectShellRunning && projectShellPaneRequested) {
+        closeProjectShellEventStream();
+      }
+      applyProjectShellPaneVisibility();
+      if (projectShellRunning && !projectShellEventSource) {
+        window.setTimeout(connectProjectShellEvents, 0);
+      }
+    }
+
+    async function startProjectShell() {
+      if (!activeProjectRoot || !contextId) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      showProjectShellPane(true);
+      initializeProjectShellTerminal();
+      appendProjectShellOutput("starting project shell...\\r\\n", "system");
+      const response = await fetch(contextUrl("/api/shell/start"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "shell start failed" }));
+      if (!response.ok) {
+        appendProjectShellOutput(`${payload.error || "shell start failed"}\\r\\n`, "error");
+        return;
+      }
+      projectShellRunning = Boolean(payload.project_shell_running);
+      updateProjectState(payload);
+      projectShellTerminal?.focus();
+    }
+
+    function connectProjectShellEvents() {
+      if (!contextId) {
+        return;
+      }
+      if (projectShellEventSource) {
+        projectShellEventSource.close();
+      }
+      showProjectShellPane(true);
+      initializeProjectShellTerminal();
+      projectShellEventSource = new EventSource(contextUrl("/api/shell/events"));
+      projectShellEventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          appendProjectShellOutput(payload.terminal || payload.text || "");
+        } else if (payload.type === "system" || payload.type === "error") {
+          appendProjectShellOutput(`${payload.text}\\r\\n`, payload.type);
+        } else if (payload.type === "completed") {
+          appendProjectShellOutput(
+            `\\r\\nproject shell exited with code ${payload.returncode}\\r\\n`,
+            "system",
+          );
+          projectShellRunning = false;
+          closeProjectShellEventStream();
+          refreshProject();
+        }
+      });
+      projectShellEventSource.onerror = () => {};
+      window.requestAnimationFrame(sendProjectShellResize);
+    }
+
+    function closeProjectShellEventStream() {
+      if (projectShellEventSource) {
+        projectShellEventSource.close();
+        projectShellEventSource = null;
+      }
+    }
+
+    async function sendProjectShellInput(data) {
+      if (!projectShellRunning || !contextId || !data) {
+        return;
+      }
+      await fetch(contextUrl("/api/shell/input"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data }),
+      }).catch(() => {});
+    }
+
+    async function stopProjectShellProcess() {
+      if (!contextId) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/shell/stop"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "shell stop failed" }));
+      if (!response.ok) {
+        appendProjectShellOutput(`${payload.error || "shell stop failed"}\\r\\n`, "error");
+        return;
+      }
+      projectShellRunning = false;
+      closeProjectShellEventStream();
+      updateProjectState(payload);
     }
 
     function setAgentInputVisible(isVisible) {
@@ -3383,6 +3665,9 @@ INDEX_HTML = """<!doctype html>
       if (kind === "agent" || kind === "artifact" || kind === "progress") {
         applyOutputPaneVisibility();
       }
+      if (kind === "shell") {
+        applyProjectShellPaneVisibility();
+      }
       window.requestAnimationFrame(fitTerminal);
     }
 
@@ -3516,6 +3801,7 @@ INDEX_HTML = """<!doctype html>
       designReviewInteractive = Boolean(payload.design_review_interactive);
       designApproved = Boolean(payload.design_approved);
       documentationRunning = Boolean(payload.documentation_running);
+      projectShellRunning = Boolean(payload.project_shell_running);
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       selectedSessionId = payload.selected_session_id || selectedSessionId || "";
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
@@ -3556,6 +3842,7 @@ INDEX_HTML = """<!doctype html>
       updateDesignReviewMenuState();
       updateGenericStageMenuStates();
       updateDocumentMenuState();
+      syncProjectShellPane();
       syncArtifactPreviewWithProject();
       projectStatus.textContent = projectStatusLine();
       queueProjectStatusRefresh();
@@ -4799,6 +5086,7 @@ INDEX_HTML = """<!doctype html>
       workItemTitle.value = "";
       workItemName.value = "";
       workItemBranchCheckbox.checked = false;
+      hideWorkItemRecovery();
       workItemName.hidden = mode === "bug-new";
       workItemBranchLabel.hidden = false;
       if (mode === "bug-new") {
@@ -4817,6 +5105,7 @@ INDEX_HTML = """<!doctype html>
 
     function hideWorkItemPanel() {
       workItemPanel.hidden = true;
+      hideWorkItemRecovery();
       workItemMode = "";
     }
 
@@ -4832,6 +5121,7 @@ INDEX_HTML = """<!doctype html>
       if (!confirmWorkItemAgentStop()) {
         return;
       }
+      hideWorkItemRecovery();
       applyWorkItem.disabled = true;
       workItemStatus.textContent = workItemPendingLabel();
       const endpoint = workItemEndpoint();
@@ -4869,9 +5159,15 @@ INDEX_HTML = """<!doctype html>
         const message = payload.error || "work item failed";
         workItemStatus.textContent = message;
         appendOutput(`${message}\\n`, "error");
+        if (recoverableWorkItemError(message, payload)) {
+          showWorkItemRecovery();
+        } else {
+          hideWorkItemRecovery();
+        }
         applyWorkItem.disabled = false;
         return;
       }
+      hideWorkItemRecovery();
       hideWorkItemPanel();
       appendOutput(`${payload.status}: ${payload.label || title}\\n`, "system");
       if (payload.terminated_agent) {
@@ -4948,6 +5244,7 @@ INDEX_HTML = """<!doctype html>
       if (!confirmWorkItemAgentStop()) {
         return;
       }
+      hideWorkItemRecovery();
       hideStageMenus();
       const response = await fetch(contextUrl(endpoint), {
         method: "POST",
@@ -4957,6 +5254,9 @@ INDEX_HTML = """<!doctype html>
       const payload = await response.json().catch(() => ({ error: "switch failed" }));
       if (!response.ok) {
         appendOutput(`${payload.error || "switch failed"}\\n`, "error");
+        if (recoverableWorkItemError(payload.error || "switch failed", payload)) {
+          showWorkItemRecovery();
+        }
         return;
       }
       appendOutput(`${successLabel}: ${payload.label || ""}\\n`, "system");
@@ -4973,6 +5273,22 @@ INDEX_HTML = """<!doctype html>
       return window.confirm(
         "A workflow agent is running in this browser context.\\n\\nStarting or switching work items will stop that agent. Continue?",
       );
+    }
+
+    function showWorkItemRecovery() {
+      workItemRecovery.hidden = false;
+    }
+
+    function hideWorkItemRecovery() {
+      workItemRecovery.hidden = true;
+    }
+
+    function recoverableWorkItemError(message, payload = {}) {
+      if (payload.stash_subrepo_changes_required) {
+        return true;
+      }
+      return /\\b(branch|checkout|switch|dirty|uncommitted|tracked changes|merge|rebase|conflict|index\\.lock|permission|stash|worktree|repository)\\b/i
+        .test(message || "");
     }
 
     async function deactivateActiveProject() {
@@ -4993,7 +5309,9 @@ INDEX_HTML = """<!doctype html>
         eventSource = null;
       }
       closeProgressEventStream();
+      closeProjectShellEventStream();
       showProgressPane(false);
+      showProjectShellPane(false);
       activationRoot = "";
       activeProjectMode = "none";
       activeProjectRoot = "";
@@ -5014,6 +5332,7 @@ INDEX_HTML = """<!doctype html>
       designReviewRunning = false;
       stageRunState = {};
       documentationRunning = false;
+      projectShellRunning = false;
       agentSessions = [];
       selectedSessionId = "";
       renderSessionSwitcher();
@@ -5022,6 +5341,7 @@ INDEX_HTML = """<!doctype html>
       setAgentInputVisible(true);
       clearAgentOutput();
       clearProgressOutput();
+      clearProjectShellOutput();
       hideArtifactPreview();
       hideWorkItemPanel();
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
@@ -5859,6 +6179,8 @@ INDEX_HTML = """<!doctype html>
     newBugWorkItem.addEventListener("click", () => showWorkItemPanel("bug-new"));
     applyWorkItem.addEventListener("click", applyWorkItemSelection);
     cancelWorkItem.addEventListener("click", hideWorkItemPanel);
+    openProjectShell.addEventListener("click", startProjectShell);
+    retryWorkItem.addEventListener("click", applyWorkItemSelection);
     workItemTitle.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -5986,6 +6308,7 @@ INDEX_HTML = """<!doctype html>
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
     popoutAgentPane.addEventListener("click", () => popOutPane("agent"));
     popoutProgressPane.addEventListener("click", () => popOutPane("progress"));
+    popoutProjectShellPane.addEventListener("click", () => popOutPane("shell"));
     popoutScratchPane.addEventListener("click", () => popOutPane("scratch"));
     popoutStatusPane.addEventListener("click", () => popOutPane("status"));
     popoutInputPane.addEventListener("click", () => popOutPane("input"));
@@ -6018,6 +6341,7 @@ INDEX_HTML = """<!doctype html>
     artifactPaneResizeHandle.addEventListener("pointerup", finishArtifactPaneResize);
     artifactPaneResizeHandle.addEventListener("pointercancel", finishArtifactPaneResize);
     interruptAgent.addEventListener("click", interruptActiveAgent);
+    stopProjectShell.addEventListener("click", stopProjectShellProcess);
     insertFileLink.addEventListener("click", () => {
       if (insertFileLink.disabled) {
         return;
@@ -6435,6 +6759,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       if (kind === "scratch") return "Scratch pad";
       if (kind === "status") return "Project status";
       if (kind === "input") return "AI agent input";
+      if (kind === "shell") return "Project shell";
       return "Pane";
     }
 
@@ -6529,12 +6854,12 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       refreshArtifact();
     }
 
-    function terminalOptions() {
+    function terminalOptions(disableStdin = true) {
       return {
         allowProposedApi: false,
         convertEol: true,
         cursorBlink: false,
-        disableStdin: true,
+        disableStdin,
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
         fontSize,
         scrollback: 10000,
@@ -6564,9 +6889,12 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       };
     }
 
-    function showTerminal() {
+    function showTerminal(disableStdin = true, onData = null) {
       terminalHost.hidden = false;
-      terminal = new window.Terminal(terminalOptions());
+      terminal = new window.Terminal(terminalOptions(disableStdin));
+      if (onData) {
+        terminal.onData(onData);
+      }
       if (window.FitAddon && window.FitAddon.FitAddon) {
         terminalFit = new window.FitAddon.FitAddon();
         terminal.loadAddon(terminalFit);
@@ -6585,6 +6913,34 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       } catch (error) {
         return;
       }
+      if (PANE_KIND === "shell") {
+        window.requestAnimationFrame(sendShellResize);
+      }
+    }
+
+    async function sendShellInput(data) {
+      if (!contextId || !data) {
+        return;
+      }
+      await fetch(contextUrl("/api/shell/input"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data }),
+      }).catch(() => {});
+    }
+
+    async function sendShellResize() {
+      if (!contextId || !terminal) {
+        return;
+      }
+      await fetch(contextUrl("/api/shell/resize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          columns: terminal.cols,
+          rows: terminal.rows,
+        }),
+      }).catch(() => {});
     }
 
     function formatTerminalMessage(text, type) {
@@ -6639,6 +6995,30 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         }
       });
       eventSource.onerror = () => {};
+    }
+
+    function connectShellStream() {
+      showTerminal(false, sendShellInput);
+      if (!contextId) {
+        terminal.write("\x1b[31mno active context\x1b[0m\r\n");
+        return;
+      }
+      eventSource = new EventSource(contextUrl("/api/shell/events"));
+      eventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          terminal.write(payload.terminal || payload.text || "");
+        } else if (payload.type === "system" || payload.type === "error") {
+          terminal.write(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
+        } else if (payload.type === "completed") {
+          terminal.write(formatTerminalMessage(
+            `\r\nproject shell exited with code ${payload.returncode}\r\n`,
+            "system",
+          ));
+        }
+      });
+      eventSource.onerror = () => {};
+      window.requestAnimationFrame(sendShellResize);
     }
 
     function artifactUrl() {
@@ -6857,6 +7237,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     else if (PANE_KIND === "scratch") showScratchPad();
     else if (PANE_KIND === "status") showStatus();
     else if (PANE_KIND === "input") showInput();
+    else if (PANE_KIND === "shell") connectShellStream();
 
     window.addEventListener("beforeunload", () => {
       if (eventSource) eventSource.close();
@@ -7547,6 +7928,7 @@ class BrowserContext:
     design_session: AgentSession | None = None
     design_review_session: AgentSession | None = None
     documentation_session: AgentSession | None = None
+    project_shell_session: AgentSession | None = None
     stage_sessions: dict[str, AgentSession] = field(default_factory=dict)
     selected_session_id: str | None = None
     workflow_stage: str | None = None
@@ -7672,7 +8054,7 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-        terminated_agent = self._terminate_all_context_sessions(context_id)
+        terminated_agent = self._terminate_workflow_sessions(context_id)
         output = _run_feature_start_context(
             project_root,
             title=title,
@@ -7729,7 +8111,7 @@ class ServiceState:
         feature = _feature_by_slug(registry, slug)
         if feature is None:
             raise AgentSessionError("unknown feature")
-        terminated_agent = self._terminate_all_context_sessions(context_id)
+        terminated_agent = self._terminate_workflow_sessions(context_id)
         output = _run_feature_start_context(
             project_root,
             title=str(feature.get("input") or feature.get("title") or slug),
@@ -7788,7 +8170,7 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-        terminated_agent = self._terminate_all_context_sessions(context_id)
+        terminated_agent = self._terminate_workflow_sessions(context_id)
         output = _run_bug_start_context(
             project_root,
             issue_reference=issue_reference,
@@ -7828,7 +8210,7 @@ class ServiceState:
         bug = _bug_by_slug(registry, slug)
         if bug is None:
             raise AgentSessionError("unknown bug")
-        terminated_agent = self._terminate_all_context_sessions(context_id)
+        terminated_agent = self._terminate_workflow_sessions(context_id)
         _write_current_bug_record(project_root, bug)
         registry["active_bug_slug"] = slug
         registry["active_feature_slug"] = None
@@ -7992,6 +8374,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = workflow_stage
@@ -8022,6 +8405,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = _visible_workflow_stage(manifest.active_stage)
@@ -8050,6 +8434,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = meta_context["workflow_stage"]
@@ -8081,6 +8466,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = None
@@ -8130,6 +8516,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
             context.requirements_started = False
@@ -8161,6 +8548,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
             context.requirements_started = False
@@ -8177,7 +8565,7 @@ class ServiceState:
     def deactivate_project(self, context_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
-            sessions = self._context_sessions_locked(context)
+            sessions = self._context_process_sessions_locked(context)
         self._terminate_sessions(sessions)
         with self.lock:
             context = self._context_locked(context_id)
@@ -8190,6 +8578,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
             context.workflow_stage = None
@@ -8899,6 +9288,75 @@ class ServiceState:
             context = self._context_locked(context_id)
             return context.documentation_session
 
+    def current_project_shell_session(self, context_id: str) -> AgentSession | None:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return context.project_shell_session
+
+    def start_project_shell(self, context_id: str) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if (
+                context.project_shell_session is not None
+                and context.project_shell_session.is_active()
+            ):
+                return context.project_shell_session, False
+            session = AgentSession(
+                command=_project_shell_command(),
+                cwd=project_root,
+                label="project shell",
+                kind="project-shell",
+                interactive=True,
+                echo_input=True,
+            )
+            context.project_shell_session = session
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.project_shell_session is session:
+                    context.project_shell_session = None
+            raise
+        return session, True
+
+    def send_project_shell_input(self, context_id: str, data: str) -> None:
+        session = self.current_project_shell_session(context_id)
+        if session is None:
+            raise AgentSessionError("project shell has not been started")
+        session.send_raw(data)
+
+    def resize_project_shell(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        session = self.current_project_shell_session(context_id)
+        if session is None:
+            raise AgentSessionError("project shell has not been started")
+        session.resize(columns, rows)
+
+    def stop_project_shell(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = context.project_shell_session
+        if session is None or not session.is_active():
+            raise AgentSessionError("project shell is not running")
+        session.terminate()
+        with self.lock:
+            context = self._context_locked(context_id)
+            if context.project_shell_session is session:
+                context.project_shell_session = None
+            project_root = context.active_project_root
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "stopped project shell",
+        }
+
     def session_payload(self, context_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
@@ -9142,11 +9600,20 @@ class ServiceState:
             if session is not None
         ]
 
+    def _context_process_sessions_locked(
+        self,
+        context: BrowserContext,
+    ) -> list[AgentSession]:
+        sessions = self._context_sessions_locked(context)
+        if context.project_shell_session is not None:
+            sessions.append(context.project_shell_session)
+        return sessions
+
     def _all_sessions_locked(self) -> list[AgentSession]:
         sessions: list[AgentSession] = []
         seen: set[int] = set()
         for context in self.contexts.values():
-            for session in self._context_sessions_locked(context):
+            for session in self._context_process_sessions_locked(context):
                 identifier = id(session)
                 if identifier in seen:
                     continue
@@ -9172,6 +9639,8 @@ class ServiceState:
                     context.stage_sessions.pop(stage, None)
             if context.documentation_session is session:
                 context.documentation_session = None
+            if context.project_shell_session is session:
+                context.project_shell_session = None
             session_id = getattr(session, "session_id", None)
             if session_id is not None and context.selected_session_id == session_id:
                 context.selected_session_id = None
@@ -9230,7 +9699,7 @@ class ServiceState:
     def _require_no_active_agent_locked(self, context: BrowserContext) -> None:
         active_labels = [
             getattr(session, "label", "agent")
-            for session in self._context_sessions_locked(context)
+            for session in self._context_process_sessions_locked(context)
             if session.is_active()
         ]
         if active_labels:
@@ -9306,6 +9775,7 @@ class AgentSession:
         interactive: bool = True,
         lock_names: frozenset[str] | set[str] | None = None,
         on_completed: Callable[[int], None] | None = None,
+        echo_input: bool = False,
     ) -> None:
         self.session_id = uuid4().hex
         self.command = command
@@ -9315,6 +9785,7 @@ class AgentSession:
         self.label = label
         self.kind = kind
         self.interactive = interactive
+        self.echo_input = echo_input
         self.lock_names = frozenset(lock_names or ())
         self.created_at = utc_now()
         self.on_completed = on_completed
@@ -9348,7 +9819,8 @@ class AgentSession:
             return
         master_fd, slave_fd = pty.openpty()
         env = _agent_process_env()
-        _disable_terminal_echo(slave_fd)
+        if not self.echo_input:
+            _disable_terminal_echo(slave_fd)
         _set_terminal_size(slave_fd, self.columns, self.rows)
         popen_kwargs: dict[str, Any] = {
             "args": self.command,
@@ -9411,6 +9883,16 @@ class AgentSession:
             raise AgentSessionError(f"{self.label} input is not available")
         try:
             os.write(self._master_fd, _terminal_input_for_key(key).encode("utf-8"))
+        except OSError as error:
+            raise AgentSessionError(f"could not write to {self.label}: {error}")
+
+    def send_raw(self, data: str) -> None:
+        if not self.is_active():
+            raise AgentSessionError(f"{self.label} is not running")
+        if self._master_fd is None:
+            raise AgentSessionError(f"{self.label} input is not available")
+        try:
+            os.write(self._master_fd, data.encode("utf-8", errors="ignore"))
         except OSError as error:
             raise AgentSessionError(f"could not write to {self.label}: {error}")
 
@@ -9763,6 +10245,12 @@ def project_payload(
         and documentation_session is not None
         and documentation_session.is_active()
     )
+    project_shell_session = context.project_shell_session
+    project_shell_running = bool(
+        active_root
+        and project_shell_session is not None
+        and project_shell_session.is_active()
+    )
     workflow_stage = (
         _visible_workflow_stage(context.workflow_stage)
         if active_root and context.workflow_stage
@@ -9796,6 +10284,7 @@ def project_payload(
         ),
         "stage_runs": _generic_stage_run_payload(context, active_root),
         "documentation_running": documentation_running,
+        "project_shell_running": project_shell_running,
         "design_approved": bool(
             active_root
             and _stage_has_approvals(
@@ -11664,6 +12153,18 @@ def _documentation_command(
     return _electroboy_command(root, args)
 
 
+def _project_shell_command() -> list[str]:
+    candidates = [
+        os.environ.get("SHELL", "").strip(),
+        "/bin/bash",
+        "/bin/sh",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return [candidate]
+    return ["/bin/sh"]
+
+
 def _electroboy_command(root: Path, args: list[str]) -> list[str]:
     activate_script = root / ".electroboy" / "bin" / "activate"
     command_parts = ["electroboy", *args]
@@ -11998,6 +12499,9 @@ def _handler_for(
             if path == "/api/sessions/events":
                 self._send_selected_session_events(parsed.query)
                 return
+            if path == "/api/shell/events":
+                self._send_project_shell_events(parsed.query)
+                return
             if path == "/api/agents/requirements/events":
                 self._send_agent_events(parsed.query)
                 return
@@ -12074,6 +12578,18 @@ def _handler_for(
                 return
             if path == "/api/sessions/resize":
                 self._resize_selected_session(parsed.query)
+                return
+            if path == "/api/shell/start":
+                self._start_project_shell(parsed.query)
+                return
+            if path == "/api/shell/input":
+                self._send_project_shell_input(parsed.query)
+                return
+            if path == "/api/shell/resize":
+                self._resize_project_shell(parsed.query)
+                return
+            if path == "/api/shell/stop":
+                self._stop_project_shell(parsed.query)
                 return
             if path == "/api/agents/requirements/start":
                 self._start_requirements_agent(parsed.query)
@@ -12552,6 +13068,71 @@ def _handler_for(
                 return
             self._send_json({"status": "resized"})
 
+        def _start_project_shell(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, started = state.start_project_shell(context_id)
+                self._send_json(
+                    {
+                        **state.project_payload(context_id),
+                        "status": "started" if started else "already running",
+                        "shell_session": session.payload(selected=False),
+                    }
+                )
+            except (AgentSessionError, OSError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _send_project_shell_events(self, query: str) -> None:
+            self._send_session_events(
+                query,
+                state.current_project_shell_session,
+                "project shell has not been started",
+            )
+
+        def _send_project_shell_input(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                state.send_project_shell_input(
+                    context_id,
+                    str(payload.get("data") or ""),
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "sent"})
+
+        def _resize_project_shell(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                columns = int(payload.get("columns") or 120)
+                rows = int(payload.get("rows") or 32)
+                state.resize_project_shell(context_id, columns, rows)
+            except (AgentSessionError, StateError, TypeError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_json({"status": "resized"})
+
+        def _stop_project_shell(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.stop_project_shell(context_id))
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
         def _send_requirements_document(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
@@ -12582,6 +13163,7 @@ def _handler_for(
                 "scratch",
                 "status",
                 "input",
+                "shell",
             }:
                 self._send_json(
                     {"error": "unknown pane"},

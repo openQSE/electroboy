@@ -131,6 +131,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function selectAgentSession(sessionId)", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/project")', PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/select")', PANE_WINDOW_HTML)
+        self.assertIn('if (kind === "shell") return "Project shell";', PANE_WINDOW_HTML)
+        self.assertIn("function connectShellStream()", PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/shell/events")', PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/shell/input")', PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/shell/resize")', PANE_WINDOW_HTML)
         self.assertIn('if (kind === "input") return "AI agent input";', PANE_WINDOW_HTML)
         self.assertIn('sandbox="allow-scripts allow-popups"', page)
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
@@ -413,6 +418,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function showWorkItemPanel(mode)", INDEX_HTML)
         self.assertIn("function applyWorkItemSelection()", INDEX_HTML)
         self.assertIn("function confirmWorkItemAgentStop()", INDEX_HTML)
+        self.assertIn('id="workItemRecovery"', INDEX_HTML)
+        self.assertIn('id="openProjectShell"', INDEX_HTML)
+        self.assertIn('id="retryWorkItem"', INDEX_HTML)
+        self.assertIn("function recoverableWorkItemError(message", INDEX_HTML)
+        self.assertIn("function startProjectShell()", INDEX_HTML)
+        self.assertIn('contextUrl("/api/shell/start")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/shell/input")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/shell/events")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/shell/stop")', INDEX_HTML)
+        self.assertIn('id="projectShellPane"', INDEX_HTML)
+        self.assertIn('id="popoutProjectShellPane"', INDEX_HTML)
         self.assertIn("Starting or switching work items will stop that agent", INDEX_HTML)
         self.assertIn("stopped running agent for work-item context", INDEX_HTML)
         self.assertIn("function shouldRetryWithSubrepoStash(payload, body)", INDEX_HTML)
@@ -592,7 +608,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("xterm@5.3.0", INDEX_HTML)
         self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
         self.assertIn("new window.Terminal", INDEX_HTML)
-        self.assertIn("disableStdin: true", INDEX_HTML)
+        self.assertIn("function terminalOptions(disableStdin = true)", INDEX_HTML)
+        self.assertIn("disableStdin,", INDEX_HTML)
+        self.assertIn("terminalOptions(false)", INDEX_HTML)
         self.assertIn('termName: "xterm-256color"', INDEX_HTML)
         self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
         self.assertIn('const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";', INDEX_HTML)
@@ -1509,6 +1527,56 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "requirements")
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "documentation")
+
+    def test_project_shell_starts_in_active_project_without_agent_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_project_shell(context_id)
+            payload = state.project_payload(context_id)
+
+        self.assertTrue(started)
+        self.assertEqual(session.kind, "project-shell")
+        self.assertEqual(session.label, "project shell")
+        self.assertEqual(session.cwd, project_root.resolve())
+        self.assertTrue(session.echo_input)
+        self.assertIsNone(payload["selected_session_id"])
+        self.assertEqual(payload["sessions"], [])
+
+    def test_project_shell_payload_reports_running_separately(self) -> None:
+        class FakeShell:
+            session_id = "shell-session"
+            kind = "project-shell"
+            label = "project shell"
+
+            def is_active(self) -> bool:
+                return True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with state.lock:
+                state.contexts[context_id].project_shell_session = FakeShell()  # type: ignore[assignment]
+            payload = state.project_payload(context_id)
+
+        self.assertTrue(payload["project_shell_running"])
+        self.assertEqual(payload["sessions"], [])
 
     def test_documentation_sidecar_can_run_while_design_lock_is_active(self) -> None:
         class FakeActiveSession:
@@ -2557,6 +2625,30 @@ class ServiceTests(unittest.TestCase):
 
             self.assertIn("raw:hello agent", wait_for_output(self, session, "raw:"))
             self.assertIn("submit:'\\r'", wait_for_output(self, session, "submit:"))
+            wait_for_exit(self, session)
+            self.assertFalse(session.is_active())
+        finally:
+            if session.is_active() and session.process is not None:
+                session.process.terminate()
+
+    def test_agent_session_writes_raw_terminal_data(self) -> None:
+        script = (
+            "import sys\n"
+            "print('ready', flush=True)\n"
+            "line = sys.stdin.readline()\n"
+            "print('raw:' + line.strip(), flush=True)\n"
+        )
+        session = AgentSession([sys.executable, "-c", script], ROOT)
+        try:
+            try:
+                session.start()
+            except PermissionError as error:
+                self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+            self.assertIn("ready", wait_for_output(self, session, "ready"))
+
+            session.send_raw("shell input\n")
+
+            self.assertIn("raw:shell input", wait_for_output(self, session, "raw:"))
             wait_for_exit(self, session)
             self.assertFalse(session.is_active())
         finally:
