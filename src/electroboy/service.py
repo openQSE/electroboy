@@ -266,6 +266,46 @@ INDEX_HTML = """<!doctype html>
       max-width: calc(100% - 180px);
     }
 
+    .toolbar-control-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      min-height: 36px;
+      overflow: hidden;
+      border: 1px solid #c8d5e2;
+      border-radius: 8px;
+      background: #f7fbff;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 80%) inset,
+        0 6px 16px rgb(17 24 39 / 6%);
+    }
+
+    .toolbar-control-label {
+      display: inline-flex;
+      align-items: center;
+      align-self: stretch;
+      border-right: 1px solid #d8e1ec;
+      color: #4a5a6d;
+      padding: 0 10px;
+      font-size: var(--ui-small-font-size);
+      font-weight: 800;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .toolbar-control-group button,
+    .toolbar-control-group select {
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-family: inherit;
+    }
+
+    .toolbar-control-group button:hover:not(:disabled),
+    .toolbar-control-group select:hover:not(:disabled) {
+      background: #edf6fb;
+    }
+
     .shell-resize-handle,
     .input-resize-handle,
     .output-resize-handle,
@@ -1069,32 +1109,42 @@ INDEX_HTML = """<!doctype html>
     }
 
     .session-control {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      min-width: 0;
+      min-width: 260px;
     }
 
-    .session-label {
-      color: var(--muted);
-      font-size: var(--ui-small-font-size);
-      font-weight: 750;
-      white-space: nowrap;
+    .agent-session-indicator {
+      width: 9px;
+      height: 9px;
+      margin: 0 8px;
+      border-radius: 999px;
+      background: #9aa7b6;
+      box-shadow: 0 0 0 3px rgb(154 167 182 / 14%);
+      flex: 0 0 auto;
+    }
+
+    .agent-session-indicator.running {
+      background: #0f766e;
+      box-shadow: 0 0 0 3px rgb(15 118 110 / 16%);
+    }
+
+    .agent-session-indicator.error {
+      background: #b42318;
+      box-shadow: 0 0 0 3px rgb(180 35 24 / 14%);
+    }
+
+    .agent-session-indicator.done {
+      background: #456179;
+      box-shadow: 0 0 0 3px rgb(69 97 121 / 14%);
     }
 
     .session-switcher {
-      width: min(260px, 28vw);
+      width: 100%;
       min-height: 38px;
       height: calc(var(--ui-font-size) + 25px);
-      min-width: 160px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: #ffffff;
-      color: var(--ink);
-      font: inherit;
+      min-width: 0;
       font-size: var(--ui-font-size);
       font-weight: 650;
-      padding: 0 8px;
+      padding: 0 32px 0 0;
     }
 
     .session-switcher:disabled {
@@ -1103,8 +1153,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     .terminal-font-controls {
-      display: flex;
-      gap: 6px;
+      gap: 0;
     }
 
     .terminal-font-button,
@@ -1120,9 +1169,24 @@ INDEX_HTML = """<!doctype html>
       min-height: 32px;
       height: calc(var(--ui-font-size) + 19px);
       min-width: 38px;
-      border: 1px solid var(--border);
+      border-radius: 0;
+    }
+
+    .terminal-font-button + .terminal-font-value,
+    .terminal-font-value + .terminal-font-button {
+      border-left: 1px solid #d8e1ec;
+    }
+
+    .terminal-font-value {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      align-self: stretch;
+      min-width: 48px;
+      color: #4a5a6d;
+      font-size: var(--ui-small-font-size);
+      font-weight: 800;
       background: #ffffff;
-      color: var(--ink);
     }
 
     .agent-action-button {
@@ -1276,7 +1340,8 @@ INDEX_HTML = """<!doctype html>
     <section class="workflow-pane" aria-label="Project workflow">
       <div id="connection" class="connection"></div>
       <div class="workflow-toolbar" aria-label="Agent controls">
-        <div class="terminal-font-controls" aria-label="UI font size">
+        <div class="terminal-font-controls toolbar-control-group" aria-label="UI font size">
+          <span class="toolbar-control-label">Text</span>
           <button
             id="decreaseTerminalFont"
             class="terminal-font-button"
@@ -1286,6 +1351,11 @@ INDEX_HTML = """<!doctype html>
           >
             A-
           </button>
+          <span
+            id="terminalFontValue"
+            class="terminal-font-value"
+            aria-live="polite"
+          >15px</span>
           <button
             id="increaseTerminalFont"
             class="terminal-font-button"
@@ -1296,8 +1366,13 @@ INDEX_HTML = """<!doctype html>
             A+
           </button>
         </div>
-        <div class="session-control">
-          <label class="session-label" for="sessionSwitcher">Select Agent</label>
+        <div class="session-control toolbar-control-group">
+          <label class="toolbar-control-label" for="sessionSwitcher">Agent</label>
+          <span
+            id="agentSessionIndicator"
+            class="agent-session-indicator"
+            aria-hidden="true"
+          ></span>
           <select
             id="sessionSwitcher"
             class="session-switcher"
@@ -1930,7 +2005,9 @@ INDEX_HTML = """<!doctype html>
     const inputActionResizeHandle = document.getElementById("inputActionResizeHandle");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
     const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
+    const terminalFontValue = document.getElementById("terminalFontValue");
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
+    const agentSessionIndicator = document.getElementById("agentSessionIndicator");
     const interruptAgent = document.getElementById("interruptAgent");
     const insertFileLink = document.getElementById("insertFileLink");
     const popoutAgentPane = document.getElementById("popoutAgentPane");
@@ -2323,6 +2400,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function applyTerminalFontSize() {
+      terminalFontValue.textContent = `${terminalFontSize}px`;
       document.documentElement.style.setProperty(
         "--terminal-font-size",
         `${terminalFontSize}px`,
@@ -3343,6 +3421,22 @@ INDEX_HTML = """<!doctype html>
       return Boolean(session && session.interactive && sessionIsRunning(session));
     }
 
+    function updateSessionIndicator(session) {
+      const status = session ? session.status || "done" : "idle";
+      let className = "agent-session-indicator";
+      if (status === "running") {
+        className += " running";
+      } else if (status === "error" || status === "failed") {
+        className += " error";
+      } else if (session) {
+        className += " done";
+      }
+      agentSessionIndicator.className = className;
+      agentSessionIndicator.title = session
+        ? `${session.kind || "agent"}: ${status}`
+        : "No selected agent";
+    }
+
     function renderSessionSwitcher() {
       sessionSwitcher.replaceChildren();
       if (agentSessions.length === 0) {
@@ -3351,6 +3445,7 @@ INDEX_HTML = """<!doctype html>
         option.textContent = "No streams";
         sessionSwitcher.append(option);
         sessionSwitcher.disabled = true;
+        updateSessionIndicator(null);
         return;
       }
       for (const session of agentSessions) {
@@ -3361,7 +3456,12 @@ INDEX_HTML = """<!doctype html>
         sessionSwitcher.append(option);
       }
       sessionSwitcher.disabled = false;
-      sessionSwitcher.value = selectedSessionId || agentSessions[0].session_id;
+      if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
+        const selected = agentSessions.find((session) => session.selected) || agentSessions[0];
+        selectedSessionId = selected ? selected.session_id : "";
+      }
+      sessionSwitcher.value = selectedSessionId;
+      updateSessionIndicator(selectedSession());
     }
 
     async function selectAgentSession(sessionId) {

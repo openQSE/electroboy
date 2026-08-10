@@ -435,11 +435,22 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="agentInput"', INDEX_HTML)
         self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
         self.assertIn('id="sessionSwitcher"', INDEX_HTML)
-        self.assertIn('for="sessionSwitcher">Select Agent</label>', INDEX_HTML)
+        self.assertIn('for="sessionSwitcher">Agent</label>', INDEX_HTML)
         self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
+        self.assertIn('id="terminalFontValue"', INDEX_HTML)
         self.assertIn('id="increaseTerminalFont"', INDEX_HTML)
+        self.assertIn('id="agentSessionIndicator"', INDEX_HTML)
+        self.assertIn("function updateSessionIndicator(session)", INDEX_HTML)
         self.assertLess(
             INDEX_HTML.index('id="decreaseTerminalFont"'),
+            INDEX_HTML.index('id="terminalFontValue"'),
+        )
+        self.assertLess(
+            INDEX_HTML.index('id="terminalFontValue"'),
+            INDEX_HTML.index('id="increaseTerminalFont"'),
+        )
+        self.assertLess(
+            INDEX_HTML.index('id="agentSessionIndicator"'),
             INDEX_HTML.index('id="sessionSwitcher"'),
         )
         self.assertLess(
