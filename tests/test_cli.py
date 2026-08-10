@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -75,6 +76,129 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 2)
         self.assertIn("no active ElectroBoy project", stderr)
+
+    def test_serve_uses_environment_defaults(self) -> None:
+        with temp_project() as root:
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "ELECTROBOY_SERVICE_ROOT": str(root),
+                    "ELECTROBOY_SERVICE_HOST": "0.0.0.0",
+                    "ELECTROBOY_SERVICE_PORT": "9001",
+                },
+            ):
+                with mock.patch(
+                    "electroboy.service.run_service",
+                    return_value=0,
+                ) as run_service:
+                    code, stdout, stderr = self.run_cli(["serve"])
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stdout, "")
+        run_service.assert_called_once_with(str(root), host="0.0.0.0", port=9001)
+
+    def test_serve_command_line_options_override_environment(self) -> None:
+        with temp_project() as env_root, temp_project() as cli_root:
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "ELECTROBOY_SERVICE_ROOT": str(env_root),
+                    "ELECTROBOY_SERVICE_HOST": "0.0.0.0",
+                    "ELECTROBOY_SERVICE_PORT": "9001",
+                },
+            ):
+                with mock.patch(
+                    "electroboy.service.run_service",
+                    return_value=0,
+                ) as run_service:
+                    code, stdout, stderr = self.run_cli(
+                        [
+                            "serve",
+                            "--root",
+                            str(cli_root),
+                            "--host",
+                            "127.0.0.2",
+                            "--port",
+                            "0",
+                        ]
+                    )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stdout, "")
+        run_service.assert_called_once_with(str(cli_root), host="127.0.0.2", port=0)
+
+    def test_serve_rejects_invalid_environment_port(self) -> None:
+        with mock.patch.dict(os.environ, {"ELECTROBOY_SERVICE_PORT": "bad"}):
+            code, stdout, stderr = self.run_cli(["serve"])
+
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("ELECTROBOY_SERVICE_PORT must be an integer", stderr)
+
+    def test_service_install_writes_user_unit_and_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            browse_root = Path(tmp) / "openQSE"
+            home.mkdir()
+            browse_root.mkdir()
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HOME": str(home),
+                    "PATH": "/custom/bin:/usr/bin",
+                    "USER": "tester",
+                },
+            ):
+                code, stdout, stderr = self.run_cli(
+                    [
+                        "service",
+                        "install",
+                        "--browse-root",
+                        str(browse_root),
+                        "--host",
+                        "0.0.0.0",
+                        "--port",
+                        "9001",
+                        "--no-reload",
+                    ]
+                )
+
+            unit_path = home / ".config" / "systemd" / "user" / "electroboy.service"
+            env_path = home / ".config" / "electroboy" / "service.env"
+            unit_text = unit_path.read_text(encoding="utf-8")
+            env_text = env_path.read_text(encoding="utf-8")
+
+            self.assertEqual(code, 0, stderr)
+            self.assertIn(f"installed service unit: {unit_path}", stdout)
+            self.assertIn(f"installed service env: {env_path}", stdout)
+            self.assertIn("systemd reload: skipped", stdout)
+            self.assertEqual(stderr, "")
+            self.assertIn("ExecStart=/usr/bin/env electroboy serve", unit_text)
+            self.assertIn("WantedBy=default.target", unit_text)
+            self.assertIn(
+                f'ELECTROBOY_SERVICE_ROOT="{browse_root.resolve()}"',
+                env_text,
+            )
+            self.assertIn('ELECTROBOY_SERVICE_HOST="0.0.0.0"', env_text)
+            self.assertIn('ELECTROBOY_SERVICE_PORT="9001"', env_text)
+            self.assertIn('PATH="/custom/bin:/usr/bin"', env_text)
+
+    def test_service_install_refuses_to_overwrite_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            unit_path = home / ".config" / "systemd" / "user" / "electroboy.service"
+            write_file(unit_path, "existing\n")
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                code, stdout, stderr = self.run_cli(
+                    ["service", "install", "--no-reload"]
+                )
+
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("already exists; pass --force to overwrite", stderr)
 
     def test_progress_once_prints_run_progress_files(self) -> None:
         with temp_project() as root:

@@ -49,6 +49,55 @@ Bash completion can be enabled from a checkout:
 source <(./electroboy completion bash)
 ```
 
+## Browser Service
+
+Start the browser UI directly while developing:
+
+```bash
+electroboy serve
+electroboy serve --port 9001
+```
+
+The service reads these environment variables when command-line options are not
+provided:
+
+- `ELECTROBOY_SERVICE_ROOT`: GUI browse/base directory. This does not
+  auto-open a project or select a meta-project repository.
+- `ELECTROBOY_SERVICE_HOST`: bind address, defaulting to `127.0.0.1`.
+- `ELECTROBOY_SERVICE_PORT`: bind port, defaulting to `8765`.
+
+Install the systemd unit as a user service so the browser service runs with the
+same Codex, Git, and project configuration as the operator:
+
+```bash
+electroboy service install \
+  --browse-root ~/ORNL/Quantum/openQSE \
+  --host 127.0.0.1 \
+  --port 8765
+systemctl --user start electroboy
+```
+
+The install command writes `~/.config/systemd/user/electroboy.service` and
+`~/.config/electroboy/service.env`, snapshots the current shell `PATH` into the
+env file, and runs `systemctl --user daemon-reload`. Use `--force` to overwrite
+an existing installed unit or env file, `--enable` to enable the service, and
+`--start` to start it immediately.
+
+After editing `ELECTROBOY_SERVICE_PORT` in
+`~/.config/electroboy/service.env`, restart the service:
+
+```bash
+systemctl --user restart electroboy
+```
+
+For a system-wide unit, run the installer with `--system` and provide the
+operator account if needed:
+
+```bash
+sudo electroboy service install --system --service-user a2e --browse-root /home/a2e
+sudo systemctl start electroboy
+```
+
 ## Workflow
 
 Create a pipeline project and enter its project environment:

@@ -185,6 +185,26 @@ GENERIC_STAGE_CONFIG: dict[str, dict[str, object]] = {
     },
 }
 
+WORKFLOW_STAGE_RESET_TARGETS = {
+    "requirements": STAGE_REQUIREMENTS,
+    "design": STAGE_DESIGN,
+    "design-review": STAGE_DESIGN_REVIEW,
+    "implementation-plan": STAGE_PLAN,
+    "code": STAGE_IMPLEMENTATION,
+    "test-plan": STAGE_TEST_PLAN,
+    "validate": STAGE_VALIDATION,
+}
+
+ARTIFACT_EVENT_ROUTE_PATHS = {
+    "/artifacts/requirements": "docs/requirements.md",
+    "/artifacts/design": "docs/detailed-design.md",
+    "/artifacts/design-review": "docs/design-review.md",
+    "/artifacts/implementation-plan": "docs/implementation-plan.md",
+    "/artifacts/implementation-report": "docs/implementation-report.md",
+    "/artifacts/test-plan": "docs/test-plan.md",
+    "/artifacts/validation-report": "docs/validation-report.md",
+}
+
 INDEX_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -1658,50 +1678,183 @@ INDEX_HTML = """<!doctype html>
         <button id="deactivateProject" type="button" disabled>Deactivate</button>
       </div>
       <div id="requirementsMenu" class="stage-menu" hidden>
-        <button id="startRequirements" type="button">Start</button>
-        <button id="restartRequirements" type="button">Restart</button>
-        <button id="approveRequirements" type="button">Approve</button>
-        <button id="skipRequirementsApproval" type="button">Skip approval</button>
+        <button
+          id="setRequirementsStage"
+          type="button"
+          title="Move the workflow to requirements without starting an agent."
+        >Set stage</button>
+        <button
+          id="startRequirements"
+          type="button"
+          title="Launch or resume the interactive requirements authoring agent."
+        >Start</button>
+        <button
+          id="approveRequirements"
+          type="button"
+          title="Record requirements approval and advance the workflow."
+        >Approve</button>
+        <button
+          id="skipRequirementsApproval"
+          type="button"
+          title="Force requirements approval when the operator accepts the risk."
+        >Skip approval</button>
       </div>
       <div id="designMenu" class="stage-menu" hidden>
-        <button id="startDesign" type="button">Start</button>
-        <button id="restartDesign" type="button">Restart</button>
-        <button id="completeDesign" type="button">Complete</button>
+        <button
+          id="setDesignStage"
+          type="button"
+          title="Move the workflow to design without starting an agent."
+        >Set stage</button>
+        <button
+          id="startDesign"
+          type="button"
+          title="Launch or resume the interactive design authoring agent."
+        >Start</button>
+        <button
+          id="completeDesign"
+          type="button"
+          title="Finish design authoring and move to design review."
+        >Complete</button>
       </div>
       <div id="designReviewMenu" class="stage-menu" hidden>
-        <button id="startAutomaticDesignReview" type="button">Run automatic review</button>
-        <button id="startInteractiveDesignReview" type="button">Run interactive review</button>
-        <button id="stopDesignReview" type="button">Stop review</button>
-        <button id="approveDesignReview" type="button">Approve</button>
-        <button id="skipDesignReviewApproval" type="button">Skip approval</button>
+        <button
+          id="setDesignReviewStage"
+          type="button"
+          title="Move the workflow to design-review without starting a review."
+        >Set stage</button>
+        <button
+          id="startAutomaticDesignReview"
+          type="button"
+          title="Run the non-interactive design review and design-update loop."
+        >Run automatic review</button>
+        <button
+          id="startInteractiveDesignReview"
+          type="button"
+          title="Open an interactive design-review agent session."
+        >Run interactive review</button>
+        <button
+          id="stopDesignReview"
+          type="button"
+          title="Stop the running design-review agent or review loop."
+        >Stop review</button>
+        <button
+          id="approveDesignReview"
+          type="button"
+          title="Approve the reviewed design and advance to implementation planning."
+        >Approve</button>
+        <button
+          id="skipDesignReviewApproval"
+          type="button"
+          title="Force design approval when the operator accepts the risk."
+        >Skip approval</button>
       </div>
       <div id="implementationPlanMenu" class="stage-menu" hidden>
-        <button id="startImplementationPlan" type="button">Start</button>
-        <button id="restartImplementationPlan" type="button">Restart</button>
-        <button id="approveImplementationPlan" type="button">Approve</button>
-        <button id="skipImplementationPlanApproval" type="button">Skip approval</button>
+        <button
+          id="setImplementationPlanStage"
+          type="button"
+          title="Move the workflow to implementation-plan without starting an agent."
+        >Set stage</button>
+        <button
+          id="startImplementationPlan"
+          type="button"
+          title="Launch or resume the interactive implementation-plan agent."
+        >Start</button>
+        <button
+          id="approveImplementationPlan"
+          type="button"
+          title="Approve the implementation plan and advance to code."
+        >Approve</button>
+        <button
+          id="skipImplementationPlanApproval"
+          type="button"
+          title="Force plan approval when the operator accepts the risk."
+        >Skip approval</button>
       </div>
       <div id="codeMenu" class="stage-menu" hidden>
-        <button id="startAutomaticCode" type="button">Start automatic</button>
-        <button id="startInteractiveCode" type="button">Start interactive</button>
-        <button id="stopCode" type="button">Stop</button>
-        <button id="approveCode" type="button">Approve</button>
-        <button id="skipCodeApproval" type="button">Skip approval</button>
-        <button id="restartCode" type="button">Restart</button>
+        <button
+          id="setCodeStage"
+          type="button"
+          title="Move the workflow to code without starting implementation."
+        >Set stage</button>
+        <button
+          id="startAutomaticCode"
+          type="button"
+          title="Run the non-interactive coding and review cycle."
+        >Start automatic</button>
+        <button
+          id="startInteractiveCode"
+          type="button"
+          title="Open an interactive coding agent session."
+        >Start interactive</button>
+        <button
+          id="stopCode"
+          type="button"
+          title="Stop the running coding agent."
+        >Stop</button>
+        <button
+          id="approveCode"
+          type="button"
+          title="Approve implementation and advance to test planning."
+        >Approve</button>
+        <button
+          id="skipCodeApproval"
+          type="button"
+          title="Force code approval when the operator accepts the risk."
+        >Skip approval</button>
       </div>
       <div id="testPlanMenu" class="stage-menu" hidden>
-        <button id="startTestPlan" type="button">Start</button>
-        <button id="restartTestPlan" type="button">Restart</button>
-        <button id="approveTestPlan" type="button">Approve</button>
-        <button id="skipTestPlanApproval" type="button">Skip approval</button>
+        <button
+          id="setTestPlanStage"
+          type="button"
+          title="Move the workflow to test-plan without starting an agent."
+        >Set stage</button>
+        <button
+          id="startTestPlan"
+          type="button"
+          title="Launch or resume the interactive system test-plan agent."
+        >Start</button>
+        <button
+          id="approveTestPlan"
+          type="button"
+          title="Approve the test plan and advance to validation."
+        >Approve</button>
+        <button
+          id="skipTestPlanApproval"
+          type="button"
+          title="Force test-plan approval when the operator accepts the risk."
+        >Skip approval</button>
       </div>
       <div id="validateMenu" class="stage-menu" hidden>
-        <button id="startAutomaticValidate" type="button">Start automatic</button>
-        <button id="startInteractiveValidate" type="button">Start interactive</button>
-        <button id="stopValidate" type="button">Stop</button>
-        <button id="approveValidate" type="button">Approve</button>
-        <button id="skipValidateApproval" type="button">Skip approval</button>
-        <button id="restartValidate" type="button">Restart</button>
+        <button
+          id="setValidateStage"
+          type="button"
+          title="Move the workflow to validate without starting validation."
+        >Set stage</button>
+        <button
+          id="startAutomaticValidate"
+          type="button"
+          title="Run the non-interactive validation command set."
+        >Start automatic</button>
+        <button
+          id="startInteractiveValidate"
+          type="button"
+          title="Open an interactive validation agent session."
+        >Start interactive</button>
+        <button
+          id="stopValidate"
+          type="button"
+          title="Stop the running validation agent."
+        >Stop</button>
+        <button
+          id="approveValidate"
+          type="button"
+          title="Approve validation and record the validation reports."
+        >Approve</button>
+        <button
+          id="skipValidateApproval"
+          type="button"
+          title="Force validation approval when the operator accepts the risk."
+        >Skip approval</button>
       </div>
       <div id="documentMenu" class="stage-menu" hidden>
         <div id="documentTargets" class="document-targets"></div>
@@ -2020,39 +2173,40 @@ INDEX_HTML = """<!doctype html>
     const switchBugWorkItem = document.getElementById("switchBugWorkItem");
     const switchBugWorkItemSubmenu = document.getElementById("switchBugWorkItemSubmenu");
     const deactivateProject = document.getElementById("deactivateProject");
+    const setRequirementsStage = document.getElementById("setRequirementsStage");
     const startRequirements = document.getElementById("startRequirements");
-    const restartRequirements = document.getElementById("restartRequirements");
     const approveRequirements = document.getElementById("approveRequirements");
     const skipRequirementsApproval = document.getElementById("skipRequirementsApproval");
+    const setDesignStage = document.getElementById("setDesignStage");
     const startDesign = document.getElementById("startDesign");
-    const restartDesign = document.getElementById("restartDesign");
     const completeDesign = document.getElementById("completeDesign");
+    const setDesignReviewStage = document.getElementById("setDesignReviewStage");
     const startAutomaticDesignReview = document.getElementById("startAutomaticDesignReview");
     const startInteractiveDesignReview = document.getElementById("startInteractiveDesignReview");
     const stopDesignReview = document.getElementById("stopDesignReview");
     const approveDesignReview = document.getElementById("approveDesignReview");
     const skipDesignReviewApproval = document.getElementById("skipDesignReviewApproval");
+    const setImplementationPlanStage = document.getElementById("setImplementationPlanStage");
     const startImplementationPlan = document.getElementById("startImplementationPlan");
-    const restartImplementationPlan = document.getElementById("restartImplementationPlan");
     const approveImplementationPlan = document.getElementById("approveImplementationPlan");
     const skipImplementationPlanApproval =
       document.getElementById("skipImplementationPlanApproval");
+    const setCodeStage = document.getElementById("setCodeStage");
     const startAutomaticCode = document.getElementById("startAutomaticCode");
     const startInteractiveCode = document.getElementById("startInteractiveCode");
     const stopCode = document.getElementById("stopCode");
     const approveCode = document.getElementById("approveCode");
     const skipCodeApproval = document.getElementById("skipCodeApproval");
-    const restartCode = document.getElementById("restartCode");
+    const setTestPlanStage = document.getElementById("setTestPlanStage");
     const startTestPlan = document.getElementById("startTestPlan");
-    const restartTestPlan = document.getElementById("restartTestPlan");
     const approveTestPlan = document.getElementById("approveTestPlan");
     const skipTestPlanApproval = document.getElementById("skipTestPlanApproval");
+    const setValidateStage = document.getElementById("setValidateStage");
     const startAutomaticValidate = document.getElementById("startAutomaticValidate");
     const startInteractiveValidate = document.getElementById("startInteractiveValidate");
     const stopValidate = document.getElementById("stopValidate");
     const approveValidate = document.getElementById("approveValidate");
     const skipValidateApproval = document.getElementById("skipValidateApproval");
-    const restartValidate = document.getElementById("restartValidate");
     const documentTargets = document.getElementById("documentTargets");
     const createDocumentTarget = document.getElementById("createDocumentTarget");
     const customDocumentForm = document.getElementById("customDocumentForm");
@@ -2203,7 +2357,7 @@ INDEX_HTML = """<!doctype html>
     const MIN_AGENT_INPUT_WIDTH = 260;
     let eventSource = null;
     let progressEventSource = null;
-    let artifactEventSource = null;
+    let artifactEventSources = [];
     let terminal = null;
     let terminalFit = null;
     let progressTerminal = null;
@@ -2234,12 +2388,9 @@ INDEX_HTML = """<!doctype html>
     const poppedPaneWindows = new Map();
     let activeAgentKind = "";
     let requirementsRunning = false;
-    let requirementsStarted = false;
     let requirementsApproved = false;
     let designRunning = false;
-    let designStarted = false;
     let designReviewRunning = false;
-    let designReviewStarted = false;
     let designReviewInteractive = false;
     let designApproved = false;
     let documentationRunning = false;
@@ -3352,12 +3503,9 @@ INDEX_HTML = """<!doctype html>
         : [];
       workItemState = payload.work_items || { collections: [], features: [], bugs: [] };
       stageRunState = payload.stage_runs || {};
-      requirementsStarted = Boolean(payload.requirements_started);
       requirementsRunning = Boolean(payload.requirements_running);
       requirementsApproved = Boolean(payload.requirements_approved);
-      designStarted = Boolean(payload.design_started);
       designRunning = Boolean(payload.design_running);
-      designReviewStarted = Boolean(payload.design_review_started);
       designReviewRunning = Boolean(payload.design_review_running);
       designReviewInteractive = Boolean(payload.design_review_interactive);
       designApproved = Boolean(payload.design_approved);
@@ -3704,10 +3852,9 @@ INDEX_HTML = """<!doctype html>
     function updateRequirementsMenuState() {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inRequirementsStage = currentWorkflowStage === "requirements";
+      setRequirementsStage.disabled = !hasActiveProject || inRequirementsStage;
       startRequirements.disabled =
         !hasActiveProject || !inRequirementsStage || requirementsRunning;
-      restartRequirements.disabled =
-        !hasActiveProject || (inRequirementsStage && !requirementsStarted);
       approveRequirements.disabled = !hasActiveProject || !inRequirementsStage;
       skipRequirementsApproval.disabled = !hasActiveProject || !inRequirementsStage;
     }
@@ -3715,14 +3862,15 @@ INDEX_HTML = """<!doctype html>
     function updateDesignMenuState() {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inDesignStage = currentWorkflowStage === "design";
+      setDesignStage.disabled = !hasActiveProject || inDesignStage;
       startDesign.disabled = !hasActiveProject || !inDesignStage || designRunning;
-      restartDesign.disabled = !hasActiveProject || inDesignStage;
       completeDesign.disabled = !hasActiveProject || !inDesignStage;
     }
 
     function updateDesignReviewMenuState() {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inDesignReviewStage = currentWorkflowStage === "design-review";
+      setDesignReviewStage.disabled = !hasActiveProject || inDesignReviewStage;
       startAutomaticDesignReview.disabled =
         !hasActiveProject || !inDesignReviewStage || designReviewRunning;
       startInteractiveDesignReview.disabled =
@@ -3736,74 +3884,74 @@ INDEX_HTML = """<!doctype html>
     function updateGenericStageMenuStates() {
       updateAuthoringStageMenuState(
         "implementation-plan",
+        setImplementationPlanStage,
         startImplementationPlan,
-        restartImplementationPlan,
         approveImplementationPlan,
         skipImplementationPlanApproval,
       );
       updateAutomaticStageMenuState(
         "code",
+        setCodeStage,
         startAutomaticCode,
         startInteractiveCode,
         stopCode,
         approveCode,
         skipCodeApproval,
-        restartCode,
       );
       updateAuthoringStageMenuState(
         "test-plan",
+        setTestPlanStage,
         startTestPlan,
-        restartTestPlan,
         approveTestPlan,
         skipTestPlanApproval,
       );
       updateAutomaticStageMenuState(
         "validate",
+        setValidateStage,
         startAutomaticValidate,
         startInteractiveValidate,
         stopValidate,
         approveValidate,
         skipValidateApproval,
-        restartValidate,
       );
     }
 
     function updateAuthoringStageMenuState(
       stage,
+      setStageButton,
       startButton,
-      restartButton,
       approveButton,
       skipButton,
     ) {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inStage = currentWorkflowStage === stage;
       const runState = genericStageRun(stage);
+      setStageButton.disabled = !hasActiveProject || inStage;
       startButton.disabled = !hasActiveProject || !inStage || runState.running;
-      restartButton.disabled = !hasActiveProject || (inStage && !runState.started);
       approveButton.disabled = !hasActiveProject || !inStage;
       skipButton.disabled = !hasActiveProject || !inStage;
     }
 
     function updateAutomaticStageMenuState(
       stage,
+      setStageButton,
       startAutomaticButton,
       startInteractiveButton,
       stopButton,
       approveButton,
       skipButton,
-      restartButton,
     ) {
       const hasActiveProject = Boolean(activeProjectRoot);
       const inStage = currentWorkflowStage === stage;
       const runState = genericStageRun(stage);
+      setStageButton.disabled = !hasActiveProject || inStage;
       startAutomaticButton.disabled =
-        !hasActiveProject || !inStage || runState.running || runState.started;
+        !hasActiveProject || !inStage || runState.running;
       startInteractiveButton.disabled =
-        !hasActiveProject || !inStage || runState.running || runState.started;
+        !hasActiveProject || !inStage || runState.running;
       stopButton.disabled = !hasActiveProject || !inStage || !runState.running;
       approveButton.disabled = !hasActiveProject || !inStage;
       skipButton.disabled = !hasActiveProject || !inStage;
-      restartButton.disabled = !hasActiveProject || (inStage && !runState.started);
     }
 
     function genericStageRun(stage) {
@@ -3849,6 +3997,8 @@ INDEX_HTML = """<!doctype html>
       }
       const path = raw.includes("/") || raw.endsWith(".md")
         ? raw
+        : raw.toLowerCase() === "readme"
+          ? "README.md"
         : `docs/${raw.replace(/\\s+/g, "-").toLowerCase()}.md`;
       const label = raw.replace(/\\.md$/i, "") || path;
       return { label, path };
@@ -4039,6 +4189,14 @@ INDEX_HTML = """<!doctype html>
           changeDocumentZoom(DOCUMENT_ZOOM_STEP);
         });
 
+        const refresh = document.createElement("button");
+        refresh.className = "pane-popout-button";
+        refresh.type = "button";
+        refresh.title = `Refresh ${item.title}`;
+        refresh.setAttribute("aria-label", `Refresh ${item.title}`);
+        refresh.textContent = "Refresh";
+        refresh.addEventListener("click", refreshArtifactPreview);
+
         const popout = document.createElement("button");
         popout.className = "pane-popout-button";
         popout.type = "button";
@@ -4050,7 +4208,7 @@ INDEX_HTML = """<!doctype html>
         });
 
         zoomControls.append(zoomOut, zoomLevel, zoomIn);
-        actions.append(zoomControls, popout);
+        actions.append(zoomControls, refresh, popout);
         header.append(title, actions);
 
         const frame = document.createElement("iframe");
@@ -4121,28 +4279,46 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function artifactEventUrl(item) {
+      if (!item) {
+        return "";
+      }
+      if (item.kind === "requirements") {
+        return contextUrl("/api/artifacts/events?artifact=requirements");
+      }
+      const parameters = new URLSearchParams();
+      if (item.kind === "document" && item.target) {
+        parameters.set("artifact", "document");
+        parameters.set("path", item.target.path);
+        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+      }
+      if (item.kind === "route" && item.path) {
+        parameters.set("artifact", "route");
+        parameters.set("path", item.path);
+        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+      }
+      return "";
+    }
+
     function connectArtifactEvents() {
       closeArtifactEventStream();
-      const hasRequirementsPreview = artifactPreviewItems.some(
-        (item) => item.kind === "requirements",
-      );
-      if (!hasRequirementsPreview || !requirementsRunning) {
+      if (!contextId) {
         return;
       }
-      artifactEventSource = new EventSource(
-        contextUrl("/api/artifacts/events?artifact=requirements"),
-      );
-      artifactEventSource.addEventListener("artifact-event", () => {
-        refreshArtifactPreview();
-      });
-      artifactEventSource.onerror = () => {};
+      const urls = new Set(artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
+      for (const url of urls) {
+        const source = new EventSource(url);
+        source.addEventListener("artifact-event", refreshArtifactPreview);
+        source.onerror = () => {};
+        artifactEventSources.push(source);
+      }
     }
 
     function closeArtifactEventStream() {
-      if (artifactEventSource) {
-        artifactEventSource.close();
-        artifactEventSource = null;
+      for (const source of artifactEventSources) {
+        source.close();
       }
+      artifactEventSources = [];
     }
 
     function stageIsRunning(stage) {
@@ -4248,6 +4424,17 @@ INDEX_HTML = """<!doctype html>
       }
       updateProjectState(payload);
       return true;
+    }
+
+    async function setWorkflowStageFromMenu(stageId) {
+      if (!activeProjectRoot || currentWorkflowStage === stageId) {
+        return;
+      }
+      hideStageMenus();
+      const selected = await selectWorkflowStage(stageId);
+      if (selected) {
+        appendOutput(`stage set: ${stageId}\\n`, "system");
+      }
     }
 
     async function approveRequirementsStage(skipApproval = false) {
@@ -5033,17 +5220,6 @@ INDEX_HTML = """<!doctype html>
       );
     }
 
-    async function restartRequirementsAgent() {
-      if (currentWorkflowStage === "requirements" && !requirementsStarted) {
-        return;
-      }
-      await runRequirementsAgent(
-        "/api/agents/requirements/restart",
-        "$ restart requirements authoring",
-        true,
-      );
-    }
-
     async function completeRequirementsAgent() {
       await approveRequirementsStage(false);
     }
@@ -5057,19 +5233,6 @@ INDEX_HTML = """<!doctype html>
         "/api/agents/design/start",
         "$ electroboy design",
         false,
-        true,
-      );
-    }
-
-    async function restartDesignAgent() {
-      if (currentWorkflowStage === "design") {
-        return;
-      }
-      await runStageAgent(
-        "design",
-        "/api/agents/design/restart",
-        "$ restart design authoring",
-        true,
         true,
       );
     }
@@ -5213,20 +5376,6 @@ INDEX_HTML = """<!doctype html>
         ? `/api/agents/${stage}/start-interactive`
         : `/api/agents/${stage}/start`;
       await runStageAgent(stage, endpoint, label, acceptsInput === false, acceptsInput);
-    }
-
-    async function restartGenericStageAgent(stage, label, acceptsInput = true) {
-      const runState = genericStageRun(stage);
-      if (currentWorkflowStage === stage && !runState.started) {
-        return;
-      }
-      await runStageAgent(
-        stage,
-        `/api/agents/${stage}/restart`,
-        label,
-        true,
-        acceptsInput,
-      );
     }
 
     async function stopGenericStageAgent(stage, label) {
@@ -5689,29 +5838,32 @@ INDEX_HTML = """<!doctype html>
       }
     });
 
+    setRequirementsStage.addEventListener("click", () => {
+      setWorkflowStageFromMenu("requirements");
+    });
     startRequirements.addEventListener("click", startRequirementsAgent);
-    restartRequirements.addEventListener("click", restartRequirementsAgent);
     approveRequirements.addEventListener("click", approveRequirementsStage);
     skipRequirementsApproval.addEventListener("click", skipRequirementsApprovalStage);
+    setDesignStage.addEventListener("click", () => {
+      setWorkflowStageFromMenu("design");
+    });
     startDesign.addEventListener("click", startDesignAgent);
-    restartDesign.addEventListener("click", restartDesignAgent);
     completeDesign.addEventListener("click", completeDesignAgent);
+    setDesignReviewStage.addEventListener("click", () => {
+      setWorkflowStageFromMenu("design-review");
+    });
     startAutomaticDesignReview.addEventListener("click", startAutomaticDesignReviewAgent);
     startInteractiveDesignReview.addEventListener("click", startInteractiveDesignReviewAgent);
     stopDesignReview.addEventListener("click", stopDesignReviewAgent);
     approveDesignReview.addEventListener("click", approveDesignReviewStage);
     skipDesignReviewApproval.addEventListener("click", skipDesignReviewApprovalStage);
+    setImplementationPlanStage.addEventListener("click", () => {
+      setWorkflowStageFromMenu("implementation-plan");
+    });
     startImplementationPlan.addEventListener("click", () => {
       startGenericStageAgent(
         "implementation-plan",
         "$ electroboy implementation-plan",
-        true,
-      );
-    });
-    restartImplementationPlan.addEventListener("click", () => {
-      restartGenericStageAgent(
-        "implementation-plan",
-        "$ restart implementation planning",
         true,
       );
     });
@@ -5720,6 +5872,9 @@ INDEX_HTML = """<!doctype html>
     });
     skipImplementationPlanApproval.addEventListener("click", () => {
       skipGenericStageApproval("implementation-plan", "Implementation plan");
+    });
+    setCodeStage.addEventListener("click", () => {
+      setWorkflowStageFromMenu("code");
     });
     startAutomaticCode.addEventListener("click", () => {
       startGenericStageAgent("code", "$ electroboy code", false);
@@ -5732,20 +5887,20 @@ INDEX_HTML = """<!doctype html>
     skipCodeApproval.addEventListener("click", () => {
       skipGenericStageApproval("code", "Code");
     });
-    restartCode.addEventListener("click", () => {
-      restartGenericStageAgent("code", "$ restart code", false);
+    setTestPlanStage.addEventListener("click", () => {
+      setWorkflowStageFromMenu("test-plan");
     });
     startTestPlan.addEventListener("click", () => {
       startGenericStageAgent("test-plan", "$ electroboy test-plan", true);
-    });
-    restartTestPlan.addEventListener("click", () => {
-      restartGenericStageAgent("test-plan", "$ restart test planning", true);
     });
     approveTestPlan.addEventListener("click", () => {
       approveGenericStage("test-plan", "test plan");
     });
     skipTestPlanApproval.addEventListener("click", () => {
       skipGenericStageApproval("test-plan", "Test plan");
+    });
+    setValidateStage.addEventListener("click", () => {
+      setWorkflowStageFromMenu("validate");
     });
     startAutomaticValidate.addEventListener("click", () => {
       startGenericStageAgent("validate", "$ electroboy validate", false);
@@ -5761,9 +5916,6 @@ INDEX_HTML = """<!doctype html>
     });
     skipValidateApproval.addEventListener("click", () => {
       skipGenericStageApproval("validate", "Validation");
-    });
-    restartValidate.addEventListener("click", () => {
-      restartGenericStageAgent("validate", "$ restart validation", false);
     });
     createDocumentTarget.addEventListener("click", () => {
       customDocumentForm.hidden = !customDocumentForm.hidden;
@@ -6075,6 +6227,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
             aria-label="Zoom document in"
           >+</button>
         </div>
+        <button
+          id="refreshArtifact"
+          type="button"
+          title="Refresh document"
+          aria-label="Refresh document"
+          hidden
+        >Refresh</button>
         <button id="dockPane" type="button">Dock</button>
       </div>
     </header>
@@ -6148,6 +6307,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const decreaseArtifactZoom = document.getElementById("decreaseArtifactZoom");
     const artifactZoomLevel = document.getElementById("artifactZoomLevel");
     const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
+    const refreshArtifactButton = document.getElementById("refreshArtifact");
     const terminalHost = document.getElementById("terminalHost");
     const artifactFrame = document.getElementById("artifactFrame");
     const scratchPad = document.getElementById("scratchPad");
@@ -6460,17 +6620,38 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       artifactFrame.src = artifactUrl();
     }
 
+    function artifactEventUrl() {
+      if (artifactKind === "requirements") {
+        return contextUrl("/api/artifacts/events?artifact=requirements");
+      }
+      const parameters = new URLSearchParams();
+      if (artifactKind === "document" && artifactDocumentPath) {
+        parameters.set("artifact", "document");
+        parameters.set("path", artifactDocumentPath);
+        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        parameters.set("artifact", "route");
+        parameters.set("path", artifactRoutePath);
+        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+      }
+      return "";
+    }
+
     function connectArtifactStream() {
       artifactFrame.hidden = false;
       artifactZoomControls.hidden = false;
+      refreshArtifactButton.hidden = false;
       applyArtifactZoom();
       refreshArtifact();
-      if (!contextId || artifactKind !== "requirements") {
+      if (!contextId) {
         return;
       }
-      artifactEventSource = new EventSource(
-        contextUrl("/api/artifacts/events?artifact=requirements"),
-      );
+      const eventUrl = artifactEventUrl();
+      if (!eventUrl) {
+        return;
+      }
+      artifactEventSource = new EventSource(eventUrl);
       artifactEventSource.addEventListener("artifact-event", refreshArtifact);
       artifactEventSource.onerror = () => {};
     }
@@ -6593,6 +6774,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       "click",
       () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
     );
+    refreshArtifactButton.addEventListener("click", refreshArtifact);
     decreasePaneFont.addEventListener("click", () => changeFontSize(-1));
     increasePaneFont.addEventListener("click", () => changeFontSize(1));
     sessionSwitcher.addEventListener("change", () => {
@@ -6958,6 +7140,9 @@ class ServiceState:
             raise StateError(f"approval stage is not directly selectable: {stage}")
         if stage == "project" or stage not in WORKFLOW_STAGES:
             raise StateError(f"unknown workflow stage: {stage}")
+        target_stage = WORKFLOW_STAGE_RESET_TARGETS.get(stage)
+        if target_stage is None:
+            raise StateError(f"stage cannot be set directly: {stage}")
         with self.lock:
             context = self._context_locked(context_id)
             project_root = context.active_project_root
@@ -6972,6 +7157,14 @@ class ServiceState:
         terminated_agent = False
         if sessions:
             terminated_agent = self._terminate_sessions(sessions)
+        reset_decision = None
+        reset_output = ""
+        if previous_stage != stage:
+            reset_decision, reset_output = _force_reset_workflow_stage(
+                project_root,
+                stage,
+                target_stage,
+            )
         with self.lock:
             context = self._context_locked(context_id)
             context.workflow_stage = stage
@@ -6982,6 +7175,8 @@ class ServiceState:
             "status": "selected",
             "previous_stage": previous_stage,
             "terminated_agent": terminated_agent,
+            "reset_decision": reset_decision,
+            "reset_output": reset_output,
         }
 
     def approve_requirements(
@@ -8352,6 +8547,27 @@ class ServiceState:
             raise AgentSessionError("start requirements first")
 
 
+def _force_reset_workflow_stage(
+    project_root: Path,
+    workflow_stage: str,
+    target_stage: str,
+) -> tuple[str, str]:
+    from .cli import _force_reset_to_stage
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    store = StateStore(project_root)
+    reason = f"Set workflow stage to {workflow_stage} from the GUI."
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        decision_id = _force_reset_to_stage(store, target_stage, reason)
+    output = "\n".join(
+        part.strip()
+        for part in [stderr.getvalue(), stdout.getvalue()]
+        if part.strip()
+    )
+    return decision_id, output
+
+
 @dataclass(frozen=True)
 class ServiceConfig:
     root: Path
@@ -9704,16 +9920,17 @@ def _stage_operations(
         return operations
     if stage == "requirements" and active_project_root:
         return [
+            "Set stage",
             "Start",
-            "Restart",
             "Approve",
             "Skip approval",
             "Open requirements",
         ]
     if stage == "design" and active_project_root:
-        return ["Start", "Restart", "Complete", "Open design"]
+        return ["Set stage", "Start", "Complete", "Open design"]
     if stage == "design-review" and active_project_root:
         return [
+            "Set stage",
             "Run automatic review",
             "Run interactive review",
             "Stop review",
@@ -9722,38 +9939,38 @@ def _stage_operations(
         ]
     if stage == "implementation-plan" and active_project_root:
         return [
+            "Set stage",
             "Start",
-            "Restart",
             "Approve",
             "Skip approval",
             "Open implementation plan",
         ]
     if stage == "code" and active_project_root:
         return [
+            "Set stage",
             "Start automatic",
             "Start interactive",
             "Stop",
             "Approve",
             "Skip approval",
-            "Restart",
             "Open implementation report",
         ]
     if stage == "test-plan" and active_project_root:
         return [
+            "Set stage",
             "Start",
-            "Restart",
             "Approve",
             "Skip approval",
             "Open test plan",
         ]
     if stage == "validate" and active_project_root:
         return [
+            "Set stage",
             "Start automatic",
             "Start interactive",
             "Stop",
             "Approve",
             "Skip approval",
-            "Restart",
             "Open validation report",
         ]
     return []
@@ -10151,6 +10368,24 @@ def _document_target_path(project_root: Path | str, relative_path: str) -> tuple
     except ValueError as error:
         raise StateError("document path cannot escape the project") from error
     return normalized_path, document_path
+
+
+def _artifact_event_document_path(
+    project_root: Path | str,
+    artifact: str,
+    requested_path: str,
+) -> Path:
+    project_root = Path(project_root).expanduser().resolve()
+    if artifact == "requirements":
+        return project_root / "docs" / "requirements.md"
+    if artifact == "document":
+        return _document_target_path(project_root, requested_path)[1]
+    if artifact == "route":
+        relative_path = ARTIFACT_EVENT_ROUTE_PATHS.get(requested_path)
+        if relative_path is None:
+            raise StateError(f"unknown artifact route: {requested_path}")
+        return project_root / relative_path
+    raise StateError(f"unknown artifact: {artifact}")
 
 
 def _file_signature(path: Path) -> dict[str, object]:
@@ -12251,25 +12486,21 @@ def _handler_for(
         def _send_artifact_events(self, query: str) -> None:
             params = parse_qs(query)
             artifact = str((params.get("artifact") or [""])[0]).strip()
-            if artifact != "requirements":
-                self._send_json(
-                    {"error": "unknown artifact"},
-                    status=HTTPStatus.NOT_FOUND,
-                )
-                return
             try:
                 context_id = self._context_id(query)
-                project_root = state.requirements_document_root(context_id)
+                project_root = state.active_project_root(context_id)
+                document_path = _artifact_event_document_path(
+                    project_root,
+                    artifact,
+                    str((params.get("path") or [""])[0]),
+                )
             except (AgentSessionError, StateError) as error:
                 self._send_json(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
                 )
                 return
-            self._stream_artifact_events(
-                artifact,
-                project_root / "docs" / "requirements.md",
-            )
+            self._stream_artifact_events(artifact, document_path)
 
         def _resize_design_agent(self, query: str) -> None:
             self._send_resize(query, state.resize_design_agent)

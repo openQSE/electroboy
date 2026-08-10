@@ -111,6 +111,7 @@ Describe the system-level validation strategy for the completed work.
 - `status`
 - `progress`
 - `monitor`
+- `service`
 - `serve`
 - `deactivate`
 - `feature`

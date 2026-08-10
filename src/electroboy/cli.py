@@ -170,6 +170,12 @@ BUG_ARTIFACT_KEYS = {
 }
 META_REGISTRY_PATH = "repositories.json"
 META_MANAGEMENT_COMMANDS = {"add", "start"}
+SERVICE_ROOT_ENV = "ELECTROBOY_SERVICE_ROOT"
+SERVICE_HOST_ENV = "ELECTROBOY_SERVICE_HOST"
+SERVICE_PORT_ENV = "ELECTROBOY_SERVICE_PORT"
+SERVICE_DEFAULT_HOST = "127.0.0.1"
+SERVICE_DEFAULT_PORT = 8765
+SERVICE_NAME = "electroboy"
 ROOT_LOCAL_COMMANDS = {"completion", "deactivate", "new", "refresh-runtime"}
 PROJECTLESS_COMMANDS = {
     "add",
@@ -180,6 +186,7 @@ PROJECTLESS_COMMANDS = {
     "meta",
     "new",
     "refresh-runtime",
+    "service",
     "serve",
     "start",
 }
@@ -190,6 +197,7 @@ ACTIVATIONLESS_COMMANDS = {
     "meta",
     "new",
     "refresh-runtime",
+    "service",
     "serve",
 }
 
@@ -463,6 +471,81 @@ def build_parser() -> argparse.ArgumentParser:
         "refresh-runtime",
         help="refresh this project's embedded ElectroBoy runtime",
     )
+    service = subparsers.add_parser(
+        "service",
+        help="install or manage the browser service",
+    )
+    service_subparsers = service.add_subparsers(
+        dest="service_command",
+        required=True,
+    )
+    service_install = service_subparsers.add_parser(
+        "install",
+        help="install systemd files for the browser service",
+    )
+    service_scope = service_install.add_mutually_exclusive_group()
+    service_scope.add_argument(
+        "--user",
+        action="store_true",
+        help="install as a systemd user service; this is the default",
+    )
+    service_scope.add_argument(
+        "--system",
+        action="store_true",
+        help="install as a system service under /etc/systemd/system",
+    )
+    service_install.add_argument(
+        "--browse-root",
+        help=(
+            "initial directory for the GUI file/project picker; defaults to "
+            "the current directory"
+        ),
+    )
+    service_install.add_argument(
+        "--host",
+        default=SERVICE_DEFAULT_HOST,
+        help=(
+            "bind address to write into the env file; defaults to "
+            f"{SERVICE_DEFAULT_HOST}"
+        ),
+    )
+    service_install.add_argument(
+        "--port",
+        type=int,
+        default=SERVICE_DEFAULT_PORT,
+        help=f"port to write into the env file; defaults to {SERVICE_DEFAULT_PORT}",
+    )
+    service_install.add_argument(
+        "--path",
+        dest="command_path",
+        default=os.environ.get("PATH", ""),
+        help="PATH to write into the env file; defaults to this shell's PATH",
+    )
+    service_install.add_argument(
+        "--service-user",
+        help="user account for --system installs; defaults to SUDO_USER or USER",
+    )
+    service_install.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite existing installed service files",
+    )
+    service_install.add_argument(
+        "--reload",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="run systemctl daemon-reload after writing files",
+    )
+    service_install.add_argument(
+        "--enable",
+        action="store_true",
+        help="enable the service after installation",
+    )
+    service_install.add_argument(
+        "--start",
+        action="store_true",
+        help="start the service after installation",
+    )
     serve = subparsers.add_parser("serve", help="run the local browser service")
     serve.add_argument(
         "--root",
@@ -471,14 +554,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="interface to bind; defaults to 127.0.0.1",
+        help=(
+            "interface to bind; defaults to ELECTROBOY_SERVICE_HOST "
+            "or 127.0.0.1"
+        ),
     )
     serve.add_argument(
         "--port",
         type=int,
-        default=8765,
-        help="port to bind; defaults to 8765",
+        help="port to bind; defaults to ELECTROBOY_SERVICE_PORT or 8765",
     )
     subparsers.add_parser("deactivate", help="leave an activated pipeline project")
 
@@ -913,7 +997,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             root_explicit,
         )
         if args.command == "serve":
-            return _cmd_serve(args)
+            return _cmd_serve(args, root_explicit=root_explicit)
+        if args.command == "service":
+            return _cmd_service(args)
         if args.command == "refresh-runtime":
             return _cmd_refresh_runtime(root_store.root)
         if args.command == "meta":
@@ -1024,14 +1110,210 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 2
 
 
-def _cmd_serve(args: argparse.Namespace) -> int:
+def _cmd_serve(args: argparse.Namespace, root_explicit: bool = False) -> int:
     from .service import run_service
 
+    root = _service_root(args, root_explicit=root_explicit)
+    host = args.host or os.environ.get(SERVICE_HOST_ENV) or SERVICE_DEFAULT_HOST
+    port = args.port if args.port is not None else _service_port_from_environment()
     try:
-        return run_service(args.root, host=args.host, port=args.port)
+        return run_service(root, host=host, port=port)
     except OSError as error:
         print(f"error: could not start ElectroBoy service: {error}", file=sys.stderr)
         return 2
+
+
+def _cmd_service(args: argparse.Namespace) -> int:
+    if args.service_command == "install":
+        return _cmd_service_install(args)
+    return 2
+
+
+def _cmd_service_install(args: argparse.Namespace) -> int:
+    scope = "system" if args.system else "user"
+    browse_root = Path(args.browse_root or os.getcwd()).expanduser().resolve()
+    port = _validate_service_port(args.port, "port")
+    command_path = args.command_path or "/usr/local/bin:/usr/bin:/bin"
+    unit_path, env_path = _service_install_paths(scope)
+    unit_text = _service_unit_text(
+        scope=scope,
+        service_user=_service_install_user(args),
+    )
+    env_text = _service_env_text(
+        browse_root=browse_root,
+        host=args.host,
+        port=port,
+        command_path=command_path,
+    )
+
+    _write_installed_service_file(unit_path, unit_text, force=args.force)
+    _write_installed_service_file(env_path, env_text, force=args.force)
+
+    print(f"installed service unit: {unit_path}")
+    print(f"installed service env: {env_path}")
+    print(f"browse root: {browse_root}")
+    print(f"bind: {args.host}:{port}")
+
+    if args.reload:
+        _run_systemctl(scope, ["daemon-reload"], required=False)
+    else:
+        print("systemd reload: skipped")
+
+    if args.enable:
+        _run_systemctl(scope, ["enable", SERVICE_NAME], required=True)
+    if args.start:
+        _run_systemctl(scope, ["start", SERVICE_NAME], required=True)
+
+    prefix = "systemctl --user" if scope == "user" else "sudo systemctl"
+    if not args.start:
+        print(f"start: {prefix} start {SERVICE_NAME}")
+    print(f"status: {prefix} status {SERVICE_NAME}")
+    return 0
+
+
+def _service_install_paths(scope: str) -> tuple[Path, Path]:
+    if scope == "system":
+        return (
+            Path("/etc/systemd/system") / f"{SERVICE_NAME}.service",
+            Path("/etc/default") / SERVICE_NAME,
+        )
+    return (
+        Path.home() / ".config" / "systemd" / "user" / f"{SERVICE_NAME}.service",
+        Path.home() / ".config" / SERVICE_NAME / "service.env",
+    )
+
+
+def _service_unit_text(scope: str, service_user: str | None = None) -> str:
+    user_line = f"User={service_user}\n" if scope == "system" and service_user else ""
+    install_target = "multi-user.target" if scope == "system" else "default.target"
+    return f"""# Generated by `electroboy service install`.
+#
+# ElectroBoy runs as the operator because Codex, Git, and project credentials
+# are user-scoped. Use the env files below to configure browse root, host,
+# port, and PATH.
+
+[Unit]
+Description=ElectroBoy browser service
+After=network.target
+
+[Service]
+Type=simple
+{user_line}Environment=ELECTROBOY_SERVICE_ROOT=%h
+Environment=ELECTROBOY_SERVICE_HOST={SERVICE_DEFAULT_HOST}
+Environment=ELECTROBOY_SERVICE_PORT={SERVICE_DEFAULT_PORT}
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/etc/default/{SERVICE_NAME}
+EnvironmentFile=-%h/.config/{SERVICE_NAME}/service.env
+ExecStart=/usr/bin/env electroboy serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy={install_target}
+"""
+
+
+def _service_env_text(
+    browse_root: Path,
+    host: str,
+    port: int,
+    command_path: str,
+) -> str:
+    return "\n".join(
+        [
+            "# Generated by `electroboy service install`.",
+            "#",
+            "# This is the GUI browse/base directory. It does not auto-open a",
+            "# project or select an active meta-project repository.",
+            _systemd_env_assignment(SERVICE_ROOT_ENV, str(browse_root)),
+            "",
+            "# Bind localhost by default. Use 0.0.0.0 only when network",
+            "# exposure is intended.",
+            _systemd_env_assignment(SERVICE_HOST_ENV, host),
+            "",
+            "# Browser URL port.",
+            _systemd_env_assignment(SERVICE_PORT_ENV, str(port)),
+            "",
+            "# systemd does not inherit your interactive shell PATH at start",
+            "# time, so the installer snapshots PATH here.",
+            _systemd_env_assignment("PATH", command_path),
+            "",
+        ]
+    )
+
+
+def _service_install_user(args: argparse.Namespace) -> str | None:
+    if not args.system:
+        return None
+    return args.service_user or os.environ.get("SUDO_USER") or os.environ.get("USER")
+
+
+def _systemd_env_assignment(name: str, value: str) -> str:
+    return f"{name}={_quote_systemd_env_value(value)}"
+
+
+def _quote_systemd_env_value(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+    return f'"{escaped}"'
+
+
+def _write_installed_service_file(path: Path, text: str, force: bool) -> None:
+    if path.exists() and not force:
+        raise StateError(f"{path} already exists; pass --force to overwrite")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        path.chmod(0o644)
+    except OSError as error:
+        raise StateError(f"could not write {path}: {error}") from error
+
+
+def _run_systemctl(scope: str, action: list[str], required: bool) -> bool:
+    command = ["systemctl"]
+    if scope == "user":
+        command.append("--user")
+    command.extend(action)
+    completed = subprocess.run(
+        command,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode == 0:
+        if completed.stdout.strip():
+            print(completed.stdout.strip())
+        return True
+    message = " ".join(command) + " failed"
+    if completed.stderr.strip():
+        message += f": {completed.stderr.strip()}"
+    if required:
+        raise StateError(message)
+    print(f"warning: {message}", file=sys.stderr)
+    return False
+
+
+def _service_root(args: argparse.Namespace, root_explicit: bool) -> str:
+    if root_explicit:
+        return str(args.root)
+    return os.environ.get(SERVICE_ROOT_ENV) or str(args.root)
+
+
+def _service_port_from_environment() -> int:
+    value = os.environ.get(SERVICE_PORT_ENV)
+    if not value:
+        return SERVICE_DEFAULT_PORT
+    return _validate_service_port(value, SERVICE_PORT_ENV)
+
+
+def _validate_service_port(value: object, name: str) -> int:
+    try:
+        port = int(str(value))
+    except ValueError as error:
+        raise StateError(f"{name} must be an integer") from error
+    if port < 0 or port > 65535:
+        raise StateError(f"{name} must be between 0 and 65535")
+    return port
 
 
 def _cmd_meta(args: argparse.Namespace) -> int:

@@ -1,0 +1,29 @@
+# ElectroBoy browser service example.
+#
+# Prefer `electroboy service install`, which writes this unit and the matching
+# env file to the right systemd location.
+#
+# Recommended install is as a user unit for the operator who runs Codex:
+#   ~/.config/systemd/user/electroboy.service
+#
+# A system-wide install can use the same unit, but should set User=<operator>
+# in a drop-in so Codex, git, and project files use the operator's config.
+
+[Unit]
+Description=ElectroBoy browser service
+After=network.target
+
+[Service]
+Type=simple
+Environment=ELECTROBOY_SERVICE_ROOT=%h
+Environment=ELECTROBOY_SERVICE_HOST=127.0.0.1
+Environment=ELECTROBOY_SERVICE_PORT=8765
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/etc/default/electroboy
+EnvironmentFile=-%h/.config/electroboy/service.env
+ExecStart=/usr/bin/env electroboy serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
