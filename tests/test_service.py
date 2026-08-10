@@ -134,9 +134,10 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("<title>Guide</title>", page)
-        self.assertIn("--doc-text: #0f3b5f;", page)
+        self.assertIn("--doc-bg: #10141f;", page)
+        self.assertIn("--doc-text: #e7edf7;", page)
         self.assertIn("article, article :where", page)
-        self.assertIn("--doc-surface: #ffffff;", page)
+        self.assertIn("--doc-surface: #10141f;", page)
 
     def test_document_target_renderer_accepts_zoom(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

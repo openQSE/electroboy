@@ -9142,7 +9142,7 @@ def markdown_document_html(
     main_padding = "16px" if embedded else "40px 24px 64px"
     article_padding = "18px" if embedded else "28px"
     article_radius = "0" if embedded else "8px"
-    article_border = "0" if embedded else "1px solid #d8dde8"
+    article_border = "0" if embedded else "1px solid var(--doc-border)"
     zoom_percent = _clamp_document_zoom(zoom_percent)
     document_font_size = 16 * (zoom_percent / 100)
     mermaid_script = _mermaid_script(body)
@@ -9154,18 +9154,18 @@ def markdown_document_html(
   <title>{html.escape(title)}</title>
   <style>
     :root {{
-      color-scheme: light;
-      --doc-bg: #f7f8fb;
-      --doc-surface: #ffffff;
-      --doc-text: #0f3b5f;
-      --doc-heading: #0a2f4f;
-      --doc-link: #007f8a;
-      --doc-muted: #4f6f8a;
-      --doc-border: #d8dde8;
-      --doc-code-bg: #edf4fb;
-      --doc-code-text: #0a2f4f;
-      --doc-table-head: #edf7ff;
-      --doc-accent: #0f766e;
+      color-scheme: dark;
+      --doc-bg: #10141f;
+      --doc-surface: #10141f;
+      --doc-text: #e7edf7;
+      --doc-heading: #ffffff;
+      --doc-link: #66d9e8;
+      --doc-muted: #aab8cf;
+      --doc-border: #2a3142;
+      --doc-code-bg: #151b29;
+      --doc-code-text: #e7edf7;
+      --doc-table-head: #151b29;
+      --doc-accent: #8bd8ca;
       --doc-font-size: {document_font_size:.2f}px;
     }}
     html {{
@@ -9203,7 +9203,7 @@ def markdown_document_html(
     }}
     blockquote {{
       margin-left: 0;
-      border-left: 4px solid #9fb4c9;
+      border-left: 4px solid var(--doc-accent);
       color: var(--doc-muted);
       padding-left: 14px;
     }}
@@ -9257,7 +9257,7 @@ def markdown_document_html(
       padding: 14px;
       border: 1px solid var(--doc-border);
       border-radius: 6px;
-      background: #f8fbff;
+      background: var(--doc-code-bg);
     }}
     .mermaid svg {{
       max-width: 100%;
@@ -9446,21 +9446,21 @@ def _mermaid_script(rendered: str) -> str:
         startOnLoad: true,
         theme: "base",
         themeVariables: {
-          background: "#ffffff",
-          mainBkg: "#edf7ff",
-          primaryColor: "#edf7ff",
-          primaryTextColor: "#0a2f4f",
-          primaryBorderColor: "#9fb4c9",
-          lineColor: "#164a72",
-          secondaryColor: "#f8fbff",
-          secondaryTextColor: "#0f3b5f",
-          tertiaryColor: "#ffffff",
-          tertiaryTextColor: "#0f3b5f",
-          textColor: "#0f3b5f",
-          nodeBorder: "#9fb4c9",
-          clusterBkg: "#f8fbff",
-          clusterBorder: "#d8dde8",
-          edgeLabelBackground: "#ffffff",
+          background: "#10141f",
+          mainBkg: "#151b29",
+          primaryColor: "#151b29",
+          primaryTextColor: "#e7edf7",
+          primaryBorderColor: "#364156",
+          lineColor: "#66d9e8",
+          secondaryColor: "#1d2638",
+          secondaryTextColor: "#e7edf7",
+          tertiaryColor: "#10141f",
+          tertiaryTextColor: "#e7edf7",
+          textColor: "#e7edf7",
+          nodeBorder: "#364156",
+          clusterBkg: "#10141f",
+          clusterBorder: "#2a3142",
+          edgeLabelBackground: "#10141f",
           fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
         },
       });
