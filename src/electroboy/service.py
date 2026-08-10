@@ -9579,35 +9579,38 @@ def _mermaid_script(rendered: str) -> str:
       }
 
       function openMermaidPopup(diagram) {
+        let popupUrl = "";
+        try {
+          popupUrl = URL.createObjectURL(new Blob(
+            [mermaidPopupHtml(diagramMarkup(diagram))],
+            { type: "text/html" },
+          ));
+        } catch (error) {
+          console.warn("Could not prepare Mermaid popup", error);
+          return;
+        }
         const popup = window.open(
-          "",
+          popupUrl,
           "electroboy-mermaid-diagram",
           popupFeatures,
         );
         if (!popup) {
+          URL.revokeObjectURL(popupUrl);
           return;
         }
-        try {
-          popup.document.open();
-          popup.document.write(mermaidPopupHtml());
-          popup.document.close();
-          const content = popup.document.getElementById("diagramContent");
-          const clone = popup.document.importNode(diagram, true);
-          clone.classList.add("popup-mermaid-diagram");
-          clone.removeAttribute("tabindex");
-          clone.removeAttribute("role");
-          clone.removeAttribute("title");
-          content.replaceChildren(clone);
-          if (typeof popup.initializeDiagramPopup === "function") {
-            popup.initializeDiagramPopup("Mermaid diagram");
-          }
-          popup.focus();
-        } catch (error) {
-          popup.close();
-        }
+        window.setTimeout(() => URL.revokeObjectURL(popupUrl), 30000);
       }
 
-      function mermaidPopupHtml() {
+      function diagramMarkup(diagram) {
+        const clone = diagram.cloneNode(true);
+        clone.classList.add("popup-mermaid-diagram");
+        clone.removeAttribute("tabindex");
+        clone.removeAttribute("role");
+        clone.removeAttribute("title");
+        return clone.outerHTML;
+      }
+
+      function mermaidPopupHtml(diagramHtml) {
         return `<!doctype html>
 <html lang="en">
 <head>
@@ -9699,6 +9702,14 @@ def _mermaid_script(rendered: str) -> str:
       min-height: 0;
       overflow: auto;
       background: var(--bg);
+      cursor: grab;
+      user-select: none;
+    }
+    .diagram-viewport.dragging {
+      cursor: grabbing;
+    }
+    .diagram-viewport.dragging * {
+      user-select: none;
     }
     .diagram-content {
       display: inline-block;
@@ -9732,7 +9743,7 @@ def _mermaid_script(rendered: str) -> str:
       </div>
     </header>
     <section class="diagram-viewport">
-      <div id="diagramContent" class="diagram-content"></div>
+      <div id="diagramContent" class="diagram-content">${diagramHtml}</div>
     </section>
   </main>
   <script>
@@ -9741,9 +9752,13 @@ def _mermaid_script(rendered: str) -> str:
       const maximumZoom = 4;
       const zoomStep = 0.25;
       let zoom = 1;
+      let naturalWidth = 0;
+      let naturalHeight = 0;
       let baseWidth = 0;
       let baseHeight = 0;
+      let panState = null;
       const content = document.getElementById("diagramContent");
+      const viewport = document.querySelector(".diagram-viewport");
       const zoomLevel = document.getElementById("zoomLevel");
       const zoomOut = document.getElementById("zoomOut");
       const zoomReset = document.getElementById("zoomReset");
@@ -9761,6 +9776,22 @@ def _mermaid_script(rendered: str) -> str:
           ? viewBox[3]
           : Number.parseFloat(svg.getAttribute("height")) || svg.clientHeight || 600;
         return { width, height };
+      }
+
+      function updateBaseSize() {
+        if (!naturalWidth || !naturalHeight) {
+          return;
+        }
+        const viewportRect = viewport.getBoundingClientRect();
+        const availableWidth = Math.max(320, viewportRect.width - 48);
+        const availableHeight = Math.max(220, viewportRect.height - 48);
+        const fitScale = Math.min(
+          availableWidth / naturalWidth,
+          availableHeight / naturalHeight,
+        );
+        const scale = Math.max(0.1, fitScale);
+        baseWidth = naturalWidth * scale;
+        baseHeight = naturalHeight * scale;
       }
 
       function applyZoom() {
@@ -9781,17 +9812,54 @@ def _mermaid_script(rendered: str) -> str:
         applyZoom();
       }
 
-      window.initializeDiagramPopup = (title) => {
-        document.title = title;
-        document.getElementById("diagramTitle").textContent = title;
+      function startPan(event) {
+        if (event.button !== 0 || event.target.closest("a")) {
+          return;
+        }
+        event.preventDefault();
+        panState = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          scrollLeft: viewport.scrollLeft,
+          scrollTop: viewport.scrollTop,
+        };
+        viewport.classList.add("dragging");
+        viewport.setPointerCapture(event.pointerId);
+      }
+
+      function updatePan(event) {
+        if (!panState || event.pointerId !== panState.pointerId) {
+          return;
+        }
+        event.preventDefault();
+        viewport.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
+        viewport.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+      }
+
+      function finishPan(event) {
+        if (!panState || event.pointerId !== panState.pointerId) {
+          return;
+        }
+        panState = null;
+        viewport.classList.remove("dragging");
+        try {
+          viewport.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          return;
+        }
+      }
+
+      function initializeDiagramPopup(title) {
         const svg = content.querySelector("svg");
         if (svg) {
           const dimensions = readSvgDimensions(svg);
-          baseWidth = dimensions.width;
-          baseHeight = dimensions.height;
+          naturalWidth = dimensions.width;
+          naturalHeight = dimensions.height;
+          updateBaseSize();
         }
         applyZoom();
-      };
+      }
 
       zoomOut.addEventListener("click", () => changeZoom(-zoomStep));
       zoomReset.addEventListener("click", () => {
@@ -9799,6 +9867,15 @@ def _mermaid_script(rendered: str) -> str:
         applyZoom();
       });
       zoomIn.addEventListener("click", () => changeZoom(zoomStep));
+      viewport.addEventListener("pointerdown", startPan);
+      viewport.addEventListener("pointermove", updatePan);
+      viewport.addEventListener("pointerup", finishPan);
+      viewport.addEventListener("pointercancel", finishPan);
+      window.addEventListener("resize", () => {
+        updateBaseSize();
+        applyZoom();
+      });
+      initializeDiagramPopup("Mermaid diagram");
     })();
   <\\/script>
 </body>
