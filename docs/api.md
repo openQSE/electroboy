@@ -73,6 +73,9 @@ Operator workflow commands:
 - `render-artifact <requirements|design|implementation-plan|test-plan>
   [--jsonl <path>] [--markdown <path>]` renders a structured artifact JSONL
   source into its Markdown companion.
+- `import-artifact <requirements|design|implementation-plan|test-plan>
+  [--markdown <path>] [--jsonl <path>]` imports a Markdown companion into its
+  structured artifact JSONL source.
 - `code-approve` records final human completion approval.
 - `deactivate` leaves an activated project shell environment.
 - `report summary` writes or prints a run summary.
@@ -208,6 +211,12 @@ companion. Feature runs use the feature-tagged paths recorded in
 `feature.json`, such as `docs/requirements-<feature>.jsonl` and
 `docs/requirements-<feature>.md`. Agents can call it after updating JSONL so
 the GUI keeps displaying a readable Markdown document.
+
+`import-artifact` performs the inverse operation for manual recovery. It reads
+the selected Markdown companion, converts headings and generated fields into
+JSONL records, and rewrites the matching JSONL source. Use it when a human
+updates Markdown directly and wants to bring the structured source back into
+sync.
 
 `--force` is the expert escape hatch for resetting the state machine to a
 specific workflow point:

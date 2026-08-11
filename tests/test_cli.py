@@ -986,6 +986,69 @@ class CliTests(unittest.TestCase):
         self.assertTrue(feature_markdown_exists)
         self.assertFalse(canonical_markdown_exists)
 
+    def test_import_artifact_requirements_command(self) -> None:
+        with temp_project() as root:
+            StateStore(root).init_run(run_id="run-1")
+            write_file(
+                root / "docs" / "requirements.md",
+                "# Requirements\n\n## REQ-001. Submit request\n\nRequirement body.\n",
+            )
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "import-artifact", "requirements"]
+            )
+            records = [
+                json.loads(line)
+                for line in (root / "docs" / "requirements.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("artifact: requirements", stdout)
+        self.assertIn("markdown: docs/requirements.md", stdout)
+        self.assertIn("jsonl: docs/requirements.jsonl", stdout)
+        self.assertIn("records: 2", stdout)
+        self.assertEqual(records[1]["id"], "REQ-001")
+        self.assertEqual(records[1]["body"], "Requirement body.")
+
+    def test_import_artifact_uses_feature_specific_paths(self) -> None:
+        with temp_project() as root:
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            feature_path = (
+                root / ".electroboy" / "shared" / "runs" / "run-1" / "feature.json"
+            )
+            write_file(
+                feature_path,
+                json.dumps(
+                    {
+                        "slug": "munge",
+                        "artifacts": {
+                            "requirements": "docs/requirements-munge.md",
+                        },
+                    }
+                ),
+            )
+            write_file(
+                root / "docs" / "requirements-munge.md",
+                "# Requirements\n\n## REQ-001. Feature requirement\n\nFeature body.\n",
+            )
+
+            code, stdout, stderr = self.run_cli(
+                ["--root", str(root), "import-artifact", "requirements"]
+            )
+            feature_jsonl_exists = (
+                root / "docs" / "requirements-munge.jsonl"
+            ).exists()
+            canonical_jsonl_exists = (root / "docs" / "requirements.jsonl").exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("markdown: docs/requirements-munge.md", stdout)
+        self.assertIn("jsonl: docs/requirements-munge.jsonl", stdout)
+        self.assertTrue(feature_jsonl_exists)
+        self.assertFalse(canonical_jsonl_exists)
+
     def test_feature_requirements_approval_commits_feature_artifact(self) -> None:
         with temp_project() as root:
             self.assertEqual(

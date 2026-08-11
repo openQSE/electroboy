@@ -68,7 +68,7 @@ from .planning import (
     read_implementation_units,
     planned_phases,
 )
-from .structured_artifacts import render_artifact
+from .structured_artifacts import import_artifact, render_artifact
 from .adapters.base import AgentInvocation, AgentResult
 from .runtime import runtime_for_role
 from .state_store import StateError, StateStore
@@ -883,6 +883,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--markdown",
         help="project-relative Markdown output path",
     )
+    import_artifact_parser = subparsers.add_parser(
+        "import-artifact",
+        help="import a Markdown artifact into structured JSONL",
+    )
+    import_artifact_parser.add_argument(
+        "artifact",
+        choices=["requirements", "design", "implementation-plan", "plan", "test-plan"],
+        help="artifact to import",
+    )
+    import_artifact_parser.add_argument(
+        "--markdown",
+        help="project-relative Markdown source path",
+    )
+    import_artifact_parser.add_argument(
+        "--jsonl",
+        help="project-relative structured JSONL output path",
+    )
     code_approve = subparsers.add_parser(
         "code-approve",
         help="approve completed pipeline",
@@ -1109,6 +1126,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_document(store, engine, args)
         if args.command == "render-artifact":
             return _cmd_render_artifact(store, args)
+        if args.command == "import-artifact":
+            return _cmd_import_artifact(store, args)
         if args.command == "code-approve":
             return _cmd_code_approve(store, engine, args)
         if args.command == "report":
@@ -3003,6 +3022,20 @@ def _cmd_render_artifact(store: StateStore, args: argparse.Namespace) -> int:
     print(f"artifact: {result.artifact}")
     print(f"jsonl: {result.jsonl_path}")
     print(f"markdown: {result.markdown_path}")
+    print(f"records: {result.record_count}")
+    return 0
+
+
+def _cmd_import_artifact(store: StateStore, args: argparse.Namespace) -> int:
+    result = import_artifact(
+        store.root,
+        args.artifact,
+        markdown_path=args.markdown,
+        jsonl_path=args.jsonl,
+    )
+    print(f"artifact: {result.artifact}")
+    print(f"markdown: {result.markdown_path}")
+    print(f"jsonl: {result.jsonl_path}")
     print(f"records: {result.record_count}")
     return 0
 

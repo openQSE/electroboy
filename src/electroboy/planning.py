@@ -41,7 +41,9 @@ class ImplementationUnit:
     phase: int
     sequence: int
     title: str
+    body: str = ""
     primary_repos: list[str] = field(default_factory=list)
+    commit_tasks: list[str] = field(default_factory=list)
     plan_tasks: list[str] = field(default_factory=list)
     requirements: list[str] = field(default_factory=list)
     design_sections: list[str] = field(default_factory=list)
@@ -55,13 +57,18 @@ class ImplementationUnit:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "ImplementationUnit":
+        commit_tasks = _string_list(data.get("commit_tasks"))
+        plan_tasks = _string_list(data.get("plan_tasks")) or commit_tasks
+        commit_tasks = commit_tasks or plan_tasks
         return cls(
             unit_id=str(data.get("unit_id", "")),
             phase=int(data.get("phase", 0)),
             sequence=int(data.get("sequence", 0)),
             title=str(data.get("title", "")),
+            body=str(data.get("body", "")),
             primary_repos=_string_list(data.get("primary_repos")),
-            plan_tasks=_string_list(data.get("plan_tasks")),
+            commit_tasks=commit_tasks,
+            plan_tasks=plan_tasks,
             requirements=_string_list(data.get("requirements")),
             design_sections=_string_list(data.get("design_sections")),
             scope=str(data.get("scope", "")),
@@ -80,7 +87,9 @@ class ImplementationUnit:
             "phase": self.phase,
             "sequence": self.sequence,
             "title": self.title,
+            "body": self.body,
             "primary_repos": list(self.primary_repos),
+            "commit_tasks": list(self.commit_tasks or self.plan_tasks),
             "plan_tasks": list(self.plan_tasks),
             "requirements": list(self.requirements),
             "design_sections": list(self.design_sections),

@@ -431,6 +431,22 @@ electroboy render-artifact implementation-plan
 electroboy render-artifact test-plan
 ```
 
+When a user edits the Markdown companion manually, the inverse command brings
+the JSONL source back into sync:
+
+```text
+electroboy import-artifact requirements
+electroboy import-artifact design
+electroboy import-artifact implementation-plan
+electroboy import-artifact test-plan
+```
+
+The importer preserves rich Markdown bodies and recovers generated scalar and
+list fields where possible. Arbitrary Markdown headings without stable ids are
+converted into deterministic section or implementation-unit records. This
+manual import is an explicit recovery operation because it replaces the JSONL
+source from the Markdown companion.
+
 The renderer performs a full-file render. Full renders are simple, reliable,
 and fast for expected artifact sizes. The design leaves room for a later
 incremental renderer by keeping stable record ids, deterministic ordering, and

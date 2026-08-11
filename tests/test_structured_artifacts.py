@@ -10,8 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.state_store import StateStore  # noqa: E402
+from electroboy.planning import ImplementationUnit  # noqa: E402
 from electroboy.structured_artifacts import (  # noqa: E402
     artifact_jsonl_path,
+    import_artifact,
+    markdown_to_artifact_records,
     render_artifact,
     render_artifact_markdown,
 )
@@ -111,6 +114,74 @@ class StructuredArtifactTests(unittest.TestCase):
         self.assertEqual(result.markdown_path, "docs/requirements.md")
         self.assertEqual(result.record_count, 1)
         self.assertIn("Detailed body.", rendered)
+
+    def test_import_artifact_preserves_rich_requirement_body(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            StateStore(root).init_run(run_id="run-1")
+            markdown = """# Requirements
+
+## REQ-001. Submit request
+
+**Statement:** The system accepts a request.
+
+| Input | Expected |
+| --- | --- |
+| valid | accepted |
+
+```mermaid
+flowchart LR
+A-->B
+```
+
+**Acceptance Criteria:**
+- Valid requests are accepted.
+- Invalid requests are rejected.
+"""
+            path = root / "docs" / "requirements.md"
+            path.parent.mkdir()
+            path.write_text(markdown, encoding="utf-8")
+
+            result = import_artifact(root, "requirements")
+            records = [
+                json.loads(line)
+                for line in (root / "docs" / "requirements.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+
+        self.assertEqual(result.record_count, 2)
+        requirement = records[1]
+        self.assertEqual(requirement["id"], "REQ-001")
+        self.assertEqual(requirement["statement"], "The system accepts a request.")
+        self.assertIn("| Input | Expected |", requirement["body"])
+        self.assertIn("```mermaid", requirement["body"])
+        self.assertEqual(
+            requirement["acceptance_criteria"],
+            ["Valid requests are accepted.", "Invalid requests are rejected."],
+        )
+
+    def test_markdown_import_commit_tasks_drive_plan_tasks(self) -> None:
+        records = markdown_to_artifact_records(
+            "implementation-plan",
+            """# Implementation Plan
+
+## Phase 1
+
+### PH1-C1. Add model
+
+Implement this as one commit.
+
+**Commit Tasks:**
+- Add model.
+- Add tests.
+""",
+        )
+        unit = ImplementationUnit.from_dict(records[1])
+
+        self.assertEqual(unit.commit_tasks, ["Add model.", "Add tests."])
+        self.assertEqual(unit.plan_tasks, ["Add model.", "Add tests."])
+        self.assertEqual(unit.body, "Implement this as one commit.")
 
     def test_feature_jsonl_path_follows_feature_markdown_path(self) -> None:
         self.assertEqual(
