@@ -8,9 +8,9 @@ machine-readable JSONL form while keeping Markdown available for human review.
 The JSONL artifact is the source of truth. The Markdown artifact is the
 readable companion. During interactive authoring, agents update the JSONL file
 and call the deterministic renderer so the operator can keep reading Markdown
-in the GUI. During non-interactive stages, ElectroBoy reads the JSONL file when
-it needs stable identifiers, dependencies, review targets, or implementation
-units.
+in the GUI. During non-interactive stages, ElectroBoy reads the JSONL file
+where stable records are needed, starting with implementation units and
+expanding to other stage decisions as those workflows are structured.
 
 Feature workflows use the same naming rule for both files. A feature named
 `munge` uses `docs/requirements-munge.jsonl` and
@@ -453,12 +453,12 @@ incremental renderer by keeping stable record ids, deterministic ordering, and
 record-local content hashes, but the initial implementation prioritizes
 correctness over partial updates.
 
-ElectroBoy validates that JSONL parses before rendering. Approval checks that
-the Markdown companion is present and was generated from the current JSONL
-content.
+ElectroBoy validates that JSONL parses before rendering. Approval ensures the
+structured source exists when a stage uses one, creates it from Markdown for
+older projects when needed, and includes both the JSONL source and Markdown
+companion in approval commits and snapshots.
 
-Approval records snapshot both files. If the JSONL source exists, gates use it
-for identifier checks and traceability. If only Markdown exists, compatibility
+Approval records snapshot both files. If only Markdown exists, compatibility
 conversion runs before the stage needs structured data.
 
 ## Compatibility Conversion
@@ -511,24 +511,40 @@ The orchestrator performs these checks:
 
 - Resolve feature-tagged artifact pairs for the active run.
 - Create missing JSONL files from Markdown companions when possible.
-- Validate each JSONL line against its artifact schema.
-- Confirm required links point to existing ids.
+- Validate that JSONL files parse and contain object records.
 - Snapshot JSONL and Markdown companions on approval.
 - Reopen the earliest affected stage when an approved earlier artifact changes.
-- Use JSONL records for implementation units, test selection, and reports.
+- Use JSONL records where implemented, including implementation units.
 
 The orchestrator does not rewrite approved content as a side effect of normal
 status or display commands.
 
 ## Implementation Status
 
-The implementation-plan JSONL path is implemented. Code uses structured
-implementation units before running the phase loop.
+Requirements, detailed design, implementation plan, and test plan now use
+paired JSONL and Markdown artifacts during authoring. Stage prompts name the
+JSONL file as the source of truth and the Markdown file as the readable
+companion. Agents are instructed to edit JSONL, then run `electroboy
+render-artifact <artifact>` so Markdown remains readable during the session.
+
+Older Markdown-only projects are bootstrapped automatically when an authoring
+stage or approval stage needs a structured artifact. ElectroBoy imports the
+existing Markdown companion into the matching JSONL path. Feature runs use the
+feature-tagged JSONL path derived from the feature-tagged Markdown path.
+
+Approvals and forced snapshots include both the JSONL source and Markdown
+companion for structured authoring artifacts. Change invalidation also records
+snapshot references for both files where they exist.
+
+Design review receives both requirements and design artifact pairs as context,
+plus the review summary and update log. The implementation loop already uses
+the structured implementation-plan JSONL before running phase or unit work.
 
 Review issues, approvals, activity logs, change requests, decisions, and
-snapshots are already stored as JSONL run records.
+snapshots remain JSONL run records under `.electroboy/shared/runs/<run-id>/`.
 
-Requirements, detailed design, and test plan are still Markdown-first. Their
-prompts and GUI rendering need to move to paired JSONL and Markdown artifacts.
-The GUI already resolves feature-specific Markdown companions for artifact
-display, but it does not render those documents from structured sources.
+Implementation log, implementation report, and validation report JSONL sources
+are documented here but are not yet the primary implementation path. Strict
+cross-artifact link validation is also deferred; the current implementation
+validates parseability and object shape, while artifact-specific validation is
+incremental.

@@ -212,6 +212,10 @@ companion. Feature runs use the feature-tagged paths recorded in
 `docs/requirements-<feature>.md`. Agents can call it after updating JSONL so
 the GUI keeps displaying a readable Markdown document.
 
+Authoring stages automatically create missing JSONL sources from existing
+Markdown companions before the stage starts. This keeps older Markdown-only
+projects usable while making new stage work use the structured source.
+
 `import-artifact` performs the inverse operation for manual recovery. It reads
 the selected Markdown companion, converts headings and generated fields into
 JSONL records, and rewrites the matching JSONL source. Use it when a human

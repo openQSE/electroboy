@@ -128,7 +128,9 @@ class DesignLoopTests(unittest.TestCase):
         session = session or {}
         self.assertEqual(session["role"], "design_review_interactive")
         self.assertIn("Interactive mode:", prompt)
-        self.assertIn("Review docs/detailed-design.md", prompt)
+        self.assertIn("Review docs/detailed-design.jsonl", prompt)
+        self.assertIn("docs/detailed-design.md", prompt)
+        self.assertIn("docs/requirements.jsonl", prompt)
 
     def test_design_review_writes_summary_and_commits_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

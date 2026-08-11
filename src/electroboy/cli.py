@@ -68,7 +68,12 @@ from .planning import (
     read_implementation_units,
     planned_phases,
 )
-from .structured_artifacts import import_artifact, render_artifact
+from .structured_artifacts import (
+    artifact_jsonl_path,
+    import_artifact,
+    read_artifact_records,
+    render_artifact,
+)
 from .adapters.base import AgentInvocation, AgentResult
 from .runtime import runtime_for_role
 from .state_store import StateError, StateStore
@@ -374,6 +379,43 @@ AUTHORING_ARTIFACT_STAGES = {
     "docs/detailed-design.md": STAGE_DESIGN,
     "docs/implementation-plan.md": STAGE_PLAN,
     TEST_PLAN_PATH: STAGE_TEST_PLAN,
+}
+
+STRUCTURED_AUTHORING_ARTIFACTS = {
+    STAGE_REQUIREMENTS: ("requirements", "docs/requirements.md"),
+    STAGE_DESIGN: ("design", "docs/detailed-design.md"),
+    STAGE_DESIGN_REVIEW: ("design", "docs/detailed-design.md"),
+    STAGE_DESIGN_ACCEPTANCE: ("design", "docs/detailed-design.md"),
+    STAGE_PLAN: ("implementation-plan", "docs/implementation-plan.md"),
+    STAGE_TEST_PLAN: ("test-plan", TEST_PLAN_PATH),
+}
+
+STRUCTURED_ARTIFACT_DEFAULT_MARKDOWN_PATHS = {
+    "requirements": "docs/requirements.md",
+    "design": "docs/detailed-design.md",
+    "implementation-plan": "docs/implementation-plan.md",
+    "test-plan": TEST_PLAN_PATH,
+}
+
+STRUCTURED_STAGE_INPUT_ARTIFACTS = {
+    STAGE_REQUIREMENTS: ["requirements"],
+    STAGE_DESIGN: ["requirements", "design"],
+    STAGE_DESIGN_REVIEW: ["requirements", "design"],
+    STAGE_DESIGN_ACCEPTANCE: ["design"],
+    STAGE_PLAN: ["requirements", "design", "implementation-plan"],
+    STAGE_TEST_PLAN: [
+        "requirements",
+        "design",
+        "implementation-plan",
+        "test-plan",
+    ],
+}
+
+STRUCTURED_ARTIFACT_LABELS = {
+    "requirements": "Requirements",
+    "design": "Design",
+    "implementation-plan": "Implementation Plan",
+    "test-plan": "Test Plan",
 }
 
 AUTHORING_APPROVAL_COMMANDS = {
@@ -2987,6 +3029,73 @@ def _artifact_paths(store: StateStore, relative_paths: list[str]) -> list[str]:
     ]
 
 
+def _structured_pair_for_markdown(
+    store: StateStore,
+    artifact: str,
+    default_markdown_path: str,
+) -> tuple[str, str]:
+    markdown_path = _artifact_path(store, default_markdown_path)
+    jsonl_path = artifact_jsonl_path(store.root, artifact, markdown_path)
+    return jsonl_path, markdown_path
+
+
+def _structured_pair_for_artifact(
+    store: StateStore,
+    artifact: str,
+) -> tuple[str, str]:
+    return _structured_pair_for_markdown(
+        store,
+        artifact,
+        STRUCTURED_ARTIFACT_DEFAULT_MARKDOWN_PATHS[artifact],
+    )
+
+
+def _structured_artifact_pair_for_stage(
+    store: StateStore,
+    stage: str,
+) -> tuple[str, str, str] | None:
+    artifact = STRUCTURED_AUTHORING_ARTIFACTS.get(stage)
+    if artifact is None:
+        return None
+    artifact_name, default_markdown_path = artifact
+    jsonl_path, markdown_path = _structured_pair_for_markdown(
+        store,
+        artifact_name,
+        default_markdown_path,
+    )
+    return artifact_name, jsonl_path, markdown_path
+
+
+def _structured_companion_for_path(
+    store: StateStore,
+    relative_path: str,
+) -> str | None:
+    for artifact, default_markdown_path in {
+        "requirements": "docs/requirements.md",
+        "design": "docs/detailed-design.md",
+        "implementation-plan": "docs/implementation-plan.md",
+        "test-plan": TEST_PLAN_PATH,
+    }.items():
+        markdown_path = _artifact_path(store, default_markdown_path)
+        if relative_path == markdown_path:
+            return artifact_jsonl_path(store.root, artifact, markdown_path)
+    return None
+
+
+def _include_structured_companions(
+    store: StateStore,
+    paths: list[str],
+) -> list[str]:
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        for candidate in [path, _structured_companion_for_path(store, path)]:
+            if candidate and candidate not in seen:
+                expanded.append(candidate)
+                seen.add(candidate)
+    return expanded
+
+
 def _stage_required_file(store: StateStore, stage: str) -> str | None:
     required_file = STAGE_REQUIRED_FILES.get(stage)
     if required_file is None:
@@ -2994,18 +3103,24 @@ def _stage_required_file(store: StateStore, stage: str) -> str | None:
     return _artifact_path(store, required_file)
 
 
-def _stage_snapshot_artifact(store: StateStore, stage: str) -> str | None:
+def _stage_snapshot_artifacts(store: StateStore, stage: str) -> list[str]:
     snapshot_artifact = STAGE_SNAPSHOT_ARTIFACTS.get(stage)
     if snapshot_artifact is None:
-        return None
-    return _artifact_path(store, snapshot_artifact)
+        return []
+    return _include_structured_companions(
+        store,
+        [_artifact_path(store, snapshot_artifact)],
+    )
 
 
 def _approval_baseline_artifacts(store: StateStore, stage: str) -> list[str] | None:
     baseline_paths = APPROVAL_BASELINE_ARTIFACTS.get(stage)
     if baseline_paths is None:
         return None
-    return _artifact_paths(store, baseline_paths)
+    return _include_structured_companions(
+        store,
+        _artifact_paths(store, baseline_paths),
+    )
 
 
 def _documentation_review_files(store: StateStore) -> list[str]:
@@ -3038,6 +3153,69 @@ def _cmd_import_artifact(store: StateStore, args: argparse.Namespace) -> int:
     print(f"jsonl: {result.jsonl_path}")
     print(f"records: {result.record_count}")
     return 0
+
+
+def _ensure_structured_stage_artifact(
+    store: StateStore,
+    stage: str,
+) -> list[str]:
+    pair = _structured_artifact_pair_for_stage(store, stage)
+    if pair is None:
+        return []
+    artifact, jsonl_path, markdown_path = pair
+    return _ensure_structured_artifact(store, artifact, jsonl_path, markdown_path)
+
+
+def _ensure_structured_stage_inputs(
+    store: StateStore,
+    stage: str,
+) -> list[str]:
+    created_or_updated: list[str] = []
+    for artifact in STRUCTURED_STAGE_INPUT_ARTIFACTS.get(stage, []):
+        jsonl_path, markdown_path = _structured_pair_for_artifact(store, artifact)
+        created_or_updated.extend(
+            _ensure_structured_artifact(
+                store,
+                artifact,
+                jsonl_path,
+                markdown_path,
+            )
+        )
+    return created_or_updated
+
+
+def _ensure_structured_artifact(
+    store: StateStore,
+    artifact: str,
+    jsonl_path: str,
+    markdown_path: str,
+) -> list[str]:
+    jsonl_file = store.root / jsonl_path
+    markdown_file = store.root / markdown_path
+    created_or_updated: list[str] = []
+    if jsonl_file.exists():
+        read_artifact_records(store.root, jsonl_path)
+        if not markdown_file.exists():
+            result = render_artifact(
+                store.root,
+                artifact,
+                jsonl_path=jsonl_path,
+                markdown_path=markdown_path,
+            )
+            created_or_updated.append(result.markdown_path)
+        return created_or_updated
+    if markdown_file.exists():
+        result = import_artifact(
+            store.root,
+            artifact,
+            markdown_path=markdown_path,
+            jsonl_path=jsonl_path,
+        )
+        created_or_updated.append(result.jsonl_path)
+        return created_or_updated
+    raise StateError(
+        f"missing artifact pair for {artifact}: {jsonl_path}, {markdown_path}"
+    )
 
 
 def _stage_command(stage: str) -> str:
@@ -3277,6 +3455,7 @@ def _run_authoring_session(
     out_of_band: bool = False,
 ) -> int:
     _init_run_templates(store)
+    structured_changes = _ensure_structured_stage_inputs(store, stage)
     artifact = _stage_required_file(store, stage)
     reason = getattr(args, "reason", None)
     artifact_snapshot = _authoring_artifact_snapshot(store)
@@ -3304,11 +3483,16 @@ def _run_authoring_session(
             summary=summary,
             inputs=_authoring_inputs(store, stage),
             outputs=[artifact] if artifact else [],
-            artifact_changes=changed_artifacts,
+            artifact_changes=sorted(set([*structured_changes, *changed_artifacts])),
             message_ref=f"messages/{event_id}-response.md",
         )
     )
     print(f"authoring stage: {_stage_display_name(stage)}")
+    pair = _structured_artifact_pair_for_stage(store, stage)
+    if pair is not None:
+        _artifact, jsonl_path, markdown_path = pair
+        print(f"structured source: {jsonl_path}")
+        print(f"readable companion: {markdown_path}")
     if artifact:
         print(f"artifact: {artifact}")
     if _reopen_earliest_upstream_authoring_stage(store, stage, changed_artifacts):
@@ -3353,6 +3537,7 @@ def _cmd_design_review(
 
     manifest = store.load_current_manifest()
     readiness_errors = _stage_readiness_errors(
+        store,
         engine,
         manifest,
         STAGE_DESIGN_REVIEW,
@@ -6441,34 +6626,35 @@ def _snapshot_forced_stage_artifact(
     manifest,
     stage: str,
 ) -> None:
-    snapshot_artifact = _stage_snapshot_artifact(store, stage)
-    if not snapshot_artifact:
+    snapshot_artifacts = _stage_snapshot_artifacts(store, stage)
+    if not snapshot_artifacts:
         return
     event_id = f"{stage}-force-reset"
-    if (store.root / snapshot_artifact).exists():
-        snapshot = ArtifactManager(store.root).snapshot(
-            manifest.run_id,
-            snapshot_artifact,
-            event_id,
+    for snapshot_artifact in snapshot_artifacts:
+        if (store.root / snapshot_artifact).exists():
+            snapshot = ArtifactManager(store.root).snapshot(
+                manifest.run_id,
+                snapshot_artifact,
+                event_id,
+            )
+        else:
+            snapshot = _write_force_bypass_snapshot(
+                store,
+                manifest,
+                snapshot_artifact,
+                event_id,
+            )
+        store.append_artifact_snapshot(snapshot)
+        store.append_activity(
+            ActivityEvent(
+                actor="orchestrator",
+                stage=stage,
+                action="artifact-snapshotted",
+                summary=f"Snapshotted {snapshot_artifact} for forced stage reset.",
+                artifact_snapshot_refs=[snapshot.snapshot_path],
+                outputs=[snapshot.snapshot_path],
+            )
         )
-    else:
-        snapshot = _write_force_bypass_snapshot(
-            store,
-            manifest,
-            snapshot_artifact,
-            event_id,
-        )
-    store.append_artifact_snapshot(snapshot)
-    store.append_activity(
-        ActivityEvent(
-            actor="orchestrator",
-            stage=stage,
-            action="artifact-snapshotted",
-            summary=f"Snapshotted {snapshot_artifact} for forced stage reset.",
-            artifact_snapshot_refs=[snapshot.snapshot_path],
-            outputs=[snapshot.snapshot_path],
-        )
-    )
 
 
 def _write_force_bypass_snapshot(
@@ -6554,74 +6740,152 @@ def _ensure_forced_approval_artifacts(store: StateStore, stage: str) -> None:
 
 
 def _authoring_inputs(store: StateStore, stage: str) -> list[str]:
+    requirements_pair = list(
+        _structured_pair_for_markdown(store, "requirements", "docs/requirements.md")
+    )
+    design_pair = list(
+        _structured_pair_for_markdown(store, "design", "docs/detailed-design.md")
+    )
+    plan_pair = list(
+        _structured_pair_for_markdown(
+            store,
+            "implementation-plan",
+            "docs/implementation-plan.md",
+        )
+    )
+    test_plan_pair = list(
+        _structured_pair_for_markdown(store, "test-plan", TEST_PLAN_PATH)
+    )
     if stage == STAGE_REQUIREMENTS:
-        return [_artifact_path(store, "docs/requirements.md")]
+        return requirements_pair
     if stage == STAGE_DESIGN:
-        return _artifact_paths(
-            store,
-            ["docs/requirements.md", "docs/detailed-design.md"],
-        )
+        return [*requirements_pair, *design_pair]
     if stage == STAGE_PLAN:
-        return _artifact_paths(
-            store,
-            [
-                "docs/requirements.md",
-                "docs/detailed-design.md",
-                "docs/implementation-plan.md",
-            ],
-        )
+        return [*requirements_pair, *design_pair, *plan_pair]
     if stage == STAGE_TEST_PLAN:
-        return _artifact_paths(
-            store,
-            [
-                "docs/requirements.md",
-                "docs/detailed-design.md",
-                "docs/implementation-plan.md",
-                TEST_PLAN_PATH,
-            ],
-        )
+        return [*requirements_pair, *design_pair, *plan_pair, *test_plan_pair]
     return []
 
 
+def _structured_prompt_block(
+    artifact: str,
+    jsonl_path: str,
+    markdown_path: str,
+    *,
+    update: bool,
+) -> list[str]:
+    label = STRUCTURED_ARTIFACT_LABELS.get(artifact, artifact)
+    lines = [
+        f"{label} structured source: {jsonl_path}.",
+        f"{label} readable companion: {markdown_path}.",
+    ]
+    if update:
+        lines.extend(
+            [
+                f"Update {jsonl_path} as the source of truth.",
+                f"After JSONL edits, run `electroboy render-artifact {artifact}`",
+                f"so {markdown_path} stays synchronized for review.",
+            ]
+        )
+    return lines
+
+
 def _authoring_prompt(store: StateStore, stage: str) -> str:
-    requirements_path = _artifact_path(store, "docs/requirements.md")
-    design_path = _artifact_path(store, "docs/detailed-design.md")
-    plan_path = _artifact_path(store, "docs/implementation-plan.md")
-    test_plan_path = _artifact_path(store, TEST_PLAN_PATH)
+    requirements_jsonl, requirements_path = _structured_pair_for_markdown(
+        store,
+        "requirements",
+        "docs/requirements.md",
+    )
+    design_jsonl, design_path = _structured_pair_for_markdown(
+        store,
+        "design",
+        "docs/detailed-design.md",
+    )
+    plan_jsonl, plan_path = _structured_pair_for_markdown(
+        store,
+        "implementation-plan",
+        "docs/implementation-plan.md",
+    )
+    test_plan_jsonl, test_plan_path = _structured_pair_for_markdown(
+        store,
+        "test-plan",
+        TEST_PLAN_PATH,
+    )
     prompts = {
         STAGE_REQUIREMENTS: [
             "Work with the operator on the requirements artifact.",
             "",
-            f"Target file: {requirements_path}.",
-            f"Read only {requirements_path} if it exists.",
+            *_structured_prompt_block(
+                "requirements",
+                requirements_jsonl,
+                requirements_path,
+                update=True,
+            ),
+            "Read only these two files unless the operator explicitly asks",
+            "otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
-            f"Update only {requirements_path} unless the operator explicitly",
-            "asks for another change.",
+            "Use JSONL records with Markdown-capable body fields for normal",
+            "sections, tables, Mermaid diagrams, lists, and explanatory text.",
+            f"Update only {requirements_jsonl} and {requirements_path} unless",
+            "the operator explicitly asks for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
         ],
         STAGE_DESIGN: [
             "Work with the operator on the design artifact.",
             "",
-            f"Target file: {design_path}.",
-            f"Read only {requirements_path} and {design_path} if they exist.",
+            *_structured_prompt_block(
+                "requirements",
+                requirements_jsonl,
+                requirements_path,
+                update=False,
+            ),
+            *_structured_prompt_block(
+                "design",
+                design_jsonl,
+                design_path,
+                update=True,
+            ),
+            "Read only these four files unless the operator explicitly asks",
+            "otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
-            f"Update only {design_path} unless the operator explicitly",
-            "asks for another change.",
+            "Use JSONL body fields for normal sections, tables, Mermaid",
+            "diagrams, lists, and explanatory text.",
+            f"Update only {design_jsonl} and {design_path} unless the operator",
+            "explicitly asks for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
         ],
         STAGE_PLAN: [
             "Work with the operator on the implementation plan artifact.",
             "",
-            f"Target file: {plan_path}.",
-            f"Read only {requirements_path}, {design_path}, and",
-            f"{plan_path} if they exist.",
+            *_structured_prompt_block(
+                "requirements",
+                requirements_jsonl,
+                requirements_path,
+                update=False,
+            ),
+            *_structured_prompt_block(
+                "design",
+                design_jsonl,
+                design_path,
+                update=False,
+            ),
+            *_structured_prompt_block(
+                "implementation-plan",
+                plan_jsonl,
+                plan_path,
+                update=True,
+            ),
+            "Read only these six files unless the operator explicitly asks",
+            "otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
-            f"Update only {plan_path} unless the operator",
+            "Use JSONL body fields for narrative details and keep each",
+            "implementation unit aligned with one commit pass.",
+            f"Update only {plan_jsonl} and {plan_path} unless the operator",
             "explicitly asks for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
@@ -6629,15 +6893,40 @@ def _authoring_prompt(store: StateStore, stage: str) -> str:
         STAGE_TEST_PLAN: [
             "Work with the operator on the system test plan artifact.",
             "",
-            f"Target file: {test_plan_path}.",
-            f"Read {requirements_path}, {design_path}, {plan_path}, and",
-            f"{test_plan_path} if they exist.",
+            *_structured_prompt_block(
+                "requirements",
+                requirements_jsonl,
+                requirements_path,
+                update=False,
+            ),
+            *_structured_prompt_block(
+                "design",
+                design_jsonl,
+                design_path,
+                update=False,
+            ),
+            *_structured_prompt_block(
+                "implementation-plan",
+                plan_jsonl,
+                plan_path,
+                update=False,
+            ),
+            *_structured_prompt_block(
+                "test-plan",
+                test_plan_jsonl,
+                test_plan_path,
+                update=True,
+            ),
+            "Read only these eight files unless the operator explicitly asks",
+            "otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
             "Focus on system tests, workflow checks, manual validation,",
             "environment assumptions, and acceptance criteria.",
-            f"Update only {test_plan_path} unless the operator explicitly asks",
-            "for another change.",
+            "Use JSONL body fields for setup notes, tables, Mermaid diagrams,",
+            "manual procedures, and explanatory text.",
+            f"Update only {test_plan_jsonl} and {test_plan_path} unless the",
+            "operator explicitly asks for another change.",
             "If the operator asks you to update another artifact, do it and",
             "report which files changed and why.",
         ],
@@ -6647,12 +6936,17 @@ def _authoring_prompt(store: StateStore, stage: str) -> str:
 
 def _authoring_artifact_stages(store: StateStore) -> dict[str, str]:
     paths = _run_artifact_paths(store)
-    return {
-        paths.get(key, default_path): stage
-        for default_path, stage in AUTHORING_ARTIFACT_STAGES.items()
-        for key in [DEFAULT_PATH_KEYS.get(default_path)]
-        if key is not None
-    }
+    artifact_stages: dict[str, str] = {}
+    for default_path, stage in AUTHORING_ARTIFACT_STAGES.items():
+        key = DEFAULT_PATH_KEYS.get(default_path)
+        if key is None:
+            continue
+        markdown_path = paths.get(key, default_path)
+        artifact_stages[markdown_path] = stage
+        companion_path = _structured_companion_for_path(store, markdown_path)
+        if companion_path:
+            artifact_stages[companion_path] = stage
+    return artifact_stages
 
 
 def _authoring_artifact_snapshot(store: StateStore) -> dict[str, bytes | None]:
@@ -6927,6 +7221,7 @@ def _cmd_stage(
             _print_gate_failure(order.messages)
             return 1
 
+    _ensure_structured_stage_artifact(store, stage)
     required_file = _stage_required_file(store, stage)
     if required_file:
         file_result = engine.require_file(required_file)
@@ -6978,8 +7273,8 @@ def _cmd_stage(
     if next_stage:
         manifest.set_active_stage(next_stage)
     store.save_manifest(manifest)
-    snapshot_artifact = _stage_snapshot_artifact(store, stage)
-    if snapshot_artifact:
+    snapshot_artifacts = _stage_snapshot_artifacts(store, stage)
+    for snapshot_artifact in snapshot_artifacts:
         snapshot = ArtifactManager(store.root).snapshot(
             manifest.run_id,
             snapshot_artifact,
@@ -7012,14 +7307,19 @@ def _cmd_stage(
 
 
 def _stage_readiness_errors(
+    store: StateStore,
     engine: GateEngine,
     manifest,
     stage: str,
 ) -> list[str]:
+    try:
+        _ensure_structured_stage_inputs(store, stage)
+    except StateError as error:
+        return [str(error)]
     order = engine.stage_order(stage, manifest)
     if not order.passed:
         return order.messages
-    required_file = _stage_required_file(engine.store, stage)
+    required_file = _stage_required_file(store, stage)
     if required_file:
         file_result = engine.require_file(required_file)
         if not file_result.passed:
@@ -8206,27 +8506,40 @@ def _write_attached_agent_session_record(
 
 
 def _design_review_context_paths(store: StateStore) -> list[str]:
-    return _artifact_paths(
+    return _include_structured_companions(
         store,
-        [
-            *DESIGN_REVIEW_CONTEXT_PATHS,
-            DESIGN_REVIEW_SUMMARY_PATH,
-            DESIGN_REVIEW_UPDATES_PATH,
-        ],
+        _artifact_paths(
+            store,
+            [
+                *DESIGN_REVIEW_CONTEXT_PATHS,
+                DESIGN_REVIEW_SUMMARY_PATH,
+                DESIGN_REVIEW_UPDATES_PATH,
+            ],
+        ),
     )
 
 
 def _design_review_prompt(store: StateStore, pass_number: int) -> str:
-    requirements_path = _artifact_path(store, "docs/requirements.md")
-    design_path = _artifact_path(store, "docs/detailed-design.md")
+    requirements_jsonl, requirements_path = _structured_pair_for_markdown(
+        store,
+        "requirements",
+        "docs/requirements.md",
+    )
+    design_jsonl, design_path = _structured_pair_for_markdown(
+        store,
+        "design",
+        "docs/detailed-design.md",
+    )
     summary_path = _artifact_path(store, DESIGN_REVIEW_SUMMARY_PATH)
     updates_path = _artifact_path(store, DESIGN_REVIEW_UPDATES_PATH)
     return "\n".join(
         [
-            f"Review {design_path} against {requirements_path} and the current",
+            f"Review {design_jsonl} and {design_path} against",
+            f"{requirements_jsonl} and {requirements_path}, plus the current",
             "codebase.",
             "",
-            f"Read {requirements_path} and {design_path}.",
+            f"Read {requirements_jsonl}, {requirements_path}, {design_jsonl},",
+            f"and {design_path}.",
             f"Read {summary_path} and {updates_path} when they exist so you can",
             "verify prior design-review updates.",
             "Inspect source code as needed to verify the design matches the current",
@@ -11675,11 +11988,11 @@ def _invalidated_snapshot_refs(
         GATE_TEST_PLAN: _artifact_path(store, TEST_PLAN_PATH),
         GATE_DOCUMENTATION: "docs/api.md",
     }
-    artifacts = {
-        gate_artifacts[gate]
-        for gate in invalidated_gates
-        if gate in gate_artifacts
-    }
+    artifacts: set[str] = set()
+    for gate in invalidated_gates:
+        artifact = gate_artifacts.get(gate)
+        if artifact:
+            artifacts.update(_include_structured_companions(store, [artifact]))
     return [
         str(snapshot.get("snapshot_path"))
         for snapshot in store.read_artifact_snapshots()

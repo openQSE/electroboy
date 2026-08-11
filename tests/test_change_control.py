@@ -121,7 +121,12 @@ class ChangeControlTests(unittest.TestCase):
         self.assertEqual(requests[-1]["baseline"], "requirements")
         self.assertEqual(
             activity[-2]["artifact_changes"],
-            ["docs/detailed-design.md", "docs/requirements.md"],
+            [
+                "docs/detailed-design.jsonl",
+                "docs/detailed-design.md",
+                "docs/requirements.jsonl",
+                "docs/requirements.md",
+            ],
         )
 
     def test_plan_authoring_reopens_earliest_upstream_artifact_stage(self) -> None:

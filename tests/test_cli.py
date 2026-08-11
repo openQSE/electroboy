@@ -297,6 +297,8 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("authoring stage: requirements", stdout)
+        self.assertIn("structured source: docs/requirements.jsonl", stdout)
+        self.assertIn("readable companion: docs/requirements.md", stdout)
         self.assertIn("artifact: docs/requirements.md", stdout)
 
     def test_requirements_authoring_prompt_limits_startup_scope(self) -> None:
@@ -310,10 +312,62 @@ class CliTests(unittest.TestCase):
             prompt = prompt_files[0].read_text(encoding="utf-8")
 
         self.assertEqual(code, 0, stderr)
-        self.assertIn("Target file: docs/requirements.md.", prompt)
-        self.assertIn("Read only docs/requirements.md if it exists.", prompt)
+        self.assertIn(
+            "Requirements structured source: docs/requirements.jsonl.",
+            prompt,
+        )
+        self.assertIn(
+            "Requirements readable companion: docs/requirements.md.",
+            prompt,
+        )
+        self.assertIn(
+            "Update docs/requirements.jsonl as the source of truth.",
+            prompt,
+        )
+        self.assertIn("Read only these two files", prompt)
         self.assertIn("Do not explore the working directory", prompt)
-        self.assertIn("Update only docs/requirements.md", prompt)
+        self.assertIn(
+            "Update only docs/requirements.jsonl and docs/requirements.md",
+            prompt,
+        )
+
+    def test_requirements_authoring_imports_markdown_only_artifact(self) -> None:
+        with temp_project() as root:
+            StateStore(root).init_run(run_id="run-1")
+            write_file(
+                root / "docs" / "requirements.md",
+                """# Requirements
+
+## REQ-001. Submit request
+
+**Statement:** The system accepts a request.
+
+| Input | Expected |
+| --- | --- |
+| valid | accepted |
+
+```mermaid
+flowchart LR
+A-->B
+```
+""",
+            )
+            write_manual_runtime(root)
+
+            code, stdout, stderr = self.run_cli(["--root", str(root), "requirements"])
+            records = [
+                json.loads(line)
+                for line in (root / "docs" / "requirements.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("structured source: docs/requirements.jsonl", stdout)
+        self.assertEqual(records[1]["id"], "REQ-001")
+        self.assertEqual(records[1]["statement"], "The system accepts a request.")
+        self.assertIn("| Input | Expected |", records[1]["body"])
+        self.assertIn("```mermaid", records[1]["body"])
 
     def test_requirements_authoring_records_local_session(self) -> None:
         with temp_project() as root:
@@ -565,6 +619,39 @@ class CliTests(unittest.TestCase):
         self.assertIn("completed stage: design-review", stdout)
         self.assertIn("active stage: design-approve", stdout)
 
+    def test_design_review_uses_structured_artifact_context(self) -> None:
+        with temp_project() as root:
+            write_file(root / "docs" / "requirements.md", "# Requirements\n")
+            write_file(root / "docs" / "detailed-design.md", "# Design\n")
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_manual_runtime(root)
+            self.assertEqual(self.run_cli(["--root", str(root), "requirements"])[0], 0)
+            self.assertEqual(
+                self.run_cli(["--root", str(root), "requirements-approve"])[0],
+                0,
+            )
+
+            code, _stdout, stderr = self.run_cli(
+                ["--root", str(root), "design-review"]
+            )
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+            requirements_jsonl_exists = (
+                root / "docs" / "requirements.jsonl"
+            ).exists()
+            design_jsonl_exists = (
+                root / "docs" / "detailed-design.jsonl"
+            ).exists()
+
+        self.assertEqual(code, 0, stderr)
+        self.assertTrue(requirements_jsonl_exists)
+        self.assertTrue(design_jsonl_exists)
+        self.assertIn("docs/requirements.jsonl", prompt)
+        self.assertIn("docs/detailed-design.jsonl", prompt)
+
     def test_force_design_approve_from_design_backfills_review_gate(self) -> None:
         with temp_project() as root:
             store = StateStore(root)
@@ -725,7 +812,12 @@ class CliTests(unittest.TestCase):
         self.assertIn("active stage: design", stdout)
         self.assertIn("approve the test plan after code completes", stdout)
         self.assertEqual(manifest.active_stage, "design")
-        self.assertIn("Target file: docs/test-plan.md.", prompt)
+        self.assertIn("Test Plan structured source: docs/test-plan.jsonl.", prompt)
+        self.assertIn("Test Plan readable companion: docs/test-plan.md.", prompt)
+        self.assertIn(
+            "Update docs/test-plan.jsonl as the source of truth.",
+            prompt,
+        )
         self.assertIn("Focus on system tests", prompt)
 
     def test_test_plan_approve_commits_and_advances_to_validation(self) -> None:
@@ -971,9 +1063,16 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("artifact: docs/requirements-dashboard.md", stdout)
-        self.assertIn("Target file: docs/requirements-dashboard.md.", prompt)
         self.assertIn(
-            "Read only docs/requirements-dashboard.md if it exists.",
+            "Requirements structured source: docs/requirements-dashboard.jsonl.",
+            prompt,
+        )
+        self.assertIn(
+            "Requirements readable companion: docs/requirements-dashboard.md.",
+            prompt,
+        )
+        self.assertIn(
+            "Update docs/requirements-dashboard.jsonl as the source of truth.",
             prompt,
         )
         self.assertFalse(canonical_requirements_exists)
@@ -1154,7 +1253,14 @@ class CliTests(unittest.TestCase):
                 for snapshot in snapshots
             )
         )
+        self.assertTrue(
+            any(
+                snapshot.get("artifact_path") == "docs/requirements-dashboard.jsonl"
+                for snapshot in snapshots
+            )
+        )
         self.assertIn("docs/requirements-dashboard.md", committed_files)
+        self.assertIn("docs/requirements-dashboard.jsonl", committed_files)
         self.assertNotIn("docs/requirements.md", committed_files)
 
     def test_feature_start_can_create_feature_branch(self) -> None:

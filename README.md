@@ -166,6 +166,13 @@ and `docs/test-plan-<feature>.md`; later review and report artifacts use the
 same suffix. If those files already exist, ElectroBoy warns before amending
 them, or accepts the reuse directly with `--amend`.
 
+Requirements, design, implementation-plan, and test-plan authoring use paired
+structured artifacts. The JSONL file is the source of truth, and the Markdown
+file is the readable companion. For example, a feature requirements artifact
+uses both `docs/requirements-<feature>.jsonl` and
+`docs/requirements-<feature>.md`. If an older project only has Markdown,
+ElectroBoy imports it into JSONL automatically before the stage starts.
+
 Use `--branch` when ElectroBoy should create or switch to a focused feature
 branch before the normal stages begin. Omit the branch name to derive
 `feature/<slug>` from the title, or pass an explicit branch name:
@@ -268,11 +275,11 @@ Draft the system test plan whenever useful during design or planning:
 electroboy test-plan
 ```
 
-`test-plan` updates `docs/test-plan.md`, or the feature-specific test plan in a
-feature run. It can be run while the active stage is still design,
-implementation planning, or implementation so system test ideas are captured
-when they arise. After implementation completes, run `test-plan` again to
-review the final validation surface, then approve it:
+`test-plan` updates `docs/test-plan.jsonl` and renders `docs/test-plan.md`, or
+the matching feature-specific pair in a feature run. It can be run while the
+active stage is still design, implementation planning, or implementation so
+system test ideas are captured when they arise. After implementation completes,
+run `test-plan` again to review the final validation surface, then approve it:
 
 ```bash
 electroboy test-plan
