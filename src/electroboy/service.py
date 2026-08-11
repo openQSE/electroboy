@@ -29,7 +29,11 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from .artifacts import ArtifactManager
-from .feature_artifacts import read_feature_record
+from .feature_artifacts import (
+    artifact_paths_for_run,
+    read_feature_record,
+    resolve_artifact_path,
+)
 from .models import (
     ActivityEvent,
     GATE_DESIGN,
@@ -12201,9 +12205,13 @@ def requirements_document_html(
     embedded: bool = False,
     zoom_percent: int = 100,
 ) -> tuple[str, HTTPStatus]:
-    return markdown_document_html(
+    relative_path = _resolved_artifact_relative_path(
         project_root,
         "docs/requirements.md",
+    )
+    return markdown_document_html(
+        project_root,
+        relative_path,
         "Requirements",
         "Requirements document does not exist yet.",
         embedded=embedded,
@@ -12212,18 +12220,26 @@ def requirements_document_html(
 
 
 def design_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
-    return markdown_document_html(
+    relative_path = _resolved_artifact_relative_path(
         project_root,
         "docs/detailed-design.md",
+    )
+    return markdown_document_html(
+        project_root,
+        relative_path,
         "Design",
         "Design document does not exist yet.",
     )
 
 
 def design_review_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
-    return markdown_document_html(
+    relative_path = _resolved_artifact_relative_path(
         project_root,
         "docs/design-review.md",
+    )
+    return markdown_document_html(
+        project_root,
+        relative_path,
         "Design Review",
         "Design review document does not exist yet.",
     )
@@ -12235,9 +12251,13 @@ def stage_document_html(
 ) -> tuple[str, HTTPStatus]:
     config = _generic_stage_config(stage)
     title = str(config["artifact_title"])
-    return markdown_document_html(
+    relative_path = _resolved_artifact_relative_path(
         project_root,
         str(config["artifact_path"]),
+    )
+    return markdown_document_html(
+        project_root,
+        relative_path,
         title,
         f"{title} document does not exist yet.",
     )
@@ -12504,6 +12524,33 @@ def _document_target_path(project_root: Path | str, relative_path: str) -> tuple
     return normalized_path, document_path
 
 
+def _resolved_artifact_relative_path(
+    project_root: Path | str,
+    default_relative_path: str,
+) -> str:
+    project_root = Path(project_root).expanduser().resolve()
+    relative_path = default_relative_path
+    run_id = StateStore(project_root).current_run_id()
+    if run_id:
+        relative_path = resolve_artifact_path(
+            artifact_paths_for_run(project_root, run_id),
+            default_relative_path,
+        )
+    return _document_target_path(project_root, relative_path)[0]
+
+
+def _resolved_artifact_document_path(
+    project_root: Path | str,
+    default_relative_path: str,
+) -> Path:
+    project_root = Path(project_root).expanduser().resolve()
+    relative_path = _resolved_artifact_relative_path(
+        project_root,
+        default_relative_path,
+    )
+    return _document_target_path(project_root, relative_path)[1]
+
+
 def _artifact_event_document_path(
     project_root: Path | str,
     artifact: str,
@@ -12511,14 +12558,14 @@ def _artifact_event_document_path(
 ) -> Path:
     project_root = Path(project_root).expanduser().resolve()
     if artifact == "requirements":
-        return project_root / "docs" / "requirements.md"
+        return _resolved_artifact_document_path(project_root, "docs/requirements.md")
     if artifact == "document":
         return _document_target_path(project_root, requested_path)[1]
     if artifact == "route":
         relative_path = ARTIFACT_EVENT_ROUTE_PATHS.get(requested_path)
         if relative_path is None:
             raise StateError(f"unknown artifact route: {requested_path}")
-        return project_root / relative_path
+        return _resolved_artifact_document_path(project_root, relative_path)
     raise StateError(f"unknown artifact: {artifact}")
 
 

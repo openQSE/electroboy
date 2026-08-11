@@ -868,6 +868,46 @@ class ServiceTests(unittest.TestCase):
                 _artifact_event_document_path(root, "document", "../README.md")
             with self.assertRaises(StateError):
                 _artifact_event_document_path(root, "route", "/artifacts/unknown")
+
+    def test_artifact_event_document_path_uses_feature_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            StateStore(root).init_run(run_id="run-1")
+            feature_path = (
+                root / ".electroboy" / "shared" / "runs" / "run-1" / "feature.json"
+            )
+            feature_path.write_text(
+                json.dumps(
+                    {
+                        "slug": "munge",
+                        "artifacts": {
+                            "requirements": "docs/requirements-munge.md",
+                            "design": "docs/detailed-design-munge.md",
+                            "implementation_plan": (
+                                "docs/implementation-plan-munge.md"
+                            ),
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                _artifact_event_document_path(root, "requirements", ""),
+                root.resolve() / "docs" / "requirements-munge.md",
+            )
+            self.assertEqual(
+                _artifact_event_document_path(root, "route", "/artifacts/design"),
+                root.resolve() / "docs" / "detailed-design-munge.md",
+            )
+            self.assertEqual(
+                _artifact_event_document_path(
+                    root,
+                    "route",
+                    "/artifacts/implementation-plan",
+                ),
+                root.resolve() / "docs" / "implementation-plan-munge.md",
+            )
         self.assertIn("function renderDocumentTargets()", INDEX_HTML)
         self.assertIn("function addCustomDocumentTarget()", INDEX_HTML)
         self.assertIn("async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0])", INDEX_HTML)
@@ -2595,6 +2635,41 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status.value, 200)
         self.assertIn("<h1>Requirements</h1>", page)
         self.assertIn("First requirement", page)
+
+    def test_requirements_document_html_uses_feature_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            StateStore(root).init_run(run_id="run-1")
+            (docs / "requirements.md").write_text(
+                "# Requirements\n\nGeneric requirements\n",
+                encoding="utf-8",
+            )
+            (docs / "requirements-munge.md").write_text(
+                "# Requirements\n\nFeature requirements\n",
+                encoding="utf-8",
+            )
+            feature_path = (
+                root / ".electroboy" / "shared" / "runs" / "run-1" / "feature.json"
+            )
+            feature_path.write_text(
+                json.dumps(
+                    {
+                        "slug": "munge",
+                        "artifacts": {
+                            "requirements": "docs/requirements-munge.md",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            page, status = requirements_document_html(root)
+
+        self.assertEqual(status.value, 200)
+        self.assertIn("Feature requirements", page)
+        self.assertNotIn("Generic requirements", page)
 
     def test_requirements_document_html_supports_embedded_view(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
