@@ -242,6 +242,9 @@ def markdown_to_artifact_records(
     if artifact == "implementation-plan":
         records.extend(_implementation_records_from_markdown(content_sections))
         return records
+    if artifact == "requirements":
+        records.extend(_requirements_records_from_markdown(content_sections))
+        return records
     for index, section in enumerate(content_sections, 1):
         records.append(_content_record_from_markdown(artifact, section, index))
     return records
@@ -437,6 +440,207 @@ def _content_record_from_markdown(
     return record
 
 
+def _requirements_records_from_markdown(
+    sections: list[MarkdownSection],
+) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    order = 10
+    for index, section in enumerate(sections, 1):
+        requirement_records, remaining_lines = _requirement_records_from_tables(
+            section,
+        )
+        section_record = _content_record_from_markdown(
+            "requirements",
+            MarkdownSection(section.level, section.title, remaining_lines),
+            index,
+        )
+        section_record["order"] = order
+        records.append(section_record)
+        order += 10
+        for record in requirement_records:
+            record["order"] = order
+            records.append(record)
+            order += 10
+    return records
+
+
+def _requirement_records_from_tables(
+    section: MarkdownSection,
+) -> tuple[list[dict[str, object]], list[str]]:
+    records: list[dict[str, object]] = []
+    remaining_lines: list[str] = []
+    index = 0
+    while index < len(section.lines):
+        table = _parse_markdown_table(section.lines, index)
+        if table is None:
+            remaining_lines.append(section.lines[index])
+            index += 1
+            continue
+        header, rows, next_index = table
+        table_records = _requirement_table_records(section.title, header, rows)
+        if not table_records:
+            remaining_lines.extend(section.lines[index:next_index])
+        else:
+            records.extend(table_records)
+        index = next_index
+    return records, _trim_blank_lines(remaining_lines)
+
+
+def _parse_markdown_table(
+    lines: list[str],
+    index: int,
+) -> tuple[list[str], list[list[str]], int] | None:
+    if index + 1 >= len(lines):
+        return None
+    header = _markdown_table_cells(lines[index])
+    separator = _markdown_table_cells(lines[index + 1])
+    if not header or not separator or len(separator) < len(header):
+        return None
+    if not all(_is_markdown_table_separator(cell) for cell in separator):
+        return None
+    rows: list[list[str]] = []
+    cursor = index + 2
+    while cursor < len(lines):
+        cells = _markdown_table_cells(lines[cursor])
+        if not cells:
+            break
+        if len(cells) < len(header):
+            cells.extend([""] * (len(header) - len(cells)))
+        rows.append(cells[: len(header)])
+        cursor += 1
+    if not rows:
+        return None
+    return header, rows, cursor
+
+
+def _markdown_table_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return []
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def _is_markdown_table_separator(cell: str) -> bool:
+    return re.fullmatch(r":?-{3,}:?", cell.strip()) is not None
+
+
+def _requirement_table_records(
+    section_title: str,
+    header: list[str],
+    rows: list[list[str]],
+) -> list[dict[str, object]]:
+    id_index = _requirement_table_id_index(header, rows)
+    if id_index is None:
+        return []
+    statement_index = _requirement_table_statement_index(header, id_index)
+    if statement_index is None:
+        return []
+    records: list[dict[str, object]] = []
+    for row in rows:
+        requirement_id = row[id_index].strip()
+        if not _looks_like_requirement_id(requirement_id):
+            continue
+        statement = row[statement_index].strip()
+        if not statement:
+            continue
+        record: dict[str, object] = {
+            "schema_version": 1,
+            "artifact_type": "requirements",
+            "record_type": "requirement",
+            "id": requirement_id,
+            "title": _requirement_title_from_statement(
+                statement,
+                fallback=requirement_id,
+            ),
+            "statement": statement,
+            "status": "draft",
+        }
+        if section_title:
+            record["tags"] = [_slug_key(section_title)]
+        extras = _requirement_table_extra_fields(
+            header,
+            row,
+            skip_indexes={id_index, statement_index},
+        )
+        record.update(extras)
+        records.append(record)
+    return records
+
+
+def _requirement_table_id_index(
+    header: list[str],
+    rows: list[list[str]],
+) -> int | None:
+    for index, value in enumerate(header):
+        if _field_key(value) in {"id", "requirement_id", "req_id"}:
+            return index
+    for index in range(len(header)):
+        if any(
+            index < len(row) and _looks_like_requirement_id(row[index].strip())
+            for row in rows
+        ):
+            return index
+    return None
+
+
+def _requirement_table_statement_index(
+    header: list[str],
+    id_index: int,
+) -> int | None:
+    preferred = {
+        "description",
+        "statement",
+        "requirement",
+        "requirement_statement",
+        "summary",
+    }
+    for index, value in enumerate(header):
+        if index != id_index and _field_key(value) in preferred:
+            return index
+    for index in range(len(header)):
+        if index != id_index:
+            return index
+    return None
+
+
+def _requirement_table_extra_fields(
+    header: list[str],
+    row: list[str],
+    *,
+    skip_indexes: set[int],
+) -> dict[str, object]:
+    fields: dict[str, object] = {}
+    extra_lines: list[str] = []
+    list_keys = _list_field_keys()
+    for index, label in enumerate(header):
+        if index in skip_indexes or index >= len(row):
+            continue
+        value = row[index].strip()
+        if not value:
+            continue
+        key = _field_key(label)
+        if key:
+            fields[key] = _split_inline_list(value) if key in list_keys else value
+        else:
+            extra_lines.append(f"**{label.strip()}:** {value}")
+    if extra_lines:
+        fields["body"] = "\n\n".join(extra_lines)
+    return fields
+
+
+def _requirement_title_from_statement(statement: str, *, fallback: str) -> str:
+    title = re.sub(
+        r"^(?:the\s+system|users?|parents?|guardians?)\s+shall\s+",
+        "",
+        statement.strip(),
+        flags=re.IGNORECASE,
+    )
+    title = title.rstrip(".")
+    if len(title) > 80:
+        title = title[:77].rstrip() + "..."
+    return title or fallback
+
+
 def _implementation_records_from_markdown(
     sections: list[MarkdownSection],
 ) -> list[dict[str, object]]:
@@ -624,11 +828,17 @@ def _field_key(label: str) -> str:
     aliases = {
         "acceptance_criteria": "acceptance_criteria",
         "commit_tasks": "commit_tasks",
+        "desc": "description",
         "design_sections": "design_sections",
+        "id": "id",
         "expected_results": "expected_results",
         "implementation_units": "implementation_units",
         "out_of_scope": "out_of_scope",
         "plan_tasks": "plan_tasks",
+        "req_id": "req_id",
+        "requirement": "requirement",
+        "requirement_id": "requirement_id",
+        "requirement_statement": "requirement_statement",
     }
     known = {
         "automation",
@@ -636,6 +846,7 @@ def _field_key(label: str) -> str:
         "consumer",
         "context",
         "decision",
+        "description",
         "dependencies",
         "exit_criteria",
         "interfaces",
@@ -713,7 +924,9 @@ def _split_record_heading(title: str) -> tuple[str, str]:
 
 def _content_record_type(artifact: str, record_id: str) -> str:
     if artifact == "requirements":
-        return "requirement" if record_id.startswith("REQ-") else "section"
+        if record_id.startswith("REQSEC-"):
+            return "section"
+        return "requirement" if _looks_like_requirement_id(record_id) else "section"
     if artifact == "design":
         if record_id.startswith("DEC-"):
             return "decision"
@@ -741,6 +954,18 @@ def _generated_content_id(artifact: str, record_type: str, index: int) -> str:
         prefix = "TEST" if record_type == "test" else "TS"
         return f"{prefix}-{index:03d}"
     return f"REC-{index:03d}"
+
+
+def _looks_like_requirement_id(value: str) -> bool:
+    return (
+        re.fullmatch(r"[A-Z][A-Z0-9]{1,9}-\d+[A-Z0-9._-]*", value.strip())
+        is not None
+    )
+
+
+def _slug_key(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug or "section"
 
 
 def _phase_heading_number(title: str) -> int | None:

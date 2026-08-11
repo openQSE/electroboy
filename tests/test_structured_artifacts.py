@@ -161,6 +161,47 @@ A-->B
             ["Valid requests are accepted.", "Invalid requests are rejected."],
         )
 
+    def test_import_artifact_splits_requirement_table_rows(self) -> None:
+        records = markdown_to_artifact_records(
+            "requirements",
+            """# Requirements
+
+## Behavior Requirements
+
+| Requirement ID | Description |
+| --- | --- |
+| BEH-001 | The system shall create a shared family plan. |
+| BEH-002 | The system shall detect schedule conflicts. |
+
+## Similar Tools
+
+| Tool | Capability |
+| --- | --- |
+| Cozi | Shared calendar |
+""",
+        )
+
+        by_id = {str(record.get("id")): record for record in records}
+        self.assertEqual(by_id["BEH-001"]["record_type"], "requirement")
+        self.assertEqual(
+            by_id["BEH-001"]["statement"],
+            "The system shall create a shared family plan.",
+        )
+        self.assertEqual(by_id["BEH-001"]["tags"], ["behavior-requirements"])
+        self.assertEqual(by_id["BEH-002"]["record_type"], "requirement")
+        behavior = next(
+            record
+            for record in records
+            if record.get("title") == "Behavior Requirements"
+        )
+        similar_tools = next(
+            record
+            for record in records
+            if record.get("title") == "Similar Tools"
+        )
+        self.assertNotIn("BEH-001", str(behavior.get("body", "")))
+        self.assertIn("| Tool | Capability |", similar_tools["body"])
+
     def test_markdown_import_commit_tasks_drive_plan_tasks(self) -> None:
         records = markdown_to_artifact_records(
             "implementation-plan",

@@ -321,13 +321,18 @@ class CliTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "Update docs/requirements.jsonl as the source of truth.",
+            "Edit docs/requirements.jsonl directly as the source of truth.",
+            prompt,
+        )
+        self.assertIn("Do not edit docs/requirements.md by hand.", prompt)
+        self.assertIn(
+            "as the only way to update docs/requirements.md for live review.",
             prompt,
         )
         self.assertIn("Read only these two files", prompt)
         self.assertIn("Do not explore the working directory", prompt)
         self.assertIn(
-            "Update only docs/requirements.jsonl and docs/requirements.md",
+            "Edit only docs/requirements.jsonl directly unless",
             prompt,
         )
 
@@ -815,9 +820,10 @@ A-->B
         self.assertIn("Test Plan structured source: docs/test-plan.jsonl.", prompt)
         self.assertIn("Test Plan readable companion: docs/test-plan.md.", prompt)
         self.assertIn(
-            "Update docs/test-plan.jsonl as the source of truth.",
+            "Edit docs/test-plan.jsonl directly as the source of truth.",
             prompt,
         )
+        self.assertIn("Do not edit docs/test-plan.md by hand.", prompt)
         self.assertIn("Focus on system tests", prompt)
 
     def test_test_plan_approve_commits_and_advances_to_validation(self) -> None:
@@ -1072,9 +1078,10 @@ A-->B
             prompt,
         )
         self.assertIn(
-            "Update docs/requirements-dashboard.jsonl as the source of truth.",
+            "Edit docs/requirements-dashboard.jsonl directly as the source of truth.",
             prompt,
         )
+        self.assertIn("Do not edit docs/requirements-dashboard.md by hand.", prompt)
         self.assertFalse(canonical_requirements_exists)
 
     def test_render_artifact_requirements_command(self) -> None:

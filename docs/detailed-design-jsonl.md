@@ -470,6 +470,9 @@ Conversion rules:
 
 - Requirements headings and requirement-like bullets become section and
   requirement records.
+- Requirements tables with a requirement-id column and description or
+  statement column become individual `requirement` records, so ids such as
+  `BEH-001`, `TEC-001`, and `USR-001` remain traceable.
 - Design headings become design section records.
 - Implementation-plan commit rows become implementation units.
 - Test-plan headings and numbered test cases become suite and test records.
@@ -493,7 +496,9 @@ Work with the operator on the requirements artifact.
 Structured source: docs/requirements-<feature>.jsonl.
 Readable companion: docs/requirements-<feature>.md.
 Read only these two files unless the operator explicitly asks otherwise.
-Update both files together so the Markdown reflects the JSONL source.
+Edit the JSONL source directly. Do not edit the Markdown companion by hand.
+After each JSONL edit, run `electroboy render-artifact requirements` as the
+only way to update the Markdown companion for live review.
 Do not inspect source code unless the operator explicitly asks you to.
 If the operator asks you to update another artifact, report that file and why.
 ```
