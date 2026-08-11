@@ -33,8 +33,10 @@ from electroboy.service import (  # noqa: E402
     _file_signature,
     _progress_once_command,
     _progress_snapshot,
+    _progress_snapshot_markdown,
     _reopen_requirements_for_restart,
     _requirements_command,
+    _session_events_markdown,
     _status_command,
     _status_snapshot,
     _terminal_input_chunks_for_message,
@@ -117,10 +119,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("document_zoom")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn('id="refreshArtifact"', page)
+        self.assertIn('id="exportPaneOutput"', page)
         self.assertIn("function artifactEventUrl()", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("artifact", "route")', page)
         self.assertIn("function changeArtifactZoom(delta)", page)
+        self.assertIn("function exportMarkdown(url, suggestedName)", page)
+        self.assertIn("function exportCurrentPaneOutput()", page)
+        self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
+        self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
         self.assertLess(
             PANE_WINDOW_HTML.index('event.key === "Escape"'),
@@ -150,6 +157,39 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
+
+    def test_session_events_markdown_exports_transcript(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            session = AgentSession(
+                command=["codex", "exec", "hello"],
+                cwd=tmp,
+                label="requirements agent",
+                kind="requirements",
+                interactive=True,
+            )
+            session._append_event({"type": "system", "text": "started: codex"})
+            session._append_event({"type": "output", "text": "hello\n"})
+            session._append_event({"type": "output", "text": "world\n"})
+            session._append_event({"type": "completed", "returncode": 0})
+
+            markdown = _session_events_markdown(session)
+
+        self.assertIn("# Agent Session Export", markdown)
+        self.assertIn(f"- Session id: `{session.session_id}`", markdown)
+        self.assertIn("- Kind: `requirements`", markdown)
+        self.assertIn("```console\ncodex exec hello\n```", markdown)
+        self.assertIn("### Output Events 2-3", markdown)
+        self.assertIn("hello\nworld", markdown)
+        self.assertIn("### Event 4: completed", markdown)
+        self.assertIn("- Return code: `0`", markdown)
+
+    def test_progress_snapshot_markdown_exports_snapshot(self) -> None:
+        markdown = _progress_snapshot_markdown(Path("/tmp/project"), "phase 1\n", True)
+
+        self.assertIn("# Progress Log Export", markdown)
+        self.assertIn("- Project root: `/tmp/project`", markdown)
+        self.assertIn("- Snapshot status: `ok`", markdown)
+        self.assertIn("```text\nphase 1\n```", markdown)
 
     def test_file_browser_window_html_includes_tree_picker_controls(self) -> None:
         page = file_browser_window_html("~/ORNL")
@@ -575,9 +615,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="outputSplit"', INDEX_HTML)
         self.assertIn('id="agentOutputPane"', INDEX_HTML)
         self.assertIn('id="agentOutput"', INDEX_HTML)
+        self.assertIn('id="exportAgentOutput"', INDEX_HTML)
         self.assertIn('id="outputResizeHandle"', INDEX_HTML)
         self.assertIn('id="progressOutputPane"', INDEX_HTML)
         self.assertIn('id="progressOutput"', INDEX_HTML)
+        self.assertIn('id="exportProgressOutput"', INDEX_HTML)
         self.assertIn('id="shellPaneDivider"', INDEX_HTML)
         self.assertIn('id="sidePane"', INDEX_HTML)
         self.assertIn('id="sidePaneResizeHandle"', INDEX_HTML)
@@ -671,6 +713,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("disableStdin,", INDEX_HTML)
         self.assertIn('terminalOptions(false, "shell")', INDEX_HTML)
         self.assertIn('termName: "xterm-256color"', INDEX_HTML)
+        self.assertIn("scrollback: 10000,", INDEX_HTML)
+        self.assertIn("function writeBlobWithPicker(blob, suggestedName)", INDEX_HTML)
+        self.assertIn("window.showSaveFilePicker", INDEX_HTML)
+        self.assertIn("function exportAgentSession()", INDEX_HTML)
+        self.assertIn("function exportProgressLog()", INDEX_HTML)
+        self.assertIn("/api/sessions/export?session_id=", INDEX_HTML)
+        self.assertIn('contextUrl("/api/progress/export")', INDEX_HTML)
+        self.assertIn('exportAgentOutput.addEventListener("click"', INDEX_HTML)
+        self.assertIn('exportProgressOutput.addEventListener("click"', INDEX_HTML)
         self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
         self.assertIn('const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";', INDEX_HTML)
         self.assertIn(

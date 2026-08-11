@@ -2105,6 +2105,13 @@ INDEX_HTML = """<!doctype html>
                     >A+</button>
                   </div>
                   <button
+                    id="exportAgentOutput"
+                    class="pane-popout-button"
+                    type="button"
+                    title="Export selected agent session as Markdown"
+                    aria-label="Export selected agent session as Markdown"
+                  >Export</button>
+                  <button
                     id="popoutAgentPane"
                     class="pane-popout-button"
                     type="button"
@@ -2179,6 +2186,13 @@ INDEX_HTML = """<!doctype html>
                       aria-label="Increase progress font size"
                     >A+</button>
                   </div>
+                  <button
+                    id="exportProgressOutput"
+                    class="pane-popout-button"
+                    type="button"
+                    title="Export progress log as Markdown"
+                    aria-label="Export progress log as Markdown"
+                  >Export</button>
                   <button
                     id="popoutProgressPane"
                     class="pane-popout-button"
@@ -2603,9 +2617,11 @@ INDEX_HTML = """<!doctype html>
     const outputSplit = document.getElementById("outputSplit");
     const agentOutputPane = document.getElementById("agentOutputPane");
     const agentOutput = document.getElementById("agentOutput");
+    const exportAgentOutput = document.getElementById("exportAgentOutput");
     const outputResizeHandle = document.getElementById("outputResizeHandle");
     const progressOutputPane = document.getElementById("progressOutputPane");
     const progressOutput = document.getElementById("progressOutput");
+    const exportProgressOutput = document.getElementById("exportProgressOutput");
     const shellPaneDivider = document.getElementById("shellPaneDivider");
     const projectShellPane = document.getElementById("projectShellPane");
     const projectShellOutput = document.getElementById("projectShellOutput");
@@ -3186,6 +3202,93 @@ INDEX_HTML = """<!doctype html>
           brightWhite: "#ffffff",
         },
       };
+    }
+
+    function timestampForDownload() {
+      return new Date().toISOString().replace(/[:.]/g, "-");
+    }
+
+    function exportSafeName(value, fallback = "export") {
+      return String(value || fallback)
+        .replace(/[^A-Za-z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        || fallback;
+    }
+
+    function downloadBlob(fileName, blob) {
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    }
+
+    async function writeBlobWithPicker(blob, suggestedName) {
+      if (!window.showSaveFilePicker) {
+        downloadBlob(suggestedName, blob);
+        return;
+      }
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [
+            {
+              description: "Markdown",
+              accept: {
+                "text/markdown": [".md"],
+                "text/plain": [".txt"],
+              },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          return;
+        }
+        appendOutput(`export picker failed: ${error}\\n`, "error");
+        downloadBlob(suggestedName, blob);
+      }
+    }
+
+    async function exportMarkdown(url, suggestedName) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        const message = await response.text();
+        appendOutput(`${message || "export failed"}\\n`, "error");
+        return;
+      }
+      const blob = await response.blob();
+      await writeBlobWithPicker(blob, suggestedName);
+    }
+
+    function sessionExportName(session) {
+      const kind = exportSafeName(session && session.kind, "agent");
+      return `agent-session-${kind}-${timestampForDownload()}.md`;
+    }
+
+    async function exportAgentSession() {
+      const session = selectedSession();
+      if (!session) {
+        appendOutput("select an agent session first\\n", "error");
+        return;
+      }
+      const url = contextUrl(
+        `/api/sessions/export?session_id=${encodeURIComponent(session.session_id)}`,
+      );
+      await exportMarkdown(url, sessionExportName(session));
+    }
+
+    async function exportProgressLog() {
+      await exportMarkdown(
+        contextUrl("/api/progress/export"),
+        `progress-log-${timestampForDownload()}.md`,
+      );
     }
 
     function changeTerminalFontSize(delta) {
@@ -6219,9 +6322,12 @@ INDEX_HTML = """<!doctype html>
 
     function updateAgentControls() {
       const acceptsInput = selectedSessionAcceptsInput();
+      const session = selectedSession();
       agentInput.disabled = !acceptsInput;
       insertFileLink.disabled = !acceptsInput;
-      interruptAgent.disabled = !sessionIsRunning(selectedSession());
+      interruptAgent.disabled = !sessionIsRunning(session);
+      exportAgentOutput.disabled = !session;
+      exportProgressOutput.disabled = !activationRoot;
     }
 
     function setAgentRunning(kind, isRunning) {
@@ -7071,6 +7177,16 @@ INDEX_HTML = """<!doctype html>
         appendOutput(`session switch failed: ${error}\\n`, "error");
       });
     });
+    exportAgentOutput.addEventListener("click", () => {
+      exportAgentSession().catch((error) => {
+        appendOutput(`export failed: ${error}\\n`, "error");
+      });
+    });
+    exportProgressOutput.addEventListener("click", () => {
+      exportProgressLog().catch((error) => {
+        appendOutput(`export failed: ${error}\\n`, "error");
+      });
+    });
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
     document.querySelectorAll("[data-pane-font-delta]").forEach((button) => {
@@ -7433,6 +7549,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
           aria-label="Refresh document"
           hidden
         >Refresh</button>
+        <button
+          id="exportPaneOutput"
+          type="button"
+          title="Export pane output as Markdown"
+          aria-label="Export pane output as Markdown"
+          hidden
+        >Export</button>
         <button id="dockPane" type="button">Dock</button>
       </div>
     </header>
@@ -7504,6 +7627,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactZoomLevel = document.getElementById("artifactZoomLevel");
     const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
     const refreshArtifactButton = document.getElementById("refreshArtifact");
+    const exportPaneOutput = document.getElementById("exportPaneOutput");
     const terminalHost = document.getElementById("terminalHost");
     const artifactFrame = document.getElementById("artifactFrame");
     const scratchPad = document.getElementById("scratchPad");
@@ -7784,6 +7908,91 @@ PANE_WINDOW_HTML = r"""<!doctype html>
           brightWhite: "#ffffff",
         },
       };
+    }
+
+    function timestampForDownload() {
+      return new Date().toISOString().replace(/[:.]/g, "-");
+    }
+
+    function downloadBlob(fileName, blob) {
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    }
+
+    async function writeBlobWithPicker(blob, suggestedName) {
+      if (!window.showSaveFilePicker) {
+        downloadBlob(suggestedName, blob);
+        return;
+      }
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [
+            {
+              description: "Markdown",
+              accept: {
+                "text/markdown": [".md"],
+                "text/plain": [".txt"],
+              },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          return;
+        }
+        terminal.write(formatTerminalMessage(`export picker failed: ${error}\r\n`, "error"));
+        downloadBlob(suggestedName, blob);
+      }
+    }
+
+    async function exportMarkdown(url, suggestedName) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        const message = await response.text();
+        if (terminal) {
+          terminal.write(formatTerminalMessage(`${message || "export failed"}\r\n`, "error"));
+        }
+        return;
+      }
+      const blob = await response.blob();
+      await writeBlobWithPicker(blob, suggestedName);
+    }
+
+    function canExportPaneOutput() {
+      return PANE_KIND === "agent" || PANE_KIND === "progress";
+    }
+
+    function paneExportFileName() {
+      if (PANE_KIND === "progress") {
+        return `progress-log-${timestampForDownload()}.md`;
+      }
+      return `agent-session-${timestampForDownload()}.md`;
+    }
+
+    async function exportCurrentPaneOutput() {
+      if (PANE_KIND === "progress") {
+        await exportMarkdown(
+          contextUrl("/api/progress/export"),
+          paneExportFileName(),
+        );
+        return;
+      }
+      await exportMarkdown(
+        contextUrl(
+          `/api/sessions/export?session_id=${encodeURIComponent(selectedSessionId)}`,
+        ),
+        paneExportFileName(),
+      );
     }
 
     function showTerminal(disableStdin = true, onData = null) {
@@ -8107,6 +8316,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
     );
     refreshArtifactButton.addEventListener("click", refreshArtifact);
+    exportPaneOutput.addEventListener("click", () => {
+      exportCurrentPaneOutput().catch((error) => {
+        if (terminal) {
+          terminal.write(formatTerminalMessage(`export failed: ${error}\r\n`, "error"));
+        }
+      });
+    });
     decreasePaneFont.addEventListener("click", () => changeFontSize(-1));
     resetPaneFont.addEventListener("click", resetFontSize);
     increasePaneFont.addEventListener("click", () => changeFontSize(1));
@@ -8152,6 +8368,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     });
 
     paneTitle.textContent = titleForPane(PANE_KIND);
+    exportPaneOutput.hidden = !canExportPaneOutput();
     if (PANE_KIND === "agent") connectAgentStream();
     else if (PANE_KIND === "progress") connectProgressStream();
     else if (PANE_KIND === "artifact") connectArtifactStream();
@@ -10881,6 +11098,10 @@ class AgentSession:
                 if int(event.get("id", 0)) > event_id
             ]
 
+    def events(self) -> list[dict[str, object]]:
+        with self._condition:
+            return [event.copy() for event in self._events]
+
     def wait_for_events_after(
         self,
         event_id: int,
@@ -13404,6 +13625,129 @@ def _normalize_terminal_text(text: str) -> str:
     return text
 
 
+def _markdown_code_block(text: str, language: str = "") -> str:
+    body = text.rstrip("\n")
+    fence = "```"
+    while fence in body:
+        fence += "`"
+    return f"{fence}{language}\n{body}\n{fence}"
+
+
+def _session_export_filename(session: AgentSession) -> str:
+    kind = _download_name_part(session.kind or "agent")
+    timestamp = _download_name_part(utc_now())
+    return f"agent-session-{kind}-{timestamp}.md"
+
+
+def _progress_export_filename() -> str:
+    return f"progress-log-{_download_name_part(utc_now())}.md"
+
+
+def _download_name_part(value: object) -> str:
+    text = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip())
+    text = text.strip(".-")
+    return text or "export"
+
+
+def _session_events_markdown(session: AgentSession) -> str:
+    events = session.events()
+    payload = session.payload()
+    lines = [
+        "# Agent Session Export",
+        "",
+        "## Metadata",
+        "",
+        f"- Session id: `{session.session_id}`",
+        f"- Kind: `{session.kind}`",
+        f"- Label: {session.label}",
+        f"- Status: `{payload.get('status', session.status)}`",
+        f"- Created: {session.created_at}",
+        f"- Exported: {utc_now()}",
+        f"- Working directory: `{session.cwd}`",
+        f"- Interactive: `{str(session.interactive).lower()}`",
+        f"- Return code: `{session.returncode}`",
+        "",
+        "### Command",
+        "",
+        _markdown_code_block(shlex.join(session.command), "console"),
+        "",
+        "## Transcript",
+        "",
+    ]
+    if not events:
+        lines.extend(["No events were recorded.", ""])
+        return "\n".join(lines).rstrip() + "\n"
+
+    pending_output: list[str] = []
+    pending_start: int | None = None
+    pending_end: int | None = None
+
+    def flush_output() -> None:
+        nonlocal pending_output, pending_start, pending_end
+        if not pending_output:
+            return
+        title = (
+            f"### Output Events {pending_start}-{pending_end}"
+            if pending_start != pending_end
+            else f"### Output Event {pending_start}"
+        )
+        lines.extend([title, "", _markdown_code_block("".join(pending_output), "text"), ""])
+        pending_output = []
+        pending_start = None
+        pending_end = None
+
+    for event in events:
+        event_id = int(event.get("id", 0) or 0)
+        event_type = str(event.get("type") or "event")
+        if event_type == "output":
+            if pending_start is None:
+                pending_start = event_id
+            pending_end = event_id
+            pending_output.append(str(event.get("text") or ""))
+            continue
+        flush_output()
+        if event_type == "completed":
+            lines.extend(
+                [
+                    f"### Event {event_id}: completed",
+                    "",
+                    f"- Return code: `{event.get('returncode')}`",
+                    "",
+                ]
+            )
+            continue
+        text = str(event.get("text") or "")
+        lines.extend(
+            [
+                f"### Event {event_id}: {event_type}",
+                "",
+                _markdown_code_block(text, "text") if text else "_No event text._",
+                "",
+            ]
+        )
+    flush_output()
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _progress_snapshot_markdown(project_root: Path, text: str, ok: bool) -> str:
+    return "\n".join(
+        [
+            "# Progress Log Export",
+            "",
+            "## Metadata",
+            "",
+            f"- Project root: `{project_root}`",
+            f"- Exported: {utc_now()}",
+            f"- Snapshot status: `{'ok' if ok else 'error'}`",
+            "",
+            "## Progress",
+            "",
+            _markdown_code_block(text, "text"),
+            "",
+        ]
+    )
+
+
 def _handler_for(
     config: ServiceConfig,
     state: ServiceState,
@@ -13449,6 +13793,12 @@ def _handler_for(
                     parsed.query,
                     lambda context_id: state.session_payload(context_id),
                 )
+                return
+            if path == "/api/sessions/export":
+                self._send_session_export(parsed.query)
+                return
+            if path == "/api/progress/export":
+                self._send_progress_export(parsed.query)
                 return
             if path == "/api/files/browse":
                 self._browse_files(parsed.query)
@@ -13981,6 +14331,35 @@ def _handler_for(
                 )
                 return
             self._stream_session_events(session)
+
+        def _send_session_export(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                params = parse_qs(query)
+                session_id = str((params.get("session_id") or [""])[0])
+                session = (
+                    state.session_by_id(context_id, session_id)
+                    if session_id
+                    else state.selected_session(context_id)
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_text(
+                    str(error),
+                    "text/plain; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            if session is None:
+                self._send_text(
+                    "no agent session is selected",
+                    "text/plain; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_download(
+                _session_events_markdown(session),
+                _session_export_filename(session),
+            )
 
         def _send_selected_session_message(self, query: str) -> None:
             try:
@@ -14811,6 +15190,23 @@ def _handler_for(
                 return
             self._stream_progress_events(context_id, command_root)
 
+        def _send_progress_export(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                command_root = state.command_root(context_id)
+                text, ok = _progress_snapshot(command_root)
+            except StateError as error:
+                self._send_text(
+                    str(error),
+                    "text/plain; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_download(
+                _progress_snapshot_markdown(command_root, text, ok),
+                _progress_export_filename(),
+            )
+
         def _send_artifact_events(self, query: str) -> None:
             params = parse_qs(query)
             artifact = str((params.get("artifact") or [""])[0]).strip()
@@ -15081,6 +15477,27 @@ def _handler_for(
                 return int(header)
             except ValueError:
                 return 0
+
+        def _send_download(
+            self,
+            text: str,
+            filename: str,
+            status: HTTPStatus = HTTPStatus.OK,
+        ) -> None:
+            data = text.encode("utf-8")
+            safe_name = _download_name_part(filename)
+            if not safe_name.endswith(".md"):
+                safe_name = f"{safe_name}.md"
+            self.send_response(status)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="{safe_name}"',
+            )
+            self.end_headers()
+            self.wfile.write(data)
 
         def _send_text(
             self,
