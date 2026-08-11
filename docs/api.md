@@ -70,6 +70,9 @@ Operator workflow commands:
   reports.
 - `document [--reason <text>] [--interactive]` runs documentation review and
   refinement.
+- `render-artifact <requirements|design|implementation-plan|test-plan>
+  [--jsonl <path>] [--markdown <path>]` renders a structured artifact JSONL
+  source into its Markdown companion.
 - `code-approve` records final human completion approval.
 - `deactivate` leaves an activated project shell environment.
 - `report summary` writes or prints a run summary.
@@ -198,6 +201,13 @@ directly; no `end` command is required.
 The normal workflow advances through stage-specific commands such as
 `requirements-approve`, `design-review`, `design-approve`, `plan-approve`,
 `code`, `validate`, and `document`.
+
+`render-artifact` is a deterministic utility for structured artifacts. It
+reads the selected artifact JSONL source and rewrites the matching Markdown
+companion. Feature runs use the feature-tagged paths recorded in
+`feature.json`, such as `docs/requirements-<feature>.jsonl` and
+`docs/requirements-<feature>.md`. Agents can call it after updating JSONL so
+the GUI keeps displaying a readable Markdown document.
 
 `--force` is the expert escape hatch for resetting the state machine to a
 specific workflow point:

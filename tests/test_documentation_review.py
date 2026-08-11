@@ -223,9 +223,9 @@ def write_docs(root: Path, include_api: bool) -> None:
             "Commands: new meta add start status deactivate requirements "
             "requirements-approve design design-review design-approve "
             "implementation-plan plan-approve test-plan test-plan-approve "
-            "bug code code-review document code-approve progress monitor report "
-            "phase refresh-runtime service serve validate validation-approve "
-            "completion feature.\n",
+            "bug code code-review document render-artifact code-approve progress "
+            "monitor report phase refresh-runtime service serve validate "
+            "validation-approve completion feature.\n",
         )
 
 

@@ -68,6 +68,7 @@ from .planning import (
     read_implementation_units,
     planned_phases,
 )
+from .structured_artifacts import render_artifact
 from .adapters.base import AgentInvocation, AgentResult
 from .runtime import runtime_for_role
 from .state_store import StateError, StateStore
@@ -865,6 +866,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--target",
         help="documentation target path for a sidecar documentation session",
     )
+    render_artifact_parser = subparsers.add_parser(
+        "render-artifact",
+        help="render a structured artifact JSONL file to Markdown",
+    )
+    render_artifact_parser.add_argument(
+        "artifact",
+        choices=["requirements", "design", "implementation-plan", "plan", "test-plan"],
+        help="artifact to render",
+    )
+    render_artifact_parser.add_argument(
+        "--jsonl",
+        help="project-relative structured JSONL source path",
+    )
+    render_artifact_parser.add_argument(
+        "--markdown",
+        help="project-relative Markdown output path",
+    )
     code_approve = subparsers.add_parser(
         "code-approve",
         help="approve completed pipeline",
@@ -1089,6 +1107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_code_review(store, args)
         if args.command == "document":
             return _cmd_document(store, engine, args)
+        if args.command == "render-artifact":
+            return _cmd_render_artifact(store, args)
         if args.command == "code-approve":
             return _cmd_code_approve(store, engine, args)
         if args.command == "report":
@@ -2971,6 +2991,20 @@ def _approval_baseline_artifacts(store: StateStore, stage: str) -> list[str] | N
 
 def _documentation_review_files(store: StateStore) -> list[str]:
     return _artifact_paths(store, DOCUMENTATION_REVIEW_FILES)
+
+
+def _cmd_render_artifact(store: StateStore, args: argparse.Namespace) -> int:
+    result = render_artifact(
+        store.root,
+        args.artifact,
+        jsonl_path=args.jsonl,
+        markdown_path=args.markdown,
+    )
+    print(f"artifact: {result.artifact}")
+    print(f"jsonl: {result.jsonl_path}")
+    print(f"markdown: {result.markdown_path}")
+    print(f"records: {result.record_count}")
+    return 0
 
 
 def _stage_command(stage: str) -> str:
