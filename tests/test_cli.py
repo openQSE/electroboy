@@ -417,6 +417,75 @@ class CliTests(unittest.TestCase):
         self.assertEqual(session["session_id"], session_id)
         self.assertTrue(session["resumed_session"])
 
+    def test_requirements_authoring_explicit_session_id_uses_resume_prompt(
+        self,
+    ) -> None:
+        session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"
+        with temp_project() as root:
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_manual_runtime(root)
+
+            code, _stdout, stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "requirements",
+                    "--session-id",
+                    session_id,
+                ]
+            )
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("Resume the existing ElectroBoy requirements session.", prompt)
+        self.assertIn("Current ElectroBoy context:", prompt)
+        self.assertIn(f"provider session id: {session_id}", prompt)
+        self.assertIn("target artifact: docs/requirements.md", prompt)
+        self.assertNotIn("Read only docs/requirements.md if it exists.", prompt)
+        self.assertNotIn("Update only docs/requirements.md", prompt)
+
+    def test_requirements_authoring_auto_resume_uses_resume_prompt(self) -> None:
+        session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"
+        with temp_project() as root:
+            store = StateStore(root)
+            store.init_run(run_id="run-1")
+            write_manual_runtime(root)
+            store.write_session_record(
+                "requirements",
+                "design_author",
+                {
+                    "provider": "codex",
+                    "session_id": session_id,
+                    "stage": "requirements",
+                    "role": "design_author",
+                    "run_id": "run-1",
+                    "status": "interrupted",
+                    "started_at": "old",
+                    "last_seen_at": "old",
+                    "last_event_id": "agent-00001",
+                    "cwd": str(root),
+                    "artifact": "docs/requirements.md",
+                },
+            )
+
+            code, _stdout, stderr = self.run_cli(["--root", str(root), "requirements"])
+            prompt_files = sorted(
+                (store.run_dir("run-1") / "messages").glob("*-prompt.md")
+            )
+            prompt = prompt_files[-1].read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("Resume the existing ElectroBoy requirements session.", prompt)
+        self.assertIn("Previous local session record:", prompt)
+        self.assertIn("- last event: agent-00001", prompt)
+        self.assertIn(f"provider session id: {session_id}", prompt)
+        self.assertNotIn("Read only docs/requirements.md if it exists.", prompt)
+        self.assertNotIn("Update only docs/requirements.md", prompt)
+
     def test_requirements_session_id_overwrites_existing_record(self) -> None:
         stale_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"
         new_session_id = "019f3cc1-8f78-70d3-83ff-29ef45e331b8"

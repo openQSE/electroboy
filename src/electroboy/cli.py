@@ -7461,7 +7461,23 @@ def _invoke_agent_role(
         )
     if provider_session_id is None and not auto_resume_disabled:
         provider_session_id = _session_provider_session_id(session_record)
-    if session_stage and session_record and not provider_session_id:
+    execution_context_paths = _execution_context_paths(store, context_paths)
+    use_compact_resume_prompt = bool(
+        session_stage
+        and provider_session_id
+        and role == "design_author"
+    )
+    if use_compact_resume_prompt:
+        prompt = _prompt_for_session_resume(
+            store,
+            stage=session_stage or "",
+            role=role,
+            artifact=session_artifact,
+            provider_session_id=provider_session_id or "",
+            context_paths=execution_context_paths,
+            session_record=session_record,
+        )
+    elif session_stage and session_record and not provider_session_id:
         prompt = _prompt_with_session_recovery(
             store,
             prompt,
@@ -7470,7 +7486,8 @@ def _invoke_agent_role(
             session_artifact,
             session_record,
         )
-    prompt = _prompt_with_feature_branch_guard(store, role, prompt)
+    if not use_compact_resume_prompt:
+        prompt = _prompt_with_feature_branch_guard(store, role, prompt)
     output_schema = _agent_output_schema(role)
     if output_schema is not None:
         prompt = _prompt_with_output_contract(prompt)
@@ -7481,8 +7498,8 @@ def _invoke_agent_role(
         progress_context_path = _execution_context_paths(store, [progress_path])[0]
         print(f"progress: {progress_context_path}")
         prompt = _prompt_with_agent_progress(prompt, progress_context_path)
-    execution_context_paths = _execution_context_paths(store, context_paths)
-    prompt = _prompt_with_meta_context(store, prompt, execution_context_paths)
+    if not use_compact_resume_prompt:
+        prompt = _prompt_with_meta_context(store, prompt, execution_context_paths)
     invocation = AgentInvocation(
         role=role,
         prompt=prompt,
@@ -7637,6 +7654,86 @@ def _prompt_with_meta_context(
         prompt,
     ]
     return "\n".join(lines)
+
+
+def _prompt_for_session_resume(
+    store: StateStore,
+    *,
+    stage: str,
+    role: str,
+    artifact: str | None,
+    provider_session_id: str,
+    context_paths: list[str],
+    session_record: dict[str, object] | None,
+) -> str:
+    """Build a compact prompt for resuming an existing interactive session."""
+
+    manifest = store.load_current_manifest()
+    lines = [
+        f"Resume the existing ElectroBoy {_stage_display_name(stage)} session.",
+        "",
+        "Keep following the stage and workflow instructions already present",
+        "in this Codex thread. Do not restart broad discovery. Continue from",
+        "the prior conversation and wait for the operator's next direction",
+        "unless there is an obvious unfinished task.",
+        "",
+        "Current ElectroBoy context:",
+        f"- run id: {manifest.run_id}",
+        f"- workflow active stage: {_stage_display_name(manifest.active_stage)}",
+        f"- resumed stage: {_stage_display_name(stage)}",
+        f"- role: {role}",
+        f"- provider session id: {provider_session_id}",
+    ]
+    if artifact:
+        lines.append(f"- target artifact: {artifact}")
+    branch, workflow = _active_workflow_branch(store)
+    if branch:
+        lines.append(f"- active {workflow} branch: {branch}")
+    if store.meta_project_root is not None:
+        target_prefix = _path_from_execution_root(store, store.root)
+        lines.extend(
+            [
+                f"- meta-project root: {store.meta_project_root}",
+                f"- agent working directory: {store.execution_root}",
+                f"- active target repository: {store.target_name or store.root.name}",
+                f"- target repository path: {store.root}",
+                f"- target repository from working directory: {target_prefix}",
+            ]
+        )
+    else:
+        lines.append(f"- project root: {store.root}")
+    if context_paths:
+        lines.extend(["", "Context paths:", *_markdown_list(context_paths)])
+    if session_record:
+        lines.extend(
+            [
+                "",
+                "Previous local session record:",
+                f"- status: {session_record.get('status', 'unknown')}",
+                f"- last seen: {session_record.get('last_seen_at', 'unknown')}",
+                f"- last event: {session_record.get('last_event_id', 'unknown')}",
+            ]
+        )
+    summary = store.read_session_summary(stage, role)
+    if summary:
+        lines.extend(["", "Last shared session summary:", _truncate_text(summary, 1200)])
+    lines.extend(
+        [
+            "",
+            "If repository state has changed since the earlier conversation,",
+            "inspect only the files needed for the operator's current request.",
+            "When the operator is done, return control so they can run the",
+            "normal ElectroBoy command to continue automation.",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}\n[truncated]"
 
 
 def _execution_context_paths(
