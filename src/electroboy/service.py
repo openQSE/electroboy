@@ -4256,6 +4256,11 @@ INDEX_HTML = """<!doctype html>
       }
       const data = event.data || {};
       if (data.type === "electroboy-file-browser-select" && data.path) {
+        if (data.mode === "link") {
+          insertTextAtCursor(data.path);
+          agentInput.focus();
+          return;
+        }
         projectPath.value = data.path;
         projectStatus.textContent = `selected: ${data.path}`;
         projectPath.focus();
@@ -5285,9 +5290,10 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function fileBrowserUrl(path) {
+    function fileBrowserUrl(path, mode = "project") {
       const parameters = new URLSearchParams();
       parameters.set("path", path || activeProjectRoot || activationRoot || serviceRoot || ".");
+      parameters.set("mode", mode);
       return `/file-browser?${parameters.toString()}`;
     }
 
@@ -5300,6 +5306,18 @@ INDEX_HTML = """<!doctype html>
       );
       if (!popup) {
         projectStatus.textContent = "popup was blocked by the browser";
+      }
+    }
+
+    function openLinkFileBrowser() {
+      const path = activeProjectRoot || activationRoot || serviceRoot || projectPath.value || ".";
+      const popup = window.open(
+        fileBrowserUrl(path, "link"),
+        "electroboy-file-link-browser",
+        PANE_POPUP_FEATURES,
+      );
+      if (!popup) {
+        appendOutput("popup was blocked by the browser\\n", "error");
       }
     }
 
@@ -7124,7 +7142,7 @@ INDEX_HTML = """<!doctype html>
       if (insertFileLink.disabled) {
         return;
       }
-      browseDirectory(activeProjectRoot || serviceRoot || ".", "link");
+      openLinkFileBrowser();
     });
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
@@ -8429,6 +8447,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
 
   <script>
     const INITIAL_PATH = __INITIAL_PATH__;
+    const SELECT_MODE = __SELECT_MODE__;
     const pathForm = document.getElementById("pathForm");
     const pathInput = document.getElementById("pathInput");
     const refreshPath = document.getElementById("refreshPath");
@@ -8439,6 +8458,8 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
     const selectedPathLabel = document.getElementById("selectedPath");
     const selectPath = document.getElementById("selectPath");
     const cancelBrowser = document.getElementById("cancelBrowser");
+    selectPath.textContent =
+      SELECT_MODE === "link" ? "Insert selected file" : "Open selected directory";
 
     let rootPayload = null;
     let currentPath = "";
@@ -8663,6 +8684,8 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       row.addEventListener("dblclick", () => {
         if (type === "directory") {
           navigateTo(entry.path);
+        } else if (SELECT_MODE === "link") {
+          selectCurrentPath();
         }
       });
       container.append(row);
@@ -8693,7 +8716,16 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
         return;
       }
       selectedPathLabel.textContent = `Selected: ${selectedPath}`;
-      selectPath.disabled = selectedType !== "directory";
+      selectPath.disabled = !canSelectCurrentPath();
+    }
+
+    function canSelectCurrentPath() {
+      if (!selectedPath) {
+        return false;
+      }
+      return SELECT_MODE === "link"
+        ? selectedType === "file"
+        : selectedType === "directory";
     }
 
     function focusSelectedRow() {
@@ -8749,13 +8781,18 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
     }
 
     function selectCurrentPath() {
-      if (!selectedPath || selectedType !== "directory") {
-        selectedPathLabel.textContent = "Select a directory first.";
+      if (!canSelectCurrentPath()) {
+        selectedPathLabel.textContent =
+          SELECT_MODE === "link" ? "Select a file first." : "Select a directory first.";
         return;
       }
       if (window.opener) {
         window.opener.postMessage(
-          { type: "electroboy-file-browser-select", path: selectedPath },
+          {
+            type: "electroboy-file-browser-select",
+            path: selectedPath,
+            mode: SELECT_MODE,
+          },
           window.location.origin,
         );
       }
@@ -8812,10 +8849,14 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
 """
 
 
-def file_browser_window_html(initial_path: str) -> str:
-    return FILE_BROWSER_WINDOW_HTML.replace(
-        "__INITIAL_PATH__",
-        json.dumps(initial_path),
+def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
+    select_mode = "link" if mode == "link" else "project"
+    return (
+        FILE_BROWSER_WINDOW_HTML.replace(
+            "__INITIAL_PATH__",
+            json.dumps(initial_path),
+        )
+        .replace("__SELECT_MODE__", json.dumps(select_mode))
     )
 
 
@@ -14124,8 +14165,9 @@ def _handler_for(
         def _send_file_browser_window(self, query: str) -> None:
             params = parse_qs(query)
             initial_path = (params.get("path") or [str(state.root)])[0]
+            mode = (params.get("mode") or ["project"])[0]
             self._send_text(
-                file_browser_window_html(initial_path),
+                file_browser_window_html(initial_path, mode),
                 "text/html; charset=utf-8",
             )
 
