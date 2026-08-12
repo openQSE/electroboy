@@ -68,6 +68,10 @@ from .structured_artifacts import (
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 TERMINAL_SUBMIT_DELAY_SECONDS = 0.08
+MIN_TERMINAL_COLUMNS = 20
+MAX_TERMINAL_COLUMNS = 1000
+MIN_TERMINAL_ROWS = 5
+MAX_TERMINAL_ROWS = 120
 META_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "repositories.json"
 WORK_ITEM_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "work-items.json"
 
@@ -1474,6 +1478,9 @@ INDEX_HTML = """<!doctype html>
     .progress-output,
     .shell-output {
       min-height: 0;
+      min-width: 0;
+      width: 100%;
+      height: 100%;
       overflow: hidden;
       padding: 0;
       color: var(--terminal-text);
@@ -1503,7 +1510,9 @@ INDEX_HTML = """<!doctype html>
     .agent-output .xterm,
     .progress-output .xterm,
     .shell-output .xterm {
+      width: 100%;
       height: 100%;
+      box-sizing: border-box;
       padding: 10px 12px;
     }
 
@@ -3177,6 +3186,7 @@ INDEX_HTML = """<!doctype html>
     let resizeSidePaneState = null;
     let resizeArtifactPaneState = null;
     let resizeProjectShellState = null;
+    let terminalResizeObserver = null;
     let resizeTimer = null;
     let shellResizeTimer = null;
     let statusRefreshTimer = null;
@@ -4015,6 +4025,18 @@ INDEX_HTML = """<!doctype html>
       }
       queueTerminalResize();
       queueProjectShellResize();
+    }
+
+    function observeTerminalPaneResizes() {
+      if (!window.ResizeObserver) {
+        return;
+      }
+      terminalResizeObserver = new window.ResizeObserver(() => {
+        window.requestAnimationFrame(fitTerminal);
+      });
+      terminalResizeObserver.observe(agentOutput);
+      terminalResizeObserver.observe(progressOutput);
+      terminalResizeObserver.observe(projectShellOutput);
     }
 
     function queueTerminalResize() {
@@ -8512,6 +8534,7 @@ INDEX_HTML = """<!doctype html>
       applyTerminalFontSize();
       applyDocumentZoom();
       initializeTerminal();
+      observeTerminalPaneResizes();
       await checkConnection();
       await restoreContext();
     }
@@ -8663,7 +8686,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     .terminal-host .xterm {
+      width: 100%;
       height: 100%;
+      box-sizing: border-box;
       padding: 10px 12px;
     }
 
@@ -8881,6 +8906,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     let agentSessions = [];
     let terminal = null;
     let terminalFit = null;
+    let terminalResizeObserver = null;
     let eventSource = null;
     let artifactEventSource = null;
     let artifactVersion = 0;
@@ -9353,6 +9379,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         terminal.loadAddon(terminalFit);
       }
       terminal.open(terminalHost);
+      observeTerminalPaneResize();
       fitTerminal();
       window.addEventListener("resize", fitTerminal);
     }
@@ -9369,6 +9396,16 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       if (PANE_KIND === "shell") {
         window.requestAnimationFrame(sendShellResize);
       }
+    }
+
+    function observeTerminalPaneResize() {
+      if (!window.ResizeObserver || terminalResizeObserver) {
+        return;
+      }
+      terminalResizeObserver = new window.ResizeObserver(() => {
+        window.requestAnimationFrame(fitTerminal);
+      });
+      terminalResizeObserver.observe(terminalHost);
     }
 
     async function sendShellInput(data) {
@@ -12409,8 +12446,8 @@ class AgentSession:
         self.session_id = uuid4().hex
         self.command = command
         self.cwd = Path(cwd).resolve()
-        self.columns = columns
-        self.rows = rows
+        self.columns = _clamp_terminal_columns(columns)
+        self.rows = _clamp_terminal_rows(rows)
         self.label = label
         self.kind = kind
         self.interactive = interactive
@@ -12551,8 +12588,8 @@ class AgentSession:
         self._close_master()
 
     def resize(self, columns: int, rows: int) -> None:
-        self.columns = max(20, min(columns, 300))
-        self.rows = max(5, min(rows, 120))
+        self.columns = _clamp_terminal_columns(columns)
+        self.rows = _clamp_terminal_rows(rows)
         fd = self._master_fd
         if fd is None:
             return
@@ -15849,9 +15886,17 @@ def _disable_terminal_echo(slave_fd: int) -> None:
         return
 
 
+def _clamp_terminal_columns(columns: int) -> int:
+    return max(MIN_TERMINAL_COLUMNS, min(columns, MAX_TERMINAL_COLUMNS))
+
+
+def _clamp_terminal_rows(rows: int) -> int:
+    return max(MIN_TERMINAL_ROWS, min(rows, MAX_TERMINAL_ROWS))
+
+
 def _set_terminal_size(fd: int, columns: int, rows: int) -> None:
-    columns = max(20, min(columns, 300))
-    rows = max(5, min(rows, 120))
+    columns = _clamp_terminal_columns(columns)
+    rows = _clamp_terminal_rows(rows)
     packed_size = struct.pack("HHHH", rows, columns, 0, 0)
     try:
         fcntl.ioctl(fd, termios.TIOCSWINSZ, packed_size)

@@ -22,6 +22,10 @@ from electroboy.service import (  # noqa: E402
     FILE_BROWSER_WINDOW_HTML,
     GENERIC_STAGE_CONFIG,
     INDEX_HTML,
+    MAX_TERMINAL_COLUMNS,
+    MAX_TERMINAL_ROWS,
+    MIN_TERMINAL_COLUMNS,
+    MIN_TERMINAL_ROWS,
     PANE_WINDOW_HTML,
     AgentSession,
     AgentSessionError,
@@ -146,6 +150,11 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";', PANE_WINDOW_HTML)
         self.assertIn('params.get("font_pane")', PANE_WINDOW_HTML)
+        self.assertIn("let terminalResizeObserver = null;", PANE_WINDOW_HTML)
+        self.assertIn("function observeTerminalPaneResize()", PANE_WINDOW_HTML)
+        self.assertIn("terminalResizeObserver.observe(terminalHost);", PANE_WINDOW_HTML)
+        self.assertIn("terminalFit.fit();", PANE_WINDOW_HTML)
+        self.assertIn(".terminal-host .xterm {\n      width: 100%;", PANE_WINDOW_HTML)
         self.assertIn("function effectiveFontSize()", PANE_WINDOW_HTML)
         self.assertIn("function resetFontSize()", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/key")', PANE_WINDOW_HTML)
@@ -992,6 +1001,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("new window.Terminal", INDEX_HTML)
         self.assertIn('const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";', INDEX_HTML)
         self.assertIn("function terminalOptions(disableStdin = true, pane = \"agent\")", INDEX_HTML)
+        self.assertIn("let terminalResizeObserver = null;", INDEX_HTML)
+        self.assertIn("function observeTerminalPaneResizes()", INDEX_HTML)
+        self.assertIn("terminalResizeObserver.observe(agentOutput);", INDEX_HTML)
+        self.assertIn("terminalResizeObserver.observe(progressOutput);", INDEX_HTML)
+        self.assertIn("terminalResizeObserver.observe(projectShellOutput);", INDEX_HTML)
+        self.assertIn("terminalFit.fit();", INDEX_HTML)
+        self.assertIn(".agent-output .xterm,\n    .progress-output .xterm,", INDEX_HTML)
+        self.assertIn("      width: 100%;\n      height: 100%;", INDEX_HTML)
         self.assertIn("disableStdin,", INDEX_HTML)
         self.assertIn('terminalOptions(false, "shell")', INDEX_HTML)
         self.assertIn('termName: "xterm-256color"', INDEX_HTML)
@@ -3176,6 +3193,27 @@ class ServiceTests(unittest.TestCase):
         finally:
             if session.is_active() and session.process is not None:
                 session.process.terminate()
+
+    def test_agent_session_clamps_terminal_dimensions(self) -> None:
+        session = AgentSession(
+            [sys.executable, "-c", "pass"],
+            ROOT,
+            columns=MAX_TERMINAL_COLUMNS + 500,
+            rows=MAX_TERMINAL_ROWS + 500,
+        )
+
+        self.assertEqual(session.columns, MAX_TERMINAL_COLUMNS)
+        self.assertEqual(session.rows, MAX_TERMINAL_ROWS)
+
+        session.resize(850, 64)
+
+        self.assertEqual(session.columns, 850)
+        self.assertEqual(session.rows, 64)
+
+        session.resize(MIN_TERMINAL_COLUMNS - 1, MIN_TERMINAL_ROWS - 1)
+
+        self.assertEqual(session.columns, MIN_TERMINAL_COLUMNS)
+        self.assertEqual(session.rows, MIN_TERMINAL_ROWS)
 
     def test_agent_session_submits_raw_terminal_input(self) -> None:
         script = (
