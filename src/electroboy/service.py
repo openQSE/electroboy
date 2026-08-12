@@ -15304,6 +15304,8 @@ def _mermaid_script(rendered: str) -> str:
     }
     .diagram-viewport {
       min-height: 0;
+      height: 100%;
+      width: 100%;
       overflow: auto;
       background: var(--bg);
       cursor: grab;
@@ -15317,6 +15319,7 @@ def _mermaid_script(rendered: str) -> str:
     }
     .diagram-content {
       display: inline-block;
+      min-height: 100%;
       min-width: 100%;
       padding: 24px;
     }
@@ -15331,7 +15334,9 @@ def _mermaid_script(rendered: str) -> str:
     .diagram-content svg {
       display: block;
       max-width: none !important;
+      max-height: none !important;
       height: auto;
+      overflow: visible;
     }
   </style>
 </head>
@@ -15363,12 +15368,41 @@ def _mermaid_script(rendered: str) -> str:
       let panState = null;
       const content = document.getElementById("diagramContent");
       const viewport = document.querySelector(".diagram-viewport");
+      const toolbar = document.querySelector(".diagram-toolbar");
       const zoomLevel = document.getElementById("zoomLevel");
       const zoomOut = document.getElementById("zoomOut");
       const zoomReset = document.getElementById("zoomReset");
       const zoomIn = document.getElementById("zoomIn");
 
+      function contentBox(svg) {
+        try {
+          const box = svg.getBBox();
+          if (
+            Number.isFinite(box.x) &&
+            Number.isFinite(box.y) &&
+            Number.isFinite(box.width) &&
+            Number.isFinite(box.height) &&
+            box.width > 0 &&
+            box.height > 0
+          ) {
+            return box;
+          }
+        } catch (error) {
+          return null;
+        }
+        return null;
+      }
+
       function readSvgDimensions(svg) {
+        const box = contentBox(svg);
+        if (box) {
+          svg.setAttribute(
+            "viewBox",
+            [box.x, box.y, box.width, box.height].join(" "),
+          );
+          svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+          return { width: box.width, height: box.height };
+        }
         const viewBox = (svg.getAttribute("viewBox") || "")
           .trim()
           .split(/\\s+/)
@@ -15387,8 +15421,13 @@ def _mermaid_script(rendered: str) -> str:
           return;
         }
         const viewportRect = viewport.getBoundingClientRect();
-        const availableWidth = Math.max(320, viewportRect.width - 48);
-        const availableHeight = Math.max(220, viewportRect.height - 48);
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const viewportWidth = viewportRect.width || window.innerWidth || 980;
+        const viewportHeight =
+          viewportRect.height ||
+          Math.max(220, (window.innerHeight || 720) - toolbarRect.height);
+        const availableWidth = Math.max(320, viewportWidth - 48);
+        const availableHeight = Math.max(220, viewportHeight - 48);
         const fitScale = Math.min(
           availableWidth / naturalWidth,
           availableHeight / naturalHeight,
@@ -15465,6 +15504,10 @@ def _mermaid_script(rendered: str) -> str:
         applyZoom();
       }
 
+      function fitAfterLayout() {
+        initializeDiagramPopup("Mermaid diagram");
+      }
+
       zoomOut.addEventListener("click", () => changeZoom(-zoomStep));
       zoomReset.addEventListener("click", () => {
         zoom = 1;
@@ -15479,7 +15522,11 @@ def _mermaid_script(rendered: str) -> str:
         updateBaseSize();
         applyZoom();
       });
-      initializeDiagramPopup("Mermaid diagram");
+      window.requestAnimationFrame(() => {
+        fitAfterLayout();
+        window.requestAnimationFrame(fitAfterLayout);
+      });
+      window.setTimeout(fitAfterLayout, 100);
     })();
   <\\/script>
 </body>
