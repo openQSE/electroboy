@@ -44,6 +44,7 @@ from electroboy.service import (  # noqa: E402
     _terminal_input_for_message,
     browse_directories,
     browse_files,
+    browse_markdown_files,
     create_server,
     document_target_html,
     file_browser_window_html,
@@ -217,7 +218,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('event.key === "ArrowLeft"', page)
         self.assertIn("window.opener.postMessage", page)
         self.assertIn("electroboy-file-browser-select", page)
-        self.assertIn("Open selected directory", page)
+        self.assertIn("Activate", page)
         self.assertIn("Cancel", page)
         self.assertIn("<svg viewBox=", page)
 
@@ -228,6 +229,30 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Insert selected file", page)
         self.assertIn("Select a file first.", page)
         self.assertIn("mode: SELECT_MODE", page)
+
+    def test_file_browser_window_html_supports_document_selection_mode(self) -> None:
+        page = file_browser_window_html("~/ORNL", mode="document")
+
+        self.assertIn('const SELECT_MODE = "document";', page)
+        self.assertIn("Open selected document", page)
+        self.assertIn("Select a Markdown file first.", page)
+        self.assertIn(
+            'SELECT_MODE === "document" || SELECT_MODE === "document-new"',
+            page,
+        )
+
+    def test_file_browser_window_html_supports_new_document_mode(self) -> None:
+        page = file_browser_window_html("~/ORNL", mode="document-new")
+
+        self.assertIn('const SELECT_MODE = "document-new";', page)
+        self.assertIn('id="newDocumentName"', page)
+        self.assertIn("Create or open document", page)
+        self.assertIn("function documentNewTargetPath()", page)
+        self.assertIn("Select a Markdown file or choose a directory and name.", page)
+        self.assertIn(
+            'SELECT_MODE === "document-new" && selectedType === "directory"',
+            page,
+        )
 
     def test_file_browser_endpoint_serves_popout_picker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,7 +277,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "text/html; charset=utf-8")
         self.assertIn('const INITIAL_PATH = "/tmp";', body)
-        self.assertIn("Open selected directory", body)
+        self.assertIn("Activate", body)
         self.assertIn('const SELECT_MODE = "project";', body)
 
     def test_file_browser_endpoint_serves_link_picker_mode(self) -> None:
@@ -279,6 +304,56 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(content_type, "text/html; charset=utf-8")
         self.assertIn('const SELECT_MODE = "link";', body)
         self.assertIn("Insert selected file", body)
+
+    def test_file_browser_endpoint_serves_document_picker_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    "/file-browser?path=%2Ftmp&mode=document",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const SELECT_MODE = "document";', body)
+        self.assertIn("Open selected document", body)
+
+    def test_file_browser_endpoint_serves_new_document_picker_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    "/file-browser?path=%2Ftmp&mode=document-new",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const SELECT_MODE = "document-new";', body)
+        self.assertIn("Create or open document", body)
 
     def test_document_target_renderer_creates_markdown_starter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -653,6 +728,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="approveValidate"', INDEX_HTML)
         self.assertIn('id="skipValidateApproval"', INDEX_HTML)
         self.assertNotIn('id="openValidationReport"', INDEX_HTML)
+        self.assertIn('id="workflowSideSheet"', INDEX_HTML)
+        self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
+        self.assertIn('id="stageActionPanel"', INDEX_HTML)
+        self.assertIn('id="stageActionBody"', INDEX_HTML)
+        self.assertIn("function renderStageActionPanel()", INDEX_HTML)
+        self.assertIn("function toggleStageActionGroup(stageId)", INDEX_HTML)
+        self.assertIn("let expandedWorkflowStages = new Set();", INDEX_HTML)
+        self.assertIn("let expandedProjectActionGroups = new Set();", INDEX_HTML)
+        self.assertIn("function stageActionSubgroup(action)", INDEX_HTML)
+        self.assertIn("function toggleProjectActionGroup(groupId)", INDEX_HTML)
         self.assertIn('id="documentTargets"', INDEX_HTML)
         self.assertIn('id="createDocumentTarget"', INDEX_HTML)
         self.assertIn('id="customDocumentName"', INDEX_HTML)
@@ -1091,6 +1176,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertIn("skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
         self.assertNotIn("openDesignFromReview.disabled =", INDEX_HTML)
+        self.assertIn("showStageActionPanel(stageId)", INDEX_HTML)
+        self.assertIn("setWorkflowSideSheetCollapsed(false)", INDEX_HTML)
+        self.assertIn('"aria-expanded", isExpanded ? "true" : "false"', INDEX_HTML)
         self.assertIn('updateAuthoringStageMenuState(\n        "implementation-plan"', INDEX_HTML)
         self.assertIn('updateAutomaticStageMenuState(\n        "code"', INDEX_HTML)
         self.assertIn('updateAuthoringStageMenuState(\n        "test-plan"', INDEX_HTML)
@@ -1098,11 +1186,22 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("customDocumentName.disabled = !hasActiveProject", INDEX_HTML)
         self.assertIn("const disabled = !activeProjectRoot;", INDEX_HTML)
         self.assertNotIn("const disabled = !activeProjectRoot || documentationRunning", INDEX_HTML)
-        self.assertIn("if (documentationRunning) {\n            hideStageMenus();", INDEX_HTML)
+        self.assertIn("function openDocumentFileBrowser()", INDEX_HTML)
+        self.assertIn("function openNewDocumentFileBrowser()", INDEX_HTML)
+        self.assertIn('fileBrowserUrl(activeProjectRoot, "document")', INDEX_HTML)
+        self.assertIn('fileBrowserUrl(activeProjectRoot, "document-new")', INDEX_HTML)
+        self.assertIn('if (data.mode === "document" || data.mode === "document-new")', INDEX_HTML)
+        self.assertIn('label: "Meta project"', INDEX_HTML)
+        self.assertIn('label: "Work items"', INDEX_HTML)
+        self.assertIn('label: "Open"', INDEX_HTML)
+        self.assertIn('label: "New"', INDEX_HTML)
+        self.assertIn("function launchDocumentTarget(target)", INDEX_HTML)
+        self.assertIn("if (documentationRunning) {\n        hideStageMenus();", INDEX_HTML)
         self.assertIn("showDocumentPreview(target);", INDEX_HTML)
         self.assertIn("startDocumentationAgent(target);", INDEX_HTML)
         self.assertIn(
             "if (documentationRunning) {\n"
+            "        hideStageMenus();\n"
             "        showDocumentPreview(target);\n"
             "      } else {\n"
             "        startDocumentationAgent(target);\n"
@@ -1139,7 +1238,25 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
         self.assertIn('function fileBrowserUrl(path, mode = "project")', INDEX_HTML)
         self.assertIn('return `/file-browser?${parameters.toString()}`;', INDEX_HTML)
-        self.assertIn("function openProjectBrowser()", INDEX_HTML)
+        self.assertIn(
+            "function openProjectBrowser(mode = projectMode, activateSelection = false)",
+            INDEX_HTML,
+        )
+        self.assertIn("let projectBrowserActivatesSelection = false;", INDEX_HTML)
+        self.assertIn('openProjectBrowser("open", true)', INDEX_HTML)
+        self.assertIn(
+            'newProject.addEventListener("click", () => openProjectBrowser("new", true))',
+            INDEX_HTML,
+        )
+        self.assertIn(
+            'newMetaProject.addEventListener("click", () => openProjectBrowser("meta-new", true))',
+            INDEX_HTML,
+        )
+        self.assertIn(
+            'if (data.mode === "project" && projectBrowserActivatesSelection)',
+            INDEX_HTML,
+        )
+        self.assertIn("applyProjectSelection(data.path)", INDEX_HTML)
         self.assertIn("function openLinkFileBrowser()", INDEX_HTML)
         self.assertIn('appendOutput("popup was blocked by the browser\\n"', INDEX_HTML)
         self.assertIn("electroboy-file-browser-select", INDEX_HTML)
@@ -2773,6 +2890,20 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn(".hidden", hidden_names)
         self.assertIn("visible", hidden_names)
         self.assertIn(".hidden", visible_names)
+
+    def test_browse_markdown_files_lists_directories_and_markdown_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "README.md").write_text("# Readme\n", encoding="utf-8")
+            (root / "notes.txt").write_text("notes\n", encoding="utf-8")
+
+            payload = browse_markdown_files(root)
+
+        names = {entry["name"] for entry in payload["entries"]}
+        self.assertIn("docs", names)
+        self.assertIn("README.md", names)
+        self.assertNotIn("notes.txt", names)
 
     def test_requirements_document_html_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -228,9 +228,15 @@ INDEX_HTML = """<!doctype html>
       color-scheme: light;
       --bg: #f7f8fb;
       --panel: #ffffff;
+      --top-surface: #dce9f6;
+      --top-surface-strong: #c9dced;
+      --side-surface: #d3e2f0;
+      --side-surface-strong: #c2d5e7;
+      --blue-surface-hover: #c8dbea;
+      --blue-surface-active: #b7d7de;
       --ink: #1b1f2a;
-      --muted: #697386;
-      --border: #d8dde8;
+      --muted: #53657a;
+      --border: #aebfd0;
       --active: #0f766e;
       --active-soft: #dff6f2;
       --disabled: #eef1f6;
@@ -266,20 +272,116 @@ INDEX_HTML = """<!doctype html>
     .shell {
       position: relative;
       display: grid;
+      grid-template-columns: var(--workflow-side-sheet-width, 320px) minmax(0, 1fr);
       grid-template-rows:
-        var(--workflow-pane-height, 230px) 7px
+        var(--workflow-pane-height, 96px) 7px
         minmax(0, 1fr);
       height: 100vh;
       min-height: 560px;
     }
 
+    .shell.side-sheet-collapsed {
+      --workflow-side-sheet-width: 64px;
+    }
+
     .workflow-pane {
       position: relative;
       z-index: 10;
+      grid-column: 2;
+      grid-row: 1;
       padding: 20px 24px 16px;
       border-bottom: 1px solid var(--border);
-      background: var(--panel);
+      background: var(--top-surface);
       overflow: visible;
+    }
+
+    .workflow-side-sheet {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      z-index: 18;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 0;
+      min-height: 0;
+      border-right: 1px solid var(--border);
+      background: var(--side-surface);
+      box-shadow: 3px 0 16px rgb(15 43 70 / 9%);
+    }
+
+    .side-sheet-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 64px;
+      border-bottom: 1px solid var(--border);
+      background: var(--side-surface-strong);
+      padding: 0 12px;
+    }
+
+    .side-sheet-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: #29435d;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .side-sheet-toggle:hover,
+    .side-sheet-toggle:focus-visible {
+      border-color: #9bb4cb;
+      background: #dceaf5;
+      outline: none;
+    }
+
+    .side-sheet-toggle-icon {
+      position: relative;
+      width: 16px;
+      height: 16px;
+    }
+
+    .side-sheet-toggle-icon::before,
+    .side-sheet-toggle-icon::after {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      width: 2px;
+      border-radius: 999px;
+      background: currentColor;
+      content: "";
+    }
+
+    .side-sheet-toggle-icon::before {
+      left: 4px;
+    }
+
+    .side-sheet-toggle-icon::after {
+      right: 4px;
+    }
+
+    .side-sheet-title {
+      min-width: 0;
+      overflow: hidden;
+      color: #1d3348;
+      font-size: var(--ui-font-size);
+      font-weight: 400;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .shell.side-sheet-collapsed .side-sheet-header {
+      justify-content: center;
+      padding: 0;
+    }
+
+    .shell.side-sheet-collapsed .side-sheet-title,
+    .shell.side-sheet-collapsed .stage-action-panel {
+      display: none;
     }
 
     .workflow-toolbar {
@@ -317,12 +419,12 @@ INDEX_HTML = """<!doctype html>
       height: calc(var(--ui-font-size) + 29px);
       min-height: 38px;
       overflow: hidden;
-      border: 1px solid #c8d5e2;
+      border: 1px solid #9fb4c8;
       border-radius: 8px;
-      background: #f7fbff;
+      background: var(--top-surface-strong);
       box-shadow:
-        0 1px 0 rgb(255 255 255 / 80%) inset,
-        0 6px 16px rgb(17 24 39 / 6%);
+        0 1px 0 rgb(255 255 255 / 45%) inset,
+        0 6px 16px rgb(15 43 70 / 7%);
     }
 
     .toolbar-control-label {
@@ -330,11 +432,11 @@ INDEX_HTML = """<!doctype html>
       align-items: center;
       align-self: stretch;
       flex: 0 0 calc(var(--ui-font-size) * 4.7);
-      border-right: 1px solid #d8e1ec;
-      color: #4a5a6d;
+      border-right: 1px solid #a8bbcd;
+      color: #2d465f;
       padding: 0 10px;
       font-size: var(--ui-small-font-size);
-      font-weight: 800;
+      font-weight: 500;
       text-transform: uppercase;
       white-space: nowrap;
     }
@@ -349,7 +451,7 @@ INDEX_HTML = """<!doctype html>
 
     .toolbar-control-group button:hover:not(:disabled),
     .toolbar-control-group select:hover:not(:disabled) {
-      background: #edf6fb;
+      background: var(--blue-surface-hover);
     }
 
     .shell-control {
@@ -361,13 +463,13 @@ INDEX_HTML = """<!doctype html>
       align-self: stretch;
       padding: 0 14px;
       font-size: var(--ui-small-font-size);
-      font-weight: 800;
+      font-weight: 400;
       text-transform: uppercase;
     }
 
     .toolbar-command-button.active {
-      background: #dff4ea;
-      color: #0f6648;
+      background: #b8ddd6;
+      color: #155349;
     }
 
     .shell-resize-handle,
@@ -384,6 +486,8 @@ INDEX_HTML = """<!doctype html>
     .shell-resize-handle {
       position: relative;
       z-index: 8;
+      grid-column: 2;
+      grid-row: 2;
       min-height: 0;
       background: #d0d9e6;
       cursor: row-resize;
@@ -396,6 +500,7 @@ INDEX_HTML = """<!doctype html>
 
     .stage-scroll {
       position: relative;
+      display: none;
       overflow-x: auto;
       overflow-y: hidden;
       margin: 0 -24px;
@@ -432,9 +537,9 @@ INDEX_HTML = """<!doctype html>
       position: absolute;
       right: 24px;
       top: 16px;
-      color: var(--active);
+      color: #264e66;
       font-size: var(--ui-font-size);
-      font-weight: 650;
+      font-weight: 400;
     }
 
     .stage-graph {
@@ -583,6 +688,204 @@ INDEX_HTML = """<!doctype html>
       display: none;
     }
 
+    .stage-action-panel {
+      display: grid;
+      align-content: start;
+      min-height: 0;
+      overflow: auto;
+      padding: 8px;
+    }
+
+    .stage-action-panel[hidden] {
+      display: none;
+    }
+
+    .stage-action-body {
+      display: grid;
+      align-content: start;
+      align-self: start;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .stage-action-heading {
+      margin: 12px 8px 4px;
+      color: #48627a;
+      font-size: var(--ui-small-font-size);
+      font-weight: 400;
+      text-transform: uppercase;
+    }
+
+    .stage-action-group {
+      display: grid;
+      min-width: 0;
+    }
+
+    .stage-action-stage {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 22px;
+      align-items: center;
+      min-height: 48px;
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: #273f58;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-menu-font-size);
+      font-weight: 400;
+      gap: 8px;
+      padding: 0 10px 0 16px;
+      text-align: left;
+    }
+
+    .stage-action-stage:hover:not(:disabled),
+    .stage-action-stage.expanded {
+      background: var(--blue-surface-hover);
+      color: #172a3d;
+    }
+
+    .stage-action-stage.expanded {
+      font-weight: 650;
+    }
+
+    .stage-action-stage.active {
+      border-color: #18324d;
+      background: #1f3f5f;
+      color: #ffffff;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 16%) inset,
+        0 8px 18px rgb(18 48 78 / 18%);
+    }
+
+    .stage-action-stage.complete {
+      color: #2c5471;
+    }
+
+    .stage-action-stage.active.complete {
+      color: #ffffff;
+    }
+
+    .stage-action-stage:disabled {
+      color: #7d91a4;
+      cursor: default;
+    }
+
+    .stage-action-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stage-action-chevron {
+      position: relative;
+      width: 18px;
+      height: 18px;
+      justify-self: end;
+    }
+
+    .stage-action-chevron::before {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg);
+      transform-origin: center;
+      content: "";
+    }
+
+    .stage-action-stage.expanded .stage-action-chevron::before {
+      top: 4px;
+      transform: rotate(45deg);
+    }
+
+    .stage-action-list {
+      display: grid;
+      gap: 4px;
+      padding: 4px 0 8px 18px;
+    }
+
+    .stage-action-subgroup {
+      display: grid;
+      min-width: 0;
+    }
+
+    .stage-action-subgroup-trigger {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 20px;
+      align-items: center;
+      min-height: 38px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #304a63;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-menu-font-size);
+      font-weight: 400;
+      gap: 8px;
+      padding: 0 10px 0 18px;
+      text-align: left;
+    }
+
+    .stage-action-subgroup-trigger:hover,
+    .stage-action-subgroup-trigger.expanded {
+      background: var(--blue-surface-hover);
+      color: #172a3d;
+    }
+
+    .stage-action-subgroup-trigger.expanded {
+      font-weight: 650;
+    }
+
+    .stage-action-subgroup-list {
+      display: grid;
+      gap: 4px;
+      padding: 3px 0 6px 14px;
+    }
+
+    .stage-action-button {
+      min-height: 40px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #304a63;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-menu-font-size);
+      font-weight: 400;
+      text-align: left;
+      padding: 0 12px 0 18px;
+    }
+
+    .stage-action-button.primary {
+      background: #c2dfe5;
+      color: #164f5a;
+      font-weight: 400;
+    }
+
+    .stage-action-button:hover:not(:disabled) {
+      background: var(--blue-surface-hover);
+    }
+
+    .stage-action-button:disabled {
+      cursor: default;
+      opacity: 0.5;
+    }
+
+    .stage-action-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 4px 8px 6px 0;
+    }
+
     .stage-menu button {
       width: 100%;
       min-height: 38px;
@@ -671,7 +974,7 @@ INDEX_HTML = """<!doctype html>
     .work-item-panel {
       position: absolute;
       z-index: 25;
-      top: 176px;
+      top: 70px;
       left: 24px;
       right: 24px;
       display: grid;
@@ -823,6 +1126,8 @@ INDEX_HTML = """<!doctype html>
     .agent-pane {
       position: relative;
       z-index: 0;
+      grid-column: 2;
+      grid-row: 3;
       display: grid;
       grid-template-rows:
         minmax(0, 1fr) 7px
@@ -983,7 +1288,7 @@ INDEX_HTML = """<!doctype html>
       padding: 0 10px 0 12px;
       color: #aab8cf;
       font-size: var(--ui-small-font-size);
-      font-weight: 750;
+      font-weight: 400;
       text-transform: uppercase;
     }
 
@@ -1363,12 +1668,12 @@ INDEX_HTML = """<!doctype html>
       height: 100%;
       min-width: 0;
       font-size: var(--ui-font-size);
-      font-weight: 650;
+      font-weight: 400;
       padding: 0 32px 0 0;
     }
 
     .session-switcher:disabled {
-      color: #667085;
+      color: #526a82;
       cursor: default;
     }
 
@@ -1382,7 +1687,7 @@ INDEX_HTML = """<!doctype html>
       cursor: pointer;
       font-family: inherit;
       font-size: var(--ui-font-size);
-      font-weight: 750;
+      font-weight: 400;
     }
 
     .terminal-font-button {
@@ -1394,7 +1699,7 @@ INDEX_HTML = """<!doctype html>
 
     .terminal-font-button + .terminal-font-value,
     .terminal-font-value + .terminal-font-button {
-      border-left: 1px solid #d8e1ec;
+      border-left: 1px solid #a8bbcd;
     }
 
     .terminal-font-value {
@@ -1404,10 +1709,10 @@ INDEX_HTML = """<!doctype html>
       align-self: stretch;
       flex: 1 1 auto;
       min-width: 54px;
-      color: #4a5a6d;
+      color: #2d465f;
       font-size: var(--ui-small-font-size);
-      font-weight: 800;
-      background: #ffffff;
+      font-weight: 400;
+      background: #d6e6f3;
     }
 
     .agent-action-button {
@@ -1565,6 +1870,31 @@ INDEX_HTML = """<!doctype html>
         />
       </symbol>
     </svg>
+    <aside
+      id="workflowSideSheet"
+      class="workflow-side-sheet"
+      aria-label="Workflow actions"
+    >
+      <header class="side-sheet-header">
+        <button
+          id="toggleWorkflowSideSheet"
+          class="side-sheet-toggle"
+          type="button"
+          aria-label="Collapse workflow side sheet"
+          title="Collapse workflow side sheet"
+        >
+          <span class="side-sheet-toggle-icon" aria-hidden="true"></span>
+        </button>
+        <div class="side-sheet-title">Workflow</div>
+      </header>
+      <nav
+        id="stageActionPanel"
+        class="stage-action-panel"
+        aria-label="Workflow stage actions"
+      >
+        <div id="stageActionBody" class="stage-action-body"></div>
+      </nav>
+    </aside>
     <section class="workflow-pane" aria-label="Project workflow">
       <div id="connection" class="connection"></div>
       <div class="workflow-toolbar" aria-label="Agent controls">
@@ -2507,6 +2837,8 @@ INDEX_HTML = """<!doctype html>
     const connection = document.getElementById("connection");
     const workflowPane = document.querySelector(".workflow-pane");
     const shellResizeHandle = document.getElementById("shellResizeHandle");
+    const workflowSideSheet = document.getElementById("workflowSideSheet");
+    const toggleWorkflowSideSheet = document.getElementById("toggleWorkflowSideSheet");
     const stageScroll = document.querySelector(".stage-scroll");
     const stageNodes = Array.from(document.querySelectorAll(".stage-node[data-stage]"));
     const STAGE_DESCRIPTIONS = {
@@ -2530,6 +2862,8 @@ INDEX_HTML = """<!doctype html>
     const testPlanStage = document.querySelector("[data-stage='test-plan']");
     const validateStage = document.querySelector("[data-stage='validate']");
     const documentStage = document.querySelector("[data-stage='document']");
+    const stageActionPanel = document.getElementById("stageActionPanel");
+    const stageActionBody = document.getElementById("stageActionBody");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const designMenu = document.getElementById("designMenu");
@@ -2676,6 +3010,7 @@ INDEX_HTML = """<!doctype html>
     const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
+    const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
@@ -2804,6 +3139,7 @@ INDEX_HTML = """<!doctype html>
     let shellResizeTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
+    let workflowSideSheetCollapsed = storedWorkflowSideSheetCollapsed();
     let artifactPreviewKind = "";
     let artifactPreviewDocumentTarget = null;
     let artifactPreviewItems = [];
@@ -2836,6 +3172,7 @@ INDEX_HTML = """<!doctype html>
     let ownedContextId = "";
     let contextOwnerTimer = null;
     let projectMode = "open";
+    let projectBrowserActivatesSelection = false;
     let serviceRoot = "";
     let activationRoot = "";
     let activeProjectMode = "none";
@@ -2850,6 +3187,8 @@ INDEX_HTML = """<!doctype html>
     let currentBrowseParent = "";
     let currentBrowserMode = "project";
     let currentSelectedFile = "";
+    let expandedWorkflowStages = new Set();
+    let expandedProjectActionGroups = new Set();
 
     function storedTerminalFontSize() {
       try {
@@ -3139,6 +3478,49 @@ INDEX_HTML = """<!doctype html>
       } catch (error) {
         return;
       }
+    }
+
+    function storedWorkflowSideSheetCollapsed() {
+      try {
+        return window.localStorage.getItem(WORKFLOW_SIDE_SHEET_STORAGE_KEY) === "1";
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function saveWorkflowSideSheetCollapsed() {
+      try {
+        window.localStorage.setItem(
+          WORKFLOW_SIDE_SHEET_STORAGE_KEY,
+          workflowSideSheetCollapsed ? "1" : "0",
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function applyWorkflowSideSheetState() {
+      shell.classList.toggle("side-sheet-collapsed", workflowSideSheetCollapsed);
+      toggleWorkflowSideSheet.setAttribute(
+        "aria-label",
+        workflowSideSheetCollapsed
+          ? "Expand workflow side sheet"
+          : "Collapse workflow side sheet",
+      );
+      toggleWorkflowSideSheet.title = workflowSideSheetCollapsed
+        ? "Expand workflow side sheet"
+        : "Collapse workflow side sheet";
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function setWorkflowSideSheetCollapsed(collapsed) {
+      workflowSideSheetCollapsed = Boolean(collapsed);
+      applyWorkflowSideSheetState();
+      saveWorkflowSideSheetCollapsed();
+    }
+
+    function toggleWorkflowSideSheetCollapsed() {
+      setWorkflowSideSheetCollapsed(!workflowSideSheetCollapsed);
     }
 
     function initializeTerminal() {
@@ -4471,6 +4853,20 @@ INDEX_HTML = """<!doctype html>
           agentInput.focus();
           return;
         }
+        if (data.mode === "document" || data.mode === "document-new") {
+          const target = documentTargetFromSelectedPath(data.path);
+          if (target) {
+            launchDocumentTarget(target);
+          }
+          return;
+        }
+        if (data.mode === "project" && projectBrowserActivatesSelection) {
+          projectBrowserActivatesSelection = false;
+          applyProjectSelection(data.path).catch((error) => {
+            appendOutput(`project update failed: ${error}\\n`, "error");
+          });
+          return;
+        }
         projectPath.value = data.path;
         projectStatus.textContent = `selected: ${data.path}`;
         projectPath.focus();
@@ -5206,6 +5602,531 @@ INDEX_HTML = """<!doctype html>
       addDocumentTarget.disabled = !hasActiveProject;
       customDocumentName.disabled = !hasActiveProject;
       renderDocumentTargets();
+      refreshStageActionPanel();
+    }
+
+    function refreshStageActionPanel() {
+      renderStageActionPanel();
+    }
+
+    function showStageActionPanel(stageId) {
+      expandedWorkflowStages.add(stageId);
+      hideStageMenus();
+      setWorkflowSideSheetCollapsed(false);
+      renderStageActionPanel();
+    }
+
+    function hideStageActionPanel() {
+      expandedWorkflowStages.clear();
+      expandedProjectActionGroups.clear();
+      stageActionBody.replaceChildren();
+    }
+
+    function stageActionName(stageId) {
+      if (stageId === "project") {
+        return "Project";
+      }
+      return stageId;
+    }
+
+    function renderStageActionPanel() {
+      stageActionBody.replaceChildren();
+      for (const stageNode of stageNodes) {
+        const stageId = stageNode.dataset.stage || "";
+        if (!stageId) {
+          continue;
+        }
+        stageActionBody.append(stageActionGroup(stageId, stageNode));
+      }
+    }
+
+    function stageActionGroup(stageId, stageNode) {
+      const group = document.createElement("div");
+      group.className = "stage-action-group";
+
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "stage-action-stage";
+      const isExpanded = expandedWorkflowStages.has(stageId);
+      trigger.classList.toggle("active", stageNode.classList.contains("active"));
+      trigger.classList.toggle("complete", stageNode.classList.contains("complete"));
+      trigger.classList.toggle("expanded", isExpanded);
+      trigger.disabled = stageNode.disabled;
+      trigger.title = STAGE_DESCRIPTIONS[stageId] || stageId;
+      trigger.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+
+      const label = document.createElement("span");
+      label.className = "stage-action-label";
+      label.textContent = stageActionName(stageId);
+      const chevron = document.createElement("span");
+      chevron.className = "stage-action-chevron";
+      chevron.setAttribute("aria-hidden", "true");
+      trigger.append(label, chevron);
+      trigger.addEventListener("click", () => toggleStageActionGroup(stageId));
+      group.append(trigger);
+
+      if (isExpanded) {
+        const list = document.createElement("div");
+        list.className = "stage-action-list";
+        list.setAttribute("role", "group");
+        if (stageId === "document") {
+          renderDocumentActionPanel(list);
+        } else {
+          renderStageActionList(list, stageActions(stageId));
+        }
+        group.append(list);
+      }
+      return group;
+    }
+
+    function toggleStageActionGroup(stageId) {
+      const stageNode = stageNodes.find((node) => node.dataset.stage === stageId);
+      if (!stageNode || stageNode.disabled) {
+        return;
+      }
+      if (expandedWorkflowStages.has(stageId)) {
+        expandedWorkflowStages.delete(stageId);
+      } else {
+        expandedWorkflowStages.add(stageId);
+      }
+      setWorkflowSideSheetCollapsed(false);
+      renderStageActionPanel();
+    }
+
+    function renderStageActionList(container, actions) {
+      for (const action of actions) {
+        if (action.subgroup) {
+          container.append(stageActionSubgroup(action));
+          continue;
+        }
+        if (action.heading) {
+          const heading = document.createElement("div");
+          heading.className = "stage-action-heading";
+          heading.textContent = action.heading;
+          container.append(heading);
+          continue;
+        }
+        container.append(stageActionButton(action));
+      }
+    }
+
+    function stageActionSubgroup(action) {
+      const group = document.createElement("div");
+      group.className = "stage-action-subgroup";
+      const isExpanded = expandedProjectActionGroups.has(action.subgroup);
+
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "stage-action-subgroup-trigger";
+      trigger.classList.toggle("expanded", isExpanded);
+      trigger.disabled = Boolean(action.disabled);
+      trigger.title = action.title || action.label;
+      trigger.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+
+      const label = document.createElement("span");
+      label.className = "stage-action-label";
+      label.textContent = action.label;
+      const chevron = document.createElement("span");
+      chevron.className = "stage-action-chevron";
+      chevron.setAttribute("aria-hidden", "true");
+      trigger.append(label, chevron);
+      trigger.addEventListener("click", () => toggleProjectActionGroup(action.subgroup));
+      group.append(trigger);
+
+      if (isExpanded) {
+        const list = document.createElement("div");
+        list.className = "stage-action-subgroup-list";
+        list.setAttribute("role", "group");
+        renderStageActionList(list, action.actions || []);
+        group.append(list);
+      }
+      return group;
+    }
+
+    function toggleProjectActionGroup(groupId) {
+      if (expandedProjectActionGroups.has(groupId)) {
+        expandedProjectActionGroups.delete(groupId);
+      } else {
+        expandedProjectActionGroups.add(groupId);
+      }
+      renderStageActionPanel();
+    }
+
+    function stageActionButton(action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "stage-action-button";
+      if (action.primary) {
+        button.classList.add("primary");
+      }
+      button.textContent = action.label;
+      button.title = action.title || action.label;
+      button.disabled = Boolean(
+        typeof action.disabled === "function" ? action.disabled() : action.disabled,
+      );
+      button.addEventListener("click", () => runStageAction(action));
+      return button;
+    }
+
+    function runStageAction(action) {
+      if (!action || typeof action.run !== "function") {
+        return;
+      }
+      const disabled = Boolean(
+        typeof action.disabled === "function" ? action.disabled() : action.disabled,
+      );
+      if (disabled) {
+        return;
+      }
+      Promise.resolve(action.run()).catch((error) => {
+        appendOutput(`action failed: ${error}\\n`, "error");
+      });
+    }
+
+    function stageActions(stageId) {
+      if (stageId === "project") {
+        return projectStageActions();
+      }
+      if (stageId === "requirements") {
+        const inStage = currentWorkflowStage === "requirements";
+        return [
+          {
+            label: "Set stage",
+            title: "Move the workflow to requirements without starting an agent.",
+            disabled: !activeProjectRoot || inStage,
+            run: () => setWorkflowStageFromMenu("requirements"),
+          },
+          {
+            label: "Start",
+            title: "Launch or resume the interactive requirements authoring agent.",
+            primary: true,
+            disabled: !activeProjectRoot || !inStage || requirementsRunning,
+            run: startRequirementsAgent,
+          },
+          {
+            label: "Approve",
+            title: "Record requirements approval and advance the workflow.",
+            disabled: !activeProjectRoot || !inStage,
+            run: approveRequirementsStage,
+          },
+          {
+            label: "Skip approval",
+            title: "Force requirements approval when the operator accepts the risk.",
+            disabled: !activeProjectRoot || !inStage,
+            run: skipRequirementsApprovalStage,
+          },
+        ];
+      }
+      if (stageId === "design") {
+        const inStage = currentWorkflowStage === "design";
+        return [
+          {
+            label: "Set stage",
+            title: "Move the workflow to design without starting an agent.",
+            disabled: !activeProjectRoot || inStage,
+            run: () => setWorkflowStageFromMenu("design"),
+          },
+          {
+            label: "Start",
+            title: "Launch or resume the interactive design authoring agent.",
+            primary: true,
+            disabled: !activeProjectRoot || !inStage || designRunning,
+            run: startDesignAgent,
+          },
+          {
+            label: "Complete",
+            title: "Finish design authoring and move to design review.",
+            disabled: !activeProjectRoot || !inStage,
+            run: completeDesignAgent,
+          },
+        ];
+      }
+      if (stageId === "design-review") {
+        const inStage = currentWorkflowStage === "design-review";
+        return automaticStageActions({
+          stage: "design-review",
+          label: "design review",
+          inStage,
+          running: designReviewRunning,
+          setStage: () => setWorkflowStageFromMenu("design-review"),
+          startAutomatic: startAutomaticDesignReviewAgent,
+          startInteractive: startInteractiveDesignReviewAgent,
+          stop: stopDesignReviewAgent,
+          approve: approveDesignReviewStage,
+          skip: skipDesignReviewApprovalStage,
+          automaticTitle: "Run the non-interactive design review and design-update loop.",
+          interactiveTitle: "Open an interactive design-review agent session.",
+        });
+      }
+      if (stageId === "implementation-plan") {
+        return authoringStageActions({
+          stage: "implementation-plan",
+          label: "implementation plan",
+          setStage: () => setWorkflowStageFromMenu("implementation-plan"),
+          start: () => startGenericStageAgent(
+            "implementation-plan",
+            "$ electroboy implementation-plan",
+            true,
+          ),
+          approve: () => approveGenericStage("implementation-plan", "implementation plan"),
+          skip: () => skipGenericStageApproval("implementation-plan", "Implementation plan"),
+          startTitle: "Launch or resume the interactive implementation-plan agent.",
+        });
+      }
+      if (stageId === "code") {
+        return automaticStageActions({
+          stage: "code",
+          label: "code",
+          inStage: currentWorkflowStage === "code",
+          running: genericStageRun("code").running,
+          setStage: () => setWorkflowStageFromMenu("code"),
+          startAutomatic: () => startGenericStageAgent("code", "$ electroboy code", false),
+          startInteractive: () => startGenericStageAgent(
+            "code",
+            "$ electroboy code --interactive",
+            true,
+          ),
+          stop: () => stopGenericStageAgent("code", "code"),
+          approve: () => approveGenericStage("code", "code"),
+          skip: () => skipGenericStageApproval("code", "Code"),
+          automaticTitle: "Run the non-interactive coding and review cycle.",
+          interactiveTitle: "Open an interactive coding agent session.",
+        });
+      }
+      if (stageId === "test-plan") {
+        return authoringStageActions({
+          stage: "test-plan",
+          label: "test plan",
+          setStage: () => setWorkflowStageFromMenu("test-plan"),
+          start: () => startGenericStageAgent("test-plan", "$ electroboy test-plan", true),
+          approve: () => approveGenericStage("test-plan", "test plan"),
+          skip: () => skipGenericStageApproval("test-plan", "Test plan"),
+          startTitle: "Launch or resume the interactive system test-plan agent.",
+        });
+      }
+      if (stageId === "validate") {
+        return automaticStageActions({
+          stage: "validate",
+          label: "validation",
+          inStage: currentWorkflowStage === "validate",
+          running: genericStageRun("validate").running,
+          setStage: () => setWorkflowStageFromMenu("validate"),
+          startAutomatic: () => startGenericStageAgent("validate", "$ electroboy validate", false),
+          startInteractive: () => startGenericStageAgent(
+            "validate",
+            "$ electroboy validate --interactive",
+            true,
+          ),
+          stop: () => stopGenericStageAgent("validate", "validation"),
+          approve: () => approveGenericStage("validate", "validation"),
+          skip: () => skipGenericStageApproval("validate", "Validation"),
+          automaticTitle: "Run the non-interactive validation command set.",
+          interactiveTitle: "Open an interactive validation agent session.",
+        });
+      }
+      return [];
+    }
+
+    function projectStageActions() {
+      const hasContext = Boolean(activationRoot);
+      const hasProject = Boolean(activeProjectRoot);
+      const metaActions = [
+        {
+          label: "Open meta-project",
+          title: "Activate an existing ElectroBoy meta-project.",
+          disabled: hasContext,
+          run: () => openProjectBrowser("open", true),
+        },
+        {
+          label: "New meta-project",
+          title: "Create and activate a new ElectroBoy meta-project.",
+          disabled: hasContext,
+          run: () => openProjectBrowser("meta-new", true),
+        },
+        {
+          label: "Add repo",
+          title: "Register another repository with the active meta-project.",
+          disabled: activeProjectMode !== "meta",
+          run: () => showProjectPanel("meta-add"),
+        },
+      ];
+      for (const repository of registeredRepositories) {
+        const label = repositoryLabel(repository);
+        metaActions.push({
+          label: `Start repo: ${label}`,
+          title: String(repository.path || label),
+          disabled: activeProjectMode !== "meta" || label === activeRepositoryName,
+          run: () => startMetaRepositoryFromMenu(repository),
+        });
+      }
+      for (const repository of registeredRepositories) {
+        const label = repositoryLabel(repository);
+        metaActions.push({
+          label: `Remove repo: ${label}`,
+          title: String(repository.path || label),
+          disabled: activeProjectMode !== "meta",
+          run: () => removeMetaRepositoryFromMenu(repository),
+        });
+      }
+
+      const workItemActions = [
+        {
+          label: "Add feature",
+          title: "Start a new feature workflow in the active project.",
+          disabled: !hasProject,
+          run: () => showWorkItemPanel("feature-new"),
+        },
+        {
+          label: "Add bug resolution",
+          title: "Start a new bug-resolution workflow in the active project.",
+          disabled: !hasProject,
+          run: () => showWorkItemPanel("bug-new"),
+        },
+      ];
+      for (const feature of workItemFeatures()) {
+        workItemActions.push({
+          label: `Switch feature: ${featureLabel(feature)}`,
+          title: feature.title || feature.slug || "",
+          disabled: !hasProject || feature.slug === workItemState.active_feature_slug,
+          run: () => switchFeatureWorkItemContext(feature.slug),
+        });
+      }
+      for (const bug of workItemBugs()) {
+        workItemActions.push({
+          label: `Switch bug: ${bug.title || bug.slug || "Bug"}`,
+          title: bug.reference || bug.slug || "",
+          disabled: !hasProject || bug.slug === workItemState.active_bug_slug,
+          run: () => switchBugWorkItemContext(bug.slug),
+        });
+      }
+
+      return [
+        {
+          label: "Open project",
+          title: "Activate an existing ElectroBoy project.",
+          disabled: hasContext,
+          run: () => openProjectBrowser("open", true),
+        },
+        {
+          label: "New project",
+          title: "Create and activate a new ElectroBoy project.",
+          disabled: hasContext,
+          run: () => openProjectBrowser("new", true),
+        },
+        {
+          subgroup: "project-meta",
+          label: "Meta project",
+          title: "Open, create, or manage repositories in a meta-project.",
+          actions: metaActions,
+        },
+        {
+          subgroup: "project-work-items",
+          label: "Work items",
+          title: "Start or switch feature and bug-resolution workflows.",
+          actions: workItemActions,
+        },
+        {
+          label: "Deactivate",
+          title: "Deactivate this browser context's active project.",
+          disabled: !hasContext,
+          run: deactivateActiveProject,
+        },
+      ];
+    }
+
+    function authoringStageActions(options) {
+      const inStage = currentWorkflowStage === options.stage;
+      const runState = genericStageRun(options.stage);
+      return [
+        {
+          label: "Set stage",
+          title: `Move the workflow to ${options.stage} without starting an agent.`,
+          disabled: !activeProjectRoot || inStage,
+          run: options.setStage,
+        },
+        {
+          label: "Start",
+          title: options.startTitle,
+          primary: true,
+          disabled: !activeProjectRoot || !inStage || runState.running,
+          run: options.start,
+        },
+        {
+          label: "Approve",
+          title: `Approve ${options.label} and advance the workflow.`,
+          disabled: !activeProjectRoot || !inStage,
+          run: options.approve,
+        },
+        {
+          label: "Skip approval",
+          title: `Force ${options.label} approval when the operator accepts the risk.`,
+          disabled: !activeProjectRoot || !inStage,
+          run: options.skip,
+        },
+      ];
+    }
+
+    function automaticStageActions(options) {
+      const hasProject = Boolean(activeProjectRoot);
+      return [
+        {
+          label: "Set stage",
+          title: `Move the workflow to ${options.stage} without starting an agent.`,
+          disabled: !hasProject || options.inStage,
+          run: options.setStage,
+        },
+        {
+          label: "Start automatic",
+          title: options.automaticTitle,
+          primary: true,
+          disabled: !hasProject || !options.inStage || options.running,
+          run: options.startAutomatic,
+        },
+        {
+          label: "Start interactive",
+          title: options.interactiveTitle,
+          disabled: !hasProject || !options.inStage || options.running,
+          run: options.startInteractive,
+        },
+        {
+          label: "Stop",
+          title: `Stop the running ${options.label} agent.`,
+          disabled: !hasProject || !options.inStage || !options.running,
+          run: options.stop,
+        },
+        {
+          label: "Approve",
+          title: `Approve ${options.label} and advance the workflow.`,
+          disabled: !hasProject || !options.inStage,
+          run: options.approve,
+        },
+        {
+          label: "Skip approval",
+          title: `Force ${options.label} approval when the operator accepts the risk.`,
+          disabled: !hasProject || !options.inStage,
+          run: options.skip,
+        },
+      ];
+    }
+
+    function renderDocumentActionPanel(container) {
+      container.append(
+        stageActionButton({
+          label: "Open",
+          title: "Choose an existing Markdown file and start the documentation agent.",
+          primary: true,
+          disabled: !activeProjectRoot,
+          run: openDocumentFileBrowser,
+        }),
+      );
+      container.append(
+        stageActionButton({
+          label: "New",
+          title: "Choose where to create a Markdown document and start the agent.",
+          disabled: !activeProjectRoot,
+          run: openNewDocumentFileBrowser,
+        }),
+      );
     }
 
     function allDocumentTargets() {
@@ -5226,12 +6147,7 @@ INDEX_HTML = """<!doctype html>
         button.title = target.path;
         button.disabled = disabled;
         button.addEventListener("click", () => {
-          if (documentationRunning) {
-            hideStageMenus();
-            showDocumentPreview(target);
-          } else {
-            startDocumentationAgent(target);
-          }
+          launchDocumentTarget(target);
         });
         documentTargets.append(button);
       }
@@ -5251,11 +6167,27 @@ INDEX_HTML = """<!doctype html>
       return { label, path };
     }
 
-    function addCustomDocumentTarget() {
-      if (!activeProjectRoot) {
-        return;
+    function documentTargetFromSelectedPath(path) {
+      const selected = String(path || "").trim();
+      const root = String(activeProjectRoot || "").replace(/\/+$/, "");
+      if (!selected) {
+        return null;
       }
-      const target = documentTargetFromInput(customDocumentName.value);
+      let relativePath = selected;
+      if (root && selected.startsWith(`${root}/`)) {
+        relativePath = selected.slice(root.length + 1);
+      }
+      if (relativePath.startsWith("/")) {
+        appendOutput(
+          `document must be under the active project: ${selected}\\n`,
+          "error",
+        );
+        return null;
+      }
+      return documentTargetFromInput(relativePath);
+    }
+
+    function registerDocumentTarget(target) {
       if (!target) {
         return;
       }
@@ -5264,14 +6196,40 @@ INDEX_HTML = """<!doctype html>
       );
       customDocumentTargets.push(target);
       saveDocumentTargets();
-      customDocumentName.value = "";
-      customDocumentForm.hidden = true;
       renderDocumentTargets();
+      refreshStageActionPanel();
+    }
+
+    function launchDocumentTarget(target) {
+      if (!target) {
+        return;
+      }
+      registerDocumentTarget(target);
       if (documentationRunning) {
+        hideStageMenus();
         showDocumentPreview(target);
       } else {
         startDocumentationAgent(target);
       }
+    }
+
+    function startCustomDocumentTargetFromValue(value) {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const target = documentTargetFromInput(value);
+      if (!target) {
+        return;
+      }
+      if (customDocumentName) {
+        customDocumentName.value = "";
+        customDocumentForm.hidden = true;
+      }
+      launchDocumentTarget(target);
+    }
+
+    function addCustomDocumentTarget() {
+      startCustomDocumentTargetFromValue(customDocumentName.value);
     }
 
     function artifactKindForPane(item) {
@@ -5534,7 +6492,18 @@ INDEX_HTML = """<!doctype html>
       return `/file-browser?${parameters.toString()}`;
     }
 
-    function openProjectBrowser() {
+    function openProjectBrowser(mode = projectMode, activateSelection = false) {
+      if (activationRoot && mode !== "meta-add" && mode !== "meta-start") {
+        return;
+      }
+      if ((mode === "meta-add" || mode === "meta-start") && activeProjectMode !== "meta") {
+        return;
+      }
+      projectMode = mode;
+      projectBrowserActivatesSelection = Boolean(activateSelection);
+      hideStageMenus();
+      hideWorkItemPanel();
+      projectPanel.hidden = true;
       const path = projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".";
       const popup = window.open(
         fileBrowserUrl(path),
@@ -5542,15 +6511,50 @@ INDEX_HTML = """<!doctype html>
         PANE_POPUP_FEATURES,
       );
       if (!popup) {
+        projectBrowserActivatesSelection = false;
         projectStatus.textContent = "popup was blocked by the browser";
+        appendOutput("popup was blocked by the browser\\n", "error");
       }
     }
 
     function openLinkFileBrowser() {
+      projectBrowserActivatesSelection = false;
       const path = activeProjectRoot || activationRoot || serviceRoot || projectPath.value || ".";
       const popup = window.open(
         fileBrowserUrl(path, "link"),
         "electroboy-file-link-browser",
+        PANE_POPUP_FEATURES,
+      );
+      if (!popup) {
+        appendOutput("popup was blocked by the browser\\n", "error");
+      }
+    }
+
+    function openDocumentFileBrowser() {
+      projectBrowserActivatesSelection = false;
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      const popup = window.open(
+        fileBrowserUrl(activeProjectRoot, "document"),
+        "electroboy-document-browser",
+        PANE_POPUP_FEATURES,
+      );
+      if (!popup) {
+        appendOutput("popup was blocked by the browser\\n", "error");
+      }
+    }
+
+    function openNewDocumentFileBrowser() {
+      projectBrowserActivatesSelection = false;
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      const popup = window.open(
+        fileBrowserUrl(activeProjectRoot, "document-new"),
+        "electroboy-new-document-browser",
         PANE_POPUP_FEATURES,
       );
       if (!popup) {
@@ -5924,9 +6928,9 @@ INDEX_HTML = """<!doctype html>
       agentInput.setSelectionRange(cursor, cursor);
     }
 
-    async function applyProjectSelection() {
+    async function applyProjectSelection(selectedPathOverride = "") {
       const endpoint = projectEndpoint(projectMode);
-      const selectedPath = projectPath.value.trim();
+      const selectedPath = String(selectedPathOverride || projectPath.value).trim();
       if (!selectedPath) {
         const message = projectMode === "meta-start"
           ? "choose a repository name or path first"
@@ -5935,6 +6939,7 @@ INDEX_HTML = """<!doctype html>
         appendOutput(`${message}\\n`, "error");
         return;
       }
+      projectPath.value = selectedPath;
       activateProject.disabled = true;
       projectStatus.textContent = projectPendingLabel(projectMode, selectedPath);
       let response;
@@ -6311,6 +7316,7 @@ INDEX_HTML = """<!doctype html>
       projectPath.value = serviceRoot;
       projectMenu.hidden = true;
       requirementsMenu.hidden = true;
+      hideStageActionPanel();
       hideStageMenus();
       hideStageMenus();
       documentMenu.hidden = true;
@@ -7030,82 +8036,14 @@ INDEX_HTML = """<!doctype html>
 
     async function handleWorkflowStageClick(stageNode) {
       const stageId = stageNode.dataset.stage || "";
-      if (!activeProjectRoot || stageNode.disabled) {
+      if (stageNode.disabled) {
         return;
       }
-      const wasCurrentStage = stageId === currentWorkflowStage;
-      hideStageMenus();
-      if (stageId === "requirements") {
-        if (wasCurrentStage) {
-          toggleStageMenu(requirementsMenu, requirementsStage);
-        } else {
-          requirementsMenu.hidden = false;
-          positionStageMenu(requirementsMenu, requirementsStage);
-        }
-        return;
-      }
-      if (stageId === "design") {
-        if (wasCurrentStage) {
-          toggleStageMenu(designMenu, designStage);
-        } else {
-          designMenu.hidden = false;
-          positionStageMenu(designMenu, designStage);
-        }
-        return;
-      }
-      if (stageId === "design-review") {
-        if (wasCurrentStage) {
-          toggleStageMenu(designReviewMenu, designReviewStage);
-        } else {
-          designReviewMenu.hidden = false;
-          positionStageMenu(designReviewMenu, designReviewStage);
-        }
-        return;
-      }
-      if (stageId === "implementation-plan") {
-        openWorkflowStageMenu(
-          implementationPlanMenu,
-          implementationPlanStage,
-          wasCurrentStage,
-        );
-        return;
-      }
-      if (stageId === "code") {
-        openWorkflowStageMenu(codeMenu, codeStage, wasCurrentStage);
-        return;
-      }
-      if (stageId === "test-plan") {
-        openWorkflowStageMenu(testPlanMenu, testPlanStage, wasCurrentStage);
-        return;
-      }
-      if (stageId === "validate") {
-        openWorkflowStageMenu(validateMenu, validateStage, wasCurrentStage);
-        return;
-      }
-      if (stageId === "document") {
-        toggleStageMenu(documentMenu, documentStage);
-        return;
-      }
-      if (!wasCurrentStage) {
-        const selected = await selectWorkflowStage(stageId);
-        if (!selected) {
-          return;
-        }
-      }
-      hideStageMenus();
-    }
-
-    function openWorkflowStageMenu(menu, stageNode, wasCurrentStage) {
-      if (wasCurrentStage) {
-        toggleStageMenu(menu, stageNode);
-      } else {
-        menu.hidden = false;
-        positionStageMenu(menu, stageNode);
-      }
+      showStageActionPanel(stageId);
     }
 
     projectStage.addEventListener("click", () => {
-      toggleStageMenu(projectMenu, projectStage);
+      showStageActionPanel("project");
     });
     for (const stageNode of stageNodes) {
       if (stageNode.dataset.stage === "project") {
@@ -7118,10 +8056,10 @@ INDEX_HTML = """<!doctype html>
       });
     }
 
-    openProject.addEventListener("click", () => showProjectPanel("open"));
-    newProject.addEventListener("click", () => showProjectPanel("new"));
-    openMetaProject.addEventListener("click", () => showProjectPanel("open"));
-    newMetaProject.addEventListener("click", () => showProjectPanel("meta-new"));
+    openProject.addEventListener("click", () => openProjectBrowser("open", true));
+    newProject.addEventListener("click", () => openProjectBrowser("new", true));
+    openMetaProject.addEventListener("click", () => openProjectBrowser("open", true));
+    newMetaProject.addEventListener("click", () => openProjectBrowser("meta-new", true));
     addMetaRepository.addEventListener("click", () => showProjectPanel("meta-add"));
     metaProjectMenuButton.addEventListener("click", () => {
       toggleSubmenu(metaProjectSubmenu, metaProjectMenuButton);
@@ -7394,6 +8332,7 @@ INDEX_HTML = """<!doctype html>
       }
       openLinkFileBrowser();
     });
+    toggleWorkflowSideSheet.addEventListener("click", toggleWorkflowSideSheetCollapsed);
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
 
@@ -7421,6 +8360,8 @@ INDEX_HTML = """<!doctype html>
 
     async function initialize() {
       applyStageDescriptions();
+      applyWorkflowSideSheetState();
+      renderStageActionPanel();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
       applyStoredArtifactPaneSize();
@@ -7499,7 +8440,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       border-bottom: 1px solid var(--border);
       background: #151b29;
       padding: 0 10px 0 12px;
-      font-weight: 750;
+      font-weight: 400;
       text-transform: uppercase;
     }
 
@@ -8868,10 +9809,14 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
 
     .status-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 0.55fr) auto auto;
       gap: 8px;
       align-items: center;
       color: var(--muted);
+    }
+
+    .new-document-input[hidden] {
+      display: none;
     }
 
     .selected-path {
@@ -8913,8 +9858,17 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
   </section>
   <div class="status-row">
     <div id="selectedPath" class="selected-path">Selected: none</div>
+    <input
+      id="newDocumentName"
+      class="path-input new-document-input"
+      type="text"
+      autocomplete="off"
+      placeholder="new-document.md"
+      aria-label="New document file name"
+      hidden
+    >
     <button id="selectPath" class="browser-button primary" type="button" disabled>
-      Open selected directory
+      Activate
     </button>
     <button id="cancelBrowser" class="browser-button" type="button">Cancel</button>
   </div>
@@ -8930,10 +9884,18 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
     const breadcrumbs = document.getElementById("breadcrumbs");
     const fileTree = document.getElementById("fileTree");
     const selectedPathLabel = document.getElementById("selectedPath");
+    const newDocumentName = document.getElementById("newDocumentName");
     const selectPath = document.getElementById("selectPath");
     const cancelBrowser = document.getElementById("cancelBrowser");
     selectPath.textContent =
-      SELECT_MODE === "link" ? "Insert selected file" : "Open selected directory";
+      SELECT_MODE === "link"
+        ? "Insert selected file"
+        : SELECT_MODE === "document-new"
+          ? "Create or open document"
+          : SELECT_MODE === "document"
+          ? "Open selected document"
+          : "Activate";
+    newDocumentName.hidden = SELECT_MODE !== "document-new";
 
     let rootPayload = null;
     let currentPath = "";
@@ -8988,7 +9950,12 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
     function browseUrl(path) {
       const parameters = new URLSearchParams();
       parameters.set("path", path || ".");
-      parameters.set("mode", "file");
+      parameters.set(
+        "mode",
+        SELECT_MODE === "document" || SELECT_MODE === "document-new"
+          ? "markdown"
+          : "file",
+      );
       parameters.set("hidden", showHidden.checked ? "1" : "0");
       return `/api/files/browse?${parameters.toString()}`;
     }
@@ -9158,7 +10125,11 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       row.addEventListener("dblclick", () => {
         if (type === "directory") {
           navigateTo(entry.path);
-        } else if (SELECT_MODE === "link") {
+        } else if (
+          SELECT_MODE === "link" ||
+          SELECT_MODE === "document" ||
+          SELECT_MODE === "document-new"
+        ) {
           selectCurrentPath();
         }
       });
@@ -9197,9 +10168,19 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       if (!selectedPath) {
         return false;
       }
-      return SELECT_MODE === "link"
-        ? selectedType === "file"
-        : selectedType === "directory";
+      if (SELECT_MODE === "link") {
+        return selectedType === "file";
+      }
+      if (SELECT_MODE === "document") {
+        return selectedType === "file" && /\.md$/i.test(selectedPath);
+      }
+      if (SELECT_MODE === "document-new") {
+        if (selectedType === "file") {
+          return /\.md$/i.test(selectedPath);
+        }
+        return selectedType === "directory" && Boolean(documentNewTargetPath());
+      }
+      return selectedType === "directory";
     }
 
     function focusSelectedRow() {
@@ -9254,17 +10235,42 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       }
     }
 
+    function documentNewTargetPath() {
+      if (SELECT_MODE !== "document-new" || selectedType !== "directory") {
+        return "";
+      }
+      const raw = newDocumentName.value.trim().replace(/\\+/g, "/");
+      if (!raw) {
+        return "";
+      }
+      const path = raw.toLowerCase().endsWith(".md") ? raw : `${raw}.md`;
+      if (path.startsWith("/")) {
+        return path;
+      }
+      return `${selectedPath.replace(/\/+$/, "")}/${path}`;
+    }
+
     function selectCurrentPath() {
       if (!canSelectCurrentPath()) {
         selectedPathLabel.textContent =
-          SELECT_MODE === "link" ? "Select a file first." : "Select a directory first.";
+          SELECT_MODE === "link"
+            ? "Select a file first."
+            : SELECT_MODE === "document-new"
+              ? "Select a Markdown file or choose a directory and name."
+            : SELECT_MODE === "document"
+              ? "Select a Markdown file first."
+              : "Select a directory first.";
         return;
       }
+      const outputPath =
+        SELECT_MODE === "document-new" && selectedType === "directory"
+          ? documentNewTargetPath()
+          : selectedPath;
       if (window.opener) {
         window.opener.postMessage(
           {
             type: "electroboy-file-browser-select",
-            path: selectedPath,
+            path: outputPath,
             mode: SELECT_MODE,
           },
           window.location.origin,
@@ -9282,6 +10288,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       navigateTo(currentPath || pathInput.value || ".");
     });
     searchInput.addEventListener("input", render);
+    newDocumentName.addEventListener("input", updateSelectedPath);
     showHidden.addEventListener("change", () => {
       childCache.clear();
       navigateTo(currentPath || pathInput.value || ".");
@@ -9324,7 +10331,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
 
 
 def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
-    select_mode = "link" if mode == "link" else "project"
+    select_mode = mode if mode in {"link", "document", "document-new"} else "project"
     return (
         FILE_BROWSER_WINDOW_HTML.replace(
             "__INITIAL_PATH__",
@@ -12341,6 +13348,44 @@ def browse_files(path: Path | str, *, show_hidden: bool = False) -> dict[str, ob
     }
 
 
+def browse_markdown_files(
+    path: Path | str,
+    *,
+    show_hidden: bool = False,
+) -> dict[str, object]:
+    directory = Path(path).expanduser().resolve()
+    if not directory.exists():
+        raise StateError(f"directory does not exist: {directory}")
+    if not directory.is_dir():
+        raise StateError(f"path is not a directory: {directory}")
+
+    try:
+        children = sorted(
+            [
+                child
+                for child in directory.iterdir()
+                if child.is_dir()
+                or (child.is_file() and child.suffix.lower() == ".md")
+                if _browser_entry_visible(child, show_hidden)
+            ],
+            key=lambda child: (not child.is_dir(), child.name.lower()),
+        )
+    except OSError as error:
+        raise StateError(f"could not read directory: {error}") from error
+    return {
+        "path": str(directory),
+        "parent": str(directory.parent) if directory.parent != directory else None,
+        "entries": [
+            {
+                "name": child.name,
+                "path": str(child),
+                "type": "directory" if child.is_dir() else "file",
+            }
+            for child in children[:300]
+        ],
+    }
+
+
 def _browser_entry_visible(path: Path, show_hidden: bool) -> bool:
     return show_hidden or not path.name.startswith(".")
 
@@ -14314,11 +15359,12 @@ def _handler_for(
             mode = (params.get("mode") or ["directory"])[0]
             show_hidden = (params.get("hidden") or ["0"])[0] == "1"
             try:
-                payload = (
-                    browse_files(path, show_hidden=show_hidden)
-                    if mode == "file"
-                    else browse_directories(path, show_hidden=show_hidden)
-                )
+                if mode == "file":
+                    payload = browse_files(path, show_hidden=show_hidden)
+                elif mode == "markdown":
+                    payload = browse_markdown_files(path, show_hidden=show_hidden)
+                else:
+                    payload = browse_directories(path, show_hidden=show_hidden)
             except StateError as error:
                 self._send_json(
                     {"error": str(error)},
