@@ -117,6 +117,61 @@ Inbox body.
         self.assertEqual(inbox["heading_level"], 3)
         self.assertEqual(inbox["parent_id"], workflows["id"])
 
+    def test_render_requirements_groups_simple_records_as_table(self) -> None:
+        markdown = render_artifact_markdown(
+            "requirements",
+            [
+                {
+                    "record_type": "section",
+                    "id": "REQSEC-018",
+                    "order": 10,
+                    "title": "User Requirements",
+                },
+                {
+                    "record_type": "requirement",
+                    "id": "USR-007",
+                    "order": 20,
+                    "title": "Caregiver access",
+                    "statement": "Caregivers shall have limited access.",
+                    "status": "draft",
+                },
+                {
+                    "record_type": "requirement",
+                    "id": "USR-008",
+                    "order": 30,
+                    "title": "Co-parent handoffs",
+                    "statement": "Co-parents shall manage handoffs.",
+                    "status": "draft",
+                },
+            ],
+        )
+
+        self.assertIn("| ID | Requirement |", markdown)
+        self.assertIn("| USR-007 | Caregivers shall have limited access. |", markdown)
+        self.assertIn("| USR-008 | Co-parents shall manage handoffs. |", markdown)
+        self.assertNotIn("## USR-007.", markdown)
+        self.assertNotIn("**Statement:**", markdown)
+        self.assertNotIn("Status", markdown)
+
+    def test_render_requirements_expands_records_with_rich_details(self) -> None:
+        markdown = render_artifact_markdown(
+            "requirements",
+            [
+                {
+                    "record_type": "requirement",
+                    "id": "REQ-001",
+                    "order": 10,
+                    "title": "Submit request",
+                    "statement": "The system accepts a request.",
+                    "acceptance_criteria": ["Valid requests are accepted."],
+                },
+            ],
+        )
+
+        self.assertIn("## REQ-001. Submit request", markdown)
+        self.assertIn("**Statement:** The system accepts a request.", markdown)
+        self.assertIn("**Acceptance Criteria:**", markdown)
+
     def test_render_test_plan_preserves_markdown_body(self) -> None:
         markdown = render_artifact_markdown(
             "test-plan",

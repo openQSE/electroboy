@@ -252,9 +252,17 @@ def markdown_to_artifact_records(
 def _render_requirements(records: list[dict[str, object]]) -> list[str]:
     lines = _document_heading(records, "requirements")
     heading_levels = _heading_levels_for_records("requirements", records)
+    table_records: list[dict[str, object]] = []
+
+    def flush_table() -> None:
+        if table_records:
+            _append_requirement_table(lines, table_records)
+            table_records.clear()
+
     for record in _ordered_content_records(records):
         record_type = _record_type(record)
         if record_type == "section":
+            flush_table()
             _append_heading(
                 lines,
                 heading_levels.get(id(record), 2),
@@ -265,26 +273,15 @@ def _render_requirements(records: list[dict[str, object]]) -> list[str]:
             _append_body(lines, record)
             continue
         if record_type == "requirement":
-            _append_heading(
-                lines,
-                heading_levels.get(id(record), 2),
-                _record_title(record, "Requirement"),
-                record,
-            )
-            _append_field(lines, "Statement", _string(record.get("statement")))
-            _append_body(lines, record)
-            _append_field(lines, "Rationale", _string(record.get("rationale")))
-            _append_field(lines, "Priority", _string(record.get("priority")))
-            _append_list_field(
-                lines,
-                "Acceptance Criteria",
-                _string_list(record.get("acceptance_criteria")),
-            )
-            _append_list_field(lines, "Verification", _string_list(record.get("verification")))
-            _append_list_field(lines, "Dependencies", _string_list(record.get("dependencies")))
-            _append_field(lines, "Status", _string(record.get("status")))
+            if _tabular_requirement(record):
+                table_records.append(record)
+                continue
+            flush_table()
+            _append_requirement_detail(lines, record, heading_levels.get(id(record), 2))
             continue
+        flush_table()
         _append_generic_record(lines, record)
+    flush_table()
     return lines
 
 
@@ -1206,6 +1203,76 @@ def _append_generic_record(lines: list[str], record: dict[str, object]) -> None:
     _append_heading(lines, 2, _record_title(record, "Record"), record)
     _append_body(lines, record)
     _append_field(lines, "Status", _string(record.get("status")))
+
+
+def _append_requirement_detail(
+    lines: list[str],
+    record: dict[str, object],
+    heading_level: int,
+) -> None:
+    _append_heading(
+        lines,
+        heading_level,
+        _record_title(record, "Requirement"),
+        record,
+    )
+    _append_field(lines, "Statement", _string(record.get("statement")))
+    _append_body(lines, record)
+    _append_field(lines, "Rationale", _string(record.get("rationale")))
+    _append_field(lines, "Priority", _string(record.get("priority")))
+    _append_list_field(
+        lines,
+        "Acceptance Criteria",
+        _string_list(record.get("acceptance_criteria")),
+    )
+    _append_list_field(lines, "Verification", _string_list(record.get("verification")))
+    _append_list_field(lines, "Dependencies", _string_list(record.get("dependencies")))
+    _append_field(lines, "Status", _string(record.get("status")))
+
+
+def _append_requirement_table(
+    lines: list[str],
+    records: list[dict[str, object]],
+) -> None:
+    include_priority = any(_string(record.get("priority")) for record in records)
+    include_status = any(
+        _string(record.get("status"))
+        and _string(record.get("status")).lower() != "draft"
+        for record in records
+    )
+    headers = ["ID", "Requirement"]
+    if include_priority:
+        headers.append("Priority")
+    if include_status:
+        headers.append("Status")
+    lines.extend(["", _markdown_table_row(headers)])
+    lines.append(_markdown_table_row(["---"] * len(headers)))
+    for record in records:
+        row = [_record_id(record), _string(record.get("statement"))]
+        if include_priority:
+            row.append(_string(record.get("priority")))
+        if include_status:
+            row.append(_string(record.get("status")))
+        lines.append(_markdown_table_row(row))
+
+
+def _tabular_requirement(record: dict[str, object]) -> bool:
+    if not _string(record.get("statement")):
+        return False
+    if _string(record.get("body")) or _string(record.get("rationale")):
+        return False
+    for key in ["acceptance_criteria", "verification", "dependencies"]:
+        if _string_list(record.get(key)):
+            return False
+    return True
+
+
+def _markdown_table_row(values: list[str]) -> str:
+    return "| " + " | ".join(_markdown_table_cell(value) for value in values) + " |"
+
+
+def _markdown_table_cell(value: str) -> str:
+    return value.replace("\n", "<br>").replace("|", "\\|").strip()
 
 
 def _append_body(lines: list[str], record: dict[str, object]) -> None:

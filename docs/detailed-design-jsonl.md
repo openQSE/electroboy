@@ -438,6 +438,13 @@ section: headings listed in the table of contents render as top-level document
 sections, and intervening section records render as subsections under the
 nearest top-level section.
 
+Requirements render simple requirement records as Markdown table rows under
+their containing section. This keeps imported requirement tables readable
+instead of expanding every row into a heading with repeated `Statement` and
+`Status` fields. Requirement records with rich details such as body text,
+rationale, acceptance criteria, verification, or dependencies still render as
+expanded subsections so no detail is hidden.
+
 Agents update the JSONL file during interactive sessions, then call the
 deterministic renderer before yielding control. The renderer rewrites the
 Markdown companion from the JSONL source. This keeps Markdown available in the
