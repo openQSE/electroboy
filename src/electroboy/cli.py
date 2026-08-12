@@ -6784,6 +6784,9 @@ def _structured_prompt_block(
             [
                 f"Edit {jsonl_path} directly as the source of truth.",
                 f"Do not edit {markdown_path} by hand.",
+                "Use human-readable titles; keep record ids out of title text.",
+                "For nested sections, set parent_id or heading_level instead of",
+                "flattening the document outline.",
                 f"After each JSONL edit, run `electroboy render-artifact {artifact}`",
                 f"as the only way to update {markdown_path} for live review.",
             ]

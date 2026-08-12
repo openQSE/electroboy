@@ -245,21 +245,32 @@ def markdown_to_artifact_records(
     if artifact == "requirements":
         records.extend(_requirements_records_from_markdown(content_sections))
         return records
-    for index, section in enumerate(content_sections, 1):
-        records.append(_content_record_from_markdown(artifact, section, index))
+    records.extend(_content_records_from_markdown(artifact, content_sections))
     return records
 
 
 def _render_requirements(records: list[dict[str, object]]) -> list[str]:
     lines = _document_heading(records, "requirements")
+    heading_levels = _heading_levels_for_records("requirements", records)
     for record in _ordered_content_records(records):
         record_type = _record_type(record)
         if record_type == "section":
-            _append_heading(lines, 2, _record_title(record, "Section"), record)
+            _append_heading(
+                lines,
+                heading_levels.get(id(record), 2),
+                _record_title(record, "Section"),
+                record,
+                include_record_id=False,
+            )
             _append_body(lines, record)
             continue
         if record_type == "requirement":
-            _append_heading(lines, 2, _record_title(record, "Requirement"), record)
+            _append_heading(
+                lines,
+                heading_levels.get(id(record), 2),
+                _record_title(record, "Requirement"),
+                record,
+            )
             _append_field(lines, "Statement", _string(record.get("statement")))
             _append_body(lines, record)
             _append_field(lines, "Rationale", _string(record.get("rationale")))
@@ -279,9 +290,15 @@ def _render_requirements(records: list[dict[str, object]]) -> list[str]:
 
 def _render_design(records: list[dict[str, object]]) -> list[str]:
     lines = _document_heading(records, "design")
+    heading_levels = _heading_levels_for_records("design", records)
     for record in _ordered_content_records(records):
         record_type = _record_type(record)
-        _append_heading(lines, 2, _record_title(record, record_type.title()), record)
+        _append_heading(
+            lines,
+            heading_levels.get(id(record), 2),
+            _record_title(record, record_type.title()),
+            record,
+        )
         _append_body(lines, record)
         if record_type == "decision":
             _append_field(lines, "Context", _string(record.get("context")))
@@ -325,9 +342,15 @@ def _render_implementation_plan(records: list[dict[str, object]]) -> list[str]:
 
 def _render_test_plan(records: list[dict[str, object]]) -> list[str]:
     lines = _document_heading(records, "test-plan")
+    heading_levels = _heading_levels_for_records("test-plan", records)
     for record in _ordered_content_records(records):
         record_type = _record_type(record)
-        _append_heading(lines, 2, _record_title(record, record_type.title()), record)
+        _append_heading(
+            lines,
+            heading_levels.get(id(record), 2),
+            _record_title(record, record_type.title()),
+            record,
+        )
         _append_body(lines, record)
         if record_type == "test":
             _append_field(lines, "Level", _string(record.get("level")))
@@ -419,6 +442,8 @@ def _content_record_from_markdown(
     artifact: str,
     section: MarkdownSection,
     index: int,
+    *,
+    parent_id: str = "",
 ) -> dict[str, object]:
     record_id, title = _split_record_heading(section.title)
     record_type = _content_record_type(artifact, record_id)
@@ -432,7 +457,10 @@ def _content_record_from_markdown(
         "id": record_id,
         "order": index * 10,
         "title": title,
+        "heading_level": section.level,
     }
+    if parent_id:
+        record["parent_id"] = parent_id
     record.update(fields)
     if body:
         record["body"] = body
@@ -440,12 +468,39 @@ def _content_record_from_markdown(
     return record
 
 
+def _content_records_from_markdown(
+    artifact: str,
+    sections: list[MarkdownSection],
+) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    stack: list[tuple[int, str]] = []
+    for index, section in enumerate(sections, 1):
+        while stack and stack[-1][0] >= section.level:
+            stack.pop()
+        parent_id = stack[-1][1] if stack else ""
+        record = _content_record_from_markdown(
+            artifact,
+            section,
+            index,
+            parent_id=parent_id,
+        )
+        records.append(record)
+        record_id = _record_id(record)
+        if record_id:
+            stack.append((section.level, record_id))
+    return records
+
+
 def _requirements_records_from_markdown(
     sections: list[MarkdownSection],
 ) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
+    stack: list[tuple[int, str]] = []
     order = 10
     for index, section in enumerate(sections, 1):
+        while stack and stack[-1][0] >= section.level:
+            stack.pop()
+        parent_id = stack[-1][1] if stack else ""
         requirement_records, remaining_lines = _requirement_records_from_tables(
             section,
         )
@@ -453,14 +508,21 @@ def _requirements_records_from_markdown(
             "requirements",
             MarkdownSection(section.level, section.title, remaining_lines),
             index,
+            parent_id=parent_id,
         )
         section_record["order"] = order
         records.append(section_record)
         order += 10
+        section_id = _record_id(section_record)
         for record in requirement_records:
             record["order"] = order
+            record["heading_level"] = min(section.level + 1, 6)
+            if section_id:
+                record["parent_id"] = section_id
             records.append(record)
             order += 10
+        if section_id:
+            stack.append((section.level, section_id))
     return records
 
 
@@ -999,15 +1061,145 @@ def _record_sort_key(record: dict[str, object]) -> tuple[float, str]:
     return sort_order, _record_id(record)
 
 
+def _heading_levels_for_records(
+    artifact: str,
+    records: list[dict[str, object]],
+) -> dict[int, int]:
+    content_records = _ordered_content_records(records)
+    levels = _explicit_heading_levels(content_records)
+    levels.update(_parent_heading_levels(content_records, skip_ids=set(levels)))
+    if artifact == "requirements":
+        levels.update(_legacy_requirements_heading_levels(content_records, levels))
+    return levels
+
+
+def _explicit_heading_levels(records: list[dict[str, object]]) -> dict[int, int]:
+    levels: dict[int, int] = {}
+    for record in records:
+        level = _int_or_none(record.get("heading_level"))
+        if level is not None:
+            levels[id(record)] = _markdown_heading_level(level)
+    return levels
+
+
+def _parent_heading_levels(
+    records: list[dict[str, object]],
+    *,
+    skip_ids: set[int],
+) -> dict[int, int]:
+    by_record_id = {
+        _record_id(record): record
+        for record in records
+        if _record_id(record)
+    }
+    levels: dict[int, int] = {}
+    for record in records:
+        if id(record) in skip_ids:
+            continue
+        parent_id = _parent_id(record)
+        if not parent_id:
+            continue
+        depth = 0
+        seen: set[str] = set()
+        while parent_id and parent_id in by_record_id and parent_id not in seen:
+            seen.add(parent_id)
+            depth += 1
+            parent_id = _parent_id(by_record_id[parent_id])
+        levels[id(record)] = _markdown_heading_level(2 + depth)
+    return levels
+
+
+def _legacy_requirements_heading_levels(
+    records: list[dict[str, object]],
+    existing: dict[int, int],
+) -> dict[int, int]:
+    top_level_titles = _requirements_toc_titles(records)
+    if not top_level_titles:
+        return {}
+    levels: dict[int, int] = {}
+    section_levels_by_slug: dict[str, int] = {}
+    current_section_level = 0
+    current_top_level_section = False
+    for record in records:
+        if id(record) in existing:
+            level = existing[id(record)]
+            if _record_type(record) == "section":
+                section_levels_by_slug[_slug_key(_record_title(record, ""))] = level
+                current_section_level = level
+                current_top_level_section = level == 2
+            continue
+        record_type = _record_type(record)
+        if record_type == "section":
+            title = _record_title(record, "Section")
+            slug = _slug_key(title)
+            if slug in top_level_titles or slug == "table-of-contents":
+                level = 2
+                current_top_level_section = True
+            elif current_top_level_section:
+                level = 3
+            else:
+                level = 2
+            levels[id(record)] = level
+            section_levels_by_slug[slug] = level
+            current_section_level = level
+            continue
+        if record_type != "requirement":
+            continue
+        tag_levels = [
+            section_levels_by_slug[tag]
+            for tag in _string_list(record.get("tags"))
+            if tag in section_levels_by_slug
+        ]
+        if tag_levels:
+            levels[id(record)] = _markdown_heading_level(max(tag_levels) + 1)
+        elif current_section_level:
+            levels[id(record)] = _markdown_heading_level(current_section_level + 1)
+    return levels
+
+
+def _requirements_toc_titles(records: list[dict[str, object]]) -> set[str]:
+    for record in records:
+        if _record_type(record) != "section":
+            continue
+        if _slug_key(_record_title(record, "")) != "table-of-contents":
+            continue
+        titles: set[str] = set()
+        for line in _string(record.get("body")).splitlines():
+            match = re.match(r"^\s*-\s+\[([^\]]+)\]\([^)]+\)\s*$", line)
+            if match:
+                titles.add(_slug_key(match.group(1)))
+        return titles
+    return set()
+
+
+def _parent_id(record: dict[str, object]) -> str:
+    return _string(record.get("parent_id"))
+
+
+def _markdown_heading_level(value: int) -> int:
+    return max(2, min(value, 6))
+
+
 def _append_heading(
     lines: list[str],
     level: int,
     title: str,
     record: dict[str, object],
+    *,
+    include_record_id: bool = True,
 ) -> None:
     record_id = _record_id(record)
-    heading = f"{record_id}. {title}" if record_id else title
-    lines.extend(["", f"{'#' * level} {heading}"])
+    title = _clean_record_title(title, record_id)
+    heading = f"{record_id}. {title}" if include_record_id and record_id else title
+    lines.extend(["", f"{'#' * _markdown_heading_level(level)} {heading}"])
+
+
+def _clean_record_title(title: str, record_id: str) -> str:
+    title = title.strip()
+    if not record_id:
+        return title
+    pattern = rf"^\s*{re.escape(record_id)}\s*(?:[.)]|[-:])\s*"
+    return re.sub(pattern, "", title, count=1).strip() or title
 
 
 def _append_generic_record(lines: list[str], record: dict[str, object]) -> None:

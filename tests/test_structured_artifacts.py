@@ -44,6 +44,79 @@ class StructuredArtifactTests(unittest.TestCase):
         self.assertIn("```mermaid\nflowchart LR\nA-->B\n```", markdown)
         self.assertIn("- REQ-001", markdown)
 
+    def test_render_requirements_hides_section_ids_and_preserves_hierarchy(self) -> None:
+        markdown = render_artifact_markdown(
+            "requirements",
+            [
+                {
+                    "record_type": "document",
+                    "title": "Requirements",
+                },
+                {
+                    "record_type": "section",
+                    "id": "REQSEC-001",
+                    "order": 10,
+                    "title": "Table of Contents",
+                    "body": "- [Workflows](#workflows)\n"
+                    "- [Technology Direction](#technology-direction)",
+                },
+                {
+                    "record_type": "section",
+                    "id": "REQSEC-007",
+                    "order": 70,
+                    "title": "REQSEC-007. Workflows",
+                },
+                {
+                    "record_type": "section",
+                    "id": "REQSEC-008",
+                    "order": 80,
+                    "title": "Family Inbox",
+                    "body": "Inbox body.",
+                },
+                {
+                    "record_type": "section",
+                    "id": "REQSEC-005",
+                    "order": 145,
+                    "title": "Technology Direction",
+                    "body": "Technology body.",
+                },
+            ],
+        )
+
+        self.assertIn("## Workflows", markdown)
+        self.assertIn("### Family Inbox", markdown)
+        self.assertIn("## Technology Direction", markdown)
+        self.assertNotIn("REQSEC-007", markdown)
+        self.assertNotIn("REQSEC-008", markdown)
+        self.assertLess(
+            markdown.index("### Family Inbox"),
+            markdown.index("## Technology Direction"),
+        )
+
+    def test_import_artifact_records_heading_hierarchy(self) -> None:
+        records = markdown_to_artifact_records(
+            "requirements",
+            """# Requirements
+
+## Workflows
+
+### Family Inbox
+
+Inbox body.
+""",
+        )
+
+        workflows = next(
+            record for record in records if record.get("title") == "Workflows"
+        )
+        inbox = next(
+            record for record in records if record.get("title") == "Family Inbox"
+        )
+
+        self.assertEqual(workflows["heading_level"], 2)
+        self.assertEqual(inbox["heading_level"], 3)
+        self.assertEqual(inbox["parent_id"], workflows["id"])
+
     def test_render_test_plan_preserves_markdown_body(self) -> None:
         markdown = render_artifact_markdown(
             "test-plan",

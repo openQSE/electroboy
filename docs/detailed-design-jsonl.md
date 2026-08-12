@@ -56,7 +56,9 @@ small common envelope so tools can sort, validate, and render mixed content.
   "artifact_type": "requirements",
   "record_type": "requirement",
   "id": "REQ-001",
+  "parent_id": "REQSEC-001",
   "order": 10,
+  "heading_level": 3,
   "title": "Reserve QPU capacity",
   "status": "draft",
   "links": [],
@@ -71,7 +73,10 @@ Common fields:
 - `artifact_type` names the owning artifact.
 - `record_type` selects the artifact-specific payload shape.
 - `id` is stable and human-readable.
+- `parent_id` optionally links a record to its parent section.
 - `order` controls rendered order without relying on file position.
+- `heading_level` optionally records the Markdown heading depth for records
+  rendered as headings.
 - `title` is the rendered heading or item label.
 - `status` is `draft`, `approved`, `changed`, `deprecated`, or `deferred`.
 - `links` records traceability to other artifact ids.
@@ -147,10 +152,17 @@ Section records may be used for narrative grouping:
   "id": "REQSEC-001",
   "order": 5,
   "title": "User Workflows",
+  "heading_level": 2,
   "body": "The operator workflow starts with admission and ends with status.",
   "status": "draft"
 }
 ```
+
+Nested section records use `parent_id` or `heading_level` to preserve the
+document outline. Generated section ids such as `REQSEC-001` remain internal
+and are not rendered into visible section headings. Requirement ids such as
+`REQ-001`, `BEH-001`, or `TEC-001` remain visible because they are traceability
+anchors.
 
 ## Design Schema
 
@@ -167,6 +179,7 @@ Design section:
   "id": "DES-001",
   "order": 10,
   "title": "Admission service boundary",
+  "heading_level": 2,
   "body": "The admission service validates requests before scheduling.",
   "requirements": ["REQ-001", "REQ-002"],
   "interfaces": ["IFACE-001"],
@@ -286,6 +299,7 @@ Test suite:
   "id": "TS-001",
   "order": 10,
   "title": "Admission scheduling smoke tests",
+  "heading_level": 2,
   "body": "Detailed Markdown describing suite setup and constraints.",
   "scope": "End-to-end admission and scheduling behavior.",
   "requirements": ["REQ-001", "REQ-002"],
@@ -416,6 +430,13 @@ recorded and may become follow-up work.
 The Markdown companion is rendered from JSONL records in `order` sequence.
 Renderers keep stable headings so humans can link to sections and compare
 diffs.
+
+Renderers use explicit `heading_level` first. If that field is absent, they
+derive depth from `parent_id`. Older requirements JSONL that lacks both fields
+can still render a readable outline when it contains a table-of-contents
+section: headings listed in the table of contents render as top-level document
+sections, and intervening section records render as subsections under the
+nearest top-level section.
 
 Agents update the JSONL file during interactive sessions, then call the
 deterministic renderer before yielding control. The renderer rewrites the
