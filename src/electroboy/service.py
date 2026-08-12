@@ -3226,6 +3226,7 @@ INDEX_HTML = """<!doctype html>
     let currentSelectedFile = "";
     let expandedWorkflowStages = new Set();
     let expandedProjectActionGroups = new Set();
+    let restoredScratchContextId = "";
 
     function storedTerminalFontSize() {
       try {
@@ -3472,19 +3473,37 @@ INDEX_HTML = """<!doctype html>
     }
 
     function restoreScratchPad() {
+      const storageKey = scratchPadStorageKey();
+      if (!storageKey) {
+        scratchPad.value = "";
+        restoredScratchContextId = "";
+        return;
+      }
       try {
-        scratchPad.value = window.localStorage.getItem(SCRATCH_PAD_STORAGE_KEY) || "";
+        scratchPad.value = window.localStorage.getItem(storageKey) || "";
+        restoredScratchContextId = contextId;
       } catch (error) {
         scratchPad.value = "";
       }
     }
 
     function saveScratchPad() {
+      const storageKey = scratchPadStorageKey();
+      if (!storageKey) {
+        return;
+      }
       try {
-        window.localStorage.setItem(SCRATCH_PAD_STORAGE_KEY, scratchPad.value);
+        window.localStorage.setItem(storageKey, scratchPad.value);
       } catch (error) {
         return;
       }
+    }
+
+    function scratchPadStorageKey() {
+      if (!contextId) {
+        return "";
+      }
+      return `${SCRATCH_PAD_STORAGE_KEY}.${contextId}`;
     }
 
     function storedDocumentTargets() {
@@ -5230,6 +5249,9 @@ INDEX_HTML = """<!doctype html>
       updateDesignReviewMenuState();
       updateGenericStageMenuStates();
       updateDocumentMenuState();
+      if (restoredScratchContextId !== contextId) {
+        restoreScratchPad();
+      }
       syncProjectShellPane();
       syncArtifactPreviewWithProject();
       projectStatus.textContent = projectStatusLine();
@@ -6756,20 +6778,25 @@ INDEX_HTML = """<!doctype html>
 
     function queueProjectStatusRefresh(delay = 120) {
       window.clearTimeout(statusRefreshTimer);
+      const sequence = ++statusRefreshSequence;
       if (!contextId || !activationRoot) {
-        statusRefreshSequence += 1;
         projectStatusOutput.textContent = "no active project";
         return;
       }
-      statusRefreshTimer = window.setTimeout(refreshProjectStatus, delay);
+      projectStatusOutput.textContent = "refreshing status...\\n";
+      statusRefreshTimer = window.setTimeout(
+        () => refreshProjectStatus(sequence),
+        delay,
+      );
     }
 
-    async function refreshProjectStatus() {
+    async function refreshProjectStatus(sequence = ++statusRefreshSequence) {
       if (!contextId || !activationRoot) {
-        projectStatusOutput.textContent = "no active project";
+        if (sequence === statusRefreshSequence) {
+          projectStatusOutput.textContent = "no active project";
+        }
         return;
       }
-      const sequence = ++statusRefreshSequence;
       projectStatusOutput.textContent = "refreshing status...\\n";
       const response = await fetch(contextUrl("/api/project/status"), {
         cache: "no-store",
@@ -8786,7 +8813,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const MAX_ARTIFACT_ZOOM = 180;
     const ARTIFACT_ZOOM_STEP = 10;
     let artifactZoom = clampArtifactZoom(Number(params.get("document_zoom") || "100"));
-    const scratchKey = "electroboy.scratchPad";
+    const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
     const dockPane = document.getElementById("dockPane");
     const paneFontControls = document.getElementById("paneFontControls");
@@ -9497,14 +9524,21 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     function showScratchPad() {
       scratchPad.hidden = false;
+      const storageKey = scratchPadStorageKey();
       try {
-        scratchPad.value = window.localStorage.getItem(scratchKey) || "";
+        scratchPad.value = storageKey
+          ? window.localStorage.getItem(storageKey) || ""
+          : "";
       } catch (error) {
         scratchPad.value = "";
       }
       scratchPad.addEventListener("input", () => {
+        const activeStorageKey = scratchPadStorageKey();
+        if (!activeStorageKey) {
+          return;
+        }
         try {
-          window.localStorage.setItem(scratchKey, scratchPad.value);
+          window.localStorage.setItem(activeStorageKey, scratchPad.value);
         } catch (error) {
           return;
         }
@@ -9512,11 +9546,19 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       scratchPad.focus();
     }
 
+    function scratchPadStorageKey() {
+      if (!contextId) {
+        return "";
+      }
+      return `${SCRATCH_PAD_STORAGE_KEY}.${contextId}`;
+    }
+
     async function refreshStatus() {
       if (!contextId) {
         statusOutput.textContent = "no active project\n";
         return;
       }
+      statusOutput.textContent = "refreshing status...\n";
       const response = await fetch(contextUrl("/api/project/status"), {
         cache: "no-store",
       });

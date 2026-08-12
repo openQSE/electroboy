@@ -156,6 +156,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="sessionSwitcher"', PANE_WINDOW_HTML)
         self.assertIn("function refreshSessions()", PANE_WINDOW_HTML)
         self.assertIn("function selectAgentSession(sessionId)", PANE_WINDOW_HTML)
+        self.assertIn("function scratchPadStorageKey()", PANE_WINDOW_HTML)
+        self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", PANE_WINDOW_HTML)
+        self.assertIn("window.localStorage.getItem(storageKey)", PANE_WINDOW_HTML)
+        self.assertIn("window.localStorage.setItem(activeStorageKey", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/project")', PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/select")', PANE_WINDOW_HTML)
         self.assertIn('if (kind === "shell") return "Project shell";', PANE_WINDOW_HTML)
@@ -1039,6 +1043,12 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn('const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";', INDEX_HTML)
+        self.assertIn("function scratchPadStorageKey()", INDEX_HTML)
+        self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", INDEX_HTML)
+        self.assertIn("let restoredScratchContextId = \"\";", INDEX_HTML)
+        self.assertIn("if (restoredScratchContextId !== contextId)", INDEX_HTML)
+        self.assertIn("window.localStorage.getItem(storageKey)", INDEX_HTML)
+        self.assertIn("window.localStorage.setItem(storageKey", INDEX_HTML)
         self.assertIn("const PANE_POPUP_FEATURES =", INDEX_HTML)
         self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
         self.assertIn("const MIN_INPUT_PANE_HEIGHT = 56;", INDEX_HTML)
@@ -1157,7 +1167,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("showArtifactPreview(\"requirements\")", INDEX_HTML)
         self.assertIn('contextUrl("/api/project/status")', INDEX_HTML)
         self.assertIn("function queueProjectStatusRefresh", INDEX_HTML)
-        self.assertIn("async function refreshProjectStatus()", INDEX_HTML)
+        self.assertIn(
+            "async function refreshProjectStatus(sequence = ++statusRefreshSequence)",
+            INDEX_HTML,
+        )
+        self.assertIn('projectStatusOutput.textContent = "refreshing status...', INDEX_HTML)
         self.assertIn("black: \"#151923\"", INDEX_HTML)
         self.assertIn("brightCyan: \"#99e9f2\"", INDEX_HTML)
         self.assertIn("let progressEventSource = null;", INDEX_HTML)
