@@ -915,10 +915,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('class="workflow-toolbar"', INDEX_HTML)
-        self.assertIn("var(--workflow-pane-height, 92px) 7px", INDEX_HTML)
-        self.assertIn("padding: 10px 20px 8px;", INDEX_HTML)
+        self.assertIn("var(--workflow-pane-height, 86px) 7px", INDEX_HTML)
+        self.assertIn("padding: 8px 18px 4px;", INDEX_HTML)
         self.assertIn("height: calc(var(--ui-font-size) + 23px);", INDEX_HTML)
-        self.assertIn("padding-top: 38px;", INDEX_HTML)
+        self.assertIn("padding-top: 36px;", INDEX_HTML)
         self.assertIn('class="input-pane-header pane-header"', INDEX_HTML)
         self.assertIn("padding: 0 12px 12px;", INDEX_HTML)
         self.assertIn("margin: 0 -12px;", INDEX_HTML)
@@ -1017,6 +1017,12 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn(
+            'const WORKFLOW_PANE_HEIGHT_STORAGE_VERSION_KEY =',
+            INDEX_HTML,
+        )
+        self.assertIn('const DEFAULT_WORKFLOW_PANE_HEIGHT = 86;', INDEX_HTML)
+        self.assertIn('const MIN_WORKFLOW_PANE_HEIGHT = 86;', INDEX_HTML)
+        self.assertIn(
             'const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";',
             INDEX_HTML,
         )
@@ -1075,6 +1081,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startShellResize(event)", INDEX_HTML)
         self.assertIn("function updateShellResize(event)", INDEX_HTML)
         self.assertIn("function finishShellResize(event)", INDEX_HTML)
+        self.assertIn("function storedWorkflowPaneHeight()", INDEX_HTML)
+        self.assertIn("function saveWorkflowPaneHeight(height)", INDEX_HTML)
+        self.assertIn("saveWorkflowPaneHeight(DEFAULT_WORKFLOW_PANE_HEIGHT)", INDEX_HTML)
+        self.assertIn("saveWorkflowPaneHeight(nextHeight);", INDEX_HTML)
         self.assertIn("function startInputResize(event)", INDEX_HTML)
         self.assertIn("function updateInputResize(event)", INDEX_HTML)
         self.assertIn("Math.max(MIN_INPUT_PANE_HEIGHT, agentRect.height - 160)", INDEX_HTML)

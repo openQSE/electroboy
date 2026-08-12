@@ -311,7 +311,7 @@ INDEX_HTML = """<!doctype html>
       display: grid;
       grid-template-columns: var(--workflow-side-sheet-width, 320px) minmax(0, 1fr);
       grid-template-rows:
-        var(--workflow-pane-height, 92px) 7px
+        var(--workflow-pane-height, 86px) 7px
         minmax(0, 1fr);
       height: 100vh;
       min-height: 560px;
@@ -326,7 +326,7 @@ INDEX_HTML = """<!doctype html>
       z-index: 10;
       grid-column: 2;
       grid-row: 1;
-      padding: 10px 20px 8px;
+      padding: 8px 18px 4px;
       border-bottom: 1px solid var(--border);
       background: var(--top-surface);
       overflow: visible;
@@ -423,8 +423,8 @@ INDEX_HTML = """<!doctype html>
 
     .workflow-toolbar {
       position: absolute;
-      top: 10px;
-      left: 20px;
+      top: 8px;
+      left: 18px;
       z-index: 12;
       display: flex;
       align-items: center;
@@ -540,8 +540,8 @@ INDEX_HTML = """<!doctype html>
       display: none;
       overflow-x: auto;
       overflow-y: hidden;
-      margin: 0 -20px;
-      padding: 0 20px;
+      margin: 0 -18px;
+      padding: 0 18px;
     }
 
     .stage-scroll::-webkit-scrollbar {
@@ -572,8 +572,8 @@ INDEX_HTML = """<!doctype html>
 
     .connection {
       position: absolute;
-      right: 20px;
-      top: 12px;
+      right: 18px;
+      top: 10px;
       color: #264e66;
       font-size: var(--ui-font-size);
       font-weight: 400;
@@ -589,7 +589,7 @@ INDEX_HTML = """<!doctype html>
       gap: clamp(6px, 0.45vw, 10px);
       width: 100%;
       min-width: 1180px;
-      padding-top: 38px;
+      padding-top: 36px;
     }
 
     .stage-graph::before {
@@ -609,8 +609,8 @@ INDEX_HTML = """<!doctype html>
     }
 
     .stage-connector-icon {
-      width: clamp(30px, 2.6vw, 42px);
-      height: clamp(30px, 2.6vw, 42px);
+      width: clamp(28px, 2.3vw, 36px);
+      height: clamp(28px, 2.3vw, 36px);
       filter: drop-shadow(0 1px 1px rgb(17 24 39 / 12%));
       opacity: 0.9;
     }
@@ -623,7 +623,7 @@ INDEX_HTML = """<!doctype html>
       justify-content: center;
       width: 100%;
       min-width: 106px;
-      min-height: 46px;
+      min-height: 42px;
       padding: 0 10px;
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -3052,6 +3052,11 @@ INDEX_HTML = """<!doctype html>
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
     const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";
+    const WORKFLOW_PANE_HEIGHT_STORAGE_VERSION_KEY =
+      "electroboy.workflowPaneHeightVersion";
+    const WORKFLOW_PANE_HEIGHT_STORAGE_VERSION = "compact-v2";
+    const DEFAULT_WORKFLOW_PANE_HEIGHT = 86;
+    const MIN_WORKFLOW_PANE_HEIGHT = 86;
     const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
     const INPUT_ACTIONS_WIDTH_STORAGE_KEY = "electroboy.inputActionsWidth";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
@@ -3370,8 +3375,43 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function applyStoredPaneSizes() {
+    function storedWorkflowPaneHeight() {
       const workflowHeight = storedNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY);
+      if (!workflowHeight) {
+        return 0;
+      }
+      let version = "";
+      try {
+        version = window.localStorage.getItem(
+          WORKFLOW_PANE_HEIGHT_STORAGE_VERSION_KEY,
+        ) || "";
+      } catch (error) {
+        version = "";
+      }
+      if (
+        version !== WORKFLOW_PANE_HEIGHT_STORAGE_VERSION &&
+        workflowHeight > DEFAULT_WORKFLOW_PANE_HEIGHT
+      ) {
+        saveWorkflowPaneHeight(DEFAULT_WORKFLOW_PANE_HEIGHT);
+        return DEFAULT_WORKFLOW_PANE_HEIGHT;
+      }
+      return Math.max(MIN_WORKFLOW_PANE_HEIGHT, workflowHeight);
+    }
+
+    function saveWorkflowPaneHeight(height) {
+      saveNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY, height);
+      try {
+        window.localStorage.setItem(
+          WORKFLOW_PANE_HEIGHT_STORAGE_VERSION_KEY,
+          WORKFLOW_PANE_HEIGHT_STORAGE_VERSION,
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function applyStoredPaneSizes() {
+      const workflowHeight = storedWorkflowPaneHeight();
       if (workflowHeight) {
         shell.style.setProperty("--workflow-pane-height", `${workflowHeight}px`);
       }
@@ -4305,7 +4345,7 @@ INDEX_HTML = """<!doctype html>
       resizeShellState = {
         startY: event.clientY,
         startHeight: workflowRect.height,
-        maxHeight: Math.max(140, shellRect.height - 240),
+        maxHeight: Math.max(MIN_WORKFLOW_PANE_HEIGHT, shellRect.height - 240),
       };
       shellResizeHandle.setPointerCapture(event.pointerId);
       shell.classList.add("resizing");
@@ -4318,11 +4358,11 @@ INDEX_HTML = """<!doctype html>
       const deltaY = event.clientY - resizeShellState.startY;
       const nextHeight = clampValue(
         resizeShellState.startHeight + deltaY,
-        140,
+        MIN_WORKFLOW_PANE_HEIGHT,
         resizeShellState.maxHeight,
       );
       shell.style.setProperty("--workflow-pane-height", `${nextHeight}px`);
-      saveNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY, nextHeight);
+      saveWorkflowPaneHeight(nextHeight);
       repositionOpenStageMenu();
       fitTerminal();
     }
