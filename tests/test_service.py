@@ -1101,6 +1101,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("if (documentationRunning) {\n            hideStageMenus();", INDEX_HTML)
         self.assertIn("showDocumentPreview(target);", INDEX_HTML)
         self.assertIn("startDocumentationAgent(target);", INDEX_HTML)
+        self.assertIn(
+            "if (documentationRunning) {\n"
+            "        showDocumentPreview(target);\n"
+            "      } else {\n"
+            "        startDocumentationAgent(target);\n"
+            "      }",
+            INDEX_HTML,
+        )
         self.assertIn("window.confirm", INDEX_HTML)
         self.assertIn("Requirements have not been explicitly approved", INDEX_HTML)
         self.assertIn("Design has not been explicitly approved", INDEX_HTML)

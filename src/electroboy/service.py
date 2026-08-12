@@ -5267,7 +5267,11 @@ INDEX_HTML = """<!doctype html>
       customDocumentName.value = "";
       customDocumentForm.hidden = true;
       renderDocumentTargets();
-      showDocumentPreview(target);
+      if (documentationRunning) {
+        showDocumentPreview(target);
+      } else {
+        startDocumentationAgent(target);
+      }
     }
 
     function artifactKindForPane(item) {
