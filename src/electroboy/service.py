@@ -13628,16 +13628,7 @@ def _project_shell_command() -> list[str]:
 
 def _electroboy_command(root: Path, args: list[str]) -> list[str]:
     activate_script = root / ".electroboy" / "bin" / "activate"
-    command_parts = ["electroboy", *args]
-    command_text = " ".join(shlex.quote(part) for part in command_parts)
-    if activate_script.exists():
-        return [
-            "/bin/sh",
-            "-c",
-            f". {shlex.quote(str(activate_script))} >/dev/null && "
-            f"{command_text}",
-        ]
-    return [
+    command_parts = [
         sys.executable,
         "-m",
         "electroboy",
@@ -13645,6 +13636,21 @@ def _electroboy_command(root: Path, args: list[str]) -> list[str]:
         str(root),
         *args,
     ]
+    command_text = " ".join(shlex.quote(part) for part in command_parts)
+    if activate_script.exists():
+        module_path = shlex.quote(str(_service_module_search_path()))
+        return [
+            "/bin/sh",
+            "-c",
+            f". {shlex.quote(str(activate_script))} >/dev/null && "
+            f"PYTHONPATH={module_path}${{PYTHONPATH:+:$PYTHONPATH}} "
+            f"{command_text}",
+        ]
+    return command_parts
+
+
+def _service_module_search_path() -> Path:
+    return Path(__file__).resolve().parents[1]
 
 
 def _progress_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, bool]:

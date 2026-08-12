@@ -1730,8 +1730,12 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(started)
         self.assertEqual(session.cwd, meta_root.resolve())
         self.assertEqual(session.command[:2], ["/bin/sh", "-c"])
-        self.assertIn(str(meta_root.resolve() / ".electroboy" / "bin" / "activate"), session.command[2])
-        self.assertIn("electroboy requirements", session.command[2])
+        self.assertIn(
+            str(meta_root.resolve() / ".electroboy" / "bin" / "activate"),
+            session.command[2],
+        )
+        self.assertIn("-m electroboy --root", session.command[2])
+        self.assertIn("requirements", session.command[2])
 
     def test_documentation_sidecar_session_does_not_change_workflow_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1758,6 +1762,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(session.kind, "documentation")
         self.assertTrue(session.interactive)
         command_text = " ".join(session.command)
+        self.assertIn("-m electroboy --root", command_text)
         self.assertIn("document", command_text)
         self.assertIn("--sidecar", command_text)
         self.assertIn("--interactive", command_text)
@@ -3188,7 +3193,8 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(command[:2], ["/bin/sh", "-c"])
         self.assertIn(". ", command[2])
-        self.assertIn("electroboy requirements", command[2])
+        self.assertIn("-m electroboy --root", command[2])
+        self.assertIn("requirements", command[2])
 
     def test_progress_command_sources_project_activation_when_available(
         self,
@@ -3203,7 +3209,8 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(command[:2], ["/bin/sh", "-c"])
         self.assertIn(". ", command[2])
-        self.assertIn("electroboy progress --once", command[2])
+        self.assertIn("-m electroboy --root", command[2])
+        self.assertIn("progress --once", command[2])
 
     def test_status_command_sources_project_activation_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3216,7 +3223,8 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(command[:2], ["/bin/sh", "-c"])
         self.assertIn(". ", command[2])
-        self.assertIn("electroboy status", command[2])
+        self.assertIn("-m electroboy --root", command[2])
+        self.assertIn("status", command[2])
 
     def test_progress_snapshot_reads_progress_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
