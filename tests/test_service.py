@@ -42,6 +42,7 @@ from electroboy.service import (  # noqa: E402
     _terminal_input_chunks_for_message,
     _terminal_input_for_key,
     _terminal_input_for_message,
+    artifact_editor_html,
     browse_directories,
     browse_files,
     browse_markdown_files,
@@ -50,6 +51,7 @@ from electroboy.service import (  # noqa: E402
     file_browser_window_html,
     pane_window_html,
     requirements_document_html,
+    save_artifact_edit,
     workflow_payload,
 )
 from electroboy.models import (  # noqa: E402
@@ -120,9 +122,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("document_zoom")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn('id="refreshArtifact"', page)
+        self.assertIn('id="editArtifact"', page)
         self.assertIn('id="exportPaneFormat"', page)
         self.assertIn('id="exportPaneOutput"', page)
         self.assertIn("function artifactEventUrl()", page)
+        self.assertIn("function artifactEditUrl()", page)
+        self.assertIn("function toggleArtifactEditMode()", page)
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("artifact", "route")', page)
@@ -132,6 +137,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function exportCurrentPaneOutput()", page)
         self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
         self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
+        self.assertIn("editArtifactButton.hidden = false;", page)
         self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
         self.assertLess(
@@ -158,7 +164,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/shell/input")', PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/shell/resize")', PANE_WINDOW_HTML)
         self.assertIn('if (kind === "input") return "AI agent input";', PANE_WINDOW_HTML)
-        self.assertIn('sandbox="allow-scripts allow-popups"', page)
+        self.assertIn('sandbox="allow-scripts allow-popups allow-same-origin"', page)
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
@@ -450,6 +456,121 @@ class ServiceTests(unittest.TestCase):
                 document_target_html(root, "../outside.md", create_missing=True)
             with self.assertRaises(StateError):
                 document_target_html(root, "docs/guide.txt", create_missing=True)
+
+    def test_artifact_editor_html_imports_markdown_to_structured_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            StateStore(root).init_run(run_id="run-1")
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "requirements.md").write_text(
+                "# Requirements\n\n## REQ-001. Login\n\nMarkdown body.\n",
+                encoding="utf-8",
+            )
+
+            page, status = artifact_editor_html(
+                root,
+                "requirements",
+                context_id="ctx-1",
+            )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('"mode": "structured"', page)
+        self.assertIn('"jsonl_path": "docs/requirements.jsonl"', page)
+        self.assertIn("Markdown body", page)
+        self.assertIn("/api/artifacts/edit", page)
+
+    def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            StateStore(root).init_run(run_id="run-1")
+
+            result = save_artifact_edit(
+                root,
+                "requirements",
+                "",
+                {
+                    "mode": "structured",
+                    "records": [
+                        {
+                            "record_type": "document",
+                            "title": "Requirements",
+                        },
+                        {
+                            "record_type": "requirement",
+                            "id": "REQ-001",
+                            "title": "Accept Markdown",
+                            "statement": "The editor stores Markdown body text.",
+                            "body": (
+                                "| Input | Expected |\n"
+                                "| --- | --- |\n"
+                                "| save | rendered |"
+                            ),
+                        },
+                    ],
+                },
+            )
+            rendered = (root / "docs" / "requirements.md").read_text(
+                encoding="utf-8",
+            )
+            jsonl = (root / "docs" / "requirements.jsonl").read_text(
+                encoding="utf-8",
+            )
+
+        self.assertEqual(result["status"], "saved")
+        self.assertIn("| Input | Expected |", rendered)
+        self.assertIn("The editor stores Markdown body text.", rendered)
+        self.assertIn('"body": "| Input | Expected |', jsonl)
+
+    def test_save_artifact_edit_rejects_malformed_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            StateStore(root).init_run(run_id="run-1")
+
+            with self.assertRaisesRegex(StateError, "record 1 must be an object"):
+                save_artifact_edit(
+                    root,
+                    "requirements",
+                    "",
+                    {
+                        "mode": "structured",
+                        "records": ["not a record object"],
+                    },
+                )
+
+    def test_artifact_editor_endpoint_serves_active_project_editor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            StateStore(root).init_run(run_id="run-1")
+            (root / "docs").mkdir()
+            (root / "docs" / "requirements.md").write_text(
+                "# Requirements\n",
+                encoding="utf-8",
+            )
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            payload = server.service_state.create_context()
+            context_id = str(payload["context_id"])
+            server.service_state.open_project(context_id, str(root))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    f"/artifacts/edit?context_id={context_id}&artifact=requirements",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn("Requirements Editor", body)
+        self.assertIn('"mode": "structured"', body)
 
     def test_document_export_endpoint_serves_active_project_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -768,7 +889,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('className = "artifact-preview-divider"', INDEX_HTML)
         self.assertIn('className = "document-zoom-button"', INDEX_HTML)
         self.assertIn('className = "document-zoom-level"', INDEX_HTML)
-        self.assertIn('frame.setAttribute("sandbox", "allow-scripts allow-popups")', INDEX_HTML)
+        self.assertIn(
+            'frame.setAttribute("sandbox", "allow-scripts allow-popups allow-same-origin")',
+            INDEX_HTML,
+        )
+        self.assertIn("function artifactEditUrl(item)", INDEX_HTML)
+        self.assertIn(
+            "item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item)",
+            INDEX_HTML,
+        )
+        self.assertIn(
+            "item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item)",
+            INDEX_HTML,
+        )
         self.assertIn('id="artifactPaneResizeHandle"', INDEX_HTML)
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
@@ -989,6 +1122,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("artifact", "document")', INDEX_HTML)
         self.assertIn('parameters.set("artifact", "route")', INDEX_HTML)
         self.assertIn("artifactPreviewItems.map(artifactEventUrl)", INDEX_HTML)
+        self.assertIn('data.type === "electroboy-artifact-saved"', INDEX_HTML)
         self.assertIn('refresh.textContent = "Refresh";', INDEX_HTML)
         self.assertIn('"artifact-event"', INDEX_HTML)
         self.assertNotIn("ARTIFACT_PREVIEW_REFRESH_MS", INDEX_HTML)

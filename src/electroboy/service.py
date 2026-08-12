@@ -54,6 +54,15 @@ from .models import (
     utc_now,
 )
 from .state_store import StateError, StateStore
+from .structured_artifacts import (
+    ARTIFACT_DEFAULT_MARKDOWN_PATHS,
+    ARTIFACT_TITLES,
+    artifact_jsonl_path,
+    artifact_markdown_path,
+    import_artifact,
+    read_artifact_records,
+    render_artifact,
+)
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -212,6 +221,34 @@ ARTIFACT_EVENT_ROUTE_PATHS = {
     "/artifacts/test-plan": "docs/test-plan.md",
     "/artifacts/validation-report": "docs/validation-report.md",
 }
+
+STRUCTURED_ARTIFACT_BY_MARKDOWN_PATH = {
+    path: artifact
+    for artifact, path in ARTIFACT_DEFAULT_MARKDOWN_PATHS.items()
+}
+
+ARTIFACT_EDITOR_LIST_FIELDS = {
+    "acceptance_criteria",
+    "commit_tasks",
+    "consequences",
+    "dependencies",
+    "design_sections",
+    "expected_results",
+    "exit_criteria",
+    "implementation_units",
+    "interfaces",
+    "out_of_scope",
+    "paths",
+    "personas",
+    "plan_tasks",
+    "preconditions",
+    "requirements",
+    "scope",
+    "steps",
+    "verification",
+}
+
+ARTIFACT_EDITOR_JSON_FIELDS = {"automation", "schema"}
 
 INDEX_HTML = """<!doctype html>
 <html lang="en">
@@ -4872,6 +4909,12 @@ INDEX_HTML = """<!doctype html>
         projectPath.focus();
         return;
       }
+      if (data.type === "electroboy-artifact-saved") {
+        artifactPreviewVersion += 1;
+        refreshArtifactPreview();
+        appendOutput(`saved: ${data.path || "artifact"}\\n`, "system");
+        return;
+      }
       if (
         data.type === "electroboy-pane-font-offset" &&
         PANE_FONT_KEYS.includes(data.pane)
@@ -6269,6 +6312,24 @@ INDEX_HTML = """<!doctype html>
       return "";
     }
 
+    function artifactEditUrl(item) {
+      if (!item) {
+        return "";
+      }
+      const parameters = new URLSearchParams();
+      parameters.set("artifact", artifactKindForPane(item));
+      if (item.kind === "document" && item.target) {
+        parameters.set("path", item.target.path);
+        parameters.set("title", item.target.label);
+        parameters.set("create", "1");
+      }
+      if (item.kind === "route" && item.path) {
+        parameters.set("path", item.path);
+        parameters.set("title", item.title);
+      }
+      return contextUrl(`/artifacts/edit?${parameters.toString()}`);
+    }
+
     function artifactPreviewsForStage(stage) {
       return (STAGE_ARTIFACT_PREVIEWS[stage] || []).map((item) => ({ ...item }));
     }
@@ -6406,6 +6467,19 @@ INDEX_HTML = """<!doctype html>
         refresh.textContent = "Refresh";
         refresh.addEventListener("click", refreshArtifactPreview);
 
+        const edit = document.createElement("button");
+        edit.className = "pane-popout-button";
+        edit.type = "button";
+        edit.title = item.editing
+          ? `Return to ${item.title} preview`
+          : `Edit ${item.title}`;
+        edit.setAttribute("aria-label", edit.title);
+        edit.textContent = item.editing ? "Preview" : "Edit";
+        edit.addEventListener("click", () => {
+          item.editing = !item.editing;
+          renderArtifactPreviewItems();
+        });
+
         const exportFormat = document.createElement("select");
         exportFormat.className = "document-export-format";
         exportFormat.title = `Export format for ${item.title}`;
@@ -6440,15 +6514,15 @@ INDEX_HTML = """<!doctype html>
         });
 
         zoomControls.append(zoomOut, zoomLevel, zoomIn);
-        actions.append(zoomControls, exportFormat, exportButton, refresh, popout);
+        actions.append(zoomControls, exportFormat, exportButton, refresh, edit, popout);
         header.append(title, actions);
 
         const frame = document.createElement("iframe");
         frame.className = "artifact-preview-frame";
         frame.title = `${item.title} preview`;
-        frame.setAttribute("sandbox", "allow-scripts allow-popups");
+        frame.setAttribute("sandbox", "allow-scripts allow-popups allow-same-origin");
         frame.dataset.artifactId = item.id;
-        frame.src = artifactPreviewUrl(item);
+        frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
 
         section.append(header, frame);
         artifactPreviewStack.append(section);
@@ -6582,7 +6656,7 @@ INDEX_HTML = """<!doctype html>
         const item = artifactPreviewItems.find(
           (candidate) => candidate.id === frame.dataset.artifactId,
         );
-        const url = artifactPreviewUrl(item);
+        const url = item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
         if (url) {
           frame.src = url;
         }
@@ -8630,6 +8704,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
           aria-label="Refresh document"
           hidden
         >Refresh</button>
+        <button
+          id="editArtifact"
+          type="button"
+          title="Edit document"
+          aria-label="Edit document"
+          hidden
+        >Edit</button>
         <select
           id="exportPaneFormat"
           title="Export format"
@@ -8656,7 +8737,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         id="artifactFrame"
         class="artifact-frame"
         title="Rendered artifact preview"
-        sandbox="allow-scripts allow-popups"
+        sandbox="allow-scripts allow-popups allow-same-origin"
         hidden
       ></iframe>
       <textarea id="scratchPad" class="scratch-pad" spellcheck="false" hidden></textarea>
@@ -8718,6 +8799,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactZoomLevel = document.getElementById("artifactZoomLevel");
     const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
     const refreshArtifactButton = document.getElementById("refreshArtifact");
+    const editArtifactButton = document.getElementById("editArtifact");
     const exportPaneFormat = document.getElementById("exportPaneFormat");
     const exportPaneOutput = document.getElementById("exportPaneOutput");
     const terminalHost = document.getElementById("terminalHost");
@@ -8735,6 +8817,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     let eventSource = null;
     let artifactEventSource = null;
     let artifactVersion = 0;
+    let artifactEditing = false;
     let statusTimer = null;
 
     applyFontSize();
@@ -9345,9 +9428,34 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       return "";
     }
 
+    function artifactEditUrl() {
+      const parameters = new URLSearchParams();
+      parameters.set("artifact", artifactKind);
+      if (artifactKind === "document" && artifactDocumentPath) {
+        parameters.set("path", artifactDocumentPath);
+        parameters.set("title", artifactDocumentTitle || artifactDocumentPath);
+        parameters.set("create", "1");
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        parameters.set("path", artifactRoutePath);
+        parameters.set("title", artifactRouteTitle || artifactRoutePath);
+      }
+      return contextUrl(`/artifacts/edit?${parameters.toString()}`);
+    }
+
     function refreshArtifact() {
       artifactVersion += 1;
-      artifactFrame.src = artifactUrl();
+      artifactFrame.src = artifactEditing ? artifactEditUrl() : artifactUrl();
+    }
+
+    function toggleArtifactEditMode() {
+      artifactEditing = !artifactEditing;
+      editArtifactButton.textContent = artifactEditing ? "Preview" : "Edit";
+      editArtifactButton.title = artifactEditing
+        ? "Return to document preview"
+        : "Edit document";
+      editArtifactButton.setAttribute("aria-label", editArtifactButton.title);
+      refreshArtifact();
     }
 
     function artifactEventUrl() {
@@ -9372,6 +9480,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       artifactFrame.hidden = false;
       artifactZoomControls.hidden = false;
       refreshArtifactButton.hidden = false;
+      editArtifactButton.hidden = false;
       applyArtifactZoom();
       refreshArtifact();
       if (!contextId) {
@@ -9513,6 +9622,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
     );
     refreshArtifactButton.addEventListener("click", refreshArtifact);
+    editArtifactButton.addEventListener("click", toggleArtifactEditMode);
     exportPaneOutput.addEventListener("click", () => {
       exportCurrentPaneOutput().catch((error) => {
         if (terminal) {
@@ -9537,6 +9647,18 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       }
       fontOffset = localStoredFontOffset();
       applyFontSize();
+    });
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      const data = event.data || {};
+      if (data.type === "electroboy-artifact-saved") {
+        artifactVersion += 1;
+        if (!artifactEditing) {
+          refreshArtifact();
+        }
+      }
     });
     sessionSwitcher.addEventListener("change", () => {
       selectAgentSession(sessionSwitcher.value);
@@ -13852,6 +13974,30 @@ def document_target_html(
     )
 
 
+def artifact_editor_html(
+    project_root: Path | str,
+    artifact: str,
+    requested_path: str = "",
+    *,
+    title: str | None = None,
+    create_missing: bool = False,
+    context_id: str = "",
+) -> tuple[str, HTTPStatus]:
+    """Return a live editor page for a Markdown or structured artifact."""
+
+    project_root = Path(project_root).expanduser().resolve()
+    edit_data = _artifact_edit_payload(
+        project_root,
+        artifact,
+        requested_path,
+        title=title,
+        create_missing=create_missing,
+    )
+    edit_data["context_id"] = context_id
+    page = _artifact_editor_page(edit_data)
+    return page, HTTPStatus.OK
+
+
 def markdown_document_html(
     project_root: Path | str,
     relative_path: str,
@@ -14075,6 +14221,769 @@ def _document_starter_title(relative_path: str) -> str:
     if stem.lower() == "api":
         return "API"
     return stem.replace("-", " ").replace("_", " ").title()
+
+
+def _artifact_edit_payload(
+    project_root: Path,
+    artifact: str,
+    requested_path: str,
+    *,
+    title: str | None = None,
+    create_missing: bool = False,
+) -> dict[str, object]:
+    artifact = artifact.strip()
+    structured_artifact, markdown_path = _structured_artifact_for_edit_request(
+        project_root,
+        artifact,
+        requested_path,
+    )
+    if structured_artifact:
+        records, jsonl_path = _ensure_structured_edit_records(
+            project_root,
+            structured_artifact,
+            markdown_path,
+        )
+        return {
+            "mode": "structured",
+            "artifact": artifact,
+            "artifact_name": structured_artifact,
+            "path": requested_path,
+            "title": title or ARTIFACT_TITLES[structured_artifact],
+            "markdown_path": markdown_path,
+            "jsonl_path": jsonl_path,
+            "records": records,
+            "list_fields": sorted(ARTIFACT_EDITOR_LIST_FIELDS),
+            "json_fields": sorted(ARTIFACT_EDITOR_JSON_FIELDS),
+        }
+
+    if artifact == "document":
+        markdown_path = (
+            _ensure_document_target(project_root, requested_path)
+            if create_missing
+            else _document_target_path(project_root, requested_path)[0]
+        )
+        document_path = _document_target_path(project_root, markdown_path)[1]
+    else:
+        document_path = _artifact_event_document_path(
+            project_root,
+            artifact,
+            requested_path,
+        )
+        markdown_path = document_path.relative_to(project_root).as_posix()
+    if not document_path.exists():
+        document_path.parent.mkdir(parents=True, exist_ok=True)
+        document_path.write_text(
+            _document_starter_markdown(markdown_path),
+            encoding="utf-8",
+        )
+    return {
+        "mode": "markdown",
+        "artifact": artifact,
+        "path": requested_path,
+        "title": title or markdown_path,
+        "markdown_path": markdown_path,
+        "markdown": document_path.read_text(encoding="utf-8"),
+    }
+
+
+def _structured_artifact_for_edit_request(
+    project_root: Path,
+    artifact: str,
+    requested_path: str,
+) -> tuple[str | None, str]:
+    if artifact == "requirements":
+        structured_artifact = "requirements"
+        return structured_artifact, artifact_markdown_path(project_root, structured_artifact)
+    if artifact == "route":
+        default_path = ARTIFACT_EVENT_ROUTE_PATHS.get(requested_path, "")
+        structured_artifact = STRUCTURED_ARTIFACT_BY_MARKDOWN_PATH.get(default_path)
+        if structured_artifact:
+            return (
+                structured_artifact,
+                _resolved_artifact_relative_path(project_root, default_path),
+            )
+        return None, default_path
+    if artifact == "document" and requested_path:
+        try:
+            markdown_path = _document_target_path(project_root, requested_path)[0]
+        except StateError:
+            return None, ""
+        for structured_artifact in ARTIFACT_DEFAULT_MARKDOWN_PATHS:
+            if markdown_path == artifact_markdown_path(project_root, structured_artifact):
+                return structured_artifact, markdown_path
+    return None, ""
+
+
+def _ensure_structured_edit_records(
+    project_root: Path,
+    artifact: str,
+    markdown_path: str,
+) -> tuple[list[dict[str, object]], str]:
+    jsonl_path = artifact_jsonl_path(project_root, artifact, markdown_path)
+    jsonl_file = _safe_project_document_path(project_root, jsonl_path)
+    if jsonl_file.exists():
+        return read_artifact_records(project_root, jsonl_path), jsonl_path
+
+    markdown_file = _safe_project_document_path(project_root, markdown_path)
+    if markdown_file.exists():
+        import_artifact(
+            project_root,
+            artifact,
+            markdown_path=markdown_path,
+            jsonl_path=jsonl_path,
+        )
+        return read_artifact_records(project_root, jsonl_path), jsonl_path
+
+    records = [
+        {
+            "schema_version": 1,
+            "artifact_type": artifact,
+            "record_type": "document",
+            "id": _artifact_document_record_id(artifact),
+            "order": 0,
+            "title": ARTIFACT_TITLES[artifact],
+            "body": "",
+            "status": "draft",
+        }
+    ]
+    _write_artifact_records(project_root, jsonl_path, records, artifact)
+    render_artifact(
+        project_root,
+        artifact,
+        jsonl_path=jsonl_path,
+        markdown_path=markdown_path,
+    )
+    return records, jsonl_path
+
+
+def _artifact_document_record_id(artifact: str) -> str:
+    return {
+        "requirements": "REQ-DOC",
+        "design": "DES-DOC",
+        "implementation-plan": "PLAN-DOC",
+        "test-plan": "TEST-DOC",
+    }.get(artifact, "DOC")
+
+
+def _safe_project_document_path(project_root: Path, relative_path: str) -> Path:
+    path = Path(relative_path)
+    if path.is_absolute():
+        raise StateError("document path must be relative")
+    resolved = (project_root / path).resolve()
+    try:
+        resolved.relative_to(project_root)
+    except ValueError as error:
+        raise StateError("document path cannot escape the project") from error
+    return resolved
+
+
+def _write_artifact_records(
+    project_root: Path,
+    jsonl_path: str,
+    records: list[dict[str, object]],
+    artifact: str,
+) -> None:
+    if not records:
+        raise StateError("artifact must contain at least one record")
+    normalized_records: list[dict[str, object]] = []
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise StateError(f"record {index + 1} must be an object")
+        normalized = dict(record)
+        normalized.setdefault("schema_version", 1)
+        normalized.setdefault("artifact_type", artifact)
+        normalized.setdefault("record_type", "section")
+        normalized_records.append(normalized)
+    output_path = _safe_project_document_path(project_root, jsonl_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        "\n".join(json.dumps(record, sort_keys=True) for record in normalized_records)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def save_artifact_edit(
+    project_root: Path | str,
+    artifact: str,
+    requested_path: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    project_root = Path(project_root).expanduser().resolve()
+    artifact = artifact.strip()
+    mode = str(payload.get("mode") or "")
+    structured_artifact, markdown_path = _structured_artifact_for_edit_request(
+        project_root,
+        artifact,
+        requested_path,
+    )
+    if structured_artifact:
+        records = payload.get("records")
+        if not isinstance(records, list):
+            raise StateError("records must be a list")
+        jsonl_path = artifact_jsonl_path(project_root, structured_artifact, markdown_path)
+        _write_artifact_records(
+            project_root,
+            jsonl_path,
+            records,
+            structured_artifact,
+        )
+        result = render_artifact(
+            project_root,
+            structured_artifact,
+            jsonl_path=jsonl_path,
+            markdown_path=markdown_path,
+        )
+        return {
+            "status": "saved",
+            "mode": "structured",
+            "artifact": structured_artifact,
+            "markdown_path": result.markdown_path,
+            "jsonl_path": result.jsonl_path,
+            "record_count": result.record_count,
+        }
+
+    if mode != "markdown":
+        raise StateError("artifact is not backed by a structured JSONL document")
+    markdown = str(payload.get("markdown") or "")
+    document_path = _artifact_event_document_path(
+        project_root,
+        artifact,
+        requested_path,
+    )
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_text(markdown, encoding="utf-8")
+    return {
+        "status": "saved",
+        "mode": "markdown",
+        "markdown_path": document_path.relative_to(project_root).as_posix(),
+    }
+
+
+def _artifact_editor_page(edit_data: dict[str, object]) -> str:
+    data_json = json.dumps(edit_data).replace("</", "<\\/")
+    title = html.escape(str(edit_data.get("title") or "Artifact Editor"))
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title} Editor</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #10141f;
+      --panel: #151b29;
+      --panel-soft: #1d2638;
+      --text: #e7edf7;
+      --muted: #aab8cf;
+      --border: #2a3142;
+      --accent: #66d9e8;
+      --accent-strong: #1f6f8b;
+      --error: #ff8787;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      font-size: 14px;
+    }}
+
+    * {{
+      box-sizing: border-box;
+    }}
+
+    html,
+    body {{
+      min-height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }}
+
+    body {{
+      overflow: auto;
+    }}
+
+    main {{
+      display: grid;
+      gap: 14px;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 16px;
+    }}
+
+    .editor-header,
+    .record-editor,
+    .markdown-editor {{
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+    }}
+
+    .editor-header {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+    }}
+
+    .editor-title {{
+      min-width: 0;
+    }}
+
+    h1 {{
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.25;
+    }}
+
+    .editor-meta {{
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }}
+
+    .editor-actions {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }}
+
+    button {{
+      min-height: 34px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: var(--panel-soft);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 650;
+      padding: 0 12px;
+    }}
+
+    button.primary {{
+      border-color: var(--accent-strong);
+      background: var(--accent-strong);
+      color: #ffffff;
+    }}
+
+    button:disabled {{
+      cursor: not-allowed;
+      opacity: 0.55;
+    }}
+
+    .status {{
+      color: var(--muted);
+      min-height: 20px;
+      font-size: 13px;
+    }}
+
+    .status.error {{
+      color: var(--error);
+    }}
+
+    .records {{
+      display: grid;
+      gap: 10px;
+    }}
+
+    details.record-editor > summary {{
+      cursor: pointer;
+      padding: 12px;
+      color: var(--text);
+      font-weight: 650;
+    }}
+
+    .record-body {{
+      display: grid;
+      gap: 12px;
+      border-top: 1px solid var(--border);
+      padding: 12px;
+    }}
+
+    .field-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }}
+
+    label {{
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }}
+
+    input,
+    select,
+    textarea {{
+      width: 100%;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #0f1420;
+      color: var(--text);
+      font: inherit;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      line-height: 1.45;
+      padding: 8px;
+      text-transform: none;
+    }}
+
+    textarea {{
+      min-height: 92px;
+      resize: vertical;
+    }}
+
+    textarea.body-field {{
+      min-height: 180px;
+    }}
+
+    .markdown-editor {{
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+    }}
+
+    .markdown-editor textarea {{
+      min-height: 62vh;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <header class="editor-header">
+      <div class="editor-title">
+        <h1>{title}</h1>
+        <div id="editorMeta" class="editor-meta"></div>
+      </div>
+      <div class="editor-actions">
+        <button id="addRecord" type="button">Add section</button>
+        <button id="saveArtifact" class="primary" type="button">Save</button>
+      </div>
+    </header>
+    <div id="status" class="status"></div>
+    <section id="records" class="records"></section>
+  </main>
+  <script>
+    const EDIT_DATA = {data_json};
+    const LIST_FIELDS = new Set(EDIT_DATA.list_fields || []);
+    const JSON_FIELDS = new Set(EDIT_DATA.json_fields || []);
+    const CORE_FIELDS = new Set([
+      "schema_version",
+      "artifact_type",
+      "record_type",
+      "id",
+      "unit_id",
+      "title",
+      "order",
+      "status",
+      "phase",
+      "sequence",
+      "body",
+    ]);
+    const recordsRoot = document.getElementById("records");
+    const saveArtifact = document.getElementById("saveArtifact");
+    const addRecord = document.getElementById("addRecord");
+    const statusLine = document.getElementById("status");
+    const editorMeta = document.getElementById("editorMeta");
+    let records = Array.isArray(EDIT_DATA.records)
+      ? EDIT_DATA.records.map((record) => ({{ ...record }}))
+      : [];
+
+    function contextUrl(path) {{
+      const contextId = EDIT_DATA.context_id || "";
+      if (!contextId) {{
+        return path;
+      }}
+      const separator = path.includes("?") ? "&" : "?";
+      return `${{path}}${{separator}}context_id=${{encodeURIComponent(contextId)}}`;
+    }}
+
+    function setStatus(message, error = false) {{
+      statusLine.textContent = message || "";
+      statusLine.classList.toggle("error", Boolean(error));
+    }}
+
+    function displayId(record) {{
+      return record.id || record.unit_id || "";
+    }}
+
+    function recordSummary(record, index) {{
+      const id = displayId(record);
+      const title = record.title || "Untitled";
+      const type = record.record_type || "section";
+      return `${{id ? `${{id}}. ` : ""}}${{title}} · ${{type}} #${{index + 1}}`;
+    }}
+
+    function stringValue(value) {{
+      if (value === undefined || value === null) {{
+        return "";
+      }}
+      return String(value);
+    }}
+
+    function arrayValue(value) {{
+      if (Array.isArray(value)) {{
+        return value.join("\\n");
+      }}
+      return stringValue(value);
+    }}
+
+    function jsonValue(value) {{
+      if (value === undefined || value === null || value === "") {{
+        return "";
+      }}
+      if (typeof value === "string") {{
+        return value;
+      }}
+      return JSON.stringify(value, null, 2);
+    }}
+
+    function appendInput(container, record, field, label, options = {{}}) {{
+      const wrapper = document.createElement("label");
+      wrapper.textContent = label;
+      let input;
+      if (options.kind === "select") {{
+        input = document.createElement("select");
+        for (const optionValue of options.values || []) {{
+          const option = document.createElement("option");
+          option.value = optionValue;
+          option.textContent = optionValue || "none";
+          input.append(option);
+        }}
+        input.value = stringValue(record[field]);
+      }} else if (options.kind === "textarea") {{
+        input = document.createElement("textarea");
+        input.value = options.list
+          ? arrayValue(record[field])
+          : options.json
+          ? jsonValue(record[field])
+          : stringValue(record[field]);
+      }} else {{
+        input = document.createElement("input");
+        input.type = options.numeric ? "number" : "text";
+        input.value = stringValue(record[field]);
+      }}
+      input.dataset.field = field;
+      if (options.list) {{
+        input.dataset.list = "1";
+      }}
+      if (options.json) {{
+        input.dataset.json = "1";
+      }}
+      if (options.numeric) {{
+        input.dataset.numeric = "1";
+      }}
+      if (field === "body") {{
+        input.classList.add("body-field");
+        input.placeholder = "Markdown text, tables, code fences, and Mermaid diagrams";
+      }}
+      wrapper.append(input);
+      container.append(wrapper);
+      return input;
+    }}
+
+    function renderStructuredEditor() {{
+      editorMeta.textContent = `${{EDIT_DATA.markdown_path}} · source ${{EDIT_DATA.jsonl_path}}`;
+      addRecord.hidden = false;
+      recordsRoot.replaceChildren();
+      for (const [index, record] of records.entries()) {{
+        const details = document.createElement("details");
+        details.className = "record-editor";
+        details.open = index === 0;
+        details.dataset.index = String(index);
+
+        const summary = document.createElement("summary");
+        summary.textContent = recordSummary(record, index);
+        details.append(summary);
+
+        const body = document.createElement("div");
+        body.className = "record-body";
+        const grid = document.createElement("div");
+        grid.className = "field-grid";
+        appendInput(grid, record, "record_type", "Type", {{
+          kind: "select",
+          values: ["document", "section", "requirement", "decision", "interface", "unit", "suite", "test"],
+        }});
+        appendInput(grid, record, "id", "ID");
+        appendInput(grid, record, "unit_id", "Unit ID");
+        appendInput(grid, record, "title", "Title");
+        appendInput(grid, record, "order", "Order", {{ numeric: true }});
+        appendInput(grid, record, "status", "Status");
+        appendInput(grid, record, "phase", "Phase", {{ numeric: true }});
+        appendInput(grid, record, "sequence", "Sequence", {{ numeric: true }});
+        body.append(grid);
+        appendInput(body, record, "body", "Markdown body", {{ kind: "textarea" }});
+
+        const extraGrid = document.createElement("div");
+        extraGrid.className = "field-grid";
+        const extraFields = Object.keys(record)
+          .filter((field) => !CORE_FIELDS.has(field))
+          .sort();
+        for (const field of extraFields) {{
+          appendInput(extraGrid, record, field, field.replace(/_/g, " "), {{
+            kind: LIST_FIELDS.has(field) || JSON_FIELDS.has(field) ? "textarea" : "input",
+            list: LIST_FIELDS.has(field),
+            json: JSON_FIELDS.has(field),
+          }});
+        }}
+        if (extraFields.length > 0) {{
+          body.append(extraGrid);
+        }}
+
+        details.append(body);
+        recordsRoot.append(details);
+      }}
+    }}
+
+    function renderMarkdownEditor() {{
+      editorMeta.textContent = EDIT_DATA.markdown_path || "";
+      addRecord.hidden = true;
+      recordsRoot.replaceChildren();
+      const wrapper = document.createElement("section");
+      wrapper.className = "markdown-editor";
+      const label = document.createElement("label");
+      label.textContent = "Markdown";
+      const textarea = document.createElement("textarea");
+      textarea.id = "markdownSource";
+      textarea.value = EDIT_DATA.markdown || "";
+      label.append(textarea);
+      wrapper.append(label);
+      recordsRoot.append(wrapper);
+    }}
+
+    function splitLines(value) {{
+      return String(value || "")
+        .split(/\\r?\\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    }}
+
+    function parseInputValue(input) {{
+      if (input.dataset.list === "1") {{
+        return splitLines(input.value);
+      }}
+      if (input.dataset.json === "1") {{
+        const raw = input.value.trim();
+        if (!raw) {{
+          return {{}};
+        }}
+        return JSON.parse(raw);
+      }}
+      if (input.dataset.numeric === "1") {{
+        if (!input.value.trim()) {{
+          return undefined;
+        }}
+        return Number(input.value);
+      }}
+      return input.value;
+    }}
+
+    function collectStructuredRecords() {{
+      const collected = [];
+      for (const details of recordsRoot.querySelectorAll(".record-editor")) {{
+        const original = records[Number(details.dataset.index || "0")] || {{}};
+        const record = {{
+          schema_version: original.schema_version || 1,
+          artifact_type: original.artifact_type || EDIT_DATA.artifact_name,
+        }};
+        for (const input of details.querySelectorAll("[data-field]")) {{
+          const field = input.dataset.field;
+          const value = parseInputValue(input);
+          if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) {{
+            continue;
+          }}
+          if (JSON_FIELDS.has(field) && Object.keys(value).length === 0) {{
+            continue;
+          }}
+          record[field] = value;
+        }}
+        collected.push(record);
+      }}
+      return collected;
+    }}
+
+    function addSectionRecord() {{
+      const nextOrder = records.reduce((maximum, record) => {{
+        const order = Number(record.order || 0);
+        return Number.isFinite(order) ? Math.max(maximum, order) : maximum;
+      }}, 0) + 10;
+      records.push({{
+        schema_version: 1,
+        artifact_type: EDIT_DATA.artifact_name,
+        record_type: "section",
+        title: "New section",
+        order: nextOrder,
+        body: "",
+        status: "draft",
+      }});
+      renderStructuredEditor();
+      const last = recordsRoot.querySelector(".record-editor:last-child");
+      if (last) {{
+        last.open = true;
+        last.scrollIntoView({{ block: "nearest" }});
+      }}
+    }}
+
+    async function save() {{
+      setStatus("saving...");
+      saveArtifact.disabled = true;
+      try {{
+        const payload = EDIT_DATA.mode === "structured"
+          ? {{
+              mode: "structured",
+              artifact: EDIT_DATA.artifact,
+              path: EDIT_DATA.path || "",
+              records: collectStructuredRecords(),
+            }}
+          : {{
+              mode: "markdown",
+              artifact: EDIT_DATA.artifact,
+              path: EDIT_DATA.path || "",
+              markdown: document.getElementById("markdownSource").value,
+            }};
+        const response = await fetch(contextUrl("/api/artifacts/edit"), {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify(payload),
+        }});
+        const result = await response.json().catch(() => ({{ error: "save failed" }}));
+        if (!response.ok) {{
+          throw new Error(result.error || "save failed");
+        }}
+        if (EDIT_DATA.mode === "structured") {{
+          records = collectStructuredRecords();
+        }}
+        setStatus(`saved ${{result.markdown_path || EDIT_DATA.markdown_path}}`);
+        if (window.parent) {{
+          window.parent.postMessage(
+            {{
+              type: "electroboy-artifact-saved",
+              path: result.markdown_path || EDIT_DATA.markdown_path,
+            }},
+            window.location.origin,
+          );
+        }}
+      }} catch (error) {{
+        setStatus(error.message || String(error), true);
+      }} finally {{
+        saveArtifact.disabled = false;
+      }}
+    }}
+
+    addRecord.addEventListener("click", addSectionRecord);
+    saveArtifact.addEventListener("click", save);
+    if (EDIT_DATA.mode === "structured") {{
+      renderStructuredEditor();
+    }} else {{
+      renderMarkdownEditor();
+    }}
+  </script>
+</body>
+</html>
+"""
 
 
 def _document_target_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:
@@ -15111,6 +16020,9 @@ def _handler_for(
             if path == "/api/documents/export":
                 self._send_document_export(parsed.query)
                 return
+            if path == "/artifacts/edit":
+                self._send_artifact_editor(parsed.query)
+                return
             if path == "/api/files/browse":
                 self._browse_files(parsed.query)
                 return
@@ -15211,6 +16123,9 @@ def _handler_for(
                 return
             if path == "/api/workflow/stage":
                 self._select_workflow_stage(parsed.query)
+                return
+            if path == "/api/artifacts/edit":
+                self._save_artifact_editor(parsed.query)
                 return
             if path == "/api/sessions/select":
                 self._select_session(parsed.query)
@@ -15930,6 +16845,53 @@ def _handler_for(
                 )
                 return
             self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _send_artifact_editor(self, query: str) -> None:
+            try:
+                params = parse_qs(query)
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                artifact = str((params.get("artifact") or [""])[0]).strip()
+                requested_path = str((params.get("path") or [""])[0])
+                title = str((params.get("title") or [""])[0]).strip() or None
+                create_missing = str((params.get("create") or [""])[0]) == "1"
+                page, status = artifact_editor_html(
+                    project_root,
+                    artifact,
+                    requested_path,
+                    title=title,
+                    create_missing=create_missing,
+                    context_id=context_id,
+                )
+            except (AgentSessionError, OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
+        def _save_artifact_editor(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                payload = self._read_json_body()
+                artifact = str(payload.get("artifact") or "")
+                requested_path = str(payload.get("path") or "")
+                self._send_json(
+                    save_artifact_edit(
+                        project_root,
+                        artifact,
+                        requested_path,
+                        payload,
+                    )
+                )
+            except (AgentSessionError, OSError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
 
         def _handle_generic_stage_agent(
             self,
