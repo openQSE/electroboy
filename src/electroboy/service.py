@@ -29,6 +29,10 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from .artifacts import ArtifactManager
+from .document_export import (
+    DocumentExportError,
+    export_markdown_document,
+)
 from .feature_artifacts import (
     artifact_paths_for_run,
     read_feature_record,
@@ -1022,6 +1026,19 @@ INDEX_HTML = """<!doctype html>
 
     .document-zoom-controls {
       color: #d8e3f4;
+    }
+
+    .document-export-format {
+      min-width: 92px;
+      height: 26px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      font-weight: 750;
     }
 
     .document-zoom-button {
@@ -3215,6 +3232,56 @@ INDEX_HTML = """<!doctype html>
         || fallback;
     }
 
+    function documentExportFormats() {
+      return [
+        {
+          value: "markdown",
+          label: "Markdown",
+          extension: "md",
+          description: "Markdown",
+          accept: {
+            "text/markdown": [".md"],
+            "text/plain": [".txt"],
+          },
+        },
+        {
+          value: "docx",
+          label: "DOCX",
+          extension: "docx",
+          description: "Word document",
+          accept: {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+              ".docx",
+            ],
+          },
+        },
+        {
+          value: "pdf",
+          label: "PDF",
+          extension: "pdf",
+          description: "PDF",
+          accept: {
+            "application/pdf": [".pdf"],
+          },
+        },
+      ];
+    }
+
+    function documentExportFormat(format) {
+      return documentExportFormats().find((candidate) => candidate.value === format)
+        || documentExportFormats()[0];
+    }
+
+    function documentExportPickerTypes(format = "markdown") {
+      const selected = documentExportFormat(format);
+      return [
+        {
+          description: selected.description,
+          accept: selected.accept,
+        },
+      ];
+    }
+
     function downloadBlob(fileName, blob) {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -3226,7 +3293,11 @@ INDEX_HTML = """<!doctype html>
       window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
     }
 
-    async function writeBlobWithPicker(blob, suggestedName) {
+    async function writeBlobWithPicker(
+      blob,
+      suggestedName,
+      pickerTypes = documentExportPickerTypes("markdown"),
+    ) {
       if (!window.showSaveFilePicker) {
         downloadBlob(suggestedName, blob);
         return;
@@ -3234,15 +3305,7 @@ INDEX_HTML = """<!doctype html>
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName,
-          types: [
-            {
-              description: "Markdown",
-              accept: {
-                "text/markdown": [".md"],
-                "text/plain": [".txt"],
-              },
-            },
-          ],
+          types: pickerTypes,
         });
         const writable = await handle.createWritable();
         await writable.write(blob);
@@ -3256,7 +3319,7 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    async function exportMarkdown(url, suggestedName) {
+    async function exportBlob(url, suggestedName, format = "markdown") {
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) {
         const message = await response.text();
@@ -3264,7 +3327,15 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       const blob = await response.blob();
-      await writeBlobWithPicker(blob, suggestedName);
+      await writeBlobWithPicker(
+        blob,
+        suggestedName,
+        documentExportPickerTypes(format),
+      );
+    }
+
+    async function exportMarkdown(url, suggestedName) {
+      await exportBlob(url, suggestedName, "markdown");
     }
 
     function sessionExportName(session) {
@@ -3288,6 +3359,42 @@ INDEX_HTML = """<!doctype html>
       await exportMarkdown(
         contextUrl("/api/progress/export"),
         `progress-log-${timestampForDownload()}.md`,
+      );
+    }
+
+    function artifactDocumentBaseName(item) {
+      if (item.kind === "document" && item.target) {
+        return exportSafeName(item.target.path || item.target.label || item.title);
+      }
+      if (item.kind === "route" && item.title) {
+        return exportSafeName(item.title);
+      }
+      return exportSafeName(item.title || item.kind || "document");
+    }
+
+    function artifactDocumentExportName(item, format) {
+      const selected = documentExportFormat(format);
+      return `${artifactDocumentBaseName(item)}.${selected.extension}`;
+    }
+
+    function artifactDocumentExportUrl(item, format) {
+      const parameters = new URLSearchParams();
+      parameters.set("artifact", artifactKindForPane(item));
+      parameters.set("format", format);
+      if (item.kind === "document" && item.target) {
+        parameters.set("path", item.target.path);
+      }
+      if (item.kind === "route" && item.path) {
+        parameters.set("path", item.path);
+      }
+      return contextUrl(`/api/documents/export?${parameters.toString()}`);
+    }
+
+    async function exportArtifactDocument(item, format) {
+      await exportBlob(
+        artifactDocumentExportUrl(item, format),
+        artifactDocumentExportName(item, format),
+        format,
       );
     }
 
@@ -5337,6 +5444,29 @@ INDEX_HTML = """<!doctype html>
         refresh.textContent = "Refresh";
         refresh.addEventListener("click", refreshArtifactPreview);
 
+        const exportFormat = document.createElement("select");
+        exportFormat.className = "document-export-format";
+        exportFormat.title = `Export format for ${item.title}`;
+        exportFormat.setAttribute("aria-label", `Export format for ${item.title}`);
+        for (const format of documentExportFormats()) {
+          const option = document.createElement("option");
+          option.value = format.value;
+          option.textContent = format.label;
+          exportFormat.append(option);
+        }
+
+        const exportButton = document.createElement("button");
+        exportButton.className = "pane-popout-button";
+        exportButton.type = "button";
+        exportButton.title = `Export ${item.title}`;
+        exportButton.setAttribute("aria-label", `Export ${item.title}`);
+        exportButton.textContent = "Export";
+        exportButton.addEventListener("click", () => {
+          exportArtifactDocument(item, exportFormat.value).catch((error) => {
+            appendOutput(`export failed: ${error}\\n`, "error");
+          });
+        });
+
         const popout = document.createElement("button");
         popout.className = "pane-popout-button";
         popout.type = "button";
@@ -5348,7 +5478,7 @@ INDEX_HTML = """<!doctype html>
         });
 
         zoomControls.append(zoomOut, zoomLevel, zoomIn);
-        actions.append(zoomControls, refresh, popout);
+        actions.append(zoomControls, exportFormat, exportButton, refresh, popout);
         header.append(title, actions);
 
         const frame = document.createElement("iframe");
@@ -7370,6 +7500,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     .pane-toolbar button,
+    .pane-toolbar select,
     .input-actions button,
     .input-actions select {
       min-height: 30px;
@@ -7381,6 +7512,11 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       font: inherit;
       font-size: calc(var(--font-size) - 2px);
       font-weight: 750;
+    }
+
+    .pane-toolbar select {
+      min-width: 100px;
+      cursor: pointer;
     }
 
     .input-actions select {
@@ -7549,11 +7685,21 @@ PANE_WINDOW_HTML = r"""<!doctype html>
           aria-label="Refresh document"
           hidden
         >Refresh</button>
+        <select
+          id="exportPaneFormat"
+          title="Export format"
+          aria-label="Export format"
+          hidden
+        >
+          <option value="markdown">Markdown</option>
+          <option value="docx">DOCX</option>
+          <option value="pdf">PDF</option>
+        </select>
         <button
           id="exportPaneOutput"
           type="button"
-          title="Export pane output as Markdown"
-          aria-label="Export pane output as Markdown"
+          title="Export pane output or document"
+          aria-label="Export pane output or document"
           hidden
         >Export</button>
         <button id="dockPane" type="button">Dock</button>
@@ -7627,6 +7773,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactZoomLevel = document.getElementById("artifactZoomLevel");
     const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
     const refreshArtifactButton = document.getElementById("refreshArtifact");
+    const exportPaneFormat = document.getElementById("exportPaneFormat");
     const exportPaneOutput = document.getElementById("exportPaneOutput");
     const terminalHost = document.getElementById("terminalHost");
     const artifactFrame = document.getElementById("artifactFrame");
@@ -7910,8 +8057,73 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       };
     }
 
+    function reportPaneError(message) {
+      if (terminal) {
+        terminal.write(formatTerminalMessage(`${message}\r\n`, "error"));
+        return;
+      }
+      window.alert(message);
+    }
+
     function timestampForDownload() {
       return new Date().toISOString().replace(/[:.]/g, "-");
+    }
+
+    function exportSafeName(value, fallback = "export") {
+      return String(value || fallback)
+        .replace(/[^A-Za-z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        || fallback;
+    }
+
+    function documentExportFormats() {
+      return [
+        {
+          value: "markdown",
+          label: "Markdown",
+          extension: "md",
+          description: "Markdown",
+          accept: {
+            "text/markdown": [".md"],
+            "text/plain": [".txt"],
+          },
+        },
+        {
+          value: "docx",
+          label: "DOCX",
+          extension: "docx",
+          description: "Word document",
+          accept: {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+              ".docx",
+            ],
+          },
+        },
+        {
+          value: "pdf",
+          label: "PDF",
+          extension: "pdf",
+          description: "PDF",
+          accept: {
+            "application/pdf": [".pdf"],
+          },
+        },
+      ];
+    }
+
+    function documentExportFormat(format) {
+      return documentExportFormats().find((candidate) => candidate.value === format)
+        || documentExportFormats()[0];
+    }
+
+    function documentExportPickerTypes(format = "markdown") {
+      const selected = documentExportFormat(format);
+      return [
+        {
+          description: selected.description,
+          accept: selected.accept,
+        },
+      ];
     }
 
     function downloadBlob(fileName, blob) {
@@ -7925,7 +8137,11 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
     }
 
-    async function writeBlobWithPicker(blob, suggestedName) {
+    async function writeBlobWithPicker(
+      blob,
+      suggestedName,
+      pickerTypes = documentExportPickerTypes("markdown"),
+    ) {
       if (!window.showSaveFilePicker) {
         downloadBlob(suggestedName, blob);
         return;
@@ -7933,15 +8149,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName,
-          types: [
-            {
-              description: "Markdown",
-              accept: {
-                "text/markdown": [".md"],
-                "text/plain": [".txt"],
-              },
-            },
-          ],
+          types: pickerTypes,
         });
         const writable = await handle.createWritable();
         await writable.write(blob);
@@ -7950,36 +8158,80 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         if (error && error.name === "AbortError") {
           return;
         }
-        terminal.write(formatTerminalMessage(`export picker failed: ${error}\r\n`, "error"));
+        reportPaneError(`export picker failed: ${error}`);
         downloadBlob(suggestedName, blob);
       }
     }
 
-    async function exportMarkdown(url, suggestedName) {
+    async function exportBlob(url, suggestedName, format = "markdown") {
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) {
         const message = await response.text();
-        if (terminal) {
-          terminal.write(formatTerminalMessage(`${message || "export failed"}\r\n`, "error"));
-        }
+        reportPaneError(message || "export failed");
         return;
       }
       const blob = await response.blob();
-      await writeBlobWithPicker(blob, suggestedName);
+      await writeBlobWithPicker(
+        blob,
+        suggestedName,
+        documentExportPickerTypes(format),
+      );
+    }
+
+    async function exportMarkdown(url, suggestedName) {
+      await exportBlob(url, suggestedName, "markdown");
     }
 
     function canExportPaneOutput() {
-      return PANE_KIND === "agent" || PANE_KIND === "progress";
+      return PANE_KIND === "agent"
+        || PANE_KIND === "progress"
+        || PANE_KIND === "artifact";
     }
 
-    function paneExportFileName() {
+    function artifactExportBaseName() {
+      if (artifactKind === "document" && artifactDocumentPath) {
+        return exportSafeName(artifactDocumentPath);
+      }
+      if (artifactKind === "route" && artifactRouteTitle) {
+        return exportSafeName(artifactRouteTitle);
+      }
+      return exportSafeName(artifactKind || "document");
+    }
+
+    function paneExportFileName(format = "markdown") {
+      if (PANE_KIND === "artifact") {
+        const selected = documentExportFormat(format);
+        return `${artifactExportBaseName()}.${selected.extension}`;
+      }
       if (PANE_KIND === "progress") {
         return `progress-log-${timestampForDownload()}.md`;
       }
       return `agent-session-${timestampForDownload()}.md`;
     }
 
+    function artifactDocumentExportUrl(format) {
+      const parameters = new URLSearchParams();
+      parameters.set("artifact", artifactKind);
+      parameters.set("format", format);
+      if (artifactKind === "document" && artifactDocumentPath) {
+        parameters.set("path", artifactDocumentPath);
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        parameters.set("path", artifactRoutePath);
+      }
+      return contextUrl(`/api/documents/export?${parameters.toString()}`);
+    }
+
     async function exportCurrentPaneOutput() {
+      if (PANE_KIND === "artifact") {
+        const format = exportPaneFormat.value || "markdown";
+        await exportBlob(
+          artifactDocumentExportUrl(format),
+          paneExportFileName(format),
+          format,
+        );
+        return;
+      }
       if (PANE_KIND === "progress") {
         await exportMarkdown(
           contextUrl("/api/progress/export"),
@@ -8368,6 +8620,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     });
 
     paneTitle.textContent = titleForPane(PANE_KIND);
+    exportPaneFormat.hidden = PANE_KIND !== "artifact";
     exportPaneOutput.hidden = !canExportPaneOutput();
     if (PANE_KIND === "agent") connectAgentStream();
     else if (PANE_KIND === "progress") connectProgressStream();
@@ -13800,6 +14053,9 @@ def _handler_for(
             if path == "/api/progress/export":
                 self._send_progress_export(parsed.query)
                 return
+            if path == "/api/documents/export":
+                self._send_document_export(parsed.query)
+                return
             if path == "/api/files/browse":
                 self._browse_files(parsed.query)
                 return
@@ -15207,6 +15463,46 @@ def _handler_for(
                 _progress_export_filename(),
             )
 
+        def _send_document_export(self, query: str) -> None:
+            params = parse_qs(query)
+            artifact = str((params.get("artifact") or [""])[0]).strip()
+            requested_path = str((params.get("path") or [""])[0])
+            export_format = str((params.get("format") or ["markdown"])[0])
+            try:
+                context_id = self._context_id(query)
+                project_root = Path(state.active_project_root(context_id)).resolve()
+                if artifact == "document" and requested_path:
+                    _ensure_document_target(project_root, requested_path)
+                document_path = _artifact_event_document_path(
+                    project_root,
+                    artifact,
+                    requested_path,
+                )
+                relative_path = document_path.relative_to(project_root).as_posix()
+                exported = export_markdown_document(
+                    document_path,
+                    relative_path,
+                    export_format,
+                )
+            except (
+                AgentSessionError,
+                DocumentExportError,
+                OSError,
+                StateError,
+                ValueError,
+            ) as error:
+                self._send_text(
+                    str(error),
+                    "text/plain; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_binary_download(
+                exported.data,
+                exported.filename,
+                exported.content_type,
+            )
+
         def _send_artifact_events(self, query: str) -> None:
             params = parse_qs(query)
             artifact = str((params.get("artifact") or [""])[0]).strip()
@@ -15488,8 +15784,23 @@ def _handler_for(
             safe_name = _download_name_part(filename)
             if not safe_name.endswith(".md"):
                 safe_name = f"{safe_name}.md"
+            self._send_binary_download(
+                data,
+                safe_name,
+                "text/markdown; charset=utf-8",
+                status=status,
+            )
+
+        def _send_binary_download(
+            self,
+            data: bytes,
+            filename: str,
+            content_type: str,
+            status: HTTPStatus = HTTPStatus.OK,
+        ) -> None:
+            safe_name = _download_name_part(filename)
             self.send_response(status)
-            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.send_header(

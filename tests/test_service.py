@@ -119,13 +119,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("document_zoom")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn('id="refreshArtifact"', page)
+        self.assertIn('id="exportPaneFormat"', page)
         self.assertIn('id="exportPaneOutput"', page)
         self.assertIn("function artifactEventUrl()", page)
+        self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("artifact", "route")', page)
         self.assertIn("function changeArtifactZoom(delta)", page)
+        self.assertIn("function exportBlob(url, suggestedName, format = \"markdown\")", page)
         self.assertIn("function exportMarkdown(url, suggestedName)", page)
         self.assertIn("function exportCurrentPaneOutput()", page)
+        self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
         self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
         self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
@@ -372,10 +376,55 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(StateError):
                 document_target_html(root, "docs/guide.txt", create_missing=True)
 
+    def test_document_export_endpoint_serves_active_project_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "requirements.md").write_text(
+                "# Requirements\n\n| ID | Body |\n| --- | --- |\n| REQ-001 | Export docs. |\n",
+                encoding="utf-8",
+            )
+            StateStore(root).init_run(run_id="run-1")
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            payload = server.service_state.create_context()
+            context_id = str(payload["context_id"])
+            server.service_state.open_project(context_id, str(root))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type, headers = request_bytes(
+                    server,
+                    (
+                        "/api/documents/export"
+                        f"?context_id={context_id}&artifact=requirements&format=docx"
+                    ),
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body.startswith(b"PK"))
+        self.assertEqual(
+            content_type,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        self.assertEqual(
+            headers.get("Content-Disposition"),
+            'attachment; filename="requirements.docx"',
+        )
+
     def test_project_declares_markdown_renderer_dependency(self) -> None:
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertIn('"Markdown>=3.6"', pyproject)
+        self.assertIn('"reportlab>=4"', pyproject)
 
     def test_server_close_terminates_context_agent_sessions(self) -> None:
         class FakeSession:
@@ -416,6 +465,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const workflowPane = document.querySelector(".workflow-pane");', INDEX_HTML)
         self.assertIn('const stageScroll = document.querySelector(".stage-scroll");', INDEX_HTML)
         self.assertIn("overflow: visible;", INDEX_HTML)
+        self.assertIn('className = "document-export-format"', INDEX_HTML)
+        self.assertIn("function exportArtifactDocument(item, format)", INDEX_HTML)
+        self.assertIn("/api/documents/export", INDEX_HTML)
         self.assertIn("z-index: 30;", INDEX_HTML)
         self.assertIn("z-index: 60;", INDEX_HTML)
         self.assertIn("z-index: 0;", INDEX_HTML)
@@ -714,7 +766,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('terminalOptions(false, "shell")', INDEX_HTML)
         self.assertIn('termName: "xterm-256color"', INDEX_HTML)
         self.assertIn("scrollback: 10000,", INDEX_HTML)
-        self.assertIn("function writeBlobWithPicker(blob, suggestedName)", INDEX_HTML)
+        self.assertIn("function writeBlobWithPicker(", INDEX_HTML)
         self.assertIn("window.showSaveFilePicker", INDEX_HTML)
         self.assertIn("function exportAgentSession()", INDEX_HTML)
         self.assertIn("function exportProgressLog()", INDEX_HTML)
@@ -3245,6 +3297,23 @@ def request(
     finally:
         connection.close()
     return response.status, body, content_type
+
+
+def request_bytes(
+    server: object,
+    path: str,
+) -> tuple[int, bytes, str, dict[str, str]]:
+    host, port = server.server_address[:2]
+    connection = http.client.HTTPConnection(host, port, timeout=2)
+    try:
+        connection.request("GET", path)
+        response = connection.getresponse()
+        body = response.read()
+        content_type = response.getheader("Content-Type", "")
+        headers = {key: value for key, value in response.getheaders()}
+    finally:
+        connection.close()
+    return response.status, body, content_type, headers
 
 
 def wait_for_output(

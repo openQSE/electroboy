@@ -58,6 +58,10 @@ electroboy serve
 electroboy serve --port 9001
 ```
 
+Document panes in the browser UI can export the rendered Markdown source as
+Markdown, DOCX, or PDF. The export button opens the browser save picker when
+available and falls back to a normal download otherwise.
+
 The service reads these environment variables when command-line options are not
 provided:
 
