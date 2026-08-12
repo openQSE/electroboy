@@ -311,7 +311,7 @@ INDEX_HTML = """<!doctype html>
       display: grid;
       grid-template-columns: var(--workflow-side-sheet-width, 320px) minmax(0, 1fr);
       grid-template-rows:
-        var(--workflow-pane-height, 96px) 7px
+        var(--workflow-pane-height, 92px) 7px
         minmax(0, 1fr);
       height: 100vh;
       min-height: 560px;
@@ -326,7 +326,7 @@ INDEX_HTML = """<!doctype html>
       z-index: 10;
       grid-column: 2;
       grid-row: 1;
-      padding: 20px 24px 16px;
+      padding: 10px 20px 8px;
       border-bottom: 1px solid var(--border);
       background: var(--top-surface);
       overflow: visible;
@@ -423,8 +423,8 @@ INDEX_HTML = """<!doctype html>
 
     .workflow-toolbar {
       position: absolute;
-      top: 14px;
-      left: 24px;
+      top: 10px;
+      left: 20px;
       z-index: 12;
       display: flex;
       align-items: center;
@@ -453,8 +453,8 @@ INDEX_HTML = """<!doctype html>
       align-items: center;
       gap: 0;
       width: clamp(270px, calc(var(--ui-font-size) * 21), 360px);
-      height: calc(var(--ui-font-size) + 29px);
-      min-height: 38px;
+      height: calc(var(--ui-font-size) + 23px);
+      min-height: 34px;
       overflow: hidden;
       border: 1px solid #9fb4c8;
       border-radius: 8px;
@@ -540,8 +540,8 @@ INDEX_HTML = """<!doctype html>
       display: none;
       overflow-x: auto;
       overflow-y: hidden;
-      margin: 0 -24px;
-      padding: 0 24px 12px;
+      margin: 0 -20px;
+      padding: 0 20px;
     }
 
     .stage-scroll::-webkit-scrollbar {
@@ -572,8 +572,8 @@ INDEX_HTML = """<!doctype html>
 
     .connection {
       position: absolute;
-      right: 24px;
-      top: 16px;
+      right: 20px;
+      top: 12px;
       color: #264e66;
       font-size: var(--ui-font-size);
       font-weight: 400;
@@ -589,7 +589,7 @@ INDEX_HTML = """<!doctype html>
       gap: clamp(6px, 0.45vw, 10px);
       width: 100%;
       min-width: 1180px;
-      padding-top: 54px;
+      padding-top: 38px;
     }
 
     .stage-graph::before {
