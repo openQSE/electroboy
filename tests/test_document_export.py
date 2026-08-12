@@ -11,7 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from electroboy.document_export import export_markdown_text  # noqa: E402
+from electroboy.document_export import (  # noqa: E402
+    _pdf_bullet_list,
+    export_markdown_text,
+)
 
 
 SAMPLE_MARKDOWN = """# Exported Document
@@ -47,6 +50,12 @@ TOC_AND_WIDE_TABLE_MARKDOWN = (
     "Delta value with a long explanation | "
     "Epsilon value with a long explanation |\n"
 )
+
+BULLET_MARKDOWN = """# Bullets
+
+- First long bullet item that should wrap with hanging indentation in PDF output.
+- Second bullet item should not have paragraph-style spacing before it.
+"""
 
 
 class DocumentExportTests(unittest.TestCase):
@@ -126,6 +135,38 @@ class DocumentExportTests(unittest.TestCase):
         )
 
         self.assertEqual(exported.content_type, "application/pdf")
+        self.assertTrue(exported.data.startswith(b"%PDF"))
+
+    @unittest.skipIf(
+        importlib.util.find_spec("reportlab") is None,
+        "reportlab is not installed",
+    )
+    def test_pdf_bullets_use_hanging_list_without_item_spacing(self) -> None:
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus import ListFlowable, ListItem, Paragraph
+
+        bullet_list = _pdf_bullet_list(
+            [
+                "First long bullet item that should wrap under the text.",
+                "Second bullet item.",
+            ],
+            ListFlowable,
+            ListItem,
+            Paragraph,
+            ParagraphStyle,
+            getSampleStyleSheet(),
+        )
+        exported = export_markdown_text(BULLET_MARKDOWN, "docs/guide.md", "pdf")
+
+        self.assertIsInstance(bullet_list, ListFlowable)
+        self.assertEqual(getattr(bullet_list, "spaceAfter"), 0)
+        self.assertEqual(getattr(bullet_list, "_leftIndent"), 18)
+        self.assertEqual(getattr(bullet_list, "_bulletDedent"), 8)
+        self.assertEqual(len(bullet_list._flowables), 2)
+        for item in bullet_list._flowables:
+            self.assertIsInstance(item, ListItem)
+            self.assertEqual(item._params["spaceBefore"], 0)
+            self.assertEqual(item._params["spaceAfter"], 0)
         self.assertTrue(exported.data.startswith(b"%PDF"))
 
 

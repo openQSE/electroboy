@@ -493,6 +493,8 @@ def _pdf_bytes(blocks: list[MarkdownBlock], *, title: str) -> bytes:
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.platypus import (
+            ListFlowable,
+            ListItem,
             Paragraph,
             Preformatted,
             SimpleDocTemplate,
@@ -518,7 +520,10 @@ def _pdf_bytes(blocks: list[MarkdownBlock], *, title: str) -> bytes:
     )
     styles = getSampleStyleSheet()
     story: list[object] = []
-    for block in blocks or [MarkdownBlock("paragraph", "")]:
+    export_blocks = blocks or [MarkdownBlock("paragraph", "")]
+    index = 0
+    while index < len(export_blocks):
+        block = export_blocks[index]
         if block.kind == "heading":
             style_name = f"Heading{min(block.level, 3)}"
             story.append(
@@ -529,14 +534,30 @@ def _pdf_bytes(blocks: list[MarkdownBlock], *, title: str) -> bytes:
                     anchor=block.anchor,
                 )
             )
+            story.append(Spacer(1, 8))
         elif block.kind == "bullet":
+            bullet_texts: list[str] = []
+            while index < len(export_blocks) and export_blocks[index].kind == "bullet":
+                bullet_texts.append(export_blocks[index].text)
+                index += 1
             story.append(
-                _pdf_paragraph(f"\u2022 {block.text}", styles["BodyText"], Paragraph)
+                _pdf_bullet_list(
+                    bullet_texts,
+                    ListFlowable,
+                    ListItem,
+                    Paragraph,
+                    ParagraphStyle,
+                    styles,
+                )
             )
+            story.append(Spacer(1, 4))
+            continue
         elif block.kind == "numbered":
             story.append(_pdf_paragraph(block.text, styles["BodyText"], Paragraph))
+            story.append(Spacer(1, 8))
         elif block.kind == "code":
             story.append(Preformatted(block.text or " ", styles["Code"]))
+            story.append(Spacer(1, 8))
         elif block.kind == "table":
             story.append(
                 _pdf_table(
@@ -550,13 +571,54 @@ def _pdf_bytes(blocks: list[MarkdownBlock], *, title: str) -> bytes:
                     document.width,
                 )
             )
+            story.append(Spacer(1, 8))
         else:
             story.append(
                 _pdf_paragraph(block.text or " ", styles["BodyText"], Paragraph)
             )
-        story.append(Spacer(1, 8))
+            story.append(Spacer(1, 8))
+        index += 1
     document.build(story)
     return output.getvalue()
+
+
+def _pdf_bullet_list(
+    bullet_texts,
+    list_flowable_class,
+    list_item_class,
+    paragraph_class,
+    paragraph_style_class,
+    styles,
+):
+    item_style = paragraph_style_class(
+        "ExportBulletItem",
+        parent=styles["BodyText"],
+        leftIndent=0,
+        firstLineIndent=0,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+    items = [
+        list_item_class(
+            [paragraph_class(_pdf_inline_markup(text) or " ", item_style)],
+            leftIndent=0,
+            rightIndent=0,
+            spaceBefore=0,
+            spaceAfter=0,
+        )
+        for text in bullet_texts
+    ]
+    return list_flowable_class(
+        items,
+        bulletType="bullet",
+        leftIndent=18,
+        bulletDedent=8,
+        bulletFontName="Helvetica",
+        bulletFontSize=9,
+        bulletOffsetY=1,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
 
 
 def _pdf_paragraph(text: str, style, paragraph_class, *, anchor: str = ""):
