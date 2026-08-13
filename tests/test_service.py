@@ -1226,6 +1226,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(SPLASH_IMAGE_ROUTE, INDEX_HTML)
         self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE, INDEX_HTML)
         self.assertIn("electroboy.splash.dismissed.v1", INDEX_HTML)
+        self.assertIn("window.sessionStorage.getItem(SPLASH_DISMISSED_STORAGE_KEY)", INDEX_HTML)
+        self.assertIn("window.sessionStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY", INDEX_HTML)
         self.assertIn("function openSplash()", INDEX_HTML)
         self.assertIn("function updateSplashImage()", INDEX_HTML)
         self.assertIn("? CREATIVE_SPLASH_IMAGE_ROUTE", INDEX_HTML)

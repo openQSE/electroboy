@@ -5805,7 +5805,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
 
     function splashDismissed() {
       try {
-        return window.localStorage.getItem(SPLASH_DISMISSED_STORAGE_KEY) === "1";
+        return window.sessionStorage.getItem(SPLASH_DISMISSED_STORAGE_KEY) === "1";
       } catch (error) {
         return false;
       }
@@ -5841,7 +5841,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       }
       splashOverlay.hidden = true;
       try {
-        window.localStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY, "1");
+        window.sessionStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY, "1");
       } catch (error) {
         return;
       }
