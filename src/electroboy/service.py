@@ -3702,7 +3702,7 @@ INDEX_HTML = """<!doctype html>
     let creativeEditingType = "";
     let expandedCreativeFolders = new Set();
     let creativeScratchSaveTimer = null;
-    let creativeLastNotifiedDocument = "";
+    let creativeLastNotifiedTarget = "";
     let creativeProjectActionsExpanded = false;
     let creativeAgentActionsExpanded = false;
     let projectStatusMessages = [];
@@ -5870,7 +5870,7 @@ INDEX_HTML = """<!doctype html>
       creativeEditingPath = "";
       creativeEditingType = "";
       expandedCreativeFolders = new Set();
-      creativeLastNotifiedDocument = "";
+      creativeLastNotifiedTarget = "";
       creativeTreePayload = null;
       restoredScratchContextId = "";
       projectStatusMessages = [];
@@ -5951,7 +5951,7 @@ INDEX_HTML = """<!doctype html>
         creativeEditingPath = "";
         creativeEditingType = "";
         expandedCreativeFolders = new Set();
-        creativeLastNotifiedDocument = "";
+        creativeLastNotifiedTarget = "";
         creativeTreePayload = null;
         restoredScratchContextId = "";
       }
@@ -7628,9 +7628,11 @@ INDEX_HTML = """<!doctype html>
       }
       creativeActiveFolder = path;
       creativeActiveDocument = "";
+      creativeLastNotifiedTarget = "";
       showCreativeCorkboard(path);
       renderCreativeTree();
       renderCreativeProjectStatus();
+      notifyCreativeAgentTargetSwitch();
     }
 
     function selectCreativeCorkboard(path) {
@@ -7639,11 +7641,11 @@ INDEX_HTML = """<!doctype html>
       }
       creativeActiveDocument = path;
       creativeActiveFolder = creativeParentPath(path);
-      creativeLastNotifiedDocument = "";
+      creativeLastNotifiedTarget = "";
       showCreativeCorkboard(path, { freeform: true });
       renderCreativeTree();
       renderCreativeProjectStatus();
-      notifyCreativeAgentDocumentSwitch();
+      notifyCreativeAgentTargetSwitch();
     }
 
     function showCreativeDocument(path) {
@@ -7674,45 +7676,117 @@ INDEX_HTML = """<!doctype html>
       }
       creativeActiveDocument = path;
       creativeActiveFolder = path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
-      creativeLastNotifiedDocument = options.notifyAgent === false
-        ? creativeLastNotifiedDocument
+      creativeLastNotifiedTarget = options.notifyAgent === false
+        ? creativeLastNotifiedTarget
         : "";
       showCreativeDocument(path);
       renderCreativeTree();
       renderCreativeProjectStatus();
       if (options.notifyAgent !== false) {
-        notifyCreativeAgentDocumentSwitch();
+        notifyCreativeAgentTargetSwitch();
       }
+    }
+
+    function creativeAgentSession() {
+      return agentSessions.some(
+        (session) => session.kind === "creative-writing" && session.status === "running",
+      )
+        ? agentSessions.find(
+            (session) => session.kind === "creative-writing" && session.status === "running",
+          )
+        : null;
     }
 
     function creativeAgentRunning() {
-      return agentSessions.some(
-        (session) => session.kind === "creative-writing" && session.status === "running",
-      );
+      return Boolean(creativeAgentSession());
     }
 
-    async function notifyCreativeAgentDocumentSwitch() {
+    function activeCreativeTarget() {
+      if (creativeActiveDocument) {
+        if (creativePathIsCorkboard(creativeActiveDocument)) {
+          return {
+            type: "freeform-corkboard",
+            path: creativeActiveDocument,
+          };
+        }
+        return {
+          type: "document",
+          path: creativeActiveDocument,
+        };
+      }
+      if (creativeActiveFolder) {
+        return {
+          type: "folder-corkboard",
+          path: creativeActiveFolder,
+        };
+      }
+      return {
+        type: "none",
+        path: "",
+      };
+    }
+
+    function creativeTargetKey(target) {
+      return `${target.type || "none"}:${target.path || ""}`;
+    }
+
+    function creativeTargetContextLines(target) {
+      if (!target || target.type === "none") {
+        return ["Active target: none"];
+      }
+      if (target.type === "document") {
+        return [
+          "Active target: document",
+          `Path: ${target.path}`,
+          "Mode: markdown editing",
+          "Use the active document as the writing target unless the writer names another file.",
+        ];
+      }
+      if (target.type === "freeform-corkboard") {
+        return [
+          "Active target: freeform corkboard",
+          `Path: ${target.path}`,
+          "Mode: arbitrary cards with x/y positions",
+          "API guide: docs/corkboard-api.md",
+          "Use `electroboy corkboard` commands for card changes.",
+          "Do not edit corkboard JSON directly unless the writer explicitly asks.",
+        ];
+      }
+      return [
+        "Active target: folder corkboard",
+        `Path: ${target.path}`,
+        "Mode: folder-backed card ordering and notes",
+        "API guide: docs/corkboard-api.md",
+        "Use `electroboy corkboard folder` commands for notes and order.",
+        "Create, delete, or rename files only when the writer explicitly asks.",
+      ];
+    }
+
+    async function notifyCreativeAgentTargetSwitch() {
+      const target = activeCreativeTarget();
+      const targetKey = creativeTargetKey(target);
+      const session = creativeAgentSession();
       if (
         !creativeModeActive() ||
-        !creativeActiveDocument ||
-        creativeActiveDocument === creativeLastNotifiedDocument ||
-        !creativeAgentRunning() ||
-        !selectedSessionAcceptsInput()
+        target.type === "none" ||
+        targetKey === creativeLastNotifiedTarget ||
+        !session ||
+        !session.interactive
       ) {
         return;
       }
-      creativeLastNotifiedDocument = creativeActiveDocument;
+      creativeLastNotifiedTarget = targetKey;
       const message = [
         "[ElectroBoy creative-writing context update]",
-        `Active document: ${creativeActiveDocument}`,
-        "The document is now displayed in the middle pane.",
+        ...creativeTargetContextLines(target),
+        "The target is now displayed in the middle pane.",
         "Do not modify it unless the writer asks.",
         "[/ElectroBoy creative-writing context update]",
       ].join("\\n");
       await fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ session_id: session.session_id, message }),
       }).catch(() => {});
     }
 
@@ -7720,11 +7794,11 @@ INDEX_HTML = """<!doctype html>
       if (!creativeModeActive()) {
         return message;
       }
+      const target = activeCreativeTarget();
       const contextLines = [
         "[ElectroBoy creative-writing context]",
-        `Active document: ${creativeActiveDocument || "none"}`,
+        ...creativeTargetContextLines(target),
         "Project scratchpad: scratchpad/scratchpad.md",
-        "Use the active document as the writing target unless the writer names another file.",
         "[/ElectroBoy creative-writing context]",
         "",
         message,
@@ -8040,7 +8114,10 @@ INDEX_HTML = """<!doctype html>
       const response = await fetch(contextUrl("/api/creative/agent/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active_document: creativeActiveDocument }),
+        body: JSON.stringify({
+          active_document: creativeActiveDocument,
+          active_target: activeCreativeTarget(),
+        }),
       });
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
@@ -9150,7 +9227,7 @@ INDEX_HTML = """<!doctype html>
       creativeEditingPath = "";
       creativeEditingType = "";
       expandedCreativeFolders = new Set();
-      creativeLastNotifiedDocument = "";
+      creativeLastNotifiedTarget = "";
       creativeTreePayload = null;
       recordProjectStatusMessage(`deactivated: ${previousProject}`);
       updateProjectState(payload);
@@ -13548,6 +13625,7 @@ class ServiceState:
         context_id: str,
         *,
         active_document: str | None = None,
+        active_target: dict[str, object] | None = None,
     ) -> tuple[AgentSession, bool]:
         with self.lock:
             context = self._context_locked(context_id)
@@ -13563,8 +13641,13 @@ class ServiceState:
             document_path = ""
             if active_document:
                 document_path = _document_target_path(project_root, active_document)[0]
+            target = _creative_agent_target(
+                project_root,
+                active_target=active_target,
+                active_document=document_path or None,
+            )
             session = AgentSession(
-                command=_creative_writing_command(project_root, document_path or None),
+                command=_creative_writing_command(project_root, target),
                 cwd=project_root,
                 label="creative writing agent",
                 kind="creative-writing",
@@ -14079,6 +14162,17 @@ class ServiceState:
             raise AgentSessionError(f"{session.label} does not accept input")
         session.send(message)
 
+    def send_session_message(
+        self,
+        context_id: str,
+        session_id: str,
+        message: str,
+    ) -> None:
+        session = self.session_by_id(context_id, session_id)
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send(message)
+
     def send_selected_session_key(self, context_id: str, key: str) -> None:
         session = self.selected_session(context_id)
         if session is None:
@@ -14503,6 +14597,8 @@ class AgentSession:
             return
         master_fd, slave_fd = pty.openpty()
         env = _agent_process_env()
+        env["ELECTROBOY_PROJECT_ROOT"] = str(self.cwd)
+        env["AI_PIPELINE_PROJECT_ROOT"] = str(self.cwd)
         if not self.echo_input:
             _disable_terminal_echo(slave_fd)
         _set_terminal_size(slave_fd, self.columns, self.rows)
@@ -19388,9 +19484,42 @@ def _documentation_command(
     return _electroboy_command(root, args)
 
 
+def _creative_agent_target(
+    root: Path,
+    *,
+    active_target: dict[str, object] | None = None,
+    active_document: str | None = None,
+) -> dict[str, str] | None:
+    if isinstance(active_target, dict):
+        target_type = str(active_target.get("type") or "").strip()
+        target_path = str(active_target.get("path") or "").strip()
+        if target_type == "document" and target_path:
+            normalized_path, _path = _document_target_path(root, target_path)
+            return {"type": "document", "path": normalized_path}
+        if target_type == "freeform-corkboard" and target_path:
+            normalized_path, path = _creative_path(root, target_path)
+            if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+                raise StateError("freeform corkboard path must end in .corkboard.json")
+            if not path.is_file():
+                raise StateError("freeform corkboard path is not a file")
+            return {"type": "freeform-corkboard", "path": normalized_path}
+        if target_type == "folder-corkboard" and target_path:
+            normalized_path, path = _creative_path(root, target_path)
+            if not path.is_dir():
+                raise StateError("folder corkboard path is not a directory")
+            return {"type": "folder-corkboard", "path": normalized_path}
+    if active_document:
+        if active_document.endswith(CREATIVE_CORKBOARD_SUFFIX):
+            normalized_path, _path = _creative_path(root, active_document)
+            return {"type": "freeform-corkboard", "path": normalized_path}
+        normalized_path, _path = _document_target_path(root, active_document)
+        return {"type": "document", "path": normalized_path}
+    return None
+
+
 def _creative_writing_command(
     root: Path,
-    active_document: str | None = None,
+    active_target: dict[str, str] | None = None,
 ) -> list[str]:
     return [
         "codex",
@@ -19398,18 +19527,12 @@ def _creative_writing_command(
         str(root),
         "--sandbox",
         "workspace-write",
-        _creative_writing_prompt(active_document),
+        _creative_writing_prompt(active_target),
     ]
 
 
-def _creative_writing_prompt(active_document: str | None = None) -> str:
-    document_lines = []
-    if active_document:
-        document_lines = [
-            "",
-            f"Current active document: {active_document}.",
-            "Treat it as the document displayed in the middle pane.",
-        ]
+def _creative_writing_prompt(active_target: dict[str, str] | None = None) -> str:
+    target_lines = _creative_writing_target_prompt_lines(active_target)
     return "\n".join(
         [
             "Act as a creative writing collaborator inside this project.",
@@ -19417,14 +19540,48 @@ def _creative_writing_prompt(active_document: str | None = None) -> str:
             "The writer may move fluidly among chapters, character notes,",
             "corkboard ideas, reviews, research, and scratchpad notes.",
             "Markdown files are the source of truth for prose and notes.",
+            "Use docs/corkboard-api.md for corkboard operations.",
+            "Do not edit corkboard JSON directly unless the writer asks.",
             "Do not rewrite or reorganize files until the writer asks.",
             "When asked to write or revise without naming a different file,",
-            "work in the active document.",
+            "work in the active target.",
             "Use scratchpad/scratchpad.md as optional context for rough notes.",
             "Keep responses concise unless the writer asks for a draft.",
-            *document_lines,
+            *target_lines,
         ]
     )
+
+
+def _creative_writing_target_prompt_lines(
+    active_target: dict[str, str] | None,
+) -> list[str]:
+    if not active_target:
+        return []
+    target_type = active_target.get("type", "")
+    target_path = active_target.get("path", "")
+    if target_type == "document":
+        return [
+            "",
+            f"Current active target: document {target_path}.",
+            "Treat it as the document displayed in the middle pane.",
+        ]
+    if target_type == "freeform-corkboard":
+        return [
+            "",
+            f"Current active target: freeform corkboard {target_path}.",
+            "This board contains arbitrary cards with x/y positions.",
+            "Use `electroboy corkboard` commands from docs/corkboard-api.md",
+            "for card additions, edits, moves, styling, and deletes.",
+        ]
+    if target_type == "folder-corkboard":
+        return [
+            "",
+            f"Current active target: folder corkboard {target_path}.",
+            "This board is backed by that folder's files and subfolders.",
+            "Use `electroboy corkboard folder` commands for notes and order.",
+            "Create, delete, or rename files only when the writer asks.",
+        ]
+    return []
 
 
 def _project_shell_command() -> list[str]:
@@ -20542,7 +20699,11 @@ def _handler_for(
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
-                state.send_selected_session_message(context_id, message)
+                session_id = str(payload.get("session_id") or "")
+                if session_id:
+                    state.send_session_message(context_id, session_id, message)
+                else:
+                    state.send_selected_session_message(context_id, message)
             except (AgentSessionError, StateError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},
@@ -21453,9 +21614,13 @@ def _handler_for(
             try:
                 context_id = self._context_id(query)
                 payload = self._read_json_body()
+                active_target = payload.get("active_target")
                 session, started = state.start_creative_writing_agent(
                     context_id,
                     active_document=str(payload.get("active_document") or ""),
+                    active_target=(
+                        active_target if isinstance(active_target, dict) else None
+                    ),
                 )
             except (AgentSessionError, StateError) as error:
                 self._send_json(

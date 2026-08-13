@@ -62,6 +62,10 @@ Operator workflow commands:
   [--interactive]` reviews the current codebase, lists recorded reviews,
   fixes a recorded review, or reviews a commit/range without advancing the
   pipeline.
+- `corkboard list|show|create|card|folder` manages creative-writing
+  corkboards. Freeform corkboards support card add, update, move, style, and
+  delete operations. Folder corkboards support card notes and display order.
+  See `docs/corkboard-api.md` for the command-level guide used by agents.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
 - `validate [--blockers-only] [--interactive]` runs validation test review,

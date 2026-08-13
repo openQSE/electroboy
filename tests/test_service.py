@@ -969,11 +969,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/creative/project/open"', INDEX_HTML)
         self.assertIn('"/api/creative/project/new"', INDEX_HTML)
         self.assertIn("let creativeActiveFolder = \"\";", INDEX_HTML)
+        self.assertIn("let creativeLastNotifiedTarget = \"\";", INDEX_HTML)
         self.assertIn("let expandedCreativeFolders = new Set();", INDEX_HTML)
         self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
         self.assertIn("function showCreativeCorkboard(path, options = {})", INDEX_HTML)
         self.assertIn("function selectCreativeCorkboard(path)", INDEX_HTML)
         self.assertIn("function selectCreativeFolder(path)", INDEX_HTML)
+        self.assertIn("function activeCreativeTarget()", INDEX_HTML)
+        self.assertIn("function notifyCreativeAgentTargetSwitch()", INDEX_HTML)
+        self.assertIn("Active target: freeform corkboard", INDEX_HTML)
+        self.assertIn("Active target: folder corkboard", INDEX_HTML)
+        self.assertIn("docs/corkboard-api.md", INDEX_HTML)
+        self.assertIn("active_target: activeCreativeTarget()", INDEX_HTML)
+        self.assertIn("session_id: session.session_id", INDEX_HTML)
         self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
         self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
         self.assertIn("function creativeTreeActionIconSvg(name)", INDEX_HTML)
@@ -2152,6 +2160,55 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("--cd", session.command)
         self.assertIn("creative writing collaborator", session.command[-1])
         self.assertIn("chapters/chapter-01.md", session.command[-1])
+
+    def test_service_state_starts_creative_agent_for_corkboard_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_target={
+                        "type": "freeform-corkboard",
+                        "path": "corkboard/ideas.corkboard.json",
+                    },
+                )
+
+        self.assertTrue(started)
+        self.assertIn("Current active target: freeform corkboard", session.command[-1])
+        self.assertIn("corkboard/ideas.corkboard.json", session.command[-1])
+        self.assertIn("docs/corkboard-api.md", session.command[-1])
+        self.assertIn("electroboy corkboard", session.command[-1])
+
+    def test_service_state_starts_creative_agent_for_folder_board_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_target={
+                        "type": "folder-corkboard",
+                        "path": "chapters",
+                    },
+                )
+
+        self.assertTrue(started)
+        self.assertIn("Current active target: folder corkboard", session.command[-1])
+        self.assertIn("chapters", session.command[-1])
+        self.assertIn("electroboy corkboard folder", session.command[-1])
 
     def test_service_state_meta_add_and_start_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
