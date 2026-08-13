@@ -17603,6 +17603,16 @@ def creative_corkboard_html(
       touch-action: none;
     }}
 
+    .index-card.selected {{
+      outline: 3px solid var(--insert);
+      outline-offset: 5px;
+      box-shadow:
+        0 0 0 1px rgba(255, 249, 232, 0.86),
+        0 24px 46px rgba(15, 20, 32, 0.34),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+      z-index: 10;
+    }}
+
     .board.folder .index-card {{
       position: relative;
       width: auto;
@@ -17690,7 +17700,7 @@ def creative_corkboard_html(
       overflow: hidden;
       color: var(--ink);
       font-family: Georgia, "Times New Roman", serif;
-      font-size: var(--card-title-font-size, 17px);
+      font-size: 17px;
       font-weight: 700;
       line-height: 1.15;
       text-overflow: ellipsis;
@@ -17703,7 +17713,7 @@ def creative_corkboard_html(
       background: transparent;
       color: var(--ink);
       font-family: Georgia, "Times New Roman", serif;
-      font-size: var(--card-title-font-size, 17px);
+      font-size: 17px;
       font-weight: 700;
       line-height: 1.15;
       outline: none;
@@ -17713,7 +17723,7 @@ def creative_corkboard_html(
     .card-type {{
       margin-top: 3px;
       color: var(--muted);
-      font-size: var(--card-type-font-size, 10px);
+      font-size: 10px;
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -17747,8 +17757,8 @@ def creative_corkboard_html(
         );
       color: var(--ink);
       font: inherit;
-      font-size: var(--card-note-font-size, 13px);
-      line-height: var(--card-note-line-height, 26px);
+      font-size: 13px;
+      line-height: 26px;
       outline: none;
       resize: none;
     }}
@@ -17849,6 +17859,7 @@ def creative_corkboard_html(
     let folderDropTarget = "";
     let folderDropPlacement = "before";
     let cardScale = storedCardScale();
+    let selectedCardKey = "";
 
     function contextUrl(path) {{
       const contextId = CORKBOARD_DATA.context_id || "";
@@ -17921,10 +17932,6 @@ def creative_corkboard_html(
       root.style.setProperty("--card-grid-min-width", `${{scaledCardValue(210)}}px`);
       root.style.setProperty("--card-min-height", `${{scaledCardValue(158)}}px`);
       root.style.setProperty("--card-note-min-height", `${{scaledCardValue(82)}}px`);
-      root.style.setProperty("--card-note-line-height", `${{Math.max(20, scaledCardValue(26))}}px`);
-      root.style.setProperty("--card-title-font-size", `${{Math.max(13, scaledCardValue(17))}}px`);
-      root.style.setProperty("--card-note-font-size", `${{Math.max(11, scaledCardValue(13))}}px`);
-      root.style.setProperty("--card-type-font-size", `${{Math.max(8, scaledCardValue(10))}}px`);
       root.style.setProperty("--card-gap", `${{Math.max(14, scaledCardValue(24))}}px`);
       cardSizeSlider.value = String(cardScale);
       cardSizeValue.value = `${{cardScale}}%`;
@@ -17940,6 +17947,16 @@ def creative_corkboard_html(
 
     function cardKey(card) {{
       return String(card.id || card.path || "");
+    }}
+
+    function selectCard(card, cardElement) {{
+      selectedCardKey = cardKey(card);
+      for (const element of board.querySelectorAll(".index-card.selected")) {{
+        element.classList.remove("selected");
+        element.setAttribute("aria-selected", "false");
+      }}
+      cardElement.classList.add("selected");
+      cardElement.setAttribute("aria-selected", "true");
     }}
 
     function cardColor(card) {{
@@ -18197,6 +18214,7 @@ def creative_corkboard_html(
         color: ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"][index % 5],
       }};
       cards.push(card);
+      selectedCardKey = card.id;
       renderCards();
       saveCard(card);
     }}
@@ -18223,8 +18241,20 @@ def creative_corkboard_html(
         const cardElement = document.createElement("article");
         cardElement.className = `index-card ${{card.type || "file"}}`;
         cardElement.dataset.key = cardKey(card);
+        cardElement.tabIndex = 0;
+        cardElement.classList.toggle("selected", selectedCardKey === cardElement.dataset.key);
+        cardElement.setAttribute(
+          "aria-selected",
+          selectedCardKey === cardElement.dataset.key ? "true" : "false",
+        );
         cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
         cardElement.style.setProperty("--paper", cardColor(card));
+        cardElement.addEventListener(
+          "pointerdown",
+          () => selectCard(card, cardElement),
+          {{ capture: true }},
+        );
+        cardElement.addEventListener("focusin", () => selectCard(card, cardElement));
         if (boardType === "freeform") {{
           applyCardPosition(cardElement, card);
           cardElement.addEventListener("pointerdown", startDrag);
