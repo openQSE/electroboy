@@ -246,10 +246,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function toggleDirectory(entry)", page)
         self.assertIn("function renderBreadcrumbs()", page)
         self.assertIn("function moveSelection(delta)", page)
+        self.assertIn(
+            'new URLSearchParams(window.location.search).get("project_action")',
+            page,
+        )
         self.assertIn('event.key === "ArrowRight"', page)
         self.assertIn('event.key === "ArrowLeft"', page)
         self.assertIn("window.opener.postMessage", page)
         self.assertIn("electroboy-file-browser-select", page)
+        self.assertIn("project_action: PROJECT_ACTION", page)
         self.assertIn("Activate", page)
         self.assertIn("Cancel", page)
         self.assertIn("<svg viewBox=", page)
@@ -1609,15 +1614,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/artifacts/document", INDEX_HTML)
         self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
         self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
-        self.assertIn('function fileBrowserUrl(path, mode = "project")', INDEX_HTML)
+        self.assertIn(
+            'function fileBrowserUrl(path, mode = "project", projectAction = "")',
+            INDEX_HTML,
+        )
         self.assertIn('return `/file-browser?${parameters.toString()}`;', INDEX_HTML)
         self.assertIn(
             "function openProjectBrowser(mode = projectMode, activateSelection = false)",
             INDEX_HTML,
         )
         self.assertIn('mode === "new" || mode === "meta-new"', INDEX_HTML)
-        self.assertIn('fileBrowserUrl(path, browserMode)', INDEX_HTML)
+        self.assertIn(
+            'fileBrowserUrl(path, browserMode, activateSelection ? mode : "")',
+            INDEX_HTML,
+        )
         self.assertIn("let projectBrowserActivatesSelection = false;", INDEX_HTML)
+        self.assertIn(
+            "projectBrowserActivatesSelection || data.project_action",
+            INDEX_HTML,
+        )
+        self.assertIn("projectMode = data.project_action;", INDEX_HTML)
         self.assertIn('openProjectBrowser("open", true)', INDEX_HTML)
         self.assertIn(
             'newProject.addEventListener("click", () => openProjectBrowser("new", true))',
@@ -1629,6 +1645,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn(
             'data.mode === "project" || data.mode === "project-new"',
+            INDEX_HTML,
+        )
+        self.assertIn(
+            'fileBrowserUrl(path, browserMode, activateSelection ? mode : "")',
             INDEX_HTML,
         )
         self.assertIn("applyProjectSelection(data.path)", INDEX_HTML)

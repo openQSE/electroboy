@@ -5615,8 +5615,11 @@ INDEX_HTML = """<!doctype html>
         }
         if (
           (data.mode === "project" || data.mode === "project-new") &&
-          projectBrowserActivatesSelection
+          (projectBrowserActivatesSelection || data.project_action)
         ) {
+          if (data.project_action) {
+            projectMode = data.project_action;
+          }
           projectBrowserActivatesSelection = false;
           applyProjectSelection(data.path).catch((error) => {
             appendOutput(`project update failed: ${error}\\n`, "error");
@@ -8350,10 +8353,13 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function fileBrowserUrl(path, mode = "project") {
+    function fileBrowserUrl(path, mode = "project", projectAction = "") {
       const parameters = new URLSearchParams();
       parameters.set("path", path || activeProjectRoot || activationRoot || serviceRoot || ".");
       parameters.set("mode", mode);
+      if (projectAction) {
+        parameters.set("project_action", projectAction);
+      }
       return `/file-browser?${parameters.toString()}`;
     }
 
@@ -8374,7 +8380,7 @@ INDEX_HTML = """<!doctype html>
         ? "project-new"
         : "project";
       const popup = window.open(
-        fileBrowserUrl(path, browserMode),
+        fileBrowserUrl(path, browserMode, activateSelection ? mode : ""),
         "electroboy-file-browser",
         PANE_POPUP_FEATURES,
       );
@@ -11994,6 +12000,8 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
   <script>
     const INITIAL_PATH = __INITIAL_PATH__;
     const SELECT_MODE = __SELECT_MODE__;
+    const PROJECT_ACTION =
+      new URLSearchParams(window.location.search).get("project_action") || "";
     const pathForm = document.getElementById("pathForm");
     const pathInput = document.getElementById("pathInput");
     const refreshPath = document.getElementById("refreshPath");
@@ -12422,6 +12430,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
             type: "electroboy-file-browser-select",
             path: outputPath,
             mode: SELECT_MODE,
+            project_action: PROJECT_ACTION,
           },
           window.location.origin,
         );
