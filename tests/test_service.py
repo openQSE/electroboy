@@ -868,9 +868,18 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('id="openValidationReport"', INDEX_HTML)
         self.assertIn('id="workflowSideSheet"', INDEX_HTML)
         self.assertIn('id="workflowModeSelect"', INDEX_HTML)
+        self.assertNotIn('<div class="side-sheet-title">Workflow</div>', INDEX_HTML)
         self.assertIn('value="creative"', INDEX_HTML)
         self.assertIn('id="creativeBinder"', INDEX_HTML)
         self.assertIn('id="creativeProjectMenuButton"', INDEX_HTML)
+        self.assertIn('id="creativeProjectActions"', INDEX_HTML)
+        self.assertIn("let creativeProjectActionsExpanded = false;", INDEX_HTML)
+        self.assertIn("function ensureCreativeWorkspaceLoaded()", INDEX_HTML)
+        self.assertIn("deferCreativeWorkspaceInit", INDEX_HTML)
+        self.assertIn(
+            ".shell.creative-workflow .creative-section > .stage-action-stage",
+            INDEX_HTML,
+        )
         self.assertIn('id="creativeActiveProjectSection"', INDEX_HTML)
         self.assertIn('id="creativeProjectName"', INDEX_HTML)
         self.assertIn('id="creativeBinderMenuButton"', INDEX_HTML)

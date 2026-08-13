@@ -428,7 +428,7 @@ INDEX_HTML = """<!doctype html>
 
     .workflow-mode-select {
       min-width: 0;
-      flex: 0 1 170px;
+      flex: 1 1 auto;
       height: 34px;
       border: 1px solid #9fb4c8;
       border-radius: 7px;
@@ -940,6 +940,21 @@ INDEX_HTML = """<!doctype html>
     }
 
     .stage-action-stage.active.complete {
+      color: #ffffff;
+    }
+
+    .shell.creative-workflow .creative-section > .stage-action-stage {
+      border-color: #18324d;
+      background: #1f3f5f;
+      color: #ffffff;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 16%) inset,
+        0 8px 18px rgb(18 48 78 / 18%);
+    }
+
+    .shell.creative-workflow .creative-section > .stage-action-stage:hover:not(:disabled),
+    .shell.creative-workflow .creative-section > .stage-action-stage.expanded {
+      background: #254b70;
       color: #ffffff;
     }
 
@@ -2091,7 +2106,6 @@ INDEX_HTML = """<!doctype html>
         >
           <span class="side-sheet-toggle-icon" aria-hidden="true"></span>
         </button>
-        <div class="side-sheet-title">Workflow</div>
         <select
           id="workflowModeSelect"
           class="workflow-mode-select"
@@ -2116,9 +2130,9 @@ INDEX_HTML = """<!doctype html>
           <div class="creative-section">
             <button
               id="creativeProjectMenuButton"
-              class="stage-action-stage expanded"
+              class="stage-action-stage"
               type="button"
-              aria-expanded="true"
+              aria-expanded="false"
             >
               <span class="stage-action-label">Project</span>
               <span class="stage-action-chevron" aria-hidden="true"></span>
@@ -2127,6 +2141,7 @@ INDEX_HTML = """<!doctype html>
               id="creativeProjectActions"
               class="stage-action-list"
               role="group"
+              hidden
             >
               <button id="creativeOpenProject" class="stage-action-button" type="button">
                 Open
@@ -3539,7 +3554,7 @@ INDEX_HTML = """<!doctype html>
     let creativeActiveDocument = "";
     let creativeScratchSaveTimer = null;
     let creativeLastNotifiedDocument = "";
-    let creativeProjectActionsExpanded = true;
+    let creativeProjectActionsExpanded = false;
     let creativeAgentActionsExpanded = false;
     let creativeBinderActionsExpanded = false;
 
@@ -5604,7 +5619,7 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function updateProjectState(payload) {
+    function updateProjectState(payload, options = {}) {
       const previousActiveProjectRoot = activeProjectRoot;
       const nextActiveProjectRoot = payload.active_project_root || "";
       serviceRoot = payload.service_root || "";
@@ -5679,7 +5694,9 @@ INDEX_HTML = """<!doctype html>
       syncProjectShellPane();
       if (creativeModeActive()) {
         applyCreativeWorkspace();
-        initializeCreativeWorkspace().then(refreshCreativeBinder);
+        if (!options.deferCreativeWorkspaceInit) {
+          ensureCreativeWorkspaceLoaded();
+        }
       } else {
         syncArtifactPreviewWithProject();
       }
@@ -7156,6 +7173,14 @@ INDEX_HTML = """<!doctype html>
       await fetch(contextUrl("/api/creative/init"), { method: "POST" }).catch(() => {});
     }
 
+    async function ensureCreativeWorkspaceLoaded() {
+      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
+        return;
+      }
+      await initializeCreativeWorkspace();
+      await refreshCreativeBinder();
+    }
+
     async function creativeNewFolderPrompt(basePath = "") {
       if (!activeProjectRoot) {
         return;
@@ -7869,7 +7894,10 @@ INDEX_HTML = """<!doctype html>
       projectPanel.hidden = true;
       hideStageMenus();
       appendOutput(`${payload.status}: ${activationRoot || activeProjectRoot}\\n`, "system");
-      updateProjectState(payload);
+      updateProjectState(payload, { deferCreativeWorkspaceInit: creativeModeActive() });
+      if (creativeModeActive()) {
+        await ensureCreativeWorkspaceLoaded();
+      }
       activateProject.disabled = false;
     }
 
