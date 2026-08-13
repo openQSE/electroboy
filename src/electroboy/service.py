@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import hashlib
 import html
 import io
 import json
@@ -85,6 +86,10 @@ CREATIVE_DEFAULT_FOLDERS = (
 )
 CREATIVE_SCRATCHPAD_PATH = "scratchpad/scratchpad.md"
 CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
+CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json"
+CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
+    Path(".electroboy") / "creative" / "corkboards.json"
+)
 
 _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
@@ -911,6 +916,10 @@ INDEX_HTML = """<!doctype html>
 
     .creative-tree-icon.markdown {
       color: #1c7ed6;
+    }
+
+    .creative-tree-icon.corkboard {
+      color: #9f7aea;
     }
 
     .creative-tree-row.active .creative-tree-icon {
@@ -3698,6 +3707,7 @@ INDEX_HTML = """<!doctype html>
     let creativeAgentActionsExpanded = false;
     let projectStatusMessages = [];
     const PROJECT_STATUS_MESSAGE_LIMIT = 80;
+    const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
 
     function storedTerminalFontSize() {
       try {
@@ -4682,6 +4692,8 @@ INDEX_HTML = """<!doctype html>
       }
       if (creativeActiveDocument) {
         lines.push(`document: ${creativeActiveDocument}`);
+      } else if (creativeActiveFolder) {
+        lines.push(`folder: ${creativeActiveFolder}`);
       }
       if (projectStatusMessages.length > 0) {
         lines.push("");
@@ -5456,6 +5468,25 @@ INDEX_HTML = """<!doctype html>
         parameters.set("document_path", artifactItem.target.path);
         parameters.set("document_title", artifactItem.target.label);
       }
+      if (
+        artifactItem &&
+        artifactItem.kind === "creative-corkboard" &&
+        artifactItem.folder
+      ) {
+        parameters.set("folder_path", artifactItem.folder.path);
+        parameters.set("folder_title", artifactItem.folder.label || artifactItem.title);
+      }
+      if (
+        artifactItem &&
+        artifactItem.kind === "creative-corkboard" &&
+        artifactItem.corkboard
+      ) {
+        parameters.set("corkboard_path", artifactItem.corkboard.path);
+        parameters.set(
+          "corkboard_title",
+          artifactItem.corkboard.label || artifactItem.title,
+        );
+      }
       const fontPane = paneFontKeyForKind(kind);
       parameters.set("base_font_size", String(terminalFontSize));
       parameters.set("font_pane", fontPane);
@@ -5580,6 +5611,16 @@ INDEX_HTML = """<!doctype html>
       if (data.type === "electroboy-artifact-saved") {
         refreshArtifactPreview({ includeEditing: false });
         recordProjectStatusMessage(`saved: ${data.path || "artifact"}`);
+        return;
+      }
+      if (data.type === "electroboy-creative-open" && data.path) {
+        if (data.entry_type === "directory") {
+          selectCreativeFolder(data.path);
+        } else if (data.entry_type === "corkboard") {
+          selectCreativeCorkboard(data.path);
+        } else {
+          selectCreativeDocument(data.path);
+        }
         return;
       }
       if (
@@ -7045,6 +7086,18 @@ INDEX_HTML = """<!doctype html>
       if (item.kind === "requirements") {
         return artifactRouteUrl("/artifacts/requirements");
       }
+      if (item.kind === "creative-corkboard") {
+        const board = item.folder || item.corkboard;
+        if (!board) {
+          return "";
+        }
+        const parameters = new URLSearchParams();
+        parameters.set("path", board.path);
+        parameters.set("title", board.label || item.title);
+        parameters.set("embed", "1");
+        parameters.set("version", String(artifactPreviewVersion));
+        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
+      }
       if (item.kind === "route" && item.path) {
         return artifactRouteUrl(item.path);
       }
@@ -7065,6 +7118,9 @@ INDEX_HTML = """<!doctype html>
       if (!item) {
         return "";
       }
+      if (item.kind === "creative-corkboard") {
+        return artifactPreviewUrl(item);
+      }
       const parameters = new URLSearchParams();
       parameters.set("artifact", artifactKindForPane(item));
       if (item.kind === "document" && item.target) {
@@ -7077,6 +7133,18 @@ INDEX_HTML = """<!doctype html>
         parameters.set("title", item.title);
       }
       return contextUrl(`/artifacts/edit?${parameters.toString()}`);
+    }
+
+    function artifactPaneSupportsModeSwitch(item) {
+      return item && item.kind !== "creative-corkboard";
+    }
+
+    function artifactPaneSupportsDocumentExport(item) {
+      return item && item.kind !== "creative-corkboard";
+    }
+
+    function artifactPaneSupportsDocumentZoom(item) {
+      return item && item.kind !== "creative-corkboard";
     }
 
     function artifactPreviewsForStage(stage) {
@@ -7160,7 +7228,13 @@ INDEX_HTML = """<!doctype html>
       setAgentInputVisible(true);
       showProgressPane(false);
       if (creativeActiveDocument) {
-        showCreativeDocument(creativeActiveDocument);
+        if (creativePathIsCorkboard(creativeActiveDocument)) {
+          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+        } else {
+          showCreativeDocument(creativeActiveDocument);
+        }
+      } else if (creativeActiveFolder) {
+        showCreativeCorkboard(creativeActiveFolder);
       } else {
         artifactPaneRequested = true;
         applyOutputPaneVisibility();
@@ -7279,6 +7353,7 @@ INDEX_HTML = """<!doctype html>
         folder: '<path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
         "folder-open": '<path d="M3 7h7l2 2h9l-2 9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7v11"></path>',
         markdown: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 15V9l3 3 3-3v6"></path><path d="M17 9v6"></path><path d="M15 13l2 2 2-2"></path>',
+        corkboard: '<rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M8 8h5v4H8z"></path><path d="M14 12h4v5h-4z"></path><path d="M8 14h4v3H8z"></path>',
       };
       return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.file}</svg>`;
     }
@@ -7287,12 +7362,18 @@ INDEX_HTML = """<!doctype html>
       if ((entry.type || "") === "directory") {
         return expanded ? "folder-open" : "folder";
       }
+      if (entry.corkboard) {
+        return "corkboard";
+      }
       return entry.markdown ? "markdown" : "file";
     }
 
     function creativeTreeIconClass(entry) {
       if ((entry.type || "") === "directory") {
         return "folder";
+      }
+      if (entry.corkboard) {
+        return "corkboard";
       }
       return entry.markdown ? "markdown" : "file";
     }
@@ -7307,6 +7388,7 @@ INDEX_HTML = """<!doctype html>
 
     function appendCreativeTreeEntry(entry, depth) {
       const type = entry.type || "file";
+      const entryActionType = entry.corkboard ? "corkboard" : type;
       const path = String(entry.path || "");
       const isDirectory = type === "directory";
       const expanded = isDirectory && expandedCreativeFolders.has(path);
@@ -7337,18 +7419,23 @@ INDEX_HTML = """<!doctype html>
       const rename = creativeTreeIconButton(
         "rename",
         `Rename ${path}`,
-        () => beginCreativeRename(path, type),
+        () => beginCreativeRename(path, entryActionType),
       );
       const remove = creativeTreeIconButton(
         "trash",
         `Delete ${path}`,
-        () => deleteCreativeEntry(path, type),
+        () => deleteCreativeEntry(path, entryActionType),
         "danger",
       );
 
       if (isDirectory) {
         const disclosure = document.createElement("span");
         disclosure.className = "creative-tree-disclosure";
+        disclosure.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleCreativeFolder(path);
+        });
         row.append(icon, name, rename, remove, disclosure);
       } else {
         row.append(icon, name, rename, remove);
@@ -7356,7 +7443,7 @@ INDEX_HTML = """<!doctype html>
       row.addEventListener("click", () => activateCreativeTreeEntry(entry, path, type));
       row.addEventListener("dblclick", (event) => {
         event.preventDefault();
-        beginCreativeRename(path, type);
+        beginCreativeRename(path, entryActionType);
       });
       row.addEventListener("keydown", (event) => {
         if (event.target !== row) {
@@ -7367,10 +7454,10 @@ INDEX_HTML = """<!doctype html>
           activateCreativeTreeEntry(entry, path, type);
         } else if (event.key === "F2") {
           event.preventDefault();
-          beginCreativeRename(path, type);
+          beginCreativeRename(path, entryActionType);
         } else if (event.key === "Delete") {
           event.preventDefault();
-          deleteCreativeEntry(path, type);
+          deleteCreativeEntry(path, entryActionType);
         }
       });
       creativeTree.append(row);
@@ -7411,7 +7498,11 @@ INDEX_HTML = """<!doctype html>
 
     function activateCreativeTreeEntry(entry, path, type) {
       if (type === "directory") {
-        toggleCreativeFolder(path);
+        selectCreativeFolder(path);
+        return;
+      }
+      if (entry.corkboard) {
+        selectCreativeCorkboard(path);
         return;
       }
       if (entry.markdown) {
@@ -7475,7 +7566,18 @@ INDEX_HTML = """<!doctype html>
         createCreativeDocumentInline(path);
       });
 
-      actions.append(newFolder, newFile);
+      const newBoard = document.createElement("button");
+      newBoard.className = "creative-tree-action";
+      newBoard.type = "button";
+      newBoard.textContent = "New board";
+      newBoard.addEventListener("click", (event) => {
+        event.stopPropagation();
+        creativeActiveFolder = path;
+        renderCreativeTree();
+        createCreativeCorkboardInline(path);
+      });
+
+      actions.append(newFolder, newFile, newBoard);
       creativeTree.append(actions);
     }
 
@@ -7483,13 +7585,65 @@ INDEX_HTML = """<!doctype html>
       if (!path) {
         return;
       }
-      creativeActiveFolder = path;
       if (expandedCreativeFolders.has(path)) {
         expandedCreativeFolders.delete(path);
       } else {
         expandedCreativeFolders.add(path);
       }
       renderCreativeTree();
+    }
+
+    function showCreativeCorkboard(path, options = {}) {
+      if (!path) {
+        return;
+      }
+      const freeform = Boolean(options.freeform) || creativePathIsCorkboard(path);
+      const label = freeform
+        ? basename(path).replace(/\.corkboard\.json$/i, "")
+        : basename(path);
+      const board = {
+        label,
+        path,
+      };
+      const item = {
+        id: `creative-corkboard-${path}`,
+        kind: "creative-corkboard",
+        title: `${freeform ? "Corkboard" : "Folder board"}: ${label}`,
+        editing: false,
+      };
+      if (freeform) {
+        item.corkboard = board;
+      } else {
+        item.folder = board;
+      }
+      showArtifactPreviews(
+        [item],
+        { manual: true, stage: "creative-writing" },
+      );
+    }
+
+    function selectCreativeFolder(path) {
+      if (!path) {
+        return;
+      }
+      creativeActiveFolder = path;
+      creativeActiveDocument = "";
+      showCreativeCorkboard(path);
+      renderCreativeTree();
+      renderCreativeProjectStatus();
+    }
+
+    function selectCreativeCorkboard(path) {
+      if (!path) {
+        return;
+      }
+      creativeActiveDocument = path;
+      creativeActiveFolder = creativeParentPath(path);
+      creativeLastNotifiedDocument = "";
+      showCreativeCorkboard(path, { freeform: true });
+      renderCreativeTree();
+      renderCreativeProjectStatus();
+      notifyCreativeAgentDocumentSwitch();
     }
 
     function showCreativeDocument(path) {
@@ -7665,6 +7819,10 @@ INDEX_HTML = """<!doctype html>
       return path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
     }
 
+    function creativePathIsCorkboard(path) {
+      return String(path || "").toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX);
+    }
+
     function creativePathIsInside(path, container) {
       return path === container || path.startsWith(`${container}/`);
     }
@@ -7699,6 +7857,13 @@ INDEX_HTML = """<!doctype html>
       name = name.replace(/[\\/]+/g, "-");
       if (!name || name === "." || name === "..") {
         return "";
+      }
+      if (type === "corkboard") {
+        if (!name.toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX)) {
+          name = name.replace(/\.(md|json)$/i, "");
+          name = `${name}${CREATIVE_CORKBOARD_SUFFIX}`;
+        }
+        return name;
       }
       if (type === "file" && !/\.[^./]+$/.test(name)) {
         name = `${name}.md`;
@@ -7741,7 +7906,11 @@ INDEX_HTML = """<!doctype html>
       await refreshCreativeBinder();
       recordProjectStatusMessage(`renamed: ${newPath}`);
       if (creativeActiveDocument) {
-        showCreativeDocument(creativeActiveDocument);
+        if (creativePathIsCorkboard(creativeActiveDocument)) {
+          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+        } else {
+          showCreativeDocument(creativeActiveDocument);
+        }
       }
     }
 
@@ -7792,11 +7961,41 @@ INDEX_HTML = """<!doctype html>
       recordProjectStatusMessage(`created file: ${payload.path || path}`);
     }
 
+    async function createCreativeCorkboardInline(basePath = "") {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const path = uniqueCreativeChildPath(
+        basePath,
+        "ideas",
+        CREATIVE_CORKBOARD_SUFFIX,
+      );
+      const response = await fetch(contextUrl("/api/creative/corkboards"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "corkboard failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "corkboard failed"}\\n`, "error");
+        return;
+      }
+      creativeActiveDocument = payload.path || path;
+      creativeActiveFolder = basePath;
+      creativeEditingPath = payload.path || path;
+      creativeEditingType = "corkboard";
+      await refreshCreativeBinder();
+      showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+      recordProjectStatusMessage(`created board: ${payload.path || path}`);
+    }
+
     async function deleteCreativeEntry(path, type) {
       if (!activeProjectRoot || !path) {
         return;
       }
-      const label = type === "directory" ? "folder and all of its contents" : "file";
+      const label = type === "directory"
+        ? "folder and all of its contents"
+        : type === "corkboard" ? "corkboard" : "file";
       if (!window.confirm(`Delete this ${label}?\\n\\n${path}`)) {
         return;
       }
@@ -7887,6 +8086,9 @@ INDEX_HTML = """<!doctype html>
 
         const actions = document.createElement("div");
         actions.className = "pane-actions";
+        const supportsZoom = artifactPaneSupportsDocumentZoom(item);
+        const supportsExport = artifactPaneSupportsDocumentExport(item);
+        const supportsModeSwitch = artifactPaneSupportsModeSwitch(item);
 
         const zoomControls = document.createElement("div");
         zoomControls.className = "document-zoom-controls";
@@ -7982,15 +8184,17 @@ INDEX_HTML = """<!doctype html>
         });
 
         zoomControls.append(zoomOut, zoomLevel, zoomIn);
-        actions.append(
-          zoomControls,
-          exportFormat,
-          exportButton,
-          refresh,
-          preview,
-          edit,
-          popout,
-        );
+        if (supportsZoom) {
+          actions.append(zoomControls);
+        }
+        if (supportsExport) {
+          actions.append(exportFormat, exportButton);
+        }
+        actions.append(refresh);
+        if (supportsModeSwitch) {
+          actions.append(preview, edit);
+        }
+        actions.append(popout);
         header.append(title, actions);
 
         const frame = document.createElement("iframe");
@@ -8030,6 +8234,14 @@ INDEX_HTML = """<!doctype html>
       if (item.kind === "route" && item.path) {
         parameters.set("artifact_path", item.path);
         parameters.set("artifact_title", item.title);
+      }
+      if (item.kind === "creative-corkboard" && item.folder) {
+        parameters.set("folder_path", item.folder.path);
+        parameters.set("folder_title", item.folder.label || item.title);
+      }
+      if (item.kind === "creative-corkboard" && item.corkboard) {
+        parameters.set("corkboard_path", item.corkboard.path);
+        parameters.set("corkboard_title", item.corkboard.label || item.title);
       }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,
@@ -10341,6 +10553,10 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactDocumentTitle = params.get("document_title") || "";
     const artifactRoutePath = params.get("artifact_path") || "";
     const artifactRouteTitle = params.get("artifact_title") || "";
+    const artifactFolderPath = params.get("folder_path") || "";
+    const artifactFolderTitle = params.get("folder_title") || "";
+    const artifactCorkboardPath = params.get("corkboard_path") || "";
+    const artifactCorkboardTitle = params.get("corkboard_title") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -10520,6 +10736,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         }
         if (artifactKind === "route" && artifactRouteTitle) {
           return artifactRouteTitle;
+        }
+        if (artifactKind === "creative-corkboard") {
+          return artifactCorkboardTitle || artifactFolderTitle || "Corkboard";
         }
         return "Artifact preview";
       }
@@ -11008,10 +11227,28 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         const routeUrl = contextUrl(`${artifactRoutePath}?embed=1`);
         return `${routeUrl}&zoom=${artifactZoom}&version=${artifactVersion}`;
       }
+      if (artifactKind === "creative-corkboard") {
+        const corkboardPath = artifactCorkboardPath || artifactFolderPath;
+        if (!corkboardPath) {
+          return "";
+        }
+        const parameters = new URLSearchParams();
+        parameters.set("path", corkboardPath);
+        parameters.set(
+          "title",
+          artifactCorkboardTitle || artifactFolderTitle || corkboardPath,
+        );
+        parameters.set("embed", "1");
+        parameters.set("version", String(artifactVersion));
+        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
+      }
       return "";
     }
 
     function artifactEditUrl() {
+      if (artifactKind === "creative-corkboard") {
+        return artifactUrl();
+      }
       const parameters = new URLSearchParams();
       parameters.set("artifact", artifactKind);
       if (artifactKind === "document" && artifactDocumentPath) {
@@ -11058,11 +11295,14 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     function connectArtifactStream() {
+      const isCorkboard = artifactKind === "creative-corkboard";
       artifactFrame.hidden = false;
-      artifactZoomControls.hidden = false;
+      artifactZoomControls.hidden = isCorkboard;
       refreshArtifactButton.hidden = false;
-      previewArtifactButton.hidden = false;
-      editArtifactButton.hidden = false;
+      previewArtifactButton.hidden = isCorkboard;
+      editArtifactButton.hidden = isCorkboard;
+      exportPaneFormat.hidden = isCorkboard;
+      exportPaneOutput.hidden = isCorkboard;
       previewArtifactButton.classList.toggle("active", !artifactEditing);
       editArtifactButton.classList.toggle("active", artifactEditing);
       applyArtifactZoom();
@@ -13194,6 +13434,18 @@ class ServiceState:
             "path": path,
         }
 
+    def create_creative_corkboard(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _create_creative_corkboard(project_root, relative_path)
+        return {
+            "status": "created",
+            "path": path,
+        }
+
     def rename_creative_entry(
         self,
         context_id: str,
@@ -13244,6 +13496,52 @@ class ServiceState:
             "status": "saved",
             "path": path.relative_to(project_root).as_posix(),
         }
+
+    def save_creative_corkboard(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        board_type = str(payload.get("board_type") or "folder")
+        if board_type == "folder" and "order" in payload:
+            order = payload.get("order")
+            if not isinstance(order, list):
+                raise StateError("folder corkboard order must be a list")
+            saved_order = _save_creative_folder_corkboard_order(
+                project_root,
+                folder_path=str(payload.get("folder") or ""),
+                order=[str(item) for item in order],
+            )
+            return {
+                "status": "saved",
+                "order": saved_order,
+            }
+        if board_type == "folder":
+            card = _save_creative_folder_corkboard_card(
+                project_root,
+                folder_path=str(payload.get("folder") or ""),
+                card_path=str(payload.get("path") or ""),
+                note=str(payload.get("note") or ""),
+            )
+            return {
+                "status": "saved",
+                "card": card,
+            }
+        if board_type == "freeform":
+            card_payload = payload.get("card")
+            if not isinstance(card_payload, dict):
+                raise StateError("freeform corkboard card is required")
+            card = _save_creative_freeform_corkboard_card(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                card_payload=card_payload,
+            )
+            return {
+                "status": "saved",
+                "card": card,
+            }
+        raise StateError(f"unknown corkboard type: {board_type}")
 
     def start_creative_writing_agent(
         self,
@@ -16969,10 +17267,13 @@ def _ensure_creative_workspace(project_root: Path | str) -> None:
         _create_creative_document(project_root, "chapters/chapter-01.md")
     for path in [
         "characters/characters.md",
-        "corkboard/ideas.md",
         "reviews/review-notes.md",
     ]:
         _create_creative_document(project_root, path)
+    _create_creative_corkboard(
+        project_root,
+        f"corkboard/ideas{CREATIVE_CORKBOARD_SUFFIX}",
+    )
 
 
 def _ensure_creative_scratchpad(project_root: Path | str) -> Path:
@@ -16999,6 +17300,29 @@ def _create_creative_document(project_root: Path | str, relative_path: str) -> s
         document_path.parent.mkdir(parents=True, exist_ok=True)
         document_path.write_text(
             _document_starter_markdown(normalized_path),
+            encoding="utf-8",
+        )
+    return normalized_path
+
+
+def _empty_creative_corkboard_document() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "type": "electroboy.creative.corkboard",
+        "cards": [],
+    }
+
+
+def _create_creative_corkboard(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, corkboard_path = _creative_path(project_root, relative_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if corkboard_path.exists() and not corkboard_path.is_file():
+        raise StateError("corkboard path already exists as a folder")
+    if not corkboard_path.exists() or not corkboard_path.read_text(encoding="utf-8").strip():
+        corkboard_path.parent.mkdir(parents=True, exist_ok=True)
+        corkboard_path.write_text(
+            json.dumps(_empty_creative_corkboard_document(), indent=2) + "\n",
             encoding="utf-8",
         )
     return normalized_path
@@ -17033,7 +17357,9 @@ def _rename_creative_entry(
     if destination.exists():
         raise StateError(f"path already exists: {normalized_name}")
     source.rename(destination)
-    return old_relative_path, destination.relative_to(project_root).as_posix()
+    new_relative_path = destination.relative_to(project_root).as_posix()
+    _remap_creative_corkboard_paths(project_root, old_relative_path, new_relative_path)
+    return old_relative_path, new_relative_path
 
 
 def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
@@ -17044,6 +17370,7 @@ def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
         shutil.rmtree(path)
     else:
         path.unlink()
+    _remove_creative_corkboard_paths(project_root, normalized_path)
     return normalized_path
 
 
@@ -17095,9 +17422,1136 @@ def _creative_tree_entries(
                 "path": relative_path,
                 "type": "file",
                 "markdown": child.suffix.lower() == ".md",
+                "corkboard": child.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
             }
         )
     return entries
+
+
+def creative_corkboard_html(
+    project_root: Path | str,
+    board_path: str,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> tuple[str, HTTPStatus]:
+    """Return an interactive corkboard for a folder or corkboard file."""
+
+    payload = _creative_corkboard_payload(
+        project_root,
+        board_path,
+        title=title,
+        context_id=context_id,
+    )
+    data_json = json.dumps(payload).replace("</", "<\\/")
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(str(payload["title"]))}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --cork: #8a603a;
+      --cork-dark: #5f4128;
+      --ink: #263247;
+      --muted: #6b7280;
+      --pin: #d1495b;
+      --shadow: rgba(15, 20, 32, 0.32);
+    }}
+
+    * {{
+      box-sizing: border-box;
+    }}
+
+    html,
+    body {{
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(circle at 22px 18px, rgba(255, 255, 255, 0.10) 0 1px, transparent 2px),
+        radial-gradient(circle at 9px 31px, rgba(0, 0, 0, 0.12) 0 1px, transparent 2px),
+        linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
+        var(--cork);
+      background-size: 44px 44px, 36px 36px, 18px 18px, auto;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: auto;
+    }}
+
+    .board-shell {{
+      min-width: 100%;
+      min-height: 100vh;
+      border: 14px solid var(--cork-dark);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }}
+
+    .board-toolbar {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 62px;
+      border-bottom: 1px solid rgba(52, 34, 22, 0.34);
+      background: rgba(52, 34, 22, 0.18);
+      padding: 10px 18px;
+    }}
+
+    .board-eyebrow {{
+      color: rgba(255, 248, 228, 0.84);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    h1 {{
+      margin: 2px 0 0;
+      color: #fff9e8;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.15;
+    }}
+
+    .toolbar-button {{
+      min-height: 32px;
+      border: 1px solid rgba(255, 249, 232, 0.42);
+      border-radius: 999px;
+      background: rgba(255, 249, 232, 0.18);
+      color: #fff9e8;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 0 14px;
+    }}
+
+    .toolbar-button[hidden] {{
+      display: none;
+    }}
+
+    .board {{
+      min-width: 100%;
+      min-height: calc(100vh - 90px);
+      overflow: visible;
+    }}
+
+    .board.folder {{
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      align-content: start;
+      gap: 24px;
+      padding: 26px;
+    }}
+
+    .board.freeform {{
+      position: relative;
+    }}
+
+    .empty-board {{
+      width: 240px;
+      min-height: 140px;
+      border-radius: 4px;
+      background: #fff6cf;
+      color: #596176;
+      box-shadow: 0 18px 36px var(--shadow);
+      padding: 22px;
+      transform: rotate(-2deg);
+    }}
+
+    .board.freeform .empty-board {{
+      position: absolute;
+      top: 42px;
+      left: 42px;
+    }}
+
+    .index-card {{
+      min-height: 158px;
+      border: 1px solid rgba(38, 50, 71, 0.14);
+      border-radius: 5px;
+      background:
+        linear-gradient(var(--paper), var(--paper)),
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 25px,
+          rgba(63, 77, 103, 0.16) 26px
+        );
+      box-shadow:
+        0 18px 34px var(--shadow),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+      transform: rotate(var(--rotation));
+      transform-origin: 50% 22px;
+      touch-action: none;
+    }}
+
+    .board.folder .index-card {{
+      position: relative;
+      width: auto;
+    }}
+
+    .board.folder .index-card.dragging {{
+      opacity: 0.42;
+    }}
+
+    .board.folder .index-card.drop-target {{
+      outline: 3px solid rgba(102, 217, 232, 0.8);
+      outline-offset: 4px;
+    }}
+
+    .board.freeform .index-card {{
+      position: absolute;
+      width: 218px;
+    }}
+
+    .index-card.dragging {{
+      cursor: grabbing;
+      box-shadow:
+        0 28px 54px rgba(15, 20, 32, 0.44),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+      z-index: 1000;
+    }}
+
+    .index-card::before {{
+      content: "";
+      position: absolute;
+      top: -8px;
+      left: 50%;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background:
+        radial-gradient(circle at 35% 32%, rgba(255, 255, 255, 0.75), transparent 0 22%),
+        var(--pin);
+      box-shadow: 0 4px 8px rgba(48, 28, 22, 0.35);
+      transform: translateX(-50%);
+    }}
+
+    .index-card::after {{
+      content: "";
+      position: absolute;
+      top: 8px;
+      left: 16px;
+      right: 16px;
+      height: 16px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.26);
+      mix-blend-mode: multiply;
+      transform: rotate(-1deg);
+      pointer-events: none;
+    }}
+
+    .card-head {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+      padding: 18px 14px 8px;
+      cursor: grab;
+    }}
+
+    .card-title {{
+      min-width: 0;
+      overflow: hidden;
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.15;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+
+    .card-title-input {{
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.15;
+      outline: none;
+      padding: 0;
+    }}
+
+    .card-type {{
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    .card-open {{
+      min-height: 24px;
+      border: 1px solid rgba(38, 50, 71, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.55);
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 0 10px;
+    }}
+
+    .card-note {{
+      display: block;
+      width: calc(100% - 24px);
+      min-height: 82px;
+      margin: 0 12px 12px;
+      border: 0;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 25px,
+          rgba(63, 77, 103, 0.18) 26px
+        );
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      line-height: 26px;
+      outline: none;
+      resize: none;
+    }}
+
+    .status {{
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      min-height: 0;
+      border-radius: 999px;
+      background: rgba(15, 20, 32, 0.86);
+      color: #d8e3f4;
+      font-size: 12px;
+      padding: 6px 10px;
+      pointer-events: none;
+    }}
+
+    .status:empty {{
+      display: none;
+    }}
+  </style>
+</head>
+<body>
+  <main class="board-shell">
+    <header class="board-toolbar">
+      <div>
+        <div id="boardEyebrow" class="board-eyebrow"></div>
+        <h1>{html.escape(str(payload["title"]))}</h1>
+      </div>
+      <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
+    </header>
+    <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
+  </main>
+  <div id="status" class="status"></div>
+  <script>
+    const CORKBOARD_DATA = {data_json};
+    const board = document.getElementById("board");
+    const boardEyebrow = document.getElementById("boardEyebrow");
+    const addCard = document.getElementById("addCard");
+    const statusLine = document.getElementById("status");
+    const boardType = CORKBOARD_DATA.board_type || "folder";
+    const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
+    const saveTimers = new Map();
+    let dragState = null;
+    let draggedPath = "";
+
+    function contextUrl(path) {{
+      const contextId = CORKBOARD_DATA.context_id || "";
+      if (!contextId) {{
+        return path;
+      }}
+      const separator = path.includes("?") ? "&" : "?";
+      return `${{path}}${{separator}}context_id=${{encodeURIComponent(contextId)}}`;
+    }}
+
+    function setStatus(message) {{
+      statusLine.textContent = message || "";
+      if (message) {{
+        window.clearTimeout(setStatus.timer);
+        setStatus.timer = window.setTimeout(() => {{
+          statusLine.textContent = "";
+        }}, 1200);
+      }}
+    }}
+
+    function cardKey(card) {{
+      return String(card.id || card.path || "");
+    }}
+
+    function cardColor(card) {{
+      return card.color || "#fff6cf";
+    }}
+
+    function applyCardPosition(cardElement, card) {{
+      cardElement.style.left = `${{Math.max(0, Number(card.x) || 0)}}px`;
+      cardElement.style.top = `${{Math.max(0, Number(card.y) || 0)}}px`;
+      cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
+      cardElement.style.setProperty("--paper", cardColor(card));
+    }}
+
+    function sizeBoard() {{
+      if (boardType !== "freeform") {{
+        return;
+      }}
+      const width = Math.max(
+        window.innerWidth,
+        ...cards.map((card) => (Number(card.x) || 0) + 280),
+      );
+      const height = Math.max(
+        window.innerHeight,
+        ...cards.map((card) => (Number(card.y) || 0) + 230),
+      );
+      board.style.minWidth = `${{width}}px`;
+      board.style.minHeight = `${{height}}px`;
+    }}
+
+    function queueSave(card) {{
+      const key = cardKey(card);
+      window.clearTimeout(saveTimers.get(key));
+      saveTimers.set(
+        key,
+        window.setTimeout(() => saveCard(card), 350),
+      );
+    }}
+
+    async function saveCard(card) {{
+      if (!CORKBOARD_DATA.context_id) {{
+        return;
+      }}
+      let payload = null;
+      if (boardType === "folder") {{
+        payload = {{
+          board_type: "folder",
+          folder: CORKBOARD_DATA.folder.path,
+          path: card.path,
+          note: card.note || "",
+        }};
+      }} else {{
+        payload = {{
+          board_type: "freeform",
+          corkboard: CORKBOARD_DATA.corkboard.path,
+          card: {{
+            id: card.id,
+            title: card.title || "",
+            note: card.note || "",
+            x: Number(card.x) || 0,
+            y: Number(card.y) || 0,
+            rotation: Number(card.rotation) || 0,
+            color: cardColor(card),
+          }},
+        }};
+      }}
+      setStatus("saving");
+      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify(payload),
+      }}).catch(() => null);
+      setStatus(response && response.ok ? "saved" : "save failed");
+    }}
+
+    async function saveOrder() {{
+      if (!CORKBOARD_DATA.context_id || boardType !== "folder") {{
+        return;
+      }}
+      setStatus("saving order");
+      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          board_type: "folder",
+          folder: CORKBOARD_DATA.folder.path,
+          order: cards.map((card) => card.path),
+        }}),
+      }}).catch(() => null);
+      setStatus(response && response.ok ? "order saved" : "save failed");
+    }}
+
+    function openCard(card) {{
+      const targetWindow =
+        window.parent && window.parent !== window ? window.parent : window.opener;
+      if (!targetWindow) {{
+        return;
+      }}
+      targetWindow.postMessage(
+        {{
+          type: "electroboy-creative-open",
+          path: card.path,
+          entry_type: card.corkboard ? "corkboard" : card.type,
+        }},
+        window.location.origin,
+      );
+    }}
+
+    function startDrag(event) {{
+      if (event.button !== 0 || event.target.closest("textarea, button")) {{
+        return;
+      }}
+      const cardElement = event.currentTarget;
+      const card = cards.find((candidate) => cardKey(candidate) === cardElement.dataset.key);
+      if (!card) {{
+        return;
+      }}
+      dragState = {{
+        card,
+        cardElement,
+        startX: event.clientX,
+        startY: event.clientY,
+        originalX: Number(card.x) || 0,
+        originalY: Number(card.y) || 0,
+      }};
+      cardElement.classList.add("dragging");
+      cardElement.setPointerCapture(event.pointerId);
+    }}
+
+    function updateDrag(event) {{
+      if (!dragState) {{
+        return;
+      }}
+      dragState.card.x = Math.max(
+        0,
+        dragState.originalX + event.clientX - dragState.startX,
+      );
+      dragState.card.y = Math.max(
+        0,
+        dragState.originalY + event.clientY - dragState.startY,
+      );
+      applyCardPosition(dragState.cardElement, dragState.card);
+      sizeBoard();
+    }}
+
+    function finishDrag(event) {{
+      if (!dragState) {{
+        return;
+      }}
+      dragState.cardElement.classList.remove("dragging");
+      try {{
+        dragState.cardElement.releasePointerCapture(event.pointerId);
+      }} catch (error) {{
+        // Pointer capture may already be released if the window lost focus.
+      }}
+      queueSave(dragState.card);
+      dragState = null;
+    }}
+
+    function startFolderDrag(event, card, cardElement) {{
+      draggedPath = card.path || "";
+      cardElement.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", draggedPath);
+    }}
+
+    function finishFolderDrag(cardElement) {{
+      draggedPath = "";
+      cardElement.classList.remove("dragging");
+      for (const element of board.querySelectorAll(".drop-target")) {{
+        element.classList.remove("drop-target");
+      }}
+    }}
+
+    function dropFolderCard(event, targetCard) {{
+      event.preventDefault();
+      const sourcePath = draggedPath || event.dataTransfer.getData("text/plain");
+      if (!sourcePath || sourcePath === targetCard.path) {{
+        return;
+      }}
+      const sourceIndex = cards.findIndex((card) => card.path === sourcePath);
+      const targetIndex = cards.findIndex((card) => card.path === targetCard.path);
+      if (sourceIndex < 0 || targetIndex < 0) {{
+        return;
+      }}
+      const [moved] = cards.splice(sourceIndex, 1);
+      const nextTargetIndex = cards.findIndex((card) => card.path === targetCard.path);
+      cards.splice(nextTargetIndex, 0, moved);
+      renderCards();
+      saveOrder();
+    }}
+
+    function makeFreeformCard() {{
+      const index = cards.length;
+      const card = {{
+        id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
+        title: "Untitled card",
+        note: "",
+        x: 36 + (index % 4) * 236,
+        y: 36 + Math.floor(index / 4) * 206,
+        rotation: (index % 5) - 2,
+        color: ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"][index % 5],
+      }};
+      cards.push(card);
+      renderCards();
+      saveCard(card);
+    }}
+
+    function renderCards() {{
+      board.replaceChildren();
+      board.className = `board ${{boardType}}`;
+      boardEyebrow.textContent = boardType === "freeform"
+        ? "Freeform corkboard"
+        : "Folder board";
+      addCard.hidden = boardType !== "freeform";
+      if (cards.length === 0) {{
+        const empty = document.createElement("section");
+        empty.className = "empty-board";
+        empty.textContent = boardType === "freeform"
+          ? "No cards yet. Add one to start arranging ideas."
+          : "No folders or files yet.";
+        board.append(empty);
+        return;
+      }}
+      for (const card of cards) {{
+        const cardElement = document.createElement("article");
+        cardElement.className = `index-card ${{card.type || "file"}}`;
+        cardElement.dataset.key = cardKey(card);
+        cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
+        cardElement.style.setProperty("--paper", cardColor(card));
+        if (boardType === "freeform") {{
+          applyCardPosition(cardElement, card);
+          cardElement.addEventListener("pointerdown", startDrag);
+          cardElement.addEventListener("pointermove", updateDrag);
+          cardElement.addEventListener("pointerup", finishDrag);
+          cardElement.addEventListener("pointercancel", finishDrag);
+        }} else {{
+          cardElement.draggable = true;
+          cardElement.addEventListener("dragstart", (event) =>
+            startFolderDrag(event, card, cardElement),
+          );
+          cardElement.addEventListener("dragend", () => finishFolderDrag(cardElement));
+          cardElement.addEventListener("dragover", (event) => {{
+            event.preventDefault();
+            cardElement.classList.add("drop-target");
+          }});
+          cardElement.addEventListener("dragleave", () =>
+            cardElement.classList.remove("drop-target"),
+          );
+          cardElement.addEventListener("drop", (event) => dropFolderCard(event, card));
+        }}
+
+        const head = document.createElement("div");
+        head.className = "card-head";
+        const titleBox = document.createElement("div");
+        let title = null;
+        if (boardType === "freeform") {{
+          title = document.createElement("input");
+          title.className = "card-title-input";
+          title.type = "text";
+          title.value = card.title || "Untitled card";
+          title.addEventListener("input", () => {{
+            card.title = title.value;
+            queueSave(card);
+          }});
+        }} else {{
+          title = document.createElement("div");
+          title.className = "card-title";
+          title.textContent = card.name || card.path;
+        }}
+        const type = document.createElement("div");
+        type.className = "card-type";
+        type.textContent = boardType === "freeform"
+          ? "Idea"
+          : card.type === "directory" ? "Folder" : card.corkboard ? "Board" : "File";
+        titleBox.append(title, type);
+
+        if (boardType === "folder") {{
+          const open = document.createElement("button");
+          open.className = "card-open";
+          open.type = "button";
+          open.textContent = "Open";
+          open.addEventListener("click", () => openCard(card));
+          head.append(titleBox, open);
+        }} else {{
+          head.append(titleBox);
+        }}
+
+        const note = document.createElement("textarea");
+        note.className = "card-note";
+        note.spellcheck = true;
+        note.value = card.note || "";
+        note.addEventListener("input", () => {{
+          card.note = note.value;
+          queueSave(card);
+        }});
+
+        cardElement.append(head, note);
+        board.append(cardElement);
+      }}
+      sizeBoard();
+    }}
+
+    addCard.addEventListener("click", makeFreeformCard);
+    window.addEventListener("resize", sizeBoard);
+    renderCards();
+  </script>
+</body>
+</html>
+"""
+    return page, HTTPStatus.OK
+
+
+def _creative_corkboard_payload(
+    project_root: Path | str,
+    board_path: str,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> dict[str, object]:
+    project_root = Path(project_root).expanduser().resolve()
+    normalized_path, path = _creative_path(project_root, board_path)
+    if path.exists() and path.is_dir():
+        return _creative_folder_corkboard_payload(
+            project_root,
+            normalized_path,
+            path,
+            title=title,
+            context_id=context_id,
+        )
+    if (
+        path.exists()
+        and path.is_file()
+        and normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX)
+    ):
+        return _creative_freeform_corkboard_payload(
+            project_root,
+            normalized_path,
+            path,
+            title=title,
+            context_id=context_id,
+        )
+    if normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    raise StateError(f"folder does not exist: {normalized_path}")
+
+
+def _creative_folder_corkboard_payload(
+    project_root: Path,
+    normalized_folder: str,
+    folder: Path,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> dict[str, object]:
+    state = _load_creative_corkboard_state(project_root)
+    folder_state = _creative_corkboard_folder_state(state, normalized_folder)
+    card_states = _creative_corkboard_folder_cards(folder_state)
+    cards = []
+    for index, child in enumerate(_creative_corkboard_children(project_root, folder)):
+        relative_path = child.relative_to(project_root).as_posix()
+        card_state = card_states.get(relative_path, {})
+        cards.append(
+            _creative_folder_corkboard_card(
+                child,
+                relative_path,
+                index,
+                card_state if isinstance(card_state, dict) else {},
+            )
+        )
+    order = folder_state.get("order")
+    if isinstance(order, list):
+        order_index = {str(path): index for index, path in enumerate(order)}
+        natural_index = {str(card["path"]): index for index, card in enumerate(cards)}
+        cards.sort(
+            key=lambda card: (
+                order_index.get(
+                    str(card["path"]),
+                    len(order) + natural_index[str(card["path"])],
+                ),
+                natural_index[str(card["path"])],
+            )
+        )
+    return {
+        "schema_version": 1,
+        "board_type": "folder",
+        "context_id": context_id,
+        "title": title or f"Folder board: {folder.name}",
+        "folder": {
+            "name": folder.name,
+            "path": normalized_folder,
+        },
+        "cards": cards,
+    }
+
+
+def _creative_freeform_corkboard_payload(
+    project_root: Path,
+    normalized_path: str,
+    corkboard_path: Path,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> dict[str, object]:
+    data = _load_creative_corkboard_document(corkboard_path)
+    return {
+        "schema_version": 1,
+        "board_type": "freeform",
+        "context_id": context_id,
+        "title": title or corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX),
+        "corkboard": {
+            "name": corkboard_path.name,
+            "path": normalized_path,
+        },
+        "cards": _freeform_corkboard_cards(data),
+    }
+
+
+def _creative_corkboard_children(project_root: Path, folder: Path) -> list[Path]:
+    try:
+        children = sorted(
+            folder.iterdir(),
+            key=lambda path: (not path.is_dir(), path.name.lower()),
+        )
+    except OSError:
+        return []
+    return [
+        child
+        for child in children
+        if child.name not in CREATIVE_IGNORED_NAMES and not child.name.startswith(".")
+    ]
+
+
+def _creative_folder_corkboard_card(
+    path: Path,
+    relative_path: str,
+    index: int,
+    state: dict[str, object],
+) -> dict[str, object]:
+    style = _creative_corkboard_card_style(relative_path, index)
+    return {
+        "name": path.name,
+        "path": relative_path,
+        "type": "directory" if path.is_dir() else "file",
+        "corkboard": path.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
+        "note": str(state.get("note") or ""),
+        "rotation": style["rotation"],
+        "color": style["color"],
+    }
+
+
+def _creative_corkboard_card_style(
+    relative_path: str,
+    index: int,
+) -> dict[str, object]:
+    digest = hashlib.sha1(relative_path.encode("utf-8")).hexdigest()
+    palette = ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"]
+    rotation = (int(digest[4:6], 16) % 9) - 4
+    return {
+        "rotation": rotation,
+        "color": palette[int(digest[6:8], 16) % len(palette)],
+    }
+
+
+def _bounded_float(
+    value: object,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def _creative_corkboard_state_path(project_root: Path | str) -> Path:
+    return Path(project_root).expanduser().resolve() / CREATIVE_CORKBOARD_STATE_RELATIVE_PATH
+
+
+def _load_creative_corkboard_state(project_root: Path | str) -> dict[str, object]:
+    path = _creative_corkboard_state_path(project_root)
+    if not path.exists():
+        return {"schema_version": 1, "folders": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1, "folders": {}}
+    if not isinstance(data, dict):
+        return {"schema_version": 1, "folders": {}}
+    folders = data.get("folders")
+    if not isinstance(folders, dict):
+        data["folders"] = {}
+    data["schema_version"] = 1
+    return data
+
+
+def _save_creative_corkboard_state(
+    project_root: Path | str,
+    state: dict[str, object],
+) -> None:
+    path = _creative_corkboard_state_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _creative_corkboard_folder_state(
+    state: dict[str, object],
+    folder_path: str,
+) -> dict[str, object]:
+    folders = state.setdefault("folders", {})
+    if not isinstance(folders, dict):
+        state["folders"] = {}
+        folders = state["folders"]
+    folder_state = folders.setdefault(folder_path, {})
+    if not isinstance(folder_state, dict):
+        folder_state = {}
+        folders[folder_path] = folder_state
+    cards = _creative_corkboard_folder_cards(folder_state)
+    order = folder_state.setdefault("order", [])
+    if not isinstance(order, list):
+        folder_state["order"] = []
+    return folder_state
+
+
+def _creative_corkboard_folder_cards(
+    folder_state: dict[str, object],
+) -> dict[str, object]:
+    cards = folder_state.setdefault("cards", {})
+    if not isinstance(cards, dict):
+        folder_state["cards"] = {}
+        cards = folder_state["cards"]
+    return cards
+
+
+def _save_creative_folder_corkboard_card(
+    project_root: Path | str,
+    *,
+    folder_path: str,
+    card_path: str,
+    note: str,
+) -> dict[str, object]:
+    normalized_folder, folder = _creative_path(project_root, folder_path)
+    normalized_card, card = _creative_path(project_root, card_path)
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder does not exist: {normalized_folder}")
+    if not card.exists():
+        raise StateError(f"card path does not exist: {normalized_card}")
+    if card.parent.resolve() != folder.resolve():
+        raise StateError("card does not belong to the corkboard folder")
+    state = _load_creative_corkboard_state(project_root)
+    folder_state = _creative_corkboard_folder_state(state, normalized_folder)
+    card_states = _creative_corkboard_folder_cards(folder_state)
+    previous = card_states.get(normalized_card, {})
+    card_states[normalized_card] = {
+        **(previous if isinstance(previous, dict) else {}),
+        "note": note[:5000],
+    }
+    _save_creative_corkboard_state(project_root, state)
+    return {
+        "path": normalized_card,
+        **card_states[normalized_card],
+    }
+
+
+def _save_creative_folder_corkboard_order(
+    project_root: Path | str,
+    *,
+    folder_path: str,
+    order: list[str],
+) -> list[str]:
+    normalized_folder, folder = _creative_path(project_root, folder_path)
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder does not exist: {normalized_folder}")
+    project_root_path = Path(project_root).expanduser().resolve()
+    valid_children = {
+        child.relative_to(project_root_path).as_posix()
+        for child in _creative_corkboard_children(project_root_path, folder)
+    }
+    saved_order: list[str] = []
+    seen: set[str] = set()
+    for item in order:
+        normalized_item, item_path = _creative_path(project_root, item)
+        if (
+            normalized_item in valid_children
+            and normalized_item not in seen
+            and item_path.parent.resolve() == folder.resolve()
+        ):
+            saved_order.append(normalized_item)
+            seen.add(normalized_item)
+    for item in sorted(valid_children):
+        if item not in seen:
+            saved_order.append(item)
+    state = _load_creative_corkboard_state(project_root)
+    folder_state = _creative_corkboard_folder_state(state, normalized_folder)
+    folder_state["order"] = saved_order
+    _save_creative_corkboard_state(project_root, state)
+    return saved_order
+
+
+def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _empty_creative_corkboard_document()
+    if not isinstance(data, dict):
+        return _empty_creative_corkboard_document()
+    if data.get("type") != "electroboy.creative.corkboard":
+        data["type"] = "electroboy.creative.corkboard"
+    data["schema_version"] = 1
+    if not isinstance(data.get("cards"), list):
+        data["cards"] = []
+    return data
+
+
+def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]]:
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        return []
+    normalized_cards: list[dict[str, object]] = []
+    for index, raw_card in enumerate(cards):
+        if not isinstance(raw_card, dict):
+            continue
+        card_id = str(raw_card.get("id") or f"card-{index + 1}")
+        style = _creative_corkboard_card_style(card_id, index)
+        normalized_cards.append(
+            {
+                "id": card_id[:100],
+                "title": str(raw_card.get("title") or "Untitled card")[:200],
+                "note": str(raw_card.get("note") or "")[:5000],
+                "x": _bounded_float(raw_card.get("x"), 36 + index * 24, 0, 5000),
+                "y": _bounded_float(raw_card.get("y"), 36 + index * 18, 0, 5000),
+                "rotation": _bounded_float(
+                    raw_card.get("rotation"),
+                    float(style["rotation"]),
+                    -8,
+                    8,
+                ),
+                "color": str(raw_card.get("color") or style["color"])[:40],
+            }
+        )
+    return normalized_cards
+
+
+def _save_creative_freeform_corkboard_card(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    card_payload: dict[str, object],
+) -> dict[str, object]:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if not path.exists():
+        _create_creative_corkboard(project_root, normalized_path)
+    if not path.is_file():
+        raise StateError(f"corkboard is not a file: {normalized_path}")
+    data = _load_creative_corkboard_document(path)
+    cards = _freeform_corkboard_cards(data)
+    card_id = str(card_payload.get("id") or uuid4().hex)[:100]
+    style = _creative_corkboard_card_style(card_id, len(cards))
+    card = {
+        "id": card_id,
+        "title": str(card_payload.get("title") or "Untitled card")[:200],
+        "note": str(card_payload.get("note") or "")[:5000],
+        "x": _bounded_float(card_payload.get("x"), 36, 0, 5000),
+        "y": _bounded_float(card_payload.get("y"), 36, 0, 5000),
+        "rotation": _bounded_float(
+            card_payload.get("rotation"),
+            float(style["rotation"]),
+            -8,
+            8,
+        ),
+        "color": str(card_payload.get("color") or style["color"])[:40],
+    }
+    replaced = False
+    for index, existing in enumerate(cards):
+        if existing.get("id") == card_id:
+            cards[index] = card
+            replaced = True
+            break
+    if not replaced:
+        cards.append(card)
+    data["cards"] = cards
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return card
+
+
+def _remap_creative_path_reference(path: str, old_path: str, new_path: str) -> str:
+    if path == old_path:
+        return new_path
+    if path.startswith(f"{old_path}/"):
+        return f"{new_path}/{path[len(old_path) + 1:]}"
+    return path
+
+
+def _remap_creative_corkboard_paths(
+    project_root: Path | str,
+    old_path: str,
+    new_path: str,
+) -> None:
+    state_path = _creative_corkboard_state_path(project_root)
+    if not state_path.exists():
+        return
+    state = _load_creative_corkboard_state(project_root)
+    folders = state.get("folders")
+    if not isinstance(folders, dict):
+        return
+    remapped_folders: dict[str, object] = {}
+    for folder_key, folder_state in folders.items():
+        if not isinstance(folder_key, str) or not isinstance(folder_state, dict):
+            continue
+        next_folder_key = _remap_creative_path_reference(folder_key, old_path, new_path)
+        cards = folder_state.get("cards")
+        if isinstance(cards, dict):
+            folder_state["cards"] = {
+                _remap_creative_path_reference(
+                    str(card_path),
+                    old_path,
+                    new_path,
+                ): card_state
+                for card_path, card_state in cards.items()
+            }
+        order = folder_state.get("order")
+        if isinstance(order, list):
+            folder_state["order"] = [
+                _remap_creative_path_reference(str(card_path), old_path, new_path)
+                for card_path in order
+            ]
+        remapped_folders[next_folder_key] = folder_state
+    state["folders"] = remapped_folders
+    _save_creative_corkboard_state(project_root, state)
+
+
+def _remove_creative_corkboard_paths(project_root: Path | str, removed_path: str) -> None:
+    state_path = _creative_corkboard_state_path(project_root)
+    if not state_path.exists():
+        return
+    state = _load_creative_corkboard_state(project_root)
+    folders = state.get("folders")
+    if not isinstance(folders, dict):
+        return
+    kept_folders: dict[str, object] = {}
+    for folder_key, folder_state in folders.items():
+        if not isinstance(folder_key, str) or _creative_path_is_inside(folder_key, removed_path):
+            continue
+        if isinstance(folder_state, dict):
+            cards = folder_state.get("cards")
+            if isinstance(cards, dict):
+                folder_state["cards"] = {
+                    str(card_path): card_state
+                    for card_path, card_state in cards.items()
+                    if not _creative_path_is_inside(str(card_path), removed_path)
+                }
+            order = folder_state.get("order")
+            if isinstance(order, list):
+                folder_state["order"] = [
+                    str(card_path)
+                    for card_path in order
+                    if not _creative_path_is_inside(str(card_path), removed_path)
+                ]
+        kept_folders[folder_key] = folder_state
+    state["folders"] = kept_folders
+    _save_creative_corkboard_state(project_root, state)
+
+
+def _creative_path_is_inside(path: str, container: str) -> bool:
+    return path == container or path.startswith(f"{container}/")
 
 
 def _resolved_artifact_relative_path(
@@ -18259,6 +19713,9 @@ def _handler_for(
             if path == "/artifacts/document":
                 self._send_document_target(parsed.query)
                 return
+            if path == "/artifacts/creative-corkboard":
+                self._send_creative_corkboard(parsed.query)
+                return
             if path == "/api/progress/events":
                 self._send_progress_events(parsed.query)
                 return
@@ -18351,6 +19808,9 @@ def _handler_for(
             if path == "/api/creative/documents":
                 self._create_creative_document(parsed.query)
                 return
+            if path == "/api/creative/corkboards":
+                self._create_creative_corkboard(parsed.query)
+                return
             if path == "/api/creative/rename":
                 self._rename_creative_entry(parsed.query)
                 return
@@ -18359,6 +19819,9 @@ def _handler_for(
                 return
             if path == "/api/creative/scratch":
                 self._save_creative_scratchpad(parsed.query)
+                return
+            if path == "/api/creative/corkboard":
+                self._save_creative_corkboard(parsed.query)
                 return
             if path == "/api/creative/agent/start":
                 self._start_creative_writing_agent(parsed.query)
@@ -19114,6 +20577,28 @@ def _handler_for(
                 return
             self._send_text(page, "text/html; charset=utf-8", status=status)
 
+        def _send_creative_corkboard(self, query: str) -> None:
+            try:
+                params = parse_qs(query)
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                folder_path = str((params.get("path") or [""])[0])
+                title = str((params.get("title") or [""])[0]).strip() or None
+                page, status = creative_corkboard_html(
+                    project_root,
+                    folder_path,
+                    title=title,
+                    context_id=context_id,
+                )
+            except (AgentSessionError, OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
         def _send_artifact_editor(self, query: str) -> None:
             try:
                 params = parse_qs(query)
@@ -19156,6 +20641,19 @@ def _handler_for(
                     )
                 )
             except (AgentSessionError, OSError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _save_creative_corkboard(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.save_creative_corkboard(context_id, payload)
+                )
+            except (AgentSessionError, OSError, StateError, TypeError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
@@ -19659,6 +21157,23 @@ def _handler_for(
                 payload = self._read_json_body()
                 self._send_json(
                     state.create_creative_document(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _create_creative_corkboard(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_corkboard(
                         context_id,
                         str(payload.get("path") or ""),
                     )

@@ -51,6 +51,7 @@ from electroboy.service import (  # noqa: E402
     browse_files,
     browse_markdown_files,
     create_server,
+    creative_corkboard_html,
     document_target_html,
     file_browser_window_html,
     pane_window_html,
@@ -124,6 +125,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', page)
         self.assertIn('params.get("document_path")', page)
         self.assertIn('params.get("document_zoom")', page)
+        self.assertIn('params.get("folder_path")', page)
+        self.assertIn('params.get("corkboard_path")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn('id="refreshArtifact"', page)
         self.assertIn('id="previewArtifact"', page)
@@ -136,6 +139,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function setArtifactEditMode(editing)", page)
         self.assertIn('artifactFrame.classList.add("loading");', page)
         self.assertIn('artifactFrame.addEventListener("load"', page)
+        self.assertIn('artifactKind === "creative-corkboard"', page)
+        self.assertIn("/artifacts/creative-corkboard", page)
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("artifact", "route")', page)
@@ -145,8 +150,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function exportCurrentPaneOutput()", page)
         self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
         self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
-        self.assertIn("previewArtifactButton.hidden = false;", page)
-        self.assertIn("editArtifactButton.hidden = false;", page)
+        self.assertIn("previewArtifactButton.hidden = isCorkboard;", page)
+        self.assertIn("editArtifactButton.hidden = isCorkboard;", page)
         self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
         self.assertLess(
@@ -966,17 +971,25 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("let creativeActiveFolder = \"\";", INDEX_HTML)
         self.assertIn("let expandedCreativeFolders = new Set();", INDEX_HTML)
         self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
+        self.assertIn("function showCreativeCorkboard(path, options = {})", INDEX_HTML)
+        self.assertIn("function selectCreativeCorkboard(path)", INDEX_HTML)
+        self.assertIn("function selectCreativeFolder(path)", INDEX_HTML)
         self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
         self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
         self.assertIn("function creativeTreeActionIconSvg(name)", INDEX_HTML)
         self.assertIn("function createCreativeFolderInline(basePath = \"\")", INDEX_HTML)
         self.assertIn("function createCreativeDocumentInline(basePath = \"\")", INDEX_HTML)
+        self.assertIn("function createCreativeCorkboardInline(basePath = \"\")", INDEX_HTML)
         self.assertIn("function finishCreativeRename(path, type, rawName)", INDEX_HTML)
         self.assertIn("function deleteCreativeEntry(path, type)", INDEX_HTML)
         self.assertIn("function renderCreativeProjectStatus()", INDEX_HTML)
+        self.assertIn('data.type === "electroboy-creative-open"', INDEX_HTML)
+        self.assertIn("/artifacts/creative-corkboard", INDEX_HTML)
+        self.assertIn("function artifactPaneSupportsModeSwitch(item)", INDEX_HTML)
         self.assertIn("electroboy.creativeRightPaneWidth", INDEX_HTML)
         self.assertIn('"/api/creative/rename"', INDEX_HTML)
         self.assertIn('"/api/creative/delete"', INDEX_HTML)
+        self.assertIn('"/api/creative/corkboards"', INDEX_HTML)
         self.assertNotIn("window.prompt(\"Folder path\"", INDEX_HTML)
         self.assertNotIn("window.prompt(\"Markdown document path\"", INDEX_HTML)
         self.assertIn("--creative-depth-indent", INDEX_HTML)
@@ -996,6 +1009,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".creative-tree-row.directory.active", INDEX_HTML)
         self.assertIn(".creative-tree-actions", INDEX_HTML)
         self.assertIn(".creative-tree-icon.markdown", INDEX_HTML)
+        self.assertIn(".creative-tree-icon.corkboard", INDEX_HTML)
         self.assertIn(".creative-tree-disclosure", INDEX_HTML)
         self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
         self.assertIn('id="stageActionPanel"', INDEX_HTML)
@@ -1975,6 +1989,120 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
             self.assertTrue((project_root / "chapters").is_dir())
             self.assertFalse((project_root / ".electroboy").exists())
+
+    def test_creative_folder_board_renders_and_saves_ordered_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.create_creative_document(context_id, "chapters/chapter-02.md")
+
+            page, status = creative_corkboard_html(
+                project_root,
+                "chapters",
+                context_id=context_id,
+            )
+            saved = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "folder",
+                    "folder": "chapters",
+                    "path": "chapters/chapter-01.md",
+                    "note": "Escalate this beat.",
+                },
+            )
+            ordered = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "folder",
+                    "folder": "chapters",
+                    "order": [
+                        "chapters/chapter-02.md",
+                        "chapters/chapter-01.md",
+                    ],
+                },
+            )
+            saved_page, saved_status = creative_corkboard_html(
+                project_root,
+                "chapters",
+                context_id=context_id,
+            )
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertIn('"board_type": "folder"', page)
+            self.assertIn("index-card", page)
+            self.assertIn("chapter-01.md", page)
+            self.assertIn("/api/creative/corkboard", page)
+            self.assertIn("electroboy-creative-open", page)
+            self.assertEqual(saved["status"], "saved")
+            self.assertEqual(saved["card"]["path"], "chapters/chapter-01.md")
+            self.assertEqual(
+                ordered["order"][:2],
+                ["chapters/chapter-02.md", "chapters/chapter-01.md"],
+            )
+            self.assertEqual(saved_status, HTTPStatus.OK)
+            self.assertIn("Escalate this beat.", saved_page)
+            self.assertLess(
+                saved_page.index("chapter-02.md"),
+                saved_page.index("chapter-01.md"),
+            )
+            self.assertTrue(
+                (
+                    project_root
+                    / ".electroboy"
+                    / "creative"
+                    / "corkboards.json"
+                ).is_file()
+            )
+
+    def test_creative_freeform_corkboard_renders_and_saves_card(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.create_creative_corkboard(
+                context_id,
+                "corkboard/plot.corkboard.json",
+            )
+
+            saved = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card": {
+                        "id": "opening-beat",
+                        "title": "Opening beat",
+                        "note": "Start with a quiet contradiction.",
+                        "x": 188,
+                        "y": 144,
+                    },
+                },
+            )
+            page, status = creative_corkboard_html(
+                project_root,
+                "corkboard/plot.corkboard.json",
+                context_id=context_id,
+            )
+            document = json.loads(
+                (project_root / "corkboard" / "plot.corkboard.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertIn('"board_type": "freeform"', page)
+            self.assertIn("Add card", page)
+            self.assertIn("Opening beat", page)
+            self.assertIn("Start with a quiet contradiction.", page)
+            self.assertEqual(saved["card"]["id"], "opening-beat")
+            self.assertEqual(document["cards"][0]["id"], "opening-beat")
 
     def test_service_state_starts_creative_writing_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
