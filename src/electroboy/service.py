@@ -1556,7 +1556,7 @@ INDEX_HTML = """<!doctype html>
     .shell.creative-workflow .output-workbench {
       grid-template-columns:
         minmax(0, 1fr) 7px
-        minmax(260px, var(--right-pane-width, 28%));
+        minmax(220px, var(--right-pane-width, 320px));
     }
 
     .shell.creative-workflow .output-split.artifact-visible {
@@ -1570,12 +1570,13 @@ INDEX_HTML = """<!doctype html>
     }
 
     .shell.creative-workflow .side-pane {
-      grid-template-rows: minmax(0, 1fr);
+      grid-template-rows:
+        minmax(120px, var(--scratch-pane-height, 1fr)) 7px
+        minmax(96px, 140px);
     }
 
-    .shell.creative-workflow .side-pane-resize-handle,
     .shell.creative-workflow .project-status-pane {
-      display: none;
+      min-height: 96px;
     }
 
     .output-resize-handle,
@@ -3503,6 +3504,8 @@ INDEX_HTML = """<!doctype html>
     const PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY =
       "electroboy.projectShellPaneHeight";
     const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
+    const CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY =
+      "electroboy.creativeRightPaneWidth";
     const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
     const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";
@@ -3685,6 +3688,8 @@ INDEX_HTML = """<!doctype html>
     let creativeLastNotifiedDocument = "";
     let creativeProjectActionsExpanded = false;
     let creativeAgentActionsExpanded = false;
+    let projectStatusMessages = [];
+    const PROJECT_STATUS_MESSAGE_LIMIT = 80;
 
     function storedTerminalFontSize() {
       try {
@@ -3908,9 +3913,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     function applyStoredWorkbenchPaneSize() {
-      const rightWidth = storedNumber(RIGHT_PANE_WIDTH_STORAGE_KEY);
+      const rightWidth = storedNumber(
+        creativeModeActive()
+          ? CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY
+          : RIGHT_PANE_WIDTH_STORAGE_KEY,
+      );
       if (rightWidth) {
         outputWorkbench.style.setProperty("--right-pane-width", `${rightWidth}px`);
+      } else {
+        outputWorkbench.style.removeProperty("--right-pane-width");
       }
       const rightHeight = storedNumber(RIGHT_PANE_HEIGHT_STORAGE_KEY);
       if (rightHeight) {
@@ -3946,7 +3957,12 @@ INDEX_HTML = """<!doctype html>
     }
 
     function saveRightPaneWidth(width) {
-      saveNumber(RIGHT_PANE_WIDTH_STORAGE_KEY, width);
+      saveNumber(
+        creativeModeActive()
+          ? CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY
+          : RIGHT_PANE_WIDTH_STORAGE_KEY,
+        width,
+      );
     }
 
     function saveRightPaneHeight(height) {
@@ -4082,6 +4098,7 @@ INDEX_HTML = """<!doctype html>
     function applyWorkflowMode(options = {}) {
       workflowModeSelect.value = workflowMode;
       shell.classList.toggle("creative-workflow", creativeModeActive());
+      applyStoredWorkbenchPaneSize();
       creativeBinder.hidden = !creativeModeActive();
       stageActionBody.hidden = creativeModeActive();
       if (options.deferWorkspace) {
@@ -4430,7 +4447,7 @@ INDEX_HTML = """<!doctype html>
       saveDocumentZoom();
       applyDocumentZoom();
       if (artifactPreviewItems.length > 0) {
-        refreshArtifactPreview();
+        refreshArtifactPreview({ includeEditing: false });
       }
     }
 
@@ -4619,6 +4636,50 @@ INDEX_HTML = """<!doctype html>
       }
       agentOutput.appendChild(span);
       agentOutput.scrollTop = agentOutput.scrollHeight;
+    }
+
+    function recordProjectStatusMessage(message) {
+      const text = String(message || "").trim();
+      if (!text) {
+        return;
+      }
+      const timestamp = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      projectStatusMessages.push(`${timestamp} ${text}`);
+      if (projectStatusMessages.length > PROJECT_STATUS_MESSAGE_LIMIT) {
+        projectStatusMessages = projectStatusMessages.slice(-PROJECT_STATUS_MESSAGE_LIMIT);
+      }
+      if (creativeModeActive()) {
+        renderCreativeProjectStatus();
+      } else {
+        projectStatusOutput.textContent = `${projectStatusMessages.slice(-12).join("\\n")}\\n`;
+      }
+    }
+
+    function renderCreativeProjectStatus() {
+      if (!projectStatusOutput) {
+        return;
+      }
+      if (!creativeModeActive()) {
+        return;
+      }
+      const lines = [];
+      if (activeProjectRoot || activationRoot) {
+        lines.push(`project: ${activeProjectRoot || activationRoot}`);
+      } else {
+        lines.push("no active project");
+      }
+      if (creativeActiveDocument) {
+        lines.push(`document: ${creativeActiveDocument}`);
+      }
+      if (projectStatusMessages.length > 0) {
+        lines.push("");
+        lines.push(...projectStatusMessages.slice(-12));
+      }
+      projectStatusOutput.textContent = `${lines.join("\\n")}\\n`;
     }
 
     function appendAgentOutput(text) {
@@ -5509,9 +5570,8 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       if (data.type === "electroboy-artifact-saved") {
-        artifactPreviewVersion += 1;
-        refreshArtifactPreview();
-        appendOutput(`saved: ${data.path || "artifact"}\\n`, "system");
+        refreshArtifactPreview({ includeEditing: false });
+        recordProjectStatusMessage(`saved: ${data.path || "artifact"}`);
         return;
       }
       if (
@@ -5764,6 +5824,7 @@ INDEX_HTML = """<!doctype html>
       creativeLastNotifiedDocument = "";
       creativeTreePayload = null;
       restoredScratchContextId = "";
+      projectStatusMessages = [];
       clearAgentOutput();
       clearProgressOutput();
       clearProjectShellOutput();
@@ -7456,6 +7517,7 @@ INDEX_HTML = """<!doctype html>
         : "";
       showCreativeDocument(path);
       renderCreativeTree();
+      renderCreativeProjectStatus();
       if (options.notifyAgent !== false) {
         notifyCreativeAgentDocumentSwitch();
       }
@@ -7669,6 +7731,7 @@ INDEX_HTML = """<!doctype html>
       creativeEditingPath = "";
       creativeEditingType = "";
       await refreshCreativeBinder();
+      recordProjectStatusMessage(`renamed: ${newPath}`);
       if (creativeActiveDocument) {
         showCreativeDocument(creativeActiveDocument);
       }
@@ -7694,6 +7757,7 @@ INDEX_HTML = """<!doctype html>
       creativeEditingPath = payload.path || path;
       creativeEditingType = "directory";
       await refreshCreativeBinder();
+      recordProjectStatusMessage(`created folder: ${payload.path || path}`);
     }
 
     async function createCreativeDocumentInline(basePath = "") {
@@ -7717,6 +7781,7 @@ INDEX_HTML = """<!doctype html>
       creativeEditingType = "file";
       await refreshCreativeBinder();
       showCreativeDocument(creativeActiveDocument);
+      recordProjectStatusMessage(`created file: ${payload.path || path}`);
     }
 
     async function deleteCreativeEntry(path, type) {
@@ -7754,6 +7819,7 @@ INDEX_HTML = """<!doctype html>
         ),
       );
       await refreshCreativeBinder();
+      recordProjectStatusMessage(`deleted ${type}: ${path}`);
     }
 
     async function startCreativeWritingAgent() {
@@ -8049,12 +8115,16 @@ INDEX_HTML = """<!doctype html>
       applyOutputPaneVisibility();
     }
 
-    function refreshArtifactPreview() {
+    function refreshArtifactPreview(options = {}) {
+      const includeEditing = options.includeEditing !== false;
       artifactPreviewVersion += 1;
       for (const frame of artifactPreviewStack.querySelectorAll(".artifact-preview-frame")) {
         const item = artifactPreviewItems.find(
           (candidate) => candidate.id === frame.dataset.artifactId,
         );
+        if (item && item.editing && !includeEditing) {
+          continue;
+        }
         const url = item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
         if (url) {
           frame.src = url;
@@ -8091,7 +8161,9 @@ INDEX_HTML = """<!doctype html>
       const urls = new Set(artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
       for (const url of urls) {
         const source = new EventSource(url);
-        source.addEventListener("artifact-event", refreshArtifactPreview);
+        source.addEventListener("artifact-event", () => {
+          refreshArtifactPreview({ includeEditing: false });
+        });
         source.onerror = () => {};
         artifactEventSources.push(source);
       }
@@ -8156,6 +8228,10 @@ INDEX_HTML = """<!doctype html>
     function queueProjectStatusRefresh(delay = 120) {
       window.clearTimeout(statusRefreshTimer);
       const sequence = ++statusRefreshSequence;
+      if (creativeModeActive()) {
+        renderCreativeProjectStatus();
+        return;
+      }
       if (!contextId || !activationRoot) {
         projectStatusOutput.textContent = "no active project";
         return;
@@ -8168,6 +8244,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function refreshProjectStatus(sequence = ++statusRefreshSequence) {
+      if (creativeModeActive()) {
+        renderCreativeProjectStatus();
+        return;
+      }
       if (!contextId || !activationRoot) {
         if (sequence === statusRefreshSequence) {
           projectStatusOutput.textContent = "no active project";
@@ -8441,13 +8521,17 @@ INDEX_HTML = """<!doctype html>
         activateProject.disabled = false;
         return;
       }
+      const nextProjectRoot = payload.active_project_root || payload.activation_root || "";
+      if (nextProjectRoot && nextProjectRoot !== activeProjectRoot) {
+        projectStatusMessages = [];
+      }
       activeProjectRoot = payload.active_project_root || "";
       activationRoot = payload.activation_root || activeProjectRoot;
       projectPath.value = activeProjectRoot || activationRoot;
       fileBrowser.hidden = true;
       projectPanel.hidden = true;
       hideStageMenus();
-      appendOutput(`${payload.status}: ${activationRoot || activeProjectRoot}\\n`, "system");
+      recordProjectStatusMessage(`${payload.status}: ${activationRoot || activeProjectRoot}`);
       updateProjectState(payload, { deferCreativeWorkspaceInit: creativeModeActive() });
       if (creativeModeActive()) {
         await ensureCreativeWorkspaceLoaded();
@@ -8553,7 +8637,7 @@ INDEX_HTML = """<!doctype html>
       activationRoot = payload.activation_root || activationRoot;
       projectPath.value = activeProjectRoot || activationRoot;
       clearAgentOutput();
-      appendOutput(`${payload.status}: ${reference}\\n`, "system");
+      recordProjectStatusMessage(`${payload.status}: ${reference}`);
       updateProjectState(payload);
     }
 
@@ -8651,9 +8735,9 @@ INDEX_HTML = """<!doctype html>
       }
       hideWorkItemRecovery();
       hideWorkItemPanel();
-      appendOutput(`${payload.status}: ${payload.label || title}\\n`, "system");
+      recordProjectStatusMessage(`${payload.status}: ${payload.label || title}`);
       if (payload.terminated_agent) {
-        appendOutput("stopped running agent for work-item context\\n", "system");
+        recordProjectStatusMessage("stopped running agent for work-item context");
       }
       if (payload.output) {
         appendOutput(`${payload.output}\\n`, "system");
@@ -8835,7 +8919,7 @@ INDEX_HTML = """<!doctype html>
       expandedCreativeFolders = new Set();
       creativeLastNotifiedDocument = "";
       creativeTreePayload = null;
-      appendOutput(`deactivated: ${previousProject}\\n`, "system");
+      recordProjectStatusMessage(`deactivated: ${previousProject}`);
       updateProjectState(payload);
     }
 
