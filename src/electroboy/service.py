@@ -12381,7 +12381,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       }
       const raw = newDocumentName.value.trim().replace(/\\+/g, "/");
       if (!raw) {
-        return selectedPath;
+        return "";
       }
       const path = raw.toLowerCase().endsWith(".md") ? raw : `${raw}.md`;
       if (path.startsWith("/")) {
@@ -12396,7 +12396,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       }
       const raw = newDocumentName.value.trim().replace(/\\+/g, "/");
       if (!raw) {
-        return "";
+        return selectedPath;
       }
       if (raw.startsWith("/")) {
         return raw;

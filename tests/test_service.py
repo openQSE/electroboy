@@ -290,6 +290,17 @@ class ServiceTests(unittest.TestCase):
             'SELECT_MODE === "document-new" && selectedType === "directory"',
             page,
         )
+        self.assertIn(
+            "function documentNewTargetPath() {\n"
+            '      if (SELECT_MODE !== "document-new" || selectedType !== "directory") {\n'
+            '        return "";\n'
+            "      }\n"
+            '      const raw = newDocumentName.value.trim().replace(/\\\\+/g, "/");\n'
+            "      if (!raw) {\n"
+            '        return "";\n'
+            "      }",
+            page,
+        )
 
     def test_file_browser_window_html_supports_new_project_mode(self) -> None:
         page = file_browser_window_html("~/ORNL", mode="project-new")
@@ -307,7 +318,17 @@ class ServiceTests(unittest.TestCase):
             'return selectedType === "directory";',
             page,
         )
-        self.assertIn("return selectedPath;", page)
+        self.assertIn(
+            "function projectNewTargetPath() {\n"
+            '      if (SELECT_MODE !== "project-new" || selectedType !== "directory") {\n'
+            '        return "";\n'
+            "      }\n"
+            '      const raw = newDocumentName.value.trim().replace(/\\\\+/g, "/");\n'
+            "      if (!raw) {\n"
+            "        return selectedPath;\n"
+            "      }",
+            page,
+        )
 
     def test_file_browser_endpoint_serves_popout_picker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
