@@ -16776,6 +16776,8 @@ def markdown_document_html(
     else:
         body = f"<p>{html.escape(missing_message)}</p>"
         status = HTTPStatus.NOT_FOUND
+    main_max_width = "none" if embedded else "880px"
+    main_margin = "0" if embedded else "0 auto"
     main_padding = "16px" if embedded else "40px 24px 64px"
     article_padding = "18px" if embedded else "28px"
     article_radius = "0" if embedded else "8px"
@@ -16817,8 +16819,8 @@ def markdown_document_html(
       line-height: 1.55;
     }}
     main {{
-      max-width: 880px;
-      margin: 0 auto;
+      max-width: {main_max_width};
+      margin: {main_margin};
       padding: {main_padding};
     }}
     article {{

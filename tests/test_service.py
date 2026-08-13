@@ -3765,6 +3765,8 @@ class ServiceTests(unittest.TestCase):
             page, status = requirements_document_html(root, embedded=True)
 
         self.assertEqual(status.value, 200)
+        self.assertIn("max-width: none;", page)
+        self.assertIn("margin: 0;", page)
         self.assertIn("padding: 16px;", page)
         self.assertIn("border: 0;", page)
 
