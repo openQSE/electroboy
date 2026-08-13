@@ -10,6 +10,7 @@ import json
 import os
 import pty
 import re
+import shutil
 import signal
 import shlex
 import struct
@@ -843,7 +844,7 @@ INDEX_HTML = """<!doctype html>
 
     .creative-tree-row {
       display: grid;
-      grid-template-columns: 22px minmax(0, 1fr);
+      grid-template-columns: 22px minmax(0, 1fr) 26px 26px;
       align-items: center;
       width: calc(100% - var(--creative-depth-indent, 0px));
       margin-left: var(--creative-depth-indent, 0px);
@@ -860,7 +861,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     .creative-tree-row.directory {
-      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      grid-template-columns: 18px minmax(0, 1fr) 26px 26px 18px;
       min-height: 34px;
       border-color: #18324d;
       border-radius: 999px;
@@ -960,6 +961,55 @@ INDEX_HTML = """<!doctype html>
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .creative-tree-name-input {
+      min-width: 0;
+      width: 100%;
+      border: 1px solid #66d9e8;
+      border-radius: 5px;
+      background: #ffffff;
+      color: #16283a;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 3px 6px;
+    }
+
+    .creative-tree-icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: currentColor;
+      cursor: pointer;
+      opacity: 0.78;
+      padding: 0;
+    }
+
+    .creative-tree-icon-button:hover {
+      border-color: rgb(102 217 232 / 50%);
+      background: rgb(255 255 255 / 18%);
+      opacity: 1;
+    }
+
+    .creative-tree-icon-button.danger:hover {
+      border-color: #ffb3b3;
+      background: rgb(255 235 235 / 28%);
+      color: #fff0f0;
+    }
+
+    .creative-tree-icon-button svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
     }
 
     .creative-tree-actions {
@@ -3628,6 +3678,8 @@ INDEX_HTML = """<!doctype html>
     let creativeTreePayload = null;
     let creativeActiveDocument = "";
     let creativeActiveFolder = "";
+    let creativeEditingPath = "";
+    let creativeEditingType = "";
     let expandedCreativeFolders = new Set();
     let creativeScratchSaveTimer = null;
     let creativeLastNotifiedDocument = "";
@@ -4042,7 +4094,7 @@ INDEX_HTML = """<!doctype html>
         setWorkflowSideSheetCollapsed(false);
         applyCreativeWorkspace();
         restoreScratchPad();
-        initializeCreativeWorkspace().then(refreshCreativeBinder);
+        refreshCreativeBinder();
       } else {
         restoreSoftwareWorkspace();
       }
@@ -5706,6 +5758,8 @@ INDEX_HTML = """<!doctype html>
       currentWorkflowStage = "project";
       creativeActiveDocument = "";
       creativeActiveFolder = "";
+      creativeEditingPath = "";
+      creativeEditingType = "";
       expandedCreativeFolders = new Set();
       creativeLastNotifiedDocument = "";
       creativeTreePayload = null;
@@ -5784,6 +5838,8 @@ INDEX_HTML = """<!doctype html>
         hideArtifactPreview();
         creativeActiveDocument = "";
         creativeActiveFolder = "";
+        creativeEditingPath = "";
+        creativeEditingType = "";
         expandedCreativeFolders = new Set();
         creativeLastNotifiedDocument = "";
         creativeTreePayload = null;
@@ -7172,17 +7228,25 @@ INDEX_HTML = """<!doctype html>
       return entry.markdown ? "markdown" : "file";
     }
 
+    function creativeTreeActionIconSvg(name) {
+      const icons = {
+        rename: '<path d="m12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>',
+        trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
+      };
+      return `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || ""}</svg>`;
+    }
+
     function appendCreativeTreeEntry(entry, depth) {
       const type = entry.type || "file";
       const path = String(entry.path || "");
       const isDirectory = type === "directory";
       const expanded = isDirectory && expandedCreativeFolders.has(path);
-      const row = document.createElement("button");
-      row.type = "button";
+      const row = document.createElement("div");
       row.className = `creative-tree-row ${type}`;
       row.classList.toggle("expanded", expanded);
       row.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
       row.title = path;
+      row.tabIndex = 0;
       row.classList.toggle(
         "active",
         (isDirectory && path === creativeActiveFolder) ||
@@ -7197,27 +7261,48 @@ INDEX_HTML = """<!doctype html>
       icon.className = `creative-tree-icon ${creativeTreeIconClass(entry)}`;
       icon.innerHTML = creativeTreeIconSvg(creativeTreeIconName(entry, expanded));
 
-      const name = document.createElement("span");
-      name.className = "creative-tree-name";
-      name.textContent = String(entry.name || path || "Untitled");
+      const name = creativeEditingPath === path
+        ? creativeRenameInput(entry, type, path)
+        : creativeTreeName(entry, path);
+
+      const rename = creativeTreeIconButton(
+        "rename",
+        `Rename ${path}`,
+        () => beginCreativeRename(path, type),
+      );
+      const remove = creativeTreeIconButton(
+        "trash",
+        `Delete ${path}`,
+        () => deleteCreativeEntry(path, type),
+        "danger",
+      );
 
       if (isDirectory) {
         const disclosure = document.createElement("span");
         disclosure.className = "creative-tree-disclosure";
-        row.append(icon, name, disclosure);
+        row.append(icon, name, rename, remove, disclosure);
       } else {
-        row.append(icon, name);
+        row.append(icon, name, rename, remove);
       }
-      row.addEventListener("click", () => {
-        if (isDirectory) {
-          toggleCreativeFolder(path);
+      row.addEventListener("click", () => activateCreativeTreeEntry(entry, path, type));
+      row.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        beginCreativeRename(path, type);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.target !== row) {
           return;
         }
-        if (entry.markdown) {
-          selectCreativeDocument(path);
-          return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          activateCreativeTreeEntry(entry, path, type);
+        } else if (event.key === "F2") {
+          event.preventDefault();
+          beginCreativeRename(path, type);
+        } else if (event.key === "Delete") {
+          event.preventDefault();
+          deleteCreativeEntry(path, type);
         }
-        appendOutput(`${path} is visible in the Binder but is not editable yet.\\n`, "system");
       });
       creativeTree.append(row);
 
@@ -7227,6 +7312,71 @@ INDEX_HTML = """<!doctype html>
         }
         appendCreativeFolderActions(path, depth + 1);
       }
+    }
+
+    function creativeTreeName(entry, path) {
+      const name = document.createElement("span");
+      name.className = "creative-tree-name";
+      name.textContent = String(entry.name || path || "Untitled");
+      return name;
+    }
+
+    function creativeTreeIconButton(iconName, title, handler, extraClass = "") {
+      const button = document.createElement("button");
+      button.className = `creative-tree-icon-button ${extraClass}`.trim();
+      button.type = "button";
+      button.title = title;
+      button.setAttribute("aria-label", title);
+      button.innerHTML = creativeTreeActionIconSvg(iconName);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handler();
+      });
+      button.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      return button;
+    }
+
+    function activateCreativeTreeEntry(entry, path, type) {
+      if (type === "directory") {
+        toggleCreativeFolder(path);
+        return;
+      }
+      if (entry.markdown) {
+        selectCreativeDocument(path);
+        return;
+      }
+      appendOutput(`${path} is visible in the Binder but is not editable yet.\\n`, "system");
+    }
+
+    function creativeRenameInput(entry, type, path) {
+      const input = document.createElement("input");
+      input.className = "creative-tree-name-input";
+      input.type = "text";
+      input.value = String(entry.name || basename(path));
+      input.setAttribute("aria-label", `Rename ${path}`);
+      input.addEventListener("click", (event) => event.stopPropagation());
+      input.addEventListener("dblclick", (event) => event.stopPropagation());
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finishCreativeRename(path, type, input.value);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelCreativeRename();
+        }
+      });
+      input.addEventListener("blur", () => {
+        finishCreativeRename(path, type, input.value);
+      });
+      window.requestAnimationFrame(() => {
+        input.focus();
+        input.select();
+      });
+      return input;
     }
 
     function appendCreativeFolderActions(path, depth) {
@@ -7242,7 +7392,7 @@ INDEX_HTML = """<!doctype html>
         event.stopPropagation();
         creativeActiveFolder = path;
         renderCreativeTree();
-        creativeNewFolderPrompt(path);
+        createCreativeFolderInline(path);
       });
 
       const newFile = document.createElement("button");
@@ -7253,7 +7403,7 @@ INDEX_HTML = """<!doctype html>
         event.stopPropagation();
         creativeActiveFolder = path;
         renderCreativeTree();
-        creativeNewDocumentPrompt(path);
+        createCreativeDocumentInline(path);
       });
 
       actions.append(newFolder, newFile);
@@ -7399,19 +7549,136 @@ INDEX_HTML = """<!doctype html>
       if (!creativeModeActive() || !activeProjectRoot || !contextId) {
         return;
       }
-      await initializeCreativeWorkspace();
       await refreshCreativeBinder();
     }
 
-    async function creativeNewFolderPrompt(basePath = "") {
+    function creativeEntryChildren(basePath = "") {
+      const entries = creativeTreePayload && Array.isArray(creativeTreePayload.entries)
+        ? creativeTreePayload.entries
+        : [];
+      if (!basePath) {
+        return entries;
+      }
+      const entry = findCreativeEntry(entries, basePath);
+      return entry && Array.isArray(entry.children) ? entry.children : [];
+    }
+
+    function findCreativeEntry(entries, path) {
+      for (const entry of entries || []) {
+        if (String(entry.path || "") === path) {
+          return entry;
+        }
+        const child = findCreativeEntry(entry.children || [], path);
+        if (child) {
+          return child;
+        }
+      }
+      return null;
+    }
+
+    function uniqueCreativeChildPath(basePath, stem, extension = "") {
+      const existing = new Set(
+        creativeEntryChildren(basePath).map((entry) =>
+          String(entry.name || "").toLowerCase(),
+        ),
+      );
+      let index = 1;
+      let name = `${stem}${extension}`;
+      while (existing.has(name.toLowerCase())) {
+        index += 1;
+        name = `${stem}-${index}${extension}`;
+      }
+      return basePath ? `${basePath}/${name}` : name;
+    }
+
+    function creativeParentPath(path) {
+      return path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
+    }
+
+    function creativePathIsInside(path, container) {
+      return path === container || path.startsWith(`${container}/`);
+    }
+
+    function remapCreativePath(path, oldPath, newPath) {
+      if (!path) {
+        return "";
+      }
+      if (path === oldPath) {
+        return newPath;
+      }
+      if (path.startsWith(`${oldPath}/`)) {
+        return `${newPath}/${path.slice(oldPath.length + 1)}`;
+      }
+      return path;
+    }
+
+    function beginCreativeRename(path, type) {
+      creativeEditingPath = path;
+      creativeEditingType = type;
+      renderCreativeTree();
+    }
+
+    function cancelCreativeRename() {
+      creativeEditingPath = "";
+      creativeEditingType = "";
+      renderCreativeTree();
+    }
+
+    function normalizedCreativeName(raw, type) {
+      let name = String(raw || "").trim();
+      name = name.replace(/[\\/]+/g, "-");
+      if (!name || name === "." || name === "..") {
+        return "";
+      }
+      if (type === "file" && !/\.[^./]+$/.test(name)) {
+        name = `${name}.md`;
+      }
+      return name;
+    }
+
+    async function finishCreativeRename(path, type, rawName) {
+      if (creativeEditingPath !== path) {
+        return;
+      }
+      const newName = normalizedCreativeName(rawName, type);
+      if (!newName || newName === basename(path)) {
+        creativeEditingPath = "";
+        creativeEditingType = "";
+        renderCreativeTree();
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/rename"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, new_name: newName }),
+      });
+      const payload = await response.json().catch(() => ({ error: "rename failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "rename failed"}\\n`, "error");
+        renderCreativeTree();
+        return;
+      }
+      const newPath = String(payload.path || "");
+      creativeActiveDocument = remapCreativePath(creativeActiveDocument, path, newPath);
+      creativeActiveFolder = remapCreativePath(creativeActiveFolder, path, newPath);
+      expandedCreativeFolders = new Set(
+        Array.from(expandedCreativeFolders).map((folder) =>
+          remapCreativePath(folder, path, newPath),
+        ),
+      );
+      creativeEditingPath = "";
+      creativeEditingType = "";
+      await refreshCreativeBinder();
+      if (creativeActiveDocument) {
+        showCreativeDocument(creativeActiveDocument);
+      }
+    }
+
+    async function createCreativeFolderInline(basePath = "") {
       if (!activeProjectRoot) {
         return;
       }
-      const suggested = basePath ? `${basePath}/` : "";
-      const path = window.prompt("Folder path", suggested);
-      if (!path) {
-        return;
-      }
+      const path = uniqueCreativeChildPath(basePath, "new-folder");
       const response = await fetch(contextUrl("/api/creative/folders"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -7422,18 +7689,18 @@ INDEX_HTML = """<!doctype html>
         appendOutput(`${payload.error || "folder failed"}\\n`, "error");
         return;
       }
-      refreshCreativeBinder();
+      expandedCreativeFolders.add(basePath);
+      creativeActiveFolder = payload.path || path;
+      creativeEditingPath = payload.path || path;
+      creativeEditingType = "directory";
+      await refreshCreativeBinder();
     }
 
-    async function creativeNewDocumentPrompt(basePath = "") {
+    async function createCreativeDocumentInline(basePath = "") {
       if (!activeProjectRoot) {
         return;
       }
-      const suggested = basePath ? `${basePath}/untitled.md` : "chapters/untitled.md";
-      const path = window.prompt("Markdown document path", suggested);
-      if (!path) {
-        return;
-      }
+      const path = uniqueCreativeChildPath(basePath, "untitled", ".md");
       const response = await fetch(contextUrl("/api/creative/documents"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -7444,8 +7711,49 @@ INDEX_HTML = """<!doctype html>
         appendOutput(`${payload.error || "document failed"}\\n`, "error");
         return;
       }
+      creativeActiveDocument = payload.path || path;
+      creativeActiveFolder = basePath;
+      creativeEditingPath = payload.path || path;
+      creativeEditingType = "file";
       await refreshCreativeBinder();
-      selectCreativeDocument(payload.path);
+      showCreativeDocument(creativeActiveDocument);
+    }
+
+    async function deleteCreativeEntry(path, type) {
+      if (!activeProjectRoot || !path) {
+        return;
+      }
+      const label = type === "directory" ? "folder and all of its contents" : "file";
+      if (!window.confirm(`Delete this ${label}?\\n\\n${path}`)) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "delete failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "delete failed"}\\n`, "error");
+        return;
+      }
+      if (creativePathIsInside(creativeActiveDocument, path)) {
+        creativeActiveDocument = "";
+        hideArtifactPreview();
+      }
+      if (creativePathIsInside(creativeActiveFolder, path)) {
+        creativeActiveFolder = creativeParentPath(path);
+      }
+      if (creativePathIsInside(creativeEditingPath, path)) {
+        creativeEditingPath = "";
+        creativeEditingType = "";
+      }
+      expandedCreativeFolders = new Set(
+        Array.from(expandedCreativeFolders).filter(
+          (folder) => !creativePathIsInside(folder, path),
+        ),
+      );
+      await refreshCreativeBinder();
     }
 
     async function startCreativeWritingAgent() {
@@ -8522,6 +8830,8 @@ INDEX_HTML = """<!doctype html>
       hideWorkItemPanel();
       creativeActiveDocument = "";
       creativeActiveFolder = "";
+      creativeEditingPath = "";
+      creativeEditingType = "";
       expandedCreativeFolders = new Set();
       creativeLastNotifiedDocument = "";
       creativeTreePayload = null;
@@ -12742,7 +13052,6 @@ class ServiceState:
 
     def creative_tree(self, context_id: str) -> dict[str, object]:
         project_root = self.active_project_root(context_id)
-        _ensure_creative_workspace(project_root)
         return _creative_tree_payload(project_root)
 
     def create_creative_folder(
@@ -12766,6 +13075,36 @@ class ServiceState:
         path = _create_creative_document(project_root, relative_path)
         return {
             "status": "created",
+            "path": path,
+        }
+
+    def rename_creative_entry(
+        self,
+        context_id: str,
+        relative_path: str,
+        new_name: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        old_path, new_path = _rename_creative_entry(
+            project_root,
+            relative_path,
+            new_name,
+        )
+        return {
+            "status": "renamed",
+            "old_path": old_path,
+            "path": new_path,
+        }
+
+    def delete_creative_entry(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _delete_creative_entry(project_root, relative_path)
+        return {
+            "status": "deleted",
             "path": path,
         }
 
@@ -16485,6 +16824,49 @@ def _create_creative_document(project_root: Path | str, relative_path: str) -> s
     return normalized_path
 
 
+def _normalize_creative_entry_name(name: str) -> str:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise StateError("name is required")
+    if normalized_name in {".", ".."}:
+        raise StateError("name cannot be . or ..")
+    if "/" in normalized_name or "\\" in normalized_name:
+        raise StateError("name cannot contain path separators")
+    return normalized_name
+
+
+def _rename_creative_entry(
+    project_root: Path | str,
+    relative_path: str,
+    new_name: str,
+) -> tuple[str, str]:
+    old_relative_path, source = _creative_path(project_root, relative_path)
+    project_root = Path(project_root).expanduser().resolve()
+    if not source.exists():
+        raise StateError(f"path does not exist: {old_relative_path}")
+    normalized_name = _normalize_creative_entry_name(new_name)
+    destination = (source.parent / normalized_name).resolve()
+    try:
+        destination.relative_to(project_root)
+    except ValueError as error:
+        raise StateError("path cannot escape the project") from error
+    if destination.exists():
+        raise StateError(f"path already exists: {normalized_name}")
+    source.rename(destination)
+    return old_relative_path, destination.relative_to(project_root).as_posix()
+
+
+def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, path = _creative_path(project_root, relative_path)
+    if not path.exists():
+        raise StateError(f"path does not exist: {normalized_path}")
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+    return normalized_path
+
+
 def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
     project_root = Path(project_root).expanduser().resolve()
     return {
@@ -17789,6 +18171,12 @@ def _handler_for(
             if path == "/api/creative/documents":
                 self._create_creative_document(parsed.query)
                 return
+            if path == "/api/creative/rename":
+                self._rename_creative_entry(parsed.query)
+                return
+            if path == "/api/creative/delete":
+                self._delete_creative_entry(parsed.query)
+                return
             if path == "/api/creative/scratch":
                 self._save_creative_scratchpad(parsed.query)
                 return
@@ -19091,6 +19479,41 @@ def _handler_for(
                 payload = self._read_json_body()
                 self._send_json(
                     state.create_creative_document(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _rename_creative_entry(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.rename_creative_entry(
+                        context_id,
+                        str(payload.get("path") or ""),
+                        str(payload.get("new_name") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _delete_creative_entry(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.delete_creative_entry(
                         context_id,
                         str(payload.get("path") or ""),
                     )

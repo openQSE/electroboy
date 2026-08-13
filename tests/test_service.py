@@ -944,7 +944,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
         self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
         self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
+        self.assertIn("function creativeTreeActionIconSvg(name)", INDEX_HTML)
+        self.assertIn("function createCreativeFolderInline(basePath = \"\")", INDEX_HTML)
+        self.assertIn("function createCreativeDocumentInline(basePath = \"\")", INDEX_HTML)
+        self.assertIn("function finishCreativeRename(path, type, rawName)", INDEX_HTML)
+        self.assertIn("function deleteCreativeEntry(path, type)", INDEX_HTML)
+        self.assertIn('"/api/creative/rename"', INDEX_HTML)
+        self.assertIn('"/api/creative/delete"', INDEX_HTML)
+        self.assertNotIn("window.prompt(\"Folder path\"", INDEX_HTML)
+        self.assertNotIn("window.prompt(\"Markdown document path\"", INDEX_HTML)
         self.assertIn("--creative-depth-indent", INDEX_HTML)
+        self.assertIn(".creative-tree-name-input", INDEX_HTML)
+        self.assertIn(".creative-tree-icon-button", INDEX_HTML)
         self.assertIn("function creativeTreeIconSvg(name)", INDEX_HTML)
         self.assertIn("function creativeTreeIconName(entry, expanded)", INDEX_HTML)
         self.assertIn("function creativeTreeIconClass(entry)", INDEX_HTML)
@@ -1880,6 +1891,20 @@ class ServiceTests(unittest.TestCase):
                 context_id,
                 "chapters/act-1/scene-01.md",
             )
+            renamed_document = state.rename_creative_entry(
+                context_id,
+                "chapters/act-1/scene-01.md",
+                "scene-02.md",
+            )
+            renamed_folder = state.rename_creative_entry(
+                context_id,
+                "chapters/act-1",
+                "act-one",
+            )
+            deleted_folder = state.delete_creative_entry(
+                context_id,
+                "chapters/act-one",
+            )
             state.save_creative_scratchpad(context_id, "# Notes\n\nKeep this.\n")
             scratch = state.creative_scratchpad(context_id)
 
@@ -1891,6 +1916,13 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(created["project_mode"], "creative")
             self.assertIsNone(created["activate_command"])
             self.assertEqual(document["path"], "chapters/act-1/scene-01.md")
+            self.assertEqual(
+                renamed_document["path"],
+                "chapters/act-1/scene-02.md",
+            )
+            self.assertEqual(renamed_folder["path"], "chapters/act-one")
+            self.assertEqual(deleted_folder["path"], "chapters/act-one")
+            self.assertFalse((project_root / "chapters" / "act-one").exists())
             self.assertIn("chapters", [entry["name"] for entry in tree["entries"]])
             self.assertNotIn(".gitignore", [entry["name"] for entry in tree["entries"]])
             self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
