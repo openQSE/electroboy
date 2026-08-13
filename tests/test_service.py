@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.cli import build_parser  # noqa: E402
 from electroboy.service import (  # noqa: E402
+    CREATIVE_SPLASH_IMAGE_ROUTE,
     FILE_BROWSER_WINDOW_HTML,
     GENERIC_STAGE_CONFIG,
     INDEX_HTML,
@@ -118,6 +119,34 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "image/png")
         self.assertEqual(body, splash_image_bytes())
+        self.assertEqual(headers["Content-Length"], str(len(body)))
+
+    def test_creative_splash_image_endpoint_serves_packaged_png(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type, headers = request_bytes(
+                    server,
+                    CREATIVE_SPLASH_IMAGE_ROUTE,
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/png")
+        self.assertEqual(
+            body,
+            splash_image_bytes("electroboy-splash-creative-writing-16x9.png"),
+        )
         self.assertEqual(headers["Content-Length"], str(len(body)))
 
     def test_pane_window_endpoint_serves_stripped_down_pane(self) -> None:
@@ -1192,10 +1221,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
         self.assertIn('id="splashOverlay"', INDEX_HTML)
+        self.assertIn('id="splashImage"', INDEX_HTML)
         self.assertIn('id="closeSplash"', INDEX_HTML)
         self.assertIn(SPLASH_IMAGE_ROUTE, INDEX_HTML)
+        self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE, INDEX_HTML)
         self.assertIn("electroboy.splash.dismissed.v1", INDEX_HTML)
         self.assertIn("function openSplash()", INDEX_HTML)
+        self.assertIn("function updateSplashImage()", INDEX_HTML)
+        self.assertIn("? CREATIVE_SPLASH_IMAGE_ROUTE", INDEX_HTML)
         self.assertIn("function showSplashIfNeeded()", INDEX_HTML)
         self.assertIn("function dismissSplash()", INDEX_HTML)
         self.assertIn('showSplashButton.addEventListener("click", openSplash);', INDEX_HTML)

@@ -71,8 +71,10 @@ from .structured_artifacts import (
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 SPLASH_IMAGE_ROUTE = "/assets/electroboy-splash-16x9.png"
+CREATIVE_SPLASH_IMAGE_ROUTE = "/assets/electroboy-splash-creative-writing-16x9.png"
 SPLASH_IMAGE_PACKAGE = "electroboy"
 SPLASH_IMAGE_RESOURCE = "electroboy-splash-16x9.png"
+CREATIVE_SPLASH_IMAGE_RESOURCE = "electroboy-splash-creative-writing-16x9.png"
 TERMINAL_SUBMIT_DELAY_SECONDS = 0.08
 MIN_TERMINAL_COLUMNS = 20
 MAX_TERMINAL_COLUMNS = 1000
@@ -2348,6 +2350,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
   >
     <div class="splash-card" role="document">
       <img
+        id="splashImage"
         src="__SPLASH_IMAGE_ROUTE__"
         alt="I am Electroboy"
         draggable="false"
@@ -3617,11 +3620,14 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const popoutStatusPane = document.getElementById("popoutStatusPane");
     const popoutInputPane = document.getElementById("popoutInputPane");
     const splashOverlay = document.getElementById("splashOverlay");
+    const splashImage = document.getElementById("splashImage");
     const closeSplash = document.getElementById("closeSplash");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
     const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
     const SPLASH_DISMISSED_STORAGE_KEY = "electroboy.splash.dismissed.v1";
+    const SOFTWARE_SPLASH_IMAGE_ROUTE = "__SPLASH_IMAGE_ROUTE__";
+    const CREATIVE_SPLASH_IMAGE_ROUTE = "__CREATIVE_SPLASH_IMAGE_ROUTE__";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
@@ -4241,6 +4247,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     function applyWorkflowMode(options = {}) {
       workflowModeSelect.value = workflowMode;
       shell.classList.toggle("creative-workflow", creativeModeActive());
+      updateSplashImage();
       applyStoredWorkbenchPaneSize();
       creativeBinder.hidden = !creativeModeActive();
       stageActionBody.hidden = creativeModeActive();
@@ -5808,7 +5815,17 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       if (!splashOverlay) {
         return;
       }
+      updateSplashImage();
       splashOverlay.hidden = false;
+    }
+
+    function updateSplashImage() {
+      if (!splashImage) {
+        return;
+      }
+      splashImage.src = creativeModeActive()
+        ? CREATIVE_SPLASH_IMAGE_ROUTE
+        : SOFTWARE_SPLASH_IMAGE_ROUTE;
     }
 
     function showSplashIfNeeded() {
@@ -10750,7 +10767,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
 </html>
 """
 
-INDEX_HTML = INDEX_HTML_TEMPLATE.replace("__SPLASH_IMAGE_ROUTE__", SPLASH_IMAGE_ROUTE)
+INDEX_HTML = (
+    INDEX_HTML_TEMPLATE.replace("__SPLASH_IMAGE_ROUTE__", SPLASH_IMAGE_ROUTE)
+    .replace("__CREATIVE_SPLASH_IMAGE_ROUTE__", CREATIVE_SPLASH_IMAGE_ROUTE)
+)
 
 
 PANE_WINDOW_HTML = r"""<!doctype html>
@@ -15656,10 +15676,10 @@ def health_payload(root: Path | str) -> dict[str, str]:
     }
 
 
-def splash_image_bytes() -> bytes:
+def splash_image_bytes(resource: str = SPLASH_IMAGE_RESOURCE) -> bytes:
     return (
         resources.files(SPLASH_IMAGE_PACKAGE)
-        .joinpath("assets", SPLASH_IMAGE_RESOURCE)
+        .joinpath("assets", resource)
         .read_bytes()
     )
 
@@ -20695,7 +20715,10 @@ def _handler_for(
                 self._send_text(INDEX_HTML, "text/html; charset=utf-8")
                 return
             if path == SPLASH_IMAGE_ROUTE:
-                self._send_splash_image()
+                self._send_splash_image(SPLASH_IMAGE_RESOURCE)
+                return
+            if path == CREATIVE_SPLASH_IMAGE_ROUTE:
+                self._send_splash_image(CREATIVE_SPLASH_IMAGE_RESOURCE)
                 return
             if path == "/file-browser":
                 self._send_file_browser_window(parsed.query)
@@ -21022,7 +21045,16 @@ def _handler_for(
                 )
                 return
             if path == SPLASH_IMAGE_ROUTE:
-                self._send_splash_image(headers_only=True)
+                self._send_splash_image(
+                    SPLASH_IMAGE_RESOURCE,
+                    headers_only=True,
+                )
+                return
+            if path == CREATIVE_SPLASH_IMAGE_ROUTE:
+                self._send_splash_image(
+                    CREATIVE_SPLASH_IMAGE_RESOURCE,
+                    headers_only=True,
+                )
                 return
             if path == "/api/health":
                 data = json.dumps(health_payload(config.root)).encode("utf-8")
@@ -21041,9 +21073,14 @@ def _handler_for(
         def log_message(self, format: str, *args: Any) -> None:
             return
 
-        def _send_splash_image(self, *, headers_only: bool = False) -> None:
+        def _send_splash_image(
+            self,
+            resource: str = SPLASH_IMAGE_RESOURCE,
+            *,
+            headers_only: bool = False,
+        ) -> None:
             try:
-                data = splash_image_bytes()
+                data = splash_image_bytes(resource)
             except FileNotFoundError:
                 self._send_json(
                     {"error": "splash image not found"},
