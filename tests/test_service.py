@@ -944,12 +944,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
         self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
         self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
+        self.assertIn("--creative-depth-indent", INDEX_HTML)
         self.assertIn("function creativeTreeIconSvg(name)", INDEX_HTML)
         self.assertIn("function creativeTreeIconName(entry, expanded)", INDEX_HTML)
         self.assertIn("function creativeTreeIconClass(entry)", INDEX_HTML)
         self.assertIn('row.setAttribute("role", "treeitem")', INDEX_HTML)
         self.assertIn('row.setAttribute("aria-expanded"', INDEX_HTML)
         self.assertIn("if (isDirectory && expanded)", INDEX_HTML)
+        self.assertLess(
+            INDEX_HTML.index("appendCreativeTreeEntry(child, depth + 1);"),
+            INDEX_HTML.index("appendCreativeFolderActions(path, depth + 1);"),
+        )
         self.assertIn(".creative-tree-row.directory.expanded", INDEX_HTML)
         self.assertIn(".creative-tree-row.directory.active", INDEX_HTML)
         self.assertIn(".creative-tree-actions", INDEX_HTML)

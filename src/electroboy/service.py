@@ -845,7 +845,8 @@ INDEX_HTML = """<!doctype html>
       display: grid;
       grid-template-columns: 22px minmax(0, 1fr);
       align-items: center;
-      width: 100%;
+      width: calc(100% - var(--creative-depth-indent, 0px));
+      margin-left: var(--creative-depth-indent, 0px);
       min-height: 32px;
       border: 1px solid #c0d0df;
       border-radius: 6px;
@@ -855,7 +856,7 @@ INDEX_HTML = """<!doctype html>
       font-size: var(--ui-small-font-size);
       text-align: left;
       cursor: pointer;
-      padding: 0 8px 0 var(--creative-depth-padding, 8px);
+      padding: 0 8px;
     }
 
     .creative-tree-row.directory {
@@ -866,7 +867,7 @@ INDEX_HTML = """<!doctype html>
       background: #1f3f5f;
       color: #ffffff;
       font-weight: 400;
-      padding: 0 10px 0 var(--creative-depth-padding, 8px);
+      padding: 0 10px;
       box-shadow:
         0 1px 0 rgb(255 255 255 / 16%) inset,
         0 8px 18px rgb(18 48 78 / 14%);
@@ -965,7 +966,9 @@ INDEX_HTML = """<!doctype html>
       display: flex;
       gap: 6px;
       min-width: 0;
-      padding: 0 0 4px var(--creative-depth-padding, 8px);
+      width: calc(100% - var(--creative-depth-indent, 0px));
+      margin-left: var(--creative-depth-indent, 0px);
+      padding: 0 0 4px;
     }
 
     .creative-tree-action {
@@ -7178,7 +7181,7 @@ INDEX_HTML = """<!doctype html>
       row.type = "button";
       row.className = `creative-tree-row ${type}`;
       row.classList.toggle("expanded", expanded);
-      row.style.setProperty("--creative-depth-padding", `${8 + depth * 16}px`);
+      row.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
       row.title = path;
       row.classList.toggle(
         "active",
@@ -7219,17 +7222,17 @@ INDEX_HTML = """<!doctype html>
       creativeTree.append(row);
 
       if (isDirectory && expanded) {
-        appendCreativeFolderActions(path, depth + 1);
         for (const child of entry.children || []) {
           appendCreativeTreeEntry(child, depth + 1);
         }
+        appendCreativeFolderActions(path, depth + 1);
       }
     }
 
     function appendCreativeFolderActions(path, depth) {
       const actions = document.createElement("div");
       actions.className = "creative-tree-actions";
-      actions.style.setProperty("--creative-depth-padding", `${8 + depth * 16}px`);
+      actions.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
 
       const newFolder = document.createElement("button");
       newFolder.className = "creative-tree-action";
