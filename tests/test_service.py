@@ -541,6 +541,27 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('input.addEventListener("input", queueSave);', page)
         self.assertNotIn('id="saveArtifact"', page)
 
+    def test_artifact_editor_markdown_mode_uses_direct_pane_editor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "guide.md").write_text("# Guide\n\nBody.\n", encoding="utf-8")
+
+            page, status = artifact_editor_html(
+                root,
+                "document",
+                "docs/guide.md",
+                title="Guide",
+            )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('document.body.classList.add("markdown-mode");', page)
+        self.assertIn('textarea.setAttribute("aria-label"', page)
+        self.assertIn("body.markdown-mode .editor-header", page)
+        self.assertIn("body.markdown-mode .markdown-editor", page)
+        self.assertNotIn('label.textContent = "Markdown";', page)
+
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -16316,7 +16316,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 
     html,
     body {{
-      min-height: 100%;
+      height: 100%;
       margin: 0;
       background: var(--bg);
       color: var(--text);
@@ -16326,12 +16326,25 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       overflow: auto;
     }}
 
+    body.markdown-mode {{
+      overflow: hidden;
+    }}
+
     main {{
       display: grid;
       gap: 14px;
       max-width: 1040px;
       margin: 0 auto;
       padding: 16px;
+    }}
+
+    body.markdown-mode main {{
+      display: block;
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      margin: 0;
+      padding: 0;
     }}
 
     .editor-header,
@@ -16405,9 +16418,40 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       color: var(--error);
     }}
 
+    body.markdown-mode .editor-header {{
+      display: none;
+    }}
+
+    body.markdown-mode .status {{
+      position: fixed;
+      right: 10px;
+      bottom: 10px;
+      z-index: 2;
+      min-height: 0;
+      border-radius: 999px;
+      background: rgba(15, 20, 32, 0.9);
+      color: var(--muted);
+      padding: 4px 10px;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+      pointer-events: none;
+    }}
+
+    body.markdown-mode .status:empty {{
+      display: none;
+    }}
+
+    body.markdown-mode .status.error {{
+      color: var(--error);
+    }}
+
     .records {{
       display: grid;
       gap: 10px;
+    }}
+
+    body.markdown-mode .records {{
+      display: block;
+      height: 100%;
     }}
 
     details.record-editor > summary {{
@@ -16470,8 +16514,28 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       padding: 12px;
     }}
 
+    body.markdown-mode .markdown-editor {{
+      display: block;
+      height: 100%;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      padding: 0;
+    }}
+
     .markdown-editor textarea {{
       min-height: 62vh;
+    }}
+
+    body.markdown-mode .markdown-editor textarea {{
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 100%;
+      border: 0;
+      border-radius: 0;
+      resize: none;
+      padding: 14px 16px 36px;
     }}
   </style>
 </head>
@@ -16613,6 +16677,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
 
     function renderStructuredEditor() {{
+      document.body.classList.remove("markdown-mode");
       editorMeta.textContent = `${{EDIT_DATA.markdown_path}} · source ${{EDIT_DATA.jsonl_path}}`;
       addRecord.hidden = false;
       recordsRoot.replaceChildren();
@@ -16666,21 +16731,20 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
 
     function renderMarkdownEditor() {{
+      document.body.classList.add("markdown-mode");
       editorMeta.textContent = EDIT_DATA.markdown_path || "";
       addRecord.hidden = true;
       recordsRoot.replaceChildren();
       const wrapper = document.createElement("section");
       wrapper.className = "markdown-editor";
-      const label = document.createElement("label");
-      label.textContent = "Markdown";
       const textarea = document.createElement("textarea");
       textarea.id = "markdownSource";
+      textarea.setAttribute("aria-label", EDIT_DATA.markdown_path || "Markdown");
       textarea.spellcheck = true;
       textarea.value = EDIT_DATA.markdown || "";
       textarea.addEventListener("input", queueSave);
       textarea.addEventListener("change", queueSave);
-      label.append(textarea);
-      wrapper.append(label);
+      wrapper.append(textarea);
       recordsRoot.append(wrapper);
     }}
 
