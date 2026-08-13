@@ -17453,11 +17453,12 @@ def creative_corkboard_html(
   <style>
     :root {{
       color-scheme: dark;
-      --cork: #8a603a;
+      --cork: #a86d38;
       --cork-dark: #5f4128;
       --ink: #263247;
       --muted: #6b7280;
       --pin: #d1495b;
+      --insert: #66d9e8;
       --shadow: rgba(15, 20, 32, 0.32);
     }}
 
@@ -17470,12 +17471,25 @@ def creative_corkboard_html(
       width: 100%;
       min-height: 100%;
       margin: 0;
+      background-color: var(--cork);
       background:
-        radial-gradient(circle at 22px 18px, rgba(255, 255, 255, 0.10) 0 1px, transparent 2px),
-        radial-gradient(circle at 9px 31px, rgba(0, 0, 0, 0.12) 0 1px, transparent 2px),
-        linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
+        radial-gradient(ellipse at 18% 24%, rgba(89, 50, 22, 0.48) 0 2px, transparent 3px),
+        radial-gradient(ellipse at 73% 38%, rgba(68, 39, 18, 0.38) 0 2px, transparent 4px),
+        radial-gradient(ellipse at 41% 72%, rgba(219, 157, 88, 0.34) 0 2px, transparent 3px),
+        radial-gradient(ellipse at 84% 82%, rgba(92, 52, 22, 0.32) 0 1px, transparent 3px),
+        radial-gradient(ellipse at 31% 48%, rgba(236, 183, 112, 0.20) 0 1px, transparent 3px),
+        repeating-linear-gradient(27deg, rgba(61, 36, 18, 0.10) 0 1px, transparent 1px 9px),
+        repeating-linear-gradient(112deg, rgba(236, 183, 112, 0.08) 0 1px, transparent 1px 11px),
         var(--cork);
-      background-size: 44px 44px, 36px 36px, 18px 18px, auto;
+      background-size:
+        46px 38px,
+        53px 47px,
+        61px 52px,
+        37px 41px,
+        29px 31px,
+        31px 31px,
+        43px 43px,
+        auto;
       color: var(--ink);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       overflow: auto;
@@ -17540,6 +17554,7 @@ def creative_corkboard_html(
     }}
 
     .board.folder {{
+      position: relative;
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
       align-content: start;
@@ -17597,9 +17612,26 @@ def creative_corkboard_html(
       opacity: 0.42;
     }}
 
-    .board.folder .index-card.drop-target {{
-      outline: 3px solid rgba(102, 217, 232, 0.8);
-      outline-offset: 4px;
+    .insertion-marker {{
+      position: absolute;
+      width: 5px;
+      min-height: 64px;
+      border-radius: 999px;
+      background: var(--insert);
+      box-shadow:
+        0 0 0 3px rgba(15, 20, 32, 0.22),
+        0 0 20px rgba(102, 217, 232, 0.62);
+      pointer-events: none;
+      transform: translateX(-50%);
+      transition:
+        left 90ms ease,
+        top 90ms ease,
+        height 90ms ease;
+      z-index: 1001;
+    }}
+
+    .insertion-marker[hidden] {{
+      display: none;
     }}
 
     .board.freeform .index-card {{
@@ -17762,6 +17794,9 @@ def creative_corkboard_html(
     const saveTimers = new Map();
     let dragState = null;
     let draggedPath = "";
+    let folderInsertionMarker = null;
+    let folderDropTarget = "";
+    let folderDropPlacement = "before";
 
     function contextUrl(path) {{
       const contextId = CORKBOARD_DATA.context_id || "";
@@ -17951,26 +17986,80 @@ def creative_corkboard_html(
 
     function finishFolderDrag(cardElement) {{
       draggedPath = "";
+      clearFolderInsertionMarker();
       cardElement.classList.remove("dragging");
-      for (const element of board.querySelectorAll(".drop-target")) {{
-        element.classList.remove("drop-target");
+    }}
+
+    function ensureFolderInsertionMarker() {{
+      if (folderInsertionMarker && folderInsertionMarker.parentElement === board) {{
+        return folderInsertionMarker;
+      }}
+      folderInsertionMarker = document.createElement("div");
+      folderInsertionMarker.className = "insertion-marker";
+      folderInsertionMarker.hidden = true;
+      board.prepend(folderInsertionMarker);
+      return folderInsertionMarker;
+    }}
+
+    function clearFolderInsertionMarker() {{
+      folderDropTarget = "";
+      folderDropPlacement = "before";
+      if (folderInsertionMarker) {{
+        folderInsertionMarker.hidden = true;
       }}
     }}
 
-    function dropFolderCard(event, targetCard) {{
+    function folderInsertionPlacement(event, cardElement) {{
+      const rect = cardElement.getBoundingClientRect();
+      return event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+    }}
+
+    function showFolderInsertionMarker(event, card, cardElement) {{
+      if (!draggedPath || draggedPath === card.path) {{
+        clearFolderInsertionMarker();
+        return;
+      }}
+      const placement = folderInsertionPlacement(event, cardElement);
+      const marker = ensureFolderInsertionMarker();
+      const cardRect = cardElement.getBoundingClientRect();
+      const boardRect = board.getBoundingClientRect();
+      const x = placement === "before"
+        ? cardRect.left - boardRect.left
+        : cardRect.right - boardRect.left;
+      marker.style.left = `${{Math.max(0, x)}}px`;
+      marker.style.top = `${{Math.max(0, cardRect.top - boardRect.top)}}px`;
+      marker.style.height = `${{Math.max(64, cardRect.height)}}px`;
+      marker.hidden = false;
+      folderDropTarget = card.path || "";
+      folderDropPlacement = placement;
+    }}
+
+    function dropFolderCard(event, targetCard, cardElement) {{
       event.preventDefault();
       const sourcePath = draggedPath || event.dataTransfer.getData("text/plain");
       if (!sourcePath || sourcePath === targetCard.path) {{
+        clearFolderInsertionMarker();
         return;
       }}
       const sourceIndex = cards.findIndex((card) => card.path === sourcePath);
-      const targetIndex = cards.findIndex((card) => card.path === targetCard.path);
-      if (sourceIndex < 0 || targetIndex < 0) {{
+      const targetPath = folderDropTarget || targetCard.path;
+      const placement = folderDropTarget
+        ? folderDropPlacement
+        : folderInsertionPlacement(event, cardElement);
+      if (sourceIndex < 0 || !targetPath) {{
+        clearFolderInsertionMarker();
         return;
       }}
       const [moved] = cards.splice(sourceIndex, 1);
-      const nextTargetIndex = cards.findIndex((card) => card.path === targetCard.path);
-      cards.splice(nextTargetIndex, 0, moved);
+      const targetIndex = cards.findIndex((card) => card.path === targetPath);
+      if (targetIndex < 0) {{
+        cards.splice(sourceIndex, 0, moved);
+        clearFolderInsertionMarker();
+        return;
+      }}
+      const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+      cards.splice(insertIndex, 0, moved);
+      clearFolderInsertionMarker();
       renderCards();
       saveOrder();
     }}
@@ -17993,6 +18082,8 @@ def creative_corkboard_html(
 
     function renderCards() {{
       board.replaceChildren();
+      folderInsertionMarker = null;
+      clearFolderInsertionMarker();
       board.className = `board ${{boardType}}`;
       boardEyebrow.textContent = boardType === "freeform"
         ? "Freeform corkboard"
@@ -18020,6 +18111,7 @@ def creative_corkboard_html(
           cardElement.addEventListener("pointerup", finishDrag);
           cardElement.addEventListener("pointercancel", finishDrag);
         }} else {{
+          ensureFolderInsertionMarker();
           cardElement.draggable = true;
           cardElement.addEventListener("dragstart", (event) =>
             startFolderDrag(event, card, cardElement),
@@ -18027,12 +18119,11 @@ def creative_corkboard_html(
           cardElement.addEventListener("dragend", () => finishFolderDrag(cardElement));
           cardElement.addEventListener("dragover", (event) => {{
             event.preventDefault();
-            cardElement.classList.add("drop-target");
+            showFolderInsertionMarker(event, card, cardElement);
           }});
-          cardElement.addEventListener("dragleave", () =>
-            cardElement.classList.remove("drop-target"),
+          cardElement.addEventListener("drop", (event) =>
+            dropFolderCard(event, card, cardElement),
           );
-          cardElement.addEventListener("drop", (event) => dropFolderCard(event, card));
         }}
 
         const head = document.createElement("div");
