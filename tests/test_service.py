@@ -182,6 +182,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.getItem(storageKey)", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.setItem(activeStorageKey", PANE_WINDOW_HTML)
+        self.assertIn(
+            '<textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden>',
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn(
+            '<textarea id="agentInput" class="input-text" spellcheck="true">',
+            PANE_WINDOW_HTML,
+        )
         self.assertIn('contextUrl("/api/project")', PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/select")', PANE_WINDOW_HTML)
         self.assertIn('if (kind === "shell") return "Project shell";', PANE_WINDOW_HTML)
@@ -1124,6 +1132,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("margin: 0 -12px;", INDEX_HTML)
         self.assertIn("AI agent input", INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
+        self.assertIn('id="agentInput"\n          class="agent-input"\n          spellcheck="true"', INDEX_HTML)
+        self.assertIn('id="scratchPad"\n              class="scratch-pad"\n              spellcheck="true"', INDEX_HTML)
+        self.assertIn("function restoreSoftwareWorkspace()", INDEX_HTML)
+        self.assertIn("scratchPad.spellcheck = true;", INDEX_HTML)
         self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
         self.assertIn('id="sessionSwitcher"', INDEX_HTML)
         self.assertIn('for="sessionSwitcher">Agent</label>', INDEX_HTML)

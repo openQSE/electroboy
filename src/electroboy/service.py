@@ -3164,7 +3164,7 @@ INDEX_HTML = """<!doctype html>
             <textarea
               id="scratchPad"
               class="scratch-pad"
-              spellcheck="false"
+              spellcheck="true"
               aria-label="Scratch pad"
             ></textarea>
           </section>
@@ -3277,7 +3277,7 @@ INDEX_HTML = """<!doctype html>
         <textarea
           id="agentInput"
           class="agent-input"
-          spellcheck="false"
+          spellcheck="true"
           disabled
           aria-label="Requirements agent input"
         ></textarea>
@@ -7265,7 +7265,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function restoreSoftwareWorkspace() {
-      scratchPad.spellcheck = false;
+      scratchPad.spellcheck = true;
       restoreScratchPad();
       syncArtifactPreviewWithProject();
     }
@@ -10625,10 +10625,10 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         sandbox="allow-scripts allow-popups allow-same-origin"
         hidden
       ></iframe>
-      <textarea id="scratchPad" class="scratch-pad" spellcheck="false" hidden></textarea>
+      <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>
       <pre id="statusOutput" class="status-output" hidden></pre>
       <div id="inputLayout" class="input-layout" hidden>
-        <textarea id="agentInput" class="input-text" spellcheck="false"></textarea>
+        <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
         <div class="input-actions">
           <div class="input-session-control">
             <label for="sessionSwitcher">Select Agent</label>
