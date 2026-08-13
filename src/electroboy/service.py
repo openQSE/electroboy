@@ -4031,11 +4031,17 @@ INDEX_HTML = """<!doctype html>
       return workflowMode === CREATIVE_WORKFLOW_MODE;
     }
 
-    function applyWorkflowMode() {
+    function applyWorkflowMode(options = {}) {
       workflowModeSelect.value = workflowMode;
       shell.classList.toggle("creative-workflow", creativeModeActive());
       creativeBinder.hidden = !creativeModeActive();
       stageActionBody.hidden = creativeModeActive();
+      if (options.deferWorkspace) {
+        refreshStageActionPanel();
+        updateCreativeBinderActions();
+        window.requestAnimationFrame(fitTerminal);
+        return;
+      }
       if (creativeModeActive()) {
         setWorkflowSideSheetCollapsed(false);
         applyCreativeWorkspace();
@@ -4049,12 +4055,21 @@ INDEX_HTML = """<!doctype html>
       window.requestAnimationFrame(fitTerminal);
     }
 
-    function setWorkflowMode(mode) {
-      workflowMode = mode === CREATIVE_WORKFLOW_MODE
+    async function setWorkflowMode(mode) {
+      const nextMode = mode === CREATIVE_WORKFLOW_MODE
         ? CREATIVE_WORKFLOW_MODE
         : SOFTWARE_WORKFLOW_MODE;
+      if (nextMode === workflowMode) {
+        applyWorkflowMode();
+        return;
+      }
+      releaseContextOwner();
+      contextId = "";
+      resetWorkflowContextView();
+      workflowMode = nextMode;
       saveWorkflowMode();
-      applyWorkflowMode();
+      applyWorkflowMode({ deferWorkspace: true });
+      await restoreContext();
     }
 
     function applyWorkflowSideSheetState() {
@@ -5470,9 +5485,24 @@ INDEX_HTML = """<!doctype html>
       setPanePoppedOut(data.pane, false);
     });
 
-    function storedContextId() {
+    function contextWorkflowStorageKey(mode = workflowMode) {
+      const suffix = mode === CREATIVE_WORKFLOW_MODE
+        ? CREATIVE_WORKFLOW_MODE
+        : SOFTWARE_WORKFLOW_MODE;
+      return `${CONTEXT_STORAGE_KEY}.${suffix}`;
+    }
+
+    function clearLegacyContextId() {
       try {
-        return window.sessionStorage.getItem(CONTEXT_STORAGE_KEY) || "";
+        window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY);
+      } catch (error) {
+        return;
+      }
+    }
+
+    function storedContextId(mode = workflowMode) {
+      try {
+        return window.sessionStorage.getItem(contextWorkflowStorageKey(mode)) || "";
       } catch (error) {
         return "";
       }
@@ -5631,21 +5661,65 @@ INDEX_HTML = """<!doctype html>
       return true;
     }
 
-    function saveContextId(value) {
+    function saveContextId(value, mode = workflowMode) {
       try {
+        clearLegacyContextId();
         if (value) {
           if (!claimContextOwner(value)) {
             return false;
           }
-          window.sessionStorage.setItem(CONTEXT_STORAGE_KEY, value);
+          window.sessionStorage.setItem(contextWorkflowStorageKey(mode), value);
         } else {
           releaseContextOwner();
-          window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY);
+          window.sessionStorage.removeItem(contextWorkflowStorageKey(mode));
         }
         return true;
       } catch (error) {
         return false;
       }
+    }
+
+    function resetWorkflowContextView() {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      closeProgressEventStream();
+      closeProjectShellEventStream();
+      showProgressPane(false);
+      showProjectShellPane(false);
+      activationRoot = "";
+      activeProjectMode = "none";
+      activeProjectRoot = "";
+      activeRepositoryName = "";
+      registeredRepositories = [];
+      projectPath.value = serviceRoot || "";
+      workItemState = { collections: [], features: [], bugs: [] };
+      stageRunState = {};
+      requirementsRunning = false;
+      requirementsApproved = false;
+      designRunning = false;
+      designReviewRunning = false;
+      designReviewInteractive = false;
+      designApproved = false;
+      documentationRunning = false;
+      projectShellRunning = false;
+      agentSessions = [];
+      selectedSessionId = "";
+      activeAgentKind = "";
+      currentWorkflowStage = "project";
+      creativeActiveDocument = "";
+      expandedCreativeFolders = new Set();
+      creativeLastNotifiedDocument = "";
+      creativeTreePayload = null;
+      restoredScratchContextId = "";
+      clearAgentOutput();
+      clearProgressOutput();
+      clearProjectShellOutput();
+      hideArtifactPreview();
+      hideWorkItemPanel();
+      renderSessionSwitcher();
+      updateAgentControls();
     }
 
     async function createContext() {
@@ -9430,7 +9504,9 @@ INDEX_HTML = """<!doctype html>
     });
     scratchPad.addEventListener("input", saveScratchPad);
     workflowModeSelect.addEventListener("change", () => {
-      setWorkflowMode(workflowModeSelect.value);
+      setWorkflowMode(workflowModeSelect.value).catch((error) => {
+        appendOutput(`workflow switch failed: ${error}\n`, "error");
+      });
     });
     creativeProjectMenuButton.addEventListener("click", () => {
       toggleCreativeActionGroup("project");
