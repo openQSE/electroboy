@@ -3640,6 +3640,7 @@ INDEX_HTML = """<!doctype html>
     let resizeProjectShellState = null;
     let terminalResizeObserver = null;
     let resizeTimer = null;
+    let pendingTerminalResize = null;
     let shellResizeTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
@@ -4190,6 +4191,9 @@ INDEX_HTML = """<!doctype html>
         terminal.loadAddon(terminalFit);
       }
       terminal.open(agentOutput);
+      terminal.onResize(({ cols, rows }) => {
+        queueTerminalResize(cols, rows);
+      });
       applyTerminalFontSize();
       fitTerminal();
       window.addEventListener("resize", fitTerminal);
@@ -4589,25 +4593,41 @@ INDEX_HTML = """<!doctype html>
       terminalResizeObserver.observe(projectShellOutput);
     }
 
-    function queueTerminalResize() {
-      if (!agentProcessRunning() || !contextId || !terminal || !selectedSessionId) {
-        return;
+    function terminalResizePayload(columns = null, rows = null) {
+      const session = selectedSession();
+      if (!sessionIsRunning(session) || !contextId || !terminal) {
+        return null;
       }
-      window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(sendTerminalResize, 120);
+      return {
+        session_id: session.session_id,
+        columns: Number(columns || terminal.cols || 120),
+        rows: Number(rows || terminal.rows || 32),
+      };
     }
 
-    async function sendTerminalResize() {
-      if (!agentProcessRunning() || !contextId || !terminal || !selectedSessionId) {
+    function queueTerminalResize(columns = null, rows = null) {
+      const payload = terminalResizePayload(columns, rows);
+      if (!payload) {
+        return;
+      }
+      pendingTerminalResize = payload;
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        const resize = pendingTerminalResize;
+        pendingTerminalResize = null;
+        sendTerminalResize(resize);
+      }, 120);
+    }
+
+    async function sendTerminalResize(payload = null) {
+      const resize = payload || terminalResizePayload();
+      if (!resize) {
         return;
       }
       await fetch(contextUrl("/api/sessions/resize"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          columns: terminal.cols,
-          rows: terminal.rows,
-        }),
+        body: JSON.stringify(resize),
       }).catch(() => {});
     }
 
@@ -10679,6 +10699,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     let terminal = null;
     let terminalFit = null;
     let terminalResizeObserver = null;
+    let terminalResizeTimer = null;
+    let pendingTerminalResize = null;
     let eventSource = null;
     let artifactEventSource = null;
     let artifactVersion = 0;
@@ -11154,6 +11176,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         terminal.loadAddon(terminalFit);
       }
       terminal.open(terminalHost);
+      terminal.onResize(({ cols, rows }) => {
+        if (PANE_KIND === "shell") {
+          queueShellResize(cols, rows);
+        } else if (PANE_KIND === "agent") {
+          queueAgentResize(cols, rows);
+        }
+      });
       observeTerminalPaneResize();
       fitTerminal();
       window.addEventListener("resize", fitTerminal);
@@ -11169,7 +11198,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         return;
       }
       if (PANE_KIND === "shell") {
-        window.requestAnimationFrame(sendShellResize);
+        window.requestAnimationFrame(() => queueShellResize());
+      } else if (PANE_KIND === "agent") {
+        window.requestAnimationFrame(() => queueAgentResize());
       }
     }
 
@@ -11194,7 +11225,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       }).catch(() => {});
     }
 
-    async function sendShellResize() {
+    async function sendShellResize(columns = null, rows = null) {
       if (!contextId || !terminal) {
         return;
       }
@@ -11202,10 +11233,55 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          columns: terminal.cols,
-          rows: terminal.rows,
+          columns: Number(columns || terminal.cols || 120),
+          rows: Number(rows || terminal.rows || 32),
         }),
       }).catch(() => {});
+    }
+
+    function agentResizePayload(columns = null, rows = null) {
+      if (!contextId || !terminal || !selectedSessionId) {
+        return null;
+      }
+      return {
+        session_id: selectedSessionId,
+        columns: Number(columns || terminal.cols || 120),
+        rows: Number(rows || terminal.rows || 32),
+      };
+    }
+
+    function queueAgentResize(columns = null, rows = null) {
+      const payload = agentResizePayload(columns, rows);
+      if (!payload) {
+        return;
+      }
+      pendingTerminalResize = payload;
+      window.clearTimeout(terminalResizeTimer);
+      terminalResizeTimer = window.setTimeout(() => {
+        const resize = pendingTerminalResize;
+        pendingTerminalResize = null;
+        sendAgentResize(resize);
+      }, 120);
+    }
+
+    async function sendAgentResize(payload = null) {
+      const resize = payload || agentResizePayload();
+      if (!resize) {
+        return;
+      }
+      await fetch(contextUrl("/api/sessions/resize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(resize),
+      }).catch(() => {});
+    }
+
+    function queueShellResize(columns = null, rows = null) {
+      window.clearTimeout(terminalResizeTimer);
+      terminalResizeTimer = window.setTimeout(
+        () => sendShellResize(columns, rows),
+        120,
+      );
     }
 
     function formatTerminalMessage(text, type) {
@@ -14198,6 +14274,16 @@ class ServiceState:
             raise AgentSessionError("no agent session is selected")
         session.resize(columns, rows)
 
+    def resize_session(
+        self,
+        context_id: str,
+        session_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        session = self.session_by_id(context_id, session_id)
+        session.resize(columns, rows)
+
     def has_running_progress_agent(self, context_id: str) -> bool:
         with self.lock:
             context = self._context_locked(context_id)
@@ -14708,6 +14794,15 @@ class AgentSession:
         if fd is None:
             return
         _set_terminal_size(fd, self.columns, self.rows)
+        process = self.process
+        if process is None or process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGWINCH)
+        except ProcessLookupError:
+            return
+        except OSError:
+            return
 
     def events_after(self, event_id: int) -> list[dict[str, object]]:
         with self._condition:
@@ -20756,7 +20851,11 @@ def _handler_for(
                 payload = self._read_json_body()
                 columns = int(payload.get("columns") or 120)
                 rows = int(payload.get("rows") or 32)
-                state.resize_selected_session(context_id, columns, rows)
+                session_id = str(payload.get("session_id") or "").strip()
+                if session_id:
+                    state.resize_session(context_id, session_id, columns, rows)
+                else:
+                    state.resize_selected_session(context_id, columns, rows)
             except (AgentSessionError, StateError, TypeError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},

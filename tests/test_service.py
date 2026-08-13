@@ -164,6 +164,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function observeTerminalPaneResize()", PANE_WINDOW_HTML)
         self.assertIn("terminalResizeObserver.observe(terminalHost);", PANE_WINDOW_HTML)
         self.assertIn("terminalFit.fit();", PANE_WINDOW_HTML)
+        self.assertIn("queueAgentResize(cols, rows);", PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/sessions/resize")', PANE_WINDOW_HTML)
+        self.assertIn("session_id: selectedSessionId,", PANE_WINDOW_HTML)
         self.assertIn(".terminal-host .xterm {\n      width: 100%;", PANE_WINDOW_HTML)
         self.assertIn("function effectiveFontSize()", PANE_WINDOW_HTML)
         self.assertIn("function resetFontSize()", PANE_WINDOW_HTML)
@@ -1173,6 +1176,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("terminalResizeObserver.observe(progressOutput);", INDEX_HTML)
         self.assertIn("terminalResizeObserver.observe(projectShellOutput);", INDEX_HTML)
         self.assertIn("terminalFit.fit();", INDEX_HTML)
+        self.assertIn("terminal.onResize(({ cols, rows }) => {", INDEX_HTML)
+        self.assertIn("queueTerminalResize(cols, rows);", INDEX_HTML)
+        self.assertIn(
+            "function terminalResizePayload(columns = null, rows = null)",
+            INDEX_HTML,
+        )
+        self.assertIn("session_id: session.session_id,", INDEX_HTML)
         self.assertIn(".agent-output .xterm,\n    .progress-output .xterm,", INDEX_HTML)
         self.assertIn("      width: 100%;\n      height: 100%;", INDEX_HTML)
         self.assertIn("disableStdin,", INDEX_HTML)
@@ -3670,6 +3680,22 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(session.columns, MIN_TERMINAL_COLUMNS)
         self.assertEqual(session.rows, MIN_TERMINAL_ROWS)
+
+    def test_agent_session_resize_signals_process_group(self) -> None:
+        session = AgentSession([sys.executable, "-c", "pass"], ROOT)
+        session._master_fd = 123
+        session.process = mock.Mock()
+        session.process.pid = 456
+        session.process.poll.return_value = None
+
+        with (
+            mock.patch("electroboy.service._set_terminal_size") as set_size,
+            mock.patch("electroboy.service.os.killpg") as killpg,
+        ):
+            session.resize(100, 40)
+
+        set_size.assert_called_once_with(123, 100, 40)
+        killpg.assert_called_once_with(456, signal.SIGWINCH)
 
     def test_agent_session_submits_raw_terminal_input(self) -> None:
         script = (
