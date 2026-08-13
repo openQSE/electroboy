@@ -2153,6 +2153,9 @@ INDEX_HTML = """<!doctype html>
               <button id="creativeNewProject" class="stage-action-button" type="button">
                 New
               </button>
+              <button id="creativeCloseProject" class="stage-action-button" type="button" disabled>
+                Close
+              </button>
             </div>
           </div>
           <div
@@ -3205,6 +3208,7 @@ INDEX_HTML = """<!doctype html>
     const creativeProjectActions = document.getElementById("creativeProjectActions");
     const creativeOpenProject = document.getElementById("creativeOpenProject");
     const creativeNewProject = document.getElementById("creativeNewProject");
+    const creativeCloseProject = document.getElementById("creativeCloseProject");
     const creativeActiveProjectSection =
       document.getElementById("creativeActiveProjectSection");
     const creativeProjectName = document.getElementById("creativeProjectName");
@@ -6900,6 +6904,7 @@ INDEX_HTML = """<!doctype html>
       const hasProject = Boolean(activeProjectRoot);
       creativeOpenProject.disabled = Boolean(activationRoot);
       creativeNewProject.disabled = Boolean(activationRoot);
+      creativeCloseProject.disabled = !Boolean(activationRoot);
       creativeActiveProjectSection.hidden = !hasProject;
       creativeProjectName.textContent = hasProject
         ? `Project: ${basename(activeProjectRoot)}`
@@ -8272,6 +8277,9 @@ INDEX_HTML = """<!doctype html>
       clearProjectShellOutput();
       hideArtifactPreview();
       hideWorkItemPanel();
+      creativeActiveDocument = "";
+      creativeLastNotifiedDocument = "";
+      creativeTreePayload = null;
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
       updateProjectState(payload);
     }
@@ -9306,6 +9314,7 @@ INDEX_HTML = """<!doctype html>
     creativeNewProject.addEventListener("click", () => {
       openProjectBrowser("new", true);
     });
+    creativeCloseProject.addEventListener("click", deactivateActiveProject);
     creativeNewFolder.addEventListener("click", () => {
       creativeNewFolderPrompt();
     });

@@ -873,6 +873,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="creativeBinder"', INDEX_HTML)
         self.assertIn('id="creativeProjectMenuButton"', INDEX_HTML)
         self.assertIn('id="creativeProjectActions"', INDEX_HTML)
+        self.assertIn('id="creativeCloseProject"', INDEX_HTML)
+        self.assertIn("creativeCloseProject.disabled = !Boolean(activationRoot)", INDEX_HTML)
+        self.assertIn(
+            'creativeCloseProject.addEventListener("click", deactivateActiveProject)',
+            INDEX_HTML,
+        )
         self.assertIn("let creativeProjectActionsExpanded = false;", INDEX_HTML)
         self.assertIn("function ensureCreativeWorkspaceLoaded()", INDEX_HTML)
         self.assertIn("deferCreativeWorkspaceInit", INDEX_HTML)
