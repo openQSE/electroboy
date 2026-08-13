@@ -24,6 +24,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import resources
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -69,6 +70,9 @@ from .structured_artifacts import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+SPLASH_IMAGE_ROUTE = "/assets/electroboy-splash-16x9.png"
+SPLASH_IMAGE_PACKAGE = "electroboy"
+SPLASH_IMAGE_RESOURCE = "electroboy-splash-16x9.png"
 TERMINAL_SUBMIT_DELAY_SECONDS = 0.08
 MIN_TERMINAL_COLUMNS = 20
 MAX_TERMINAL_COLUMNS = 1000
@@ -264,7 +268,7 @@ ARTIFACT_EDITOR_LIST_FIELDS = {
 
 ARTIFACT_EDITOR_JSON_FIELDS = {"automation", "schema"}
 
-INDEX_HTML = """<!doctype html>
+INDEX_HTML_TEMPLATE = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -318,6 +322,71 @@ INDEX_HTML = """<!doctype html>
 
     body {
       overflow: hidden;
+    }
+
+    .splash-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at center, rgb(24 40 61 / 58%), rgb(5 8 14 / 86%));
+      backdrop-filter: blur(7px);
+      cursor: pointer;
+      padding: 32px;
+    }
+
+    .splash-overlay[hidden] {
+      display: none;
+    }
+
+    .splash-card {
+      position: relative;
+      width: min(94vw, calc((100vh - 64px) * 16 / 9), 1800px);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border: 1px solid rgb(102 217 232 / 42%);
+      border-radius: 10px;
+      background: #10141f;
+      box-shadow:
+        0 0 0 1px rgb(255 255 255 / 5%) inset,
+        0 28px 72px rgb(0 0 0 / 48%),
+        0 0 48px rgb(102 217 232 / 20%);
+      cursor: default;
+    }
+
+    .splash-card img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .splash-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgb(102 217 232 / 40%);
+      border-radius: 50%;
+      background: rgb(16 20 31 / 74%);
+      color: #e7edf7;
+      cursor: pointer;
+      font: inherit;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .splash-close:hover,
+    .splash-close:focus-visible {
+      border-color: #66d9e8;
+      background: rgb(29 38 56 / 88%);
+      outline: none;
     }
 
     .shell {
@@ -2270,6 +2339,28 @@ INDEX_HTML = """<!doctype html>
   </style>
 </head>
 <body>
+  <div
+    id="splashOverlay"
+    class="splash-overlay"
+    role="dialog"
+    aria-label="ElectroBoy splash screen"
+    hidden
+  >
+    <div class="splash-card" role="document">
+      <img
+        src="__SPLASH_IMAGE_ROUTE__"
+        alt="I am Electroboy"
+        draggable="false"
+      >
+      <button
+        id="closeSplash"
+        class="splash-close"
+        type="button"
+        title="Close splash screen"
+        aria-label="Close splash screen"
+      >&times;</button>
+    </div>
+  </div>
   <main class="shell">
     <svg
       class="stage-icon-defs"
@@ -3512,9 +3603,12 @@ INDEX_HTML = """<!doctype html>
     const popoutScratchPane = document.getElementById("popoutScratchPane");
     const popoutStatusPane = document.getElementById("popoutStatusPane");
     const popoutInputPane = document.getElementById("popoutInputPane");
+    const splashOverlay = document.getElementById("splashOverlay");
+    const closeSplash = document.getElementById("closeSplash");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
     const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
+    const SPLASH_DISMISSED_STORAGE_KEY = "electroboy.splash.dismissed.v1";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
@@ -5687,6 +5781,33 @@ INDEX_HTML = """<!doctype html>
         ? CREATIVE_WORKFLOW_MODE
         : SOFTWARE_WORKFLOW_MODE;
       return `${CONTEXT_STORAGE_KEY}.${suffix}`;
+    }
+
+    function splashDismissed() {
+      try {
+        return window.localStorage.getItem(SPLASH_DISMISSED_STORAGE_KEY) === "1";
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function showSplashIfNeeded() {
+      if (!splashOverlay || splashDismissed()) {
+        return;
+      }
+      splashOverlay.hidden = false;
+    }
+
+    function dismissSplash() {
+      if (!splashOverlay || splashOverlay.hidden) {
+        return;
+      }
+      splashOverlay.hidden = true;
+      try {
+        window.localStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY, "1");
+      } catch (error) {
+        return;
+      }
     }
 
     function clearLegacyContextId() {
@@ -10517,6 +10638,17 @@ INDEX_HTML = """<!doctype html>
     toggleWorkflowSideSheet.addEventListener("click", toggleWorkflowSideSheetCollapsed);
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
+    closeSplash.addEventListener("click", dismissSplash);
+    splashOverlay.addEventListener("click", (event) => {
+      if (event.target === splashOverlay) {
+        dismissSplash();
+      }
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && splashOverlay && !splashOverlay.hidden) {
+        dismissSplash();
+      }
+    });
 
     agentInput.addEventListener("keydown", (event) => {
       if (handleSlashCommandInput(event)) {
@@ -10579,6 +10711,7 @@ INDEX_HTML = """<!doctype html>
       applyDocumentZoom();
       initializeTerminal();
       observeTerminalPaneResizes();
+      showSplashIfNeeded();
       await checkConnection();
       await restoreContext();
     }
@@ -10595,6 +10728,8 @@ INDEX_HTML = """<!doctype html>
 </body>
 </html>
 """
+
+INDEX_HTML = INDEX_HTML_TEMPLATE.replace("__SPLASH_IMAGE_ROUTE__", SPLASH_IMAGE_ROUTE)
 
 
 PANE_WINDOW_HTML = r"""<!doctype html>
@@ -15498,6 +15633,14 @@ def health_payload(root: Path | str) -> dict[str, str]:
         "service": "electroboy",
         "root": str(Path(root).expanduser().resolve()),
     }
+
+
+def splash_image_bytes() -> bytes:
+    return (
+        resources.files(SPLASH_IMAGE_PACKAGE)
+        .joinpath("assets", SPLASH_IMAGE_RESOURCE)
+        .read_bytes()
+    )
 
 
 def project_payload(
@@ -20530,6 +20673,9 @@ def _handler_for(
             if path in {"/", "/index.html"}:
                 self._send_text(INDEX_HTML, "text/html; charset=utf-8")
                 return
+            if path == SPLASH_IMAGE_ROUTE:
+                self._send_splash_image()
+                return
             if path == "/file-browser":
                 self._send_file_browser_window(parsed.query)
                 return
@@ -20854,6 +21000,9 @@ def _handler_for(
                     len(INDEX_HTML.encode("utf-8")),
                 )
                 return
+            if path == SPLASH_IMAGE_ROUTE:
+                self._send_splash_image(headers_only=True)
+                return
             if path == "/api/health":
                 data = json.dumps(health_payload(config.root)).encode("utf-8")
                 self._send_headers(
@@ -20870,6 +21019,19 @@ def _handler_for(
 
         def log_message(self, format: str, *args: Any) -> None:
             return
+
+        def _send_splash_image(self, *, headers_only: bool = False) -> None:
+            try:
+                data = splash_image_bytes()
+            except FileNotFoundError:
+                self._send_json(
+                    {"error": "splash image not found"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._send_headers(HTTPStatus.OK, "image/png", len(data))
+            if not headers_only:
+                self.wfile.write(data)
 
         def _browse_files(self, query: str) -> None:
             params = parse_qs(query)

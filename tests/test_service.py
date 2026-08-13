@@ -27,6 +27,7 @@ from electroboy.service import (  # noqa: E402
     MIN_TERMINAL_COLUMNS,
     MIN_TERMINAL_ROWS,
     PANE_WINDOW_HTML,
+    SPLASH_IMAGE_ROUTE,
     AgentSession,
     AgentSessionError,
     SESSION_ARTIFACT_LOCKS,
@@ -57,6 +58,7 @@ from electroboy.service import (  # noqa: E402
     pane_window_html,
     requirements_document_html,
     save_artifact_edit,
+    splash_image_bytes,
     workflow_payload,
 )
 from electroboy.models import (  # noqa: E402
@@ -92,6 +94,31 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "connected")
         self.assertEqual(payload["service"], "electroboy")
         self.assertEqual(payload["root"], str(root.resolve()))
+
+    def test_splash_image_endpoint_serves_packaged_png(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type, headers = request_bytes(
+                    server,
+                    SPLASH_IMAGE_ROUTE,
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/png")
+        self.assertEqual(body, splash_image_bytes())
+        self.assertEqual(headers["Content-Length"], str(len(body)))
 
     def test_pane_window_endpoint_serves_stripped_down_pane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1163,6 +1190,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
+        self.assertIn('id="splashOverlay"', INDEX_HTML)
+        self.assertIn('id="closeSplash"', INDEX_HTML)
+        self.assertIn(SPLASH_IMAGE_ROUTE, INDEX_HTML)
+        self.assertIn("electroboy.splash.dismissed.v1", INDEX_HTML)
+        self.assertIn("function showSplashIfNeeded()", INDEX_HTML)
+        self.assertIn("function dismissSplash()", INDEX_HTML)
+        self.assertIn("showSplashIfNeeded();", INDEX_HTML)
         self.assertIn('class="workflow-toolbar"', INDEX_HTML)
         self.assertIn("var(--workflow-pane-height, 86px) 7px", INDEX_HTML)
         self.assertIn("padding: 8px 18px 4px;", INDEX_HTML)
