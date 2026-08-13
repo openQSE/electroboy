@@ -782,7 +782,7 @@ INDEX_HTML = """<!doctype html>
       display: grid;
       align-content: start;
       align-self: start;
-      gap: 10px;
+      gap: 4px;
       min-width: 0;
       color: #1d3348;
     }
@@ -791,50 +791,54 @@ INDEX_HTML = """<!doctype html>
       display: none;
     }
 
+    .creative-section {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .creative-active-project {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      margin-top: 8px;
+    }
+
+    .creative-active-project[hidden] {
+      display: none;
+    }
+
+    .creative-divider {
+      height: 1px;
+      margin: 4px 4px 6px;
+      background: #b8c8d7;
+    }
+
+    .creative-project-name {
+      min-width: 0;
+      overflow: hidden;
+      color: #1d3348;
+      font-size: var(--ui-small-font-size);
+      font-weight: 650;
+      line-height: 1.35;
+      padding: 0 8px 2px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .creative-binder-status {
       min-height: 18px;
       color: #48627a;
       font-size: var(--ui-small-font-size);
       line-height: 1.35;
-    }
-
-    .creative-binder-actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-    }
-
-    .creative-binder-actions button,
-    .creative-tree-row {
-      min-height: 32px;
-      border: 1px solid #c0d0df;
-      border-radius: 6px;
-      background: #f8fbff;
-      color: #243f53;
-      font: inherit;
-      font-size: var(--ui-small-font-size);
-    }
-
-    .creative-binder-actions button {
-      cursor: pointer;
       padding: 0 8px;
-    }
-
-    .creative-binder-actions button.primary {
-      border-color: #1f6f8b;
-      background: #1f6f8b;
-      color: #ffffff;
-    }
-
-    .creative-binder-actions button:disabled {
-      cursor: not-allowed;
-      opacity: 0.55;
     }
 
     .creative-tree {
       display: grid;
       gap: 3px;
       min-width: 0;
+      margin-top: 2px;
     }
 
     .creative-tree-row {
@@ -842,6 +846,13 @@ INDEX_HTML = """<!doctype html>
       grid-template-columns: 22px minmax(0, 1fr);
       align-items: center;
       width: 100%;
+      min-height: 32px;
+      border: 1px solid #c0d0df;
+      border-radius: 6px;
+      background: #f8fbff;
+      color: #243f53;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
       text-align: left;
       cursor: pointer;
       padding: 0 8px 0 var(--creative-depth-padding, 8px);
@@ -2102,18 +2113,101 @@ INDEX_HTML = """<!doctype html>
           aria-label="Creative writing binder"
           hidden
         >
-          <div class="creative-binder-actions">
-            <button id="creativeOpenProject" type="button">Open</button>
-            <button id="creativeNewProject" type="button">New</button>
-            <button id="creativeNewFolder" type="button" disabled>Folder</button>
-            <button id="creativeNewDocument" type="button" disabled>Document</button>
-            <button id="creativeStartAgent" class="primary" type="button" disabled>
-              Agent
+          <div class="creative-section">
+            <button
+              id="creativeProjectMenuButton"
+              class="stage-action-stage expanded"
+              type="button"
+              aria-expanded="true"
+            >
+              <span class="stage-action-label">Project</span>
+              <span class="stage-action-chevron" aria-hidden="true"></span>
             </button>
-            <button id="creativeRefreshBinder" type="button" disabled>Refresh</button>
+            <div
+              id="creativeProjectActions"
+              class="stage-action-list"
+              role="group"
+            >
+              <button id="creativeOpenProject" class="stage-action-button" type="button">
+                Open
+              </button>
+              <button id="creativeNewProject" class="stage-action-button" type="button">
+                New
+              </button>
+            </div>
           </div>
-          <div id="creativeBinderStatus" class="creative-binder-status"></div>
-          <div id="creativeTree" class="creative-tree" role="tree"></div>
+          <div
+            id="creativeActiveProjectSection"
+            class="creative-active-project"
+            hidden
+          >
+            <div class="creative-divider" aria-hidden="true"></div>
+            <div id="creativeProjectName" class="creative-project-name"></div>
+            <div class="creative-section">
+              <button
+                id="creativeAgentMenuButton"
+                class="stage-action-stage"
+                type="button"
+                aria-expanded="false"
+              >
+                <span class="stage-action-label">Agent</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div
+                id="creativeAgentActions"
+                class="stage-action-list"
+                role="group"
+                hidden
+              >
+                <button
+                  id="creativeStartAgent"
+                  class="stage-action-button primary"
+                  type="button"
+                  disabled
+                >
+                  Start
+                </button>
+              </div>
+            </div>
+            <div class="creative-section">
+              <button
+                id="creativeBinderMenuButton"
+                class="stage-action-stage"
+                type="button"
+                aria-expanded="false"
+              >
+                <span class="stage-action-label">Binder</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div
+                id="creativeBinderActions"
+                class="stage-action-list"
+                role="group"
+                hidden
+              >
+                <button
+                  id="creativeNewFolder"
+                  class="stage-action-button"
+                  type="button"
+                  disabled
+                >New folder</button>
+                <button
+                  id="creativeNewDocument"
+                  class="stage-action-button"
+                  type="button"
+                  disabled
+                >New document</button>
+                <button
+                  id="creativeRefreshBinder"
+                  class="stage-action-button"
+                  type="button"
+                  disabled
+                >Refresh</button>
+              </div>
+            </div>
+            <div id="creativeBinderStatus" class="creative-binder-status"></div>
+            <div id="creativeTree" class="creative-tree" role="tree"></div>
+          </div>
         </section>
       </nav>
     </aside>
@@ -3088,11 +3182,20 @@ INDEX_HTML = """<!doctype html>
     const stageActionPanel = document.getElementById("stageActionPanel");
     const stageActionBody = document.getElementById("stageActionBody");
     const creativeBinder = document.getElementById("creativeBinder");
+    const creativeProjectMenuButton = document.getElementById("creativeProjectMenuButton");
+    const creativeProjectActions = document.getElementById("creativeProjectActions");
     const creativeOpenProject = document.getElementById("creativeOpenProject");
     const creativeNewProject = document.getElementById("creativeNewProject");
+    const creativeActiveProjectSection =
+      document.getElementById("creativeActiveProjectSection");
+    const creativeProjectName = document.getElementById("creativeProjectName");
+    const creativeAgentMenuButton = document.getElementById("creativeAgentMenuButton");
+    const creativeAgentActions = document.getElementById("creativeAgentActions");
     const creativeNewFolder = document.getElementById("creativeNewFolder");
     const creativeNewDocument = document.getElementById("creativeNewDocument");
     const creativeStartAgent = document.getElementById("creativeStartAgent");
+    const creativeBinderMenuButton = document.getElementById("creativeBinderMenuButton");
+    const creativeBinderActions = document.getElementById("creativeBinderActions");
     const creativeRefreshBinder = document.getElementById("creativeRefreshBinder");
     const creativeBinderStatus = document.getElementById("creativeBinderStatus");
     const creativeTree = document.getElementById("creativeTree");
@@ -3436,6 +3539,9 @@ INDEX_HTML = """<!doctype html>
     let creativeActiveDocument = "";
     let creativeScratchSaveTimer = null;
     let creativeLastNotifiedDocument = "";
+    let creativeProjectActionsExpanded = true;
+    let creativeAgentActionsExpanded = false;
+    let creativeBinderActionsExpanded = false;
 
     function storedTerminalFontSize() {
       try {
@@ -6771,10 +6877,48 @@ INDEX_HTML = """<!doctype html>
 
     function updateCreativeBinderActions() {
       const hasProject = Boolean(activeProjectRoot);
+      creativeOpenProject.disabled = Boolean(activationRoot);
+      creativeNewProject.disabled = Boolean(activationRoot);
+      creativeActiveProjectSection.hidden = !hasProject;
+      creativeProjectName.textContent = hasProject
+        ? `Project: ${basename(activeProjectRoot)}`
+        : "";
       creativeNewFolder.disabled = !hasProject;
       creativeNewDocument.disabled = !hasProject;
       creativeStartAgent.disabled = !hasProject;
       creativeRefreshBinder.disabled = !hasProject;
+      updateCreativeActionGroup(
+        creativeProjectActions,
+        creativeProjectMenuButton,
+        creativeProjectActionsExpanded,
+      );
+      updateCreativeActionGroup(
+        creativeAgentActions,
+        creativeAgentMenuButton,
+        creativeAgentActionsExpanded,
+      );
+      updateCreativeActionGroup(
+        creativeBinderActions,
+        creativeBinderMenuButton,
+        creativeBinderActionsExpanded,
+      );
+    }
+
+    function updateCreativeActionGroup(actions, button, expanded) {
+      actions.hidden = !expanded;
+      button.classList.toggle("expanded", expanded);
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
+
+    function toggleCreativeActionGroup(group) {
+      if (group === "project") {
+        creativeProjectActionsExpanded = !creativeProjectActionsExpanded;
+      } else if (group === "agent") {
+        creativeAgentActionsExpanded = !creativeAgentActionsExpanded;
+      } else if (group === "binder") {
+        creativeBinderActionsExpanded = !creativeBinderActionsExpanded;
+      }
+      updateCreativeBinderActions();
     }
 
     function creativePathLabel(path) {
@@ -6874,7 +7018,7 @@ INDEX_HTML = """<!doctype html>
       row.append(icon, name);
       row.addEventListener("click", () => {
         if (type === "directory") {
-          creativeNewDocumentPrompt(path);
+          setCreativeBinderStatus(`Folder: ${path}`);
           return;
         }
         if (entry.markdown) {
@@ -9114,6 +9258,15 @@ INDEX_HTML = """<!doctype html>
     scratchPad.addEventListener("input", saveScratchPad);
     workflowModeSelect.addEventListener("change", () => {
       setWorkflowMode(workflowModeSelect.value);
+    });
+    creativeProjectMenuButton.addEventListener("click", () => {
+      toggleCreativeActionGroup("project");
+    });
+    creativeAgentMenuButton.addEventListener("click", () => {
+      toggleCreativeActionGroup("agent");
+    });
+    creativeBinderMenuButton.addEventListener("click", () => {
+      toggleCreativeActionGroup("binder");
     });
     creativeOpenProject.addEventListener("click", () => {
       openProjectBrowser("open", true);
