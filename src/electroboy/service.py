@@ -2535,6 +2535,18 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
             Shell
           </button>
         </div>
+        <div class="splash-control toolbar-control-group">
+          <span class="toolbar-control-label">Splash</span>
+          <button
+            id="showSplash"
+            class="toolbar-command-button"
+            type="button"
+            title="Show the ElectroBoy splash screen"
+            aria-label="Show the ElectroBoy splash screen"
+          >
+            Show
+          </button>
+        </div>
       </div>
       <div class="stage-scroll">
         <div class="stage-graph" aria-label="Project stages">
@@ -3595,6 +3607,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
     const agentSessionIndicator = document.getElementById("agentSessionIndicator");
     const toggleProjectShellPane = document.getElementById("toggleProjectShellPane");
+    const showSplashButton = document.getElementById("showSplash");
     const interruptAgent = document.getElementById("interruptAgent");
     const insertFileLink = document.getElementById("insertFileLink");
     const popoutAgentPane = document.getElementById("popoutAgentPane");
@@ -5791,11 +5804,18 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       }
     }
 
+    function openSplash() {
+      if (!splashOverlay) {
+        return;
+      }
+      splashOverlay.hidden = false;
+    }
+
     function showSplashIfNeeded() {
       if (!splashOverlay || splashDismissed()) {
         return;
       }
-      splashOverlay.hidden = false;
+      openSplash();
     }
 
     function dismissSplash() {
@@ -10639,6 +10659,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
     closeSplash.addEventListener("click", dismissSplash);
+    showSplashButton.addEventListener("click", openSplash);
     splashOverlay.addEventListener("click", (event) => {
       if (event.target === splashOverlay) {
         dismissSplash();
