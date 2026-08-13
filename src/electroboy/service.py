@@ -859,7 +859,22 @@ INDEX_HTML = """<!doctype html>
     }
 
     .creative-tree-row.directory {
-      font-weight: 650;
+      grid-template-columns: minmax(0, 1fr) 18px;
+      min-height: 34px;
+      border-color: #18324d;
+      border-radius: 999px;
+      background: #1f3f5f;
+      color: #ffffff;
+      font-weight: 400;
+      padding: 0 10px 0 var(--creative-depth-padding, 8px);
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 16%) inset,
+        0 8px 18px rgb(18 48 78 / 14%);
+    }
+
+    .creative-tree-row.directory:hover,
+    .creative-tree-row.directory.expanded {
+      background: #254b70;
     }
 
     .creative-tree-row.file {
@@ -875,6 +890,30 @@ INDEX_HTML = """<!doctype html>
     .creative-tree-icon {
       width: 18px;
       text-align: center;
+    }
+
+    .creative-tree-row.directory .creative-tree-icon {
+      position: relative;
+      justify-self: end;
+      height: 18px;
+    }
+
+    .creative-tree-row.directory .creative-tree-icon::before {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg);
+      transform-origin: center;
+      content: "";
+    }
+
+    .creative-tree-row.directory.expanded .creative-tree-icon::before {
+      top: 4px;
+      transform: rotate(45deg);
     }
 
     .creative-tree-name {
@@ -3560,6 +3599,7 @@ INDEX_HTML = """<!doctype html>
     let restoredScratchContextId = "";
     let creativeTreePayload = null;
     let creativeActiveDocument = "";
+    let expandedCreativeFolders = new Set();
     let creativeScratchSaveTimer = null;
     let creativeLastNotifiedDocument = "";
     let creativeProjectActionsExpanded = false;
@@ -5637,6 +5677,7 @@ INDEX_HTML = """<!doctype html>
       if (previousActiveProjectRoot && previousActiveProjectRoot !== activeProjectRoot) {
         hideArtifactPreview();
         creativeActiveDocument = "";
+        expandedCreativeFolders = new Set();
         creativeLastNotifiedDocument = "";
         creativeTreePayload = null;
         restoredScratchContextId = "";
@@ -7026,25 +7067,36 @@ INDEX_HTML = """<!doctype html>
     function appendCreativeTreeEntry(entry, depth) {
       const type = entry.type || "file";
       const path = String(entry.path || "");
+      const isDirectory = type === "directory";
+      const expanded = isDirectory && expandedCreativeFolders.has(path);
       const row = document.createElement("button");
       row.type = "button";
       row.className = `creative-tree-row ${type}`;
+      row.classList.toggle("expanded", expanded);
       row.style.setProperty("--creative-depth-padding", `${8 + depth * 16}px`);
       row.title = path;
       row.classList.toggle("active", type === "file" && path === creativeActiveDocument);
+      row.setAttribute("role", "treeitem");
+      if (isDirectory) {
+        row.setAttribute("aria-expanded", expanded ? "true" : "false");
+      }
 
       const icon = document.createElement("span");
       icon.className = "creative-tree-icon";
-      icon.textContent = type === "directory" ? ">" : entry.markdown ? "M" : ".";
+      icon.textContent = isDirectory ? "" : entry.markdown ? "M" : ".";
 
       const name = document.createElement("span");
       name.className = "creative-tree-name";
       name.textContent = String(entry.name || path || "Untitled");
 
-      row.append(icon, name);
+      if (isDirectory) {
+        row.append(name, icon);
+      } else {
+        row.append(icon, name);
+      }
       row.addEventListener("click", () => {
-        if (type === "directory") {
-          setCreativeBinderStatus(`Folder: ${path}`);
+        if (isDirectory) {
+          toggleCreativeFolder(path);
           return;
         }
         if (entry.markdown) {
@@ -7055,9 +7107,25 @@ INDEX_HTML = """<!doctype html>
       });
       creativeTree.append(row);
 
-      for (const child of entry.children || []) {
-        appendCreativeTreeEntry(child, depth + 1);
+      if (isDirectory && expanded) {
+        for (const child of entry.children || []) {
+          appendCreativeTreeEntry(child, depth + 1);
+        }
       }
+    }
+
+    function toggleCreativeFolder(path) {
+      if (!path) {
+        return;
+      }
+      if (expandedCreativeFolders.has(path)) {
+        expandedCreativeFolders.delete(path);
+        setCreativeBinderStatus(`Collapsed: ${path}`);
+      } else {
+        expandedCreativeFolders.add(path);
+        setCreativeBinderStatus(`Expanded: ${path}`);
+      }
+      renderCreativeTree();
     }
 
     function showCreativeDocument(path) {
@@ -8278,6 +8346,7 @@ INDEX_HTML = """<!doctype html>
       hideArtifactPreview();
       hideWorkItemPanel();
       creativeActiveDocument = "";
+      expandedCreativeFolders = new Set();
       creativeLastNotifiedDocument = "";
       creativeTreePayload = null;
       appendOutput(`deactivated: ${previousProject}\\n`, "system");
