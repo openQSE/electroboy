@@ -867,10 +867,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="skipValidateApproval"', INDEX_HTML)
         self.assertNotIn('id="openValidationReport"', INDEX_HTML)
         self.assertIn('id="workflowSideSheet"', INDEX_HTML)
+        self.assertIn('id="workflowModeSelect"', INDEX_HTML)
+        self.assertIn('value="creative"', INDEX_HTML)
+        self.assertIn('id="creativeBinder"', INDEX_HTML)
+        self.assertIn('id="creativeTree"', INDEX_HTML)
         self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
         self.assertIn('id="stageActionPanel"', INDEX_HTML)
         self.assertIn('id="stageActionBody"', INDEX_HTML)
         self.assertIn("function renderStageActionPanel()", INDEX_HTML)
+        self.assertIn("function refreshCreativeBinder()", INDEX_HTML)
+        self.assertIn("function startCreativeWritingAgent()", INDEX_HTML)
         self.assertIn("function toggleStageActionGroup(stageId)", INDEX_HTML)
         self.assertIn("let expandedWorkflowStages = new Set();", INDEX_HTML)
         self.assertIn("let expandedProjectActionGroups = new Set();", INDEX_HTML)
@@ -1753,6 +1759,55 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["project_mode"], "meta")
         self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
         self.assertIsNone(payload["active_project_root"])
+
+    def test_service_state_initializes_creative_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_project(context_id, str(project_root))
+
+            tree = state.initialize_creative_workspace(context_id)
+            state.create_creative_folder(context_id, "chapters/act-1")
+            document = state.create_creative_document(
+                context_id,
+                "chapters/act-1/scene-01.md",
+            )
+            state.save_creative_scratchpad(context_id, "# Notes\n\nKeep this.\n")
+            scratch = state.creative_scratchpad(context_id)
+
+            self.assertTrue((project_root / "chapters").is_dir())
+            self.assertTrue((project_root / "characters").is_dir())
+            self.assertTrue((project_root / "chapters" / "chapter-01.md").is_file())
+            self.assertEqual(document["path"], "chapters/act-1/scene-01.md")
+            self.assertIn("chapters", [entry["name"] for entry in tree["entries"]])
+            self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
+            self.assertIn("Keep this.", scratch["markdown"])
+
+    def test_service_state_starts_creative_writing_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_document="chapters/chapter-01.md",
+                )
+
+        self.assertTrue(started)
+        self.assertEqual(session.kind, "creative-writing")
+        self.assertIn("codex", session.command[0])
+        self.assertIn("--cd", session.command)
+        self.assertIn("creative writing collaborator", session.command[-1])
+        self.assertIn("chapters/chapter-01.md", session.command[-1])
 
     def test_service_state_meta_add_and_start_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

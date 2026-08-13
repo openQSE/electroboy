@@ -74,6 +74,16 @@ MIN_TERMINAL_ROWS = 5
 MAX_TERMINAL_ROWS = 120
 META_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "repositories.json"
 WORK_ITEM_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "work-items.json"
+CREATIVE_DEFAULT_FOLDERS = (
+    "chapters",
+    "scratchpad",
+    "characters",
+    "corkboard",
+    "reviews",
+    "research",
+)
+CREATIVE_SCRATCHPAD_PATH = "scratchpad/scratchpad.md"
+CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
 
 _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
@@ -407,6 +417,7 @@ INDEX_HTML = """<!doctype html>
 
     .side-sheet-title {
       min-width: 0;
+      flex: 1 1 auto;
       overflow: hidden;
       color: #1d3348;
       font-size: var(--ui-font-size);
@@ -415,12 +426,26 @@ INDEX_HTML = """<!doctype html>
       white-space: nowrap;
     }
 
+    .workflow-mode-select {
+      min-width: 0;
+      flex: 0 1 170px;
+      height: 34px;
+      border: 1px solid #9fb4c8;
+      border-radius: 7px;
+      background: #eef6fb;
+      color: #1d3348;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 0 8px;
+    }
+
     .shell.side-sheet-collapsed .side-sheet-header {
       justify-content: center;
       padding: 0;
     }
 
     .shell.side-sheet-collapsed .side-sheet-title,
+    .shell.side-sheet-collapsed .workflow-mode-select,
     .shell.side-sheet-collapsed .stage-action-panel {
       display: none;
     }
@@ -747,6 +772,105 @@ INDEX_HTML = """<!doctype html>
       align-self: start;
       gap: 2px;
       min-width: 0;
+    }
+
+    .shell.creative-workflow .stage-action-body {
+      display: none;
+    }
+
+    .creative-binder {
+      display: grid;
+      align-content: start;
+      align-self: start;
+      gap: 10px;
+      min-width: 0;
+      color: #1d3348;
+    }
+
+    .creative-binder[hidden] {
+      display: none;
+    }
+
+    .creative-binder-status {
+      min-height: 18px;
+      color: #48627a;
+      font-size: var(--ui-small-font-size);
+      line-height: 1.35;
+    }
+
+    .creative-binder-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .creative-binder-actions button,
+    .creative-tree-row {
+      min-height: 32px;
+      border: 1px solid #c0d0df;
+      border-radius: 6px;
+      background: #f8fbff;
+      color: #243f53;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+    }
+
+    .creative-binder-actions button {
+      cursor: pointer;
+      padding: 0 8px;
+    }
+
+    .creative-binder-actions button.primary {
+      border-color: #1f6f8b;
+      background: #1f6f8b;
+      color: #ffffff;
+    }
+
+    .creative-binder-actions button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .creative-tree {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .creative-tree-row {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      align-items: center;
+      width: 100%;
+      text-align: left;
+      cursor: pointer;
+      padding: 0 8px 0 var(--creative-depth-padding, 8px);
+    }
+
+    .creative-tree-row.directory {
+      font-weight: 650;
+    }
+
+    .creative-tree-row.file {
+      background: #ffffff;
+    }
+
+    .creative-tree-row.active {
+      border-color: #005f66;
+      background: #006b73;
+      color: #ffffff;
+    }
+
+    .creative-tree-icon {
+      width: 18px;
+      text-align: center;
+    }
+
+    .creative-tree-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .stage-action-heading {
@@ -1243,6 +1367,31 @@ INDEX_HTML = """<!doctype html>
       grid-template-columns:
         minmax(320px, 1fr) 7px
         minmax(280px, var(--progress-pane-width, 34%));
+    }
+
+    .shell.creative-workflow .output-workbench {
+      grid-template-columns:
+        minmax(0, 1fr) 7px
+        minmax(260px, var(--right-pane-width, 28%));
+    }
+
+    .shell.creative-workflow .output-split.artifact-visible {
+      grid-template-columns:
+        minmax(260px, 0.92fr) 7px
+        minmax(360px, 1.08fr);
+    }
+
+    .shell.creative-workflow .artifact-preview-pane {
+      min-width: 0;
+    }
+
+    .shell.creative-workflow .side-pane {
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .shell.creative-workflow .side-pane-resize-handle,
+    .shell.creative-workflow .project-status-pane {
+      display: none;
     }
 
     .output-resize-handle,
@@ -1932,6 +2081,14 @@ INDEX_HTML = """<!doctype html>
           <span class="side-sheet-toggle-icon" aria-hidden="true"></span>
         </button>
         <div class="side-sheet-title">Workflow</div>
+        <select
+          id="workflowModeSelect"
+          class="workflow-mode-select"
+          aria-label="Workflow type"
+        >
+          <option value="software">Software engineering</option>
+          <option value="creative">Creative writing</option>
+        </select>
       </header>
       <nav
         id="stageActionPanel"
@@ -1939,6 +2096,25 @@ INDEX_HTML = """<!doctype html>
         aria-label="Workflow stage actions"
       >
         <div id="stageActionBody" class="stage-action-body"></div>
+        <section
+          id="creativeBinder"
+          class="creative-binder"
+          aria-label="Creative writing binder"
+          hidden
+        >
+          <div class="creative-binder-actions">
+            <button id="creativeOpenProject" type="button">Open</button>
+            <button id="creativeNewProject" type="button">New</button>
+            <button id="creativeNewFolder" type="button" disabled>Folder</button>
+            <button id="creativeNewDocument" type="button" disabled>Document</button>
+            <button id="creativeStartAgent" class="primary" type="button" disabled>
+              Agent
+            </button>
+            <button id="creativeRefreshBinder" type="button" disabled>Refresh</button>
+          </div>
+          <div id="creativeBinderStatus" class="creative-binder-status"></div>
+          <div id="creativeTree" class="creative-tree" role="tree"></div>
+        </section>
       </nav>
     </aside>
     <section class="workflow-pane" aria-label="Project workflow">
@@ -2885,6 +3061,7 @@ INDEX_HTML = """<!doctype html>
     const shellResizeHandle = document.getElementById("shellResizeHandle");
     const workflowSideSheet = document.getElementById("workflowSideSheet");
     const toggleWorkflowSideSheet = document.getElementById("toggleWorkflowSideSheet");
+    const workflowModeSelect = document.getElementById("workflowModeSelect");
     const stageScroll = document.querySelector(".stage-scroll");
     const stageNodes = Array.from(document.querySelectorAll(".stage-node[data-stage]"));
     const STAGE_DESCRIPTIONS = {
@@ -2910,6 +3087,15 @@ INDEX_HTML = """<!doctype html>
     const documentStage = document.querySelector("[data-stage='document']");
     const stageActionPanel = document.getElementById("stageActionPanel");
     const stageActionBody = document.getElementById("stageActionBody");
+    const creativeBinder = document.getElementById("creativeBinder");
+    const creativeOpenProject = document.getElementById("creativeOpenProject");
+    const creativeNewProject = document.getElementById("creativeNewProject");
+    const creativeNewFolder = document.getElementById("creativeNewFolder");
+    const creativeNewDocument = document.getElementById("creativeNewDocument");
+    const creativeStartAgent = document.getElementById("creativeStartAgent");
+    const creativeRefreshBinder = document.getElementById("creativeRefreshBinder");
+    const creativeBinderStatus = document.getElementById("creativeBinderStatus");
+    const creativeTree = document.getElementById("creativeTree");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const designMenu = document.getElementById("designMenu");
@@ -3057,6 +3243,7 @@ INDEX_HTML = """<!doctype html>
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
+    const WORKFLOW_MODE_STORAGE_KEY = "electroboy.workflowMode";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
@@ -3079,6 +3266,8 @@ INDEX_HTML = """<!doctype html>
     const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
+    const CREATIVE_WORKFLOW_MODE = "creative";
+    const SOFTWARE_WORKFLOW_MODE = "software";
     const PANE_POPUP_FEATURES =
       "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
     const DEFAULT_DOCUMENT_TARGETS = [
@@ -3192,6 +3381,7 @@ INDEX_HTML = """<!doctype html>
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
     let workflowSideSheetCollapsed = storedWorkflowSideSheetCollapsed();
+    let workflowMode = storedWorkflowMode();
     let artifactPreviewKind = "";
     let artifactPreviewDocumentTarget = null;
     let artifactPreviewItems = [];
@@ -3242,6 +3432,10 @@ INDEX_HTML = """<!doctype html>
     let expandedWorkflowStages = new Set();
     let expandedProjectActionGroups = new Set();
     let restoredScratchContextId = "";
+    let creativeTreePayload = null;
+    let creativeActiveDocument = "";
+    let creativeScratchSaveTimer = null;
+    let creativeLastNotifiedDocument = "";
 
     function storedTerminalFontSize() {
       try {
@@ -3523,6 +3717,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     function restoreScratchPad() {
+      if (creativeModeActive()) {
+        loadCreativeScratchPad();
+        return;
+      }
       const storageKey = scratchPadStorageKey();
       if (!storageKey) {
         scratchPad.value = "";
@@ -3538,6 +3736,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     function saveScratchPad() {
+      if (creativeModeActive()) {
+        queueCreativeScratchPadSave();
+        return;
+      }
       const storageKey = scratchPadStorageKey();
       if (!storageKey) {
         return;
@@ -3603,6 +3805,55 @@ INDEX_HTML = """<!doctype html>
       } catch (error) {
         return;
       }
+    }
+
+    function storedWorkflowMode() {
+      try {
+        const stored = window.localStorage.getItem(WORKFLOW_MODE_STORAGE_KEY);
+        return stored === CREATIVE_WORKFLOW_MODE
+          ? CREATIVE_WORKFLOW_MODE
+          : SOFTWARE_WORKFLOW_MODE;
+      } catch (error) {
+        return SOFTWARE_WORKFLOW_MODE;
+      }
+    }
+
+    function saveWorkflowMode() {
+      try {
+        window.localStorage.setItem(WORKFLOW_MODE_STORAGE_KEY, workflowMode);
+      } catch (error) {
+        return;
+      }
+    }
+
+    function creativeModeActive() {
+      return workflowMode === CREATIVE_WORKFLOW_MODE;
+    }
+
+    function applyWorkflowMode() {
+      workflowModeSelect.value = workflowMode;
+      shell.classList.toggle("creative-workflow", creativeModeActive());
+      creativeBinder.hidden = !creativeModeActive();
+      stageActionBody.hidden = creativeModeActive();
+      if (creativeModeActive()) {
+        setWorkflowSideSheetCollapsed(false);
+        applyCreativeWorkspace();
+        restoreScratchPad();
+        initializeCreativeWorkspace().then(refreshCreativeBinder);
+      } else {
+        restoreSoftwareWorkspace();
+      }
+      refreshStageActionPanel();
+      updateCreativeBinderActions();
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function setWorkflowMode(mode) {
+      workflowMode = mode === CREATIVE_WORKFLOW_MODE
+        ? CREATIVE_WORKFLOW_MODE
+        : SOFTWARE_WORKFLOW_MODE;
+      saveWorkflowMode();
+      applyWorkflowMode();
     }
 
     function applyWorkflowSideSheetState() {
@@ -5256,6 +5507,10 @@ INDEX_HTML = """<!doctype html>
       activeProjectRoot = nextActiveProjectRoot;
       if (previousActiveProjectRoot && previousActiveProjectRoot !== activeProjectRoot) {
         hideArtifactPreview();
+        creativeActiveDocument = "";
+        creativeLastNotifiedDocument = "";
+        creativeTreePayload = null;
+        restoredScratchContextId = "";
       }
       activeRepositoryName = payload.active_repository_name || "";
       registeredRepositories = Array.isArray(payload.registered_repositories)
@@ -5311,11 +5566,17 @@ INDEX_HTML = """<!doctype html>
       updateDesignReviewMenuState();
       updateGenericStageMenuStates();
       updateDocumentMenuState();
+      updateCreativeBinderActions();
       if (restoredScratchContextId !== contextId) {
         restoreScratchPad();
       }
       syncProjectShellPane();
-      syncArtifactPreviewWithProject();
+      if (creativeModeActive()) {
+        applyCreativeWorkspace();
+        initializeCreativeWorkspace().then(refreshCreativeBinder);
+      } else {
+        syncArtifactPreviewWithProject();
+      }
       projectStatus.textContent = projectStatusLine();
       queueProjectStatusRefresh();
     }
@@ -6488,6 +6749,337 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       showArtifactPreview("document", { target });
+    }
+
+    function applyCreativeWorkspace() {
+      scratchPad.spellcheck = true;
+      setAgentInputVisible(true);
+      showProgressPane(false);
+      if (creativeActiveDocument) {
+        showCreativeDocument(creativeActiveDocument);
+      } else {
+        artifactPaneRequested = true;
+        applyOutputPaneVisibility();
+      }
+    }
+
+    function restoreSoftwareWorkspace() {
+      scratchPad.spellcheck = false;
+      restoreScratchPad();
+      syncArtifactPreviewWithProject();
+    }
+
+    function updateCreativeBinderActions() {
+      const hasProject = Boolean(activeProjectRoot);
+      creativeNewFolder.disabled = !hasProject;
+      creativeNewDocument.disabled = !hasProject;
+      creativeStartAgent.disabled = !hasProject;
+      creativeRefreshBinder.disabled = !hasProject;
+    }
+
+    function creativePathLabel(path) {
+      if (!path) {
+        return "No document selected";
+      }
+      return path;
+    }
+
+    function setCreativeBinderStatus(message) {
+      creativeBinderStatus.textContent = message || "";
+    }
+
+    async function refreshCreativeBinder() {
+      if (!creativeModeActive()) {
+        return;
+      }
+      updateCreativeBinderActions();
+      if (!activeProjectRoot || !contextId) {
+        creativeTree.replaceChildren();
+        setCreativeBinderStatus("Open or create a project to start writing.");
+        return;
+      }
+      setCreativeBinderStatus("Loading Binder...");
+      const response = await fetch(contextUrl("/api/creative/tree"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ error: "Binder failed" }));
+      if (!response.ok) {
+        creativeTree.replaceChildren();
+        setCreativeBinderStatus(payload.error || "Binder failed");
+        return;
+      }
+      creativeTreePayload = payload;
+      renderCreativeTree();
+      if (!creativeActiveDocument) {
+        const firstDocument = firstCreativeMarkdown(payload.entries || []);
+        if (firstDocument) {
+          selectCreativeDocument(firstDocument.path, { notifyAgent: false });
+        }
+      }
+      setCreativeBinderStatus(
+        creativeActiveDocument
+          ? `Active: ${creativePathLabel(creativeActiveDocument)}`
+          : "Create or select a Markdown document.",
+      );
+    }
+
+    function firstCreativeMarkdown(entries) {
+      for (const entry of entries) {
+        if ((entry.type || "") === "file" && entry.markdown) {
+          return entry;
+        }
+        const child = firstCreativeMarkdown(entry.children || []);
+        if (child) {
+          return child;
+        }
+      }
+      return null;
+    }
+
+    function renderCreativeTree() {
+      creativeTree.replaceChildren();
+      const entries = creativeTreePayload && Array.isArray(creativeTreePayload.entries)
+        ? creativeTreePayload.entries
+        : [];
+      if (entries.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "creative-binder-status";
+        empty.textContent = "No writing documents yet.";
+        creativeTree.append(empty);
+        return;
+      }
+      for (const entry of entries) {
+        appendCreativeTreeEntry(entry, 0);
+      }
+    }
+
+    function appendCreativeTreeEntry(entry, depth) {
+      const type = entry.type || "file";
+      const path = String(entry.path || "");
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `creative-tree-row ${type}`;
+      row.style.setProperty("--creative-depth-padding", `${8 + depth * 16}px`);
+      row.title = path;
+      row.classList.toggle("active", type === "file" && path === creativeActiveDocument);
+
+      const icon = document.createElement("span");
+      icon.className = "creative-tree-icon";
+      icon.textContent = type === "directory" ? ">" : entry.markdown ? "M" : ".";
+
+      const name = document.createElement("span");
+      name.className = "creative-tree-name";
+      name.textContent = String(entry.name || path || "Untitled");
+
+      row.append(icon, name);
+      row.addEventListener("click", () => {
+        if (type === "directory") {
+          creativeNewDocumentPrompt(path);
+          return;
+        }
+        if (entry.markdown) {
+          selectCreativeDocument(path);
+          return;
+        }
+        setCreativeBinderStatus(`${path} is visible in the Binder but is not editable yet.`);
+      });
+      creativeTree.append(row);
+
+      for (const child of entry.children || []) {
+        appendCreativeTreeEntry(child, depth + 1);
+      }
+    }
+
+    function showCreativeDocument(path) {
+      if (!path) {
+        return;
+      }
+      const target = {
+        label: basename(path),
+        path,
+      };
+      showArtifactPreviews(
+        [
+          {
+            id: "creative-document",
+            kind: "document",
+            title: target.label,
+            target,
+            editing: true,
+          },
+        ],
+        { manual: true, stage: "creative-writing" },
+      );
+    }
+
+    function selectCreativeDocument(path, options = {}) {
+      if (!path) {
+        return;
+      }
+      creativeActiveDocument = path;
+      creativeLastNotifiedDocument = options.notifyAgent === false
+        ? creativeLastNotifiedDocument
+        : "";
+      showCreativeDocument(path);
+      renderCreativeTree();
+      setCreativeBinderStatus(`Active: ${creativePathLabel(path)}`);
+      if (options.notifyAgent !== false) {
+        notifyCreativeAgentDocumentSwitch();
+      }
+    }
+
+    function creativeAgentRunning() {
+      return agentSessions.some(
+        (session) => session.kind === "creative-writing" && session.status === "running",
+      );
+    }
+
+    async function notifyCreativeAgentDocumentSwitch() {
+      if (
+        !creativeModeActive() ||
+        !creativeActiveDocument ||
+        creativeActiveDocument === creativeLastNotifiedDocument ||
+        !creativeAgentRunning() ||
+        !selectedSessionAcceptsInput()
+      ) {
+        return;
+      }
+      creativeLastNotifiedDocument = creativeActiveDocument;
+      const message = [
+        "[ElectroBoy creative-writing context update]",
+        `Active document: ${creativeActiveDocument}`,
+        "The document is now displayed in the middle pane.",
+        "Do not modify it unless the writer asks.",
+        "[/ElectroBoy creative-writing context update]",
+      ].join("\\n");
+      await fetch(contextUrl("/api/sessions/message"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      }).catch(() => {});
+    }
+
+    function creativePromptMessage(message) {
+      if (!creativeModeActive()) {
+        return message;
+      }
+      const contextLines = [
+        "[ElectroBoy creative-writing context]",
+        `Active document: ${creativeActiveDocument || "none"}`,
+        "Project scratchpad: scratchpad/scratchpad.md",
+        "Use the active document as the writing target unless the writer names another file.",
+        "[/ElectroBoy creative-writing context]",
+        "",
+        message,
+      ];
+      return contextLines.join("\\n");
+    }
+
+    async function loadCreativeScratchPad() {
+      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
+        scratchPad.value = "";
+        restoredScratchContextId = contextId;
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/scratch"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ markdown: "" }));
+      scratchPad.value = response.ok ? String(payload.markdown || "") : "";
+      restoredScratchContextId = contextId;
+    }
+
+    function queueCreativeScratchPadSave() {
+      window.clearTimeout(creativeScratchSaveTimer);
+      creativeScratchSaveTimer = window.setTimeout(saveCreativeScratchPad, 450);
+    }
+
+    async function saveCreativeScratchPad() {
+      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
+        return;
+      }
+      await fetch(contextUrl("/api/creative/scratch"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: scratchPad.value }),
+      }).catch(() => {});
+    }
+
+    async function initializeCreativeWorkspace() {
+      if (!activeProjectRoot || !contextId) {
+        return;
+      }
+      await fetch(contextUrl("/api/creative/init"), { method: "POST" }).catch(() => {});
+    }
+
+    async function creativeNewFolderPrompt(basePath = "") {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const suggested = basePath ? `${basePath}/` : "";
+      const path = window.prompt("Folder path", suggested);
+      if (!path) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/folders"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "folder failed" }));
+      if (!response.ok) {
+        setCreativeBinderStatus(payload.error || "folder failed");
+        return;
+      }
+      setCreativeBinderStatus(`Created folder: ${payload.path}`);
+      refreshCreativeBinder();
+    }
+
+    async function creativeNewDocumentPrompt(basePath = "") {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const suggested = basePath ? `${basePath}/untitled.md` : "chapters/untitled.md";
+      const path = window.prompt("Markdown document path", suggested);
+      if (!path) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/documents"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "document failed" }));
+      if (!response.ok) {
+        setCreativeBinderStatus(payload.error || "document failed");
+        return;
+      }
+      await refreshCreativeBinder();
+      selectCreativeDocument(payload.path);
+    }
+
+    async function startCreativeWritingAgent() {
+      if (!activeProjectRoot || !contextId) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      setAgentInputVisible(true);
+      clearAgentOutput();
+      appendOutput("$ codex creative-writing\\n", "system");
+      const response = await fetch(contextUrl("/api/creative/agent/start"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active_document: creativeActiveDocument }),
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "start failed"}\\n`, "error");
+        return;
+      }
+      updateProjectState(payload);
+      const sessionId = payload.session_id || selectedSessionId;
+      connectSessionEvents(sessionId);
+      sendTerminalResize();
     }
 
     function renderArtifactPreviewItems() {
@@ -8035,7 +8627,7 @@ INDEX_HTML = """<!doctype html>
       const response = await fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message: creativePromptMessage(message) }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: "send failed" }));
@@ -8520,10 +9112,32 @@ INDEX_HTML = """<!doctype html>
       }
     });
     scratchPad.addEventListener("input", saveScratchPad);
+    workflowModeSelect.addEventListener("change", () => {
+      setWorkflowMode(workflowModeSelect.value);
+    });
+    creativeOpenProject.addEventListener("click", () => {
+      openProjectBrowser("open", true);
+    });
+    creativeNewProject.addEventListener("click", () => {
+      openProjectBrowser("new", true);
+    });
+    creativeNewFolder.addEventListener("click", () => {
+      creativeNewFolderPrompt();
+    });
+    creativeNewDocument.addEventListener("click", () => {
+      creativeNewDocumentPrompt();
+    });
+    creativeStartAgent.addEventListener("click", () => {
+      startCreativeWritingAgent();
+    });
+    creativeRefreshBinder.addEventListener("click", () => {
+      refreshCreativeBinder();
+    });
 
     async function initialize() {
       applyStageDescriptions();
       applyWorkflowSideSheetState();
+      applyWorkflowMode();
       renderStageActionPanel();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
@@ -10594,6 +11208,7 @@ class BrowserContext:
     design_session: AgentSession | None = None
     design_review_session: AgentSession | None = None
     documentation_session: AgentSession | None = None
+    creative_session: AgentSession | None = None
     project_shell_session: AgentSession | None = None
     stage_sessions: dict[str, AgentSession] = field(default_factory=dict)
     selected_session_id: str | None = None
@@ -11040,6 +11655,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11071,6 +11687,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11100,6 +11717,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11132,6 +11750,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11182,6 +11801,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11214,6 +11834,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11244,6 +11865,7 @@ class ServiceState:
             context.design_session = None
             context.design_review_session = None
             context.documentation_session = None
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11564,6 +12186,101 @@ class ServiceState:
                 context = self._context_locked(context_id)
                 if context.documentation_session is session:
                     context.documentation_session = None
+                    context.selected_session_id = None
+            raise
+        return session, True
+
+    def initialize_creative_workspace(self, context_id: str) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        _ensure_creative_workspace(project_root)
+        return self.creative_tree(context_id)
+
+    def creative_tree(self, context_id: str) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        _ensure_creative_workspace(project_root)
+        return _creative_tree_payload(project_root)
+
+    def create_creative_folder(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _create_creative_folder(project_root, relative_path)
+        return {
+            "status": "created",
+            "path": path,
+        }
+
+    def create_creative_document(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _create_creative_document(project_root, relative_path)
+        return {
+            "status": "created",
+            "path": path,
+        }
+
+    def creative_scratchpad(self, context_id: str) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _ensure_creative_scratchpad(project_root)
+        return {
+            "path": path.relative_to(project_root).as_posix(),
+            "markdown": path.read_text(encoding="utf-8"),
+        }
+
+    def save_creative_scratchpad(
+        self,
+        context_id: str,
+        markdown: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _ensure_creative_scratchpad(project_root)
+        path.write_text(markdown, encoding="utf-8")
+        return {
+            "status": "saved",
+            "path": path.relative_to(project_root).as_posix(),
+        }
+
+    def start_creative_writing_agent(
+        self,
+        context_id: str,
+        *,
+        active_document: str | None = None,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if (
+                context.creative_session is not None
+                and context.creative_session.is_active()
+            ):
+                context.selected_session_id = context.creative_session.session_id
+                return context.creative_session, False
+            document_path = ""
+            if active_document:
+                document_path = _document_target_path(project_root, active_document)[0]
+            session = AgentSession(
+                command=_creative_writing_command(project_root, document_path or None),
+                cwd=project_root,
+                label="creative writing agent",
+                kind="creative-writing",
+                interactive=True,
+            )
+            context.creative_session = session
+            context.selected_session_id = session.session_id
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.creative_session is session:
+                    context.creative_session = None
                     context.selected_session_id = None
             raise
         return session, True
@@ -12262,6 +12979,7 @@ class ServiceState:
                 context.design_review_session,
                 *context.stage_sessions.values(),
                 context.documentation_session,
+                context.creative_session,
             ]
             if session is not None
         ]
@@ -12305,6 +13023,8 @@ class ServiceState:
                     context.stage_sessions.pop(stage, None)
             if context.documentation_session is session:
                 context.documentation_session = None
+            if context.creative_session is session:
+                context.creative_session = None
             if context.project_shell_session is session:
                 context.project_shell_session = None
             session_id = getattr(session, "session_id", None)
@@ -12915,6 +13635,12 @@ def project_payload(
         and documentation_session is not None
         and documentation_session.is_active()
     )
+    creative_session = context.creative_session
+    creative_running = bool(
+        active_root
+        and creative_session is not None
+        and creative_session.is_active()
+    )
     project_shell_session = context.project_shell_session
     project_shell_running = bool(
         active_root
@@ -12954,6 +13680,7 @@ def project_payload(
         ),
         "stage_runs": _generic_stage_run_payload(context, active_root),
         "documentation_running": documentation_running,
+        "creative_writing_running": creative_running,
         "project_shell_running": project_shell_running,
         "design_approved": bool(
             active_root
@@ -12999,6 +13726,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         context.design_review_session,
         *context.stage_sessions.values(),
         context.documentation_session,
+        context.creative_session,
     ]:
         if session is None:
             continue
@@ -14967,6 +15695,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       label.textContent = "Markdown";
       const textarea = document.createElement("textarea");
       textarea.id = "markdownSource";
+      textarea.spellcheck = true;
       textarea.value = EDIT_DATA.markdown || "";
       label.append(textarea);
       wrapper.append(label);
@@ -15114,6 +15843,127 @@ def _document_target_path(project_root: Path | str, relative_path: str) -> tuple
     except ValueError as error:
         raise StateError("document path cannot escape the project") from error
     return normalized_path, document_path
+
+
+def _normalize_creative_relative_path(relative_path: str) -> str:
+    raw = relative_path.strip().replace("\\", "/")
+    if not raw:
+        raise StateError("path is required")
+    path = Path(raw)
+    if path.is_absolute():
+        raise StateError("path must be relative")
+    if any(part in {"", ".."} for part in path.parts):
+        raise StateError("path cannot escape the project")
+    return path.as_posix()
+
+
+def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:
+    project_root = Path(project_root).expanduser().resolve()
+    normalized_path = _normalize_creative_relative_path(relative_path)
+    resolved = (project_root / normalized_path).resolve()
+    try:
+        resolved.relative_to(project_root)
+    except ValueError as error:
+        raise StateError("path cannot escape the project") from error
+    return normalized_path, resolved
+
+
+def _ensure_creative_workspace(project_root: Path | str) -> None:
+    project_root = Path(project_root).expanduser().resolve()
+    for folder in CREATIVE_DEFAULT_FOLDERS:
+        (project_root / folder).mkdir(parents=True, exist_ok=True)
+    _ensure_creative_scratchpad(project_root)
+    chapters = project_root / "chapters"
+    if not any(chapters.glob("*.md")):
+        _create_creative_document(project_root, "chapters/chapter-01.md")
+    for path in [
+        "characters/characters.md",
+        "corkboard/ideas.md",
+        "reviews/review-notes.md",
+    ]:
+        _create_creative_document(project_root, path)
+
+
+def _ensure_creative_scratchpad(project_root: Path | str) -> Path:
+    _relative, path = _document_target_path(project_root, CREATIVE_SCRATCHPAD_PATH)
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Scratchpad\n\n", encoding="utf-8")
+    return path
+
+
+def _create_creative_folder(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, folder_path = _creative_path(project_root, relative_path)
+    if folder_path.exists() and not folder_path.is_dir():
+        raise StateError("folder path already exists as a file")
+    folder_path.mkdir(parents=True, exist_ok=True)
+    return normalized_path
+
+
+def _create_creative_document(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, document_path = _document_target_path(project_root, relative_path)
+    if document_path.exists() and not document_path.is_file():
+        raise StateError("document path already exists as a folder")
+    if not document_path.exists() or not document_path.read_text(encoding="utf-8").strip():
+        document_path.parent.mkdir(parents=True, exist_ok=True)
+        document_path.write_text(
+            _document_starter_markdown(normalized_path),
+            encoding="utf-8",
+        )
+    return normalized_path
+
+
+def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
+    project_root = Path(project_root).expanduser().resolve()
+    return {
+        "root": str(project_root),
+        "entries": _creative_tree_entries(project_root, project_root),
+    }
+
+
+def _creative_tree_entries(
+    project_root: Path,
+    directory: Path,
+    *,
+    depth: int = 0,
+) -> list[dict[str, object]]:
+    if depth > 8:
+        return []
+    entries: list[dict[str, object]] = []
+    try:
+        children = sorted(
+            directory.iterdir(),
+            key=lambda path: (not path.is_dir(), path.name.lower()),
+        )
+    except OSError:
+        return []
+    for child in children:
+        if child.name in CREATIVE_IGNORED_NAMES:
+            continue
+        relative_path = child.relative_to(project_root).as_posix()
+        if child.is_dir():
+            entries.append(
+                {
+                    "name": child.name,
+                    "path": relative_path,
+                    "type": "directory",
+                    "children": _creative_tree_entries(
+                        project_root,
+                        child,
+                        depth=depth + 1,
+                    ),
+                }
+            )
+            continue
+        entries.append(
+            {
+                "name": child.name,
+                "path": relative_path,
+                "type": "file",
+                "markdown": child.suffix.lower() == ".md",
+            }
+        )
+    return entries
 
 
 def _resolved_artifact_relative_path(
@@ -15738,6 +16588,45 @@ def _documentation_command(
     return _electroboy_command(root, args)
 
 
+def _creative_writing_command(
+    root: Path,
+    active_document: str | None = None,
+) -> list[str]:
+    return [
+        "codex",
+        "--cd",
+        str(root),
+        "--sandbox",
+        "workspace-write",
+        _creative_writing_prompt(active_document),
+    ]
+
+
+def _creative_writing_prompt(active_document: str | None = None) -> str:
+    document_lines = []
+    if active_document:
+        document_lines = [
+            "",
+            f"Current active document: {active_document}.",
+            "Treat it as the document displayed in the middle pane.",
+        ]
+    return "\n".join(
+        [
+            "Act as a creative writing collaborator inside this project.",
+            "",
+            "The writer may move fluidly among chapters, character notes,",
+            "corkboard ideas, reviews, research, and scratchpad notes.",
+            "Markdown files are the source of truth for prose and notes.",
+            "Do not rewrite or reorganize files until the writer asks.",
+            "When asked to write or revise without naming a different file,",
+            "work in the active document.",
+            "Use scratchpad/scratchpad.md as optional context for rough notes.",
+            "Keep responses concise unless the writer asks for a draft.",
+            *document_lines,
+        ]
+    )
+
+
 def _project_shell_command() -> list[str]:
     candidates = [
         os.environ.get("SHELL", "").strip(),
@@ -16194,6 +17083,18 @@ def _handler_for(
             if path == "/api/documents/export":
                 self._send_document_export(parsed.query)
                 return
+            if path == "/api/creative/tree":
+                self._send_context_json(
+                    parsed.query,
+                    lambda context_id: state.creative_tree(context_id),
+                )
+                return
+            if path == "/api/creative/scratch":
+                self._send_context_json(
+                    parsed.query,
+                    lambda context_id: state.creative_scratchpad(context_id),
+                )
+                return
             if path == "/artifacts/edit":
                 self._send_artifact_editor(parsed.query)
                 return
@@ -16300,6 +17201,21 @@ def _handler_for(
                 return
             if path == "/api/artifacts/edit":
                 self._save_artifact_editor(parsed.query)
+                return
+            if path == "/api/creative/init":
+                self._initialize_creative_workspace(parsed.query)
+                return
+            if path == "/api/creative/folders":
+                self._create_creative_folder(parsed.query)
+                return
+            if path == "/api/creative/documents":
+                self._create_creative_document(parsed.query)
+                return
+            if path == "/api/creative/scratch":
+                self._save_creative_scratchpad(parsed.query)
+                return
+            if path == "/api/creative/agent/start":
+                self._start_creative_writing_agent(parsed.query)
                 return
             if path == "/api/sessions/select":
                 self._select_session(parsed.query)
@@ -17519,6 +18435,97 @@ def _handler_for(
             except OSError as error:
                 self._send_json(
                     {"error": f"could not start documentation agent: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "started" if started else "running",
+                    "command": session.command,
+                    "session_id": session.session_id,
+                }
+            )
+
+        def _initialize_creative_workspace(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.initialize_creative_workspace(context_id))
+            except (AgentSessionError, StateError, OSError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _create_creative_folder(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_folder(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _create_creative_document(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_document(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _save_creative_scratchpad(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.save_creative_scratchpad(
+                        context_id,
+                        str(payload.get("markdown") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _start_creative_writing_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_document=str(payload.get("active_document") or ""),
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not start creative writing agent: {error}"},
                     status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
                 return
