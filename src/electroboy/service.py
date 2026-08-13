@@ -1001,6 +1001,10 @@ INDEX_HTML = """<!doctype html>
       padding: 4px 0 8px 18px;
     }
 
+    .stage-action-list[hidden] {
+      display: none;
+    }
+
     .stage-action-subgroup {
       display: grid;
       min-width: 0;

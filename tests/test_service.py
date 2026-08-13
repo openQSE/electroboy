@@ -876,6 +876,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("let creativeProjectActionsExpanded = false;", INDEX_HTML)
         self.assertIn("function ensureCreativeWorkspaceLoaded()", INDEX_HTML)
         self.assertIn("deferCreativeWorkspaceInit", INDEX_HTML)
+        self.assertIn(".stage-action-list[hidden]", INDEX_HTML)
         self.assertIn(
             ".shell.creative-workflow .creative-section > .stage-action-stage",
             INDEX_HTML,
