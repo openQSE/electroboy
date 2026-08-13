@@ -12011,18 +12011,18 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       : SELECT_MODE === "document-new"
         ? "Create or open document"
       : SELECT_MODE === "project-new"
-        ? "Create project folder"
+        ? "Create or activate project"
       : SELECT_MODE === "document"
         ? "Open selected document"
       : "Activate";
     newDocumentName.hidden =
       SELECT_MODE !== "document-new" && SELECT_MODE !== "project-new";
     newDocumentName.placeholder =
-      SELECT_MODE === "project-new" ? "new-project-folder" : "new-document.md";
+      SELECT_MODE === "project-new" ? "optional-new-folder" : "new-document.md";
     newDocumentName.setAttribute(
       "aria-label",
       SELECT_MODE === "project-new"
-        ? "New project folder name"
+        ? "Optional new project folder name"
         : "New document file name",
     );
 
@@ -12310,7 +12310,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
         return selectedType === "directory" && Boolean(documentNewTargetPath());
       }
       if (SELECT_MODE === "project-new") {
-        return selectedType === "directory" && Boolean(projectNewTargetPath());
+        return selectedType === "directory";
       }
       return selectedType === "directory";
     }
@@ -12373,7 +12373,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       }
       const raw = newDocumentName.value.trim().replace(/\\+/g, "/");
       if (!raw) {
-        return "";
+        return selectedPath;
       }
       const path = raw.toLowerCase().endsWith(".md") ? raw : `${raw}.md`;
       if (path.startsWith("/")) {
@@ -12404,7 +12404,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
           : SELECT_MODE === "document-new"
             ? "Select a Markdown file or choose a directory and name."
           : SELECT_MODE === "project-new"
-            ? "Choose a parent directory and enter a folder name."
+            ? "Select a project directory or enter a new folder name."
           : SELECT_MODE === "document"
             ? "Select a Markdown file first."
             : "Select a directory first.";

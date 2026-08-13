@@ -291,14 +291,18 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIn('const SELECT_MODE = "project-new";', page)
         self.assertIn('id="newDocumentName"', page)
-        self.assertIn("Create project folder", page)
+        self.assertIn("Create or activate project", page)
         self.assertIn("function projectNewTargetPath()", page)
-        self.assertIn("Choose a parent directory and enter a folder name.", page)
-        self.assertIn('"New project folder name"', page)
         self.assertIn(
-            'SELECT_MODE === "project-new" && selectedType === "directory"',
+            "Select a project directory or enter a new folder name.",
             page,
         )
+        self.assertIn('"Optional new project folder name"', page)
+        self.assertIn(
+            'return selectedType === "directory";',
+            page,
+        )
+        self.assertIn("return selectedPath;", page)
 
     def test_file_browser_endpoint_serves_popout_picker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -424,7 +428,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "text/html; charset=utf-8")
         self.assertIn('const SELECT_MODE = "project-new";', body)
-        self.assertIn("Create project folder", body)
+        self.assertIn("Create or activate project", body)
 
     def test_document_target_renderer_creates_markdown_starter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
