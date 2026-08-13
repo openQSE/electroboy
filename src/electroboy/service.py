@@ -859,7 +859,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     .creative-tree-row.directory {
-      grid-template-columns: minmax(0, 1fr) 18px;
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
       min-height: 34px;
       border-color: #18324d;
       border-radius: 999px;
@@ -888,17 +888,49 @@ INDEX_HTML = """<!doctype html>
     }
 
     .creative-tree-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       width: 18px;
+      height: 18px;
+      color: #42617a;
       text-align: center;
     }
 
-    .creative-tree-row.directory .creative-tree-icon {
-      position: relative;
-      justify-self: end;
-      height: 18px;
+    .creative-tree-icon.folder {
+      color: #8bd3dd;
     }
 
-    .creative-tree-row.directory .creative-tree-icon::before {
+    .creative-tree-icon.markdown {
+      color: #1c7ed6;
+    }
+
+    .creative-tree-row.active .creative-tree-icon {
+      color: currentColor;
+    }
+
+    .creative-tree-icon svg,
+    .creative-tree-disclosure svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+    }
+
+    .creative-tree-disclosure {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      color: currentColor;
+    }
+
+    .creative-tree-row.directory .creative-tree-disclosure {
+      position: relative;
+      justify-self: end;
+    }
+
+    .creative-tree-row.directory .creative-tree-disclosure::before {
       position: absolute;
       top: 5px;
       left: 5px;
@@ -911,7 +943,7 @@ INDEX_HTML = """<!doctype html>
       content: "";
     }
 
-    .creative-tree-row.directory.expanded .creative-tree-icon::before {
+    .creative-tree-row.directory.expanded .creative-tree-disclosure::before {
       top: 4px;
       transform: rotate(45deg);
     }
@@ -7064,6 +7096,30 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function creativeTreeIconSvg(name) {
+      const icons = {
+        file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path>',
+        folder: '<path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
+        "folder-open": '<path d="M3 7h7l2 2h9l-2 9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7v11"></path>',
+        markdown: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 15V9l3 3 3-3v6"></path><path d="M17 9v6"></path><path d="M15 13l2 2 2-2"></path>',
+      };
+      return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.file}</svg>`;
+    }
+
+    function creativeTreeIconName(entry, expanded) {
+      if ((entry.type || "") === "directory") {
+        return expanded ? "folder-open" : "folder";
+      }
+      return entry.markdown ? "markdown" : "file";
+    }
+
+    function creativeTreeIconClass(entry) {
+      if ((entry.type || "") === "directory") {
+        return "folder";
+      }
+      return entry.markdown ? "markdown" : "file";
+    }
+
     function appendCreativeTreeEntry(entry, depth) {
       const type = entry.type || "file";
       const path = String(entry.path || "");
@@ -7082,15 +7138,17 @@ INDEX_HTML = """<!doctype html>
       }
 
       const icon = document.createElement("span");
-      icon.className = "creative-tree-icon";
-      icon.textContent = isDirectory ? "" : entry.markdown ? "M" : ".";
+      icon.className = `creative-tree-icon ${creativeTreeIconClass(entry)}`;
+      icon.innerHTML = creativeTreeIconSvg(creativeTreeIconName(entry, expanded));
 
       const name = document.createElement("span");
       name.className = "creative-tree-name";
       name.textContent = String(entry.name || path || "Untitled");
 
       if (isDirectory) {
-        row.append(name, icon);
+        const disclosure = document.createElement("span");
+        disclosure.className = "creative-tree-disclosure";
+        row.append(icon, name, disclosure);
       } else {
         row.append(icon, name);
       }
