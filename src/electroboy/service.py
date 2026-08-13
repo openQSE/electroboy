@@ -17794,22 +17794,6 @@ def creative_corkboard_html(
       accent-color: var(--insert);
     }}
 
-    .status {{
-      position: fixed;
-      right: 12px;
-      bottom: 70px;
-      min-height: 0;
-      border-radius: 999px;
-      background: rgba(15, 20, 32, 0.86);
-      color: #d8e3f4;
-      font-size: 12px;
-      padding: 6px 10px;
-      pointer-events: none;
-    }}
-
-    .status:empty {{
-      display: none;
-    }}
   </style>
 </head>
 <body>
@@ -17838,7 +17822,6 @@ def creative_corkboard_html(
       aria-label="Resize corkboard cards"
     >
   </label>
-  <div id="status" class="status"></div>
   <script>
     const CORKBOARD_DATA = {data_json};
     const board = document.getElementById("board");
@@ -17846,7 +17829,6 @@ def creative_corkboard_html(
     const addCard = document.getElementById("addCard");
     const cardSizeSlider = document.getElementById("cardSizeSlider");
     const cardSizeValue = document.getElementById("cardSizeValue");
-    const statusLine = document.getElementById("status");
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
     const saveTimers = new Map();
@@ -17868,16 +17850,6 @@ def creative_corkboard_html(
       }}
       const separator = path.includes("?") ? "&" : "?";
       return `${{path}}${{separator}}context_id=${{encodeURIComponent(contextId)}}`;
-    }}
-
-    function setStatus(message) {{
-      statusLine.textContent = message || "";
-      if (message) {{
-        window.clearTimeout(setStatus.timer);
-        setStatus.timer = window.setTimeout(() => {{
-          statusLine.textContent = "";
-        }}, 1200);
-      }}
     }}
 
     function boardStoragePath() {{
@@ -18022,21 +17994,18 @@ def creative_corkboard_html(
           }},
         }};
       }}
-      setStatus("saving");
-      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+      await fetch(contextUrl("/api/creative/corkboard"), {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify(payload),
       }}).catch(() => null);
-      setStatus(response && response.ok ? "saved" : "save failed");
     }}
 
     async function saveOrder() {{
       if (!CORKBOARD_DATA.context_id || boardType !== "folder") {{
         return;
       }}
-      setStatus("saving order");
-      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+      await fetch(contextUrl("/api/creative/corkboard"), {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify({{
@@ -18045,7 +18014,6 @@ def creative_corkboard_html(
           order: cards.map((card) => card.path),
         }}),
       }}).catch(() => null);
-      setStatus(response && response.ok ? "order saved" : "save failed");
     }}
 
     function openCard(card) {{

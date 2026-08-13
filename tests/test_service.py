@@ -2044,6 +2044,8 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("electroboy.creative.corkboard.cardScale.", page)
             self.assertIn("--card-grid-min-width", page)
             self.assertIn(".index-card.selected", page)
+            self.assertNotIn('id="status" class="status"', page)
+            self.assertNotIn("function setStatus", page)
             self.assertIn('let selectedCardKey = "";', page)
             self.assertIn("function selectCard(card, cardElement)", page)
             self.assertIn('cardElement.setAttribute("aria-selected"', page)
