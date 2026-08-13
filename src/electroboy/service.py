@@ -166,13 +166,7 @@ SESSION_ARTIFACT_LOCKS = {
             "validation-review.jsonl",
         }
     ),
-    "documentation": frozenset(
-        {
-            "documentation.jsonl",
-            "README.md",
-            "docs/api.md",
-        }
-    ),
+    "documentation": frozenset(),
 }
 
 GENERIC_STAGE_CONFIG: dict[str, dict[str, object]] = {
@@ -1721,6 +1715,26 @@ INDEX_HTML = """<!doctype html>
 
     .document-zoom-controls {
       color: #d8e3f4;
+    }
+
+    .document-target-switcher {
+      min-width: 160px;
+      max-width: 320px;
+      height: 30px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      font-weight: 600;
+      padding: 0 8px;
+    }
+
+    .document-target-switcher:disabled {
+      cursor: default;
+      opacity: 0.82;
     }
 
     .document-export-format {
@@ -3649,6 +3663,7 @@ INDEX_HTML = """<!doctype html>
     let artifactPreviewKind = "";
     let artifactPreviewDocumentTarget = null;
     let artifactPreviewItems = [];
+    let openDocumentTargets = [];
     let manualArtifactPreview = false;
     let manualArtifactPreviewStage = "";
     let artifactPreviewStage = "";
@@ -5889,6 +5904,7 @@ INDEX_HTML = """<!doctype html>
       agentSessions = [];
       selectedSessionId = "";
       activeAgentKind = "";
+      openDocumentTargets = [];
       currentWorkflowStage = "project";
       creativeActiveDocument = "";
       creativeActiveFolder = "";
@@ -5971,6 +5987,7 @@ INDEX_HTML = """<!doctype html>
       activeProjectRoot = nextActiveProjectRoot;
       if (previousActiveProjectRoot && previousActiveProjectRoot !== activeProjectRoot) {
         hideArtifactPreview();
+        openDocumentTargets = [];
         creativeActiveDocument = "";
         creativeActiveFolder = "";
         creativeEditingPath = "";
@@ -5996,6 +6013,7 @@ INDEX_HTML = """<!doctype html>
       projectShellRunning = Boolean(payload.project_shell_running);
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       selectedSessionId = payload.selected_session_id || selectedSessionId || "";
+      syncOpenDocumentTargetsFromSessions();
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
         const selected = agentSessions.find((session) => session.selected) || agentSessions[0];
         selectedSessionId = selected ? selected.session_id : "";
@@ -6247,8 +6265,111 @@ INDEX_HTML = """<!doctype html>
       }
       agentSessionIndicator.className = className;
       agentSessionIndicator.title = session
-        ? `${session.kind || "agent"}: ${status}`
+        ? agentSessionDisplayLabel(session)
         : "No selected agent";
+    }
+
+    function sessionMetadata(session) {
+      return session && session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : {};
+    }
+
+    function documentTargetKey(target) {
+      return String(target && target.path ? target.path : "").trim();
+    }
+
+    function documentTargetLabel(target) {
+      return String((target && (target.label || target.path)) || "Document");
+    }
+
+    function documentTargetForSession(session) {
+      const metadata = sessionMetadata(session);
+      const path = String(metadata.document_path || "").trim();
+      if (!path) {
+        return null;
+      }
+      const fallback = documentTargetFromInput(path) || { label: path, path };
+      return {
+        label: String(metadata.document_label || fallback.label || path),
+        path,
+      };
+    }
+
+    function documentationSessionForTarget(target) {
+      const path = documentTargetKey(target);
+      if (!path) {
+        return null;
+      }
+      return (
+        agentSessions.find((session) => {
+          const sessionTarget = documentTargetForSession(session);
+          return sessionTarget && sessionTarget.path === path;
+        }) || null
+      );
+    }
+
+    function agentSessionDisplayLabel(session) {
+      const status = session.status === "running" ? "running" : session.status || "done";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        return `Document: ${documentTargetLabel(documentTarget)} · ${status}`;
+      }
+      return `${session.kind || "agent"} · ${status}`;
+    }
+
+    function rememberOpenDocumentTarget(target) {
+      const path = documentTargetKey(target);
+      if (!path) {
+        return;
+      }
+      const storedTarget = {
+        label: documentTargetLabel(target),
+        path,
+      };
+      const existingIndex = openDocumentTargets.findIndex(
+        (candidate) => documentTargetKey(candidate) === path,
+      );
+      if (existingIndex >= 0) {
+        openDocumentTargets.splice(existingIndex, 1, storedTarget);
+      } else {
+        openDocumentTargets.push(storedTarget);
+      }
+    }
+
+    function syncOpenDocumentTargetsFromSessions() {
+      for (const session of agentSessions) {
+        const target = documentTargetForSession(session);
+        if (target) {
+          rememberOpenDocumentTarget(target);
+        }
+      }
+      refreshDocumentTargetSwitchers();
+    }
+
+    function renderDocumentTargetSwitcher(select) {
+      select.replaceChildren();
+      const targets = openDocumentTargets.length > 0
+        ? openDocumentTargets
+        : artifactPreviewDocumentTarget
+          ? [artifactPreviewDocumentTarget]
+          : [];
+      for (const target of targets) {
+        const option = document.createElement("option");
+        option.value = target.path;
+        option.textContent = documentTargetLabel(target);
+        select.append(option);
+      }
+      select.value = documentTargetKey(artifactPreviewDocumentTarget);
+      select.disabled = targets.length <= 1;
+    }
+
+    function refreshDocumentTargetSwitchers() {
+      for (const select of artifactPreviewStack.querySelectorAll(
+        ".document-target-switcher",
+      )) {
+        renderDocumentTargetSwitcher(select);
+      }
     }
 
     function renderSessionSwitcher() {
@@ -6265,8 +6386,7 @@ INDEX_HTML = """<!doctype html>
       for (const session of agentSessions) {
         const option = document.createElement("option");
         option.value = session.session_id;
-        const status = session.status === "running" ? "running" : session.status || "done";
-        option.textContent = `${session.kind || "agent"} · ${status}`;
+        option.textContent = agentSessionDisplayLabel(session);
         sessionSwitcher.append(option);
       }
       sessionSwitcher.disabled = false;
@@ -6295,9 +6415,14 @@ INDEX_HTML = """<!doctype html>
       }
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : agentSessions;
       selectedSessionId = payload.selected_session_id || sessionId;
+      syncOpenDocumentTargetsFromSessions();
       renderSessionSwitcher();
       const session = selectedSession();
       activeAgentKind = session ? session.kind || "" : "";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        showDocumentPreview(documentTarget);
+      }
       clearAgentOutput();
       connectSessionEvents(selectedSessionId);
       updateAgentControls();
@@ -7063,12 +7188,28 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       registerDocumentTarget(target);
-      if (documentationRunning) {
-        hideStageMenus();
-        showDocumentPreview(target);
-      } else {
-        startDocumentationAgent(target);
+      startDocumentationAgent(target);
+    }
+
+    function selectOpenDocumentTarget(path) {
+      const target = openDocumentTargets.find(
+        (candidate) => documentTargetKey(candidate) === path,
+      );
+      if (!target) {
+        return;
       }
+      const session = documentationSessionForTarget(target);
+      if (session) {
+        if (session.session_id === selectedSessionId) {
+          showDocumentPreview(target);
+          return;
+        }
+        selectAgentSession(session.session_id).catch((error) => {
+          appendOutput(`session switch failed: ${error}\\n`, "error");
+        });
+        return;
+      }
+      launchDocumentTarget(target);
     }
 
     function startCustomDocumentTargetFromValue(value) {
@@ -7245,7 +7386,9 @@ INDEX_HTML = """<!doctype html>
       if (!target) {
         return;
       }
+      rememberOpenDocumentTarget(target);
       showArtifactPreview("document", { target });
+      refreshDocumentTargetSwitchers();
     }
 
     function applyCreativeWorkspace() {
@@ -8297,7 +8440,19 @@ INDEX_HTML = """<!doctype html>
           actions.append(preview, edit);
         }
         actions.append(popout);
-        header.append(title, actions);
+        if (item.kind === "document") {
+          const documentSwitcher = document.createElement("select");
+          documentSwitcher.className = "document-target-switcher";
+          documentSwitcher.title = "Open documents";
+          documentSwitcher.setAttribute("aria-label", "Open documents");
+          renderDocumentTargetSwitcher(documentSwitcher);
+          documentSwitcher.addEventListener("change", () => {
+            selectOpenDocumentTarget(documentSwitcher.value);
+          });
+          header.append(documentSwitcher, actions);
+        } else {
+          header.append(title, actions);
+        }
 
         const frame = document.createElement("iframe");
         frame.className = "artifact-preview-frame loading";
@@ -9772,6 +9927,8 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
       setAgentRunning("documentation", true);
       const sessionId = payload.session_id || selectedSessionId;
+      selectedSessionId = sessionId;
+      renderSessionSwitcher();
       connectSessionEvents(sessionId);
       sendTerminalResize();
     }
@@ -12739,7 +12896,7 @@ class BrowserContext:
     requirements_session: AgentSession | None = None
     design_session: AgentSession | None = None
     design_review_session: AgentSession | None = None
-    documentation_session: AgentSession | None = None
+    documentation_sessions: dict[str, AgentSession] = field(default_factory=dict)
     creative_session: AgentSession | None = None
     project_shell_session: AgentSession | None = None
     stage_sessions: dict[str, AgentSession] = field(default_factory=dict)
@@ -13186,7 +13343,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13218,7 +13375,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13251,7 +13408,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13284,7 +13441,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13313,7 +13470,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13346,7 +13503,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13397,7 +13554,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13430,7 +13587,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13461,7 +13618,7 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
             context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
@@ -13746,18 +13903,18 @@ class ServiceState:
             command_root = self._command_root_locked(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            if (
-                context.documentation_session is not None
-                and context.documentation_session.is_active()
-            ):
-                context.selected_session_id = context.documentation_session.session_id
-                return context.documentation_session, False
-            lock_names = SESSION_ARTIFACT_LOCKS["documentation"]
-            self._require_session_locks_available_locked(context, lock_names)
             target_path = (target or "").strip()
             if target_path:
                 target_path = _ensure_document_target(project_root, target_path)
+            session_key = target_path or "__default__"
+            existing_session = context.documentation_sessions.get(session_key)
+            if existing_session is not None and existing_session.is_active():
+                context.selected_session_id = existing_session.session_id
+                return existing_session, False
+            lock_names = frozenset({f"documentation:{session_key}"})
+            self._require_session_locks_available_locked(context, lock_names)
             label_target = f" ({target_path})" if target_path else ""
+            document_label = Path(target_path).name if target_path else "Documentation"
             session = AgentSession(
                 command=_documentation_command(
                     command_root,
@@ -13773,16 +13930,20 @@ class ServiceState:
                 kind="documentation",
                 interactive=interactive,
                 lock_names=lock_names,
+                metadata={
+                    "document_path": target_path,
+                    "document_label": document_label,
+                },
             )
-            context.documentation_session = session
+            context.documentation_sessions[session_key] = session
             context.selected_session_id = session.session_id
         try:
             session.start()
         except Exception:
             with self.lock:
                 context = self._context_locked(context_id)
-                if context.documentation_session is session:
-                    context.documentation_session = None
+                if context.documentation_sessions.get(session_key) is session:
+                    context.documentation_sessions.pop(session_key, None)
                     context.selected_session_id = None
             raise
         return session, True
@@ -14359,7 +14520,17 @@ class ServiceState:
     def current_documentation_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
             context = self._context_locked(context_id)
-            return context.documentation_session
+            selected_session_id = context.selected_session_id
+            if selected_session_id:
+                for session in context.documentation_sessions.values():
+                    if session.session_id == selected_session_id:
+                        return session
+            for session in reversed(list(context.documentation_sessions.values())):
+                if session.is_active():
+                    return session
+            if context.documentation_sessions:
+                return list(context.documentation_sessions.values())[-1]
+            return None
 
     def current_project_shell_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
@@ -14697,7 +14868,7 @@ class ServiceState:
                 context.design_session,
                 context.design_review_session,
                 *context.stage_sessions.values(),
-                context.documentation_session,
+                *context.documentation_sessions.values(),
                 context.creative_session,
             ]
             if session is not None
@@ -14740,8 +14911,9 @@ class ServiceState:
             for stage, stage_session in list(context.stage_sessions.items()):
                 if stage_session is session:
                     context.stage_sessions.pop(stage, None)
-            if context.documentation_session is session:
-                context.documentation_session = None
+            for key, documentation_session in list(context.documentation_sessions.items()):
+                if documentation_session is session:
+                    context.documentation_sessions.pop(key, None)
             if context.creative_session is session:
                 context.creative_session = None
             if context.project_shell_session is session:
@@ -14881,6 +15053,7 @@ class AgentSession:
         lock_names: frozenset[str] | set[str] | None = None,
         on_completed: Callable[[int], None] | None = None,
         echo_input: bool = False,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         self.session_id = uuid4().hex
         self.command = command
@@ -14894,6 +15067,7 @@ class AgentSession:
         self.lock_names = frozenset(lock_names or ())
         self.created_at = utc_now()
         self.on_completed = on_completed
+        self.metadata = dict(metadata or {})
         self.process: subprocess.Popen[bytes] | None = None
         self.status = "created"
         self.returncode: int | None = None
@@ -14917,6 +15091,7 @@ class AgentSession:
             "selected": selected,
             "created_at": self.created_at,
             "command": list(self.command),
+            "metadata": dict(self.metadata),
         }
 
     def start(self) -> None:
@@ -15359,11 +15534,9 @@ def project_payload(
         and design_review_session is not None
         and design_review_session.is_active()
     )
-    documentation_session = context.documentation_session
     documentation_running = bool(
         active_root
-        and documentation_session is not None
-        and documentation_session.is_active()
+        and any(session.is_active() for session in context.documentation_sessions.values())
     )
     creative_session = context.creative_session
     creative_running = bool(
@@ -15455,7 +15628,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         context.design_session,
         context.design_review_session,
         *context.stage_sessions.values(),
-        context.documentation_session,
+        *context.documentation_sessions.values(),
         context.creative_session,
     ]:
         if session is None:
@@ -15478,6 +15651,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
                 "selected": session_id == selected_session_id,
                 "created_at": getattr(session, "created_at", ""),
                 "command": list(getattr(session, "command", [])),
+                "metadata": dict(getattr(session, "metadata", {}) or {}),
             }
         )
     return payloads

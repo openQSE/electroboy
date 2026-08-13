@@ -1648,18 +1648,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('label: "Open"', INDEX_HTML)
         self.assertIn('label: "New"', INDEX_HTML)
         self.assertIn("function launchDocumentTarget(target)", INDEX_HTML)
-        self.assertIn("if (documentationRunning) {\n        hideStageMenus();", INDEX_HTML)
+        self.assertIn("function documentationSessionForTarget(target)", INDEX_HTML)
+        self.assertIn("function selectOpenDocumentTarget(path)", INDEX_HTML)
+        self.assertIn("function agentSessionDisplayLabel(session)", INDEX_HTML)
+        self.assertIn('className = "document-target-switcher"', INDEX_HTML)
+        self.assertNotIn("if (documentationRunning) {\n        hideStageMenus();", INDEX_HTML)
         self.assertIn("showDocumentPreview(target);", INDEX_HTML)
         self.assertIn("startDocumentationAgent(target);", INDEX_HTML)
-        self.assertIn(
-            "if (documentationRunning) {\n"
-            "        hideStageMenus();\n"
-            "        showDocumentPreview(target);\n"
-            "      } else {\n"
-            "        startDocumentationAgent(target);\n"
-            "      }",
-            INDEX_HTML,
-        )
         self.assertIn("window.confirm", INDEX_HTML)
         self.assertIn("Requirements have not been explicitly approved", INDEX_HTML)
         self.assertIn("Design has not been explicitly approved", INDEX_HTML)
@@ -2653,9 +2648,51 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("--target", command_text)
         self.assertIn("README.md", command_text)
         self.assertIn("README.md", session.label)
+        self.assertEqual(session.metadata["document_path"], "README.md")
+        self.assertEqual(session.metadata["document_label"], "README.md")
+        self.assertEqual(session.lock_names, frozenset({"documentation:README.md"}))
         self.assertEqual(payload["workflow_stage"], "requirements")
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "documentation")
+        self.assertEqual(
+            payload["sessions"][0]["metadata"]["document_path"],
+            "README.md",
+        )
+
+    def test_documentation_sidecar_tracks_one_session_per_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                readme_session, readme_started = state.start_documentation_agent(
+                    context_id,
+                    target="README.md",
+                )
+                api_session, api_started = state.start_documentation_agent(
+                    context_id,
+                    target="docs/api.md",
+                )
+            payload = state.project_payload(context_id)
+
+        self.assertTrue(readme_started)
+        self.assertTrue(api_started)
+        self.assertNotEqual(readme_session.session_id, api_session.session_id)
+        self.assertEqual(readme_session.metadata["document_path"], "README.md")
+        self.assertEqual(api_session.metadata["document_path"], "docs/api.md")
+        self.assertEqual(payload["selected_session_id"], api_session.session_id)
+        self.assertEqual(len(payload["sessions"]), 2)
+        self.assertEqual(
+            [session["metadata"]["document_path"] for session in payload["sessions"]],
+            ["README.md", "docs/api.md"],
+        )
 
     def test_project_shell_starts_in_active_project_without_agent_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
