@@ -273,6 +273,20 @@ class ServiceTests(unittest.TestCase):
             page,
         )
 
+    def test_file_browser_window_html_supports_new_project_mode(self) -> None:
+        page = file_browser_window_html("~/ORNL", mode="project-new")
+
+        self.assertIn('const SELECT_MODE = "project-new";', page)
+        self.assertIn('id="newDocumentName"', page)
+        self.assertIn("Create project folder", page)
+        self.assertIn("function projectNewTargetPath()", page)
+        self.assertIn("Choose a parent directory and enter a folder name.", page)
+        self.assertIn('"New project folder name"', page)
+        self.assertIn(
+            'SELECT_MODE === "project-new" && selectedType === "directory"',
+            page,
+        )
+
     def test_file_browser_endpoint_serves_popout_picker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -373,6 +387,31 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(content_type, "text/html; charset=utf-8")
         self.assertIn('const SELECT_MODE = "document-new";', body)
         self.assertIn("Create or open document", body)
+
+    def test_file_browser_endpoint_serves_new_project_picker_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    "/file-browser?path=%2Ftmp&mode=project-new",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const SELECT_MODE = "project-new";', body)
+        self.assertIn("Create project folder", body)
 
     def test_document_target_renderer_creates_markdown_starter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1464,6 +1503,8 @@ class ServiceTests(unittest.TestCase):
             "function openProjectBrowser(mode = projectMode, activateSelection = false)",
             INDEX_HTML,
         )
+        self.assertIn('mode === "new" || mode === "meta-new"', INDEX_HTML)
+        self.assertIn('fileBrowserUrl(path, browserMode)', INDEX_HTML)
         self.assertIn("let projectBrowserActivatesSelection = false;", INDEX_HTML)
         self.assertIn('openProjectBrowser("open", true)', INDEX_HTML)
         self.assertIn(
@@ -1475,7 +1516,7 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn(
-            'if (data.mode === "project" && projectBrowserActivatesSelection)',
+            'data.mode === "project" || data.mode === "project-new"',
             INDEX_HTML,
         )
         self.assertIn("applyProjectSelection(data.path)", INDEX_HTML)

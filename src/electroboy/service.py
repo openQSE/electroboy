@@ -5430,7 +5430,10 @@ INDEX_HTML = """<!doctype html>
           }
           return;
         }
-        if (data.mode === "project" && projectBrowserActivatesSelection) {
+        if (
+          (data.mode === "project" || data.mode === "project-new") &&
+          projectBrowserActivatesSelection
+        ) {
           projectBrowserActivatesSelection = false;
           applyProjectSelection(data.path).catch((error) => {
             appendOutput(`project update failed: ${error}\\n`, "error");
@@ -7559,8 +7562,11 @@ INDEX_HTML = """<!doctype html>
       hideWorkItemPanel();
       projectPanel.hidden = true;
       const path = projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".";
+      const browserMode = mode === "new" || mode === "meta-new"
+        ? "project-new"
+        : "project";
       const popup = window.open(
-        fileBrowserUrl(path),
+        fileBrowserUrl(path, browserMode),
         "electroboy-file-browser",
         PANE_POPUP_FEATURES,
       );
@@ -11066,12 +11072,23 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
     selectPath.textContent =
       SELECT_MODE === "link"
         ? "Insert selected file"
-        : SELECT_MODE === "document-new"
-          ? "Create or open document"
-          : SELECT_MODE === "document"
-          ? "Open selected document"
-          : "Activate";
-    newDocumentName.hidden = SELECT_MODE !== "document-new";
+      : SELECT_MODE === "document-new"
+        ? "Create or open document"
+      : SELECT_MODE === "project-new"
+        ? "Create project folder"
+      : SELECT_MODE === "document"
+        ? "Open selected document"
+      : "Activate";
+    newDocumentName.hidden =
+      SELECT_MODE !== "document-new" && SELECT_MODE !== "project-new";
+    newDocumentName.placeholder =
+      SELECT_MODE === "project-new" ? "new-project-folder" : "new-document.md";
+    newDocumentName.setAttribute(
+      "aria-label",
+      SELECT_MODE === "project-new"
+        ? "New project folder name"
+        : "New document file name",
+    );
 
     let rootPayload = null;
     let currentPath = "";
@@ -11356,6 +11373,9 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
         }
         return selectedType === "directory" && Boolean(documentNewTargetPath());
       }
+      if (SELECT_MODE === "project-new") {
+        return selectedType === "directory" && Boolean(projectNewTargetPath());
+      }
       return selectedType === "directory";
     }
 
@@ -11426,21 +11446,39 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       return `${selectedPath.replace(/\/+$/, "")}/${path}`;
     }
 
+    function projectNewTargetPath() {
+      if (SELECT_MODE !== "project-new" || selectedType !== "directory") {
+        return "";
+      }
+      const raw = newDocumentName.value.trim().replace(/\\+/g, "/");
+      if (!raw) {
+        return "";
+      }
+      if (raw.startsWith("/")) {
+        return raw;
+      }
+      return `${selectedPath.replace(/\/+$/, "")}/${raw}`;
+    }
+
     function selectCurrentPath() {
       if (!canSelectCurrentPath()) {
         selectedPathLabel.textContent =
           SELECT_MODE === "link"
             ? "Select a file first."
-            : SELECT_MODE === "document-new"
-              ? "Select a Markdown file or choose a directory and name."
-            : SELECT_MODE === "document"
-              ? "Select a Markdown file first."
-              : "Select a directory first.";
+          : SELECT_MODE === "document-new"
+            ? "Select a Markdown file or choose a directory and name."
+          : SELECT_MODE === "project-new"
+            ? "Choose a parent directory and enter a folder name."
+          : SELECT_MODE === "document"
+            ? "Select a Markdown file first."
+            : "Select a directory first.";
         return;
       }
       const outputPath =
         SELECT_MODE === "document-new" && selectedType === "directory"
           ? documentNewTargetPath()
+        : SELECT_MODE === "project-new" && selectedType === "directory"
+          ? projectNewTargetPath()
           : selectedPath;
       if (window.opener) {
         window.opener.postMessage(
@@ -11507,7 +11545,11 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
 
 
 def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
-    select_mode = mode if mode in {"link", "document", "document-new"} else "project"
+    select_mode = (
+        mode
+        if mode in {"link", "document", "document-new", "project-new"}
+        else "project"
+    )
     return (
         FILE_BROWSER_WINDOW_HTML.replace(
             "__INITIAL_PATH__",
