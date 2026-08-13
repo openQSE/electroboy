@@ -1133,6 +1133,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".workbench-resize-handle", INDEX_HTML)
         self.assertIn(".side-pane-resize-handle", INDEX_HTML)
         self.assertIn(".artifact-pane-resize-handle", INDEX_HTML)
+        self.assertIn(
+            "minmax(360px, var(--artifact-pane-width, 54%));",
+            INDEX_HTML,
+        )
         self.assertNotIn(".side-pane.preview-visible", INDEX_HTML)
         self.assertIn(".pane-popout-button", INDEX_HTML)
         self.assertIn(".artifact-preview-frame", INDEX_HTML)

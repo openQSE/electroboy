@@ -1570,8 +1570,8 @@ INDEX_HTML = """<!doctype html>
 
     .shell.creative-workflow .output-split.artifact-visible {
       grid-template-columns:
-        minmax(260px, 0.92fr) 7px
-        minmax(360px, 1.08fr);
+        minmax(260px, 1fr) 7px
+        minmax(360px, var(--artifact-pane-width, 54%));
     }
 
     .shell.creative-workflow .artifact-preview-pane {
