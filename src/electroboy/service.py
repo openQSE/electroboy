@@ -3661,6 +3661,8 @@ INDEX_HTML = """<!doctype html>
     let projectShellRunning = false;
     const poppedPanes = new Set();
     const poppedPaneWindows = new Map();
+    let slashCommandMode = false;
+    let terminalInputQueue = Promise.resolve();
     let activeAgentKind = "";
     let requirementsRunning = false;
     let requirementsApproved = false;
@@ -9778,6 +9780,11 @@ INDEX_HTML = """<!doctype html>
       if (!selectedSessionAcceptsInput()) {
         return;
       }
+      if (slashCommandMode) {
+        sendTerminalKey("enter");
+        finishSlashCommandMode();
+        return;
+      }
       const message = agentInput.value;
       if (!message.trim()) {
         return;
@@ -9794,19 +9801,123 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    async function sendTerminalKey(key) {
+    function queueTerminalInput(task) {
+      const next = terminalInputQueue.catch(() => {}).then(task);
+      terminalInputQueue = next.catch(() => {});
+      return next;
+    }
+
+    function sendTerminalKey(key) {
       if (!selectedSessionAcceptsInput()) {
-        return;
+        return Promise.resolve();
       }
-      const response = await fetch(contextUrl("/api/sessions/key"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+      return queueTerminalInput(async () => {
+        const response = await fetch(contextUrl("/api/sessions/key"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({ error: "send failed" }));
+          appendOutput(`${payload.error || "send failed"}\\n`, "error");
+        }
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({ error: "send failed" }));
-        appendOutput(`${payload.error || "send failed"}\\n`, "error");
+    }
+
+    function sendTerminalRaw(data) {
+      if (!selectedSessionAcceptsInput() || !data) {
+        return Promise.resolve();
       }
+      return queueTerminalInput(async () => {
+        const response = await fetch(contextUrl("/api/sessions/raw"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({ error: "send failed" }));
+          appendOutput(`${payload.error || "send failed"}\\n`, "error");
+        }
+      });
+    }
+
+    function printableInputEvent(event) {
+      return (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        event.key &&
+        event.key.length === 1
+      );
+    }
+
+    function slashCommandTerminalKeyForInputEvent(event) {
+      if (event.altKey || event.ctrlKey || event.metaKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "Escape") return "escape";
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Backspace") return "backspace";
+      if (event.key === "Delete") return "delete";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    function refreshSlashCommandModeAfterEdit() {
+      window.setTimeout(() => {
+        if (!agentInput.value.trimStart().startsWith("/")) {
+          slashCommandMode = false;
+        }
+      }, 0);
+    }
+
+    function finishSlashCommandMode() {
+      slashCommandMode = false;
+      agentInput.value = "";
+    }
+
+    function handleSlashCommandInput(event) {
+      if (
+        !slashCommandMode &&
+        printableInputEvent(event) &&
+        event.key === "/" &&
+        agentInput.value.trim().length === 0
+      ) {
+        slashCommandMode = true;
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      if (!slashCommandMode) {
+        return false;
+      }
+      const slashKey = slashCommandTerminalKeyForInputEvent(event);
+      if (slashKey) {
+        sendTerminalKey(slashKey);
+        if (slashKey === "enter" || slashKey === "escape") {
+          event.preventDefault();
+          finishSlashCommandMode();
+        } else if (slashKey === "backspace" || slashKey === "delete") {
+          refreshSlashCommandModeAfterEdit();
+        } else {
+          event.preventDefault();
+        }
+        return true;
+      }
+      if (printableInputEvent(event)) {
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      return false;
     }
 
     function terminalKeyForInputEvent(event) {
@@ -10251,6 +10362,9 @@ INDEX_HTML = """<!doctype html>
     window.addEventListener("resize", repositionOpenStageMenu);
 
     agentInput.addEventListener("keydown", (event) => {
+      if (handleSlashCommandInput(event)) {
+        return;
+      }
       const terminalKey = terminalKeyForInputEvent(event);
       if (terminalKey) {
         event.preventDefault();
@@ -10709,6 +10823,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     let pendingTerminalResize = null;
     let eventSource = null;
     let artifactEventSource = null;
+    let slashCommandMode = false;
+    let terminalInputQueue = Promise.resolve();
     let artifactVersion = 0;
     let artifactEditing = false;
     let statusTimer = null;
@@ -11531,6 +11647,11 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     async function sendMessage() {
+      if (slashCommandMode) {
+        sendTerminalKey("enter");
+        finishSlashCommandMode();
+        return;
+      }
       const message = agentInput.value;
       if (!message.trim()) {
         return;
@@ -11543,12 +11664,112 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       });
     }
 
-    async function sendTerminalKey(key) {
-      await fetch(contextUrl("/api/sessions/key"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+    function queueTerminalInput(task) {
+      const next = terminalInputQueue.catch(() => {}).then(task);
+      terminalInputQueue = next.catch(() => {});
+      return next;
+    }
+
+    function sendTerminalKey(key) {
+      return queueTerminalInput(async () => {
+        await fetch(contextUrl("/api/sessions/key"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
       });
+    }
+
+    function sendTerminalRaw(data) {
+      if (!data) {
+        return Promise.resolve();
+      }
+      return queueTerminalInput(async () => {
+        await fetch(contextUrl("/api/sessions/raw"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+      });
+    }
+
+    function printableInputEvent(event) {
+      return (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        event.key &&
+        event.key.length === 1
+      );
+    }
+
+    function slashCommandTerminalKeyForInputEvent(event) {
+      if (event.altKey || event.ctrlKey || event.metaKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "Escape") return "escape";
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Backspace") return "backspace";
+      if (event.key === "Delete") return "delete";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    function refreshSlashCommandModeAfterEdit() {
+      window.setTimeout(() => {
+        if (!agentInput.value.trimStart().startsWith("/")) {
+          slashCommandMode = false;
+        }
+      }, 0);
+    }
+
+    function finishSlashCommandMode() {
+      slashCommandMode = false;
+      agentInput.value = "";
+    }
+
+    function handleSlashCommandInput(event) {
+      if (
+        !slashCommandMode &&
+        printableInputEvent(event) &&
+        event.key === "/" &&
+        agentInput.value.trim().length === 0
+      ) {
+        slashCommandMode = true;
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      if (!slashCommandMode) {
+        return false;
+      }
+      const slashKey = slashCommandTerminalKeyForInputEvent(event);
+      if (slashKey) {
+        sendTerminalKey(slashKey);
+        if (slashKey === "enter" || slashKey === "escape") {
+          event.preventDefault();
+          finishSlashCommandMode();
+        } else if (slashKey === "backspace" || slashKey === "delete") {
+          refreshSlashCommandModeAfterEdit();
+        } else {
+          event.preventDefault();
+        }
+        return true;
+      }
+      if (printableInputEvent(event)) {
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      return false;
     }
 
     function terminalKeyForInputEvent(event) {
@@ -11668,6 +11889,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     sendAgentInput.addEventListener("click", sendMessage);
     interruptAgent.addEventListener("click", interruptAgentSession);
     agentInput.addEventListener("keydown", (event) => {
+      if (handleSlashCommandInput(event)) {
+        return;
+      }
       const terminalKey = terminalKeyForInputEvent(event);
       if (terminalKey) {
         event.preventDefault();
@@ -14265,6 +14489,14 @@ class ServiceState:
         if not session.interactive:
             raise AgentSessionError(f"{session.label} does not accept input")
         session.send_key(key)
+
+    def send_selected_session_raw(self, context_id: str, data: str) -> None:
+        session = self.selected_session(context_id)
+        if session is None:
+            raise AgentSessionError("no agent session is selected")
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send_raw(data)
 
     def interrupt_selected_session(self, context_id: str) -> None:
         session = self.selected_session(context_id)
@@ -19800,6 +20032,8 @@ def _terminal_input_for_key(key: str) -> str:
         "enter": "\r",
         "escape": "\x1b",
         "tab": "\t",
+        "backspace": "\x7f",
+        "delete": "\x1b[3~",
         "up": "\x1b[A",
         "down": "\x1b[B",
         "right": "\x1b[C",
@@ -20307,6 +20541,9 @@ def _handler_for(
                 return
             if path == "/api/sessions/key":
                 self._send_selected_session_key(parsed.query)
+                return
+            if path == "/api/sessions/raw":
+                self._send_selected_session_raw(parsed.query)
                 return
             if path == "/api/sessions/interrupt":
                 self._interrupt_selected_session(parsed.query)
@@ -20828,6 +21065,32 @@ def _handler_for(
                     )
                     return
                 state.send_selected_session_key(context_id, key)
+            except AgentSessionError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except (StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            self._send_json({"status": "sent"})
+
+        def _send_selected_session_raw(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                data = str(payload.get("data") or "")
+                if not data:
+                    self._send_json(
+                        {"error": "data is required"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                state.send_selected_session_raw(context_id, data)
             except AgentSessionError as error:
                 self._send_json(
                     {"error": str(error)},
