@@ -567,6 +567,35 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('securityLevel: "strict"', page)
         self.assertIn('querySelector: ".mermaid"', page)
 
+    def test_document_target_renderer_renders_markdown_inside_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "README.md"
+            target.write_text(
+                "# Project\n\n"
+                "<details id=\"configuration\" closed>\n"
+                "<summary><strong>Configuration</strong></summary>\n\n"
+                "Intro text.\n\n"
+                "| Owner | Configuration | Purpose |\n"
+                "| --- | --- | --- |\n"
+                "| Site administrator | Site files | Shared infrastructure |\n\n"
+                "### Site Configuration\n\n"
+                "More text.\n"
+                "</details>\n",
+                encoding="utf-8",
+            )
+
+            page, status = document_target_html(root, "README.md")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('<details closed="closed" id="configuration">', page)
+        self.assertIn("<table>", page)
+        self.assertIn("<th>Owner</th>", page)
+        self.assertIn("<td>Site administrator</td>", page)
+        self.assertIn("<h3>Site Configuration</h3>", page)
+        self.assertNotIn("| Owner | Configuration | Purpose |", page)
+        self.assertNotIn("### Site Configuration", page)
+
     def test_document_target_renderer_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

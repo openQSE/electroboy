@@ -19260,8 +19260,26 @@ def _render_markdown(text: str) -> str:
         import markdown as markdown_library
     except ImportError:
         return _render_basic_markdown(text)
-    rendered = str(markdown_library.markdown(text, extensions=["extra", "sane_lists"]))
+    rendered = str(
+        markdown_library.markdown(
+            _enable_markdown_in_details(text),
+            extensions=["extra", "sane_lists", "md_in_html"],
+        )
+    )
     return _promote_mermaid_blocks(rendered)
+
+
+_DETAILS_TAG_RE = re.compile(r"<details(?P<attrs>[^>]*)>", re.IGNORECASE)
+
+
+def _enable_markdown_in_details(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        attrs = match.group("attrs") or ""
+        if re.search(r"\smarkdown\s*=", attrs, re.IGNORECASE):
+            return match.group(0)
+        return f'<details{attrs} markdown="1">'
+
+    return _DETAILS_TAG_RE.sub(replace, text)
 
 
 def _render_basic_markdown(text: str) -> str:
