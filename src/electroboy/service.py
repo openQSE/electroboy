@@ -2482,6 +2482,18 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     <section class="workflow-pane" aria-label="Project workflow">
       <div id="connection" class="connection"></div>
       <div class="workflow-toolbar" aria-label="Agent controls">
+        <div class="splash-control toolbar-control-group">
+          <span class="toolbar-control-label">Splash</span>
+          <button
+            id="showSplash"
+            class="toolbar-command-button"
+            type="button"
+            title="Show the ElectroBoy splash screen"
+            aria-label="Show the ElectroBoy splash screen"
+          >
+            Show
+          </button>
+        </div>
         <div class="terminal-font-controls toolbar-control-group" aria-label="UI font size">
           <span class="toolbar-control-label">Text</span>
           <button
@@ -2533,18 +2545,6 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
             aria-label="Open or hide the project shell"
           >
             Shell
-          </button>
-        </div>
-        <div class="splash-control toolbar-control-group">
-          <span class="toolbar-control-label">Splash</span>
-          <button
-            id="showSplash"
-            class="toolbar-command-button"
-            type="button"
-            title="Show the ElectroBoy splash screen"
-            aria-label="Show the ElectroBoy splash screen"
-          >
-            Show
           </button>
         </div>
       </div>
