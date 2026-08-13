@@ -200,6 +200,155 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("already exists; pass --force to overwrite", stderr)
 
+    def test_corkboard_cli_manages_freeform_cards(self) -> None:
+        with temp_project() as root:
+            create = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "create",
+                    "corkboard/ideas.corkboard.json",
+                ]
+            )
+            add = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "add",
+                    "corkboard/ideas.corkboard.json",
+                    "--id",
+                    "opening-beat",
+                    "--title",
+                    "Opening beat",
+                    "--note",
+                    "Start quietly.",
+                    "--x",
+                    "120",
+                    "--y",
+                    "180",
+                ]
+            )
+            move = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "move",
+                    "corkboard/ideas.corkboard.json",
+                    "opening-beat",
+                    "--x",
+                    "300",
+                    "--y",
+                    "220",
+                ]
+            )
+            style = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "style",
+                    "corkboard/ideas.corkboard.json",
+                    "opening-beat",
+                    "--color",
+                    "#fff6cf",
+                    "--rotation",
+                    "-2",
+                ]
+            )
+            update = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "update",
+                    "corkboard/ideas.corkboard.json",
+                    "opening-beat",
+                    "--title",
+                    "Opening image",
+                    "--note",
+                    "Make the contradiction visible.",
+                ]
+            )
+            show_code, show_stdout, show_stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "show",
+                    "corkboard/ideas.corkboard.json",
+                ]
+            )
+
+        data = json.loads(show_stdout)
+        card = data["cards"][0]
+        self.assertEqual(create[0], 0, create[2])
+        self.assertEqual(add[0], 0, add[2])
+        self.assertEqual(move[0], 0, move[2])
+        self.assertEqual(style[0], 0, style[2])
+        self.assertEqual(update[0], 0, update[2])
+        self.assertEqual(show_code, 0, show_stderr)
+        self.assertEqual(data["board_type"], "freeform")
+        self.assertEqual(card["id"], "opening-beat")
+        self.assertEqual(card["title"], "Opening image")
+        self.assertEqual(card["note"], "Make the contradiction visible.")
+        self.assertEqual(card["x"], 300.0)
+        self.assertEqual(card["y"], 220.0)
+        self.assertEqual(card["rotation"], -2.0)
+        self.assertEqual(card["color"], "#fff6cf")
+
+    def test_corkboard_cli_manages_folder_board_notes_and_order(self) -> None:
+        with temp_project() as root:
+            write_file(root / "chapters" / "chapter-01.md", "# Chapter 1\n")
+            write_file(root / "chapters" / "chapter-02.md", "# Chapter 2\n")
+
+            note = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "folder",
+                    "note",
+                    "chapters",
+                    "chapter-01.md",
+                    "--note",
+                    "Needs a stronger hook.",
+                ]
+            )
+            reorder = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "folder",
+                    "reorder",
+                    "chapters",
+                    "--order",
+                    "chapter-02.md",
+                    "chapter-01.md",
+                ]
+            )
+            show_code, show_stdout, show_stderr = self.run_cli(
+                ["--root", str(root), "corkboard", "show", "chapters"]
+            )
+
+        data = json.loads(show_stdout)
+        self.assertEqual(note[0], 0, note[2])
+        self.assertEqual(reorder[0], 0, reorder[2])
+        self.assertEqual(show_code, 0, show_stderr)
+        self.assertEqual(data["board_type"], "folder")
+        self.assertEqual(
+            [card["path"] for card in data["cards"]],
+            ["chapters/chapter-02.md", "chapters/chapter-01.md"],
+        )
+        self.assertEqual(data["cards"][1]["note"], "Needs a stronger hook.")
+
     def test_progress_once_prints_run_progress_files(self) -> None:
         with temp_project() as root:
             store = StateStore(root)

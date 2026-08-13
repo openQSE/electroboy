@@ -6,6 +6,7 @@ import argparse
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 import difflib
+import hashlib
 import json
 import os
 import re
@@ -175,6 +176,9 @@ BUG_ARTIFACT_KEYS = {
     "summary": "summary.md",
 }
 META_REGISTRY_PATH = "repositories.json"
+CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json"
+CREATIVE_CORKBOARD_STATE_PATH = Path(".electroboy") / "creative" / "corkboards.json"
+CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
 META_MANAGEMENT_COMMANDS = {"add", "start"}
 SERVICE_ROOT_ENV = "ELECTROBOY_SERVICE_ROOT"
 SERVICE_HOST_ENV = "ELECTROBOY_SERVICE_HOST"
@@ -187,6 +191,7 @@ PROJECTLESS_COMMANDS = {
     "add",
     "bug",
     "completion",
+    "corkboard",
     "deactivate",
     "feature",
     "meta",
@@ -885,6 +890,114 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="open an interactive code-review or fix session",
     )
+    corkboard = subparsers.add_parser(
+        "corkboard",
+        help="manage creative-writing corkboards",
+    )
+    corkboard_subparsers = corkboard.add_subparsers(
+        dest="corkboard_command",
+        required=True,
+    )
+    corkboard_subparsers.add_parser(
+        "list",
+        help="list freeform corkboard files under the project",
+    )
+    corkboard_show = corkboard_subparsers.add_parser(
+        "show",
+        help="show a freeform or folder corkboard as JSON",
+    )
+    corkboard_show.add_argument("path", help="corkboard file or folder path")
+    corkboard_create = corkboard_subparsers.add_parser(
+        "create",
+        help="create a freeform corkboard file",
+    )
+    corkboard_create.add_argument("path", help="path ending in .corkboard.json")
+
+    corkboard_card = corkboard_subparsers.add_parser(
+        "card",
+        help="manage cards on freeform corkboards",
+    )
+    corkboard_card_subparsers = corkboard_card.add_subparsers(
+        dest="corkboard_card_command",
+        required=True,
+    )
+    corkboard_card_add = corkboard_card_subparsers.add_parser(
+        "add",
+        help="add a card to a freeform corkboard",
+    )
+    corkboard_card_add.add_argument("path", help="freeform corkboard path")
+    corkboard_card_add.add_argument("--id", dest="card_id", help="explicit card id")
+    corkboard_card_add.add_argument("--title", required=True, help="card title")
+    corkboard_card_add.add_argument("--note", default="", help="card note text")
+    corkboard_card_add.add_argument("--x", type=float, default=36.0, help="card x position")
+    corkboard_card_add.add_argument("--y", type=float, default=36.0, help="card y position")
+    corkboard_card_add.add_argument("--color", help="card color")
+    corkboard_card_add.add_argument(
+        "--rotation",
+        type=float,
+        help="card rotation in degrees",
+    )
+    corkboard_card_update = corkboard_card_subparsers.add_parser(
+        "update",
+        help="update a freeform card title or note",
+    )
+    corkboard_card_update.add_argument("path", help="freeform corkboard path")
+    corkboard_card_update.add_argument("card_id", help="card id")
+    corkboard_card_update.add_argument("--title", help="new card title")
+    corkboard_card_update.add_argument("--note", help="new card note")
+    corkboard_card_move = corkboard_card_subparsers.add_parser(
+        "move",
+        help="move a freeform card",
+    )
+    corkboard_card_move.add_argument("path", help="freeform corkboard path")
+    corkboard_card_move.add_argument("card_id", help="card id")
+    corkboard_card_move.add_argument("--x", type=float, required=True, help="new x position")
+    corkboard_card_move.add_argument("--y", type=float, required=True, help="new y position")
+    corkboard_card_style = corkboard_card_subparsers.add_parser(
+        "style",
+        help="update a freeform card color or rotation",
+    )
+    corkboard_card_style.add_argument("path", help="freeform corkboard path")
+    corkboard_card_style.add_argument("card_id", help="card id")
+    corkboard_card_style.add_argument("--color", help="new card color")
+    corkboard_card_style.add_argument(
+        "--rotation",
+        type=float,
+        help="new card rotation in degrees",
+    )
+    corkboard_card_delete = corkboard_card_subparsers.add_parser(
+        "delete",
+        help="delete a freeform card",
+    )
+    corkboard_card_delete.add_argument("path", help="freeform corkboard path")
+    corkboard_card_delete.add_argument("card_id", help="card id")
+
+    corkboard_folder = corkboard_subparsers.add_parser(
+        "folder",
+        help="manage folder-backed corkboard notes and order",
+    )
+    corkboard_folder_subparsers = corkboard_folder.add_subparsers(
+        dest="corkboard_folder_command",
+        required=True,
+    )
+    corkboard_folder_note = corkboard_folder_subparsers.add_parser(
+        "note",
+        help="set the note for a folder-backed card",
+    )
+    corkboard_folder_note.add_argument("folder", help="folder board path")
+    corkboard_folder_note.add_argument("card_path", help="child path or name")
+    corkboard_folder_note.add_argument("--note", required=True, help="card note text")
+    corkboard_folder_reorder = corkboard_folder_subparsers.add_parser(
+        "reorder",
+        help="set folder-backed card display order",
+    )
+    corkboard_folder_reorder.add_argument("folder", help="folder board path")
+    corkboard_folder_reorder.add_argument(
+        "--order",
+        nargs="+",
+        required=True,
+        help="ordered child paths or comma-separated child paths",
+    )
     document = subparsers.add_parser(
         "document",
         help="start or resume documentation review",
@@ -1164,6 +1277,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_code(store, engine, args)
         if args.command == "code-review":
             return _cmd_code_review(store, args)
+        if args.command == "corkboard":
+            return _cmd_corkboard(store, args)
         if args.command == "document":
             return _cmd_document(store, engine, args)
         if args.command == "render-artifact":
@@ -6300,6 +6415,591 @@ def _phase_commit_context_paths(store: StateStore) -> list[str]:
         *_implementation_context_paths(store),
         _phase_review_summary_path(store, "code_review"),
     ]
+
+
+def _cmd_corkboard(store: StateStore, args: argparse.Namespace) -> int:
+    if args.corkboard_command == "list":
+        return _cmd_corkboard_list(store)
+    if args.corkboard_command == "show":
+        return _cmd_corkboard_show(store, args)
+    if args.corkboard_command == "create":
+        created = _create_corkboard_file(store.root, args.path)
+        print(f"created corkboard: {created}")
+        return 0
+    if args.corkboard_command == "card":
+        return _cmd_corkboard_card(store, args)
+    if args.corkboard_command == "folder":
+        return _cmd_corkboard_folder(store, args)
+    return 2
+
+
+def _cmd_corkboard_list(store: StateStore) -> int:
+    print("corkboards:")
+    paths = _corkboard_files(store.root)
+    if not paths:
+        print("  - none")
+        return 0
+    for path in paths:
+        print(f"  - {path}")
+    return 0
+
+
+def _cmd_corkboard_show(store: StateStore, args: argparse.Namespace) -> int:
+    relative_path, path = _creative_path(store.root, args.path)
+    if path.is_dir():
+        _print_json(_folder_corkboard_payload(store.root, relative_path, path))
+        return 0
+    if relative_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        _print_json(_freeform_corkboard_payload(store.root, relative_path, path))
+        return 0
+    raise StateError(f"corkboard does not exist: {relative_path}")
+
+
+def _cmd_corkboard_card(store: StateStore, args: argparse.Namespace) -> int:
+    if args.corkboard_card_command == "add":
+        card = _add_freeform_corkboard_card(
+            store.root,
+            args.path,
+            card_id=args.card_id,
+            title=args.title,
+            note=args.note,
+            x=args.x,
+            y=args.y,
+            color=args.color,
+            rotation=args.rotation,
+        )
+        print(f"added card: {card['id']}")
+        return 0
+    if args.corkboard_card_command == "update":
+        card = _update_freeform_corkboard_card(
+            store.root,
+            args.path,
+            args.card_id,
+            title=args.title,
+            note=args.note,
+        )
+        print(f"updated card: {card['id']}")
+        return 0
+    if args.corkboard_card_command == "move":
+        card = _update_freeform_corkboard_card(
+            store.root,
+            args.path,
+            args.card_id,
+            x=args.x,
+            y=args.y,
+        )
+        print(f"moved card: {card['id']}")
+        return 0
+    if args.corkboard_card_command == "style":
+        card = _update_freeform_corkboard_card(
+            store.root,
+            args.path,
+            args.card_id,
+            color=args.color,
+            rotation=args.rotation,
+        )
+        print(f"styled card: {card['id']}")
+        return 0
+    if args.corkboard_card_command == "delete":
+        _delete_freeform_corkboard_card(store.root, args.path, args.card_id)
+        print(f"deleted card: {args.card_id}")
+        return 0
+    return 2
+
+
+def _cmd_corkboard_folder(store: StateStore, args: argparse.Namespace) -> int:
+    if args.corkboard_folder_command == "note":
+        card = _set_folder_corkboard_note(
+            store.root,
+            args.folder,
+            args.card_path,
+            args.note,
+        )
+        print(f"updated folder card note: {card['path']}")
+        return 0
+    if args.corkboard_folder_command == "reorder":
+        order = _set_folder_corkboard_order(store.root, args.folder, args.order)
+        print("updated folder corkboard order:")
+        for path in order:
+            print(f"  - {path}")
+        return 0
+    return 2
+
+
+def _print_json(data: object) -> None:
+    print(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _normalize_creative_path(relative_path: str) -> str:
+    raw = relative_path.strip().replace("\\", "/")
+    if not raw:
+        raise StateError("path is required")
+    path = Path(raw)
+    if path.is_absolute():
+        raise StateError("path must be relative")
+    if any(part in {"", ".."} for part in path.parts):
+        raise StateError("path cannot escape the project")
+    return path.as_posix()
+
+
+def _creative_path(root: Path, relative_path: str) -> tuple[str, Path]:
+    normalized = _normalize_creative_path(relative_path)
+    resolved = (root / normalized).resolve()
+    try:
+        resolved.relative_to(root.resolve())
+    except ValueError as error:
+        raise StateError("path cannot escape the project") from error
+    return normalized, resolved
+
+
+def _corkboard_files(root: Path) -> list[str]:
+    paths: list[str] = []
+    for path in sorted(root.rglob(f"*{CREATIVE_CORKBOARD_SUFFIX}")):
+        relative_parts = path.relative_to(root).parts
+        if any(part.startswith(".") or part in CREATIVE_IGNORED_NAMES for part in relative_parts):
+            continue
+        if path.is_file():
+            paths.append(path.relative_to(root).as_posix())
+    return paths
+
+
+def _empty_corkboard_document() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "type": "electroboy.creative.corkboard",
+        "cards": [],
+    }
+
+
+def _create_corkboard_file(root: Path, relative_path: str) -> str:
+    normalized, path = _creative_path(root, relative_path)
+    if not normalized.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if path.exists() and not path.is_file():
+        raise StateError("corkboard path already exists as a folder")
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(path, _empty_corkboard_document())
+    return normalized
+
+
+def _load_corkboard_document(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return _empty_corkboard_document()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _empty_corkboard_document()
+    if not isinstance(data, dict):
+        return _empty_corkboard_document()
+    data["schema_version"] = 1
+    data["type"] = "electroboy.creative.corkboard"
+    if not isinstance(data.get("cards"), list):
+        data["cards"] = []
+    return data
+
+
+def _write_json(path: Path, data: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _freeform_corkboard_payload(
+    root: Path,
+    relative_path: str,
+    path: Path,
+) -> dict[str, object]:
+    if not relative_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"not a freeform corkboard: {relative_path}")
+    if not path.exists():
+        raise StateError(f"corkboard does not exist: {relative_path}")
+    data = _load_corkboard_document(path)
+    return {
+        "schema_version": 1,
+        "board_type": "freeform",
+        "corkboard": {
+            "name": path.name,
+            "path": relative_path,
+        },
+        "cards": _freeform_cards(data),
+    }
+
+
+def _freeform_cards(data: dict[str, object]) -> list[dict[str, object]]:
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        return []
+    normalized_cards: list[dict[str, object]] = []
+    for index, raw_card in enumerate(cards):
+        if not isinstance(raw_card, dict):
+            continue
+        card_id = str(raw_card.get("id") or f"card-{index + 1}")[:100]
+        style = _corkboard_card_style(card_id, index)
+        normalized_cards.append(
+            {
+                "id": card_id,
+                "title": str(raw_card.get("title") or "Untitled card")[:200],
+                "note": str(raw_card.get("note") or "")[:5000],
+                "x": _bounded_float(raw_card.get("x"), 36 + index * 24, 0, 5000),
+                "y": _bounded_float(raw_card.get("y"), 36 + index * 18, 0, 5000),
+                "rotation": _bounded_float(
+                    raw_card.get("rotation"),
+                    float(style["rotation"]),
+                    -8,
+                    8,
+                ),
+                "color": str(raw_card.get("color") or style["color"])[:40],
+            }
+        )
+    return normalized_cards
+
+
+def _add_freeform_corkboard_card(
+    root: Path,
+    relative_path: str,
+    *,
+    card_id: str | None,
+    title: str,
+    note: str,
+    x: float,
+    y: float,
+    color: str | None,
+    rotation: float | None,
+) -> dict[str, object]:
+    normalized, path = _creative_path(root, relative_path)
+    _create_corkboard_file(root, normalized)
+    data = _load_corkboard_document(path)
+    cards = _freeform_cards(data)
+    next_id = _unique_card_id(cards, card_id or title)
+    style = _corkboard_card_style(next_id, len(cards))
+    card = {
+        "id": next_id,
+        "title": title[:200] or "Untitled card",
+        "note": note[:5000],
+        "x": _bounded_float(x, 36, 0, 5000),
+        "y": _bounded_float(y, 36, 0, 5000),
+        "rotation": _bounded_float(
+            rotation,
+            float(style["rotation"]),
+            -8,
+            8,
+        ),
+        "color": str(color or style["color"])[:40],
+    }
+    cards.append(card)
+    data["cards"] = cards
+    _write_json(path, data)
+    return card
+
+
+def _update_freeform_corkboard_card(
+    root: Path,
+    relative_path: str,
+    card_id: str,
+    *,
+    title: str | None = None,
+    note: str | None = None,
+    x: float | None = None,
+    y: float | None = None,
+    color: str | None = None,
+    rotation: float | None = None,
+) -> dict[str, object]:
+    normalized, path = _creative_path(root, relative_path)
+    if not normalized.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized}")
+    data = _load_corkboard_document(path)
+    cards = _freeform_cards(data)
+    for card in cards:
+        if card["id"] != card_id:
+            continue
+        if title is not None:
+            card["title"] = title[:200] or "Untitled card"
+        if note is not None:
+            card["note"] = note[:5000]
+        if x is not None:
+            card["x"] = _bounded_float(x, float(card["x"]), 0, 5000)
+        if y is not None:
+            card["y"] = _bounded_float(y, float(card["y"]), 0, 5000)
+        if color is not None:
+            card["color"] = color[:40]
+        if rotation is not None:
+            card["rotation"] = _bounded_float(rotation, float(card["rotation"]), -8, 8)
+        data["cards"] = cards
+        _write_json(path, data)
+        return card
+    raise StateError(f"card does not exist: {card_id}")
+
+
+def _delete_freeform_corkboard_card(
+    root: Path,
+    relative_path: str,
+    card_id: str,
+) -> None:
+    normalized, path = _creative_path(root, relative_path)
+    if not normalized.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized}")
+    data = _load_corkboard_document(path)
+    cards = _freeform_cards(data)
+    next_cards = [card for card in cards if card.get("id") != card_id]
+    if len(next_cards) == len(cards):
+        raise StateError(f"card does not exist: {card_id}")
+    data["cards"] = next_cards
+    _write_json(path, data)
+
+
+def _slug(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug or "card"
+
+
+def _unique_card_id(cards: list[dict[str, object]], value: str) -> str:
+    existing = {str(card.get("id") or "") for card in cards}
+    base = _slug(value)[:80]
+    candidate = base
+    index = 2
+    while candidate in existing:
+        candidate = f"{base}-{index}"
+        index += 1
+    return candidate
+
+
+def _corkboard_card_style(
+    key: str,
+    index: int,
+) -> dict[str, object]:
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    palette = ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"]
+    rotation = (int(digest[4:6], 16) % 9) - 4
+    return {
+        "rotation": rotation,
+        "color": palette[int(digest[6:8], 16) % len(palette)],
+    }
+
+
+def _bounded_float(
+    value: object,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def _folder_corkboard_payload(
+    root: Path,
+    relative_path: str,
+    folder: Path,
+) -> dict[str, object]:
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder corkboard does not exist: {relative_path}")
+    state = _load_corkboard_state(root)
+    folder_state = _folder_corkboard_state(state, relative_path)
+    card_state = _folder_corkboard_cards(folder_state)
+    cards = [
+        _folder_corkboard_card(child, root, card_state, index)
+        for index, child in enumerate(_ordered_folder_children(root, folder, folder_state))
+    ]
+    return {
+        "schema_version": 1,
+        "board_type": "folder",
+        "folder": {
+            "name": folder.name,
+            "path": relative_path,
+        },
+        "cards": cards,
+    }
+
+
+def _ordered_folder_children(
+    root: Path,
+    folder: Path,
+    folder_state: dict[str, object],
+) -> list[Path]:
+    children_by_path = {
+        child.relative_to(root).as_posix(): child
+        for child in _folder_corkboard_children(folder)
+    }
+    ordered: list[Path] = []
+    seen: set[str] = set()
+    order = folder_state.get("order")
+    if isinstance(order, list):
+        for item in order:
+            path = str(item)
+            child = children_by_path.get(path)
+            if child is not None and path not in seen:
+                ordered.append(child)
+                seen.add(path)
+    for path, child in sorted(children_by_path.items()):
+        if path not in seen:
+            ordered.append(child)
+    return ordered
+
+
+def _folder_corkboard_children(folder: Path) -> list[Path]:
+    try:
+        children = sorted(
+            folder.iterdir(),
+            key=lambda path: (not path.is_dir(), path.name.lower()),
+        )
+    except OSError:
+        return []
+    return [
+        child
+        for child in children
+        if child.name not in CREATIVE_IGNORED_NAMES and not child.name.startswith(".")
+    ]
+
+
+def _folder_corkboard_card(
+    path: Path,
+    root: Path,
+    state: dict[str, object],
+    index: int,
+) -> dict[str, object]:
+    relative_path = path.relative_to(root).as_posix()
+    style = _corkboard_card_style(relative_path, index)
+    card_state = state.get(relative_path, {})
+    if not isinstance(card_state, dict):
+        card_state = {}
+    return {
+        "name": path.name,
+        "path": relative_path,
+        "type": "directory" if path.is_dir() else "file",
+        "corkboard": path.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
+        "note": str(card_state.get("note") or ""),
+        "rotation": style["rotation"],
+        "color": style["color"],
+    }
+
+
+def _load_corkboard_state(root: Path) -> dict[str, object]:
+    path = root / CREATIVE_CORKBOARD_STATE_PATH
+    if not path.exists():
+        return {"schema_version": 1, "folders": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1, "folders": {}}
+    if not isinstance(data, dict):
+        return {"schema_version": 1, "folders": {}}
+    data["schema_version"] = 1
+    if not isinstance(data.get("folders"), dict):
+        data["folders"] = {}
+    return data
+
+
+def _save_corkboard_state(root: Path, state: dict[str, object]) -> None:
+    _write_json(root / CREATIVE_CORKBOARD_STATE_PATH, state)
+
+
+def _folder_corkboard_state(
+    state: dict[str, object],
+    folder_path: str,
+) -> dict[str, object]:
+    folders = state.setdefault("folders", {})
+    if not isinstance(folders, dict):
+        folders = {}
+        state["folders"] = folders
+    folder_state = folders.setdefault(folder_path, {})
+    if not isinstance(folder_state, dict):
+        folder_state = {}
+        folders[folder_path] = folder_state
+    if not isinstance(folder_state.get("cards"), dict):
+        folder_state["cards"] = {}
+    if not isinstance(folder_state.get("order"), list):
+        folder_state["order"] = []
+    return folder_state
+
+
+def _folder_corkboard_cards(folder_state: dict[str, object]) -> dict[str, object]:
+    cards = folder_state.setdefault("cards", {})
+    if not isinstance(cards, dict):
+        cards = {}
+        folder_state["cards"] = cards
+    return cards
+
+
+def _set_folder_corkboard_note(
+    root: Path,
+    folder_path: str,
+    card_path: str,
+    note: str,
+) -> dict[str, object]:
+    normalized_folder, folder = _creative_path(root, folder_path)
+    normalized_card, card = _folder_card_path(root, normalized_folder, card_path)
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder corkboard does not exist: {normalized_folder}")
+    if not card.exists():
+        raise StateError(f"folder card does not exist: {normalized_card}")
+    if card.parent.resolve() != folder.resolve():
+        raise StateError("card does not belong to the folder corkboard")
+    state = _load_corkboard_state(root)
+    folder_state = _folder_corkboard_state(state, normalized_folder)
+    cards = _folder_corkboard_cards(folder_state)
+    previous = cards.get(normalized_card, {})
+    cards[normalized_card] = {
+        **(previous if isinstance(previous, dict) else {}),
+        "note": note[:5000],
+    }
+    _save_corkboard_state(root, state)
+    return {"path": normalized_card, **cards[normalized_card]}
+
+
+def _set_folder_corkboard_order(
+    root: Path,
+    folder_path: str,
+    order_items: list[str],
+) -> list[str]:
+    normalized_folder, folder = _creative_path(root, folder_path)
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder corkboard does not exist: {normalized_folder}")
+    children = {
+        child.relative_to(root).as_posix(): child
+        for child in _folder_corkboard_children(folder)
+    }
+    saved_order: list[str] = []
+    seen: set[str] = set()
+    for item in _split_order_items(order_items):
+        normalized_item, item_path = _folder_card_path(root, normalized_folder, item)
+        if (
+            normalized_item in children
+            and normalized_item not in seen
+            and item_path.parent.resolve() == folder.resolve()
+        ):
+            saved_order.append(normalized_item)
+            seen.add(normalized_item)
+    for item in sorted(children):
+        if item not in seen:
+            saved_order.append(item)
+    state = _load_corkboard_state(root)
+    folder_state = _folder_corkboard_state(state, normalized_folder)
+    folder_state["order"] = saved_order
+    _save_corkboard_state(root, state)
+    return saved_order
+
+
+def _folder_card_path(
+    root: Path,
+    folder_path: str,
+    card_path: str,
+) -> tuple[str, Path]:
+    raw = card_path.strip().replace("\\", "/")
+    if not raw:
+        raise StateError("card path is required")
+    if "/" not in raw:
+        raw = f"{folder_path}/{raw}"
+    return _creative_path(root, raw)
+
+
+def _split_order_items(items: list[str]) -> list[str]:
+    split_items: list[str] = []
+    for item in items:
+        split_items.extend(part.strip() for part in item.split(",") if part.strip())
+    return split_items
 
 
 def _cmd_document(

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import hashlib
 import html
 import io
 import json
 import os
 import pty
 import re
+import shutil
 import signal
 import shlex
 import struct
@@ -22,6 +24,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import resources
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -67,6 +70,11 @@ from .structured_artifacts import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+SPLASH_IMAGE_ROUTE = "/assets/electroboy-splash-16x9.png"
+CREATIVE_SPLASH_IMAGE_ROUTE = "/assets/electroboy-splash-creative-writing-16x9.png"
+SPLASH_IMAGE_PACKAGE = "electroboy"
+SPLASH_IMAGE_RESOURCE = "electroboy-splash-16x9.png"
+CREATIVE_SPLASH_IMAGE_RESOURCE = "electroboy-splash-creative-writing-16x9.png"
 TERMINAL_SUBMIT_DELAY_SECONDS = 0.08
 MIN_TERMINAL_COLUMNS = 20
 MAX_TERMINAL_COLUMNS = 1000
@@ -74,6 +82,20 @@ MIN_TERMINAL_ROWS = 5
 MAX_TERMINAL_ROWS = 120
 META_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "repositories.json"
 WORK_ITEM_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "work-items.json"
+CREATIVE_DEFAULT_FOLDERS = (
+    "chapters",
+    "scratchpad",
+    "characters",
+    "corkboard",
+    "reviews",
+    "research",
+)
+CREATIVE_SCRATCHPAD_PATH = "scratchpad/scratchpad.md"
+CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
+CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json"
+CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
+    Path(".electroboy") / "creative" / "corkboards.json"
+)
 
 _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
@@ -150,13 +172,7 @@ SESSION_ARTIFACT_LOCKS = {
             "validation-review.jsonl",
         }
     ),
-    "documentation": frozenset(
-        {
-            "documentation.jsonl",
-            "README.md",
-            "docs/api.md",
-        }
-    ),
+    "documentation": frozenset(),
 }
 
 GENERIC_STAGE_CONFIG: dict[str, dict[str, object]] = {
@@ -254,7 +270,7 @@ ARTIFACT_EDITOR_LIST_FIELDS = {
 
 ARTIFACT_EDITOR_JSON_FIELDS = {"automation", "schema"}
 
-INDEX_HTML = """<!doctype html>
+INDEX_HTML_TEMPLATE = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -308,6 +324,71 @@ INDEX_HTML = """<!doctype html>
 
     body {
       overflow: hidden;
+    }
+
+    .splash-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at center, rgb(24 40 61 / 58%), rgb(5 8 14 / 86%));
+      backdrop-filter: blur(7px);
+      cursor: pointer;
+      padding: 32px;
+    }
+
+    .splash-overlay[hidden] {
+      display: none;
+    }
+
+    .splash-card {
+      position: relative;
+      width: min(94vw, calc((100vh - 64px) * 16 / 9), 1800px);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border: 1px solid rgb(102 217 232 / 42%);
+      border-radius: 10px;
+      background: #10141f;
+      box-shadow:
+        0 0 0 1px rgb(255 255 255 / 5%) inset,
+        0 28px 72px rgb(0 0 0 / 48%),
+        0 0 48px rgb(102 217 232 / 20%);
+      cursor: default;
+    }
+
+    .splash-card img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .splash-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgb(102 217 232 / 40%);
+      border-radius: 50%;
+      background: rgb(16 20 31 / 74%);
+      color: #e7edf7;
+      cursor: pointer;
+      font: inherit;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .splash-close:hover,
+    .splash-close:focus-visible {
+      border-color: #66d9e8;
+      background: rgb(29 38 56 / 88%);
+      outline: none;
     }
 
     .shell {
@@ -407,6 +488,7 @@ INDEX_HTML = """<!doctype html>
 
     .side-sheet-title {
       min-width: 0;
+      flex: 1 1 auto;
       overflow: hidden;
       color: #1d3348;
       font-size: var(--ui-font-size);
@@ -415,12 +497,26 @@ INDEX_HTML = """<!doctype html>
       white-space: nowrap;
     }
 
+    .workflow-mode-select {
+      min-width: 0;
+      flex: 1 1 auto;
+      height: 34px;
+      border: 1px solid #9fb4c8;
+      border-radius: 7px;
+      background: #eef6fb;
+      color: #1d3348;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 0 8px;
+    }
+
     .shell.side-sheet-collapsed .side-sheet-header {
       justify-content: center;
       padding: 0;
     }
 
     .shell.side-sheet-collapsed .side-sheet-title,
+    .shell.side-sheet-collapsed .workflow-mode-select,
     .shell.side-sheet-collapsed .stage-action-panel {
       display: none;
     }
@@ -749,6 +845,273 @@ INDEX_HTML = """<!doctype html>
       min-width: 0;
     }
 
+    .shell.creative-workflow .stage-action-body {
+      display: none;
+    }
+
+    .creative-binder {
+      display: grid;
+      align-content: start;
+      align-self: start;
+      gap: 4px;
+      min-width: 0;
+      color: #1d3348;
+    }
+
+    .creative-binder[hidden] {
+      display: none;
+    }
+
+    .creative-section {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .creative-active-project {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      margin-top: 8px;
+    }
+
+    .creative-active-project[hidden] {
+      display: none;
+    }
+
+    .creative-divider {
+      height: 1px;
+      margin: 4px 4px 6px;
+      background: #b8c8d7;
+    }
+
+    .creative-project-name {
+      min-width: 0;
+      overflow: hidden;
+      color: #1d3348;
+      font-size: var(--ui-small-font-size);
+      font-weight: 650;
+      line-height: 1.35;
+      padding: 0 8px 2px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .creative-binder-status {
+      min-height: 18px;
+      color: #48627a;
+      font-size: var(--ui-small-font-size);
+      line-height: 1.35;
+      padding: 0 8px;
+    }
+
+    .creative-tree {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+      margin-top: 2px;
+    }
+
+    .creative-tree-row {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr) 26px 26px;
+      align-items: center;
+      width: calc(100% - var(--creative-depth-indent, 0px));
+      margin-left: var(--creative-depth-indent, 0px);
+      min-height: 32px;
+      border: 1px solid #c0d0df;
+      border-radius: 6px;
+      background: #f8fbff;
+      color: #243f53;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      text-align: left;
+      cursor: pointer;
+      padding: 0 8px;
+    }
+
+    .creative-tree-row.directory {
+      grid-template-columns: 18px minmax(0, 1fr) 26px 26px 18px;
+      min-height: 34px;
+      border-color: #18324d;
+      border-radius: 999px;
+      background: #1f3f5f;
+      color: #ffffff;
+      font-weight: 400;
+      padding: 0 10px;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 16%) inset,
+        0 8px 18px rgb(18 48 78 / 14%);
+    }
+
+    .creative-tree-row.directory:hover,
+    .creative-tree-row.directory.expanded {
+      background: #254b70;
+    }
+
+    .creative-tree-row.file {
+      background: #ffffff;
+    }
+
+    .creative-tree-row.active {
+      border-color: #005f66;
+      background: #006b73;
+      color: #ffffff;
+    }
+
+    .creative-tree-row.directory.active {
+      border-color: #00a1ad;
+      background: #006b73;
+      color: #ffffff;
+    }
+
+    .creative-tree-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      color: #42617a;
+      text-align: center;
+    }
+
+    .creative-tree-icon.folder {
+      color: #8bd3dd;
+    }
+
+    .creative-tree-icon.markdown {
+      color: #1c7ed6;
+    }
+
+    .creative-tree-icon.corkboard {
+      color: #9f7aea;
+    }
+
+    .creative-tree-row.active .creative-tree-icon {
+      color: currentColor;
+    }
+
+    .creative-tree-icon svg,
+    .creative-tree-disclosure svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+    }
+
+    .creative-tree-disclosure {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      color: currentColor;
+    }
+
+    .creative-tree-row.directory .creative-tree-disclosure {
+      position: relative;
+      justify-self: end;
+    }
+
+    .creative-tree-row.directory .creative-tree-disclosure::before {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg);
+      transform-origin: center;
+      content: "";
+    }
+
+    .creative-tree-row.directory.expanded .creative-tree-disclosure::before {
+      top: 4px;
+      transform: rotate(45deg);
+    }
+
+    .creative-tree-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .creative-tree-name-input {
+      min-width: 0;
+      width: 100%;
+      border: 1px solid #66d9e8;
+      border-radius: 5px;
+      background: #ffffff;
+      color: #16283a;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 3px 6px;
+    }
+
+    .creative-tree-icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: currentColor;
+      cursor: pointer;
+      opacity: 0.78;
+      padding: 0;
+    }
+
+    .creative-tree-icon-button:hover {
+      border-color: rgb(102 217 232 / 50%);
+      background: rgb(255 255 255 / 18%);
+      opacity: 1;
+    }
+
+    .creative-tree-icon-button.danger:hover {
+      border-color: #ffb3b3;
+      background: rgb(255 235 235 / 28%);
+      color: #fff0f0;
+    }
+
+    .creative-tree-icon-button svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
+    }
+
+    .creative-tree-actions {
+      display: flex;
+      gap: 6px;
+      min-width: 0;
+      width: calc(100% - var(--creative-depth-indent, 0px));
+      margin-left: var(--creative-depth-indent, 0px);
+      padding: 0 0 4px;
+    }
+
+    .creative-tree-action {
+      min-height: 28px;
+      border: 1px solid #b8c8d7;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #243f53;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 0 10px;
+    }
+
+    .creative-tree-action:hover {
+      border-color: #1f3f5f;
+      background: #eef6fb;
+    }
+
     .stage-action-heading {
       margin: 12px 8px 4px;
       color: #48627a;
@@ -808,6 +1171,21 @@ INDEX_HTML = """<!doctype html>
       color: #ffffff;
     }
 
+    .shell.creative-workflow .creative-section > .stage-action-stage {
+      border-color: #18324d;
+      background: #1f3f5f;
+      color: #ffffff;
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 16%) inset,
+        0 8px 18px rgb(18 48 78 / 18%);
+    }
+
+    .shell.creative-workflow .creative-section > .stage-action-stage:hover:not(:disabled),
+    .shell.creative-workflow .creative-section > .stage-action-stage.expanded {
+      background: #254b70;
+      color: #ffffff;
+    }
+
     .stage-action-stage:disabled {
       color: #7d91a4;
       cursor: default;
@@ -849,6 +1227,10 @@ INDEX_HTML = """<!doctype html>
       display: grid;
       gap: 4px;
       padding: 4px 0 8px 18px;
+    }
+
+    .stage-action-list[hidden] {
+      display: none;
     }
 
     .stage-action-subgroup {
@@ -1245,6 +1627,32 @@ INDEX_HTML = """<!doctype html>
         minmax(280px, var(--progress-pane-width, 34%));
     }
 
+    .shell.creative-workflow .output-workbench {
+      grid-template-columns:
+        minmax(0, 1fr) 7px
+        minmax(220px, var(--right-pane-width, 320px));
+    }
+
+    .shell.creative-workflow .output-split.artifact-visible {
+      grid-template-columns:
+        minmax(260px, 1fr) 7px
+        minmax(360px, var(--artifact-pane-width, 54%));
+    }
+
+    .shell.creative-workflow .artifact-preview-pane {
+      min-width: 0;
+    }
+
+    .shell.creative-workflow .side-pane {
+      grid-template-rows:
+        minmax(120px, var(--scratch-pane-height, 1fr)) 7px
+        minmax(96px, 140px);
+    }
+
+    .shell.creative-workflow .project-status-pane {
+      min-height: 96px;
+    }
+
     .output-resize-handle,
     .artifact-pane-resize-handle,
     .shell-pane-divider {
@@ -1361,6 +1769,12 @@ INDEX_HTML = """<!doctype html>
       background: #22314a;
     }
 
+    .pane-popout-button.active {
+      border-color: #66d9e8;
+      background: #1f6f8b;
+      color: #ffffff;
+    }
+
     .pane-actions,
     .document-zoom-controls,
     .pane-font-controls {
@@ -1372,6 +1786,26 @@ INDEX_HTML = """<!doctype html>
 
     .document-zoom-controls {
       color: #d8e3f4;
+    }
+
+    .document-target-switcher {
+      min-width: 160px;
+      max-width: 320px;
+      height: 30px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      font-weight: 600;
+      padding: 0 8px;
+    }
+
+    .document-target-switcher:disabled {
+      cursor: default;
+      opacity: 0.82;
     }
 
     .document-export-format {
@@ -1467,6 +1901,7 @@ INDEX_HTML = """<!doctype html>
       min-height: 0;
       min-width: 0;
       overflow: hidden;
+      background: var(--terminal);
     }
 
     .artifact-preview-divider {
@@ -1607,7 +2042,14 @@ INDEX_HTML = """<!doctype html>
       height: 100%;
       min-height: 0;
       border: 0;
-      background: #f7f8fb;
+      background: var(--terminal);
+      color-scheme: dark;
+      opacity: 1;
+      transition: opacity 80ms ease;
+    }
+
+    .artifact-preview-frame.loading {
+      opacity: 0;
     }
 
     .input-pane {
@@ -1899,6 +2341,29 @@ INDEX_HTML = """<!doctype html>
   </style>
 </head>
 <body>
+  <div
+    id="splashOverlay"
+    class="splash-overlay"
+    role="dialog"
+    aria-label="ElectroBoy splash screen"
+    hidden
+  >
+    <div class="splash-card" role="document">
+      <img
+        id="splashImage"
+        src="__SPLASH_IMAGE_ROUTE__"
+        alt="I am Electroboy"
+        draggable="false"
+      >
+      <button
+        id="closeSplash"
+        class="splash-close"
+        type="button"
+        title="Close splash screen"
+        aria-label="Close splash screen"
+      >&times;</button>
+    </div>
+  </div>
   <main class="shell">
     <svg
       class="stage-icon-defs"
@@ -1931,7 +2396,14 @@ INDEX_HTML = """<!doctype html>
         >
           <span class="side-sheet-toggle-icon" aria-hidden="true"></span>
         </button>
-        <div class="side-sheet-title">Workflow</div>
+        <select
+          id="workflowModeSelect"
+          class="workflow-mode-select"
+          aria-label="Workflow type"
+        >
+          <option value="software">Software engineering</option>
+          <option value="creative">Creative writing</option>
+        </select>
       </header>
       <nav
         id="stageActionPanel"
@@ -1939,11 +2411,92 @@ INDEX_HTML = """<!doctype html>
         aria-label="Workflow stage actions"
       >
         <div id="stageActionBody" class="stage-action-body"></div>
+        <section
+          id="creativeBinder"
+          class="creative-binder"
+          aria-label="Creative writing binder"
+          hidden
+        >
+          <div class="creative-section">
+            <button
+              id="creativeProjectMenuButton"
+              class="stage-action-stage"
+              type="button"
+              aria-expanded="false"
+            >
+              <span class="stage-action-label">Project</span>
+              <span class="stage-action-chevron" aria-hidden="true"></span>
+            </button>
+            <div
+              id="creativeProjectActions"
+              class="stage-action-list"
+              role="group"
+              hidden
+            >
+              <button id="creativeOpenProject" class="stage-action-button" type="button">
+                Open
+              </button>
+              <button id="creativeNewProject" class="stage-action-button" type="button">
+                New
+              </button>
+              <button id="creativeCloseProject" class="stage-action-button" type="button" disabled>
+                Close
+              </button>
+            </div>
+          </div>
+          <div
+            id="creativeActiveProjectSection"
+            class="creative-active-project"
+            hidden
+          >
+            <div class="creative-divider" aria-hidden="true"></div>
+            <div id="creativeProjectName" class="creative-project-name"></div>
+            <div class="creative-section">
+              <button
+                id="creativeAgentMenuButton"
+                class="stage-action-stage"
+                type="button"
+                aria-expanded="false"
+              >
+                <span class="stage-action-label">Agent</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div
+                id="creativeAgentActions"
+                class="stage-action-list"
+                role="group"
+                hidden
+              >
+                <button
+                  id="creativeStartAgent"
+                  class="stage-action-button primary"
+                  type="button"
+                  disabled
+                >
+                  Start
+                </button>
+              </div>
+            </div>
+            <div id="creativeTree" class="creative-tree" role="tree"></div>
+          </div>
+        </section>
       </nav>
     </aside>
     <section class="workflow-pane" aria-label="Project workflow">
       <div id="connection" class="connection"></div>
       <div class="workflow-toolbar" aria-label="Agent controls">
+        <div class="splash-control toolbar-control-group">
+          <span class="toolbar-control-label">Splash</span>
+          <button
+            id="showSplash"
+            class="toolbar-command-button"
+            type="button"
+            title="Show the ElectroBoy splash screen"
+            aria-label="Show the ElectroBoy splash screen"
+          >
+            Show
+          </button>
+        </div>
         <div class="terminal-font-controls toolbar-control-group" aria-label="UI font size">
           <span class="toolbar-control-label">Text</span>
           <button
@@ -2731,7 +3284,7 @@ INDEX_HTML = """<!doctype html>
             <textarea
               id="scratchPad"
               class="scratch-pad"
-              spellcheck="false"
+              spellcheck="true"
               aria-label="Scratch pad"
             ></textarea>
           </section>
@@ -2844,7 +3397,7 @@ INDEX_HTML = """<!doctype html>
         <textarea
           id="agentInput"
           class="agent-input"
-          spellcheck="false"
+          spellcheck="true"
           disabled
           aria-label="Requirements agent input"
         ></textarea>
@@ -2885,6 +3438,7 @@ INDEX_HTML = """<!doctype html>
     const shellResizeHandle = document.getElementById("shellResizeHandle");
     const workflowSideSheet = document.getElementById("workflowSideSheet");
     const toggleWorkflowSideSheet = document.getElementById("toggleWorkflowSideSheet");
+    const workflowModeSelect = document.getElementById("workflowModeSelect");
     const stageScroll = document.querySelector(".stage-scroll");
     const stageNodes = Array.from(document.querySelectorAll(".stage-node[data-stage]"));
     const STAGE_DESCRIPTIONS = {
@@ -2910,6 +3464,19 @@ INDEX_HTML = """<!doctype html>
     const documentStage = document.querySelector("[data-stage='document']");
     const stageActionPanel = document.getElementById("stageActionPanel");
     const stageActionBody = document.getElementById("stageActionBody");
+    const creativeBinder = document.getElementById("creativeBinder");
+    const creativeProjectMenuButton = document.getElementById("creativeProjectMenuButton");
+    const creativeProjectActions = document.getElementById("creativeProjectActions");
+    const creativeOpenProject = document.getElementById("creativeOpenProject");
+    const creativeNewProject = document.getElementById("creativeNewProject");
+    const creativeCloseProject = document.getElementById("creativeCloseProject");
+    const creativeActiveProjectSection =
+      document.getElementById("creativeActiveProjectSection");
+    const creativeProjectName = document.getElementById("creativeProjectName");
+    const creativeAgentMenuButton = document.getElementById("creativeAgentMenuButton");
+    const creativeAgentActions = document.getElementById("creativeAgentActions");
+    const creativeStartAgent = document.getElementById("creativeStartAgent");
+    const creativeTree = document.getElementById("creativeTree");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
     const designMenu = document.getElementById("designMenu");
@@ -3043,6 +3610,7 @@ INDEX_HTML = """<!doctype html>
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
     const agentSessionIndicator = document.getElementById("agentSessionIndicator");
     const toggleProjectShellPane = document.getElementById("toggleProjectShellPane");
+    const showSplashButton = document.getElementById("showSplash");
     const interruptAgent = document.getElementById("interruptAgent");
     const insertFileLink = document.getElementById("insertFileLink");
     const popoutAgentPane = document.getElementById("popoutAgentPane");
@@ -3051,12 +3619,19 @@ INDEX_HTML = """<!doctype html>
     const popoutScratchPane = document.getElementById("popoutScratchPane");
     const popoutStatusPane = document.getElementById("popoutStatusPane");
     const popoutInputPane = document.getElementById("popoutInputPane");
+    const splashOverlay = document.getElementById("splashOverlay");
+    const splashImage = document.getElementById("splashImage");
+    const closeSplash = document.getElementById("closeSplash");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
     const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
+    const SPLASH_DISMISSED_STORAGE_KEY = "electroboy.splash.dismissed.v1";
+    const SOFTWARE_SPLASH_IMAGE_ROUTE = "__SPLASH_IMAGE_ROUTE__";
+    const CREATIVE_SPLASH_IMAGE_ROUTE = "__CREATIVE_SPLASH_IMAGE_ROUTE__";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
+    const WORKFLOW_MODE_STORAGE_KEY = "electroboy.workflowMode";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";
@@ -3073,12 +3648,16 @@ INDEX_HTML = """<!doctype html>
     const PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY =
       "electroboy.projectShellPaneHeight";
     const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
+    const CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY =
+      "electroboy.creativeRightPaneWidth";
     const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
     const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";
     const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
+    const CREATIVE_WORKFLOW_MODE = "creative";
+    const SOFTWARE_WORKFLOW_MODE = "software";
     const PANE_POPUP_FEATURES =
       "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
     const DEFAULT_DOCUMENT_TARGETS = [
@@ -3188,13 +3767,16 @@ INDEX_HTML = """<!doctype html>
     let resizeProjectShellState = null;
     let terminalResizeObserver = null;
     let resizeTimer = null;
+    let pendingTerminalResize = null;
     let shellResizeTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
     let workflowSideSheetCollapsed = storedWorkflowSideSheetCollapsed();
+    let workflowMode = storedWorkflowMode();
     let artifactPreviewKind = "";
     let artifactPreviewDocumentTarget = null;
     let artifactPreviewItems = [];
+    let openDocumentTargets = [];
     let manualArtifactPreview = false;
     let manualArtifactPreviewStage = "";
     let artifactPreviewStage = "";
@@ -3207,6 +3789,8 @@ INDEX_HTML = """<!doctype html>
     let projectShellRunning = false;
     const poppedPanes = new Set();
     const poppedPaneWindows = new Map();
+    let slashCommandMode = false;
+    let terminalInputQueue = Promise.resolve();
     let activeAgentKind = "";
     let requirementsRunning = false;
     let requirementsApproved = false;
@@ -3242,6 +3826,19 @@ INDEX_HTML = """<!doctype html>
     let expandedWorkflowStages = new Set();
     let expandedProjectActionGroups = new Set();
     let restoredScratchContextId = "";
+    let creativeTreePayload = null;
+    let creativeActiveDocument = "";
+    let creativeActiveFolder = "";
+    let creativeEditingPath = "";
+    let creativeEditingType = "";
+    let expandedCreativeFolders = new Set();
+    let creativeScratchSaveTimer = null;
+    let creativeLastNotifiedTarget = "";
+    let creativeProjectActionsExpanded = false;
+    let creativeAgentActionsExpanded = false;
+    let projectStatusMessages = [];
+    const PROJECT_STATUS_MESSAGE_LIMIT = 80;
+    const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
 
     function storedTerminalFontSize() {
       try {
@@ -3465,9 +4062,15 @@ INDEX_HTML = """<!doctype html>
     }
 
     function applyStoredWorkbenchPaneSize() {
-      const rightWidth = storedNumber(RIGHT_PANE_WIDTH_STORAGE_KEY);
+      const rightWidth = storedNumber(
+        creativeModeActive()
+          ? CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY
+          : RIGHT_PANE_WIDTH_STORAGE_KEY,
+      );
       if (rightWidth) {
         outputWorkbench.style.setProperty("--right-pane-width", `${rightWidth}px`);
+      } else {
+        outputWorkbench.style.removeProperty("--right-pane-width");
       }
       const rightHeight = storedNumber(RIGHT_PANE_HEIGHT_STORAGE_KEY);
       if (rightHeight) {
@@ -3503,7 +4106,12 @@ INDEX_HTML = """<!doctype html>
     }
 
     function saveRightPaneWidth(width) {
-      saveNumber(RIGHT_PANE_WIDTH_STORAGE_KEY, width);
+      saveNumber(
+        creativeModeActive()
+          ? CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY
+          : RIGHT_PANE_WIDTH_STORAGE_KEY,
+        width,
+      );
     }
 
     function saveRightPaneHeight(height) {
@@ -3523,6 +4131,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     function restoreScratchPad() {
+      if (creativeModeActive()) {
+        loadCreativeScratchPad();
+        return;
+      }
       const storageKey = scratchPadStorageKey();
       if (!storageKey) {
         scratchPad.value = "";
@@ -3538,6 +4150,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     function saveScratchPad() {
+      if (creativeModeActive()) {
+        queueCreativeScratchPadSave();
+        return;
+      }
       const storageKey = scratchPadStorageKey();
       if (!storageKey) {
         return;
@@ -3605,6 +4221,72 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+    function storedWorkflowMode() {
+      try {
+        const stored = window.localStorage.getItem(WORKFLOW_MODE_STORAGE_KEY);
+        return stored === CREATIVE_WORKFLOW_MODE
+          ? CREATIVE_WORKFLOW_MODE
+          : SOFTWARE_WORKFLOW_MODE;
+      } catch (error) {
+        return SOFTWARE_WORKFLOW_MODE;
+      }
+    }
+
+    function saveWorkflowMode() {
+      try {
+        window.localStorage.setItem(WORKFLOW_MODE_STORAGE_KEY, workflowMode);
+      } catch (error) {
+        return;
+      }
+    }
+
+    function creativeModeActive() {
+      return workflowMode === CREATIVE_WORKFLOW_MODE;
+    }
+
+    function applyWorkflowMode(options = {}) {
+      workflowModeSelect.value = workflowMode;
+      shell.classList.toggle("creative-workflow", creativeModeActive());
+      updateSplashImage();
+      applyStoredWorkbenchPaneSize();
+      creativeBinder.hidden = !creativeModeActive();
+      stageActionBody.hidden = creativeModeActive();
+      if (options.deferWorkspace) {
+        refreshStageActionPanel();
+        updateCreativeBinderActions();
+        window.requestAnimationFrame(fitTerminal);
+        return;
+      }
+      if (creativeModeActive()) {
+        setWorkflowSideSheetCollapsed(false);
+        applyCreativeWorkspace();
+        restoreScratchPad();
+        refreshCreativeBinder();
+      } else {
+        restoreSoftwareWorkspace();
+      }
+      refreshStageActionPanel();
+      updateCreativeBinderActions();
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    async function setWorkflowMode(mode) {
+      const nextMode = mode === CREATIVE_WORKFLOW_MODE
+        ? CREATIVE_WORKFLOW_MODE
+        : SOFTWARE_WORKFLOW_MODE;
+      if (nextMode === workflowMode) {
+        applyWorkflowMode();
+        return;
+      }
+      releaseContextOwner();
+      contextId = "";
+      resetWorkflowContextView();
+      workflowMode = nextMode;
+      saveWorkflowMode();
+      applyWorkflowMode({ deferWorkspace: true });
+      await restoreContext();
+    }
+
     function applyWorkflowSideSheetState() {
       shell.classList.toggle("side-sheet-collapsed", workflowSideSheetCollapsed);
       toggleWorkflowSideSheet.setAttribute(
@@ -3640,6 +4322,9 @@ INDEX_HTML = """<!doctype html>
         terminal.loadAddon(terminalFit);
       }
       terminal.open(agentOutput);
+      terminal.onResize(({ cols, rows }) => {
+        queueTerminalResize(cols, rows);
+      });
       applyTerminalFontSize();
       fitTerminal();
       window.addEventListener("resize", fitTerminal);
@@ -3915,7 +4600,7 @@ INDEX_HTML = """<!doctype html>
       saveDocumentZoom();
       applyDocumentZoom();
       if (artifactPreviewItems.length > 0) {
-        refreshArtifactPreview();
+        refreshArtifactPreview({ includeEditing: false });
       }
     }
 
@@ -4039,25 +4724,41 @@ INDEX_HTML = """<!doctype html>
       terminalResizeObserver.observe(projectShellOutput);
     }
 
-    function queueTerminalResize() {
-      if (!agentProcessRunning() || !contextId || !terminal || !selectedSessionId) {
-        return;
+    function terminalResizePayload(columns = null, rows = null) {
+      const session = selectedSession();
+      if (!sessionIsRunning(session) || !contextId || !terminal) {
+        return null;
       }
-      window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(sendTerminalResize, 120);
+      return {
+        session_id: session.session_id,
+        columns: Number(columns || terminal.cols || 120),
+        rows: Number(rows || terminal.rows || 32),
+      };
     }
 
-    async function sendTerminalResize() {
-      if (!agentProcessRunning() || !contextId || !terminal || !selectedSessionId) {
+    function queueTerminalResize(columns = null, rows = null) {
+      const payload = terminalResizePayload(columns, rows);
+      if (!payload) {
+        return;
+      }
+      pendingTerminalResize = payload;
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        const resize = pendingTerminalResize;
+        pendingTerminalResize = null;
+        sendTerminalResize(resize);
+      }, 120);
+    }
+
+    async function sendTerminalResize(payload = null) {
+      const resize = payload || terminalResizePayload();
+      if (!resize) {
         return;
       }
       await fetch(contextUrl("/api/sessions/resize"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          columns: terminal.cols,
-          rows: terminal.rows,
-        }),
+        body: JSON.stringify(resize),
       }).catch(() => {});
     }
 
@@ -4104,6 +4805,52 @@ INDEX_HTML = """<!doctype html>
       }
       agentOutput.appendChild(span);
       agentOutput.scrollTop = agentOutput.scrollHeight;
+    }
+
+    function recordProjectStatusMessage(message) {
+      const text = String(message || "").trim();
+      if (!text) {
+        return;
+      }
+      const timestamp = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      projectStatusMessages.push(`${timestamp} ${text}`);
+      if (projectStatusMessages.length > PROJECT_STATUS_MESSAGE_LIMIT) {
+        projectStatusMessages = projectStatusMessages.slice(-PROJECT_STATUS_MESSAGE_LIMIT);
+      }
+      if (creativeModeActive()) {
+        renderCreativeProjectStatus();
+      } else {
+        projectStatusOutput.textContent = `${projectStatusMessages.slice(-12).join("\\n")}\\n`;
+      }
+    }
+
+    function renderCreativeProjectStatus() {
+      if (!projectStatusOutput) {
+        return;
+      }
+      if (!creativeModeActive()) {
+        return;
+      }
+      const lines = [];
+      if (activeProjectRoot || activationRoot) {
+        lines.push(`project: ${activeProjectRoot || activationRoot}`);
+      } else {
+        lines.push("no active project");
+      }
+      if (creativeActiveDocument) {
+        lines.push(`document: ${creativeActiveDocument}`);
+      } else if (creativeActiveFolder) {
+        lines.push(`folder: ${creativeActiveFolder}`);
+      }
+      if (projectStatusMessages.length > 0) {
+        lines.push("");
+        lines.push(...projectStatusMessages.slice(-12));
+      }
+      projectStatusOutput.textContent = `${lines.join("\\n")}\\n`;
     }
 
     function appendAgentOutput(text) {
@@ -4872,6 +5619,25 @@ INDEX_HTML = """<!doctype html>
         parameters.set("document_path", artifactItem.target.path);
         parameters.set("document_title", artifactItem.target.label);
       }
+      if (
+        artifactItem &&
+        artifactItem.kind === "creative-corkboard" &&
+        artifactItem.folder
+      ) {
+        parameters.set("folder_path", artifactItem.folder.path);
+        parameters.set("folder_title", artifactItem.folder.label || artifactItem.title);
+      }
+      if (
+        artifactItem &&
+        artifactItem.kind === "creative-corkboard" &&
+        artifactItem.corkboard
+      ) {
+        parameters.set("corkboard_path", artifactItem.corkboard.path);
+        parameters.set(
+          "corkboard_title",
+          artifactItem.corkboard.label || artifactItem.title,
+        );
+      }
       const fontPane = paneFontKeyForKind(kind);
       parameters.set("base_font_size", String(terminalFontSize));
       parameters.set("font_pane", fontPane);
@@ -4978,7 +5744,13 @@ INDEX_HTML = """<!doctype html>
           }
           return;
         }
-        if (data.mode === "project" && projectBrowserActivatesSelection) {
+        if (
+          (data.mode === "project" || data.mode === "project-new") &&
+          (projectBrowserActivatesSelection || data.project_action)
+        ) {
+          if (data.project_action) {
+            projectMode = data.project_action;
+          }
           projectBrowserActivatesSelection = false;
           applyProjectSelection(data.path).catch((error) => {
             appendOutput(`project update failed: ${error}\\n`, "error");
@@ -4991,9 +5763,18 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       if (data.type === "electroboy-artifact-saved") {
-        artifactPreviewVersion += 1;
-        refreshArtifactPreview();
-        appendOutput(`saved: ${data.path || "artifact"}\\n`, "system");
+        refreshArtifactPreview({ includeEditing: false });
+        recordProjectStatusMessage(`saved: ${data.path || "artifact"}`);
+        return;
+      }
+      if (data.type === "electroboy-creative-open" && data.path) {
+        if (data.entry_type === "directory") {
+          selectCreativeFolder(data.path);
+        } else if (data.entry_type === "corkboard") {
+          selectCreativeCorkboard(data.path);
+        } else {
+          selectCreativeDocument(data.path);
+        }
         return;
       }
       if (
@@ -5015,9 +5796,68 @@ INDEX_HTML = """<!doctype html>
       setPanePoppedOut(data.pane, false);
     });
 
-    function storedContextId() {
+    function contextWorkflowStorageKey(mode = workflowMode) {
+      const suffix = mode === CREATIVE_WORKFLOW_MODE
+        ? CREATIVE_WORKFLOW_MODE
+        : SOFTWARE_WORKFLOW_MODE;
+      return `${CONTEXT_STORAGE_KEY}.${suffix}`;
+    }
+
+    function splashDismissed() {
       try {
-        return window.sessionStorage.getItem(CONTEXT_STORAGE_KEY) || "";
+        return window.sessionStorage.getItem(SPLASH_DISMISSED_STORAGE_KEY) === "1";
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function openSplash() {
+      if (!splashOverlay) {
+        return;
+      }
+      updateSplashImage();
+      splashOverlay.hidden = false;
+    }
+
+    function updateSplashImage() {
+      if (!splashImage) {
+        return;
+      }
+      splashImage.src = creativeModeActive()
+        ? CREATIVE_SPLASH_IMAGE_ROUTE
+        : SOFTWARE_SPLASH_IMAGE_ROUTE;
+    }
+
+    function showSplashIfNeeded() {
+      if (!splashOverlay || splashDismissed()) {
+        return;
+      }
+      openSplash();
+    }
+
+    function dismissSplash() {
+      if (!splashOverlay || splashOverlay.hidden) {
+        return;
+      }
+      splashOverlay.hidden = true;
+      try {
+        window.sessionStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY, "1");
+      } catch (error) {
+        return;
+      }
+    }
+
+    function clearLegacyContextId() {
+      try {
+        window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY);
+      } catch (error) {
+        return;
+      }
+    }
+
+    function storedContextId(mode = workflowMode) {
+      try {
+        return window.sessionStorage.getItem(contextWorkflowStorageKey(mode)) || "";
       } catch (error) {
         return "";
       }
@@ -5176,21 +6016,70 @@ INDEX_HTML = """<!doctype html>
       return true;
     }
 
-    function saveContextId(value) {
+    function saveContextId(value, mode = workflowMode) {
       try {
+        clearLegacyContextId();
         if (value) {
           if (!claimContextOwner(value)) {
             return false;
           }
-          window.sessionStorage.setItem(CONTEXT_STORAGE_KEY, value);
+          window.sessionStorage.setItem(contextWorkflowStorageKey(mode), value);
         } else {
           releaseContextOwner();
-          window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY);
+          window.sessionStorage.removeItem(contextWorkflowStorageKey(mode));
         }
         return true;
       } catch (error) {
         return false;
       }
+    }
+
+    function resetWorkflowContextView() {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      closeProgressEventStream();
+      closeProjectShellEventStream();
+      showProgressPane(false);
+      showProjectShellPane(false);
+      activationRoot = "";
+      activeProjectMode = "none";
+      activeProjectRoot = "";
+      activeRepositoryName = "";
+      registeredRepositories = [];
+      projectPath.value = serviceRoot || "";
+      workItemState = { collections: [], features: [], bugs: [] };
+      stageRunState = {};
+      requirementsRunning = false;
+      requirementsApproved = false;
+      designRunning = false;
+      designReviewRunning = false;
+      designReviewInteractive = false;
+      designApproved = false;
+      documentationRunning = false;
+      projectShellRunning = false;
+      agentSessions = [];
+      selectedSessionId = "";
+      activeAgentKind = "";
+      openDocumentTargets = [];
+      currentWorkflowStage = "project";
+      creativeActiveDocument = "";
+      creativeActiveFolder = "";
+      creativeEditingPath = "";
+      creativeEditingType = "";
+      expandedCreativeFolders = new Set();
+      creativeLastNotifiedTarget = "";
+      creativeTreePayload = null;
+      restoredScratchContextId = "";
+      projectStatusMessages = [];
+      clearAgentOutput();
+      clearProgressOutput();
+      clearProjectShellOutput();
+      hideArtifactPreview();
+      hideWorkItemPanel();
+      renderSessionSwitcher();
+      updateAgentControls();
     }
 
     async function createContext() {
@@ -5247,7 +6136,7 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function updateProjectState(payload) {
+    function updateProjectState(payload, options = {}) {
       const previousActiveProjectRoot = activeProjectRoot;
       const nextActiveProjectRoot = payload.active_project_root || "";
       serviceRoot = payload.service_root || "";
@@ -5256,6 +6145,15 @@ INDEX_HTML = """<!doctype html>
       activeProjectRoot = nextActiveProjectRoot;
       if (previousActiveProjectRoot && previousActiveProjectRoot !== activeProjectRoot) {
         hideArtifactPreview();
+        openDocumentTargets = [];
+        creativeActiveDocument = "";
+        creativeActiveFolder = "";
+        creativeEditingPath = "";
+        creativeEditingType = "";
+        expandedCreativeFolders = new Set();
+        creativeLastNotifiedTarget = "";
+        creativeTreePayload = null;
+        restoredScratchContextId = "";
       }
       activeRepositoryName = payload.active_repository_name || "";
       registeredRepositories = Array.isArray(payload.registered_repositories)
@@ -5273,6 +6171,7 @@ INDEX_HTML = """<!doctype html>
       projectShellRunning = Boolean(payload.project_shell_running);
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       selectedSessionId = payload.selected_session_id || selectedSessionId || "";
+      syncOpenDocumentTargetsFromSessions();
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
         const selected = agentSessions.find((session) => session.selected) || agentSessions[0];
         selectedSessionId = selected ? selected.session_id : "";
@@ -5311,11 +6210,19 @@ INDEX_HTML = """<!doctype html>
       updateDesignReviewMenuState();
       updateGenericStageMenuStates();
       updateDocumentMenuState();
+      updateCreativeBinderActions();
       if (restoredScratchContextId !== contextId) {
         restoreScratchPad();
       }
       syncProjectShellPane();
-      syncArtifactPreviewWithProject();
+      if (creativeModeActive()) {
+        applyCreativeWorkspace();
+        if (!options.deferCreativeWorkspaceInit) {
+          ensureCreativeWorkspaceLoaded();
+        }
+      } else {
+        syncArtifactPreviewWithProject();
+      }
       projectStatus.textContent = projectStatusLine();
       queueProjectStatusRefresh();
     }
@@ -5516,8 +6423,111 @@ INDEX_HTML = """<!doctype html>
       }
       agentSessionIndicator.className = className;
       agentSessionIndicator.title = session
-        ? `${session.kind || "agent"}: ${status}`
+        ? agentSessionDisplayLabel(session)
         : "No selected agent";
+    }
+
+    function sessionMetadata(session) {
+      return session && session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : {};
+    }
+
+    function documentTargetKey(target) {
+      return String(target && target.path ? target.path : "").trim();
+    }
+
+    function documentTargetLabel(target) {
+      return String((target && (target.label || target.path)) || "Document");
+    }
+
+    function documentTargetForSession(session) {
+      const metadata = sessionMetadata(session);
+      const path = String(metadata.document_path || "").trim();
+      if (!path) {
+        return null;
+      }
+      const fallback = documentTargetFromInput(path) || { label: path, path };
+      return {
+        label: String(metadata.document_label || fallback.label || path),
+        path,
+      };
+    }
+
+    function documentationSessionForTarget(target) {
+      const path = documentTargetKey(target);
+      if (!path) {
+        return null;
+      }
+      return (
+        agentSessions.find((session) => {
+          const sessionTarget = documentTargetForSession(session);
+          return sessionTarget && sessionTarget.path === path;
+        }) || null
+      );
+    }
+
+    function agentSessionDisplayLabel(session) {
+      const status = session.status === "running" ? "running" : session.status || "done";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        return `Document: ${documentTargetLabel(documentTarget)} · ${status}`;
+      }
+      return `${session.kind || "agent"} · ${status}`;
+    }
+
+    function rememberOpenDocumentTarget(target) {
+      const path = documentTargetKey(target);
+      if (!path) {
+        return;
+      }
+      const storedTarget = {
+        label: documentTargetLabel(target),
+        path,
+      };
+      const existingIndex = openDocumentTargets.findIndex(
+        (candidate) => documentTargetKey(candidate) === path,
+      );
+      if (existingIndex >= 0) {
+        openDocumentTargets.splice(existingIndex, 1, storedTarget);
+      } else {
+        openDocumentTargets.push(storedTarget);
+      }
+    }
+
+    function syncOpenDocumentTargetsFromSessions() {
+      for (const session of agentSessions) {
+        const target = documentTargetForSession(session);
+        if (target) {
+          rememberOpenDocumentTarget(target);
+        }
+      }
+      refreshDocumentTargetSwitchers();
+    }
+
+    function renderDocumentTargetSwitcher(select) {
+      select.replaceChildren();
+      const targets = openDocumentTargets.length > 0
+        ? openDocumentTargets
+        : artifactPreviewDocumentTarget
+          ? [artifactPreviewDocumentTarget]
+          : [];
+      for (const target of targets) {
+        const option = document.createElement("option");
+        option.value = target.path;
+        option.textContent = documentTargetLabel(target);
+        select.append(option);
+      }
+      select.value = documentTargetKey(artifactPreviewDocumentTarget);
+      select.disabled = targets.length <= 1;
+    }
+
+    function refreshDocumentTargetSwitchers() {
+      for (const select of artifactPreviewStack.querySelectorAll(
+        ".document-target-switcher",
+      )) {
+        renderDocumentTargetSwitcher(select);
+      }
     }
 
     function renderSessionSwitcher() {
@@ -5534,8 +6544,7 @@ INDEX_HTML = """<!doctype html>
       for (const session of agentSessions) {
         const option = document.createElement("option");
         option.value = session.session_id;
-        const status = session.status === "running" ? "running" : session.status || "done";
-        option.textContent = `${session.kind || "agent"} · ${status}`;
+        option.textContent = agentSessionDisplayLabel(session);
         sessionSwitcher.append(option);
       }
       sessionSwitcher.disabled = false;
@@ -5564,9 +6573,14 @@ INDEX_HTML = """<!doctype html>
       }
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : agentSessions;
       selectedSessionId = payload.selected_session_id || sessionId;
+      syncOpenDocumentTargetsFromSessions();
       renderSessionSwitcher();
       const session = selectedSession();
       activeAgentKind = session ? session.kind || "" : "";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        showDocumentPreview(documentTarget);
+      }
       clearAgentOutput();
       connectSessionEvents(selectedSessionId);
       updateAgentControls();
@@ -6332,12 +7346,28 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       registerDocumentTarget(target);
-      if (documentationRunning) {
-        hideStageMenus();
-        showDocumentPreview(target);
-      } else {
-        startDocumentationAgent(target);
+      startDocumentationAgent(target);
+    }
+
+    function selectOpenDocumentTarget(path) {
+      const target = openDocumentTargets.find(
+        (candidate) => documentTargetKey(candidate) === path,
+      );
+      if (!target) {
+        return;
       }
+      const session = documentationSessionForTarget(target);
+      if (session) {
+        if (session.session_id === selectedSessionId) {
+          showDocumentPreview(target);
+          return;
+        }
+        selectAgentSession(session.session_id).catch((error) => {
+          appendOutput(`session switch failed: ${error}\\n`, "error");
+        });
+        return;
+      }
+      launchDocumentTarget(target);
     }
 
     function startCustomDocumentTargetFromValue(value) {
@@ -6380,6 +7410,18 @@ INDEX_HTML = """<!doctype html>
       if (item.kind === "requirements") {
         return artifactRouteUrl("/artifacts/requirements");
       }
+      if (item.kind === "creative-corkboard") {
+        const board = item.folder || item.corkboard;
+        if (!board) {
+          return "";
+        }
+        const parameters = new URLSearchParams();
+        parameters.set("path", board.path);
+        parameters.set("title", board.label || item.title);
+        parameters.set("embed", "1");
+        parameters.set("version", String(artifactPreviewVersion));
+        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
+      }
       if (item.kind === "route" && item.path) {
         return artifactRouteUrl(item.path);
       }
@@ -6400,6 +7442,9 @@ INDEX_HTML = """<!doctype html>
       if (!item) {
         return "";
       }
+      if (item.kind === "creative-corkboard") {
+        return artifactPreviewUrl(item);
+      }
       const parameters = new URLSearchParams();
       parameters.set("artifact", artifactKindForPane(item));
       if (item.kind === "document" && item.target) {
@@ -6412,6 +7457,18 @@ INDEX_HTML = """<!doctype html>
         parameters.set("title", item.title);
       }
       return contextUrl(`/artifacts/edit?${parameters.toString()}`);
+    }
+
+    function artifactPaneSupportsModeSwitch(item) {
+      return item && item.kind !== "creative-corkboard";
+    }
+
+    function artifactPaneSupportsDocumentExport(item) {
+      return item && item.kind !== "creative-corkboard";
+    }
+
+    function artifactPaneSupportsDocumentZoom(item) {
+      return item && item.kind !== "creative-corkboard";
     }
 
     function artifactPreviewsForStage(stage) {
@@ -6487,7 +7544,927 @@ INDEX_HTML = """<!doctype html>
       if (!target) {
         return;
       }
+      rememberOpenDocumentTarget(target);
       showArtifactPreview("document", { target });
+      refreshDocumentTargetSwitchers();
+    }
+
+    function applyCreativeWorkspace() {
+      scratchPad.spellcheck = true;
+      setAgentInputVisible(true);
+      showProgressPane(false);
+      if (creativeActiveDocument) {
+        if (creativePathIsCorkboard(creativeActiveDocument)) {
+          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+        } else {
+          showCreativeDocument(creativeActiveDocument);
+        }
+      } else if (creativeActiveFolder) {
+        showCreativeCorkboard(creativeActiveFolder);
+      } else {
+        artifactPaneRequested = true;
+        applyOutputPaneVisibility();
+      }
+    }
+
+    function restoreSoftwareWorkspace() {
+      scratchPad.spellcheck = true;
+      restoreScratchPad();
+      syncArtifactPreviewWithProject();
+    }
+
+    function updateCreativeBinderActions() {
+      const hasProject = Boolean(activeProjectRoot);
+      creativeOpenProject.disabled = Boolean(activationRoot);
+      creativeNewProject.disabled = Boolean(activationRoot);
+      creativeCloseProject.disabled = !Boolean(activationRoot);
+      creativeActiveProjectSection.hidden = !hasProject;
+      creativeProjectName.textContent = hasProject
+        ? `Project: ${basename(activeProjectRoot)}`
+        : "";
+      creativeStartAgent.disabled = !hasProject;
+      updateCreativeActionGroup(
+        creativeProjectActions,
+        creativeProjectMenuButton,
+        creativeProjectActionsExpanded,
+      );
+      updateCreativeActionGroup(
+        creativeAgentActions,
+        creativeAgentMenuButton,
+        creativeAgentActionsExpanded,
+      );
+    }
+
+    function updateCreativeActionGroup(actions, button, expanded) {
+      actions.hidden = !expanded;
+      button.classList.toggle("expanded", expanded);
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
+
+    function toggleCreativeActionGroup(group) {
+      if (group === "project") {
+        creativeProjectActionsExpanded = !creativeProjectActionsExpanded;
+      } else if (group === "agent") {
+        creativeAgentActionsExpanded = !creativeAgentActionsExpanded;
+      }
+      updateCreativeBinderActions();
+    }
+
+    async function refreshCreativeBinder() {
+      if (!creativeModeActive()) {
+        return;
+      }
+      updateCreativeBinderActions();
+      if (!activeProjectRoot || !contextId) {
+        showCreativeTreeMessage("Open or create a project to start writing.");
+        return;
+      }
+      showCreativeTreeMessage("Loading Binder...");
+      const response = await fetch(contextUrl("/api/creative/tree"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ error: "Binder failed" }));
+      if (!response.ok) {
+        showCreativeTreeMessage(payload.error || "Binder failed");
+        return;
+      }
+      creativeTreePayload = payload;
+      renderCreativeTree();
+      if (!creativeActiveDocument) {
+        const firstDocument = firstCreativeMarkdown(payload.entries || []);
+        if (firstDocument) {
+          selectCreativeDocument(firstDocument.path, { notifyAgent: false });
+        }
+      }
+    }
+
+    function firstCreativeMarkdown(entries) {
+      for (const entry of entries) {
+        if ((entry.type || "") === "file" && entry.markdown) {
+          return entry;
+        }
+        const child = firstCreativeMarkdown(entry.children || []);
+        if (child) {
+          return child;
+        }
+      }
+      return null;
+    }
+
+    function showCreativeTreeMessage(message) {
+      creativeTree.replaceChildren();
+      const empty = document.createElement("div");
+      empty.className = "creative-binder-status";
+      empty.textContent = message;
+      creativeTree.append(empty);
+    }
+
+    function renderCreativeTree() {
+      creativeTree.replaceChildren();
+      const entries = creativeTreePayload && Array.isArray(creativeTreePayload.entries)
+        ? creativeTreePayload.entries
+        : [];
+      if (entries.length === 0) {
+        showCreativeTreeMessage("No writing documents yet.");
+        return;
+      }
+      for (const entry of entries) {
+        appendCreativeTreeEntry(entry, 0);
+      }
+    }
+
+    function creativeTreeIconSvg(name) {
+      const icons = {
+        file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path>',
+        folder: '<path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
+        "folder-open": '<path d="M3 7h7l2 2h9l-2 9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7v11"></path>',
+        markdown: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 15V9l3 3 3-3v6"></path><path d="M17 9v6"></path><path d="M15 13l2 2 2-2"></path>',
+        corkboard: '<rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M8 8h5v4H8z"></path><path d="M14 12h4v5h-4z"></path><path d="M8 14h4v3H8z"></path>',
+      };
+      return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.file}</svg>`;
+    }
+
+    function creativeTreeIconName(entry, expanded) {
+      if ((entry.type || "") === "directory") {
+        return expanded ? "folder-open" : "folder";
+      }
+      if (entry.corkboard) {
+        return "corkboard";
+      }
+      return entry.markdown ? "markdown" : "file";
+    }
+
+    function creativeTreeIconClass(entry) {
+      if ((entry.type || "") === "directory") {
+        return "folder";
+      }
+      if (entry.corkboard) {
+        return "corkboard";
+      }
+      return entry.markdown ? "markdown" : "file";
+    }
+
+    function creativeTreeActionIconSvg(name) {
+      const icons = {
+        rename: '<path d="m12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>',
+        trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
+      };
+      return `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || ""}</svg>`;
+    }
+
+    function appendCreativeTreeEntry(entry, depth) {
+      const type = entry.type || "file";
+      const entryActionType = entry.corkboard ? "corkboard" : type;
+      const path = String(entry.path || "");
+      const isDirectory = type === "directory";
+      const expanded = isDirectory && expandedCreativeFolders.has(path);
+      const row = document.createElement("div");
+      row.className = `creative-tree-row ${type}`;
+      row.classList.toggle("expanded", expanded);
+      row.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
+      row.title = path;
+      row.tabIndex = 0;
+      row.classList.toggle(
+        "active",
+        (isDirectory && path === creativeActiveFolder) ||
+          (!isDirectory && path === creativeActiveDocument),
+      );
+      row.setAttribute("role", "treeitem");
+      if (isDirectory) {
+        row.setAttribute("aria-expanded", expanded ? "true" : "false");
+      }
+
+      const icon = document.createElement("span");
+      icon.className = `creative-tree-icon ${creativeTreeIconClass(entry)}`;
+      icon.innerHTML = creativeTreeIconSvg(creativeTreeIconName(entry, expanded));
+
+      const name = creativeEditingPath === path
+        ? creativeRenameInput(entry, type, path)
+        : creativeTreeName(entry, path);
+
+      const rename = creativeTreeIconButton(
+        "rename",
+        `Rename ${path}`,
+        () => beginCreativeRename(path, entryActionType),
+      );
+      const remove = creativeTreeIconButton(
+        "trash",
+        `Delete ${path}`,
+        () => deleteCreativeEntry(path, entryActionType),
+        "danger",
+      );
+
+      if (isDirectory) {
+        const disclosure = document.createElement("span");
+        disclosure.className = "creative-tree-disclosure";
+        disclosure.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleCreativeFolder(path);
+        });
+        row.append(icon, name, rename, remove, disclosure);
+      } else {
+        row.append(icon, name, rename, remove);
+      }
+      row.addEventListener("click", () => activateCreativeTreeEntry(entry, path, type));
+      row.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        beginCreativeRename(path, entryActionType);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.target !== row) {
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          activateCreativeTreeEntry(entry, path, type);
+        } else if (event.key === "F2") {
+          event.preventDefault();
+          beginCreativeRename(path, entryActionType);
+        } else if (event.key === "Delete") {
+          event.preventDefault();
+          deleteCreativeEntry(path, entryActionType);
+        }
+      });
+      creativeTree.append(row);
+
+      if (isDirectory && expanded) {
+        for (const child of entry.children || []) {
+          appendCreativeTreeEntry(child, depth + 1);
+        }
+        appendCreativeFolderActions(path, depth + 1);
+      }
+    }
+
+    function creativeTreeName(entry, path) {
+      const name = document.createElement("span");
+      name.className = "creative-tree-name";
+      name.textContent = String(entry.name || path || "Untitled");
+      return name;
+    }
+
+    function creativeTreeIconButton(iconName, title, handler, extraClass = "") {
+      const button = document.createElement("button");
+      button.className = `creative-tree-icon-button ${extraClass}`.trim();
+      button.type = "button";
+      button.title = title;
+      button.setAttribute("aria-label", title);
+      button.innerHTML = creativeTreeActionIconSvg(iconName);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handler();
+      });
+      button.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      return button;
+    }
+
+    function activateCreativeTreeEntry(entry, path, type) {
+      if (type === "directory") {
+        selectCreativeFolder(path);
+        return;
+      }
+      if (entry.corkboard) {
+        selectCreativeCorkboard(path);
+        return;
+      }
+      if (entry.markdown) {
+        selectCreativeDocument(path);
+        return;
+      }
+      appendOutput(`${path} is visible in the Binder but is not editable yet.\\n`, "system");
+    }
+
+    function creativeRenameInput(entry, type, path) {
+      const input = document.createElement("input");
+      input.className = "creative-tree-name-input";
+      input.type = "text";
+      input.value = String(entry.name || basename(path));
+      input.setAttribute("aria-label", `Rename ${path}`);
+      input.addEventListener("click", (event) => event.stopPropagation());
+      input.addEventListener("dblclick", (event) => event.stopPropagation());
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finishCreativeRename(path, type, input.value);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelCreativeRename();
+        }
+      });
+      input.addEventListener("blur", () => {
+        finishCreativeRename(path, type, input.value);
+      });
+      window.requestAnimationFrame(() => {
+        input.focus();
+        input.select();
+      });
+      return input;
+    }
+
+    function appendCreativeFolderActions(path, depth) {
+      const actions = document.createElement("div");
+      actions.className = "creative-tree-actions";
+      actions.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
+
+      const newFolder = document.createElement("button");
+      newFolder.className = "creative-tree-action";
+      newFolder.type = "button";
+      newFolder.textContent = "New folder";
+      newFolder.addEventListener("click", (event) => {
+        event.stopPropagation();
+        creativeActiveFolder = path;
+        renderCreativeTree();
+        createCreativeFolderInline(path);
+      });
+
+      const newFile = document.createElement("button");
+      newFile.className = "creative-tree-action";
+      newFile.type = "button";
+      newFile.textContent = "New file";
+      newFile.addEventListener("click", (event) => {
+        event.stopPropagation();
+        creativeActiveFolder = path;
+        renderCreativeTree();
+        createCreativeDocumentInline(path);
+      });
+
+      const newBoard = document.createElement("button");
+      newBoard.className = "creative-tree-action";
+      newBoard.type = "button";
+      newBoard.textContent = "New board";
+      newBoard.addEventListener("click", (event) => {
+        event.stopPropagation();
+        creativeActiveFolder = path;
+        renderCreativeTree();
+        createCreativeCorkboardInline(path);
+      });
+
+      actions.append(newFolder, newFile, newBoard);
+      creativeTree.append(actions);
+    }
+
+    function toggleCreativeFolder(path) {
+      if (!path) {
+        return;
+      }
+      if (expandedCreativeFolders.has(path)) {
+        expandedCreativeFolders.delete(path);
+      } else {
+        expandedCreativeFolders.add(path);
+      }
+      renderCreativeTree();
+    }
+
+    function showCreativeCorkboard(path, options = {}) {
+      if (!path) {
+        return;
+      }
+      const freeform = Boolean(options.freeform) || creativePathIsCorkboard(path);
+      const label = freeform
+        ? basename(path).replace(/\.corkboard\.json$/i, "")
+        : basename(path);
+      const board = {
+        label,
+        path,
+      };
+      const item = {
+        id: `creative-corkboard-${path}`,
+        kind: "creative-corkboard",
+        title: `${freeform ? "Corkboard" : "Folder board"}: ${label}`,
+        editing: false,
+      };
+      if (freeform) {
+        item.corkboard = board;
+      } else {
+        item.folder = board;
+      }
+      showArtifactPreviews(
+        [item],
+        { manual: true, stage: "creative-writing" },
+      );
+    }
+
+    function selectCreativeFolder(path) {
+      if (!path) {
+        return;
+      }
+      creativeActiveFolder = path;
+      creativeActiveDocument = "";
+      creativeLastNotifiedTarget = "";
+      showCreativeCorkboard(path);
+      renderCreativeTree();
+      renderCreativeProjectStatus();
+      notifyCreativeAgentTargetSwitch();
+    }
+
+    function selectCreativeCorkboard(path) {
+      if (!path) {
+        return;
+      }
+      creativeActiveDocument = path;
+      creativeActiveFolder = creativeParentPath(path);
+      creativeLastNotifiedTarget = "";
+      showCreativeCorkboard(path, { freeform: true });
+      renderCreativeTree();
+      renderCreativeProjectStatus();
+      notifyCreativeAgentTargetSwitch();
+    }
+
+    function showCreativeDocument(path) {
+      if (!path) {
+        return;
+      }
+      const target = {
+        label: basename(path),
+        path,
+      };
+      showArtifactPreviews(
+        [
+          {
+            id: "creative-document",
+            kind: "document",
+            title: target.label,
+            target,
+            editing: false,
+          },
+        ],
+        { manual: true, stage: "creative-writing" },
+      );
+    }
+
+    function selectCreativeDocument(path, options = {}) {
+      if (!path) {
+        return;
+      }
+      creativeActiveDocument = path;
+      creativeActiveFolder = path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
+      creativeLastNotifiedTarget = options.notifyAgent === false
+        ? creativeLastNotifiedTarget
+        : "";
+      showCreativeDocument(path);
+      renderCreativeTree();
+      renderCreativeProjectStatus();
+      if (options.notifyAgent !== false) {
+        notifyCreativeAgentTargetSwitch();
+      }
+    }
+
+    function creativeAgentSession() {
+      return agentSessions.some(
+        (session) => session.kind === "creative-writing" && session.status === "running",
+      )
+        ? agentSessions.find(
+            (session) => session.kind === "creative-writing" && session.status === "running",
+          )
+        : null;
+    }
+
+    function creativeAgentRunning() {
+      return Boolean(creativeAgentSession());
+    }
+
+    function activeCreativeTarget() {
+      if (creativeActiveDocument) {
+        if (creativePathIsCorkboard(creativeActiveDocument)) {
+          return {
+            type: "freeform-corkboard",
+            path: creativeActiveDocument,
+          };
+        }
+        return {
+          type: "document",
+          path: creativeActiveDocument,
+        };
+      }
+      if (creativeActiveFolder) {
+        return {
+          type: "folder-corkboard",
+          path: creativeActiveFolder,
+        };
+      }
+      return {
+        type: "none",
+        path: "",
+      };
+    }
+
+    function creativeTargetKey(target) {
+      return `${target.type || "none"}:${target.path || ""}`;
+    }
+
+    function creativeTargetContextLines(target) {
+      if (!target || target.type === "none") {
+        return ["Active target: none"];
+      }
+      if (target.type === "document") {
+        return [
+          "Active target: document",
+          `Path: ${target.path}`,
+          "Mode: markdown editing",
+          "Use the active document as the writing target unless the writer names another file.",
+        ];
+      }
+      if (target.type === "freeform-corkboard") {
+        return [
+          "Active target: freeform corkboard",
+          `Path: ${target.path}`,
+          "Mode: arbitrary cards with x/y positions",
+          "API guide: docs/corkboard-api.md",
+          "Use `electroboy corkboard` commands for card changes.",
+          "Do not edit corkboard JSON directly unless the writer explicitly asks.",
+        ];
+      }
+      return [
+        "Active target: folder corkboard",
+        `Path: ${target.path}`,
+        "Mode: folder-backed card ordering and notes",
+        "API guide: docs/corkboard-api.md",
+        "Use `electroboy corkboard folder` commands for notes and order.",
+        "Create, delete, or rename files only when the writer explicitly asks.",
+      ];
+    }
+
+    async function notifyCreativeAgentTargetSwitch() {
+      const target = activeCreativeTarget();
+      const targetKey = creativeTargetKey(target);
+      const session = creativeAgentSession();
+      if (
+        !creativeModeActive() ||
+        target.type === "none" ||
+        targetKey === creativeLastNotifiedTarget ||
+        !session ||
+        !session.interactive
+      ) {
+        return;
+      }
+      creativeLastNotifiedTarget = targetKey;
+      const message = [
+        "[ElectroBoy creative-writing context update]",
+        ...creativeTargetContextLines(target),
+        "The target is now displayed in the middle pane.",
+        "Do not modify it unless the writer asks.",
+        "[/ElectroBoy creative-writing context update]",
+      ].join("\\n");
+      await fetch(contextUrl("/api/sessions/message"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.session_id, message }),
+      }).catch(() => {});
+    }
+
+    function creativePromptMessage(message) {
+      if (!creativeModeActive()) {
+        return message;
+      }
+      const target = activeCreativeTarget();
+      const contextLines = [
+        "[ElectroBoy creative-writing context]",
+        ...creativeTargetContextLines(target),
+        "Project scratchpad: scratchpad/scratchpad.md",
+        "[/ElectroBoy creative-writing context]",
+        "",
+        message,
+      ];
+      return contextLines.join("\\n");
+    }
+
+    async function loadCreativeScratchPad() {
+      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
+        scratchPad.value = "";
+        restoredScratchContextId = contextId;
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/scratch"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ markdown: "" }));
+      scratchPad.value = response.ok ? String(payload.markdown || "") : "";
+      restoredScratchContextId = contextId;
+    }
+
+    function queueCreativeScratchPadSave() {
+      window.clearTimeout(creativeScratchSaveTimer);
+      creativeScratchSaveTimer = window.setTimeout(saveCreativeScratchPad, 450);
+    }
+
+    async function saveCreativeScratchPad() {
+      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
+        return;
+      }
+      await fetch(contextUrl("/api/creative/scratch"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: scratchPad.value }),
+      }).catch(() => {});
+    }
+
+    async function initializeCreativeWorkspace() {
+      if (!activeProjectRoot || !contextId) {
+        return;
+      }
+      await fetch(contextUrl("/api/creative/init"), { method: "POST" }).catch(() => {});
+    }
+
+    async function ensureCreativeWorkspaceLoaded() {
+      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
+        return;
+      }
+      await refreshCreativeBinder();
+    }
+
+    function creativeEntryChildren(basePath = "") {
+      const entries = creativeTreePayload && Array.isArray(creativeTreePayload.entries)
+        ? creativeTreePayload.entries
+        : [];
+      if (!basePath) {
+        return entries;
+      }
+      const entry = findCreativeEntry(entries, basePath);
+      return entry && Array.isArray(entry.children) ? entry.children : [];
+    }
+
+    function findCreativeEntry(entries, path) {
+      for (const entry of entries || []) {
+        if (String(entry.path || "") === path) {
+          return entry;
+        }
+        const child = findCreativeEntry(entry.children || [], path);
+        if (child) {
+          return child;
+        }
+      }
+      return null;
+    }
+
+    function uniqueCreativeChildPath(basePath, stem, extension = "") {
+      const existing = new Set(
+        creativeEntryChildren(basePath).map((entry) =>
+          String(entry.name || "").toLowerCase(),
+        ),
+      );
+      let index = 1;
+      let name = `${stem}${extension}`;
+      while (existing.has(name.toLowerCase())) {
+        index += 1;
+        name = `${stem}-${index}${extension}`;
+      }
+      return basePath ? `${basePath}/${name}` : name;
+    }
+
+    function creativeParentPath(path) {
+      return path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
+    }
+
+    function creativePathIsCorkboard(path) {
+      return String(path || "").toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX);
+    }
+
+    function creativePathIsInside(path, container) {
+      return path === container || path.startsWith(`${container}/`);
+    }
+
+    function remapCreativePath(path, oldPath, newPath) {
+      if (!path) {
+        return "";
+      }
+      if (path === oldPath) {
+        return newPath;
+      }
+      if (path.startsWith(`${oldPath}/`)) {
+        return `${newPath}/${path.slice(oldPath.length + 1)}`;
+      }
+      return path;
+    }
+
+    function beginCreativeRename(path, type) {
+      creativeEditingPath = path;
+      creativeEditingType = type;
+      renderCreativeTree();
+    }
+
+    function cancelCreativeRename() {
+      creativeEditingPath = "";
+      creativeEditingType = "";
+      renderCreativeTree();
+    }
+
+    function normalizedCreativeName(raw, type) {
+      let name = String(raw || "").trim();
+      name = name.replace(/[\\/]+/g, "-");
+      if (!name || name === "." || name === "..") {
+        return "";
+      }
+      if (type === "corkboard") {
+        if (!name.toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX)) {
+          name = name.replace(/\.(md|json)$/i, "");
+          name = `${name}${CREATIVE_CORKBOARD_SUFFIX}`;
+        }
+        return name;
+      }
+      if (type === "file" && !/\.[^./]+$/.test(name)) {
+        name = `${name}.md`;
+      }
+      return name;
+    }
+
+    async function finishCreativeRename(path, type, rawName) {
+      if (creativeEditingPath !== path) {
+        return;
+      }
+      const newName = normalizedCreativeName(rawName, type);
+      if (!newName || newName === basename(path)) {
+        creativeEditingPath = "";
+        creativeEditingType = "";
+        renderCreativeTree();
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/rename"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, new_name: newName }),
+      });
+      const payload = await response.json().catch(() => ({ error: "rename failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "rename failed"}\\n`, "error");
+        renderCreativeTree();
+        return;
+      }
+      const newPath = String(payload.path || "");
+      creativeActiveDocument = remapCreativePath(creativeActiveDocument, path, newPath);
+      creativeActiveFolder = remapCreativePath(creativeActiveFolder, path, newPath);
+      expandedCreativeFolders = new Set(
+        Array.from(expandedCreativeFolders).map((folder) =>
+          remapCreativePath(folder, path, newPath),
+        ),
+      );
+      creativeEditingPath = "";
+      creativeEditingType = "";
+      await refreshCreativeBinder();
+      recordProjectStatusMessage(`renamed: ${newPath}`);
+      if (creativeActiveDocument) {
+        if (creativePathIsCorkboard(creativeActiveDocument)) {
+          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+        } else {
+          showCreativeDocument(creativeActiveDocument);
+        }
+      }
+    }
+
+    async function createCreativeFolderInline(basePath = "") {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const path = uniqueCreativeChildPath(basePath, "new-folder");
+      const response = await fetch(contextUrl("/api/creative/folders"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "folder failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "folder failed"}\\n`, "error");
+        return;
+      }
+      expandedCreativeFolders.add(basePath);
+      creativeActiveFolder = payload.path || path;
+      creativeEditingPath = payload.path || path;
+      creativeEditingType = "directory";
+      await refreshCreativeBinder();
+      recordProjectStatusMessage(`created folder: ${payload.path || path}`);
+    }
+
+    async function createCreativeDocumentInline(basePath = "") {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const path = uniqueCreativeChildPath(basePath, "untitled", ".md");
+      const response = await fetch(contextUrl("/api/creative/documents"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "document failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "document failed"}\\n`, "error");
+        return;
+      }
+      creativeActiveDocument = payload.path || path;
+      creativeActiveFolder = basePath;
+      creativeEditingPath = payload.path || path;
+      creativeEditingType = "file";
+      await refreshCreativeBinder();
+      showCreativeDocument(creativeActiveDocument);
+      recordProjectStatusMessage(`created file: ${payload.path || path}`);
+    }
+
+    async function createCreativeCorkboardInline(basePath = "") {
+      if (!activeProjectRoot) {
+        return;
+      }
+      const path = uniqueCreativeChildPath(
+        basePath,
+        "ideas",
+        CREATIVE_CORKBOARD_SUFFIX,
+      );
+      const response = await fetch(contextUrl("/api/creative/corkboards"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "corkboard failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "corkboard failed"}\\n`, "error");
+        return;
+      }
+      creativeActiveDocument = payload.path || path;
+      creativeActiveFolder = basePath;
+      creativeEditingPath = payload.path || path;
+      creativeEditingType = "corkboard";
+      await refreshCreativeBinder();
+      showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+      recordProjectStatusMessage(`created board: ${payload.path || path}`);
+    }
+
+    async function deleteCreativeEntry(path, type) {
+      if (!activeProjectRoot || !path) {
+        return;
+      }
+      const label = type === "directory"
+        ? "folder and all of its contents"
+        : type === "corkboard" ? "corkboard" : "file";
+      if (!window.confirm(`Delete this ${label}?\\n\\n${path}`)) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "delete failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "delete failed"}\\n`, "error");
+        return;
+      }
+      if (creativePathIsInside(creativeActiveDocument, path)) {
+        creativeActiveDocument = "";
+        hideArtifactPreview();
+      }
+      if (creativePathIsInside(creativeActiveFolder, path)) {
+        creativeActiveFolder = creativeParentPath(path);
+      }
+      if (creativePathIsInside(creativeEditingPath, path)) {
+        creativeEditingPath = "";
+        creativeEditingType = "";
+      }
+      expandedCreativeFolders = new Set(
+        Array.from(expandedCreativeFolders).filter(
+          (folder) => !creativePathIsInside(folder, path),
+        ),
+      );
+      await refreshCreativeBinder();
+      recordProjectStatusMessage(`deleted ${type}: ${path}`);
+    }
+
+    async function startCreativeWritingAgent() {
+      if (!activeProjectRoot || !contextId) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      setAgentInputVisible(true);
+      clearAgentOutput();
+      appendOutput("$ codex creative-writing\\n", "system");
+      const response = await fetch(contextUrl("/api/creative/agent/start"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          active_document: creativeActiveDocument,
+          active_target: activeCreativeTarget(),
+        }),
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "start failed"}\\n`, "error");
+        return;
+      }
+      updateProjectState(payload);
+      const sessionId = payload.session_id || selectedSessionId;
+      connectSessionEvents(sessionId);
+      sendTerminalResize();
+    }
+
+    function markArtifactFrameLoading(frame) {
+      frame.classList.add("loading");
+      frame.addEventListener(
+        "load",
+        () => {
+          frame.classList.remove("loading");
+        },
+        { once: true },
+      );
     }
 
     function renderArtifactPreviewItems() {
@@ -6512,6 +8489,9 @@ INDEX_HTML = """<!doctype html>
 
         const actions = document.createElement("div");
         actions.className = "pane-actions";
+        const supportsZoom = artifactPaneSupportsDocumentZoom(item);
+        const supportsExport = artifactPaneSupportsDocumentExport(item);
+        const supportsModeSwitch = artifactPaneSupportsModeSwitch(item);
 
         const zoomControls = document.createElement("div");
         zoomControls.className = "document-zoom-controls";
@@ -6551,17 +8531,26 @@ INDEX_HTML = """<!doctype html>
         refresh.textContent = "Refresh";
         refresh.addEventListener("click", refreshArtifactPreview);
 
+        const preview = document.createElement("button");
+        preview.className = "pane-popout-button";
+        preview.type = "button";
+        preview.title = `Preview ${item.title}`;
+        preview.setAttribute("aria-label", `Preview ${item.title}`);
+        preview.textContent = "Preview";
+        preview.classList.toggle("active", !item.editing);
+        preview.addEventListener("click", () => {
+          setArtifactPreviewEditing(item, false);
+        });
+
         const edit = document.createElement("button");
         edit.className = "pane-popout-button";
         edit.type = "button";
-        edit.title = item.editing
-          ? `Return to ${item.title} preview`
-          : `Edit ${item.title}`;
-        edit.setAttribute("aria-label", edit.title);
-        edit.textContent = item.editing ? "Preview" : "Edit";
+        edit.title = `Edit ${item.title}`;
+        edit.setAttribute("aria-label", `Edit ${item.title}`);
+        edit.textContent = "Edit";
+        edit.classList.toggle("active", Boolean(item.editing));
         edit.addEventListener("click", () => {
-          item.editing = !item.editing;
-          renderArtifactPreviewItems();
+          setArtifactPreviewEditing(item, true);
         });
 
         const exportFormat = document.createElement("select");
@@ -6598,20 +8587,48 @@ INDEX_HTML = """<!doctype html>
         });
 
         zoomControls.append(zoomOut, zoomLevel, zoomIn);
-        actions.append(zoomControls, exportFormat, exportButton, refresh, edit, popout);
-        header.append(title, actions);
+        if (supportsZoom) {
+          actions.append(zoomControls);
+        }
+        if (supportsExport) {
+          actions.append(exportFormat, exportButton);
+        }
+        actions.append(refresh);
+        if (supportsModeSwitch) {
+          actions.append(preview, edit);
+        }
+        actions.append(popout);
+        if (item.kind === "document") {
+          const documentSwitcher = document.createElement("select");
+          documentSwitcher.className = "document-target-switcher";
+          documentSwitcher.title = "Open documents";
+          documentSwitcher.setAttribute("aria-label", "Open documents");
+          renderDocumentTargetSwitcher(documentSwitcher);
+          documentSwitcher.addEventListener("change", () => {
+            selectOpenDocumentTarget(documentSwitcher.value);
+          });
+          header.append(documentSwitcher, actions);
+        } else {
+          header.append(title, actions);
+        }
 
         const frame = document.createElement("iframe");
-        frame.className = "artifact-preview-frame";
+        frame.className = "artifact-preview-frame loading";
         frame.title = `${item.title} preview`;
         frame.setAttribute("sandbox", "allow-scripts allow-popups allow-same-origin");
         frame.dataset.artifactId = item.id;
+        markArtifactFrameLoading(frame);
         frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
 
         section.append(header, frame);
         artifactPreviewStack.append(section);
       }
       applyDocumentZoom();
+    }
+
+    function setArtifactPreviewEditing(item, editing) {
+      item.editing = Boolean(editing);
+      renderArtifactPreviewItems();
     }
 
     function popOutArtifactPreview(item) {
@@ -6633,6 +8650,14 @@ INDEX_HTML = """<!doctype html>
         parameters.set("artifact_path", item.path);
         parameters.set("artifact_title", item.title);
       }
+      if (item.kind === "creative-corkboard" && item.folder) {
+        parameters.set("folder_path", item.folder.path);
+        parameters.set("folder_title", item.folder.label || item.title);
+      }
+      if (item.kind === "creative-corkboard" && item.corkboard) {
+        parameters.set("corkboard_path", item.corkboard.path);
+        parameters.set("corkboard_title", item.corkboard.label || item.title);
+      }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,
         `electroboy-artifact-${item.id}-${contextId}`,
@@ -6643,10 +8668,13 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function fileBrowserUrl(path, mode = "project") {
+    function fileBrowserUrl(path, mode = "project", projectAction = "") {
       const parameters = new URLSearchParams();
       parameters.set("path", path || activeProjectRoot || activationRoot || serviceRoot || ".");
       parameters.set("mode", mode);
+      if (projectAction) {
+        parameters.set("project_action", projectAction);
+      }
       return `/file-browser?${parameters.toString()}`;
     }
 
@@ -6663,8 +8691,11 @@ INDEX_HTML = """<!doctype html>
       hideWorkItemPanel();
       projectPanel.hidden = true;
       const path = projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".";
+      const browserMode = mode === "new" || mode === "meta-new"
+        ? "project-new"
+        : "project";
       const popup = window.open(
-        fileBrowserUrl(path),
+        fileBrowserUrl(path, browserMode, activateSelection ? mode : ""),
         "electroboy-file-browser",
         PANE_POPUP_FEATURES,
       );
@@ -6734,14 +8765,19 @@ INDEX_HTML = """<!doctype html>
       applyOutputPaneVisibility();
     }
 
-    function refreshArtifactPreview() {
+    function refreshArtifactPreview(options = {}) {
+      const includeEditing = options.includeEditing !== false;
       artifactPreviewVersion += 1;
       for (const frame of artifactPreviewStack.querySelectorAll(".artifact-preview-frame")) {
         const item = artifactPreviewItems.find(
           (candidate) => candidate.id === frame.dataset.artifactId,
         );
+        if (item && item.editing && !includeEditing) {
+          continue;
+        }
         const url = item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
         if (url) {
+          markArtifactFrameLoading(frame);
           frame.src = url;
         }
       }
@@ -6776,7 +8812,9 @@ INDEX_HTML = """<!doctype html>
       const urls = new Set(artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
       for (const url of urls) {
         const source = new EventSource(url);
-        source.addEventListener("artifact-event", refreshArtifactPreview);
+        source.addEventListener("artifact-event", () => {
+          refreshArtifactPreview({ includeEditing: false });
+        });
         source.onerror = () => {};
         artifactEventSources.push(source);
       }
@@ -6841,6 +8879,10 @@ INDEX_HTML = """<!doctype html>
     function queueProjectStatusRefresh(delay = 120) {
       window.clearTimeout(statusRefreshTimer);
       const sequence = ++statusRefreshSequence;
+      if (creativeModeActive()) {
+        renderCreativeProjectStatus();
+        return;
+      }
       if (!contextId || !activationRoot) {
         projectStatusOutput.textContent = "no active project";
         return;
@@ -6853,6 +8895,10 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function refreshProjectStatus(sequence = ++statusRefreshSequence) {
+      if (creativeModeActive()) {
+        renderCreativeProjectStatus();
+        return;
+      }
       if (!contextId || !activationRoot) {
         if (sequence === statusRefreshSequence) {
           projectStatusOutput.textContent = "no active project";
@@ -7126,18 +9172,31 @@ INDEX_HTML = """<!doctype html>
         activateProject.disabled = false;
         return;
       }
+      const nextProjectRoot = payload.active_project_root || payload.activation_root || "";
+      if (nextProjectRoot && nextProjectRoot !== activeProjectRoot) {
+        projectStatusMessages = [];
+      }
       activeProjectRoot = payload.active_project_root || "";
       activationRoot = payload.activation_root || activeProjectRoot;
       projectPath.value = activeProjectRoot || activationRoot;
       fileBrowser.hidden = true;
       projectPanel.hidden = true;
       hideStageMenus();
-      appendOutput(`${payload.status}: ${activationRoot || activeProjectRoot}\\n`, "system");
-      updateProjectState(payload);
+      recordProjectStatusMessage(`${payload.status}: ${activationRoot || activeProjectRoot}`);
+      updateProjectState(payload, { deferCreativeWorkspaceInit: creativeModeActive() });
+      if (creativeModeActive()) {
+        await ensureCreativeWorkspaceLoaded();
+      }
       activateProject.disabled = false;
     }
 
     function projectEndpoint(mode) {
+      if (creativeModeActive() && mode === "open") {
+        return "/api/creative/project/open";
+      }
+      if (creativeModeActive() && mode === "new") {
+        return "/api/creative/project/new";
+      }
       if (mode === "new") {
         return "/api/project/new";
       }
@@ -7229,7 +9288,7 @@ INDEX_HTML = """<!doctype html>
       activationRoot = payload.activation_root || activationRoot;
       projectPath.value = activeProjectRoot || activationRoot;
       clearAgentOutput();
-      appendOutput(`${payload.status}: ${reference}\\n`, "system");
+      recordProjectStatusMessage(`${payload.status}: ${reference}`);
       updateProjectState(payload);
     }
 
@@ -7327,9 +9386,9 @@ INDEX_HTML = """<!doctype html>
       }
       hideWorkItemRecovery();
       hideWorkItemPanel();
-      appendOutput(`${payload.status}: ${payload.label || title}\\n`, "system");
+      recordProjectStatusMessage(`${payload.status}: ${payload.label || title}`);
       if (payload.terminated_agent) {
-        appendOutput("stopped running agent for work-item context\\n", "system");
+        recordProjectStatusMessage("stopped running agent for work-item context");
       }
       if (payload.output) {
         appendOutput(`${payload.output}\\n`, "system");
@@ -7504,7 +9563,14 @@ INDEX_HTML = """<!doctype html>
       clearProjectShellOutput();
       hideArtifactPreview();
       hideWorkItemPanel();
-      appendOutput(`deactivated: ${previousProject}\\n`, "system");
+      creativeActiveDocument = "";
+      creativeActiveFolder = "";
+      creativeEditingPath = "";
+      creativeEditingType = "";
+      expandedCreativeFolders = new Set();
+      creativeLastNotifiedTarget = "";
+      creativeTreePayload = null;
+      recordProjectStatusMessage(`deactivated: ${previousProject}`);
       updateProjectState(payload);
     }
 
@@ -8019,12 +10085,19 @@ INDEX_HTML = """<!doctype html>
       updateProjectState(payload);
       setAgentRunning("documentation", true);
       const sessionId = payload.session_id || selectedSessionId;
+      selectedSessionId = sessionId;
+      renderSessionSwitcher();
       connectSessionEvents(sessionId);
       sendTerminalResize();
     }
 
     async function sendMessage() {
       if (!selectedSessionAcceptsInput()) {
+        return;
+      }
+      if (slashCommandMode) {
+        sendTerminalKey("enter");
+        finishSlashCommandMode();
         return;
       }
       const message = agentInput.value;
@@ -8035,7 +10108,7 @@ INDEX_HTML = """<!doctype html>
       const response = await fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message: creativePromptMessage(message) }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: "send failed" }));
@@ -8043,19 +10116,123 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    async function sendTerminalKey(key) {
+    function queueTerminalInput(task) {
+      const next = terminalInputQueue.catch(() => {}).then(task);
+      terminalInputQueue = next.catch(() => {});
+      return next;
+    }
+
+    function sendTerminalKey(key) {
       if (!selectedSessionAcceptsInput()) {
-        return;
+        return Promise.resolve();
       }
-      const response = await fetch(contextUrl("/api/sessions/key"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+      return queueTerminalInput(async () => {
+        const response = await fetch(contextUrl("/api/sessions/key"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({ error: "send failed" }));
+          appendOutput(`${payload.error || "send failed"}\\n`, "error");
+        }
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({ error: "send failed" }));
-        appendOutput(`${payload.error || "send failed"}\\n`, "error");
+    }
+
+    function sendTerminalRaw(data) {
+      if (!selectedSessionAcceptsInput() || !data) {
+        return Promise.resolve();
       }
+      return queueTerminalInput(async () => {
+        const response = await fetch(contextUrl("/api/sessions/raw"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({ error: "send failed" }));
+          appendOutput(`${payload.error || "send failed"}\\n`, "error");
+        }
+      });
+    }
+
+    function printableInputEvent(event) {
+      return (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        event.key &&
+        event.key.length === 1
+      );
+    }
+
+    function slashCommandTerminalKeyForInputEvent(event) {
+      if (event.altKey || event.ctrlKey || event.metaKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "Escape") return "escape";
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Backspace") return "backspace";
+      if (event.key === "Delete") return "delete";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    function refreshSlashCommandModeAfterEdit() {
+      window.setTimeout(() => {
+        if (!agentInput.value.trimStart().startsWith("/")) {
+          slashCommandMode = false;
+        }
+      }, 0);
+    }
+
+    function finishSlashCommandMode() {
+      slashCommandMode = false;
+      agentInput.value = "";
+    }
+
+    function handleSlashCommandInput(event) {
+      if (
+        !slashCommandMode &&
+        printableInputEvent(event) &&
+        event.key === "/" &&
+        agentInput.value.trim().length === 0
+      ) {
+        slashCommandMode = true;
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      if (!slashCommandMode) {
+        return false;
+      }
+      const slashKey = slashCommandTerminalKeyForInputEvent(event);
+      if (slashKey) {
+        sendTerminalKey(slashKey);
+        if (slashKey === "enter" || slashKey === "escape") {
+          event.preventDefault();
+          finishSlashCommandMode();
+        } else if (slashKey === "backspace" || slashKey === "delete") {
+          refreshSlashCommandModeAfterEdit();
+        } else {
+          event.preventDefault();
+        }
+        return true;
+      }
+      if (printableInputEvent(event)) {
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      return false;
     }
 
     function terminalKeyForInputEvent(event) {
@@ -8498,8 +10675,23 @@ INDEX_HTML = """<!doctype html>
     toggleWorkflowSideSheet.addEventListener("click", toggleWorkflowSideSheetCollapsed);
     stageScroll.addEventListener("scroll", repositionOpenStageMenu);
     window.addEventListener("resize", repositionOpenStageMenu);
+    closeSplash.addEventListener("click", dismissSplash);
+    showSplashButton.addEventListener("click", openSplash);
+    splashOverlay.addEventListener("click", (event) => {
+      if (event.target === splashOverlay) {
+        dismissSplash();
+      }
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && splashOverlay && !splashOverlay.hidden) {
+        dismissSplash();
+      }
+    });
 
     agentInput.addEventListener("keydown", (event) => {
+      if (handleSlashCommandInput(event)) {
+        return;
+      }
       const terminalKey = terminalKeyForInputEvent(event);
       if (terminalKey) {
         event.preventDefault();
@@ -8520,10 +10712,32 @@ INDEX_HTML = """<!doctype html>
       }
     });
     scratchPad.addEventListener("input", saveScratchPad);
+    workflowModeSelect.addEventListener("change", () => {
+      setWorkflowMode(workflowModeSelect.value).catch((error) => {
+        appendOutput(`workflow switch failed: ${error}\n`, "error");
+      });
+    });
+    creativeProjectMenuButton.addEventListener("click", () => {
+      toggleCreativeActionGroup("project");
+    });
+    creativeAgentMenuButton.addEventListener("click", () => {
+      toggleCreativeActionGroup("agent");
+    });
+    creativeOpenProject.addEventListener("click", () => {
+      openProjectBrowser("open", true);
+    });
+    creativeNewProject.addEventListener("click", () => {
+      openProjectBrowser("new", true);
+    });
+    creativeCloseProject.addEventListener("click", deactivateActiveProject);
+    creativeStartAgent.addEventListener("click", () => {
+      startCreativeWritingAgent();
+    });
 
     async function initialize() {
       applyStageDescriptions();
       applyWorkflowSideSheetState();
+      applyWorkflowMode();
       renderStageActionPanel();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
@@ -8535,6 +10749,7 @@ INDEX_HTML = """<!doctype html>
       applyDocumentZoom();
       initializeTerminal();
       observeTerminalPaneResizes();
+      showSplashIfNeeded();
       await checkConnection();
       await restoreContext();
     }
@@ -8551,6 +10766,11 @@ INDEX_HTML = """<!doctype html>
 </body>
 </html>
 """
+
+INDEX_HTML = (
+    INDEX_HTML_TEMPLATE.replace("__SPLASH_IMAGE_ROUTE__", SPLASH_IMAGE_ROUTE)
+    .replace("__CREATIVE_SPLASH_IMAGE_ROUTE__", CREATIVE_SPLASH_IMAGE_ROUTE)
+)
 
 
 PANE_WINDOW_HTML = r"""<!doctype html>
@@ -8628,6 +10848,12 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       cursor: pointer;
     }
 
+    .pane-toolbar button.active {
+      border-color: #66d9e8;
+      background: #1f6f8b;
+      color: #ffffff;
+    }
+
     .input-actions select {
       min-width: 150px;
       cursor: pointer;
@@ -8693,7 +10919,14 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     .artifact-frame {
-      background: #f7f8fb;
+      background: var(--terminal);
+      color-scheme: dark;
+      opacity: 1;
+      transition: opacity 80ms ease;
+    }
+
+    .artifact-frame.loading {
+      opacity: 0;
     }
 
     .scratch-pad,
@@ -8797,6 +11030,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
           hidden
         >Refresh</button>
         <button
+          id="previewArtifact"
+          type="button"
+          title="Preview document"
+          aria-label="Preview document"
+          hidden
+        >Preview</button>
+        <button
           id="editArtifact"
           type="button"
           title="Edit document"
@@ -8832,10 +11072,10 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         sandbox="allow-scripts allow-popups allow-same-origin"
         hidden
       ></iframe>
-      <textarea id="scratchPad" class="scratch-pad" spellcheck="false" hidden></textarea>
+      <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>
       <pre id="statusOutput" class="status-output" hidden></pre>
       <div id="inputLayout" class="input-layout" hidden>
-        <textarea id="agentInput" class="input-text" spellcheck="false"></textarea>
+        <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
         <div class="input-actions">
           <div class="input-session-control">
             <label for="sessionSwitcher">Select Agent</label>
@@ -8863,6 +11103,10 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactDocumentTitle = params.get("document_title") || "";
     const artifactRoutePath = params.get("artifact_path") || "";
     const artifactRouteTitle = params.get("artifact_title") || "";
+    const artifactFolderPath = params.get("folder_path") || "";
+    const artifactFolderTitle = params.get("folder_title") || "";
+    const artifactCorkboardPath = params.get("corkboard_path") || "";
+    const artifactCorkboardTitle = params.get("corkboard_title") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -8891,6 +11135,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactZoomLevel = document.getElementById("artifactZoomLevel");
     const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
     const refreshArtifactButton = document.getElementById("refreshArtifact");
+    const previewArtifactButton = document.getElementById("previewArtifact");
     const editArtifactButton = document.getElementById("editArtifact");
     const exportPaneFormat = document.getElementById("exportPaneFormat");
     const exportPaneOutput = document.getElementById("exportPaneOutput");
@@ -8907,8 +11152,12 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     let terminal = null;
     let terminalFit = null;
     let terminalResizeObserver = null;
+    let terminalResizeTimer = null;
+    let pendingTerminalResize = null;
     let eventSource = null;
     let artifactEventSource = null;
+    let slashCommandMode = false;
+    let terminalInputQueue = Promise.resolve();
     let artifactVersion = 0;
     let artifactEditing = false;
     let statusTimer = null;
@@ -9041,6 +11290,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         }
         if (artifactKind === "route" && artifactRouteTitle) {
           return artifactRouteTitle;
+        }
+        if (artifactKind === "creative-corkboard") {
+          return artifactCorkboardTitle || artifactFolderTitle || "Corkboard";
         }
         return "Artifact preview";
       }
@@ -9379,6 +11631,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         terminal.loadAddon(terminalFit);
       }
       terminal.open(terminalHost);
+      terminal.onResize(({ cols, rows }) => {
+        if (PANE_KIND === "shell") {
+          queueShellResize(cols, rows);
+        } else if (PANE_KIND === "agent") {
+          queueAgentResize(cols, rows);
+        }
+      });
       observeTerminalPaneResize();
       fitTerminal();
       window.addEventListener("resize", fitTerminal);
@@ -9394,7 +11653,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         return;
       }
       if (PANE_KIND === "shell") {
-        window.requestAnimationFrame(sendShellResize);
+        window.requestAnimationFrame(() => queueShellResize());
+      } else if (PANE_KIND === "agent") {
+        window.requestAnimationFrame(() => queueAgentResize());
       }
     }
 
@@ -9419,7 +11680,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       }).catch(() => {});
     }
 
-    async function sendShellResize() {
+    async function sendShellResize(columns = null, rows = null) {
       if (!contextId || !terminal) {
         return;
       }
@@ -9427,10 +11688,55 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          columns: terminal.cols,
-          rows: terminal.rows,
+          columns: Number(columns || terminal.cols || 120),
+          rows: Number(rows || terminal.rows || 32),
         }),
       }).catch(() => {});
+    }
+
+    function agentResizePayload(columns = null, rows = null) {
+      if (!contextId || !terminal || !selectedSessionId) {
+        return null;
+      }
+      return {
+        session_id: selectedSessionId,
+        columns: Number(columns || terminal.cols || 120),
+        rows: Number(rows || terminal.rows || 32),
+      };
+    }
+
+    function queueAgentResize(columns = null, rows = null) {
+      const payload = agentResizePayload(columns, rows);
+      if (!payload) {
+        return;
+      }
+      pendingTerminalResize = payload;
+      window.clearTimeout(terminalResizeTimer);
+      terminalResizeTimer = window.setTimeout(() => {
+        const resize = pendingTerminalResize;
+        pendingTerminalResize = null;
+        sendAgentResize(resize);
+      }, 120);
+    }
+
+    async function sendAgentResize(payload = null) {
+      const resize = payload || agentResizePayload();
+      if (!resize) {
+        return;
+      }
+      await fetch(contextUrl("/api/sessions/resize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(resize),
+      }).catch(() => {});
+    }
+
+    function queueShellResize(columns = null, rows = null) {
+      window.clearTimeout(terminalResizeTimer);
+      terminalResizeTimer = window.setTimeout(
+        () => sendShellResize(columns, rows),
+        120,
+      );
     }
 
     function formatTerminalMessage(text, type) {
@@ -9529,10 +11835,28 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         const routeUrl = contextUrl(`${artifactRoutePath}?embed=1`);
         return `${routeUrl}&zoom=${artifactZoom}&version=${artifactVersion}`;
       }
+      if (artifactKind === "creative-corkboard") {
+        const corkboardPath = artifactCorkboardPath || artifactFolderPath;
+        if (!corkboardPath) {
+          return "";
+        }
+        const parameters = new URLSearchParams();
+        parameters.set("path", corkboardPath);
+        parameters.set(
+          "title",
+          artifactCorkboardTitle || artifactFolderTitle || corkboardPath,
+        );
+        parameters.set("embed", "1");
+        parameters.set("version", String(artifactVersion));
+        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
+      }
       return "";
     }
 
     function artifactEditUrl() {
+      if (artifactKind === "creative-corkboard") {
+        return artifactUrl();
+      }
       const parameters = new URLSearchParams();
       parameters.set("artifact", artifactKind);
       if (artifactKind === "document" && artifactDocumentPath) {
@@ -9549,16 +11873,14 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     function refreshArtifact() {
       artifactVersion += 1;
+      artifactFrame.classList.add("loading");
       artifactFrame.src = artifactEditing ? artifactEditUrl() : artifactUrl();
     }
 
-    function toggleArtifactEditMode() {
-      artifactEditing = !artifactEditing;
-      editArtifactButton.textContent = artifactEditing ? "Preview" : "Edit";
-      editArtifactButton.title = artifactEditing
-        ? "Return to document preview"
-        : "Edit document";
-      editArtifactButton.setAttribute("aria-label", editArtifactButton.title);
+    function setArtifactEditMode(editing) {
+      artifactEditing = Boolean(editing);
+      previewArtifactButton.classList.toggle("active", !artifactEditing);
+      editArtifactButton.classList.toggle("active", artifactEditing);
       refreshArtifact();
     }
 
@@ -9581,10 +11903,16 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     function connectArtifactStream() {
+      const isCorkboard = artifactKind === "creative-corkboard";
       artifactFrame.hidden = false;
-      artifactZoomControls.hidden = false;
+      artifactZoomControls.hidden = isCorkboard;
       refreshArtifactButton.hidden = false;
-      editArtifactButton.hidden = false;
+      previewArtifactButton.hidden = isCorkboard;
+      editArtifactButton.hidden = isCorkboard;
+      exportPaneFormat.hidden = isCorkboard;
+      exportPaneOutput.hidden = isCorkboard;
+      previewArtifactButton.classList.toggle("active", !artifactEditing);
+      editArtifactButton.classList.toggle("active", artifactEditing);
       applyArtifactZoom();
       refreshArtifact();
       if (!contextId) {
@@ -9652,6 +11980,11 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     async function sendMessage() {
+      if (slashCommandMode) {
+        sendTerminalKey("enter");
+        finishSlashCommandMode();
+        return;
+      }
       const message = agentInput.value;
       if (!message.trim()) {
         return;
@@ -9664,12 +11997,112 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       });
     }
 
-    async function sendTerminalKey(key) {
-      await fetch(contextUrl("/api/sessions/key"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+    function queueTerminalInput(task) {
+      const next = terminalInputQueue.catch(() => {}).then(task);
+      terminalInputQueue = next.catch(() => {});
+      return next;
+    }
+
+    function sendTerminalKey(key) {
+      return queueTerminalInput(async () => {
+        await fetch(contextUrl("/api/sessions/key"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
       });
+    }
+
+    function sendTerminalRaw(data) {
+      if (!data) {
+        return Promise.resolve();
+      }
+      return queueTerminalInput(async () => {
+        await fetch(contextUrl("/api/sessions/raw"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+      });
+    }
+
+    function printableInputEvent(event) {
+      return (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        event.key &&
+        event.key.length === 1
+      );
+    }
+
+    function slashCommandTerminalKeyForInputEvent(event) {
+      if (event.altKey || event.ctrlKey || event.metaKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "Escape") return "escape";
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Backspace") return "backspace";
+      if (event.key === "Delete") return "delete";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    function refreshSlashCommandModeAfterEdit() {
+      window.setTimeout(() => {
+        if (!agentInput.value.trimStart().startsWith("/")) {
+          slashCommandMode = false;
+        }
+      }, 0);
+    }
+
+    function finishSlashCommandMode() {
+      slashCommandMode = false;
+      agentInput.value = "";
+    }
+
+    function handleSlashCommandInput(event) {
+      if (
+        !slashCommandMode &&
+        printableInputEvent(event) &&
+        event.key === "/" &&
+        agentInput.value.trim().length === 0
+      ) {
+        slashCommandMode = true;
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      if (!slashCommandMode) {
+        return false;
+      }
+      const slashKey = slashCommandTerminalKeyForInputEvent(event);
+      if (slashKey) {
+        sendTerminalKey(slashKey);
+        if (slashKey === "enter" || slashKey === "escape") {
+          event.preventDefault();
+          finishSlashCommandMode();
+        } else if (slashKey === "backspace" || slashKey === "delete") {
+          refreshSlashCommandModeAfterEdit();
+        } else {
+          event.preventDefault();
+        }
+        return true;
+      }
+      if (printableInputEvent(event)) {
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      return false;
     }
 
     function terminalKeyForInputEvent(event) {
@@ -9741,7 +12174,11 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
     );
     refreshArtifactButton.addEventListener("click", refreshArtifact);
-    editArtifactButton.addEventListener("click", toggleArtifactEditMode);
+    artifactFrame.addEventListener("load", () => {
+      artifactFrame.classList.remove("loading");
+    });
+    previewArtifactButton.addEventListener("click", () => setArtifactEditMode(false));
+    editArtifactButton.addEventListener("click", () => setArtifactEditMode(true));
     exportPaneOutput.addEventListener("click", () => {
       exportCurrentPaneOutput().catch((error) => {
         if (terminal) {
@@ -9785,6 +12222,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     sendAgentInput.addEventListener("click", sendMessage);
     interruptAgent.addEventListener("click", interruptAgentSession);
     agentInput.addEventListener("keydown", (event) => {
+      if (handleSlashCommandInput(event)) {
+        return;
+      }
       const terminalKey = terminalKeyForInputEvent(event);
       if (terminalKey) {
         event.preventDefault();
@@ -10117,6 +12557,8 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
   <script>
     const INITIAL_PATH = __INITIAL_PATH__;
     const SELECT_MODE = __SELECT_MODE__;
+    const PROJECT_ACTION =
+      new URLSearchParams(window.location.search).get("project_action") || "";
     const pathForm = document.getElementById("pathForm");
     const pathInput = document.getElementById("pathInput");
     const refreshPath = document.getElementById("refreshPath");
@@ -10131,12 +12573,23 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
     selectPath.textContent =
       SELECT_MODE === "link"
         ? "Insert selected file"
-        : SELECT_MODE === "document-new"
-          ? "Create or open document"
-          : SELECT_MODE === "document"
-          ? "Open selected document"
-          : "Activate";
-    newDocumentName.hidden = SELECT_MODE !== "document-new";
+      : SELECT_MODE === "document-new"
+        ? "Create or open document"
+      : SELECT_MODE === "project-new"
+        ? "Create or activate project"
+      : SELECT_MODE === "document"
+        ? "Open selected document"
+      : "Activate";
+    newDocumentName.hidden =
+      SELECT_MODE !== "document-new" && SELECT_MODE !== "project-new";
+    newDocumentName.placeholder =
+      SELECT_MODE === "project-new" ? "optional-new-folder" : "new-document.md";
+    newDocumentName.setAttribute(
+      "aria-label",
+      SELECT_MODE === "project-new"
+        ? "Optional new project folder name"
+        : "New document file name",
+    );
 
     let rootPayload = null;
     let currentPath = "";
@@ -10421,6 +12874,9 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
         }
         return selectedType === "directory" && Boolean(documentNewTargetPath());
       }
+      if (SELECT_MODE === "project-new") {
+        return selectedType === "directory";
+      }
       return selectedType === "directory";
     }
 
@@ -10491,21 +12947,39 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
       return `${selectedPath.replace(/\/+$/, "")}/${path}`;
     }
 
+    function projectNewTargetPath() {
+      if (SELECT_MODE !== "project-new" || selectedType !== "directory") {
+        return "";
+      }
+      const raw = newDocumentName.value.trim().replace(/\\+/g, "/");
+      if (!raw) {
+        return selectedPath;
+      }
+      if (raw.startsWith("/")) {
+        return raw;
+      }
+      return `${selectedPath.replace(/\/+$/, "")}/${raw}`;
+    }
+
     function selectCurrentPath() {
       if (!canSelectCurrentPath()) {
         selectedPathLabel.textContent =
           SELECT_MODE === "link"
             ? "Select a file first."
-            : SELECT_MODE === "document-new"
-              ? "Select a Markdown file or choose a directory and name."
-            : SELECT_MODE === "document"
-              ? "Select a Markdown file first."
-              : "Select a directory first.";
+          : SELECT_MODE === "document-new"
+            ? "Select a Markdown file or choose a directory and name."
+          : SELECT_MODE === "project-new"
+            ? "Select a project directory or enter a new folder name."
+          : SELECT_MODE === "document"
+            ? "Select a Markdown file first."
+            : "Select a directory first.";
         return;
       }
       const outputPath =
         SELECT_MODE === "document-new" && selectedType === "directory"
           ? documentNewTargetPath()
+        : SELECT_MODE === "project-new" && selectedType === "directory"
+          ? projectNewTargetPath()
           : selectedPath;
       if (window.opener) {
         window.opener.postMessage(
@@ -10513,6 +12987,7 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
             type: "electroboy-file-browser-select",
             path: outputPath,
             mode: SELECT_MODE,
+            project_action: PROJECT_ACTION,
           },
           window.location.origin,
         );
@@ -10572,7 +13047,11 @@ FILE_BROWSER_WINDOW_HTML = r"""<!doctype html>
 
 
 def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
-    select_mode = mode if mode in {"link", "document", "document-new"} else "project"
+    select_mode = (
+        mode
+        if mode in {"link", "document", "document-new", "project-new"}
+        else "project"
+    )
     return (
         FILE_BROWSER_WINDOW_HTML.replace(
             "__INITIAL_PATH__",
@@ -10593,7 +13072,8 @@ class BrowserContext:
     requirements_session: AgentSession | None = None
     design_session: AgentSession | None = None
     design_review_session: AgentSession | None = None
-    documentation_session: AgentSession | None = None
+    documentation_sessions: dict[str, AgentSession] = field(default_factory=dict)
+    creative_session: AgentSession | None = None
     project_shell_session: AgentSession | None = None
     stage_sessions: dict[str, AgentSession] = field(default_factory=dict)
     selected_session_id: str | None = None
@@ -11039,7 +13519,8 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11070,7 +13551,8 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11086,6 +13568,71 @@ class ServiceState:
             "run_id": manifest.run_id,
         }
 
+    def open_creative_project(self, context_id: str, path: str) -> dict[str, object]:
+        project_root = _existing_creative_project_root(path)
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+        _ensure_creative_workspace(project_root)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.activation_root = project_root
+            context.project_mode = "creative"
+            context.active_project_root = project_root
+            context.active_repository_name = None
+            context.registered_repositories = []
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
+            context.project_shell_session = None
+            context.stage_sessions = {}
+            context.selected_session_id = None
+            context.workflow_stage = "project"
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+            context.stage_started = set()
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "opened",
+        }
+
+    def create_creative_project(self, context_id: str, path: str) -> dict[str, object]:
+        project_root = _resolve_project_path(path)
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+        project_root.mkdir(parents=True, exist_ok=True)
+        _ensure_creative_workspace(project_root)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.activation_root = project_root
+            context.project_mode = "creative"
+            context.active_project_root = project_root
+            context.active_repository_name = None
+            context.registered_repositories = []
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
+            context.project_shell_session = None
+            context.stage_sessions = {}
+            context.selected_session_id = None
+            context.workflow_stage = "project"
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+            context.stage_started = set()
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "created",
+        }
+
     def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
         meta_context = _existing_meta_context(path)
         with self.lock:
@@ -11099,7 +13646,8 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11131,7 +13679,8 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11181,7 +13730,8 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11213,7 +13763,8 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11243,7 +13794,8 @@ class ServiceState:
             context.requirements_session = None
             context.design_session = None
             context.design_review_session = None
-            context.documentation_session = None
+            context.documentation_sessions = {}
+            context.creative_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -11527,18 +14079,18 @@ class ServiceState:
             command_root = self._command_root_locked(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            if (
-                context.documentation_session is not None
-                and context.documentation_session.is_active()
-            ):
-                context.selected_session_id = context.documentation_session.session_id
-                return context.documentation_session, False
-            lock_names = SESSION_ARTIFACT_LOCKS["documentation"]
-            self._require_session_locks_available_locked(context, lock_names)
             target_path = (target or "").strip()
             if target_path:
                 target_path = _ensure_document_target(project_root, target_path)
+            session_key = target_path or "__default__"
+            existing_session = context.documentation_sessions.get(session_key)
+            if existing_session is not None and existing_session.is_active():
+                context.selected_session_id = existing_session.session_id
+                return existing_session, False
+            lock_names = frozenset({f"documentation:{session_key}"})
+            self._require_session_locks_available_locked(context, lock_names)
             label_target = f" ({target_path})" if target_path else ""
+            document_label = Path(target_path).name if target_path else "Documentation"
             session = AgentSession(
                 command=_documentation_command(
                     command_root,
@@ -11554,16 +14106,208 @@ class ServiceState:
                 kind="documentation",
                 interactive=interactive,
                 lock_names=lock_names,
+                metadata={
+                    "document_path": target_path,
+                    "document_label": document_label,
+                },
             )
-            context.documentation_session = session
+            context.documentation_sessions[session_key] = session
             context.selected_session_id = session.session_id
         try:
             session.start()
         except Exception:
             with self.lock:
                 context = self._context_locked(context_id)
-                if context.documentation_session is session:
-                    context.documentation_session = None
+                if context.documentation_sessions.get(session_key) is session:
+                    context.documentation_sessions.pop(session_key, None)
+                    context.selected_session_id = None
+            raise
+        return session, True
+
+    def initialize_creative_workspace(self, context_id: str) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        _ensure_creative_workspace(project_root)
+        return self.creative_tree(context_id)
+
+    def creative_tree(self, context_id: str) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        return _creative_tree_payload(project_root)
+
+    def create_creative_folder(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _create_creative_folder(project_root, relative_path)
+        return {
+            "status": "created",
+            "path": path,
+        }
+
+    def create_creative_document(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _create_creative_document(project_root, relative_path)
+        return {
+            "status": "created",
+            "path": path,
+        }
+
+    def create_creative_corkboard(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _create_creative_corkboard(project_root, relative_path)
+        return {
+            "status": "created",
+            "path": path,
+        }
+
+    def rename_creative_entry(
+        self,
+        context_id: str,
+        relative_path: str,
+        new_name: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        old_path, new_path = _rename_creative_entry(
+            project_root,
+            relative_path,
+            new_name,
+        )
+        return {
+            "status": "renamed",
+            "old_path": old_path,
+            "path": new_path,
+        }
+
+    def delete_creative_entry(
+        self,
+        context_id: str,
+        relative_path: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _delete_creative_entry(project_root, relative_path)
+        return {
+            "status": "deleted",
+            "path": path,
+        }
+
+    def creative_scratchpad(self, context_id: str) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _ensure_creative_scratchpad(project_root)
+        return {
+            "path": path.relative_to(project_root).as_posix(),
+            "markdown": path.read_text(encoding="utf-8"),
+        }
+
+    def save_creative_scratchpad(
+        self,
+        context_id: str,
+        markdown: str,
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        path = _ensure_creative_scratchpad(project_root)
+        path.write_text(markdown, encoding="utf-8")
+        return {
+            "status": "saved",
+            "path": path.relative_to(project_root).as_posix(),
+        }
+
+    def save_creative_corkboard(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        project_root = self.active_project_root(context_id)
+        board_type = str(payload.get("board_type") or "folder")
+        if board_type == "folder" and "order" in payload:
+            order = payload.get("order")
+            if not isinstance(order, list):
+                raise StateError("folder corkboard order must be a list")
+            saved_order = _save_creative_folder_corkboard_order(
+                project_root,
+                folder_path=str(payload.get("folder") or ""),
+                order=[str(item) for item in order],
+            )
+            return {
+                "status": "saved",
+                "order": saved_order,
+            }
+        if board_type == "folder":
+            card = _save_creative_folder_corkboard_card(
+                project_root,
+                folder_path=str(payload.get("folder") or ""),
+                card_path=str(payload.get("path") or ""),
+                note=str(payload.get("note") or ""),
+            )
+            return {
+                "status": "saved",
+                "card": card,
+            }
+        if board_type == "freeform":
+            card_payload = payload.get("card")
+            if not isinstance(card_payload, dict):
+                raise StateError("freeform corkboard card is required")
+            card = _save_creative_freeform_corkboard_card(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                card_payload=card_payload,
+            )
+            return {
+                "status": "saved",
+                "card": card,
+            }
+        raise StateError(f"unknown corkboard type: {board_type}")
+
+    def start_creative_writing_agent(
+        self,
+        context_id: str,
+        *,
+        active_document: str | None = None,
+        active_target: dict[str, object] | None = None,
+    ) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+            if project_root is None:
+                raise AgentSessionError("activate a project first")
+            if (
+                context.creative_session is not None
+                and context.creative_session.is_active()
+            ):
+                context.selected_session_id = context.creative_session.session_id
+                return context.creative_session, False
+            document_path = ""
+            if active_document:
+                document_path = _document_target_path(project_root, active_document)[0]
+            target = _creative_agent_target(
+                project_root,
+                active_target=active_target,
+                active_document=document_path or None,
+            )
+            session = AgentSession(
+                command=_creative_writing_command(project_root, target),
+                cwd=project_root,
+                label="creative writing agent",
+                kind="creative-writing",
+                interactive=True,
+            )
+            context.creative_session = session
+            context.selected_session_id = session.session_id
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.creative_session is session:
+                    context.creative_session = None
                     context.selected_session_id = None
             raise
         return session, True
@@ -11952,7 +14696,17 @@ class ServiceState:
     def current_documentation_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
             context = self._context_locked(context_id)
-            return context.documentation_session
+            selected_session_id = context.selected_session_id
+            if selected_session_id:
+                for session in context.documentation_sessions.values():
+                    if session.session_id == selected_session_id:
+                        return session
+            for session in reversed(list(context.documentation_sessions.values())):
+                if session.is_active():
+                    return session
+            if context.documentation_sessions:
+                return list(context.documentation_sessions.values())[-1]
+            return None
 
     def current_project_shell_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
@@ -12064,6 +14818,17 @@ class ServiceState:
             raise AgentSessionError(f"{session.label} does not accept input")
         session.send(message)
 
+    def send_session_message(
+        self,
+        context_id: str,
+        session_id: str,
+        message: str,
+    ) -> None:
+        session = self.session_by_id(context_id, session_id)
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send(message)
+
     def send_selected_session_key(self, context_id: str, key: str) -> None:
         session = self.selected_session(context_id)
         if session is None:
@@ -12071,6 +14836,14 @@ class ServiceState:
         if not session.interactive:
             raise AgentSessionError(f"{session.label} does not accept input")
         session.send_key(key)
+
+    def send_selected_session_raw(self, context_id: str, data: str) -> None:
+        session = self.selected_session(context_id)
+        if session is None:
+            raise AgentSessionError("no agent session is selected")
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send_raw(data)
 
     def interrupt_selected_session(self, context_id: str) -> None:
         session = self.selected_session(context_id)
@@ -12087,6 +14860,16 @@ class ServiceState:
         session = self.selected_session(context_id)
         if session is None:
             raise AgentSessionError("no agent session is selected")
+        session.resize(columns, rows)
+
+    def resize_session(
+        self,
+        context_id: str,
+        session_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        session = self.session_by_id(context_id, session_id)
         session.resize(columns, rows)
 
     def has_running_progress_agent(self, context_id: str) -> bool:
@@ -12261,7 +15044,8 @@ class ServiceState:
                 context.design_session,
                 context.design_review_session,
                 *context.stage_sessions.values(),
-                context.documentation_session,
+                *context.documentation_sessions.values(),
+                context.creative_session,
             ]
             if session is not None
         ]
@@ -12303,8 +15087,11 @@ class ServiceState:
             for stage, stage_session in list(context.stage_sessions.items()):
                 if stage_session is session:
                     context.stage_sessions.pop(stage, None)
-            if context.documentation_session is session:
-                context.documentation_session = None
+            for key, documentation_session in list(context.documentation_sessions.items()):
+                if documentation_session is session:
+                    context.documentation_sessions.pop(key, None)
+            if context.creative_session is session:
+                context.creative_session = None
             if context.project_shell_session is session:
                 context.project_shell_session = None
             session_id = getattr(session, "session_id", None)
@@ -12442,6 +15229,7 @@ class AgentSession:
         lock_names: frozenset[str] | set[str] | None = None,
         on_completed: Callable[[int], None] | None = None,
         echo_input: bool = False,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         self.session_id = uuid4().hex
         self.command = command
@@ -12455,6 +15243,7 @@ class AgentSession:
         self.lock_names = frozenset(lock_names or ())
         self.created_at = utc_now()
         self.on_completed = on_completed
+        self.metadata = dict(metadata or {})
         self.process: subprocess.Popen[bytes] | None = None
         self.status = "created"
         self.returncode: int | None = None
@@ -12478,6 +15267,7 @@ class AgentSession:
             "selected": selected,
             "created_at": self.created_at,
             "command": list(self.command),
+            "metadata": dict(self.metadata),
         }
 
     def start(self) -> None:
@@ -12485,6 +15275,8 @@ class AgentSession:
             return
         master_fd, slave_fd = pty.openpty()
         env = _agent_process_env()
+        env["ELECTROBOY_PROJECT_ROOT"] = str(self.cwd)
+        env["AI_PIPELINE_PROJECT_ROOT"] = str(self.cwd)
         if not self.echo_input:
             _disable_terminal_echo(slave_fd)
         _set_terminal_size(slave_fd, self.columns, self.rows)
@@ -12594,6 +15386,15 @@ class AgentSession:
         if fd is None:
             return
         _set_terminal_size(fd, self.columns, self.rows)
+        process = self.process
+        if process is None or process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGWINCH)
+        except ProcessLookupError:
+            return
+        except OSError:
+            return
 
     def events_after(self, event_id: int) -> list[dict[str, object]]:
         with self._condition:
@@ -12875,6 +15676,14 @@ def health_payload(root: Path | str) -> dict[str, str]:
     }
 
 
+def splash_image_bytes(resource: str = SPLASH_IMAGE_RESOURCE) -> bytes:
+    return (
+        resources.files(SPLASH_IMAGE_PACKAGE)
+        .joinpath("assets", resource)
+        .read_bytes()
+    )
+
+
 def project_payload(
     service_root: Path | str,
     context: BrowserContext,
@@ -12909,11 +15718,15 @@ def project_payload(
         and design_review_session is not None
         and design_review_session.is_active()
     )
-    documentation_session = context.documentation_session
     documentation_running = bool(
         active_root
-        and documentation_session is not None
-        and documentation_session.is_active()
+        and any(session.is_active() for session in context.documentation_sessions.values())
+    )
+    creative_session = context.creative_session
+    creative_running = bool(
+        active_root
+        and creative_session is not None
+        and creative_session.is_active()
     )
     project_shell_session = context.project_shell_session
     project_shell_running = bool(
@@ -12954,6 +15767,7 @@ def project_payload(
         ),
         "stage_runs": _generic_stage_run_payload(context, active_root),
         "documentation_running": documentation_running,
+        "creative_writing_running": creative_running,
         "project_shell_running": project_shell_running,
         "design_approved": bool(
             active_root
@@ -12965,7 +15779,7 @@ def project_payload(
         ),
         "activate_command": (
             f"source {activation_root / '.electroboy' / 'bin' / 'activate'}"
-            if activation_root
+            if activation_root and context.project_mode != "creative"
             else None
         ),
         "selected_session_id": context.selected_session_id,
@@ -12998,7 +15812,8 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         context.design_session,
         context.design_review_session,
         *context.stage_sessions.values(),
-        context.documentation_session,
+        *context.documentation_sessions.values(),
+        context.creative_session,
     ]:
         if session is None:
             continue
@@ -13020,6 +15835,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
                 "selected": session_id == selected_session_id,
                 "created_at": getattr(session, "created_at", ""),
                 "command": list(getattr(session, "command", [])),
+                "metadata": dict(getattr(session, "metadata", {}) or {}),
             }
         )
     return payloads
@@ -13500,7 +16316,7 @@ def _stage_has_approvals(
 ) -> bool:
     try:
         approvals = StateStore(project_root).read_approvals()
-    except OSError:
+    except (OSError, StateError):
         return False
     return all(
         any(
@@ -13828,6 +16644,15 @@ def _existing_project_root(path: str) -> Path:
     return project_root
 
 
+def _existing_creative_project_root(path: str) -> Path:
+    project_root = _resolve_project_path(path)
+    if not project_root.exists():
+        raise StateError(f"project directory does not exist: {project_root}")
+    if not project_root.is_dir():
+        raise StateError(f"project path is not a directory: {project_root}")
+    return project_root
+
+
 def _stage_operations(
     stage: str,
     active_project_root: Path | str | None,
@@ -14135,6 +16960,8 @@ def markdown_document_html(
     else:
         body = f"<p>{html.escape(missing_message)}</p>"
         status = HTTPStatus.NOT_FOUND
+    main_max_width = "none" if embedded else "880px"
+    main_margin = "0" if embedded else "0 auto"
     main_padding = "16px" if embedded else "40px 24px 64px"
     article_padding = "18px" if embedded else "28px"
     article_radius = "0" if embedded else "8px"
@@ -14176,8 +17003,8 @@ def markdown_document_html(
       line-height: 1.55;
     }}
     main {{
-      max-width: 880px;
-      margin: 0 auto;
+      max-width: {main_max_width};
+      margin: {main_margin};
       padding: {main_padding};
     }}
     article {{
@@ -14611,7 +17438,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 
     html,
     body {{
-      min-height: 100%;
+      height: 100%;
       margin: 0;
       background: var(--bg);
       color: var(--text);
@@ -14621,12 +17448,25 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       overflow: auto;
     }}
 
+    body.markdown-mode {{
+      overflow: hidden;
+    }}
+
     main {{
       display: grid;
       gap: 14px;
       max-width: 1040px;
       margin: 0 auto;
       padding: 16px;
+    }}
+
+    body.markdown-mode main {{
+      display: block;
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      margin: 0;
+      padding: 0;
     }}
 
     .editor-header,
@@ -14700,9 +17540,40 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       color: var(--error);
     }}
 
+    body.markdown-mode .editor-header {{
+      display: none;
+    }}
+
+    body.markdown-mode .status {{
+      position: fixed;
+      right: 10px;
+      bottom: 10px;
+      z-index: 2;
+      min-height: 0;
+      border-radius: 999px;
+      background: rgba(15, 20, 32, 0.9);
+      color: var(--muted);
+      padding: 4px 10px;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+      pointer-events: none;
+    }}
+
+    body.markdown-mode .status:empty {{
+      display: none;
+    }}
+
+    body.markdown-mode .status.error {{
+      color: var(--error);
+    }}
+
     .records {{
       display: grid;
       gap: 10px;
+    }}
+
+    body.markdown-mode .records {{
+      display: block;
+      height: 100%;
     }}
 
     details.record-editor > summary {{
@@ -14765,8 +17636,28 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       padding: 12px;
     }}
 
+    body.markdown-mode .markdown-editor {{
+      display: block;
+      height: 100%;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      padding: 0;
+    }}
+
     .markdown-editor textarea {{
       min-height: 62vh;
+    }}
+
+    body.markdown-mode .markdown-editor textarea {{
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 100%;
+      border: 0;
+      border-radius: 0;
+      resize: none;
+      padding: 14px 16px 36px;
     }}
   </style>
 </head>
@@ -14779,7 +17670,6 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       </div>
       <div class="editor-actions">
         <button id="addRecord" type="button">Add section</button>
-        <button id="saveArtifact" class="primary" type="button">Save</button>
       </div>
     </header>
     <div id="status" class="status"></div>
@@ -14803,13 +17693,15 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       "body",
     ]);
     const recordsRoot = document.getElementById("records");
-    const saveArtifact = document.getElementById("saveArtifact");
     const addRecord = document.getElementById("addRecord");
     const statusLine = document.getElementById("status");
     const editorMeta = document.getElementById("editorMeta");
     let records = Array.isArray(EDIT_DATA.records)
       ? EDIT_DATA.records.map((record) => ({{ ...record }}))
       : [];
+    let saveTimer = null;
+    let saveInFlight = false;
+    let saveQueued = false;
 
     function contextUrl(path) {{
       const contextId = EDIT_DATA.context_id || "";
@@ -14899,12 +17791,15 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         input.classList.add("body-field");
         input.placeholder = "Markdown text, tables, code fences, and Mermaid diagrams";
       }}
+      input.addEventListener("input", queueSave);
+      input.addEventListener("change", queueSave);
       wrapper.append(input);
       container.append(wrapper);
       return input;
     }}
 
     function renderStructuredEditor() {{
+      document.body.classList.remove("markdown-mode");
       editorMeta.textContent = `${{EDIT_DATA.markdown_path}} · source ${{EDIT_DATA.jsonl_path}}`;
       addRecord.hidden = false;
       recordsRoot.replaceChildren();
@@ -14958,18 +17853,20 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
 
     function renderMarkdownEditor() {{
+      document.body.classList.add("markdown-mode");
       editorMeta.textContent = EDIT_DATA.markdown_path || "";
       addRecord.hidden = true;
       recordsRoot.replaceChildren();
       const wrapper = document.createElement("section");
       wrapper.className = "markdown-editor";
-      const label = document.createElement("label");
-      label.textContent = "Markdown";
       const textarea = document.createElement("textarea");
       textarea.id = "markdownSource";
+      textarea.setAttribute("aria-label", EDIT_DATA.markdown_path || "Markdown");
+      textarea.spellcheck = true;
       textarea.value = EDIT_DATA.markdown || "";
-      label.append(textarea);
-      wrapper.append(label);
+      textarea.addEventListener("input", queueSave);
+      textarea.addEventListener("change", queueSave);
+      wrapper.append(textarea);
       recordsRoot.append(wrapper);
     }}
 
@@ -15044,11 +17941,21 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         last.open = true;
         last.scrollIntoView({{ block: "nearest" }});
       }}
+      queueSave();
+    }}
+
+    function queueSave() {{
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(save, 450);
     }}
 
     async function save() {{
+      if (saveInFlight) {{
+        saveQueued = true;
+        return;
+      }}
+      saveInFlight = true;
       setStatus("saving...");
-      saveArtifact.disabled = true;
       try {{
         const payload = EDIT_DATA.mode === "structured"
           ? {{
@@ -15088,12 +17995,15 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       }} catch (error) {{
         setStatus(error.message || String(error), true);
       }} finally {{
-        saveArtifact.disabled = false;
+        saveInFlight = false;
+        if (saveQueued) {{
+          saveQueued = false;
+          queueSave();
+        }}
       }}
     }}
 
     addRecord.addEventListener("click", addSectionRecord);
-    saveArtifact.addEventListener("click", save);
     if (EDIT_DATA.mode === "structured") {{
       renderStructuredEditor();
     }} else {{
@@ -15114,6 +18024,1538 @@ def _document_target_path(project_root: Path | str, relative_path: str) -> tuple
     except ValueError as error:
         raise StateError("document path cannot escape the project") from error
     return normalized_path, document_path
+
+
+def _normalize_creative_relative_path(relative_path: str) -> str:
+    raw = relative_path.strip().replace("\\", "/")
+    if not raw:
+        raise StateError("path is required")
+    path = Path(raw)
+    if path.is_absolute():
+        raise StateError("path must be relative")
+    if any(part in {"", ".."} for part in path.parts):
+        raise StateError("path cannot escape the project")
+    return path.as_posix()
+
+
+def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:
+    project_root = Path(project_root).expanduser().resolve()
+    normalized_path = _normalize_creative_relative_path(relative_path)
+    resolved = (project_root / normalized_path).resolve()
+    try:
+        resolved.relative_to(project_root)
+    except ValueError as error:
+        raise StateError("path cannot escape the project") from error
+    return normalized_path, resolved
+
+
+def _ensure_creative_workspace(project_root: Path | str) -> None:
+    project_root = Path(project_root).expanduser().resolve()
+    for folder in CREATIVE_DEFAULT_FOLDERS:
+        (project_root / folder).mkdir(parents=True, exist_ok=True)
+    _ensure_creative_scratchpad(project_root)
+    chapters = project_root / "chapters"
+    if not any(chapters.glob("*.md")):
+        _create_creative_document(project_root, "chapters/chapter-01.md")
+    for path in [
+        "characters/characters.md",
+        "reviews/review-notes.md",
+    ]:
+        _create_creative_document(project_root, path)
+    _create_creative_corkboard(
+        project_root,
+        f"corkboard/ideas{CREATIVE_CORKBOARD_SUFFIX}",
+    )
+
+
+def _ensure_creative_scratchpad(project_root: Path | str) -> Path:
+    _relative, path = _document_target_path(project_root, CREATIVE_SCRATCHPAD_PATH)
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Scratchpad\n\n", encoding="utf-8")
+    return path
+
+
+def _create_creative_folder(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, folder_path = _creative_path(project_root, relative_path)
+    if folder_path.exists() and not folder_path.is_dir():
+        raise StateError("folder path already exists as a file")
+    folder_path.mkdir(parents=True, exist_ok=True)
+    return normalized_path
+
+
+def _create_creative_document(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, document_path = _document_target_path(project_root, relative_path)
+    if document_path.exists() and not document_path.is_file():
+        raise StateError("document path already exists as a folder")
+    if not document_path.exists() or not document_path.read_text(encoding="utf-8").strip():
+        document_path.parent.mkdir(parents=True, exist_ok=True)
+        document_path.write_text(
+            _document_starter_markdown(normalized_path),
+            encoding="utf-8",
+        )
+    return normalized_path
+
+
+def _empty_creative_corkboard_document() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "type": "electroboy.creative.corkboard",
+        "cards": [],
+    }
+
+
+def _create_creative_corkboard(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, corkboard_path = _creative_path(project_root, relative_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if corkboard_path.exists() and not corkboard_path.is_file():
+        raise StateError("corkboard path already exists as a folder")
+    if not corkboard_path.exists() or not corkboard_path.read_text(encoding="utf-8").strip():
+        corkboard_path.parent.mkdir(parents=True, exist_ok=True)
+        corkboard_path.write_text(
+            json.dumps(_empty_creative_corkboard_document(), indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return normalized_path
+
+
+def _normalize_creative_entry_name(name: str) -> str:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise StateError("name is required")
+    if normalized_name in {".", ".."}:
+        raise StateError("name cannot be . or ..")
+    if "/" in normalized_name or "\\" in normalized_name:
+        raise StateError("name cannot contain path separators")
+    return normalized_name
+
+
+def _rename_creative_entry(
+    project_root: Path | str,
+    relative_path: str,
+    new_name: str,
+) -> tuple[str, str]:
+    old_relative_path, source = _creative_path(project_root, relative_path)
+    project_root = Path(project_root).expanduser().resolve()
+    if not source.exists():
+        raise StateError(f"path does not exist: {old_relative_path}")
+    normalized_name = _normalize_creative_entry_name(new_name)
+    destination = (source.parent / normalized_name).resolve()
+    try:
+        destination.relative_to(project_root)
+    except ValueError as error:
+        raise StateError("path cannot escape the project") from error
+    if destination.exists():
+        raise StateError(f"path already exists: {normalized_name}")
+    source.rename(destination)
+    new_relative_path = destination.relative_to(project_root).as_posix()
+    _remap_creative_corkboard_paths(project_root, old_relative_path, new_relative_path)
+    return old_relative_path, new_relative_path
+
+
+def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
+    normalized_path, path = _creative_path(project_root, relative_path)
+    if not path.exists():
+        raise StateError(f"path does not exist: {normalized_path}")
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+    _remove_creative_corkboard_paths(project_root, normalized_path)
+    return normalized_path
+
+
+def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
+    project_root = Path(project_root).expanduser().resolve()
+    return {
+        "root": str(project_root),
+        "entries": _creative_tree_entries(project_root, project_root),
+    }
+
+
+def _creative_tree_entries(
+    project_root: Path,
+    directory: Path,
+    *,
+    depth: int = 0,
+) -> list[dict[str, object]]:
+    if depth > 8:
+        return []
+    entries: list[dict[str, object]] = []
+    try:
+        children = sorted(
+            directory.iterdir(),
+            key=lambda path: (not path.is_dir(), path.name.lower()),
+        )
+    except OSError:
+        return []
+    for child in children:
+        if child.name in CREATIVE_IGNORED_NAMES or child.name.startswith("."):
+            continue
+        relative_path = child.relative_to(project_root).as_posix()
+        if child.is_dir():
+            entries.append(
+                {
+                    "name": child.name,
+                    "path": relative_path,
+                    "type": "directory",
+                    "children": _creative_tree_entries(
+                        project_root,
+                        child,
+                        depth=depth + 1,
+                    ),
+                }
+            )
+            continue
+        entries.append(
+            {
+                "name": child.name,
+                "path": relative_path,
+                "type": "file",
+                "markdown": child.suffix.lower() == ".md",
+                "corkboard": child.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
+            }
+        )
+    return entries
+
+
+def creative_corkboard_html(
+    project_root: Path | str,
+    board_path: str,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> tuple[str, HTTPStatus]:
+    """Return an interactive corkboard for a folder or corkboard file."""
+
+    payload = _creative_corkboard_payload(
+        project_root,
+        board_path,
+        title=title,
+        context_id=context_id,
+    )
+    data_json = json.dumps(payload).replace("</", "<\\/")
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(str(payload["title"]))}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --cork: #a86d38;
+      --cork-dark: #5f4128;
+      --ink: #263247;
+      --muted: #6b7280;
+      --pin: #d1495b;
+      --insert: #66d9e8;
+      --shadow: rgba(15, 20, 32, 0.32);
+    }}
+
+    * {{
+      box-sizing: border-box;
+    }}
+
+    html,
+    body {{
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background-color: var(--cork);
+      background:
+        radial-gradient(ellipse at 18% 24%, rgba(89, 50, 22, 0.48) 0 2px, transparent 3px),
+        radial-gradient(ellipse at 73% 38%, rgba(68, 39, 18, 0.38) 0 2px, transparent 4px),
+        radial-gradient(ellipse at 41% 72%, rgba(219, 157, 88, 0.34) 0 2px, transparent 3px),
+        radial-gradient(ellipse at 84% 82%, rgba(92, 52, 22, 0.32) 0 1px, transparent 3px),
+        radial-gradient(ellipse at 31% 48%, rgba(236, 183, 112, 0.20) 0 1px, transparent 3px),
+        repeating-linear-gradient(27deg, rgba(61, 36, 18, 0.10) 0 1px, transparent 1px 9px),
+        repeating-linear-gradient(112deg, rgba(236, 183, 112, 0.08) 0 1px, transparent 1px 11px),
+        var(--cork);
+      background-size:
+        46px 38px,
+        53px 47px,
+        61px 52px,
+        37px 41px,
+        29px 31px,
+        31px 31px,
+        43px 43px,
+        auto;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: auto;
+    }}
+
+    .board-shell {{
+      min-width: 100%;
+      min-height: 100vh;
+      border: 14px solid var(--cork-dark);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }}
+
+    .board-toolbar {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 62px;
+      border-bottom: 1px solid rgba(52, 34, 22, 0.34);
+      background: rgba(52, 34, 22, 0.18);
+      padding: 10px 18px;
+    }}
+
+    .board-eyebrow {{
+      color: rgba(255, 248, 228, 0.84);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    h1 {{
+      margin: 2px 0 0;
+      color: #fff9e8;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.15;
+    }}
+
+    .toolbar-button {{
+      min-height: 32px;
+      border: 1px solid rgba(255, 249, 232, 0.42);
+      border-radius: 999px;
+      background: rgba(255, 249, 232, 0.18);
+      color: #fff9e8;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 0 14px;
+    }}
+
+    .toolbar-button[hidden] {{
+      display: none;
+    }}
+
+    .board {{
+      min-width: 100%;
+      min-height: calc(100vh - 90px);
+      overflow: visible;
+    }}
+
+    .board.folder {{
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(var(--card-grid-min-width, 210px), 1fr));
+      align-content: start;
+      gap: var(--card-gap, 24px);
+      padding: 26px;
+    }}
+
+    .board.freeform {{
+      position: relative;
+    }}
+
+    .empty-board {{
+      width: 240px;
+      min-height: 140px;
+      border-radius: 4px;
+      background: #fff6cf;
+      color: #596176;
+      box-shadow: 0 18px 36px var(--shadow);
+      padding: 22px;
+      transform: rotate(-2deg);
+    }}
+
+    .board.freeform .empty-board {{
+      position: absolute;
+      top: 42px;
+      left: 42px;
+    }}
+
+    .index-card {{
+      min-height: var(--card-min-height, 158px);
+      border: 1px solid rgba(38, 50, 71, 0.14);
+      border-radius: 5px;
+      background:
+        linear-gradient(var(--paper), var(--paper)),
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 25px,
+          rgba(63, 77, 103, 0.16) 26px
+        );
+      box-shadow:
+        0 18px 34px var(--shadow),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+      transform: rotate(var(--rotation));
+      transform-origin: 50% 22px;
+      touch-action: none;
+    }}
+
+    .index-card.selected {{
+      outline: 3px solid var(--insert);
+      outline-offset: 5px;
+      box-shadow:
+        0 0 0 1px rgba(255, 249, 232, 0.86),
+        0 24px 46px rgba(15, 20, 32, 0.34),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+      z-index: 10;
+    }}
+
+    .board.folder .index-card {{
+      position: relative;
+      width: auto;
+    }}
+
+    .board.folder .index-card.dragging {{
+      opacity: 0.42;
+    }}
+
+    .insertion-marker {{
+      position: absolute;
+      width: 5px;
+      min-height: 64px;
+      border-radius: 999px;
+      background: var(--insert);
+      box-shadow:
+        0 0 0 3px rgba(15, 20, 32, 0.22),
+        0 0 20px rgba(102, 217, 232, 0.62);
+      pointer-events: none;
+      transform: translateX(-50%);
+      transition:
+        left 90ms ease,
+        top 90ms ease,
+        height 90ms ease;
+      z-index: 1001;
+    }}
+
+    .insertion-marker[hidden] {{
+      display: none;
+    }}
+
+    .board.freeform .index-card {{
+      position: absolute;
+      width: var(--card-width, 218px);
+    }}
+
+    .index-card.dragging {{
+      cursor: grabbing;
+      box-shadow:
+        0 28px 54px rgba(15, 20, 32, 0.44),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+      z-index: 1000;
+    }}
+
+    .index-card::before {{
+      content: "";
+      position: absolute;
+      top: -8px;
+      left: 50%;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background:
+        radial-gradient(circle at 35% 32%, rgba(255, 255, 255, 0.75), transparent 0 22%),
+        var(--pin);
+      box-shadow: 0 4px 8px rgba(48, 28, 22, 0.35);
+      transform: translateX(-50%);
+    }}
+
+    .index-card::after {{
+      content: "";
+      position: absolute;
+      top: 8px;
+      left: 16px;
+      right: 16px;
+      height: 16px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.26);
+      mix-blend-mode: multiply;
+      transform: rotate(-1deg);
+      pointer-events: none;
+    }}
+
+    .card-head {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+      padding: 18px 14px 8px;
+      cursor: grab;
+    }}
+
+    .card-title {{
+      min-width: 0;
+      overflow: hidden;
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.15;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+
+    .card-title-input {{
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.15;
+      outline: none;
+      padding: 0;
+    }}
+
+    .card-type {{
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    .card-open {{
+      min-height: 24px;
+      border: 1px solid rgba(38, 50, 71, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.55);
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 0 10px;
+    }}
+
+    .card-note {{
+      display: block;
+      width: calc(100% - 24px);
+      min-height: var(--card-note-min-height, 82px);
+      margin: 0 12px 12px;
+      border: 0;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 25px,
+          rgba(63, 77, 103, 0.18) 26px
+        );
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      line-height: 26px;
+      outline: none;
+      resize: none;
+    }}
+
+    .card-size-control {{
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 1100;
+      display: grid;
+      gap: 6px;
+      width: 220px;
+      border: 1px solid rgba(255, 249, 232, 0.34);
+      border-radius: 8px;
+      background: rgba(15, 20, 32, 0.86);
+      color: #d8e3f4;
+      box-shadow: 0 10px 24px rgba(15, 20, 32, 0.26);
+      padding: 8px 10px;
+    }}
+
+    .card-size-label {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }}
+
+    .card-size-control input {{
+      width: 100%;
+      accent-color: var(--insert);
+    }}
+
+  </style>
+</head>
+<body>
+  <main class="board-shell">
+    <header class="board-toolbar">
+      <div>
+        <div id="boardEyebrow" class="board-eyebrow"></div>
+        <h1>{html.escape(str(payload["title"]))}</h1>
+      </div>
+      <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
+    </header>
+    <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
+  </main>
+  <label class="card-size-control">
+    <span class="card-size-label">
+      <span>Card size</span>
+      <output id="cardSizeValue">100%</output>
+    </span>
+    <input
+      id="cardSizeSlider"
+      type="range"
+      min="70"
+      max="150"
+      step="5"
+      value="100"
+      aria-label="Resize corkboard cards"
+    >
+  </label>
+  <script>
+    const CORKBOARD_DATA = {data_json};
+    const board = document.getElementById("board");
+    const boardEyebrow = document.getElementById("boardEyebrow");
+    const addCard = document.getElementById("addCard");
+    const cardSizeSlider = document.getElementById("cardSizeSlider");
+    const cardSizeValue = document.getElementById("cardSizeValue");
+    const boardType = CORKBOARD_DATA.board_type || "folder";
+    const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
+    const saveTimers = new Map();
+    const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
+    const MIN_CARD_SCALE = 70;
+    const MAX_CARD_SCALE = 150;
+    let dragState = null;
+    let draggedPath = "";
+    let folderInsertionMarker = null;
+    let folderDropTarget = "";
+    let folderDropPlacement = "before";
+    let cardScale = storedCardScale();
+    let selectedCardKey = "";
+
+    function contextUrl(path) {{
+      const contextId = CORKBOARD_DATA.context_id || "";
+      if (!contextId) {{
+        return path;
+      }}
+      const separator = path.includes("?") ? "&" : "?";
+      return `${{path}}${{separator}}context_id=${{encodeURIComponent(contextId)}}`;
+    }}
+
+    function boardStoragePath() {{
+      if (CORKBOARD_DATA.corkboard && CORKBOARD_DATA.corkboard.path) {{
+        return CORKBOARD_DATA.corkboard.path;
+      }}
+      if (CORKBOARD_DATA.folder && CORKBOARD_DATA.folder.path) {{
+        return CORKBOARD_DATA.folder.path;
+      }}
+      return "default";
+    }}
+
+    function cardScaleStorageKey() {{
+      return `${{CARD_SCALE_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
+    }}
+
+    function clampCardScale(value) {{
+      const scale = Number(value);
+      if (!Number.isFinite(scale)) {{
+        return 100;
+      }}
+      return Math.max(MIN_CARD_SCALE, Math.min(MAX_CARD_SCALE, Math.round(scale)));
+    }}
+
+    function storedCardScale() {{
+      try {{
+        const stored = Number(window.localStorage.getItem(cardScaleStorageKey()));
+        if (Number.isFinite(stored)) {{
+          return clampCardScale(stored);
+        }}
+      }} catch (error) {{
+        return 100;
+      }}
+      return 100;
+    }}
+
+    function saveCardScale() {{
+      try {{
+        window.localStorage.setItem(cardScaleStorageKey(), String(cardScale));
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function scaledCardValue(value) {{
+      return Math.round(value * cardScale / 100);
+    }}
+
+    function applyCardScale() {{
+      const root = document.documentElement;
+      root.style.setProperty("--card-width", `${{scaledCardValue(218)}}px`);
+      root.style.setProperty("--card-grid-min-width", `${{scaledCardValue(210)}}px`);
+      root.style.setProperty("--card-min-height", `${{scaledCardValue(158)}}px`);
+      root.style.setProperty("--card-note-min-height", `${{scaledCardValue(82)}}px`);
+      root.style.setProperty("--card-gap", `${{Math.max(14, scaledCardValue(24))}}px`);
+      cardSizeSlider.value = String(cardScale);
+      cardSizeValue.value = `${{cardScale}}%`;
+      cardSizeValue.textContent = `${{cardScale}}%`;
+      sizeBoard();
+    }}
+
+    function updateCardScale(value) {{
+      cardScale = clampCardScale(value);
+      saveCardScale();
+      applyCardScale();
+    }}
+
+    function cardKey(card) {{
+      return String(card.id || card.path || "");
+    }}
+
+    function selectCard(card, cardElement) {{
+      selectedCardKey = cardKey(card);
+      for (const element of board.querySelectorAll(".index-card.selected")) {{
+        element.classList.remove("selected");
+        element.setAttribute("aria-selected", "false");
+      }}
+      cardElement.classList.add("selected");
+      cardElement.setAttribute("aria-selected", "true");
+    }}
+
+    function cardColor(card) {{
+      return card.color || "#fff6cf";
+    }}
+
+    function applyCardPosition(cardElement, card) {{
+      cardElement.style.left = `${{Math.max(0, Number(card.x) || 0)}}px`;
+      cardElement.style.top = `${{Math.max(0, Number(card.y) || 0)}}px`;
+      cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
+      cardElement.style.setProperty("--paper", cardColor(card));
+    }}
+
+    function sizeBoard() {{
+      if (boardType !== "freeform") {{
+        return;
+      }}
+      const width = Math.max(
+        window.innerWidth,
+        ...cards.map((card) => (Number(card.x) || 0) + scaledCardValue(280)),
+      );
+      const height = Math.max(
+        window.innerHeight,
+        ...cards.map((card) => (Number(card.y) || 0) + scaledCardValue(230)),
+      );
+      board.style.minWidth = `${{width}}px`;
+      board.style.minHeight = `${{height}}px`;
+    }}
+
+    function queueSave(card) {{
+      const key = cardKey(card);
+      window.clearTimeout(saveTimers.get(key));
+      saveTimers.set(
+        key,
+        window.setTimeout(() => saveCard(card), 350),
+      );
+    }}
+
+    async function saveCard(card) {{
+      if (!CORKBOARD_DATA.context_id) {{
+        return;
+      }}
+      let payload = null;
+      if (boardType === "folder") {{
+        payload = {{
+          board_type: "folder",
+          folder: CORKBOARD_DATA.folder.path,
+          path: card.path,
+          note: card.note || "",
+        }};
+      }} else {{
+        payload = {{
+          board_type: "freeform",
+          corkboard: CORKBOARD_DATA.corkboard.path,
+          card: {{
+            id: card.id,
+            title: card.title || "",
+            note: card.note || "",
+            x: Number(card.x) || 0,
+            y: Number(card.y) || 0,
+            rotation: Number(card.rotation) || 0,
+            color: cardColor(card),
+          }},
+        }};
+      }}
+      await fetch(contextUrl("/api/creative/corkboard"), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify(payload),
+      }}).catch(() => null);
+    }}
+
+    async function saveOrder() {{
+      if (!CORKBOARD_DATA.context_id || boardType !== "folder") {{
+        return;
+      }}
+      await fetch(contextUrl("/api/creative/corkboard"), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          board_type: "folder",
+          folder: CORKBOARD_DATA.folder.path,
+          order: cards.map((card) => card.path),
+        }}),
+      }}).catch(() => null);
+    }}
+
+    function openCard(card) {{
+      const targetWindow =
+        window.parent && window.parent !== window ? window.parent : window.opener;
+      if (!targetWindow) {{
+        return;
+      }}
+      targetWindow.postMessage(
+        {{
+          type: "electroboy-creative-open",
+          path: card.path,
+          entry_type: card.corkboard ? "corkboard" : card.type,
+        }},
+        window.location.origin,
+      );
+    }}
+
+    function startDrag(event) {{
+      if (event.button !== 0 || event.target.closest("textarea, button")) {{
+        return;
+      }}
+      const cardElement = event.currentTarget;
+      const card = cards.find((candidate) => cardKey(candidate) === cardElement.dataset.key);
+      if (!card) {{
+        return;
+      }}
+      dragState = {{
+        card,
+        cardElement,
+        startX: event.clientX,
+        startY: event.clientY,
+        originalX: Number(card.x) || 0,
+        originalY: Number(card.y) || 0,
+      }};
+      cardElement.classList.add("dragging");
+      cardElement.setPointerCapture(event.pointerId);
+    }}
+
+    function updateDrag(event) {{
+      if (!dragState) {{
+        return;
+      }}
+      dragState.card.x = Math.max(
+        0,
+        dragState.originalX + event.clientX - dragState.startX,
+      );
+      dragState.card.y = Math.max(
+        0,
+        dragState.originalY + event.clientY - dragState.startY,
+      );
+      applyCardPosition(dragState.cardElement, dragState.card);
+      sizeBoard();
+    }}
+
+    function finishDrag(event) {{
+      if (!dragState) {{
+        return;
+      }}
+      dragState.cardElement.classList.remove("dragging");
+      try {{
+        dragState.cardElement.releasePointerCapture(event.pointerId);
+      }} catch (error) {{
+        // Pointer capture may already be released if the window lost focus.
+      }}
+      queueSave(dragState.card);
+      dragState = null;
+    }}
+
+    function startFolderDrag(event, card, cardElement) {{
+      draggedPath = card.path || "";
+      cardElement.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", draggedPath);
+    }}
+
+    function finishFolderDrag(cardElement) {{
+      draggedPath = "";
+      clearFolderInsertionMarker();
+      cardElement.classList.remove("dragging");
+    }}
+
+    function ensureFolderInsertionMarker() {{
+      if (folderInsertionMarker && folderInsertionMarker.parentElement === board) {{
+        return folderInsertionMarker;
+      }}
+      folderInsertionMarker = document.createElement("div");
+      folderInsertionMarker.className = "insertion-marker";
+      folderInsertionMarker.hidden = true;
+      board.prepend(folderInsertionMarker);
+      return folderInsertionMarker;
+    }}
+
+    function clearFolderInsertionMarker() {{
+      folderDropTarget = "";
+      folderDropPlacement = "before";
+      if (folderInsertionMarker) {{
+        folderInsertionMarker.hidden = true;
+      }}
+    }}
+
+    function folderInsertionPlacement(event, cardElement) {{
+      const rect = cardElement.getBoundingClientRect();
+      return event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+    }}
+
+    function showFolderInsertionMarker(event, card, cardElement) {{
+      if (!draggedPath || draggedPath === card.path) {{
+        clearFolderInsertionMarker();
+        return;
+      }}
+      const placement = folderInsertionPlacement(event, cardElement);
+      const marker = ensureFolderInsertionMarker();
+      const cardRect = cardElement.getBoundingClientRect();
+      const boardRect = board.getBoundingClientRect();
+      const x = placement === "before"
+        ? cardRect.left - boardRect.left
+        : cardRect.right - boardRect.left;
+      marker.style.left = `${{Math.max(0, x)}}px`;
+      marker.style.top = `${{Math.max(0, cardRect.top - boardRect.top)}}px`;
+      marker.style.height = `${{Math.max(64, cardRect.height)}}px`;
+      marker.hidden = false;
+      folderDropTarget = card.path || "";
+      folderDropPlacement = placement;
+    }}
+
+    function dropFolderCard(event, targetCard, cardElement) {{
+      event.preventDefault();
+      const sourcePath = draggedPath || event.dataTransfer.getData("text/plain");
+      if (!sourcePath || sourcePath === targetCard.path) {{
+        clearFolderInsertionMarker();
+        return;
+      }}
+      const sourceIndex = cards.findIndex((card) => card.path === sourcePath);
+      const targetPath = folderDropTarget || targetCard.path;
+      const placement = folderDropTarget
+        ? folderDropPlacement
+        : folderInsertionPlacement(event, cardElement);
+      if (sourceIndex < 0 || !targetPath) {{
+        clearFolderInsertionMarker();
+        return;
+      }}
+      const [moved] = cards.splice(sourceIndex, 1);
+      const targetIndex = cards.findIndex((card) => card.path === targetPath);
+      if (targetIndex < 0) {{
+        cards.splice(sourceIndex, 0, moved);
+        clearFolderInsertionMarker();
+        return;
+      }}
+      const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+      cards.splice(insertIndex, 0, moved);
+      clearFolderInsertionMarker();
+      renderCards();
+      saveOrder();
+    }}
+
+    function makeFreeformCard() {{
+      const index = cards.length;
+      const card = {{
+        id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
+        title: "Untitled card",
+        note: "",
+        x: 36 + (index % 4) * scaledCardValue(236),
+        y: 36 + Math.floor(index / 4) * scaledCardValue(206),
+        rotation: (index % 5) - 2,
+        color: ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"][index % 5],
+      }};
+      cards.push(card);
+      selectedCardKey = card.id;
+      renderCards();
+      saveCard(card);
+    }}
+
+    function renderCards() {{
+      board.replaceChildren();
+      folderInsertionMarker = null;
+      clearFolderInsertionMarker();
+      board.className = `board ${{boardType}}`;
+      boardEyebrow.textContent = boardType === "freeform"
+        ? "Freeform corkboard"
+        : "Folder board";
+      addCard.hidden = boardType !== "freeform";
+      if (cards.length === 0) {{
+        const empty = document.createElement("section");
+        empty.className = "empty-board";
+        empty.textContent = boardType === "freeform"
+          ? "No cards yet. Add one to start arranging ideas."
+          : "No folders or files yet.";
+        board.append(empty);
+        return;
+      }}
+      for (const card of cards) {{
+        const cardElement = document.createElement("article");
+        cardElement.className = `index-card ${{card.type || "file"}}`;
+        cardElement.dataset.key = cardKey(card);
+        cardElement.tabIndex = 0;
+        cardElement.classList.toggle("selected", selectedCardKey === cardElement.dataset.key);
+        cardElement.setAttribute(
+          "aria-selected",
+          selectedCardKey === cardElement.dataset.key ? "true" : "false",
+        );
+        cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
+        cardElement.style.setProperty("--paper", cardColor(card));
+        cardElement.addEventListener(
+          "pointerdown",
+          () => selectCard(card, cardElement),
+          {{ capture: true }},
+        );
+        cardElement.addEventListener("focusin", () => selectCard(card, cardElement));
+        if (boardType === "freeform") {{
+          applyCardPosition(cardElement, card);
+          cardElement.addEventListener("pointerdown", startDrag);
+          cardElement.addEventListener("pointermove", updateDrag);
+          cardElement.addEventListener("pointerup", finishDrag);
+          cardElement.addEventListener("pointercancel", finishDrag);
+        }} else {{
+          ensureFolderInsertionMarker();
+          cardElement.draggable = true;
+          cardElement.addEventListener("dragstart", (event) =>
+            startFolderDrag(event, card, cardElement),
+          );
+          cardElement.addEventListener("dragend", () => finishFolderDrag(cardElement));
+          cardElement.addEventListener("dragover", (event) => {{
+            event.preventDefault();
+            showFolderInsertionMarker(event, card, cardElement);
+          }});
+          cardElement.addEventListener("drop", (event) =>
+            dropFolderCard(event, card, cardElement),
+          );
+        }}
+
+        const head = document.createElement("div");
+        head.className = "card-head";
+        const titleBox = document.createElement("div");
+        let title = null;
+        if (boardType === "freeform") {{
+          title = document.createElement("input");
+          title.className = "card-title-input";
+          title.type = "text";
+          title.value = card.title || "Untitled card";
+          title.addEventListener("input", () => {{
+            card.title = title.value;
+            queueSave(card);
+          }});
+        }} else {{
+          title = document.createElement("div");
+          title.className = "card-title";
+          title.textContent = card.name || card.path;
+        }}
+        const type = document.createElement("div");
+        type.className = "card-type";
+        type.textContent = boardType === "freeform"
+          ? "Idea"
+          : card.type === "directory" ? "Folder" : card.corkboard ? "Board" : "File";
+        titleBox.append(title, type);
+
+        if (boardType === "folder") {{
+          const open = document.createElement("button");
+          open.className = "card-open";
+          open.type = "button";
+          open.textContent = "Open";
+          open.addEventListener("click", () => openCard(card));
+          head.append(titleBox, open);
+        }} else {{
+          head.append(titleBox);
+        }}
+
+        const note = document.createElement("textarea");
+        note.className = "card-note";
+        note.spellcheck = true;
+        note.value = card.note || "";
+        note.addEventListener("input", () => {{
+          card.note = note.value;
+          queueSave(card);
+        }});
+
+        cardElement.append(head, note);
+        board.append(cardElement);
+      }}
+      sizeBoard();
+    }}
+
+    addCard.addEventListener("click", makeFreeformCard);
+    cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
+    window.addEventListener("resize", sizeBoard);
+    applyCardScale();
+    renderCards();
+  </script>
+</body>
+</html>
+"""
+    return page, HTTPStatus.OK
+
+
+def _creative_corkboard_payload(
+    project_root: Path | str,
+    board_path: str,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> dict[str, object]:
+    project_root = Path(project_root).expanduser().resolve()
+    normalized_path, path = _creative_path(project_root, board_path)
+    if path.exists() and path.is_dir():
+        return _creative_folder_corkboard_payload(
+            project_root,
+            normalized_path,
+            path,
+            title=title,
+            context_id=context_id,
+        )
+    if (
+        path.exists()
+        and path.is_file()
+        and normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX)
+    ):
+        return _creative_freeform_corkboard_payload(
+            project_root,
+            normalized_path,
+            path,
+            title=title,
+            context_id=context_id,
+        )
+    if normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    raise StateError(f"folder does not exist: {normalized_path}")
+
+
+def _creative_folder_corkboard_payload(
+    project_root: Path,
+    normalized_folder: str,
+    folder: Path,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> dict[str, object]:
+    state = _load_creative_corkboard_state(project_root)
+    folder_state = _creative_corkboard_folder_state(state, normalized_folder)
+    card_states = _creative_corkboard_folder_cards(folder_state)
+    cards = []
+    for index, child in enumerate(_creative_corkboard_children(project_root, folder)):
+        relative_path = child.relative_to(project_root).as_posix()
+        card_state = card_states.get(relative_path, {})
+        cards.append(
+            _creative_folder_corkboard_card(
+                child,
+                relative_path,
+                index,
+                card_state if isinstance(card_state, dict) else {},
+            )
+        )
+    order = folder_state.get("order")
+    if isinstance(order, list):
+        order_index = {str(path): index for index, path in enumerate(order)}
+        natural_index = {str(card["path"]): index for index, card in enumerate(cards)}
+        cards.sort(
+            key=lambda card: (
+                order_index.get(
+                    str(card["path"]),
+                    len(order) + natural_index[str(card["path"])],
+                ),
+                natural_index[str(card["path"])],
+            )
+        )
+    return {
+        "schema_version": 1,
+        "board_type": "folder",
+        "context_id": context_id,
+        "title": title or f"Folder board: {folder.name}",
+        "folder": {
+            "name": folder.name,
+            "path": normalized_folder,
+        },
+        "cards": cards,
+    }
+
+
+def _creative_freeform_corkboard_payload(
+    project_root: Path,
+    normalized_path: str,
+    corkboard_path: Path,
+    *,
+    title: str | None = None,
+    context_id: str = "",
+) -> dict[str, object]:
+    data = _load_creative_corkboard_document(corkboard_path)
+    return {
+        "schema_version": 1,
+        "board_type": "freeform",
+        "context_id": context_id,
+        "title": title or corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX),
+        "corkboard": {
+            "name": corkboard_path.name,
+            "path": normalized_path,
+        },
+        "cards": _freeform_corkboard_cards(data),
+    }
+
+
+def _creative_corkboard_children(project_root: Path, folder: Path) -> list[Path]:
+    try:
+        children = sorted(
+            folder.iterdir(),
+            key=lambda path: (not path.is_dir(), path.name.lower()),
+        )
+    except OSError:
+        return []
+    return [
+        child
+        for child in children
+        if child.name not in CREATIVE_IGNORED_NAMES and not child.name.startswith(".")
+    ]
+
+
+def _creative_folder_corkboard_card(
+    path: Path,
+    relative_path: str,
+    index: int,
+    state: dict[str, object],
+) -> dict[str, object]:
+    style = _creative_corkboard_card_style(relative_path, index)
+    return {
+        "name": path.name,
+        "path": relative_path,
+        "type": "directory" if path.is_dir() else "file",
+        "corkboard": path.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
+        "note": str(state.get("note") or ""),
+        "rotation": style["rotation"],
+        "color": style["color"],
+    }
+
+
+def _creative_corkboard_card_style(
+    relative_path: str,
+    index: int,
+) -> dict[str, object]:
+    digest = hashlib.sha1(relative_path.encode("utf-8")).hexdigest()
+    palette = ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"]
+    rotation = (int(digest[4:6], 16) % 9) - 4
+    return {
+        "rotation": rotation,
+        "color": palette[int(digest[6:8], 16) % len(palette)],
+    }
+
+
+def _bounded_float(
+    value: object,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def _creative_corkboard_state_path(project_root: Path | str) -> Path:
+    return Path(project_root).expanduser().resolve() / CREATIVE_CORKBOARD_STATE_RELATIVE_PATH
+
+
+def _load_creative_corkboard_state(project_root: Path | str) -> dict[str, object]:
+    path = _creative_corkboard_state_path(project_root)
+    if not path.exists():
+        return {"schema_version": 1, "folders": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1, "folders": {}}
+    if not isinstance(data, dict):
+        return {"schema_version": 1, "folders": {}}
+    folders = data.get("folders")
+    if not isinstance(folders, dict):
+        data["folders"] = {}
+    data["schema_version"] = 1
+    return data
+
+
+def _save_creative_corkboard_state(
+    project_root: Path | str,
+    state: dict[str, object],
+) -> None:
+    path = _creative_corkboard_state_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _creative_corkboard_folder_state(
+    state: dict[str, object],
+    folder_path: str,
+) -> dict[str, object]:
+    folders = state.setdefault("folders", {})
+    if not isinstance(folders, dict):
+        state["folders"] = {}
+        folders = state["folders"]
+    folder_state = folders.setdefault(folder_path, {})
+    if not isinstance(folder_state, dict):
+        folder_state = {}
+        folders[folder_path] = folder_state
+    cards = _creative_corkboard_folder_cards(folder_state)
+    order = folder_state.setdefault("order", [])
+    if not isinstance(order, list):
+        folder_state["order"] = []
+    return folder_state
+
+
+def _creative_corkboard_folder_cards(
+    folder_state: dict[str, object],
+) -> dict[str, object]:
+    cards = folder_state.setdefault("cards", {})
+    if not isinstance(cards, dict):
+        folder_state["cards"] = {}
+        cards = folder_state["cards"]
+    return cards
+
+
+def _save_creative_folder_corkboard_card(
+    project_root: Path | str,
+    *,
+    folder_path: str,
+    card_path: str,
+    note: str,
+) -> dict[str, object]:
+    normalized_folder, folder = _creative_path(project_root, folder_path)
+    normalized_card, card = _creative_path(project_root, card_path)
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder does not exist: {normalized_folder}")
+    if not card.exists():
+        raise StateError(f"card path does not exist: {normalized_card}")
+    if card.parent.resolve() != folder.resolve():
+        raise StateError("card does not belong to the corkboard folder")
+    state = _load_creative_corkboard_state(project_root)
+    folder_state = _creative_corkboard_folder_state(state, normalized_folder)
+    card_states = _creative_corkboard_folder_cards(folder_state)
+    previous = card_states.get(normalized_card, {})
+    card_states[normalized_card] = {
+        **(previous if isinstance(previous, dict) else {}),
+        "note": note[:5000],
+    }
+    _save_creative_corkboard_state(project_root, state)
+    return {
+        "path": normalized_card,
+        **card_states[normalized_card],
+    }
+
+
+def _save_creative_folder_corkboard_order(
+    project_root: Path | str,
+    *,
+    folder_path: str,
+    order: list[str],
+) -> list[str]:
+    normalized_folder, folder = _creative_path(project_root, folder_path)
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder does not exist: {normalized_folder}")
+    project_root_path = Path(project_root).expanduser().resolve()
+    valid_children = {
+        child.relative_to(project_root_path).as_posix()
+        for child in _creative_corkboard_children(project_root_path, folder)
+    }
+    saved_order: list[str] = []
+    seen: set[str] = set()
+    for item in order:
+        normalized_item, item_path = _creative_path(project_root, item)
+        if (
+            normalized_item in valid_children
+            and normalized_item not in seen
+            and item_path.parent.resolve() == folder.resolve()
+        ):
+            saved_order.append(normalized_item)
+            seen.add(normalized_item)
+    for item in sorted(valid_children):
+        if item not in seen:
+            saved_order.append(item)
+    state = _load_creative_corkboard_state(project_root)
+    folder_state = _creative_corkboard_folder_state(state, normalized_folder)
+    folder_state["order"] = saved_order
+    _save_creative_corkboard_state(project_root, state)
+    return saved_order
+
+
+def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _empty_creative_corkboard_document()
+    if not isinstance(data, dict):
+        return _empty_creative_corkboard_document()
+    if data.get("type") != "electroboy.creative.corkboard":
+        data["type"] = "electroboy.creative.corkboard"
+    data["schema_version"] = 1
+    if not isinstance(data.get("cards"), list):
+        data["cards"] = []
+    return data
+
+
+def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]]:
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        return []
+    normalized_cards: list[dict[str, object]] = []
+    for index, raw_card in enumerate(cards):
+        if not isinstance(raw_card, dict):
+            continue
+        card_id = str(raw_card.get("id") or f"card-{index + 1}")
+        style = _creative_corkboard_card_style(card_id, index)
+        normalized_cards.append(
+            {
+                "id": card_id[:100],
+                "title": str(raw_card.get("title") or "Untitled card")[:200],
+                "note": str(raw_card.get("note") or "")[:5000],
+                "x": _bounded_float(raw_card.get("x"), 36 + index * 24, 0, 5000),
+                "y": _bounded_float(raw_card.get("y"), 36 + index * 18, 0, 5000),
+                "rotation": _bounded_float(
+                    raw_card.get("rotation"),
+                    float(style["rotation"]),
+                    -8,
+                    8,
+                ),
+                "color": str(raw_card.get("color") or style["color"])[:40],
+            }
+        )
+    return normalized_cards
+
+
+def _save_creative_freeform_corkboard_card(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    card_payload: dict[str, object],
+) -> dict[str, object]:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if not path.exists():
+        _create_creative_corkboard(project_root, normalized_path)
+    if not path.is_file():
+        raise StateError(f"corkboard is not a file: {normalized_path}")
+    data = _load_creative_corkboard_document(path)
+    cards = _freeform_corkboard_cards(data)
+    card_id = str(card_payload.get("id") or uuid4().hex)[:100]
+    style = _creative_corkboard_card_style(card_id, len(cards))
+    card = {
+        "id": card_id,
+        "title": str(card_payload.get("title") or "Untitled card")[:200],
+        "note": str(card_payload.get("note") or "")[:5000],
+        "x": _bounded_float(card_payload.get("x"), 36, 0, 5000),
+        "y": _bounded_float(card_payload.get("y"), 36, 0, 5000),
+        "rotation": _bounded_float(
+            card_payload.get("rotation"),
+            float(style["rotation"]),
+            -8,
+            8,
+        ),
+        "color": str(card_payload.get("color") or style["color"])[:40],
+    }
+    replaced = False
+    for index, existing in enumerate(cards):
+        if existing.get("id") == card_id:
+            cards[index] = card
+            replaced = True
+            break
+    if not replaced:
+        cards.append(card)
+    data["cards"] = cards
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return card
+
+
+def _remap_creative_path_reference(path: str, old_path: str, new_path: str) -> str:
+    if path == old_path:
+        return new_path
+    if path.startswith(f"{old_path}/"):
+        return f"{new_path}/{path[len(old_path) + 1:]}"
+    return path
+
+
+def _remap_creative_corkboard_paths(
+    project_root: Path | str,
+    old_path: str,
+    new_path: str,
+) -> None:
+    state_path = _creative_corkboard_state_path(project_root)
+    if not state_path.exists():
+        return
+    state = _load_creative_corkboard_state(project_root)
+    folders = state.get("folders")
+    if not isinstance(folders, dict):
+        return
+    remapped_folders: dict[str, object] = {}
+    for folder_key, folder_state in folders.items():
+        if not isinstance(folder_key, str) or not isinstance(folder_state, dict):
+            continue
+        next_folder_key = _remap_creative_path_reference(folder_key, old_path, new_path)
+        cards = folder_state.get("cards")
+        if isinstance(cards, dict):
+            folder_state["cards"] = {
+                _remap_creative_path_reference(
+                    str(card_path),
+                    old_path,
+                    new_path,
+                ): card_state
+                for card_path, card_state in cards.items()
+            }
+        order = folder_state.get("order")
+        if isinstance(order, list):
+            folder_state["order"] = [
+                _remap_creative_path_reference(str(card_path), old_path, new_path)
+                for card_path in order
+            ]
+        remapped_folders[next_folder_key] = folder_state
+    state["folders"] = remapped_folders
+    _save_creative_corkboard_state(project_root, state)
+
+
+def _remove_creative_corkboard_paths(project_root: Path | str, removed_path: str) -> None:
+    state_path = _creative_corkboard_state_path(project_root)
+    if not state_path.exists():
+        return
+    state = _load_creative_corkboard_state(project_root)
+    folders = state.get("folders")
+    if not isinstance(folders, dict):
+        return
+    kept_folders: dict[str, object] = {}
+    for folder_key, folder_state in folders.items():
+        if not isinstance(folder_key, str) or _creative_path_is_inside(folder_key, removed_path):
+            continue
+        if isinstance(folder_state, dict):
+            cards = folder_state.get("cards")
+            if isinstance(cards, dict):
+                folder_state["cards"] = {
+                    str(card_path): card_state
+                    for card_path, card_state in cards.items()
+                    if not _creative_path_is_inside(str(card_path), removed_path)
+                }
+            order = folder_state.get("order")
+            if isinstance(order, list):
+                folder_state["order"] = [
+                    str(card_path)
+                    for card_path in order
+                    if not _creative_path_is_inside(str(card_path), removed_path)
+                ]
+        kept_folders[folder_key] = folder_state
+    state["folders"] = kept_folders
+    _save_creative_corkboard_state(project_root, state)
+
+
+def _creative_path_is_inside(path: str, container: str) -> bool:
+    return path == container or path.startswith(f"{container}/")
 
 
 def _resolved_artifact_relative_path(
@@ -15178,8 +19620,26 @@ def _render_markdown(text: str) -> str:
         import markdown as markdown_library
     except ImportError:
         return _render_basic_markdown(text)
-    rendered = str(markdown_library.markdown(text, extensions=["extra", "sane_lists"]))
+    rendered = str(
+        markdown_library.markdown(
+            _enable_markdown_in_details(text),
+            extensions=["extra", "sane_lists", "md_in_html"],
+        )
+    )
     return _promote_mermaid_blocks(rendered)
+
+
+_DETAILS_TAG_RE = re.compile(r"<details(?P<attrs>[^>]*)>", re.IGNORECASE)
+
+
+def _enable_markdown_in_details(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        attrs = match.group("attrs") or ""
+        if re.search(r"\smarkdown\s*=", attrs, re.IGNORECASE):
+            return match.group(0)
+        return f'<details{attrs} markdown="1">'
+
+    return _DETAILS_TAG_RE.sub(replace, text)
 
 
 def _render_basic_markdown(text: str) -> str:
@@ -15738,6 +20198,106 @@ def _documentation_command(
     return _electroboy_command(root, args)
 
 
+def _creative_agent_target(
+    root: Path,
+    *,
+    active_target: dict[str, object] | None = None,
+    active_document: str | None = None,
+) -> dict[str, str] | None:
+    if isinstance(active_target, dict):
+        target_type = str(active_target.get("type") or "").strip()
+        target_path = str(active_target.get("path") or "").strip()
+        if target_type == "document" and target_path:
+            normalized_path, _path = _document_target_path(root, target_path)
+            return {"type": "document", "path": normalized_path}
+        if target_type == "freeform-corkboard" and target_path:
+            normalized_path, path = _creative_path(root, target_path)
+            if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+                raise StateError("freeform corkboard path must end in .corkboard.json")
+            if not path.is_file():
+                raise StateError("freeform corkboard path is not a file")
+            return {"type": "freeform-corkboard", "path": normalized_path}
+        if target_type == "folder-corkboard" and target_path:
+            normalized_path, path = _creative_path(root, target_path)
+            if not path.is_dir():
+                raise StateError("folder corkboard path is not a directory")
+            return {"type": "folder-corkboard", "path": normalized_path}
+    if active_document:
+        if active_document.endswith(CREATIVE_CORKBOARD_SUFFIX):
+            normalized_path, _path = _creative_path(root, active_document)
+            return {"type": "freeform-corkboard", "path": normalized_path}
+        normalized_path, _path = _document_target_path(root, active_document)
+        return {"type": "document", "path": normalized_path}
+    return None
+
+
+def _creative_writing_command(
+    root: Path,
+    active_target: dict[str, str] | None = None,
+) -> list[str]:
+    return [
+        "codex",
+        "--cd",
+        str(root),
+        "--sandbox",
+        "workspace-write",
+        _creative_writing_prompt(active_target),
+    ]
+
+
+def _creative_writing_prompt(active_target: dict[str, str] | None = None) -> str:
+    target_lines = _creative_writing_target_prompt_lines(active_target)
+    return "\n".join(
+        [
+            "Act as a creative writing collaborator inside this project.",
+            "",
+            "The writer may move fluidly among chapters, character notes,",
+            "corkboard ideas, reviews, research, and scratchpad notes.",
+            "Markdown files are the source of truth for prose and notes.",
+            "Use docs/corkboard-api.md for corkboard operations.",
+            "Do not edit corkboard JSON directly unless the writer asks.",
+            "Do not rewrite or reorganize files until the writer asks.",
+            "When asked to write or revise without naming a different file,",
+            "work in the active target.",
+            "Use scratchpad/scratchpad.md as optional context for rough notes.",
+            "Keep responses concise unless the writer asks for a draft.",
+            *target_lines,
+        ]
+    )
+
+
+def _creative_writing_target_prompt_lines(
+    active_target: dict[str, str] | None,
+) -> list[str]:
+    if not active_target:
+        return []
+    target_type = active_target.get("type", "")
+    target_path = active_target.get("path", "")
+    if target_type == "document":
+        return [
+            "",
+            f"Current active target: document {target_path}.",
+            "Treat it as the document displayed in the middle pane.",
+        ]
+    if target_type == "freeform-corkboard":
+        return [
+            "",
+            f"Current active target: freeform corkboard {target_path}.",
+            "This board contains arbitrary cards with x/y positions.",
+            "Use `electroboy corkboard` commands from docs/corkboard-api.md",
+            "for card additions, edits, moves, styling, and deletes.",
+        ]
+    if target_type == "folder-corkboard":
+        return [
+            "",
+            f"Current active target: folder corkboard {target_path}.",
+            "This board is backed by that folder's files and subfolders.",
+            "Use `electroboy corkboard folder` commands for notes and order.",
+            "Create, delete, or rename files only when the writer asks.",
+        ]
+    return []
+
+
 def _project_shell_command() -> list[str]:
     candidates = [
         os.environ.get("SHELL", "").strip(),
@@ -15850,6 +20410,8 @@ def _terminal_input_for_key(key: str) -> str:
         "enter": "\r",
         "escape": "\x1b",
         "tab": "\t",
+        "backspace": "\x7f",
+        "delete": "\x1b[3~",
         "up": "\x1b[A",
         "down": "\x1b[B",
         "right": "\x1b[C",
@@ -16152,6 +20714,12 @@ def _handler_for(
             if path in {"/", "/index.html"}:
                 self._send_text(INDEX_HTML, "text/html; charset=utf-8")
                 return
+            if path == SPLASH_IMAGE_ROUTE:
+                self._send_splash_image(SPLASH_IMAGE_RESOURCE)
+                return
+            if path == CREATIVE_SPLASH_IMAGE_ROUTE:
+                self._send_splash_image(CREATIVE_SPLASH_IMAGE_RESOURCE)
+                return
             if path == "/file-browser":
                 self._send_file_browser_window(parsed.query)
                 return
@@ -16194,6 +20762,18 @@ def _handler_for(
             if path == "/api/documents/export":
                 self._send_document_export(parsed.query)
                 return
+            if path == "/api/creative/tree":
+                self._send_context_json(
+                    parsed.query,
+                    lambda context_id: state.creative_tree(context_id),
+                )
+                return
+            if path == "/api/creative/scratch":
+                self._send_context_json(
+                    parsed.query,
+                    lambda context_id: state.creative_scratchpad(context_id),
+                )
+                return
             if path == "/artifacts/edit":
                 self._send_artifact_editor(parsed.query)
                 return
@@ -16223,6 +20803,9 @@ def _handler_for(
                 return
             if path == "/artifacts/document":
                 self._send_document_target(parsed.query)
+                return
+            if path == "/artifacts/creative-corkboard":
+                self._send_creative_corkboard(parsed.query)
                 return
             if path == "/api/progress/events":
                 self._send_progress_events(parsed.query)
@@ -16301,6 +20884,39 @@ def _handler_for(
             if path == "/api/artifacts/edit":
                 self._save_artifact_editor(parsed.query)
                 return
+            if path == "/api/creative/project/open":
+                self._open_creative_project(parsed.query)
+                return
+            if path == "/api/creative/project/new":
+                self._create_creative_project(parsed.query)
+                return
+            if path == "/api/creative/init":
+                self._initialize_creative_workspace(parsed.query)
+                return
+            if path == "/api/creative/folders":
+                self._create_creative_folder(parsed.query)
+                return
+            if path == "/api/creative/documents":
+                self._create_creative_document(parsed.query)
+                return
+            if path == "/api/creative/corkboards":
+                self._create_creative_corkboard(parsed.query)
+                return
+            if path == "/api/creative/rename":
+                self._rename_creative_entry(parsed.query)
+                return
+            if path == "/api/creative/delete":
+                self._delete_creative_entry(parsed.query)
+                return
+            if path == "/api/creative/scratch":
+                self._save_creative_scratchpad(parsed.query)
+                return
+            if path == "/api/creative/corkboard":
+                self._save_creative_corkboard(parsed.query)
+                return
+            if path == "/api/creative/agent/start":
+                self._start_creative_writing_agent(parsed.query)
+                return
             if path == "/api/sessions/select":
                 self._select_session(parsed.query)
                 return
@@ -16309,6 +20925,9 @@ def _handler_for(
                 return
             if path == "/api/sessions/key":
                 self._send_selected_session_key(parsed.query)
+                return
+            if path == "/api/sessions/raw":
+                self._send_selected_session_raw(parsed.query)
                 return
             if path == "/api/sessions/interrupt":
                 self._interrupt_selected_session(parsed.query)
@@ -16425,6 +21044,18 @@ def _handler_for(
                     len(INDEX_HTML.encode("utf-8")),
                 )
                 return
+            if path == SPLASH_IMAGE_ROUTE:
+                self._send_splash_image(
+                    SPLASH_IMAGE_RESOURCE,
+                    headers_only=True,
+                )
+                return
+            if path == CREATIVE_SPLASH_IMAGE_ROUTE:
+                self._send_splash_image(
+                    CREATIVE_SPLASH_IMAGE_RESOURCE,
+                    headers_only=True,
+                )
+                return
             if path == "/api/health":
                 data = json.dumps(health_payload(config.root)).encode("utf-8")
                 self._send_headers(
@@ -16441,6 +21072,24 @@ def _handler_for(
 
         def log_message(self, format: str, *args: Any) -> None:
             return
+
+        def _send_splash_image(
+            self,
+            resource: str = SPLASH_IMAGE_RESOURCE,
+            *,
+            headers_only: bool = False,
+        ) -> None:
+            try:
+                data = splash_image_bytes(resource)
+            except FileNotFoundError:
+                self._send_json(
+                    {"error": "splash image not found"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._send_headers(HTTPStatus.OK, "image/png", len(data))
+            if not headers_only:
+                self.wfile.write(data)
 
         def _browse_files(self, query: str) -> None:
             params = parse_qs(query)
@@ -16484,6 +21133,38 @@ def _handler_for(
                 payload = self._read_json_body()
                 self._send_json(
                     state.create_project(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _open_creative_project(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.open_creative_project(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _create_creative_project(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_project(
                         context_id,
                         str(payload.get("path") or ""),
                     )
@@ -16773,7 +21454,11 @@ def _handler_for(
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
-                state.send_selected_session_message(context_id, message)
+                session_id = str(payload.get("session_id") or "")
+                if session_id:
+                    state.send_session_message(context_id, session_id, message)
+                else:
+                    state.send_selected_session_message(context_id, message)
             except (AgentSessionError, StateError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},
@@ -16808,6 +21493,32 @@ def _handler_for(
                 return
             self._send_json({"status": "sent"})
 
+        def _send_selected_session_raw(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                data = str(payload.get("data") or "")
+                if not data:
+                    self._send_json(
+                        {"error": "data is required"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                state.send_selected_session_raw(context_id, data)
+            except AgentSessionError as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except (StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            self._send_json({"status": "sent"})
+
         def _interrupt_selected_session(self, query: str) -> None:
             try:
                 context_id = self._context_id(query)
@@ -16826,7 +21537,11 @@ def _handler_for(
                 payload = self._read_json_body()
                 columns = int(payload.get("columns") or 120)
                 rows = int(payload.get("rows") or 32)
-                state.resize_selected_session(context_id, columns, rows)
+                session_id = str(payload.get("session_id") or "").strip()
+                if session_id:
+                    state.resize_session(context_id, session_id, columns, rows)
+                else:
+                    state.resize_selected_session(context_id, columns, rows)
             except (AgentSessionError, StateError, TypeError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},
@@ -17020,6 +21735,28 @@ def _handler_for(
                 return
             self._send_text(page, "text/html; charset=utf-8", status=status)
 
+        def _send_creative_corkboard(self, query: str) -> None:
+            try:
+                params = parse_qs(query)
+                context_id = self._context_id(query)
+                project_root = state.active_project_root(context_id)
+                folder_path = str((params.get("path") or [""])[0])
+                title = str((params.get("title") or [""])[0]).strip() or None
+                page, status = creative_corkboard_html(
+                    project_root,
+                    folder_path,
+                    title=title,
+                    context_id=context_id,
+                )
+            except (AgentSessionError, OSError, StateError) as error:
+                self._send_text(
+                    f"<p>{html.escape(str(error))}</p>",
+                    "text/html; charset=utf-8",
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            self._send_text(page, "text/html; charset=utf-8", status=status)
+
         def _send_artifact_editor(self, query: str) -> None:
             try:
                 params = parse_qs(query)
@@ -17062,6 +21799,19 @@ def _handler_for(
                     )
                 )
             except (AgentSessionError, OSError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _save_creative_corkboard(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.save_creative_corkboard(context_id, payload)
+                )
+            except (AgentSessionError, OSError, StateError, TypeError, ValueError) as error:
                 self._send_json(
                     {"error": str(error)},
                     status=HTTPStatus.CONFLICT,
@@ -17519,6 +22269,153 @@ def _handler_for(
             except OSError as error:
                 self._send_json(
                     {"error": f"could not start documentation agent: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "started" if started else "running",
+                    "command": session.command,
+                    "session_id": session.session_id,
+                }
+            )
+
+        def _initialize_creative_workspace(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                self._send_json(state.initialize_creative_workspace(context_id))
+            except (AgentSessionError, StateError, OSError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _create_creative_folder(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_folder(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _create_creative_document(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_document(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _create_creative_corkboard(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_corkboard(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _rename_creative_entry(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.rename_creative_entry(
+                        context_id,
+                        str(payload.get("path") or ""),
+                        str(payload.get("new_name") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _delete_creative_entry(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.delete_creative_entry(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _save_creative_scratchpad(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.save_creative_scratchpad(
+                        context_id,
+                        str(payload.get("markdown") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, OSError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+
+        def _start_creative_writing_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                active_target = payload.get("active_target")
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_document=str(payload.get("active_document") or ""),
+                    active_target=(
+                        active_target if isinstance(active_target, dict) else None
+                    ),
+                )
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not start creative writing agent: {error}"},
                     status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
                 return

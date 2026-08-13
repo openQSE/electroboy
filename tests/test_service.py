@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.cli import build_parser  # noqa: E402
 from electroboy.service import (  # noqa: E402
+    CREATIVE_SPLASH_IMAGE_ROUTE,
     FILE_BROWSER_WINDOW_HTML,
     GENERIC_STAGE_CONFIG,
     INDEX_HTML,
@@ -27,6 +28,7 @@ from electroboy.service import (  # noqa: E402
     MIN_TERMINAL_COLUMNS,
     MIN_TERMINAL_ROWS,
     PANE_WINDOW_HTML,
+    SPLASH_IMAGE_ROUTE,
     AgentSession,
     AgentSessionError,
     SESSION_ARTIFACT_LOCKS,
@@ -51,11 +53,13 @@ from electroboy.service import (  # noqa: E402
     browse_files,
     browse_markdown_files,
     create_server,
+    creative_corkboard_html,
     document_target_html,
     file_browser_window_html,
     pane_window_html,
     requirements_document_html,
     save_artifact_edit,
+    splash_image_bytes,
     workflow_payload,
 )
 from electroboy.models import (  # noqa: E402
@@ -92,6 +96,59 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["service"], "electroboy")
         self.assertEqual(payload["root"], str(root.resolve()))
 
+    def test_splash_image_endpoint_serves_packaged_png(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type, headers = request_bytes(
+                    server,
+                    SPLASH_IMAGE_ROUTE,
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/png")
+        self.assertEqual(body, splash_image_bytes())
+        self.assertEqual(headers["Content-Length"], str(len(body)))
+
+    def test_creative_splash_image_endpoint_serves_packaged_png(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type, headers = request_bytes(
+                    server,
+                    CREATIVE_SPLASH_IMAGE_ROUTE,
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/png")
+        self.assertEqual(
+            body,
+            splash_image_bytes("electroboy-splash-creative-writing-16x9.png"),
+        )
+        self.assertEqual(headers["Content-Length"], str(len(body)))
+
     def test_pane_window_endpoint_serves_stripped_down_pane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -124,14 +181,22 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', page)
         self.assertIn('params.get("document_path")', page)
         self.assertIn('params.get("document_zoom")', page)
+        self.assertIn('params.get("folder_path")', page)
+        self.assertIn('params.get("corkboard_path")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn('id="refreshArtifact"', page)
+        self.assertIn('id="previewArtifact"', page)
         self.assertIn('id="editArtifact"', page)
         self.assertIn('id="exportPaneFormat"', page)
         self.assertIn('id="exportPaneOutput"', page)
+        self.assertIn(".artifact-frame.loading", page)
         self.assertIn("function artifactEventUrl()", page)
         self.assertIn("function artifactEditUrl()", page)
-        self.assertIn("function toggleArtifactEditMode()", page)
+        self.assertIn("function setArtifactEditMode(editing)", page)
+        self.assertIn('artifactFrame.classList.add("loading");', page)
+        self.assertIn('artifactFrame.addEventListener("load"', page)
+        self.assertIn('artifactKind === "creative-corkboard"', page)
+        self.assertIn("/artifacts/creative-corkboard", page)
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("artifact", "route")', page)
@@ -141,7 +206,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function exportCurrentPaneOutput()", page)
         self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
         self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
-        self.assertIn("editArtifactButton.hidden = false;", page)
+        self.assertIn("previewArtifactButton.hidden = isCorkboard;", page)
+        self.assertIn("editArtifactButton.hidden = isCorkboard;", page)
         self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
         self.assertLess(
@@ -154,10 +220,24 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function observeTerminalPaneResize()", PANE_WINDOW_HTML)
         self.assertIn("terminalResizeObserver.observe(terminalHost);", PANE_WINDOW_HTML)
         self.assertIn("terminalFit.fit();", PANE_WINDOW_HTML)
+        self.assertIn("queueAgentResize(cols, rows);", PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/sessions/resize")', PANE_WINDOW_HTML)
+        self.assertIn("session_id: selectedSessionId,", PANE_WINDOW_HTML)
         self.assertIn(".terminal-host .xterm {\n      width: 100%;", PANE_WINDOW_HTML)
         self.assertIn("function effectiveFontSize()", PANE_WINDOW_HTML)
         self.assertIn("function resetFontSize()", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/key")', PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/sessions/raw")', PANE_WINDOW_HTML)
+        self.assertIn("let slashCommandMode = false;", PANE_WINDOW_HTML)
+        self.assertIn("let terminalInputQueue = Promise.resolve();", PANE_WINDOW_HTML)
+        self.assertIn("function queueTerminalInput(task)", PANE_WINDOW_HTML)
+        self.assertIn("function handleSlashCommandInput(event)", PANE_WINDOW_HTML)
+        self.assertIn("if (slashCommandMode) {\n        sendTerminalKey(\"enter\");", PANE_WINDOW_HTML)
+        self.assertIn('event.key === "/"', PANE_WINDOW_HTML)
+        self.assertIn("sendTerminalRaw(event.key);", PANE_WINDOW_HTML)
+        self.assertIn('if (slashKey === "enter" || slashKey === "escape")', PANE_WINDOW_HTML)
+        self.assertIn('if (event.key === "Backspace") return "backspace";', PANE_WINDOW_HTML)
+        self.assertIn('if (event.key === "Delete") return "delete";', PANE_WINDOW_HTML)
         self.assertIn('id="decreasePaneFont"', PANE_WINDOW_HTML)
         self.assertIn('id="resetPaneFont"', PANE_WINDOW_HTML)
         self.assertIn('id="increasePaneFont"', PANE_WINDOW_HTML)
@@ -169,6 +249,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.getItem(storageKey)", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.setItem(activeStorageKey", PANE_WINDOW_HTML)
+        self.assertIn(
+            '<textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden>',
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn(
+            '<textarea id="agentInput" class="input-text" spellcheck="true">',
+            PANE_WINDOW_HTML,
+        )
         self.assertIn('contextUrl("/api/project")', PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/select")', PANE_WINDOW_HTML)
         self.assertIn('if (kind === "shell") return "Project shell";', PANE_WINDOW_HTML)
@@ -181,6 +269,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
+        self.assertIn('contextUrl("/api/sessions/raw")', page)
 
     def test_session_events_markdown_exports_transcript(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,10 +322,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function toggleDirectory(entry)", page)
         self.assertIn("function renderBreadcrumbs()", page)
         self.assertIn("function moveSelection(delta)", page)
+        self.assertIn(
+            'new URLSearchParams(window.location.search).get("project_action")',
+            page,
+        )
         self.assertIn('event.key === "ArrowRight"', page)
         self.assertIn('event.key === "ArrowLeft"', page)
         self.assertIn("window.opener.postMessage", page)
         self.assertIn("electroboy-file-browser-select", page)
+        self.assertIn("project_action: PROJECT_ACTION", page)
         self.assertIn("Activate", page)
         self.assertIn("Cancel", page)
         self.assertIn("<svg viewBox=", page)
@@ -270,6 +364,45 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Select a Markdown file or choose a directory and name.", page)
         self.assertIn(
             'SELECT_MODE === "document-new" && selectedType === "directory"',
+            page,
+        )
+        self.assertIn(
+            "function documentNewTargetPath() {\n"
+            '      if (SELECT_MODE !== "document-new" || selectedType !== "directory") {\n'
+            '        return "";\n'
+            "      }\n"
+            '      const raw = newDocumentName.value.trim().replace(/\\\\+/g, "/");\n'
+            "      if (!raw) {\n"
+            '        return "";\n'
+            "      }",
+            page,
+        )
+
+    def test_file_browser_window_html_supports_new_project_mode(self) -> None:
+        page = file_browser_window_html("~/ORNL", mode="project-new")
+
+        self.assertIn('const SELECT_MODE = "project-new";', page)
+        self.assertIn('id="newDocumentName"', page)
+        self.assertIn("Create or activate project", page)
+        self.assertIn("function projectNewTargetPath()", page)
+        self.assertIn(
+            "Select a project directory or enter a new folder name.",
+            page,
+        )
+        self.assertIn('"Optional new project folder name"', page)
+        self.assertIn(
+            'return selectedType === "directory";',
+            page,
+        )
+        self.assertIn(
+            "function projectNewTargetPath() {\n"
+            '      if (SELECT_MODE !== "project-new" || selectedType !== "directory") {\n'
+            '        return "";\n'
+            "      }\n"
+            '      const raw = newDocumentName.value.trim().replace(/\\\\+/g, "/");\n'
+            "      if (!raw) {\n"
+            "        return selectedPath;\n"
+            "      }",
             page,
         )
 
@@ -374,6 +507,31 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const SELECT_MODE = "document-new";', body)
         self.assertIn("Create or open document", body)
 
+    def test_file_browser_endpoint_serves_new_project_picker_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    "/file-browser?path=%2Ftmp&mode=project-new",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const SELECT_MODE = "project-new";', body)
+        self.assertIn("Create or activate project", body)
+
     def test_document_target_renderer_creates_markdown_starter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -465,6 +623,35 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('securityLevel: "strict"', page)
         self.assertIn('querySelector: ".mermaid"', page)
 
+    def test_document_target_renderer_renders_markdown_inside_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "README.md"
+            target.write_text(
+                "# Project\n\n"
+                "<details id=\"configuration\" closed>\n"
+                "<summary><strong>Configuration</strong></summary>\n\n"
+                "Intro text.\n\n"
+                "| Owner | Configuration | Purpose |\n"
+                "| --- | --- | --- |\n"
+                "| Site administrator | Site files | Shared infrastructure |\n\n"
+                "### Site Configuration\n\n"
+                "More text.\n"
+                "</details>\n",
+                encoding="utf-8",
+            )
+
+            page, status = document_target_html(root, "README.md")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('<details closed="closed" id="configuration">', page)
+        self.assertIn("<table>", page)
+        self.assertIn("<th>Owner</th>", page)
+        self.assertIn("<td>Site administrator</td>", page)
+        self.assertIn("<h3>Site Configuration</h3>", page)
+        self.assertNotIn("| Owner | Configuration | Purpose |", page)
+        self.assertNotIn("### Site Configuration", page)
+
     def test_document_target_renderer_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -496,6 +683,30 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"jsonl_path": "docs/requirements.jsonl"', page)
         self.assertIn("Markdown body", page)
         self.assertIn("/api/artifacts/edit", page)
+        self.assertIn("function queueSave()", page)
+        self.assertIn('input.addEventListener("input", queueSave);', page)
+        self.assertNotIn('id="saveArtifact"', page)
+
+    def test_artifact_editor_markdown_mode_uses_direct_pane_editor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "guide.md").write_text("# Guide\n\nBody.\n", encoding="utf-8")
+
+            page, status = artifact_editor_html(
+                root,
+                "document",
+                "docs/guide.md",
+                title="Guide",
+            )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('document.body.classList.add("markdown-mode");', page)
+        self.assertIn('textarea.setAttribute("aria-label"', page)
+        self.assertIn("body.markdown-mode .editor-header", page)
+        self.assertIn("body.markdown-mode .markdown-editor", page)
+        self.assertNotIn('label.textContent = "Markdown";', page)
 
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -771,6 +982,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="openProjectShell"', INDEX_HTML)
         self.assertIn('id="retryWorkItem"', INDEX_HTML)
         self.assertIn('id="toggleProjectShellPane"', INDEX_HTML)
+        self.assertIn('id="showSplash"', INDEX_HTML)
         self.assertIn("function recoverableWorkItemError(message", INDEX_HTML)
         self.assertIn("function startProjectShell()", INDEX_HTML)
         self.assertIn("function toggleProjectShellFromToolbar()", INDEX_HTML)
@@ -867,10 +1079,92 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="skipValidateApproval"', INDEX_HTML)
         self.assertNotIn('id="openValidationReport"', INDEX_HTML)
         self.assertIn('id="workflowSideSheet"', INDEX_HTML)
+        self.assertIn('id="workflowModeSelect"', INDEX_HTML)
+        self.assertNotIn('<div class="side-sheet-title">Workflow</div>', INDEX_HTML)
+        self.assertIn('value="creative"', INDEX_HTML)
+        self.assertIn('id="creativeBinder"', INDEX_HTML)
+        self.assertIn('id="creativeProjectMenuButton"', INDEX_HTML)
+        self.assertIn('id="creativeProjectActions"', INDEX_HTML)
+        self.assertIn('id="creativeCloseProject"', INDEX_HTML)
+        self.assertIn("creativeCloseProject.disabled = !Boolean(activationRoot)", INDEX_HTML)
+        self.assertIn(
+            'creativeCloseProject.addEventListener("click", deactivateActiveProject)',
+            INDEX_HTML,
+        )
+        self.assertIn("let creativeProjectActionsExpanded = false;", INDEX_HTML)
+        self.assertIn("function ensureCreativeWorkspaceLoaded()", INDEX_HTML)
+        self.assertIn("deferCreativeWorkspaceInit", INDEX_HTML)
+        self.assertIn(".stage-action-list[hidden]", INDEX_HTML)
+        self.assertIn(
+            ".shell.creative-workflow .creative-section > .stage-action-stage",
+            INDEX_HTML,
+        )
+        self.assertIn('id="creativeActiveProjectSection"', INDEX_HTML)
+        self.assertIn('id="creativeProjectName"', INDEX_HTML)
+        self.assertNotIn('id="creativeBinderMenuButton"', INDEX_HTML)
+        self.assertNotIn('id="creativeBinderActions"', INDEX_HTML)
+        self.assertNotIn('id="creativeBinderStatus"', INDEX_HTML)
+        self.assertIn('id="creativeTree"', INDEX_HTML)
+        self.assertIn('"/api/creative/project/open"', INDEX_HTML)
+        self.assertIn('"/api/creative/project/new"', INDEX_HTML)
+        self.assertIn("let creativeActiveFolder = \"\";", INDEX_HTML)
+        self.assertIn("let creativeLastNotifiedTarget = \"\";", INDEX_HTML)
+        self.assertIn("let expandedCreativeFolders = new Set();", INDEX_HTML)
+        self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
+        self.assertIn("function showCreativeCorkboard(path, options = {})", INDEX_HTML)
+        self.assertIn("function selectCreativeCorkboard(path)", INDEX_HTML)
+        self.assertIn("function selectCreativeFolder(path)", INDEX_HTML)
+        self.assertIn("function activeCreativeTarget()", INDEX_HTML)
+        self.assertIn("function notifyCreativeAgentTargetSwitch()", INDEX_HTML)
+        self.assertIn("Active target: freeform corkboard", INDEX_HTML)
+        self.assertIn("Active target: folder corkboard", INDEX_HTML)
+        self.assertIn("docs/corkboard-api.md", INDEX_HTML)
+        self.assertIn("active_target: activeCreativeTarget()", INDEX_HTML)
+        self.assertIn("session_id: session.session_id", INDEX_HTML)
+        self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
+        self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
+        self.assertIn("function creativeTreeActionIconSvg(name)", INDEX_HTML)
+        self.assertIn("function createCreativeFolderInline(basePath = \"\")", INDEX_HTML)
+        self.assertIn("function createCreativeDocumentInline(basePath = \"\")", INDEX_HTML)
+        self.assertIn("function createCreativeCorkboardInline(basePath = \"\")", INDEX_HTML)
+        self.assertIn("function finishCreativeRename(path, type, rawName)", INDEX_HTML)
+        self.assertIn("function deleteCreativeEntry(path, type)", INDEX_HTML)
+        self.assertIn("function renderCreativeProjectStatus()", INDEX_HTML)
+        self.assertIn('data.type === "electroboy-creative-open"', INDEX_HTML)
+        self.assertIn("/artifacts/creative-corkboard", INDEX_HTML)
+        self.assertIn("function artifactPaneSupportsModeSwitch(item)", INDEX_HTML)
+        self.assertIn("electroboy.creativeRightPaneWidth", INDEX_HTML)
+        self.assertIn('"/api/creative/rename"', INDEX_HTML)
+        self.assertIn('"/api/creative/delete"', INDEX_HTML)
+        self.assertIn('"/api/creative/corkboards"', INDEX_HTML)
+        self.assertNotIn("window.prompt(\"Folder path\"", INDEX_HTML)
+        self.assertNotIn("window.prompt(\"Markdown document path\"", INDEX_HTML)
+        self.assertIn("--creative-depth-indent", INDEX_HTML)
+        self.assertIn(".creative-tree-name-input", INDEX_HTML)
+        self.assertIn(".creative-tree-icon-button", INDEX_HTML)
+        self.assertIn("function creativeTreeIconSvg(name)", INDEX_HTML)
+        self.assertIn("function creativeTreeIconName(entry, expanded)", INDEX_HTML)
+        self.assertIn("function creativeTreeIconClass(entry)", INDEX_HTML)
+        self.assertIn('row.setAttribute("role", "treeitem")', INDEX_HTML)
+        self.assertIn('row.setAttribute("aria-expanded"', INDEX_HTML)
+        self.assertIn("if (isDirectory && expanded)", INDEX_HTML)
+        self.assertLess(
+            INDEX_HTML.index("appendCreativeTreeEntry(child, depth + 1);"),
+            INDEX_HTML.index("appendCreativeFolderActions(path, depth + 1);"),
+        )
+        self.assertIn(".creative-tree-row.directory.expanded", INDEX_HTML)
+        self.assertIn(".creative-tree-row.directory.active", INDEX_HTML)
+        self.assertIn(".creative-tree-actions", INDEX_HTML)
+        self.assertIn(".creative-tree-icon.markdown", INDEX_HTML)
+        self.assertIn(".creative-tree-icon.corkboard", INDEX_HTML)
+        self.assertIn(".creative-tree-disclosure", INDEX_HTML)
         self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
         self.assertIn('id="stageActionPanel"', INDEX_HTML)
         self.assertIn('id="stageActionBody"', INDEX_HTML)
         self.assertIn("function renderStageActionPanel()", INDEX_HTML)
+        self.assertIn("function refreshCreativeBinder()", INDEX_HTML)
+        self.assertIn("function toggleCreativeActionGroup(group)", INDEX_HTML)
+        self.assertIn("function startCreativeWritingAgent()", INDEX_HTML)
         self.assertIn("function toggleStageActionGroup(stageId)", INDEX_HTML)
         self.assertIn("let expandedWorkflowStages = new Set();", INDEX_HTML)
         self.assertIn("let expandedProjectActionGroups = new Set();", INDEX_HTML)
@@ -911,6 +1205,9 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn("function artifactEditUrl(item)", INDEX_HTML)
+        self.assertIn("function setArtifactPreviewEditing(item, editing)", INDEX_HTML)
+        self.assertIn('preview.textContent = "Preview";', INDEX_HTML)
+        self.assertIn('edit.textContent = "Edit";', INDEX_HTML)
         self.assertIn(
             "item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item)",
             INDEX_HTML,
@@ -923,6 +1220,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="projectStatusOutput"', INDEX_HTML)
         self.assertIn('id="inputResizeHandle"', INDEX_HTML)
         self.assertIn('id="inputPane"', INDEX_HTML)
+        self.assertIn('id="splashOverlay"', INDEX_HTML)
+        self.assertIn('id="splashImage"', INDEX_HTML)
+        self.assertIn('id="closeSplash"', INDEX_HTML)
+        self.assertIn(SPLASH_IMAGE_ROUTE, INDEX_HTML)
+        self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE, INDEX_HTML)
+        self.assertIn("electroboy.splash.dismissed.v1", INDEX_HTML)
+        self.assertIn("window.sessionStorage.getItem(SPLASH_DISMISSED_STORAGE_KEY)", INDEX_HTML)
+        self.assertIn("window.sessionStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY", INDEX_HTML)
+        self.assertIn("function openSplash()", INDEX_HTML)
+        self.assertIn("function updateSplashImage()", INDEX_HTML)
+        self.assertIn("? CREATIVE_SPLASH_IMAGE_ROUTE", INDEX_HTML)
+        self.assertIn("function showSplashIfNeeded()", INDEX_HTML)
+        self.assertIn("function dismissSplash()", INDEX_HTML)
+        self.assertIn('showSplashButton.addEventListener("click", openSplash);', INDEX_HTML)
+        self.assertIn("showSplashIfNeeded();", INDEX_HTML)
         self.assertIn('class="workflow-toolbar"', INDEX_HTML)
         self.assertIn("var(--workflow-pane-height, 86px) 7px", INDEX_HTML)
         self.assertIn("padding: 8px 18px 4px;", INDEX_HTML)
@@ -933,6 +1245,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("margin: 0 -12px;", INDEX_HTML)
         self.assertIn("AI agent input", INDEX_HTML)
         self.assertIn('id="agentInput"', INDEX_HTML)
+        self.assertIn('id="agentInput"\n          class="agent-input"\n          spellcheck="true"', INDEX_HTML)
+        self.assertIn('id="scratchPad"\n              class="scratch-pad"\n              spellcheck="true"', INDEX_HTML)
+        self.assertIn("function restoreSoftwareWorkspace()", INDEX_HTML)
+        self.assertIn("scratchPad.spellcheck = true;", INDEX_HTML)
         self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
         self.assertIn('id="sessionSwitcher"', INDEX_HTML)
         self.assertIn('for="sessionSwitcher">Agent</label>', INDEX_HTML)
@@ -983,9 +1299,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".workbench-resize-handle", INDEX_HTML)
         self.assertIn(".side-pane-resize-handle", INDEX_HTML)
         self.assertIn(".artifact-pane-resize-handle", INDEX_HTML)
+        self.assertIn(
+            "minmax(360px, var(--artifact-pane-width, 54%));",
+            INDEX_HTML,
+        )
         self.assertNotIn(".side-pane.preview-visible", INDEX_HTML)
         self.assertIn(".pane-popout-button", INDEX_HTML)
         self.assertIn(".artifact-preview-frame", INDEX_HTML)
+        self.assertIn(".artifact-preview-frame.loading", INDEX_HTML)
+        self.assertIn("function markArtifactFrameLoading(frame)", INDEX_HTML)
+        self.assertIn('frame.className = "artifact-preview-frame loading"', INDEX_HTML)
+        self.assertIn("markArtifactFrameLoading(frame);", INDEX_HTML)
         self.assertIn(".scratch-pad", INDEX_HTML)
         self.assertIn(".project-status-output", INDEX_HTML)
         self.assertIn(".shell-resize-handle", INDEX_HTML)
@@ -1007,6 +1331,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("terminalResizeObserver.observe(progressOutput);", INDEX_HTML)
         self.assertIn("terminalResizeObserver.observe(projectShellOutput);", INDEX_HTML)
         self.assertIn("terminalFit.fit();", INDEX_HTML)
+        self.assertIn("terminal.onResize(({ cols, rows }) => {", INDEX_HTML)
+        self.assertIn("queueTerminalResize(cols, rows);", INDEX_HTML)
+        self.assertIn(
+            "function terminalResizePayload(columns = null, rows = null)",
+            INDEX_HTML,
+        )
+        self.assertIn("session_id: session.session_id,", INDEX_HTML)
         self.assertIn(".agent-output .xterm,\n    .progress-output .xterm,", INDEX_HTML)
         self.assertIn("      width: 100%;\n      height: 100%;", INDEX_HTML)
         self.assertIn("disableStdin,", INDEX_HTML)
@@ -1168,6 +1499,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("artifact", "route")', INDEX_HTML)
         self.assertIn("artifactPreviewItems.map(artifactEventUrl)", INDEX_HTML)
         self.assertIn('data.type === "electroboy-artifact-saved"', INDEX_HTML)
+        self.assertIn("refreshArtifactPreview({ includeEditing: false });", INDEX_HTML)
         self.assertIn('refresh.textContent = "Refresh";', INDEX_HTML)
         self.assertIn('"artifact-event"', INDEX_HTML)
         self.assertNotIn("ARTIFACT_PREVIEW_REFRESH_MS", INDEX_HTML)
@@ -1220,10 +1552,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("window.sessionStorage.getItem", INDEX_HTML)
         self.assertIn("window.sessionStorage.setItem", INDEX_HTML)
         self.assertIn("window.localStorage.setItem", INDEX_HTML)
-        self.assertIn("function storedContextId()", INDEX_HTML)
-        self.assertIn("function saveContextId(value)", INDEX_HTML)
+        self.assertIn("function contextWorkflowStorageKey(mode = workflowMode)", INDEX_HTML)
+        self.assertIn("function clearLegacyContextId()", INDEX_HTML)
+        self.assertIn("function storedContextId(mode = workflowMode)", INDEX_HTML)
+        self.assertIn("function saveContextId(value, mode = workflowMode)", INDEX_HTML)
+        self.assertIn("`${CONTEXT_STORAGE_KEY}.${suffix}`", INDEX_HTML)
+        self.assertIn("window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY)", INDEX_HTML)
         self.assertIn("function claimContextOwner(value)", INDEX_HTML)
         self.assertIn("function hasConflictingContextOwner(value)", INDEX_HTML)
+        self.assertIn("function resetWorkflowContextView()", INDEX_HTML)
+        self.assertIn('projectPath.value = serviceRoot || "";', INDEX_HTML)
         self.assertIn('window.addEventListener("pagehide", releaseContextOwner);', INDEX_HTML)
         self.assertIn('window.addEventListener("pageshow"', INDEX_HTML)
         self.assertIn("async function restoreContext()", INDEX_HTML)
@@ -1322,6 +1660,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('if (!isInteractive && session.status === "running")', INDEX_HTML)
         self.assertIn("connectProgressEvents();", INDEX_HTML)
         self.assertIn("await restoreContext();", INDEX_HTML)
+        self.assertIn("async function setWorkflowMode(mode)", INDEX_HTML)
+        self.assertIn("applyWorkflowMode({ deferWorkspace: true })", INDEX_HTML)
+        self.assertIn("setWorkflowMode(workflowModeSelect.value).catch", INDEX_HTML)
         self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
         self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
         self.assertNotIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
@@ -1379,18 +1720,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('label: "Open"', INDEX_HTML)
         self.assertIn('label: "New"', INDEX_HTML)
         self.assertIn("function launchDocumentTarget(target)", INDEX_HTML)
-        self.assertIn("if (documentationRunning) {\n        hideStageMenus();", INDEX_HTML)
+        self.assertIn("function documentationSessionForTarget(target)", INDEX_HTML)
+        self.assertIn("function selectOpenDocumentTarget(path)", INDEX_HTML)
+        self.assertIn("function agentSessionDisplayLabel(session)", INDEX_HTML)
+        self.assertIn('className = "document-target-switcher"', INDEX_HTML)
+        self.assertNotIn("if (documentationRunning) {\n        hideStageMenus();", INDEX_HTML)
         self.assertIn("showDocumentPreview(target);", INDEX_HTML)
         self.assertIn("startDocumentationAgent(target);", INDEX_HTML)
-        self.assertIn(
-            "if (documentationRunning) {\n"
-            "        hideStageMenus();\n"
-            "        showDocumentPreview(target);\n"
-            "      } else {\n"
-            "        startDocumentationAgent(target);\n"
-            "      }",
-            INDEX_HTML,
-        )
         self.assertIn("window.confirm", INDEX_HTML)
         self.assertIn("Requirements have not been explicitly approved", INDEX_HTML)
         self.assertIn("Design has not been explicitly approved", INDEX_HTML)
@@ -1419,13 +1755,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/artifacts/document", INDEX_HTML)
         self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
         self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
-        self.assertIn('function fileBrowserUrl(path, mode = "project")', INDEX_HTML)
+        self.assertIn(
+            'function fileBrowserUrl(path, mode = "project", projectAction = "")',
+            INDEX_HTML,
+        )
         self.assertIn('return `/file-browser?${parameters.toString()}`;', INDEX_HTML)
         self.assertIn(
             "function openProjectBrowser(mode = projectMode, activateSelection = false)",
             INDEX_HTML,
         )
+        self.assertIn('mode === "new" || mode === "meta-new"', INDEX_HTML)
+        self.assertIn(
+            'fileBrowserUrl(path, browserMode, activateSelection ? mode : "")',
+            INDEX_HTML,
+        )
         self.assertIn("let projectBrowserActivatesSelection = false;", INDEX_HTML)
+        self.assertIn(
+            "projectBrowserActivatesSelection || data.project_action",
+            INDEX_HTML,
+        )
+        self.assertIn("projectMode = data.project_action;", INDEX_HTML)
         self.assertIn('openProjectBrowser("open", true)', INDEX_HTML)
         self.assertIn(
             'newProject.addEventListener("click", () => openProjectBrowser("new", true))',
@@ -1436,7 +1785,11 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn(
-            'if (data.mode === "project" && projectBrowserActivatesSelection)',
+            'data.mode === "project" || data.mode === "project-new"',
+            INDEX_HTML,
+        )
+        self.assertIn(
+            'fileBrowserUrl(path, browserMode, activateSelection ? mode : "")',
             INDEX_HTML,
         )
         self.assertIn("applyProjectSelection(data.path)", INDEX_HTML)
@@ -1494,8 +1847,20 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('contextUrl("/api/sessions/message")', INDEX_HTML)
         self.assertIn('contextUrl("/api/sessions/key")', INDEX_HTML)
+        self.assertIn('contextUrl("/api/sessions/raw")', INDEX_HTML)
         self.assertIn('contextUrl("/api/sessions/interrupt")', INDEX_HTML)
         self.assertIn('contextUrl("/api/sessions/resize")', INDEX_HTML)
+        self.assertIn('"/api/sessions/raw"', INDEX_HTML)
+        self.assertIn("let slashCommandMode = false;", INDEX_HTML)
+        self.assertIn("let terminalInputQueue = Promise.resolve();", INDEX_HTML)
+        self.assertIn("function queueTerminalInput(task)", INDEX_HTML)
+        self.assertIn("function handleSlashCommandInput(event)", INDEX_HTML)
+        self.assertIn("if (slashCommandMode) {\n        sendTerminalKey(\"enter\");", INDEX_HTML)
+        self.assertIn('event.key === "/"', INDEX_HTML)
+        self.assertIn("sendTerminalRaw(event.key);", INDEX_HTML)
+        self.assertIn('if (slashKey === "enter" || slashKey === "escape")', INDEX_HTML)
+        self.assertIn('if (event.key === "Backspace") return "backspace";', INDEX_HTML)
+        self.assertIn('if (event.key === "Delete") return "delete";', INDEX_HTML)
         self.assertIn("function terminalKeyForInputEvent(event)", INDEX_HTML)
         self.assertLess(
             INDEX_HTML.index('event.key === "Escape"'),
@@ -1753,6 +2118,284 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["project_mode"], "meta")
         self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
         self.assertIsNone(payload["active_project_root"])
+
+    def test_service_state_initializes_creative_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            created = state.create_creative_project(context_id, str(project_root))
+            (project_root / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+
+            tree = state.initialize_creative_workspace(context_id)
+            state.create_creative_folder(context_id, "chapters/act-1")
+            document = state.create_creative_document(
+                context_id,
+                "chapters/act-1/scene-01.md",
+            )
+            renamed_document = state.rename_creative_entry(
+                context_id,
+                "chapters/act-1/scene-01.md",
+                "scene-02.md",
+            )
+            renamed_folder = state.rename_creative_entry(
+                context_id,
+                "chapters/act-1",
+                "act-one",
+            )
+            deleted_folder = state.delete_creative_entry(
+                context_id,
+                "chapters/act-one",
+            )
+            state.save_creative_scratchpad(context_id, "# Notes\n\nKeep this.\n")
+            scratch = state.creative_scratchpad(context_id)
+
+            self.assertTrue((project_root / "chapters").is_dir())
+            self.assertTrue((project_root / "characters").is_dir())
+            self.assertTrue((project_root / "chapters" / "chapter-01.md").is_file())
+            self.assertFalse((project_root / "docs" / "requirements.md").exists())
+            self.assertFalse((project_root / ".electroboy").exists())
+            self.assertEqual(created["project_mode"], "creative")
+            self.assertIsNone(created["activate_command"])
+            self.assertEqual(document["path"], "chapters/act-1/scene-01.md")
+            self.assertEqual(
+                renamed_document["path"],
+                "chapters/act-1/scene-02.md",
+            )
+            self.assertEqual(renamed_folder["path"], "chapters/act-one")
+            self.assertEqual(deleted_folder["path"], "chapters/act-one")
+            self.assertFalse((project_root / "chapters" / "act-one").exists())
+            self.assertIn("chapters", [entry["name"] for entry in tree["entries"]])
+            self.assertNotIn(".gitignore", [entry["name"] for entry in tree["entries"]])
+            self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
+            self.assertIn("Keep this.", scratch["markdown"])
+
+    def test_service_state_opens_creative_project_without_electroboy_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            project_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+
+            payload = state.open_creative_project(context_id, str(project_root))
+
+            self.assertEqual(payload["status"], "opened")
+            self.assertEqual(payload["project_mode"], "creative")
+            self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
+            self.assertTrue((project_root / "chapters").is_dir())
+            self.assertFalse((project_root / ".electroboy").exists())
+
+    def test_creative_folder_board_renders_and_saves_ordered_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.create_creative_document(context_id, "chapters/chapter-02.md")
+
+            page, status = creative_corkboard_html(
+                project_root,
+                "chapters",
+                context_id=context_id,
+            )
+            saved = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "folder",
+                    "folder": "chapters",
+                    "path": "chapters/chapter-01.md",
+                    "note": "Escalate this beat.",
+                },
+            )
+            ordered = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "folder",
+                    "folder": "chapters",
+                    "order": [
+                        "chapters/chapter-02.md",
+                        "chapters/chapter-01.md",
+                    ],
+                },
+            )
+            saved_page, saved_status = creative_corkboard_html(
+                project_root,
+                "chapters",
+                context_id=context_id,
+            )
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertIn('"board_type": "folder"', page)
+            self.assertIn("index-card", page)
+            self.assertIn("card-size-control", page)
+            self.assertIn('id="cardSizeSlider"', page)
+            self.assertIn("function updateCardScale", page)
+            self.assertIn("electroboy.creative.corkboard.cardScale.", page)
+            self.assertIn("--card-grid-min-width", page)
+            self.assertIn(".index-card.selected", page)
+            self.assertNotIn('id="status" class="status"', page)
+            self.assertNotIn("function setStatus", page)
+            self.assertIn('let selectedCardKey = "";', page)
+            self.assertIn("function selectCard(card, cardElement)", page)
+            self.assertIn('cardElement.setAttribute("aria-selected"', page)
+            self.assertNotIn("--card-title-font-size", page)
+            self.assertNotIn("--card-note-font-size", page)
+            self.assertNotIn("--card-type-font-size", page)
+            self.assertNotIn("--card-note-line-height", page)
+            self.assertIn("insertion-marker", page)
+            self.assertIn("function showFolderInsertionMarker", page)
+            self.assertIn("function folderInsertionPlacement", page)
+            self.assertIn("repeating-linear-gradient(27deg", page)
+            self.assertIn("chapter-01.md", page)
+            self.assertIn("/api/creative/corkboard", page)
+            self.assertIn("electroboy-creative-open", page)
+            self.assertNotIn("drop-target", page)
+            self.assertEqual(saved["status"], "saved")
+            self.assertEqual(saved["card"]["path"], "chapters/chapter-01.md")
+            self.assertEqual(
+                ordered["order"][:2],
+                ["chapters/chapter-02.md", "chapters/chapter-01.md"],
+            )
+            self.assertEqual(saved_status, HTTPStatus.OK)
+            self.assertIn("Escalate this beat.", saved_page)
+            self.assertLess(
+                saved_page.index("chapter-02.md"),
+                saved_page.index("chapter-01.md"),
+            )
+            self.assertTrue(
+                (
+                    project_root
+                    / ".electroboy"
+                    / "creative"
+                    / "corkboards.json"
+                ).is_file()
+            )
+
+    def test_creative_freeform_corkboard_renders_and_saves_card(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.create_creative_corkboard(
+                context_id,
+                "corkboard/plot.corkboard.json",
+            )
+
+            saved = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card": {
+                        "id": "opening-beat",
+                        "title": "Opening beat",
+                        "note": "Start with a quiet contradiction.",
+                        "x": 188,
+                        "y": 144,
+                    },
+                },
+            )
+            page, status = creative_corkboard_html(
+                project_root,
+                "corkboard/plot.corkboard.json",
+                context_id=context_id,
+            )
+            document = json.loads(
+                (project_root / "corkboard" / "plot.corkboard.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertIn('"board_type": "freeform"', page)
+            self.assertIn("Add card", page)
+            self.assertIn("Resize corkboard cards", page)
+            self.assertIn("selectedCardKey = card.id;", page)
+            self.assertIn("Opening beat", page)
+            self.assertIn("Start with a quiet contradiction.", page)
+            self.assertEqual(saved["card"]["id"], "opening-beat")
+            self.assertEqual(document["cards"][0]["id"], "opening-beat")
+
+    def test_service_state_starts_creative_writing_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_document="chapters/chapter-01.md",
+                )
+
+        self.assertTrue(started)
+        self.assertEqual(session.kind, "creative-writing")
+        self.assertIn("codex", session.command[0])
+        self.assertIn("--cd", session.command)
+        self.assertIn("creative writing collaborator", session.command[-1])
+        self.assertIn("chapters/chapter-01.md", session.command[-1])
+
+    def test_service_state_starts_creative_agent_for_corkboard_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_target={
+                        "type": "freeform-corkboard",
+                        "path": "corkboard/ideas.corkboard.json",
+                    },
+                )
+
+        self.assertTrue(started)
+        self.assertIn("Current active target: freeform corkboard", session.command[-1])
+        self.assertIn("corkboard/ideas.corkboard.json", session.command[-1])
+        self.assertIn("docs/corkboard-api.md", session.command[-1])
+        self.assertIn("electroboy corkboard", session.command[-1])
+
+    def test_service_state_starts_creative_agent_for_folder_board_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    active_target={
+                        "type": "folder-corkboard",
+                        "path": "chapters",
+                    },
+                )
+
+        self.assertTrue(started)
+        self.assertIn("Current active target: folder corkboard", session.command[-1])
+        self.assertIn("chapters", session.command[-1])
+        self.assertIn("electroboy corkboard folder", session.command[-1])
 
     def test_service_state_meta_add_and_start_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2077,9 +2720,51 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("--target", command_text)
         self.assertIn("README.md", command_text)
         self.assertIn("README.md", session.label)
+        self.assertEqual(session.metadata["document_path"], "README.md")
+        self.assertEqual(session.metadata["document_label"], "README.md")
+        self.assertEqual(session.lock_names, frozenset({"documentation:README.md"}))
         self.assertEqual(payload["workflow_stage"], "requirements")
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "documentation")
+        self.assertEqual(
+            payload["sessions"][0]["metadata"]["document_path"],
+            "README.md",
+        )
+
+    def test_documentation_sidecar_tracks_one_session_per_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                readme_session, readme_started = state.start_documentation_agent(
+                    context_id,
+                    target="README.md",
+                )
+                api_session, api_started = state.start_documentation_agent(
+                    context_id,
+                    target="docs/api.md",
+                )
+            payload = state.project_payload(context_id)
+
+        self.assertTrue(readme_started)
+        self.assertTrue(api_started)
+        self.assertNotEqual(readme_session.session_id, api_session.session_id)
+        self.assertEqual(readme_session.metadata["document_path"], "README.md")
+        self.assertEqual(api_session.metadata["document_path"], "docs/api.md")
+        self.assertEqual(payload["selected_session_id"], api_session.session_id)
+        self.assertEqual(len(payload["sessions"]), 2)
+        self.assertEqual(
+            [session["metadata"]["document_path"] for session in payload["sessions"]],
+            ["README.md", "docs/api.md"],
+        )
 
     def test_project_shell_starts_in_active_project_without_agent_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3152,6 +3837,8 @@ class ServiceTests(unittest.TestCase):
             page, status = requirements_document_html(root, embedded=True)
 
         self.assertEqual(status.value, 200)
+        self.assertIn("max-width: none;", page)
+        self.assertIn("margin: 0;", page)
         self.assertIn("padding: 16px;", page)
         self.assertIn("border: 0;", page)
 
@@ -3214,6 +3901,22 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(session.columns, MIN_TERMINAL_COLUMNS)
         self.assertEqual(session.rows, MIN_TERMINAL_ROWS)
+
+    def test_agent_session_resize_signals_process_group(self) -> None:
+        session = AgentSession([sys.executable, "-c", "pass"], ROOT)
+        session._master_fd = 123
+        session.process = mock.Mock()
+        session.process.pid = 456
+        session.process.poll.return_value = None
+
+        with (
+            mock.patch("electroboy.service._set_terminal_size") as set_size,
+            mock.patch("electroboy.service.os.killpg") as killpg,
+        ):
+            session.resize(100, 40)
+
+        set_size.assert_called_once_with(123, 100, 40)
+        killpg.assert_called_once_with(456, signal.SIGWINCH)
 
     def test_agent_session_submits_raw_terminal_input(self) -> None:
         script = (
@@ -3509,6 +4212,8 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(_terminal_input_for_key("escape"), "\x1b")
         self.assertEqual(_terminal_input_for_key("up"), "\x1b[A")
         self.assertEqual(_terminal_input_for_key("down"), "\x1b[B")
+        self.assertEqual(_terminal_input_for_key("backspace"), "\x7f")
+        self.assertEqual(_terminal_input_for_key("delete"), "\x1b[3~")
         self.assertEqual(_terminal_input_for_key("1"), "1")
         with self.assertRaises(AgentSessionError):
             _terminal_input_for_key("space")
