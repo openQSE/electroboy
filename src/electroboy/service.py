@@ -17556,9 +17556,9 @@ def creative_corkboard_html(
     .board.folder {{
       position: relative;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(var(--card-grid-min-width, 210px), 1fr));
       align-content: start;
-      gap: 24px;
+      gap: var(--card-gap, 24px);
       padding: 26px;
     }}
 
@@ -17584,7 +17584,7 @@ def creative_corkboard_html(
     }}
 
     .index-card {{
-      min-height: 158px;
+      min-height: var(--card-min-height, 158px);
       border: 1px solid rgba(38, 50, 71, 0.14);
       border-radius: 5px;
       background:
@@ -17636,7 +17636,7 @@ def creative_corkboard_html(
 
     .board.freeform .index-card {{
       position: absolute;
-      width: 218px;
+      width: var(--card-width, 218px);
     }}
 
     .index-card.dragging {{
@@ -17690,7 +17690,7 @@ def creative_corkboard_html(
       overflow: hidden;
       color: var(--ink);
       font-family: Georgia, "Times New Roman", serif;
-      font-size: 17px;
+      font-size: var(--card-title-font-size, 17px);
       font-weight: 700;
       line-height: 1.15;
       text-overflow: ellipsis;
@@ -17703,7 +17703,7 @@ def creative_corkboard_html(
       background: transparent;
       color: var(--ink);
       font-family: Georgia, "Times New Roman", serif;
-      font-size: 17px;
+      font-size: var(--card-title-font-size, 17px);
       font-weight: 700;
       line-height: 1.15;
       outline: none;
@@ -17713,7 +17713,7 @@ def creative_corkboard_html(
     .card-type {{
       margin-top: 3px;
       color: var(--muted);
-      font-size: 10px;
+      font-size: var(--card-type-font-size, 10px);
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -17735,7 +17735,7 @@ def creative_corkboard_html(
     .card-note {{
       display: block;
       width: calc(100% - 24px);
-      min-height: 82px;
+      min-height: var(--card-note-min-height, 82px);
       margin: 0 12px 12px;
       border: 0;
       background:
@@ -17747,16 +17747,47 @@ def creative_corkboard_html(
         );
       color: var(--ink);
       font: inherit;
-      font-size: 13px;
-      line-height: 26px;
+      font-size: var(--card-note-font-size, 13px);
+      line-height: var(--card-note-line-height, 26px);
       outline: none;
       resize: none;
+    }}
+
+    .card-size-control {{
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 1100;
+      display: grid;
+      gap: 6px;
+      width: 220px;
+      border: 1px solid rgba(255, 249, 232, 0.34);
+      border-radius: 8px;
+      background: rgba(15, 20, 32, 0.86);
+      color: #d8e3f4;
+      box-shadow: 0 10px 24px rgba(15, 20, 32, 0.26);
+      padding: 8px 10px;
+    }}
+
+    .card-size-label {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }}
+
+    .card-size-control input {{
+      width: 100%;
+      accent-color: var(--insert);
     }}
 
     .status {{
       position: fixed;
       right: 12px;
-      bottom: 12px;
+      bottom: 70px;
       min-height: 0;
       border-radius: 999px;
       background: rgba(15, 20, 32, 0.86);
@@ -17782,21 +17813,42 @@ def creative_corkboard_html(
     </header>
     <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
   </main>
+  <label class="card-size-control">
+    <span class="card-size-label">
+      <span>Card size</span>
+      <output id="cardSizeValue">100%</output>
+    </span>
+    <input
+      id="cardSizeSlider"
+      type="range"
+      min="70"
+      max="150"
+      step="5"
+      value="100"
+      aria-label="Resize corkboard cards"
+    >
+  </label>
   <div id="status" class="status"></div>
   <script>
     const CORKBOARD_DATA = {data_json};
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
     const addCard = document.getElementById("addCard");
+    const cardSizeSlider = document.getElementById("cardSizeSlider");
+    const cardSizeValue = document.getElementById("cardSizeValue");
     const statusLine = document.getElementById("status");
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
     const saveTimers = new Map();
+    const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
+    const MIN_CARD_SCALE = 70;
+    const MAX_CARD_SCALE = 150;
     let dragState = null;
     let draggedPath = "";
     let folderInsertionMarker = null;
     let folderDropTarget = "";
     let folderDropPlacement = "before";
+    let cardScale = storedCardScale();
 
     function contextUrl(path) {{
       const contextId = CORKBOARD_DATA.context_id || "";
@@ -17815,6 +17867,75 @@ def creative_corkboard_html(
           statusLine.textContent = "";
         }}, 1200);
       }}
+    }}
+
+    function boardStoragePath() {{
+      if (CORKBOARD_DATA.corkboard && CORKBOARD_DATA.corkboard.path) {{
+        return CORKBOARD_DATA.corkboard.path;
+      }}
+      if (CORKBOARD_DATA.folder && CORKBOARD_DATA.folder.path) {{
+        return CORKBOARD_DATA.folder.path;
+      }}
+      return "default";
+    }}
+
+    function cardScaleStorageKey() {{
+      return `${{CARD_SCALE_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
+    }}
+
+    function clampCardScale(value) {{
+      const scale = Number(value);
+      if (!Number.isFinite(scale)) {{
+        return 100;
+      }}
+      return Math.max(MIN_CARD_SCALE, Math.min(MAX_CARD_SCALE, Math.round(scale)));
+    }}
+
+    function storedCardScale() {{
+      try {{
+        const stored = Number(window.localStorage.getItem(cardScaleStorageKey()));
+        if (Number.isFinite(stored)) {{
+          return clampCardScale(stored);
+        }}
+      }} catch (error) {{
+        return 100;
+      }}
+      return 100;
+    }}
+
+    function saveCardScale() {{
+      try {{
+        window.localStorage.setItem(cardScaleStorageKey(), String(cardScale));
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function scaledCardValue(value) {{
+      return Math.round(value * cardScale / 100);
+    }}
+
+    function applyCardScale() {{
+      const root = document.documentElement;
+      root.style.setProperty("--card-width", `${{scaledCardValue(218)}}px`);
+      root.style.setProperty("--card-grid-min-width", `${{scaledCardValue(210)}}px`);
+      root.style.setProperty("--card-min-height", `${{scaledCardValue(158)}}px`);
+      root.style.setProperty("--card-note-min-height", `${{scaledCardValue(82)}}px`);
+      root.style.setProperty("--card-note-line-height", `${{Math.max(20, scaledCardValue(26))}}px`);
+      root.style.setProperty("--card-title-font-size", `${{Math.max(13, scaledCardValue(17))}}px`);
+      root.style.setProperty("--card-note-font-size", `${{Math.max(11, scaledCardValue(13))}}px`);
+      root.style.setProperty("--card-type-font-size", `${{Math.max(8, scaledCardValue(10))}}px`);
+      root.style.setProperty("--card-gap", `${{Math.max(14, scaledCardValue(24))}}px`);
+      cardSizeSlider.value = String(cardScale);
+      cardSizeValue.value = `${{cardScale}}%`;
+      cardSizeValue.textContent = `${{cardScale}}%`;
+      sizeBoard();
+    }}
+
+    function updateCardScale(value) {{
+      cardScale = clampCardScale(value);
+      saveCardScale();
+      applyCardScale();
     }}
 
     function cardKey(card) {{
@@ -17838,11 +17959,11 @@ def creative_corkboard_html(
       }}
       const width = Math.max(
         window.innerWidth,
-        ...cards.map((card) => (Number(card.x) || 0) + 280),
+        ...cards.map((card) => (Number(card.x) || 0) + scaledCardValue(280)),
       );
       const height = Math.max(
         window.innerHeight,
-        ...cards.map((card) => (Number(card.y) || 0) + 230),
+        ...cards.map((card) => (Number(card.y) || 0) + scaledCardValue(230)),
       );
       board.style.minWidth = `${{width}}px`;
       board.style.minHeight = `${{height}}px`;
@@ -18070,8 +18191,8 @@ def creative_corkboard_html(
         id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
         title: "Untitled card",
         note: "",
-        x: 36 + (index % 4) * 236,
-        y: 36 + Math.floor(index / 4) * 206,
+        x: 36 + (index % 4) * scaledCardValue(236),
+        y: 36 + Math.floor(index / 4) * scaledCardValue(206),
         rotation: (index % 5) - 2,
         color: ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"][index % 5],
       }};
@@ -18178,7 +18299,9 @@ def creative_corkboard_html(
     }}
 
     addCard.addEventListener("click", makeFreeformCard);
+    cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
     window.addEventListener("resize", sizeBoard);
+    applyCardScale();
     renderCards();
   </script>
 </body>
