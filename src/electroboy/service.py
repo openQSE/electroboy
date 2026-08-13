@@ -1807,6 +1807,7 @@ INDEX_HTML = """<!doctype html>
       min-height: 0;
       min-width: 0;
       overflow: hidden;
+      background: var(--terminal);
     }
 
     .artifact-preview-divider {
@@ -1947,7 +1948,14 @@ INDEX_HTML = """<!doctype html>
       height: 100%;
       min-height: 0;
       border: 0;
-      background: #f7f8fb;
+      background: var(--terminal);
+      color-scheme: dark;
+      opacity: 1;
+      transition: opacity 80ms ease;
+    }
+
+    .artifact-preview-frame.loading {
+      opacity: 0;
     }
 
     .input-pane {
@@ -7846,6 +7854,17 @@ INDEX_HTML = """<!doctype html>
       sendTerminalResize();
     }
 
+    function markArtifactFrameLoading(frame) {
+      frame.classList.add("loading");
+      frame.addEventListener(
+        "load",
+        () => {
+          frame.classList.remove("loading");
+        },
+        { once: true },
+      );
+    }
+
     function renderArtifactPreviewItems() {
       artifactPreviewStack.replaceChildren();
       artifactPreviewStack.classList.toggle("split", artifactPreviewItems.length > 1);
@@ -7975,10 +7994,11 @@ INDEX_HTML = """<!doctype html>
         header.append(title, actions);
 
         const frame = document.createElement("iframe");
-        frame.className = "artifact-preview-frame";
+        frame.className = "artifact-preview-frame loading";
         frame.title = `${item.title} preview`;
         frame.setAttribute("sandbox", "allow-scripts allow-popups allow-same-origin");
         frame.dataset.artifactId = item.id;
+        markArtifactFrameLoading(frame);
         frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
 
         section.append(header, frame);
@@ -8127,6 +8147,7 @@ INDEX_HTML = """<!doctype html>
         }
         const url = item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
         if (url) {
+          markArtifactFrameLoading(frame);
           frame.src = url;
         }
       }
@@ -10136,7 +10157,14 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     }
 
     .artifact-frame {
-      background: #f7f8fb;
+      background: var(--terminal);
+      color-scheme: dark;
+      opacity: 1;
+      transition: opacity 80ms ease;
+    }
+
+    .artifact-frame.loading {
+      opacity: 0;
     }
 
     .scratch-pad,
@@ -11000,6 +11028,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
 
     function refreshArtifact() {
       artifactVersion += 1;
+      artifactFrame.classList.add("loading");
       artifactFrame.src = artifactEditing ? artifactEditUrl() : artifactUrl();
     }
 
@@ -11192,6 +11221,9 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
     );
     refreshArtifactButton.addEventListener("click", refreshArtifact);
+    artifactFrame.addEventListener("load", () => {
+      artifactFrame.classList.remove("loading");
+    });
     previewArtifactButton.addEventListener("click", () => setArtifactEditMode(false));
     editArtifactButton.addEventListener("click", () => setArtifactEditMode(true));
     exportPaneOutput.addEventListener("click", () => {
