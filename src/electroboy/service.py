@@ -887,6 +887,12 @@ INDEX_HTML = """<!doctype html>
       color: #ffffff;
     }
 
+    .creative-tree-row.directory.active {
+      border-color: #00a1ad;
+      background: #006b73;
+      color: #ffffff;
+    }
+
     .creative-tree-icon {
       display: inline-flex;
       align-items: center;
@@ -953,6 +959,30 @@ INDEX_HTML = """<!doctype html>
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .creative-tree-actions {
+      display: flex;
+      gap: 6px;
+      min-width: 0;
+      padding: 0 0 4px var(--creative-depth-padding, 8px);
+    }
+
+    .creative-tree-action {
+      min-height: 28px;
+      border: 1px solid #b8c8d7;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #243f53;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 0 10px;
+    }
+
+    .creative-tree-action:hover {
+      border-color: #1f3f5f;
+      background: #eef6fb;
     }
 
     .stage-action-heading {
@@ -1611,6 +1641,12 @@ INDEX_HTML = """<!doctype html>
       background: #22314a;
     }
 
+    .pane-popout-button.active {
+      border-color: #66d9e8;
+      background: #1f6f8b;
+      color: #ffffff;
+    }
+
     .pane-actions,
     .document-zoom-controls,
     .pane-font-controls {
@@ -2262,43 +2298,6 @@ INDEX_HTML = """<!doctype html>
                 </button>
               </div>
             </div>
-            <div class="creative-section">
-              <button
-                id="creativeBinderMenuButton"
-                class="stage-action-stage"
-                type="button"
-                aria-expanded="false"
-              >
-                <span class="stage-action-label">Binder</span>
-                <span class="stage-action-chevron" aria-hidden="true"></span>
-              </button>
-              <div
-                id="creativeBinderActions"
-                class="stage-action-list"
-                role="group"
-                hidden
-              >
-                <button
-                  id="creativeNewFolder"
-                  class="stage-action-button"
-                  type="button"
-                  disabled
-                >New folder</button>
-                <button
-                  id="creativeNewDocument"
-                  class="stage-action-button"
-                  type="button"
-                  disabled
-                >New document</button>
-                <button
-                  id="creativeRefreshBinder"
-                  class="stage-action-button"
-                  type="button"
-                  disabled
-                >Refresh</button>
-              </div>
-            </div>
-            <div id="creativeBinderStatus" class="creative-binder-status"></div>
             <div id="creativeTree" class="creative-tree" role="tree"></div>
           </div>
         </section>
@@ -3285,13 +3284,7 @@ INDEX_HTML = """<!doctype html>
     const creativeProjectName = document.getElementById("creativeProjectName");
     const creativeAgentMenuButton = document.getElementById("creativeAgentMenuButton");
     const creativeAgentActions = document.getElementById("creativeAgentActions");
-    const creativeNewFolder = document.getElementById("creativeNewFolder");
-    const creativeNewDocument = document.getElementById("creativeNewDocument");
     const creativeStartAgent = document.getElementById("creativeStartAgent");
-    const creativeBinderMenuButton = document.getElementById("creativeBinderMenuButton");
-    const creativeBinderActions = document.getElementById("creativeBinderActions");
-    const creativeRefreshBinder = document.getElementById("creativeRefreshBinder");
-    const creativeBinderStatus = document.getElementById("creativeBinderStatus");
     const creativeTree = document.getElementById("creativeTree");
     const projectMenu = document.getElementById("projectMenu");
     const requirementsMenu = document.getElementById("requirementsMenu");
@@ -3631,12 +3624,12 @@ INDEX_HTML = """<!doctype html>
     let restoredScratchContextId = "";
     let creativeTreePayload = null;
     let creativeActiveDocument = "";
+    let creativeActiveFolder = "";
     let expandedCreativeFolders = new Set();
     let creativeScratchSaveTimer = null;
     let creativeLastNotifiedDocument = "";
     let creativeProjectActionsExpanded = false;
     let creativeAgentActionsExpanded = false;
-    let creativeBinderActionsExpanded = false;
 
     function storedTerminalFontSize() {
       try {
@@ -5709,6 +5702,7 @@ INDEX_HTML = """<!doctype html>
       activeAgentKind = "";
       currentWorkflowStage = "project";
       creativeActiveDocument = "";
+      creativeActiveFolder = "";
       expandedCreativeFolders = new Set();
       creativeLastNotifiedDocument = "";
       creativeTreePayload = null;
@@ -5786,6 +5780,7 @@ INDEX_HTML = """<!doctype html>
       if (previousActiveProjectRoot && previousActiveProjectRoot !== activeProjectRoot) {
         hideArtifactPreview();
         creativeActiveDocument = "";
+        creativeActiveFolder = "";
         expandedCreativeFolders = new Set();
         creativeLastNotifiedDocument = "";
         creativeTreePayload = null;
@@ -7059,10 +7054,7 @@ INDEX_HTML = """<!doctype html>
       creativeProjectName.textContent = hasProject
         ? `Project: ${basename(activeProjectRoot)}`
         : "";
-      creativeNewFolder.disabled = !hasProject;
-      creativeNewDocument.disabled = !hasProject;
       creativeStartAgent.disabled = !hasProject;
-      creativeRefreshBinder.disabled = !hasProject;
       updateCreativeActionGroup(
         creativeProjectActions,
         creativeProjectMenuButton,
@@ -7072,11 +7064,6 @@ INDEX_HTML = """<!doctype html>
         creativeAgentActions,
         creativeAgentMenuButton,
         creativeAgentActionsExpanded,
-      );
-      updateCreativeActionGroup(
-        creativeBinderActions,
-        creativeBinderMenuButton,
-        creativeBinderActionsExpanded,
       );
     }
 
@@ -7091,21 +7078,8 @@ INDEX_HTML = """<!doctype html>
         creativeProjectActionsExpanded = !creativeProjectActionsExpanded;
       } else if (group === "agent") {
         creativeAgentActionsExpanded = !creativeAgentActionsExpanded;
-      } else if (group === "binder") {
-        creativeBinderActionsExpanded = !creativeBinderActionsExpanded;
       }
       updateCreativeBinderActions();
-    }
-
-    function creativePathLabel(path) {
-      if (!path) {
-        return "No document selected";
-      }
-      return path;
-    }
-
-    function setCreativeBinderStatus(message) {
-      creativeBinderStatus.textContent = message || "";
     }
 
     async function refreshCreativeBinder() {
@@ -7114,18 +7088,16 @@ INDEX_HTML = """<!doctype html>
       }
       updateCreativeBinderActions();
       if (!activeProjectRoot || !contextId) {
-        creativeTree.replaceChildren();
-        setCreativeBinderStatus("Open or create a project to start writing.");
+        showCreativeTreeMessage("Open or create a project to start writing.");
         return;
       }
-      setCreativeBinderStatus("Loading Binder...");
+      showCreativeTreeMessage("Loading Binder...");
       const response = await fetch(contextUrl("/api/creative/tree"), {
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({ error: "Binder failed" }));
       if (!response.ok) {
-        creativeTree.replaceChildren();
-        setCreativeBinderStatus(payload.error || "Binder failed");
+        showCreativeTreeMessage(payload.error || "Binder failed");
         return;
       }
       creativeTreePayload = payload;
@@ -7136,11 +7108,6 @@ INDEX_HTML = """<!doctype html>
           selectCreativeDocument(firstDocument.path, { notifyAgent: false });
         }
       }
-      setCreativeBinderStatus(
-        creativeActiveDocument
-          ? `Active: ${creativePathLabel(creativeActiveDocument)}`
-          : "Create or select a Markdown document.",
-      );
     }
 
     function firstCreativeMarkdown(entries) {
@@ -7156,16 +7123,21 @@ INDEX_HTML = """<!doctype html>
       return null;
     }
 
+    function showCreativeTreeMessage(message) {
+      creativeTree.replaceChildren();
+      const empty = document.createElement("div");
+      empty.className = "creative-binder-status";
+      empty.textContent = message;
+      creativeTree.append(empty);
+    }
+
     function renderCreativeTree() {
       creativeTree.replaceChildren();
       const entries = creativeTreePayload && Array.isArray(creativeTreePayload.entries)
         ? creativeTreePayload.entries
         : [];
       if (entries.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "creative-binder-status";
-        empty.textContent = "No writing documents yet.";
-        creativeTree.append(empty);
+        showCreativeTreeMessage("No writing documents yet.");
         return;
       }
       for (const entry of entries) {
@@ -7208,7 +7180,11 @@ INDEX_HTML = """<!doctype html>
       row.classList.toggle("expanded", expanded);
       row.style.setProperty("--creative-depth-padding", `${8 + depth * 16}px`);
       row.title = path;
-      row.classList.toggle("active", type === "file" && path === creativeActiveDocument);
+      row.classList.toggle(
+        "active",
+        (isDirectory && path === creativeActiveFolder) ||
+          (!isDirectory && path === creativeActiveDocument),
+      );
       row.setAttribute("role", "treeitem");
       if (isDirectory) {
         row.setAttribute("aria-expanded", expanded ? "true" : "false");
@@ -7238,27 +7214,58 @@ INDEX_HTML = """<!doctype html>
           selectCreativeDocument(path);
           return;
         }
-        setCreativeBinderStatus(`${path} is visible in the Binder but is not editable yet.`);
+        appendOutput(`${path} is visible in the Binder but is not editable yet.\\n`, "system");
       });
       creativeTree.append(row);
 
       if (isDirectory && expanded) {
+        appendCreativeFolderActions(path, depth + 1);
         for (const child of entry.children || []) {
           appendCreativeTreeEntry(child, depth + 1);
         }
       }
     }
 
+    function appendCreativeFolderActions(path, depth) {
+      const actions = document.createElement("div");
+      actions.className = "creative-tree-actions";
+      actions.style.setProperty("--creative-depth-padding", `${8 + depth * 16}px`);
+
+      const newFolder = document.createElement("button");
+      newFolder.className = "creative-tree-action";
+      newFolder.type = "button";
+      newFolder.textContent = "New folder";
+      newFolder.addEventListener("click", (event) => {
+        event.stopPropagation();
+        creativeActiveFolder = path;
+        renderCreativeTree();
+        creativeNewFolderPrompt(path);
+      });
+
+      const newFile = document.createElement("button");
+      newFile.className = "creative-tree-action";
+      newFile.type = "button";
+      newFile.textContent = "New file";
+      newFile.addEventListener("click", (event) => {
+        event.stopPropagation();
+        creativeActiveFolder = path;
+        renderCreativeTree();
+        creativeNewDocumentPrompt(path);
+      });
+
+      actions.append(newFolder, newFile);
+      creativeTree.append(actions);
+    }
+
     function toggleCreativeFolder(path) {
       if (!path) {
         return;
       }
+      creativeActiveFolder = path;
       if (expandedCreativeFolders.has(path)) {
         expandedCreativeFolders.delete(path);
-        setCreativeBinderStatus(`Collapsed: ${path}`);
       } else {
         expandedCreativeFolders.add(path);
-        setCreativeBinderStatus(`Expanded: ${path}`);
       }
       renderCreativeTree();
     }
@@ -7278,7 +7285,7 @@ INDEX_HTML = """<!doctype html>
             kind: "document",
             title: target.label,
             target,
-            editing: true,
+            editing: false,
           },
         ],
         { manual: true, stage: "creative-writing" },
@@ -7290,12 +7297,12 @@ INDEX_HTML = """<!doctype html>
         return;
       }
       creativeActiveDocument = path;
+      creativeActiveFolder = path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
       creativeLastNotifiedDocument = options.notifyAgent === false
         ? creativeLastNotifiedDocument
         : "";
       showCreativeDocument(path);
       renderCreativeTree();
-      setCreativeBinderStatus(`Active: ${creativePathLabel(path)}`);
       if (options.notifyAgent !== false) {
         notifyCreativeAgentDocumentSwitch();
       }
@@ -7409,10 +7416,9 @@ INDEX_HTML = """<!doctype html>
       });
       const payload = await response.json().catch(() => ({ error: "folder failed" }));
       if (!response.ok) {
-        setCreativeBinderStatus(payload.error || "folder failed");
+        appendOutput(`${payload.error || "folder failed"}\\n`, "error");
         return;
       }
-      setCreativeBinderStatus(`Created folder: ${payload.path}`);
       refreshCreativeBinder();
     }
 
@@ -7432,7 +7438,7 @@ INDEX_HTML = """<!doctype html>
       });
       const payload = await response.json().catch(() => ({ error: "document failed" }));
       if (!response.ok) {
-        setCreativeBinderStatus(payload.error || "document failed");
+        appendOutput(`${payload.error || "document failed"}\\n`, "error");
         return;
       }
       await refreshCreativeBinder();
@@ -7524,17 +7530,26 @@ INDEX_HTML = """<!doctype html>
         refresh.textContent = "Refresh";
         refresh.addEventListener("click", refreshArtifactPreview);
 
+        const preview = document.createElement("button");
+        preview.className = "pane-popout-button";
+        preview.type = "button";
+        preview.title = `Preview ${item.title}`;
+        preview.setAttribute("aria-label", `Preview ${item.title}`);
+        preview.textContent = "Preview";
+        preview.classList.toggle("active", !item.editing);
+        preview.addEventListener("click", () => {
+          setArtifactPreviewEditing(item, false);
+        });
+
         const edit = document.createElement("button");
         edit.className = "pane-popout-button";
         edit.type = "button";
-        edit.title = item.editing
-          ? `Return to ${item.title} preview`
-          : `Edit ${item.title}`;
-        edit.setAttribute("aria-label", edit.title);
-        edit.textContent = item.editing ? "Preview" : "Edit";
+        edit.title = `Edit ${item.title}`;
+        edit.setAttribute("aria-label", `Edit ${item.title}`);
+        edit.textContent = "Edit";
+        edit.classList.toggle("active", Boolean(item.editing));
         edit.addEventListener("click", () => {
-          item.editing = !item.editing;
-          renderArtifactPreviewItems();
+          setArtifactPreviewEditing(item, true);
         });
 
         const exportFormat = document.createElement("select");
@@ -7571,7 +7586,15 @@ INDEX_HTML = """<!doctype html>
         });
 
         zoomControls.append(zoomOut, zoomLevel, zoomIn);
-        actions.append(zoomControls, exportFormat, exportButton, refresh, edit, popout);
+        actions.append(
+          zoomControls,
+          exportFormat,
+          exportButton,
+          refresh,
+          preview,
+          edit,
+          popout,
+        );
         header.append(title, actions);
 
         const frame = document.createElement("iframe");
@@ -7585,6 +7608,11 @@ INDEX_HTML = """<!doctype html>
         artifactPreviewStack.append(section);
       }
       applyDocumentZoom();
+    }
+
+    function setArtifactPreviewEditing(item, editing) {
+      item.editing = Boolean(editing);
+      renderArtifactPreviewItems();
     }
 
     function popOutArtifactPreview(item) {
@@ -8117,6 +8145,12 @@ INDEX_HTML = """<!doctype html>
     }
 
     function projectEndpoint(mode) {
+      if (creativeModeActive() && mode === "open") {
+        return "/api/creative/project/open";
+      }
+      if (creativeModeActive() && mode === "new") {
+        return "/api/creative/project/new";
+      }
       if (mode === "new") {
         return "/api/project/new";
       }
@@ -8484,6 +8518,7 @@ INDEX_HTML = """<!doctype html>
       hideArtifactPreview();
       hideWorkItemPanel();
       creativeActiveDocument = "";
+      creativeActiveFolder = "";
       expandedCreativeFolders = new Set();
       creativeLastNotifiedDocument = "";
       creativeTreePayload = null;
@@ -9514,9 +9549,6 @@ INDEX_HTML = """<!doctype html>
     creativeAgentMenuButton.addEventListener("click", () => {
       toggleCreativeActionGroup("agent");
     });
-    creativeBinderMenuButton.addEventListener("click", () => {
-      toggleCreativeActionGroup("binder");
-    });
     creativeOpenProject.addEventListener("click", () => {
       openProjectBrowser("open", true);
     });
@@ -9524,17 +9556,8 @@ INDEX_HTML = """<!doctype html>
       openProjectBrowser("new", true);
     });
     creativeCloseProject.addEventListener("click", deactivateActiveProject);
-    creativeNewFolder.addEventListener("click", () => {
-      creativeNewFolderPrompt();
-    });
-    creativeNewDocument.addEventListener("click", () => {
-      creativeNewDocumentPrompt();
-    });
     creativeStartAgent.addEventListener("click", () => {
       startCreativeWritingAgent();
-    });
-    creativeRefreshBinder.addEventListener("click", () => {
-      refreshCreativeBinder();
     });
 
     async function initialize() {
@@ -9643,6 +9666,12 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     .pane-toolbar select {
       min-width: 100px;
       cursor: pointer;
+    }
+
+    .pane-toolbar button.active {
+      border-color: #66d9e8;
+      background: #1f6f8b;
+      color: #ffffff;
     }
 
     .input-actions select {
@@ -9814,6 +9843,13 @@ PANE_WINDOW_HTML = r"""<!doctype html>
           hidden
         >Refresh</button>
         <button
+          id="previewArtifact"
+          type="button"
+          title="Preview document"
+          aria-label="Preview document"
+          hidden
+        >Preview</button>
+        <button
           id="editArtifact"
           type="button"
           title="Edit document"
@@ -9908,6 +9944,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     const artifactZoomLevel = document.getElementById("artifactZoomLevel");
     const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
     const refreshArtifactButton = document.getElementById("refreshArtifact");
+    const previewArtifactButton = document.getElementById("previewArtifact");
     const editArtifactButton = document.getElementById("editArtifact");
     const exportPaneFormat = document.getElementById("exportPaneFormat");
     const exportPaneOutput = document.getElementById("exportPaneOutput");
@@ -10569,13 +10606,10 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       artifactFrame.src = artifactEditing ? artifactEditUrl() : artifactUrl();
     }
 
-    function toggleArtifactEditMode() {
-      artifactEditing = !artifactEditing;
-      editArtifactButton.textContent = artifactEditing ? "Preview" : "Edit";
-      editArtifactButton.title = artifactEditing
-        ? "Return to document preview"
-        : "Edit document";
-      editArtifactButton.setAttribute("aria-label", editArtifactButton.title);
+    function setArtifactEditMode(editing) {
+      artifactEditing = Boolean(editing);
+      previewArtifactButton.classList.toggle("active", !artifactEditing);
+      editArtifactButton.classList.toggle("active", artifactEditing);
       refreshArtifact();
     }
 
@@ -10601,7 +10635,10 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       artifactFrame.hidden = false;
       artifactZoomControls.hidden = false;
       refreshArtifactButton.hidden = false;
+      previewArtifactButton.hidden = false;
       editArtifactButton.hidden = false;
+      previewArtifactButton.classList.toggle("active", !artifactEditing);
+      editArtifactButton.classList.toggle("active", artifactEditing);
       applyArtifactZoom();
       refreshArtifact();
       if (!contextId) {
@@ -10758,7 +10795,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
     );
     refreshArtifactButton.addEventListener("click", refreshArtifact);
-    editArtifactButton.addEventListener("click", toggleArtifactEditMode);
+    previewArtifactButton.addEventListener("click", () => setArtifactEditMode(false));
+    editArtifactButton.addEventListener("click", () => setArtifactEditMode(true));
     exportPaneOutput.addEventListener("click", () => {
       exportCurrentPaneOutput().catch((error) => {
         if (terminal) {
@@ -12140,6 +12178,71 @@ class ServiceState:
             **project_payload(self.root, context, project_root),
             "status": "created",
             "run_id": manifest.run_id,
+        }
+
+    def open_creative_project(self, context_id: str, path: str) -> dict[str, object]:
+        project_root = _existing_creative_project_root(path)
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+        _ensure_creative_workspace(project_root)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.activation_root = project_root
+            context.project_mode = "creative"
+            context.active_project_root = project_root
+            context.active_repository_name = None
+            context.registered_repositories = []
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_session = None
+            context.creative_session = None
+            context.project_shell_session = None
+            context.stage_sessions = {}
+            context.selected_session_id = None
+            context.workflow_stage = "project"
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+            context.stage_started = set()
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "opened",
+        }
+
+    def create_creative_project(self, context_id: str, path: str) -> dict[str, object]:
+        project_root = _resolve_project_path(path)
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._require_no_active_agent_locked(context)
+        project_root.mkdir(parents=True, exist_ok=True)
+        _ensure_creative_workspace(project_root)
+        with self.lock:
+            context = self._context_locked(context_id)
+            context.activation_root = project_root
+            context.project_mode = "creative"
+            context.active_project_root = project_root
+            context.active_repository_name = None
+            context.registered_repositories = []
+            context.requirements_session = None
+            context.design_session = None
+            context.design_review_session = None
+            context.documentation_session = None
+            context.creative_session = None
+            context.project_shell_session = None
+            context.stage_sessions = {}
+            context.selected_session_id = None
+            context.workflow_stage = "project"
+            context.requirements_started = False
+            context.design_started = False
+            context.design_review_started = False
+            context.design_review_interactive = False
+            context.stage_started = set()
+        return {
+            **project_payload(self.root, context, project_root),
+            "status": "created",
         }
 
     def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
@@ -14131,7 +14234,7 @@ def project_payload(
         ),
         "activate_command": (
             f"source {activation_root / '.electroboy' / 'bin' / 'activate'}"
-            if activation_root
+            if activation_root and context.project_mode != "creative"
             else None
         ),
         "selected_session_id": context.selected_session_id,
@@ -14667,7 +14770,7 @@ def _stage_has_approvals(
 ) -> bool:
     try:
         approvals = StateStore(project_root).read_approvals()
-    except OSError:
+    except (OSError, StateError):
         return False
     return all(
         any(
@@ -14992,6 +15095,15 @@ def _existing_project_root(path: str) -> Path:
         raise StateError(
             "no ElectroBoy project exists at this path; create it first"
         )
+    return project_root
+
+
+def _existing_creative_project_root(path: str) -> Path:
+    project_root = _resolve_project_path(path)
+    if not project_root.exists():
+        raise StateError(f"project directory does not exist: {project_root}")
+    if not project_root.is_dir():
+        raise StateError(f"project path is not a directory: {project_root}")
     return project_root
 
 
@@ -15946,7 +16058,6 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       </div>
       <div class="editor-actions">
         <button id="addRecord" type="button">Add section</button>
-        <button id="saveArtifact" class="primary" type="button">Save</button>
       </div>
     </header>
     <div id="status" class="status"></div>
@@ -15970,13 +16081,15 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       "body",
     ]);
     const recordsRoot = document.getElementById("records");
-    const saveArtifact = document.getElementById("saveArtifact");
     const addRecord = document.getElementById("addRecord");
     const statusLine = document.getElementById("status");
     const editorMeta = document.getElementById("editorMeta");
     let records = Array.isArray(EDIT_DATA.records)
       ? EDIT_DATA.records.map((record) => ({{ ...record }}))
       : [];
+    let saveTimer = null;
+    let saveInFlight = false;
+    let saveQueued = false;
 
     function contextUrl(path) {{
       const contextId = EDIT_DATA.context_id || "";
@@ -16066,6 +16179,8 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         input.classList.add("body-field");
         input.placeholder = "Markdown text, tables, code fences, and Mermaid diagrams";
       }}
+      input.addEventListener("input", queueSave);
+      input.addEventListener("change", queueSave);
       wrapper.append(input);
       container.append(wrapper);
       return input;
@@ -16136,6 +16251,8 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       textarea.id = "markdownSource";
       textarea.spellcheck = true;
       textarea.value = EDIT_DATA.markdown || "";
+      textarea.addEventListener("input", queueSave);
+      textarea.addEventListener("change", queueSave);
       label.append(textarea);
       wrapper.append(label);
       recordsRoot.append(wrapper);
@@ -16212,11 +16329,21 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         last.open = true;
         last.scrollIntoView({{ block: "nearest" }});
       }}
+      queueSave();
+    }}
+
+    function queueSave() {{
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(save, 450);
     }}
 
     async function save() {{
+      if (saveInFlight) {{
+        saveQueued = true;
+        return;
+      }}
+      saveInFlight = true;
       setStatus("saving...");
-      saveArtifact.disabled = true;
       try {{
         const payload = EDIT_DATA.mode === "structured"
           ? {{
@@ -16256,12 +16383,15 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       }} catch (error) {{
         setStatus(error.message || String(error), true);
       }} finally {{
-        saveArtifact.disabled = false;
+        saveInFlight = false;
+        if (saveQueued) {{
+          saveQueued = false;
+          queueSave();
+        }}
       }}
     }}
 
     addRecord.addEventListener("click", addSectionRecord);
-    saveArtifact.addEventListener("click", save);
     if (EDIT_DATA.mode === "structured") {{
       renderStructuredEditor();
     }} else {{
@@ -16377,7 +16507,7 @@ def _creative_tree_entries(
     except OSError:
         return []
     for child in children:
-        if child.name in CREATIVE_IGNORED_NAMES:
+        if child.name in CREATIVE_IGNORED_NAMES or child.name.startswith("."):
             continue
         relative_path = child.relative_to(project_root).as_posix()
         if child.is_dir():
@@ -17641,6 +17771,12 @@ def _handler_for(
             if path == "/api/artifacts/edit":
                 self._save_artifact_editor(parsed.query)
                 return
+            if path == "/api/creative/project/open":
+                self._open_creative_project(parsed.query)
+                return
+            if path == "/api/creative/project/new":
+                self._create_creative_project(parsed.query)
+                return
             if path == "/api/creative/init":
                 self._initialize_creative_workspace(parsed.query)
                 return
@@ -17839,6 +17975,38 @@ def _handler_for(
                 payload = self._read_json_body()
                 self._send_json(
                     state.create_project(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _open_creative_project(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.open_creative_project(
+                        context_id,
+                        str(payload.get("path") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _create_creative_project(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.create_creative_project(
                         context_id,
                         str(payload.get("path") or ""),
                     )

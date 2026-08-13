@@ -126,12 +126,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("document_zoom")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn('id="refreshArtifact"', page)
+        self.assertIn('id="previewArtifact"', page)
         self.assertIn('id="editArtifact"', page)
         self.assertIn('id="exportPaneFormat"', page)
         self.assertIn('id="exportPaneOutput"', page)
         self.assertIn("function artifactEventUrl()", page)
         self.assertIn("function artifactEditUrl()", page)
-        self.assertIn("function toggleArtifactEditMode()", page)
+        self.assertIn("function setArtifactEditMode(editing)", page)
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("artifact", "route")', page)
@@ -141,6 +142,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function exportCurrentPaneOutput()", page)
         self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
         self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
+        self.assertIn("previewArtifactButton.hidden = false;", page)
         self.assertIn("editArtifactButton.hidden = false;", page)
         self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
@@ -535,6 +537,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"jsonl_path": "docs/requirements.jsonl"', page)
         self.assertIn("Markdown body", page)
         self.assertIn("/api/artifacts/edit", page)
+        self.assertIn("function queueSave()", page)
+        self.assertIn('input.addEventListener("input", queueSave);', page)
+        self.assertNotIn('id="saveArtifact"', page)
 
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -928,11 +933,17 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('id="creativeActiveProjectSection"', INDEX_HTML)
         self.assertIn('id="creativeProjectName"', INDEX_HTML)
-        self.assertIn('id="creativeBinderMenuButton"', INDEX_HTML)
-        self.assertIn('id="creativeBinderActions"', INDEX_HTML)
+        self.assertNotIn('id="creativeBinderMenuButton"', INDEX_HTML)
+        self.assertNotIn('id="creativeBinderActions"', INDEX_HTML)
+        self.assertNotIn('id="creativeBinderStatus"', INDEX_HTML)
         self.assertIn('id="creativeTree"', INDEX_HTML)
+        self.assertIn('"/api/creative/project/open"', INDEX_HTML)
+        self.assertIn('"/api/creative/project/new"', INDEX_HTML)
+        self.assertIn("let creativeActiveFolder = \"\";", INDEX_HTML)
         self.assertIn("let expandedCreativeFolders = new Set();", INDEX_HTML)
         self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
+        self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
+        self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
         self.assertIn("function creativeTreeIconSvg(name)", INDEX_HTML)
         self.assertIn("function creativeTreeIconName(entry, expanded)", INDEX_HTML)
         self.assertIn("function creativeTreeIconClass(entry)", INDEX_HTML)
@@ -940,6 +951,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('row.setAttribute("aria-expanded"', INDEX_HTML)
         self.assertIn("if (isDirectory && expanded)", INDEX_HTML)
         self.assertIn(".creative-tree-row.directory.expanded", INDEX_HTML)
+        self.assertIn(".creative-tree-row.directory.active", INDEX_HTML)
+        self.assertIn(".creative-tree-actions", INDEX_HTML)
         self.assertIn(".creative-tree-icon.markdown", INDEX_HTML)
         self.assertIn(".creative-tree-disclosure", INDEX_HTML)
         self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
@@ -989,6 +1002,9 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn("function artifactEditUrl(item)", INDEX_HTML)
+        self.assertIn("function setArtifactPreviewEditing(item, editing)", INDEX_HTML)
+        self.assertIn('preview.textContent = "Preview";', INDEX_HTML)
+        self.assertIn('edit.textContent = "Edit";', INDEX_HTML)
         self.assertIn(
             "item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item)",
             INDEX_HTML,
@@ -1850,7 +1866,8 @@ class ServiceTests(unittest.TestCase):
             service_root.mkdir()
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
-            state.create_project(context_id, str(project_root))
+            created = state.create_creative_project(context_id, str(project_root))
+            (project_root / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
 
             tree = state.initialize_creative_workspace(context_id)
             state.create_creative_folder(context_id, "chapters/act-1")
@@ -1864,10 +1881,32 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue((project_root / "chapters").is_dir())
             self.assertTrue((project_root / "characters").is_dir())
             self.assertTrue((project_root / "chapters" / "chapter-01.md").is_file())
+            self.assertFalse((project_root / "docs" / "requirements.md").exists())
+            self.assertFalse((project_root / ".electroboy").exists())
+            self.assertEqual(created["project_mode"], "creative")
+            self.assertIsNone(created["activate_command"])
             self.assertEqual(document["path"], "chapters/act-1/scene-01.md")
             self.assertIn("chapters", [entry["name"] for entry in tree["entries"]])
+            self.assertNotIn(".gitignore", [entry["name"] for entry in tree["entries"]])
             self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
             self.assertIn("Keep this.", scratch["markdown"])
+
+    def test_service_state_opens_creative_project_without_electroboy_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            project_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+
+            payload = state.open_creative_project(context_id, str(project_root))
+
+            self.assertEqual(payload["status"], "opened")
+            self.assertEqual(payload["project_mode"], "creative")
+            self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
+            self.assertTrue((project_root / "chapters").is_dir())
+            self.assertFalse((project_root / ".electroboy").exists())
 
     def test_service_state_starts_creative_writing_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1876,7 +1915,7 @@ class ServiceTests(unittest.TestCase):
             service_root.mkdir()
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
-            state.create_project(context_id, str(project_root))
+            state.create_creative_project(context_id, str(project_root))
             state.initialize_creative_workspace(context_id)
 
             with mock.patch("electroboy.service.AgentSession.start"):
