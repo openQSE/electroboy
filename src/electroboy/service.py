@@ -14125,6 +14125,11 @@ class ServiceState:
             active_project_root = context.active_project_root
         return project_payload(self.root, context, active_project_root)
 
+    def project_mode(self, context_id: str) -> str:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return context.project_mode
+
     def workflow_payload(self, context_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
@@ -18005,6 +18010,7 @@ def artifact_editor_html(
     title: str | None = None,
     create_missing: bool = False,
     context_id: str = "",
+    rich_editor: bool = False,
 ) -> tuple[str, HTTPStatus]:
     """Return a live editor page for a Markdown or structured artifact."""
 
@@ -18015,6 +18021,7 @@ def artifact_editor_html(
         requested_path,
         title=title,
         create_missing=create_missing,
+        rich_editor=rich_editor,
     )
     edit_data["context_id"] = context_id
     page = _artifact_editor_page(edit_data)
@@ -18255,6 +18262,7 @@ def _artifact_edit_payload(
     *,
     title: str | None = None,
     create_missing: bool = False,
+    rich_editor: bool = False,
 ) -> dict[str, object]:
     artifact = artifact.strip()
     structured_artifact, markdown_path = _structured_artifact_for_edit_request(
@@ -18308,6 +18316,7 @@ def _artifact_edit_payload(
         "title": title or markdown_path,
         "markdown_path": markdown_path,
         "markdown": document_path.read_text(encoding="utf-8"),
+        "rich_editor": bool(rich_editor and artifact == "document"),
     }
 
 
@@ -18488,6 +18497,9 @@ def save_artifact_edit(
 def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     data_json = json.dumps(edit_data).replace("</", "<\\/")
     title = html.escape(str(edit_data.get("title") or "Artifact Editor"))
+    rich_editor_script = (
+        _rich_markdown_editor_script() if edit_data.get("rich_editor") else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -18824,6 +18836,83 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       resize: none;
       padding: 14px 16px 36px;
     }}
+
+    body.rich-markdown-mode .markdown-editor {{
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 100%;
+    }}
+
+    .rich-toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      background: #121827;
+      padding: 8px;
+    }}
+
+    .rich-toolbar select,
+    .rich-toolbar button {{
+      min-height: 30px;
+      border: 1px solid #354058;
+      border-radius: 5px;
+      background: #171f31;
+      color: var(--text);
+      font-size: 12px;
+      padding: 0 9px;
+    }}
+
+    .rich-toolbar button {{
+      min-width: 32px;
+    }}
+
+    .rich-toolbar button.active {{
+      border-color: var(--accent);
+      color: #ffffff;
+      background: #1f3b4b;
+    }}
+
+    .rich-editor-surface {{
+      min-height: 0;
+      overflow: auto;
+      background: #0f1420;
+    }}
+
+    .rich-editor-surface .tiptap {{
+      min-height: 100%;
+      outline: none;
+      padding: 16px 18px 40px;
+    }}
+
+    .rich-editor-surface .tiptap > :first-child {{
+      margin-top: 0;
+    }}
+
+    .rich-editor-surface .tiptap table {{
+      border-collapse: collapse;
+      width: 100%;
+    }}
+
+    .rich-editor-surface .tiptap th,
+    .rich-editor-surface .tiptap td {{
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      vertical-align: top;
+    }}
+
+    .rich-editor-surface .tiptap th {{
+      background: #151b29;
+    }}
+
+    body.rich-markdown-mode .markdown-editor textarea.rich-source-fallback[hidden] {{
+      display: none;
+    }}
+
+    .markdown-editor.rich-fallback {{
+      grid-template-rows: auto minmax(0, 1fr);
+    }}
   </style>
 </head>
 <body>
@@ -18854,6 +18943,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     const EDIT_DATA = {data_json};
     const LIST_FIELDS = new Set(EDIT_DATA.list_fields || []);
     const JSON_FIELDS = new Set(EDIT_DATA.json_fields || []);
+    const RICH_EDITOR_ENABLED = Boolean(EDIT_DATA.rich_editor);
     const CORE_FIELDS = new Set([
       "schema_version",
       "artifact_type",
@@ -18878,6 +18968,10 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       : [];
     let saveInFlight = false;
     let dirty = false;
+    let markdownTextarea = null;
+    let richMarkdownEditor = null;
+    let richToolbar = null;
+    let richEditorLoading = false;
 
     const GENERATED_FIELDS = new Set([
       "schema_version",
@@ -19122,7 +19216,13 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
 
     function renderStructuredEditor() {{
-      document.body.classList.remove("markdown-mode");
+      document.body.classList.remove("markdown-mode", "rich-markdown-mode");
+      if (richMarkdownEditor) {{
+        richMarkdownEditor.destroy();
+        richMarkdownEditor = null;
+      }}
+      markdownTextarea = null;
+      richToolbar = null;
       editorMeta.textContent = `${{EDIT_DATA.markdown_path}} · source ${{EDIT_DATA.jsonl_path}}`;
       addRecord.hidden = false;
       recordType.hidden = false;
@@ -19205,23 +19305,76 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       }}
     }}
 
+    function markdownValue() {{
+      if (
+        richMarkdownEditor &&
+        typeof richMarkdownEditor.getMarkdown === "function"
+      ) {{
+        return richMarkdownEditor.getMarkdown();
+      }}
+      return markdownTextarea ? markdownTextarea.value : "";
+    }}
+
+    function setMarkdownValue(value) {{
+      const nextValue = String(value || "");
+      if (markdownTextarea) {{
+        markdownTextarea.value = nextValue;
+      }}
+      if (
+        richMarkdownEditor &&
+        richMarkdownEditor.commands &&
+        typeof richMarkdownEditor.commands.setContent === "function"
+      ) {{
+        richMarkdownEditor.commands.setContent(nextValue, {{ contentType: "markdown" }});
+      }}
+    }}
+
+    function appendMarkdownSnippet(snippet) {{
+      const prefix = markdownValue().replace(/\\s*$/, "");
+      const nextValue = `${{prefix}}${{prefix ? "\\n\\n" : ""}}${{snippet}}\\n`;
+      setMarkdownValue(nextValue);
+      markDirty();
+    }}
+
+    {rich_editor_script}
+
     function renderMarkdownEditor() {{
       document.body.classList.add("markdown-mode");
+      document.body.classList.toggle("rich-markdown-mode", RICH_EDITOR_ENABLED);
+      if (richMarkdownEditor) {{
+        richMarkdownEditor.destroy();
+        richMarkdownEditor = null;
+      }}
       editorMeta.textContent = EDIT_DATA.markdown_path || "";
       addRecord.hidden = true;
       recordType.hidden = true;
       recordsRoot.replaceChildren();
       const wrapper = document.createElement("section");
       wrapper.className = "markdown-editor";
+      if (RICH_EDITOR_ENABLED) {{
+        wrapper.classList.add("rich-markdown-editor", "rich-fallback");
+      }}
       const textarea = document.createElement("textarea");
       textarea.id = "markdownSource";
+      textarea.className = RICH_EDITOR_ENABLED ? "rich-source-fallback" : "";
       textarea.setAttribute("aria-label", EDIT_DATA.markdown_path || "Markdown");
       textarea.spellcheck = true;
       textarea.value = EDIT_DATA.markdown || "";
       textarea.addEventListener("input", markDirty);
       textarea.addEventListener("change", markDirty);
-      wrapper.append(textarea);
-      recordsRoot.append(wrapper);
+      markdownTextarea = textarea;
+      if (RICH_EDITOR_ENABLED) {{
+        wrapper.append(createRichToolbar());
+        const surface = document.createElement("div");
+        surface.className = "rich-editor-surface";
+        surface.setAttribute("aria-label", EDIT_DATA.markdown_path || "Markdown");
+        wrapper.append(surface, textarea);
+        recordsRoot.append(wrapper);
+        initializeRichMarkdownEditor(wrapper, surface);
+      }} else {{
+        wrapper.append(textarea);
+        recordsRoot.append(wrapper);
+      }}
     }}
 
     function splitLines(value) {{
@@ -19272,6 +19425,10 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         collected.push(record);
       }}
       return collected;
+    }}
+
+    function collectMarkdownDocument() {{
+      return markdownValue();
     }}
 
     function nextGeneratedId(type) {{
@@ -19389,7 +19546,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
               mode: "markdown",
               artifact: EDIT_DATA.artifact,
               path: EDIT_DATA.path || "",
-              markdown: document.getElementById("markdownSource").value,
+              markdown: collectMarkdownDocument(),
             }};
         const response = await fetch(contextUrl("/api/artifacts/edit"), {{
           method: "POST",
@@ -19463,6 +19620,232 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
   </script>
 </body>
 </html>
+"""
+
+
+def _rich_markdown_editor_script() -> str:
+    return """
+    function richButton(command, label, title) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.command = command;
+      button.title = title;
+      button.setAttribute("aria-label", title);
+      button.textContent = label;
+      button.addEventListener("click", () => executeRichCommand(command));
+      return button;
+    }
+
+    function createRichToolbar() {
+      const toolbar = document.createElement("div");
+      toolbar.className = "rich-toolbar";
+
+      const heading = document.createElement("select");
+      heading.dataset.heading = "1";
+      heading.title = "Block style";
+      heading.setAttribute("aria-label", "Block style");
+      for (const [value, label] of [
+        ["paragraph", "Paragraph"],
+        ["1", "Heading 1"],
+        ["2", "Heading 2"],
+        ["3", "Heading 3"],
+      ]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        heading.append(option);
+      }
+      heading.addEventListener("change", () => {
+        if (!richMarkdownEditor) {
+          return;
+        }
+        if (heading.value === "paragraph") {
+          richMarkdownEditor.chain().focus().setParagraph().run();
+        } else {
+          richMarkdownEditor
+            .chain()
+            .focus()
+            .toggleHeading({ level: Number(heading.value) })
+            .run();
+        }
+      });
+
+      toolbar.append(
+        heading,
+        richButton("bold", "B", "Bold"),
+        richButton("italic", "I", "Italic"),
+        richButton("code", "`", "Inline code"),
+        richButton("bulletList", "Bullet", "Bullet list"),
+        richButton("orderedList", "1.", "Numbered list"),
+        richButton("blockquote", "Quote", "Quote"),
+        richButton("codeBlock", "Code", "Code block"),
+        richButton("link", "Link", "Link"),
+        richButton("table", "Table", "Insert table"),
+        richButton("mermaid", "Mermaid", "Insert Mermaid block"),
+      );
+      richToolbar = toolbar;
+      return toolbar;
+    }
+
+    function executeRichCommand(command) {
+      if (!richMarkdownEditor) {
+        return;
+      }
+      const chain = richMarkdownEditor.chain().focus();
+      if (command === "bold") {
+        chain.toggleBold().run();
+      } else if (command === "italic") {
+        chain.toggleItalic().run();
+      } else if (command === "code") {
+        chain.toggleCode().run();
+      } else if (command === "bulletList") {
+        chain.toggleBulletList().run();
+      } else if (command === "orderedList") {
+        chain.toggleOrderedList().run();
+      } else if (command === "blockquote") {
+        chain.toggleBlockquote().run();
+      } else if (command === "codeBlock") {
+        chain.toggleCodeBlock().run();
+      } else if (command === "link") {
+        const previous = richMarkdownEditor.getAttributes("link").href || "";
+        const href = window.prompt("Link URL", previous);
+        if (href === null) {
+          return;
+        }
+        if (!href.trim()) {
+          chain.unsetLink().run();
+        } else {
+          chain.setLink({ href: href.trim() }).run();
+        }
+      } else if (command === "table") {
+        chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+      } else if (command === "mermaid") {
+        appendMarkdownSnippet(
+          "```mermaid\\ngraph TD\\n  A[Start] --> B[Next]\\n```",
+        );
+      }
+      updateRichToolbarState();
+    }
+
+    function updateRichToolbarState() {
+      if (!richToolbar || !richMarkdownEditor) {
+        return;
+      }
+      const heading = richToolbar.querySelector("[data-heading]");
+      if (heading) {
+        if (richMarkdownEditor.isActive("heading", { level: 1 })) {
+          heading.value = "1";
+        } else if (richMarkdownEditor.isActive("heading", { level: 2 })) {
+          heading.value = "2";
+        } else if (richMarkdownEditor.isActive("heading", { level: 3 })) {
+          heading.value = "3";
+        } else {
+          heading.value = "paragraph";
+        }
+      }
+      for (const button of richToolbar.querySelectorAll("[data-command]")) {
+        const command = button.dataset.command || "";
+        const activeByCommand = {
+          bold: "bold",
+          italic: "italic",
+          code: "code",
+          bulletList: "bulletList",
+          orderedList: "orderedList",
+          blockquote: "blockquote",
+          codeBlock: "codeBlock",
+          link: "link",
+        };
+        button.classList.toggle(
+          "active",
+          Boolean(activeByCommand[command]) &&
+            richMarkdownEditor.isActive(activeByCommand[command]),
+        );
+      }
+    }
+
+    async function initializeRichMarkdownEditor(wrapper, surface) {
+      if (!RICH_EDITOR_ENABLED || richEditorLoading) {
+        return;
+      }
+      richEditorLoading = true;
+      surface.setAttribute("aria-busy", "true");
+      setStatus("loading rich editor...");
+      try {
+        const [
+          coreModule,
+          starterKitModule,
+          markdownModule,
+          linkModule,
+          tableModule,
+          tableRowModule,
+          tableHeaderModule,
+          tableCellModule,
+        ] = await Promise.all([
+          import("https://esm.sh/@tiptap/core"),
+          import("https://esm.sh/@tiptap/starter-kit"),
+          import("https://esm.sh/@tiptap/markdown"),
+          import("https://esm.sh/@tiptap/extension-link"),
+          import("https://esm.sh/@tiptap/extension-table"),
+          import("https://esm.sh/@tiptap/extension-table-row"),
+          import("https://esm.sh/@tiptap/extension-table-header"),
+          import("https://esm.sh/@tiptap/extension-table-cell"),
+        ]);
+        const Editor = coreModule.Editor;
+        const StarterKit = starterKitModule.default || starterKitModule.StarterKit;
+        const Markdown = markdownModule.Markdown || markdownModule.default;
+        const Link = linkModule.default || linkModule.Link;
+        const Table = tableModule.default || tableModule.Table;
+        const TableRow = tableRowModule.default || tableRowModule.TableRow;
+        const TableHeader = tableHeaderModule.default || tableHeaderModule.TableHeader;
+        const TableCell = tableCellModule.default || tableCellModule.TableCell;
+        if (!Editor || !StarterKit || !Markdown) {
+          throw new Error("Tiptap Markdown modules are unavailable");
+        }
+        richMarkdownEditor = new Editor({
+          element: surface,
+          extensions: [
+            StarterKit,
+            Markdown,
+            Link ? Link.configure({ openOnClick: false }) : null,
+            Table ? Table.configure({ resizable: true }) : null,
+            TableRow,
+            TableHeader,
+            TableCell,
+          ].filter(Boolean),
+          content: markdownTextarea ? markdownTextarea.value : "",
+          contentType: "markdown",
+          editorProps: {
+            attributes: {
+              spellcheck: "true",
+            },
+          },
+          onUpdate: () => {
+            if (markdownTextarea) {
+              markdownTextarea.value = markdownValue();
+            }
+            markDirty();
+          },
+          onSelectionUpdate: updateRichToolbarState,
+          onFocus: updateRichToolbarState,
+        });
+        surface.removeAttribute("aria-busy");
+        if (markdownTextarea) {
+          markdownTextarea.hidden = true;
+        }
+        wrapper.classList.remove("rich-fallback");
+        setStatus("");
+        updateRichToolbarState();
+      } catch (error) {
+        wrapper.classList.add("rich-fallback");
+        surface.remove();
+        if (markdownTextarea) {
+          markdownTextarea.hidden = false;
+        }
+        setStatus(`rich editor unavailable: ${error.message || error}`, true);
+      } finally {
+        richEditorLoading = false;
+      }
+    }
 """
 
 
@@ -23527,6 +23910,10 @@ def _handler_for(
                 requested_path = str((params.get("path") or [""])[0])
                 title = str((params.get("title") or [""])[0]).strip() or None
                 create_missing = str((params.get("create") or [""])[0]) == "1"
+                rich_editor = (
+                    state.project_mode(context_id) == "creative"
+                    and artifact == "document"
+                )
                 page, status = artifact_editor_html(
                     project_root,
                     artifact,
@@ -23534,6 +23921,7 @@ def _handler_for(
                     title=title,
                     create_missing=create_missing,
                     context_id=context_id,
+                    rich_editor=rich_editor,
                 )
             except (AgentSessionError, OSError, StateError) as error:
                 self._send_text(

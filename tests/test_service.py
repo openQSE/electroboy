@@ -715,6 +715,33 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("body.markdown-mode .markdown-editor", page)
         self.assertIn('textarea.addEventListener("input", markDirty);', page)
         self.assertNotIn('label.textContent = "Markdown";', page)
+        self.assertNotIn("@tiptap/core", page)
+
+    def test_artifact_editor_creative_markdown_mode_uses_tiptap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chapters = root / "chapters"
+            chapters.mkdir()
+            (chapters / "chapter-01.md").write_text(
+                "# Chapter 1\n\nOpening paragraph.\n",
+                encoding="utf-8",
+            )
+
+            page, status = artifact_editor_html(
+                root,
+                "document",
+                "chapters/chapter-01.md",
+                title="Chapter 1",
+                rich_editor=True,
+            )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('"rich_editor": true', page)
+        self.assertIn("RICH_EDITOR_ENABLED", page)
+        self.assertIn('className = "rich-editor-surface"', page)
+        self.assertIn('import("https://esm.sh/@tiptap/core")', page)
+        self.assertIn('import("https://esm.sh/@tiptap/markdown")', page)
+        self.assertIn("function collectMarkdownDocument()", page)
 
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -807,6 +834,41 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(content_type, "text/html; charset=utf-8")
         self.assertIn("Requirements Editor", body)
         self.assertIn('"mode": "structured"', body)
+
+    def test_artifact_editor_endpoint_enables_rich_editor_for_creative(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            payload = server.service_state.create_context()
+            context_id = str(payload["context_id"])
+            server.service_state.create_creative_project(context_id, str(project_root))
+            server.service_state.initialize_creative_workspace(context_id)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    (
+                        f"/artifacts/edit?context_id={context_id}"
+                        "&artifact=document&path=chapters/chapter-01.md"
+                    ),
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('"mode": "markdown"', body)
+        self.assertIn('"rich_editor": true', body)
+        self.assertIn("@tiptap/core", body)
 
     def test_document_export_endpoint_serves_active_project_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
