@@ -20309,14 +20309,13 @@ def creative_corkboard_html(
           title.className = "card-title";
           title.textContent = card.name || card.path;
         }}
-        const type = document.createElement("div");
-        type.className = "card-type";
-        type.textContent = boardType === "freeform"
-          ? "Idea"
-          : card.type === "directory" ? "Folder" : card.corkboard ? "Board" : "File";
-        titleBox.append(title, type);
-
         if (boardType === "folder") {{
+          const type = document.createElement("div");
+          type.className = "card-type";
+          type.textContent = card.type === "directory"
+            ? "Folder"
+            : card.corkboard ? "Board" : "File";
+          titleBox.append(title, type);
           const open = document.createElement("button");
           open.className = "card-open";
           open.type = "button";
@@ -20324,6 +20323,7 @@ def creative_corkboard_html(
           open.addEventListener("click", () => openCard(card));
           head.append(titleBox, open);
         }} else {{
+          titleBox.append(title);
           const remove = document.createElement("button");
           remove.className = "card-delete";
           remove.type = "button";

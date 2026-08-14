@@ -2395,6 +2395,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function deleteFreeformCard(card, button)", page)
             self.assertIn("await cardSaveRequests.get(key);", page)
             self.assertIn('action: "delete"', page)
+            self.assertNotIn('"Idea"', page)
             self.assertIn("selectedCardKey = card.id;", page)
             self.assertIn("Opening beat", page)
             self.assertIn("Start with a quiet contradiction.", page)
