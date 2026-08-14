@@ -1162,7 +1162,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
         self.assertIn('id="stageActionPanel"', INDEX_HTML)
         self.assertIn('id="stageActionBody"', INDEX_HTML)
-        self.assertIn('id="startAdHocAgent"', INDEX_HTML)
+        self.assertNotIn('id="startAdHocAgent"', INDEX_HTML)
         self.assertIn("function renderStageActionPanel()", INDEX_HTML)
         self.assertIn("function refreshCreativeBinder()", INDEX_HTML)
         self.assertIn("function toggleCreativeActionGroup(group)", INDEX_HTML)

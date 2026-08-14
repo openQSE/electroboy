@@ -2659,12 +2659,6 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       <div id="projectMenu" class="stage-menu" hidden>
         <button id="openProject" type="button">Open project</button>
         <button id="newProject" type="button">New project</button>
-        <button
-          id="startAdHocAgent"
-          type="button"
-          disabled
-          title="Start a plain interactive agent without staged workflow instructions."
-        >Start ad-hoc</button>
         <div id="metaProjectBranch" class="menu-branch">
           <button
             id="metaProjectMenuButton"
@@ -3500,7 +3494,6 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const documentMenu = document.getElementById("documentMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
-    const startAdHocAgentButton = document.getElementById("startAdHocAgent");
     const metaProjectBranch = document.getElementById("metaProjectBranch");
     const metaProjectMenuButton = document.getElementById("metaProjectMenuButton");
     const metaProjectSubmenu = document.getElementById("metaProjectSubmenu");
@@ -6206,8 +6199,6 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       updateStageNodes(hasProjectContext, hasStageTarget, workflowStage);
       openProject.disabled = hasProjectContext;
       newProject.disabled = hasProjectContext;
-      startAdHocAgentButton.disabled = !hasProjectContext;
-      startAdHocAgentButton.textContent = adHocRunning ? "Focus ad-hoc" : "Start ad-hoc";
       openMetaProject.disabled = hasProjectContext;
       newMetaProject.disabled = hasProjectContext;
       addMetaRepository.disabled = activeProjectMode !== "meta";
@@ -7197,14 +7188,6 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
           label: "Work items",
           title: "Start or switch feature and bug-resolution workflows.",
           actions: workItemActions,
-        },
-        {
-          label: adHocRunning ? "Focus ad-hoc" : "Start ad-hoc",
-          title: adHocRunning
-            ? "Focus the running ad-hoc agent."
-            : "Start a plain interactive agent without staged workflow instructions.",
-          disabled: !hasContext,
-          run: startAdHocAgent,
         },
         {
           label: "Deactivate",
@@ -10602,7 +10585,6 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     setCodeStage.addEventListener("click", () => {
       setWorkflowStageFromMenu("code");
     });
-    startAdHocAgentButton.addEventListener("click", startAdHocAgent);
     startAutomaticCode.addEventListener("click", () => {
       startGenericStageAgent("code", "$ electroboy code", false);
     });
