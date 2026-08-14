@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Iterable
+from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -181,9 +181,12 @@ def built_in_service_modules() -> tuple[ServiceModule, ...]:
 
 
 def built_in_workflows() -> tuple[WorkflowDefinition, ...]:
+    from electroboy.workflows.creative_writing import workflow as creative_workflow
+    from electroboy.workflows.software import workflow as software_workflow
+
     return (
-        _software_workflow(),
-        _creative_writing_workflow(),
+        software_workflow(),
+        creative_workflow(),
     )
 
 
@@ -358,127 +361,6 @@ def _recent_projects_module() -> ServiceModule:
         label="Recent Projects",
         capabilities=frozenset({"recent-projects"}),
         state_namespace="recent_projects",
-    )
-
-
-def _software_workflow() -> WorkflowDefinition:
-    return WorkflowDefinition(
-        id="software",
-        label="Software Engineering",
-        modules=(
-            "core",
-            "agent_sessions",
-            "structured_documents",
-            "markdown_documents",
-            "progress",
-            "project_shell",
-            "file_browser",
-            "review_reports",
-            "recent_projects",
-        ),
-        stages=(
-            WorkflowStage("project", "Project", None, next_stage="requirements"),
-            WorkflowStage(
-                "requirements",
-                "Requirements",
-                "electroboy requirements",
-                documents=("requirements",),
-                actions=("start", "approve", "set-stage"),
-                next_stage="design",
-            ),
-            WorkflowStage(
-                "design",
-                "Design",
-                "electroboy design",
-                documents=("detailed-design",),
-                actions=("start", "set-stage"),
-                next_stage="design-review",
-            ),
-            WorkflowStage(
-                "design-review",
-                "Design Review",
-                "electroboy design-review",
-                documents=("detailed-design", "design-review"),
-                actions=("start", "approve", "set-stage"),
-                next_stage="implementation-plan",
-            ),
-            WorkflowStage(
-                "implementation-plan",
-                "Implementation Plan",
-                "electroboy implementation-plan",
-                documents=("implementation-plan",),
-                actions=("start", "approve", "set-stage"),
-                next_stage="code",
-            ),
-            WorkflowStage(
-                "code",
-                "Code",
-                "electroboy code",
-                documents=("implementation-report",),
-                actions=("start", "review", "approve", "set-stage"),
-                next_stage="test-plan",
-            ),
-            WorkflowStage(
-                "test-plan",
-                "Test Plan",
-                "electroboy test-plan",
-                documents=("test-plan",),
-                actions=("start", "approve", "set-stage"),
-                next_stage="validate",
-            ),
-            WorkflowStage(
-                "validate",
-                "Validate",
-                "electroboy validate",
-                documents=("validation-report",),
-                actions=("start", "approve", "set-stage"),
-                next_stage="document",
-            ),
-            WorkflowStage(
-                "document",
-                "Document",
-                "electroboy document",
-                actions=("start", "set-stage"),
-            ),
-        ),
-        project_kinds=("project", "meta-project"),
-        backend_package="electroboy.workflows.software",
-        frontend_bundle="workflows/software.js",
-    )
-
-
-def _creative_writing_workflow() -> WorkflowDefinition:
-    return WorkflowDefinition(
-        id="creative-writing",
-        label="Creative Writing",
-        modules=(
-            "core",
-            "agent_sessions",
-            "markdown_documents",
-            "binder",
-            "corkboard",
-            "project_shell",
-            "file_browser",
-            "recent_projects",
-        ),
-        stages=(
-            WorkflowStage(
-                "project",
-                "Project",
-                None,
-                actions=("open", "new", "close"),
-                next_stage="binder",
-            ),
-            WorkflowStage(
-                "binder",
-                "Binder",
-                None,
-                actions=("new-folder", "new-document", "refresh"),
-            ),
-        ),
-        project_kinds=("creative-writing",),
-        backend_package="electroboy.workflows.creative_writing",
-        frontend_bundle="workflows/creative-writing.js",
     )
 
 
