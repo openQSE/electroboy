@@ -3,16 +3,20 @@
 ## Table of Contents
 
 - [Purpose](#purpose)
+- [Production Packaging Goal](#production-packaging-goal)
 - [Design Principles](#design-principles)
 - [Goals](#goals)
 - [Non-Goals](#non-goals)
 - [Current Server Shape](#current-server-shape)
 - [Target Architecture](#target-architecture)
+- [Package Boundaries](#package-boundaries)
 - [Core Service](#core-service)
+- [Backend Modularity](#backend-modularity)
 - [Module Registry](#module-registry)
 - [Workflow Registry](#workflow-registry)
 - [Reusable Modules](#reusable-modules)
 - [Document Modules](#document-modules)
+- [Frontend Modularity](#frontend-modularity)
 - [Frontend Composition](#frontend-composition)
 - [Backend Route Model](#backend-route-model)
 - [State And Persistence](#state-and-persistence)
@@ -20,6 +24,7 @@
 - [Workflow Composition](#workflow-composition)
 - [Plugin Boundary](#plugin-boundary)
 - [Testing Strategy](#testing-strategy)
+- [Implementation Commit Plan](#implementation-commit-plan)
 - [Migration Plan](#migration-plan)
 - [Open Questions](#open-questions)
 
@@ -36,8 +41,37 @@ project activation, HTTP/SSE transport, session lifecycle, and safe access to
 project files. Workflow-specific behavior moves into workflow definitions.
 Reusable behavior moves into capability modules.
 
-This design prepares ElectroBoy for built-in workflows, user-defined
-workflows, and plugin-provided workflows while keeping the CLI authoritative.
+This design prepares ElectroBoy for built-in workflows, user-defined workflows,
+and plugin-provided workflows while keeping the CLI authoritative. The near-term
+work is a production-readiness cleanup, not a new workflow feature. The goal is
+to separate the current monolithic service into a packageable core plus
+separately deliverable workflow packages.
+
+## Production Packaging Goal
+
+ElectroBoy should be deliverable as a small core product with optional workflow
+packages. A customer should be able to install only the workflows they need. A
+software-engineering customer should not receive creative-writing code unless
+that workflow is included. A writing customer should not receive the
+software-engineering workflow unless it is included.
+
+This packaging goal drives the modularity work:
+
+- The core package provides service runtime, context management, session
+  management, route dispatch, static asset loading, project activation, common
+  panes, common file access, and workflow/module registries.
+- Workflow packages provide backend controllers, workflow-specific state,
+  workflow actions, prompt roles, document schemas, frontend navigation, and
+  workflow-specific panes.
+- Reusable capability packages provide modules such as corkboards, Markdown
+  documents, structured documents, file browser, project shell, progress, and
+  review reports.
+- Paid or customer-specific workflows can be shipped as separately installed
+  packages that register through the same interfaces as built-in workflows.
+
+The first implementation does not need a billing or license server. It must
+create clean package boundaries so entitlement and distribution policy can be
+added later without another large refactor.
 
 ## Design Principles
 
@@ -46,18 +80,25 @@ workflows, and plugin-provided workflows while keeping the CLI authoritative.
 - Keep browser-tab state isolated by context id.
 - Keep long-running agent processes behind a shared session layer.
 - Separate structured documents from plain Markdown documents.
+- Separate backend modularity from frontend modularity. Each side needs its own
+  registry, package assets, tests, and migration path.
 - Let complex GUI capabilities, such as corkboards, be imported by multiple
   workflows.
 - Preserve existing behavior while moving code into smaller modules.
 - Add plugin loading after built-in workflows use the same registry model.
 - Keep route registration explicit and inspectable.
 - Avoid frontend behavior that depends on hidden workflow-specific globals.
+- Keep optional workflow packages out of core imports unless the workflow is
+  installed and enabled.
 
 ## Goals
 
 - Split the service into small backend modules with stable responsibilities.
 - Move large inline HTML, CSS, and JavaScript into package assets.
+- Package the core service separately from workflow implementations.
+- Package backend workflow controllers separately from frontend workflow code.
 - Add a backend module registry for reusable capabilities.
+- Add a frontend module registry for reusable panes, actions, and views.
 - Add a workflow registry for software engineering, creative writing, and
   future workflows.
 - Let workflows declare the modules, stages, panes, actions, and documents
@@ -68,12 +109,15 @@ workflows, and plugin-provided workflows while keeping the CLI authoritative.
 - Keep Markdown export, live refresh, pane pop-outs, progress streaming, and
   agent IO available to every workflow that imports the matching module.
 - Provide a path to external workflow plugins without rewriting the service.
+- Allow production builds to include a selected subset of workflows.
 
 ## Non-Goals
 
 - Do not replace the CLI with the service.
 - Do not require a web framework migration as part of the first split.
 - Do not make plugin loading the first refactor step.
+- Do not add customer billing, licensing, or entitlement enforcement in the
+  first modularization pass.
 - Do not move workflow policy into frontend JavaScript.
 - Do not merge structured and unstructured document editing into one model.
 - Do not let modules write arbitrary global state outside their namespace.
@@ -156,6 +200,50 @@ Creative Writing Workflow
   imports project_shell
 ```
 
+## Package Boundaries
+
+The production package should be split into core, reusable modules, and
+workflow packages. The boundaries apply to both Python backend code and browser
+frontend assets.
+
+```text
+electroboy-core
+  backend: service runtime, contexts, route registry, sessions, static assets
+  frontend: shell, toolbar, side sheet, panes, fetch/SSE helpers
+
+electroboy-module-documents
+  backend: Markdown and structured document APIs
+  frontend: document panes, preview, edit, export controls
+
+electroboy-module-corkboard
+  backend: corkboard state and card/group APIs
+  frontend: corkboard panes and card interactions
+
+electroboy-workflow-software
+  backend: software workflow controller, stages, roles, artifact mappings
+  frontend: software workflow navigation, actions, status views
+
+electroboy-workflow-creative-writing
+  backend: creative project defaults, binder actions, creative agent roles
+  frontend: creative navigation, binder, editor layout
+```
+
+Exact Python distribution names can change. The architectural rule is that the
+core package cannot require optional workflow packages at import time. The core
+loads installed workflows and modules through registries. A production build can
+therefore include:
+
+- core only, for a minimal service shell
+- core plus software engineering
+- core plus creative writing
+- core plus customer-specific workflows
+- core plus paid extension workflows
+
+Built-in workflows should use the same registration path as external workflows.
+This keeps optional packaging honest. If software engineering or creative
+writing needs a private core hook, that hook should become a formal registry API
+or module service.
+
 ## Core Service
 
 The core service owns concerns that every workflow needs.
@@ -228,6 +316,63 @@ names to package files.
 
 This avoids storing the main application, pane windows, corkboard UI, and
 editor UI as giant Python strings.
+
+## Backend Modularity
+
+Backend modularity is the first implementation step. It removes workflow and
+capability code from `src/electroboy/service.py` while preserving current HTTP
+behavior.
+
+The backend split should be committed independently from frontend changes. That
+commit should focus on Python structure, tests, and route compatibility. It
+should not change visual layout, workflow behavior, or browser interactions
+except where small route-adapter changes are unavoidable.
+
+Backend packages own these responsibilities:
+
+- Core runtime creates the HTTP server, service state, context store, route
+  registry, response helpers, static asset server, and session manager.
+- Capability modules register route groups, services, state namespaces, and
+  optional command helpers.
+- Workflow packages register stage graphs, action controllers, document
+  mappings, prompt roles, and project lifecycle hooks.
+- The workflow registry validates that every workflow dependency is installed.
+- The route registry exposes compatibility paths while new module-owned routes
+  are introduced.
+
+The target backend source layout is:
+
+```text
+src/electroboy/service/
+  __init__.py
+  app.py
+  context.py
+  http.py
+  routes.py
+  sessions.py
+  assets.py
+  files.py
+  registry.py
+
+src/electroboy/modules/
+  agent_sessions.py
+  markdown_documents.py
+  structured_documents.py
+  corkboard.py
+  binder.py
+  file_browser.py
+  progress.py
+  project_shell.py
+  review_reports.py
+
+src/electroboy/workflows/
+  software.py
+  creative_writing.py
+```
+
+The first backend commit can keep compatibility imports from
+`electroboy.service` so existing tests and callers do not need to move at once.
+New code should import the narrower module directly.
 
 ## Module Registry
 
@@ -428,6 +573,84 @@ Software-engineering artifacts use this module:
 
 The editor should show human-editable fields and hide mechanical fields where
 possible. Advanced mode can expose the raw record when needed.
+
+## Frontend Modularity
+
+Frontend modularity is the second implementation step. It should happen after
+the backend modules and registries exist. The frontend split should be committed
+separately from the backend split.
+
+The current frontend is mostly embedded in large Python string templates. That
+made the GUI easy to bootstrap, but it makes production packaging hard because
+every workflow and every pane ships together. The modular frontend should move
+the browser code into package assets and let installed workflows contribute UI
+through explicit registrations.
+
+The frontend core owns only shared shell behavior:
+
+- service connection and context creation
+- workflow selector
+- top toolbar
+- left side sheet container
+- pane creation, resizing, splitting, and pop-out windows
+- active agent selector
+- shared fetch, SSE, and error handling
+- common status and progress presentation
+
+Frontend modules own reusable panes and controls:
+
+- agent terminal pane
+- progress pane
+- Markdown document pane
+- structured document editor
+- file browser window
+- project shell pane
+- corkboard pane
+- binder tree
+- review report list
+
+Frontend workflow packages own workflow-specific navigation and action wiring.
+For example, the software workflow provides software stages and approval
+actions. The creative-writing workflow provides project, binder, document, and
+corkboard navigation. Both workflows can import the same document, session, and
+project-shell frontend modules.
+
+The target frontend asset layout is:
+
+```text
+assets/service/
+  index.html
+  css/
+    shell.css
+    panes.css
+    modules/
+      documents.css
+      corkboard.css
+  js/
+    core/
+      app.js
+      context.js
+      registry.js
+      panes.js
+      sessions.js
+      sse.js
+    modules/
+      documents.js
+      structured-documents.js
+      corkboard.js
+      binder.js
+      file-browser.js
+      progress.js
+      project-shell.js
+    workflows/
+      software.js
+      creative-writing.js
+```
+
+The first frontend commit can still bundle the assets into one served
+application. The important production boundary is source ownership and registry
+registration. Later package builds can include or exclude workflow asset
+bundles based on the customer package.
 
 ## Frontend Composition
 
@@ -724,9 +947,72 @@ Frontend tests can start as targeted HTML/JS smoke tests. As the frontend moves
 into assets, string-search tests should be replaced with smaller module-level
 checks and browser-level smoke tests for key flows.
 
+## Implementation Commit Plan
+
+The modularization should land as cleanup commits, not as a new feature branch
+that changes product behavior.
+
+### Commit 1: Backend Modularization
+
+Purpose: split the Python service backend into core, capability modules, and
+workflow packages while preserving existing behavior.
+
+Expected scope:
+
+- Move `AgentSession`, tmux/PTY session backends, terminal helpers, and
+  transcript logic into a session module.
+- Move `BrowserContext`, context isolation, and service-local session registry
+  handling into context/session-manager modules.
+- Add typed request and response helpers.
+- Add a route registry and migrate route groups behind compatibility paths.
+- Move file browser, document APIs, corkboard APIs, progress APIs, project
+  shell APIs, and review-report APIs into backend modules.
+- Move software-engineering and creative-writing workflow controllers into
+  backend workflow packages.
+- Keep existing URLs working unless a route is explicitly deprecated.
+- Keep CLI behavior authoritative for software workflow gates and approvals.
+- Keep tests passing after each extraction step.
+
+This commit should not move the main HTML/CSS/JavaScript application out of
+Python strings except where needed to preserve route behavior. The point is to
+stabilize backend ownership first.
+
+### Commit 2: Frontend Modularization
+
+Purpose: split the browser UI into core assets, reusable frontend modules, and
+workflow-specific frontend packages while preserving current GUI behavior.
+
+Expected scope:
+
+- Move the main HTML, pane windows, file browser, editor, terminal, corkboard,
+  and workflow JavaScript out of Python strings into package assets.
+- Add a frontend registry for modules and workflows.
+- Keep the core shell responsible for common pane layout, top toolbar, side
+  sheet, context handling, sessions, SSE, and errors.
+- Move document panes, structured editor, corkboard, binder, file browser,
+  progress, project shell, and review-report UI into reusable frontend modules.
+- Move software-engineering and creative-writing navigation/action wiring into
+  workflow frontend modules.
+- Keep visual layout and operator behavior unchanged except for internal source
+  organization.
+- Add smoke tests or browser-level checks for the key UI flows.
+
+This commit creates the frontend packaging boundary. Later package builds can
+include only the workflow frontend assets selected for a customer.
+
+### Later Commits
+
+After the backend and frontend are modular, later commits can add:
+
+- Python entry-point discovery for external workflow packages.
+- Asset manifests for installed frontend modules and workflows.
+- Packaging metadata for optional workflow distributions.
+- Workflow enable/disable settings.
+- License or entitlement checks, if product distribution requires them.
+
 ## Migration Plan
 
-### Phase 1: Extract Pure Infrastructure
+### Phase 1: Backend Infrastructure Extraction
 
 Move low-risk infrastructure first:
 
@@ -737,7 +1023,7 @@ Move low-risk infrastructure first:
 
 Keep import compatibility where tests still import from `electroboy.service`.
 
-### Phase 2: Add Route Registry
+### Phase 2: Backend Route Registry
 
 Introduce a route registry while keeping the existing paths. Move small route
 groups out of the nested request handler:
@@ -751,7 +1037,7 @@ groups out of the nested request handler:
 The request handler becomes a generic adapter from `BaseHTTPRequestHandler` to
 registered routes.
 
-### Phase 3: Extract Document Modules
+### Phase 3: Backend Document Modules
 
 Move Markdown preview, edit, export, artifact events, and structured artifact
 editing into document modules. Keep the GUI behavior unchanged.
@@ -759,20 +1045,32 @@ editing into document modules. Keep the GUI behavior unchanged.
 This phase should establish the split between `markdown_documents` and
 `structured_documents`.
 
-### Phase 4: Extract Creative Modules
+### Phase 4: Backend Capability Modules
 
-Move binder, scratchpad, and corkboard behavior into modules. The
-creative-writing workflow imports them and supplies project defaults.
+Move binder, scratchpad, corkboard, project shell, progress, file browser, and
+review-report behavior into modules. Workflows import those modules instead of
+owning their implementations directly.
 
 The corkboard module should expose APIs that any workflow can use.
 
-### Phase 5: Extract Software Workflow
+### Phase 5: Backend Workflow Packages
 
 Move software-engineering stage definitions and actions into
-`workflows/software.py`. The workflow controller should call the existing CLI
-commands rather than duplicating gate logic in the service.
+`workflows/software.py`. Move creative-writing project defaults and workflow
+actions into `workflows/creative_writing.py`. Workflow controllers should call
+shared services and existing CLI behavior rather than duplicating gate logic in
+the service core.
 
-### Phase 6: Extract Frontend Assets
+### Phase 6: Backend Registry Enablement
+
+Register built-in backend modules and workflows through the same registry API
+that external packages will use. Validate missing module dependencies and expose
+the loaded backend module/workflow list in service health.
+
+Phases 1 through 6 should be committed together as the backend modularization
+cleanup once behavior and tests are stable.
+
+### Phase 7: Frontend Asset Extraction
 
 Move the main GUI template, pane windows, file browser, editor, and corkboard
 UI into package assets. Split JavaScript by core, module, and workflow.
@@ -780,17 +1078,20 @@ UI into package assets. Split JavaScript by core, module, and workflow.
 This phase reduces future merge conflicts and makes the GUI extension model
 real.
 
-### Phase 7: Enable Built-In Registry
+### Phase 8: Frontend Registry Integration
 
-Register built-in modules and workflows through the same registry API that
-plugins will use. At this point new built-in workflows can be added without
-editing the service core.
+Register frontend modules and workflows through the browser-side registry.
+Confirm that software engineering and creative writing are assembled from the
+same shell and reusable frontend modules.
 
-### Phase 8: Add Plugin Discovery
+Phases 7 and 8 should be committed together as the frontend modularization
+cleanup once behavior and browser checks are stable.
 
-Add entry-point discovery for external workflows and modules. Validate plugin
-metadata, expose loaded plugins in service health, and provide clear errors
-when a workflow depends on a missing module.
+### Phase 9: External Package Discovery
+
+Add entry-point discovery for external workflow and module packages. Validate
+plugin metadata, expose loaded plugins in service health, and provide clear
+errors when a workflow depends on a missing module.
 
 ## Open Questions
 
