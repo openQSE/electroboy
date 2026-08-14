@@ -99,6 +99,12 @@ CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
 )
 RECENT_PROJECTS_RELATIVE_PATH = Path(".electroboy") / "service" / "recent-projects.json"
 RECENT_PROJECT_LIMIT = 12
+SERVICE_SESSION_RECORDS_RELATIVE_PATH = (
+    Path(".electroboy") / "service" / "sessions.json"
+)
+SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR = (
+    Path(".electroboy") / "service" / "session-transcripts"
+)
 CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
     {"id": "butter", "label": "Butter", "value": "#fff6cf"},
     {"id": "rose", "label": "Rose", "value": "#f9e7dd"},
@@ -4061,6 +4067,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let terminalFontSize = storedTerminalFontSize();
     let paneFontOffsets = storedPaneFontOffsets();
     let documentZoom = storedDocumentZoom();
+    let serviceSessions = [];
     let resizeShellState = null;
     let resizeInputState = null;
     let resizeInputActionsState = null;
@@ -7529,6 +7536,25 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       return `${session.kind || "agent"} · ${status}`;
     }
 
+    function attachableServiceSessions() {
+      const localIds = new Set(agentSessions.map((session) => session.session_id));
+      return serviceSessions.filter((session) => {
+        if (!session || !session.attachable || !session.session_id) {
+          return false;
+        }
+        if (localIds.has(session.session_id)) {
+          return false;
+        }
+        return session.kind !== "project-shell";
+      });
+    }
+
+    function serviceSessionDisplayLabel(session) {
+      const baseLabel = agentSessionDisplayLabel(session);
+      const project = String(session.active_project_root || "").split("/").filter(Boolean).pop();
+      return project ? `${project}: ${baseLabel}` : baseLabel;
+    }
+
     function rememberOpenDocumentTarget(target) {
       const path = documentTargetKey(target);
       if (!path) {
@@ -7585,7 +7611,8 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
 
     function renderSessionSwitcher() {
       sessionSwitcher.replaceChildren();
-      if (agentSessions.length === 0) {
+      const remoteSessions = attachableServiceSessions();
+      if (agentSessions.length === 0 && remoteSessions.length === 0) {
         const option = document.createElement("option");
         option.value = "";
         option.textContent = "No streams";
@@ -7594,11 +7621,35 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         updateSessionIndicator(null);
         return;
       }
+      if (agentSessions.length === 0 && remoteSessions.length > 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Attach service stream...";
+        sessionSwitcher.append(option);
+      }
+      const localParent = agentSessions.length > 0
+        ? document.createElement("optgroup")
+        : sessionSwitcher;
+      if (agentSessions.length > 0) {
+        localParent.label = "Current context";
+        sessionSwitcher.append(localParent);
+      }
       for (const session of agentSessions) {
         const option = document.createElement("option");
         option.value = session.session_id;
         option.textContent = agentSessionDisplayLabel(session);
-        sessionSwitcher.append(option);
+        localParent.append(option);
+      }
+      if (remoteSessions.length > 0) {
+        const remoteParent = document.createElement("optgroup");
+        remoteParent.label = "Service sessions";
+        for (const session of remoteSessions) {
+          const option = document.createElement("option");
+          option.value = `attach:${session.session_id}`;
+          option.textContent = serviceSessionDisplayLabel(session);
+          remoteParent.append(option);
+        }
+        sessionSwitcher.append(remoteParent);
       }
       sessionSwitcher.disabled = false;
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
@@ -7610,6 +7661,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     }
 
     async function selectAgentSession(sessionId) {
+      if (sessionId && sessionId.startsWith("attach:")) {
+        await attachAgentSession(sessionId.slice("attach:".length));
+        return;
+      }
       if (!sessionId || sessionId === selectedSessionId) {
         return;
       }
@@ -7636,6 +7691,59 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       }
       clearAgentOutput();
       connectSessionEvents(selectedSessionId);
+      updateAgentControls();
+      sendTerminalResize();
+    }
+
+    async function refreshServiceSessions() {
+      const response = await fetch("/api/session-registry", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json().catch(() => ({ sessions: [] }));
+      serviceSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      renderSessionSwitcher();
+    }
+
+    async function attachAgentSession(sessionId) {
+      if (!contextId || !sessionId) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/sessions/attach"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "session attach failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "session attach failed"}\\n`, "error");
+        renderSessionSwitcher();
+        return;
+      }
+      updateProjectState(payload);
+      await refreshServiceSessions();
+      const session = selectedSession();
+      if (!session) {
+        return;
+      }
+      clearAgentOutput();
+      if (session.interactive) {
+        showProgressPane(false);
+        setAgentInputVisible(true);
+      } else {
+        clearProgressOutput();
+        showProgressPane(true);
+        setAgentInputVisible(false);
+      }
+      activeAgentKind = session.kind || "";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        showDocumentPreview(documentTarget);
+      }
+      connectSessionEvents(session.session_id);
+      if (!session.interactive && session.status === "running") {
+        connectProgressEvents();
+      }
       updateAgentControls();
       sendTerminalResize();
     }
@@ -11939,6 +12047,8 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       showSplashIfNeeded();
       await checkConnection();
       await restoreContext();
+      await refreshServiceSessions();
+      window.setInterval(refreshServiceSessions, 10000);
     }
 
     window.addEventListener("pagehide", releaseContextOwner);
@@ -14305,6 +14415,38 @@ class ServiceState:
 
     def __post_init__(self) -> None:
         self.root = self.root.resolve()
+        (self.root / SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR).mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+    def _prepare_session_locked(
+        self,
+        context: BrowserContext,
+        session: AgentSession,
+    ) -> None:
+        session.persist_to(
+            context_id=context.context_id,
+            transcript_path=_service_session_transcript_path(
+                self.root,
+                session.session_id,
+            ),
+            on_status_changed=self._record_session_status,
+        )
+        _upsert_service_session_record(
+            self.root,
+            _service_session_record(self.root, context, session),
+        )
+
+    def _record_session_status(self, session: AgentSession) -> None:
+        with self.lock:
+            context = self.contexts.get(str(session.context_id or ""))
+            if context is None:
+                return
+            _upsert_service_session_record(
+                self.root,
+                _service_session_record(self.root, context, session),
+            )
 
     def create_context(self) -> dict[str, object]:
         context = BrowserContext(context_id=uuid4().hex)
@@ -15071,6 +15213,7 @@ class ServiceState:
                 interactive=True,
                 lock_names=lock_names,
             )
+            self._prepare_session_locked(context, session)
             context.requirements_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "requirements"
@@ -15144,6 +15287,7 @@ class ServiceState:
                 interactive=True,
                 lock_names=lock_names,
             )
+            self._prepare_session_locked(context, session)
             context.design_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "design"
@@ -15257,6 +15401,7 @@ class ServiceState:
                     )
                 ),
             )
+            self._prepare_session_locked(context, session)
             context.design_review_session = session
             context.selected_session_id = session.session_id
             context.design_review_interactive = interactive
@@ -15343,6 +15488,7 @@ class ServiceState:
                     "document_label": document_label,
                 },
             )
+            self._prepare_session_locked(context, session)
             context.documentation_sessions[session_key] = session
             context.selected_session_id = session.session_id
         try:
@@ -15542,6 +15688,7 @@ class ServiceState:
                 kind="creative-writing",
                 interactive=True,
             )
+            self._prepare_session_locked(context, session)
             context.creative_session = session
             context.selected_session_id = session.session_id
         try:
@@ -15750,6 +15897,7 @@ class ServiceState:
                     returncode,
                 ),
             )
+            self._prepare_session_locked(context, session)
             context.stage_sessions[stage] = session
             context.selected_session_id = session.session_id
             context.workflow_stage = stage
@@ -15970,6 +16118,7 @@ class ServiceState:
                 kind="ad-hoc",
                 interactive=True,
             )
+            self._prepare_session_locked(context, session)
             context.ad_hoc_session = session
             context.selected_session_id = session.session_id
         try:
@@ -16007,6 +16156,7 @@ class ServiceState:
                 interactive=True,
                 echo_input=True,
             )
+            self._prepare_session_locked(context, session)
             context.project_shell_session = session
         try:
             session.start()
@@ -16064,6 +16214,41 @@ class ServiceState:
                 "sessions": _session_payloads(context),
             }
 
+    def session_registry_payload(self) -> dict[str, object]:
+        records = _load_service_session_records(self.root)
+        by_id: dict[str, dict[str, object]] = {}
+        for entry in records.get("sessions", []):
+            if not isinstance(entry, dict):
+                continue
+            session_id = str(entry.get("session_id") or "").strip()
+            if not session_id:
+                continue
+            record = dict(entry)
+            record["attachable"] = False
+            by_id[session_id] = record
+        with self.lock:
+            for context in self.contexts.values():
+                for session in self._context_process_sessions_locked(context):
+                    record = _service_session_record(
+                        self.root,
+                        context,
+                        session,
+                    )
+                    record["attachable"] = True
+                    by_id[session.session_id] = record
+        sessions = sorted(
+            by_id.values(),
+            key=lambda record: (
+                str(record.get("status") or "") == "running",
+                str(record.get("updated_at") or ""),
+            ),
+            reverse=True,
+        )
+        return {
+            "schema_version": 1,
+            "sessions": sessions,
+        }
+
     def select_session(self, context_id: str, session_id: str) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
@@ -16074,6 +16259,35 @@ class ServiceState:
                 "selected_session_id": session.session_id,
                 "sessions": _session_payloads(context),
             }
+
+    def attach_session(self, context_id: str, session_id: str) -> dict[str, object]:
+        with self.lock:
+            target_context = self._context_locked(context_id)
+            source_context, session = self._session_by_id_any_context_locked(session_id)
+            target_context.activation_root = source_context.activation_root
+            target_context.project_mode = source_context.project_mode
+            target_context.active_project_root = source_context.active_project_root
+            target_context.active_repository_name = source_context.active_repository_name
+            target_context.registered_repositories = list(
+                source_context.registered_repositories
+            )
+            target_context.workflow_stage = source_context.workflow_stage
+            target_context.requirements_started = source_context.requirements_started
+            target_context.design_started = source_context.design_started
+            target_context.design_review_started = source_context.design_review_started
+            target_context.design_review_interactive = (
+                source_context.design_review_interactive
+            )
+            target_context.stage_started = set(source_context.stage_started)
+            self._attach_session_locked(target_context, session)
+            if session.kind != "project-shell":
+                target_context.selected_session_id = session.session_id
+            project_root = target_context.active_project_root
+        return {
+            **project_payload(self.root, target_context, project_root),
+            "status": "attached",
+            "attached_session_id": session.session_id,
+        }
 
     def selected_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
@@ -16405,6 +16619,42 @@ class ServiceState:
                 return session
         raise AgentSessionError("unknown agent session")
 
+    def _session_by_id_any_context_locked(
+        self,
+        session_id: str,
+    ) -> tuple[BrowserContext, AgentSession]:
+        session_id = session_id.strip()
+        for context in self.contexts.values():
+            for session in self._context_process_sessions_locked(context):
+                if session.session_id == session_id:
+                    return context, session
+        raise AgentSessionError("unknown service session")
+
+    def _attach_session_locked(
+        self,
+        context: BrowserContext,
+        session: AgentSession,
+    ) -> None:
+        if session.kind == "requirements":
+            context.requirements_session = session
+        elif session.kind == "design":
+            context.design_session = session
+        elif session.kind == "design-review":
+            context.design_review_session = session
+        elif session.kind == "documentation":
+            session_key = str(session.metadata.get("document_path") or "__default__")
+            context.documentation_sessions[session_key] = session
+        elif session.kind == "creative-writing":
+            context.creative_session = session
+        elif session.kind == "ad-hoc":
+            context.ad_hoc_session = session
+        elif session.kind == "project-shell":
+            context.project_shell_session = session
+        elif session.kind in GENERIC_STAGE_CONFIG:
+            context.stage_sessions[session.kind] = session
+        else:
+            context.ad_hoc_session = session
+
     def _selected_session_locked(
         self,
         context: BrowserContext,
@@ -16509,6 +16759,10 @@ class AgentSession:
         on_completed: Callable[[int], None] | None = None,
         echo_input: bool = False,
         metadata: dict[str, object] | None = None,
+        context_id: str | None = None,
+        transcript_path: Path | str | None = None,
+        backend: str = "pty",
+        on_status_changed: Callable[["AgentSession"], None] | None = None,
     ) -> None:
         self.session_id = uuid4().hex
         self.command = command
@@ -16522,7 +16776,13 @@ class AgentSession:
         self.lock_names = frozenset(lock_names or ())
         self.created_at = utc_now()
         self.on_completed = on_completed
+        self.on_status_changed = on_status_changed
         self.metadata = dict(metadata or {})
+        self.context_id = context_id
+        self.transcript_path = (
+            Path(transcript_path).expanduser().resolve() if transcript_path else None
+        )
+        self.backend = backend
         self.process: subprocess.Popen[bytes] | None = None
         self.status = "created"
         self.returncode: int | None = None
@@ -16547,7 +16807,24 @@ class AgentSession:
             "created_at": self.created_at,
             "command": list(self.command),
             "metadata": dict(self.metadata),
+            "context_id": self.context_id,
+            "backend": self.backend,
+            "transcript_path": (
+                str(self.transcript_path) if self.transcript_path is not None else None
+            ),
         }
+
+    def persist_to(
+        self,
+        *,
+        context_id: str,
+        transcript_path: Path,
+        on_status_changed: Callable[["AgentSession"], None] | None = None,
+    ) -> None:
+        self.context_id = context_id
+        self.transcript_path = transcript_path.expanduser().resolve()
+        if on_status_changed is not None:
+            self.on_status_changed = on_status_changed
 
     def start(self) -> None:
         if self.process is not None:
@@ -16581,6 +16858,7 @@ class AgentSession:
         os.close(slave_fd)
         self._master_fd = master_fd
         self.status = "running"
+        self._notify_status_changed()
         self._append_event(
             {
                 "type": "system",
@@ -16656,6 +16934,7 @@ class AgentSession:
         _terminate_process_tree(process, timeout=timeout)
         self.returncode = process.returncode
         self.status = "terminated"
+        self._notify_status_changed()
         self._close_master()
 
     def resize(self, columns: int, rows: int) -> None:
@@ -16684,6 +16963,9 @@ class AgentSession:
             ]
 
     def events(self) -> list[dict[str, object]]:
+        transcript_events = self._read_transcript_events()
+        if transcript_events:
+            return transcript_events
         with self._condition:
             return [event.copy() for event in self._events]
 
@@ -16713,6 +16995,7 @@ class AgentSession:
             payload["id"] = self._next_event_id
             self._next_event_id += 1
             self._events.append(payload)
+            self._append_transcript_event(payload)
             self._condition.notify_all()
 
     def _read_output(self) -> None:
@@ -16757,6 +17040,7 @@ class AgentSession:
         time.sleep(0.05)
         self.returncode = returncode
         self.status = "completed"
+        self._notify_status_changed()
         if self.on_completed is not None:
             try:
                 self.on_completed(returncode)
@@ -16774,6 +17058,41 @@ class AgentSession:
             }
         )
         self._close_master()
+
+    def _append_transcript_event(self, payload: dict[str, object]) -> None:
+        path = self.transcript_path
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        except OSError:
+            return
+
+    def _read_transcript_events(self) -> list[dict[str, object]]:
+        path = self.transcript_path
+        if path is None or not path.exists():
+            return []
+        events: list[dict[str, object]] = []
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    events.append(payload)
+        except (OSError, json.JSONDecodeError):
+            return []
+        return events
+
+    def _notify_status_changed(self) -> None:
+        if self.on_status_changed is None:
+            return
+        try:
+            self.on_status_changed(self)
+        except Exception:
+            return
 
     def _close_master(self) -> None:
         fd = self._master_fd
@@ -17149,6 +17468,92 @@ def _remember_recent_project(
         *existing,
     ][:RECENT_PROJECT_LIMIT]
     _save_recent_projects(service_root, data)
+
+
+def _service_session_records_path(service_root: Path | str) -> Path:
+    return (
+        Path(service_root).expanduser().resolve()
+        / SERVICE_SESSION_RECORDS_RELATIVE_PATH
+    )
+
+
+def _service_session_transcript_path(
+    service_root: Path | str,
+    session_id: str,
+) -> Path:
+    safe_session_id = _download_name_part(session_id)
+    return (
+        Path(service_root).expanduser().resolve()
+        / SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR
+        / f"{safe_session_id}.jsonl"
+    )
+
+
+def _load_service_session_records(service_root: Path | str) -> dict[str, object]:
+    path = _service_session_records_path(service_root)
+    if not path.exists():
+        return {"schema_version": 1, "sessions": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1, "sessions": []}
+    if not isinstance(data, dict):
+        return {"schema_version": 1, "sessions": []}
+    if not isinstance(data.get("sessions"), list):
+        data["sessions"] = []
+    data["schema_version"] = 1
+    return data
+
+
+def _save_service_session_records(
+    service_root: Path | str,
+    data: dict[str, object],
+) -> None:
+    path = _service_session_records_path(service_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _upsert_service_session_record(
+    service_root: Path | str,
+    record: dict[str, object],
+) -> None:
+    session_id = str(record.get("session_id") or "").strip()
+    if not session_id:
+        return
+    data = _load_service_session_records(service_root)
+    sessions = [
+        entry
+        for entry in data.get("sessions", [])
+        if isinstance(entry, dict) and str(entry.get("session_id") or "") != session_id
+    ]
+    data["sessions"] = [record, *sessions][:200]
+    _save_service_session_records(service_root, data)
+
+
+def _service_session_record(
+    service_root: Path | str,
+    context: BrowserContext,
+    session: AgentSession,
+) -> dict[str, object]:
+    payload = session.payload(selected=False)
+    active_root = context.active_project_root
+    activation_root = context.activation_root or active_root
+    record = {
+        **payload,
+        "context_id": context.context_id,
+        "active_project_root": str(active_root) if active_root else None,
+        "activation_root": str(activation_root) if activation_root else None,
+        "project_mode": context.project_mode,
+        "active_repository_name": context.active_repository_name,
+        "updated_at": utc_now(),
+        "transcript_path": (
+            str(session.transcript_path)
+            if session.transcript_path is not None
+            else str(_service_session_transcript_path(service_root, session.session_id))
+        ),
+    }
+    return record
 
 
 def _generic_stage_run_payload(
@@ -23663,6 +24068,9 @@ def _handler_for(
                     lambda context_id: state.session_payload(context_id),
                 )
                 return
+            if path == "/api/session-registry":
+                self._send_json(state.session_registry_payload())
+                return
             if path == "/api/sessions/export":
                 self._send_session_export(parsed.query)
                 return
@@ -23832,6 +24240,9 @@ def _handler_for(
                 return
             if path == "/api/sessions/select":
                 self._select_session(parsed.query)
+                return
+            if path == "/api/sessions/attach":
+                self._attach_session(parsed.query)
                 return
             if path == "/api/sessions/message":
                 self._send_selected_session_message(parsed.query)
@@ -24293,6 +24704,22 @@ def _handler_for(
                 payload = self._read_json_body()
                 self._send_json(
                     state.select_session(
+                        context_id,
+                        str(payload.get("session_id") or ""),
+                    )
+                )
+            except (AgentSessionError, StateError, ValueError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+
+        def _attach_session(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                payload = self._read_json_body()
+                self._send_json(
+                    state.attach_session(
                         context_id,
                         str(payload.get("session_id") or ""),
                     )

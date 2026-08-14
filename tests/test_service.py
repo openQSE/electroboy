@@ -43,6 +43,7 @@ from electroboy.service import (  # noqa: E402
     _reopen_requirements_for_restart,
     _requirements_command,
     _session_events_markdown,
+    _service_session_records_path,
     _status_command,
     _status_snapshot,
     _terminal_input_chunks_for_message,
@@ -1070,6 +1071,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function updateProjectShellToggle()", INDEX_HTML)
         self.assertIn("function disposeProjectShellTerminal()", INDEX_HTML)
         self.assertIn("disposeProjectShellTerminal();", INDEX_HTML)
+        self.assertIn("function refreshServiceSessions()", INDEX_HTML)
+        self.assertIn("function attachAgentSession(sessionId)", INDEX_HTML)
+        self.assertIn('"/api/session-registry"', INDEX_HTML)
+        self.assertIn('contextUrl("/api/sessions/attach")', INDEX_HTML)
         self.assertIn("let projectShellPaneDismissed = false;", INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/start")', INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/input")', INDEX_HTML)
@@ -3005,6 +3010,45 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "ad-hoc")
 
+    def test_service_session_registry_records_and_attaches_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            first_context = str(state.create_context()["context_id"])
+            second_context = str(state.create_context()["context_id"])
+            state.open_project(first_context, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, _started = state.start_ad_hoc_agent(first_context)
+
+            registry = state.session_registry_payload()
+            attach_payload = state.attach_session(second_context, session.session_id)
+            records = json.loads(
+                _service_session_records_path(service_root).read_text(
+                    encoding="utf-8",
+                )
+            )
+
+        self.assertEqual(registry["sessions"][0]["session_id"], session.session_id)
+        self.assertTrue(registry["sessions"][0]["attachable"])
+        self.assertEqual(
+            registry["sessions"][0]["active_project_root"],
+            str(project_root.resolve()),
+        )
+        self.assertEqual(records["sessions"][0]["session_id"], session.session_id)
+        self.assertEqual(attach_payload["status"], "attached")
+        self.assertEqual(
+            attach_payload["active_project_root"],
+            str(project_root.resolve()),
+        )
+        self.assertEqual(attach_payload["selected_session_id"], session.session_id)
+        self.assertEqual(attach_payload["sessions"][0]["session_id"], session.session_id)
+
     def test_documentation_sidecar_session_does_not_change_workflow_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -4218,6 +4262,30 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(session.columns, MIN_TERMINAL_COLUMNS)
         self.assertEqual(session.rows, MIN_TERMINAL_ROWS)
+
+    def test_agent_session_writes_transcript_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript_path = Path(tmp) / "session.jsonl"
+            session = AgentSession([sys.executable, "-c", "pass"], ROOT)
+            session.persist_to(
+                context_id="ctx-1",
+                transcript_path=transcript_path,
+            )
+
+            session._append_event(  # pylint: disable=protected-access
+                {
+                    "type": "output",
+                    "text": "hello\n",
+                    "terminal": "hello\r\n",
+                }
+            )
+
+            events = session.events()
+            markdown = _session_events_markdown(session)
+
+        self.assertEqual(events[0]["text"], "hello\n")
+        self.assertEqual(events[0]["terminal"], "hello\r\n")
+        self.assertIn("hello", markdown)
 
     def test_agent_session_resize_signals_process_group(self) -> None:
         session = AgentSession([sys.executable, "-c", "pass"], ROOT)
