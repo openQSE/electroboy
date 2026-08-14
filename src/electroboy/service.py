@@ -1596,6 +1596,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     }
 
     .pane-layout-leaf {
+      position: relative;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       overflow: hidden;
@@ -1715,6 +1716,81 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     .pane-layout-divider:hover,
     .pane-layout-divider.resizing {
       background: #3a78a0;
+    }
+
+    .pane-layout-corner {
+      position: absolute;
+      z-index: 9;
+      width: 14px;
+      height: 14px;
+      border: 0;
+      background: transparent;
+      color: #60758d;
+      cursor: nesw-resize;
+      touch-action: none;
+    }
+
+    .pane-layout-corner.top-right {
+      top: 32px;
+      right: 0;
+    }
+
+    .pane-layout-corner.bottom-left {
+      bottom: 0;
+      left: 0;
+    }
+
+    .pane-layout-corner::before {
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      content: "";
+    }
+
+    .pane-layout-corner.top-right::before {
+      top: 2px;
+      right: 2px;
+      border-top: 2px solid currentcolor;
+      border-right: 2px solid currentcolor;
+    }
+
+    .pane-layout-corner.bottom-left::before {
+      bottom: 2px;
+      left: 2px;
+      border-bottom: 2px solid currentcolor;
+      border-left: 2px solid currentcolor;
+    }
+
+    .pane-layout-corner:hover,
+    .pane-layout-corner:focus-visible,
+    .pane-layout-leaf.splitting .pane-layout-corner {
+      color: #66d9e8;
+      outline: none;
+    }
+
+    .pane-layout-split-preview {
+      position: absolute;
+      z-index: 8;
+      border: 2px solid #66d9e8;
+      background: rgb(31 111 139 / 24%);
+      pointer-events: none;
+    }
+
+    .pane-layout-split-preview[hidden] {
+      display: none;
+    }
+
+    body.pane-layout-splitting {
+      cursor: nesw-resize;
+      user-select: none;
+    }
+
+    body.pane-layout-splitting-row {
+      cursor: col-resize;
+    }
+
+    body.pane-layout-splitting-column {
+      cursor: row-resize;
     }
 
     @container (max-width: 180px) {
@@ -3965,6 +4041,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let paneLayout = null;
     let paneLayoutObserver = null;
     let paneLayoutIdSequence = 0;
+    let paneCornerSplitCancel = null;
     let terminalResizeObserver = null;
     let resizeTimer = null;
     let pendingTerminalResize = null;
@@ -4302,6 +4379,145 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       divider.addEventListener("pointercancel", finish);
     }
 
+    function paneCornerSplitCandidate(event, state) {
+      const topRight = state.corner === "top-right";
+      const inwardX = topRight
+        ? state.startX - event.clientX
+        : event.clientX - state.startX;
+      const inwardY = topRight
+        ? event.clientY - state.startY
+        : state.startY - event.clientY;
+      if (Math.max(inwardX, inwardY) < 12) {
+        return null;
+      }
+      const row = inwardX >= inwardY;
+      const ratio = row
+        ? (event.clientX - state.rect.left) / state.rect.width
+        : (event.clientY - state.rect.top) / state.rect.height;
+      return {
+        direction: row ? "row" : "column",
+        emptyFirst: row ? !topRight : topRight,
+        ratio: clampValue(ratio, 0.12, 0.88),
+      };
+    }
+
+    function showPaneCornerSplitPreview(preview, candidate) {
+      preview.hidden = !candidate;
+      if (!candidate) {
+        return;
+      }
+      const ratioPercent = candidate.ratio * 100;
+      preview.style.top = "0";
+      preview.style.right = "auto";
+      preview.style.bottom = "auto";
+      preview.style.left = "0";
+      preview.style.width = "100%";
+      preview.style.height = "100%";
+      if (candidate.direction === "row") {
+        preview.style.width = candidate.emptyFirst
+          ? `${ratioPercent}%`
+          : `${100 - ratioPercent}%`;
+        preview.style.left = candidate.emptyFirst ? "0" : `${ratioPercent}%`;
+      } else {
+        preview.style.height = candidate.emptyFirst
+          ? `${ratioPercent}%`
+          : `${100 - ratioPercent}%`;
+        preview.style.top = candidate.emptyFirst ? "0" : `${ratioPercent}%`;
+      }
+    }
+
+    function startPaneCornerSplit(event, leaf, leafElement, corner, preview) {
+      if (event.button !== 0) {
+        return;
+      }
+      if (paneCornerSplitCancel) {
+        paneCornerSplitCancel();
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const state = {
+        corner,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        rect: leafElement.getBoundingClientRect(),
+        candidate: null,
+        finished: false,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const handle = event.currentTarget;
+      leafElement.classList.add("splitting");
+      document.body.classList.add("pane-layout-splitting");
+
+      const update = (moveEvent) => {
+        state.candidate = paneCornerSplitCandidate(moveEvent, state);
+        showPaneCornerSplitPreview(preview, state.candidate);
+        document.body.classList.toggle(
+          "pane-layout-splitting-row",
+          state.candidate?.direction === "row",
+        );
+        document.body.classList.toggle(
+          "pane-layout-splitting-column",
+          state.candidate?.direction === "column",
+        );
+      };
+      const finish = (commit) => {
+        if (state.finished) {
+          return;
+        }
+        state.finished = true;
+        paneCornerSplitCancel = null;
+        handle.removeEventListener("pointermove", update);
+        handle.removeEventListener("pointerup", pointerUp);
+        handle.removeEventListener("pointercancel", pointerCancel);
+        window.removeEventListener("keydown", keyDown);
+        leafElement.classList.remove("splitting");
+        document.body.classList.remove(
+          "pane-layout-splitting",
+          "pane-layout-splitting-row",
+          "pane-layout-splitting-column",
+        );
+        showPaneCornerSplitPreview(preview, null);
+        try {
+          handle.releasePointerCapture(state.pointerId);
+        } catch (error) {
+          // Pointer capture may already be released by the browser.
+        }
+        if (commit && state.candidate) {
+          splitPaneLayoutLeaf(
+            leaf.id,
+            state.candidate.direction,
+            state.candidate.ratio,
+            state.candidate.emptyFirst,
+          );
+        }
+      };
+      const pointerUp = () => finish(true);
+      const pointerCancel = () => finish(false);
+      const keyDown = (keyEvent) => {
+        if (keyEvent.key === "Escape") {
+          keyEvent.preventDefault();
+          finish(false);
+        }
+      };
+      paneCornerSplitCancel = () => finish(false);
+      handle.addEventListener("pointermove", update);
+      handle.addEventListener("pointerup", pointerUp);
+      handle.addEventListener("pointercancel", pointerCancel);
+      window.addEventListener("keydown", keyDown);
+    }
+
+    function buildPaneLayoutCorner(leaf, leafElement, corner, preview) {
+      const handle = document.createElement("div");
+      handle.className = `pane-layout-corner ${corner}`;
+      handle.title = "Drag inward to split pane";
+      handle.setAttribute("aria-hidden", "true");
+      handle.addEventListener("pointerdown", (event) => {
+        startPaneCornerSplit(event, leaf, leafElement, corner, preview);
+      });
+      return handle;
+    }
+
     function renderPaneLayoutNode(node) {
       if (node.type === "leaf") {
         const leaf = document.createElement("div");
@@ -4317,6 +4533,15 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         } else {
           leaf.append(PANE_LAYOUT_KINDS[node.kind].element);
         }
+        const preview = document.createElement("div");
+        preview.className = "pane-layout-split-preview";
+        preview.hidden = true;
+        preview.setAttribute("aria-hidden", "true");
+        leaf.append(
+          preview,
+          buildPaneLayoutCorner(node, leaf, "top-right", preview),
+          buildPaneLayoutCorner(node, leaf, "bottom-left", preview),
+        );
         return leaf;
       }
 
@@ -4370,6 +4595,9 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     }
 
     function renderPaneLayout() {
+      if (paneCornerSplitCancel) {
+        paneCornerSplitCancel();
+      }
       const root = renderPaneLayoutNode(paneLayout);
       root.classList.add("pane-layout-root");
       outputWorkbench.replaceChildren(root);
@@ -4377,15 +4605,18 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       window.requestAnimationFrame(fitTerminal);
     }
 
-    function splitPaneLayoutLeaf(id, direction) {
+    function splitPaneLayoutLeaf(id, direction, ratio = 0.5, emptyFirst = false) {
       const leaf = paneLayoutLeafById(id);
       if (!leaf) {
         return;
       }
+      const existingLeaf = paneLayoutLeaf(leaf.kind);
+      const emptyLeaf = paneLayoutLeaf();
       const replacement = paneLayoutSplit(
         direction,
-        paneLayoutLeaf(leaf.kind),
-        paneLayoutLeaf(),
+        emptyFirst ? emptyLeaf : existingLeaf,
+        emptyFirst ? existingLeaf : emptyLeaf,
+        ratio,
       );
       paneLayout = replacePaneLayoutNode(paneLayout, id, replacement);
       savePaneLayout();
@@ -6272,7 +6503,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
     }
 
-    function paneUrl(kind) {
+    function paneUrl(kind, requestedArtifactItem = null) {
       const parameters = new URLSearchParams();
       if (contextId) {
         parameters.set("context_id", contextId);
@@ -6280,7 +6511,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       if (selectedSessionId) {
         parameters.set("session_id", selectedSessionId);
       }
-      const artifactItem = artifactPreviewItems[0] || null;
+      const artifactItem = requestedArtifactItem || artifactPreviewItems[0] || null;
       if (artifactItem) {
         parameters.set("artifact", artifactKindForPane(artifactItem));
       }
@@ -6316,13 +6547,13 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       return `/pane/${encodeURIComponent(kind)}?${parameters.toString()}`;
     }
 
-    function popOutPane(kind) {
+    function popOutPane(kind, artifactItem = null) {
       if (!contextId && kind !== "scratch") {
         appendOutput("create a browser context first\\n", "error");
         return;
       }
       const popup = window.open(
-        paneUrl(kind),
+        paneUrl(kind, artifactItem),
         `electroboy-${kind}-${contextId || "local"}`,
         PANE_POPUP_FEATURES,
       );
@@ -6373,6 +6604,13 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         setAgentInputVisible(inputPaneRequested);
       }
       if (kind === "agent" || kind === "artifact" || kind === "progress") {
+        if (kind === "artifact") {
+          if (poppedOut) {
+            artifactPreviewStack.replaceChildren();
+          } else if (artifactPreviewItems.length > 0) {
+            renderArtifactPreviewItems();
+          }
+        }
         applyOutputPaneVisibility();
       }
       if (kind === "shell") {
@@ -9153,6 +9391,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
 
     function renderArtifactPreviewItems() {
       artifactPreviewStack.replaceChildren();
+      if (poppedPanes.has("artifact")) {
+        artifactPreviewStack.classList.remove("split");
+        return;
+      }
       artifactPreviewStack.classList.toggle("split", artifactPreviewItems.length > 1);
       for (const [index, item] of artifactPreviewItems.entries()) {
         if (index > 0) {
@@ -9316,6 +9558,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     }
 
     function popOutArtifactPreview(item) {
+      if (item.kind === "creative-corkboard") {
+        popOutPane("artifact", item);
+        return;
+      }
       if (!contextId) {
         appendOutput("create a browser context first\\n", "error");
         return;
@@ -14980,6 +15226,16 @@ class ServiceState:
                 "card": card,
             }
         if board_type == "freeform":
+            if str(payload.get("action") or "") == "delete":
+                card_id = _delete_creative_freeform_corkboard_card(
+                    project_root,
+                    corkboard_path=str(payload.get("corkboard") or ""),
+                    card_id=str(payload.get("card_id") or ""),
+                )
+                return {
+                    "status": "deleted",
+                    "card_id": card_id,
+                }
             card_payload = payload.get("card")
             if not isinstance(card_payload, dict):
                 raise StateError("freeform corkboard card is required")
@@ -19066,6 +19322,16 @@ def creative_corkboard_html(
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }}
 
+    body.freeform-canvas {{
+      height: 100vh;
+      overflow: hidden;
+    }}
+
+    body.freeform-canvas .board-shell {{
+      height: 100vh;
+      overflow: hidden;
+    }}
+
     .board-toolbar {{
       display: flex;
       align-items: center;
@@ -19111,23 +19377,51 @@ def creative_corkboard_html(
       display: none;
     }}
 
+    .canvas-viewport {{
+      min-width: 100%;
+      min-height: calc(100vh - 90px);
+    }}
+
     .board {{
       min-width: 100%;
       min-height: calc(100vh - 90px);
       overflow: visible;
     }}
 
+    body.freeform-canvas .canvas-viewport {{
+      position: relative;
+      width: 100%;
+      height: calc(100vh - 90px);
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+    }}
+
     .board.folder {{
       position: relative;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(var(--card-grid-min-width, 210px), 1fr));
+      grid-template-columns: repeat(auto-fill, var(--card-width, 218px));
       align-content: start;
+      justify-content: start;
       gap: var(--card-gap, 24px);
       padding: 26px;
     }}
 
     .board.freeform {{
-      position: relative;
+      position: absolute;
+      inset: 0;
+      min-width: 100%;
+      min-height: 100%;
+      transform-origin: 0 0;
+      will-change: transform;
+    }}
+
+    body.canvas-panning,
+    body.canvas-panning .canvas-viewport {{
+      cursor: grabbing;
+      user-select: none;
     }}
 
     .empty-board {{
@@ -19306,6 +19600,61 @@ def creative_corkboard_html(
       padding: 0 10px;
     }}
 
+    .card-delete {{
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid rgba(38, 50, 71, 0.18);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.42);
+      color: #6f3f45;
+      cursor: pointer;
+      padding: 0;
+    }}
+
+    .card-delete:hover:not(:disabled) {{
+      border-color: rgba(140, 48, 58, 0.48);
+      background: rgba(255, 238, 234, 0.78);
+      color: #9b2634;
+    }}
+
+    .card-delete:disabled {{
+      cursor: default;
+      opacity: 0.45;
+    }}
+
+    .card-delete-icon {{
+      position: relative;
+      width: 11px;
+      height: 11px;
+      border: 1.5px solid currentcolor;
+      border-top: 0;
+      border-radius: 0 0 2px 2px;
+    }}
+
+    .card-delete-icon::before {{
+      position: absolute;
+      top: -4px;
+      left: -2px;
+      width: 13px;
+      height: 1.5px;
+      background: currentcolor;
+      content: "";
+    }}
+
+    .card-delete-icon::after {{
+      position: absolute;
+      top: -7px;
+      left: 2px;
+      width: 5px;
+      height: 3px;
+      border: 1.5px solid currentcolor;
+      border-bottom: 0;
+      border-radius: 2px 2px 0 0;
+      content: "";
+    }}
+
     .card-note {{
       display: block;
       width: calc(100% - 24px);
@@ -19369,7 +19718,9 @@ def creative_corkboard_html(
       </div>
       <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
     </header>
-    <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
+    <section id="canvasViewport" class="canvas-viewport">
+      <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
+    </section>
   </main>
   <label class="card-size-control">
     <span class="card-size-label">
@@ -19380,7 +19731,7 @@ def creative_corkboard_html(
       id="cardSizeSlider"
       type="range"
       min="70"
-      max="150"
+      max="300"
       step="5"
       value="100"
       aria-label="Resize corkboard cards"
@@ -19388,6 +19739,7 @@ def creative_corkboard_html(
   </label>
   <script>
     const CORKBOARD_DATA = {data_json};
+    const canvasViewport = document.getElementById("canvasViewport");
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
     const addCard = document.getElementById("addCard");
@@ -19396,16 +19748,22 @@ def creative_corkboard_html(
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
     const saveTimers = new Map();
+    const cardSaveRequests = new Map();
     const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
+    const CANVAS_PAN_STORAGE_PREFIX = "electroboy.creative.corkboard.canvasPan.";
     const MIN_CARD_SCALE = 70;
-    const MAX_CARD_SCALE = 150;
+    const MAX_CARD_SCALE = 300;
     let dragState = null;
+    let canvasPanState = null;
     let draggedPath = "";
     let folderInsertionMarker = null;
     let folderDropTarget = "";
     let folderDropPlacement = "before";
     let cardScale = storedCardScale();
+    let canvasPan = storedCanvasPan();
     let selectedCardKey = "";
+
+    document.body.classList.toggle("freeform-canvas", boardType === "freeform");
 
     function contextUrl(path) {{
       const contextId = CORKBOARD_DATA.context_id || "";
@@ -19428,6 +19786,43 @@ def creative_corkboard_html(
 
     function cardScaleStorageKey() {{
       return `${{CARD_SCALE_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
+    }}
+
+    function canvasPanStorageKey() {{
+      return `${{CANVAS_PAN_STORAGE_PREFIX}}${{boardStoragePath()}}`;
+    }}
+
+    function storedCanvasPan() {{
+      if (boardType !== "freeform") {{
+        return {{ x: 0, y: 0 }};
+      }}
+      try {{
+        const stored = JSON.parse(window.localStorage.getItem(canvasPanStorageKey()));
+        const x = Number(stored && stored.x);
+        const y = Number(stored && stored.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {{
+          return {{ x, y }};
+        }}
+      }} catch (error) {{
+        return {{ x: 0, y: 0 }};
+      }}
+      return {{ x: 0, y: 0 }};
+    }}
+
+    function saveCanvasPan() {{
+      try {{
+        window.localStorage.setItem(canvasPanStorageKey(), JSON.stringify(canvasPan));
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function applyCanvasPan() {{
+      if (boardType !== "freeform") {{
+        board.style.transform = "";
+        return;
+      }}
+      board.style.transform = `translate(${{canvasPan.x}}px, ${{canvasPan.y}}px)`;
     }}
 
     function clampCardScale(value) {{
@@ -19465,7 +19860,6 @@ def creative_corkboard_html(
     function applyCardScale() {{
       const root = document.documentElement;
       root.style.setProperty("--card-width", `${{scaledCardValue(218)}}px`);
-      root.style.setProperty("--card-grid-min-width", `${{scaledCardValue(210)}}px`);
       root.style.setProperty("--card-min-height", `${{scaledCardValue(158)}}px`);
       root.style.setProperty("--card-note-min-height", `${{scaledCardValue(82)}}px`);
       root.style.setProperty("--card-gap", `${{Math.max(14, scaledCardValue(24))}}px`);
@@ -19500,26 +19894,56 @@ def creative_corkboard_html(
     }}
 
     function applyCardPosition(cardElement, card) {{
-      cardElement.style.left = `${{Math.max(0, Number(card.x) || 0)}}px`;
-      cardElement.style.top = `${{Math.max(0, Number(card.y) || 0)}}px`;
+      cardElement.style.left = `${{Number(card.x) || 0}}px`;
+      cardElement.style.top = `${{Number(card.y) || 0}}px`;
       cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
       cardElement.style.setProperty("--paper", cardColor(card));
     }}
 
     function sizeBoard() {{
-      if (boardType !== "freeform") {{
+      applyCanvasPan();
+    }}
+
+    function startCanvasPan(event) {{
+      if (boardType !== "freeform" || event.button !== 1) {{
         return;
       }}
-      const width = Math.max(
-        window.innerWidth,
-        ...cards.map((card) => (Number(card.x) || 0) + scaledCardValue(280)),
-      );
-      const height = Math.max(
-        window.innerHeight,
-        ...cards.map((card) => (Number(card.y) || 0) + scaledCardValue(230)),
-      );
-      board.style.minWidth = `${{width}}px`;
-      board.style.minHeight = `${{height}}px`;
+      event.preventDefault();
+      canvasPanState = {{
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originalX: canvasPan.x,
+        originalY: canvasPan.y,
+      }};
+      canvasViewport.setPointerCapture(event.pointerId);
+      document.body.classList.add("canvas-panning");
+    }}
+
+    function updateCanvasPan(event) {{
+      if (!canvasPanState || event.pointerId !== canvasPanState.pointerId) {{
+        return;
+      }}
+      canvasPan = {{
+        x: canvasPanState.originalX + event.clientX - canvasPanState.startX,
+        y: canvasPanState.originalY + event.clientY - canvasPanState.startY,
+      }};
+      applyCanvasPan();
+    }}
+
+    function finishCanvasPan(event) {{
+      if (!canvasPanState || event.pointerId !== canvasPanState.pointerId) {{
+        return;
+      }}
+      const pointerId = canvasPanState.pointerId;
+      canvasPanState = null;
+      document.body.classList.remove("canvas-panning");
+      saveCanvasPan();
+      try {{
+        canvasViewport.releasePointerCapture(pointerId);
+      }} catch (error) {{
+        // Pointer capture may already be released by the browser.
+      }}
     }}
 
     function queueSave(card) {{
@@ -19527,8 +19951,23 @@ def creative_corkboard_html(
       window.clearTimeout(saveTimers.get(key));
       saveTimers.set(
         key,
-        window.setTimeout(() => saveCard(card), 350),
+        window.setTimeout(() => {{
+          saveTimers.delete(key);
+          persistCard(card);
+        }}, 350),
       );
+    }}
+
+    function persistCard(card) {{
+      const key = cardKey(card);
+      const request = saveCard(card);
+      cardSaveRequests.set(key, request);
+      request.finally(() => {{
+        if (cardSaveRequests.get(key) === request) {{
+          cardSaveRequests.delete(key);
+        }}
+      }});
+      return request;
     }}
 
     async function saveCard(card) {{
@@ -19563,6 +20002,49 @@ def creative_corkboard_html(
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify(payload),
       }}).catch(() => null);
+    }}
+
+    async function deleteFreeformCard(card, button) {{
+      if (boardType !== "freeform") {{
+        return;
+      }}
+      const title = card.title || "Untitled card";
+      if (!window.confirm(`Delete "${{title}}"?`)) {{
+        return;
+      }}
+      const key = cardKey(card);
+      window.clearTimeout(saveTimers.get(key));
+      saveTimers.delete(key);
+      button.disabled = true;
+      await cardSaveRequests.get(key);
+      if (CORKBOARD_DATA.context_id) {{
+        const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{
+            board_type: "freeform",
+            action: "delete",
+            corkboard: CORKBOARD_DATA.corkboard.path,
+            card_id: card.id,
+          }}),
+        }}).catch(() => null);
+        if (!response || !response.ok) {{
+          const payload = response
+            ? await response.json().catch(() => ({{}}))
+            : {{}};
+          button.disabled = false;
+          window.alert(payload.error || "Unable to delete card.");
+          return;
+        }}
+      }}
+      const index = cards.findIndex((candidate) => cardKey(candidate) === key);
+      if (index >= 0) {{
+        cards.splice(index, 1);
+      }}
+      if (selectedCardKey === key) {{
+        selectedCardKey = "";
+      }}
+      renderCards();
     }}
 
     async function saveOrder() {{
@@ -19622,12 +20104,12 @@ def creative_corkboard_html(
         return;
       }}
       dragState.card.x = Math.max(
-        0,
-        dragState.originalX + event.clientX - dragState.startX,
+        -1000000,
+        Math.min(1000000, dragState.originalX + event.clientX - dragState.startX),
       );
       dragState.card.y = Math.max(
-        0,
-        dragState.originalY + event.clientY - dragState.startY,
+        -1000000,
+        Math.min(1000000, dragState.originalY + event.clientY - dragState.startY),
       );
       applyCardPosition(dragState.cardElement, dragState.card);
       sizeBoard();
@@ -19740,15 +20222,15 @@ def creative_corkboard_html(
         id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
         title: "Untitled card",
         note: "",
-        x: 36 + (index % 4) * scaledCardValue(236),
-        y: 36 + Math.floor(index / 4) * scaledCardValue(206),
+        x: -canvasPan.x + 36 + (index % 4) * scaledCardValue(236),
+        y: -canvasPan.y + 36 + Math.floor(index / 4) * scaledCardValue(206),
         rotation: (index % 5) - 2,
         color: ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"][index % 5],
       }};
       cards.push(card);
       selectedCardKey = card.id;
       renderCards();
-      saveCard(card);
+      persistCard(card);
     }}
 
     function renderCards() {{
@@ -19842,7 +20324,18 @@ def creative_corkboard_html(
           open.addEventListener("click", () => openCard(card));
           head.append(titleBox, open);
         }} else {{
-          head.append(titleBox);
+          const remove = document.createElement("button");
+          remove.className = "card-delete";
+          remove.type = "button";
+          remove.title = "Delete card";
+          remove.setAttribute("aria-label", `Delete ${{card.title || "card"}}`);
+          remove.addEventListener("pointerdown", (event) => event.stopPropagation());
+          remove.addEventListener("click", () => deleteFreeformCard(card, remove));
+          const icon = document.createElement("span");
+          icon.className = "card-delete-icon";
+          icon.setAttribute("aria-hidden", "true");
+          remove.append(icon);
+          head.append(titleBox, remove);
         }}
 
         const note = document.createElement("textarea");
@@ -19862,6 +20355,15 @@ def creative_corkboard_html(
 
     addCard.addEventListener("click", makeFreeformCard);
     cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
+    canvasViewport.addEventListener("pointerdown", startCanvasPan);
+    canvasViewport.addEventListener("pointermove", updateCanvasPan);
+    canvasViewport.addEventListener("pointerup", finishCanvasPan);
+    canvasViewport.addEventListener("pointercancel", finishCanvasPan);
+    canvasViewport.addEventListener("auxclick", (event) => {{
+      if (event.button === 1) {{
+        event.preventDefault();
+      }}
+    }});
     window.addEventListener("resize", sizeBoard);
     applyCardScale();
     renderCards();
@@ -20190,8 +20692,18 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
                 "id": card_id[:100],
                 "title": str(raw_card.get("title") or "Untitled card")[:200],
                 "note": str(raw_card.get("note") or "")[:5000],
-                "x": _bounded_float(raw_card.get("x"), 36 + index * 24, 0, 5000),
-                "y": _bounded_float(raw_card.get("y"), 36 + index * 18, 0, 5000),
+                "x": _bounded_float(
+                    raw_card.get("x"),
+                    36 + index * 24,
+                    -1_000_000,
+                    1_000_000,
+                ),
+                "y": _bounded_float(
+                    raw_card.get("y"),
+                    36 + index * 18,
+                    -1_000_000,
+                    1_000_000,
+                ),
                 "rotation": _bounded_float(
                     raw_card.get("rotation"),
                     float(style["rotation"]),
@@ -20225,8 +20737,18 @@ def _save_creative_freeform_corkboard_card(
         "id": card_id,
         "title": str(card_payload.get("title") or "Untitled card")[:200],
         "note": str(card_payload.get("note") or "")[:5000],
-        "x": _bounded_float(card_payload.get("x"), 36, 0, 5000),
-        "y": _bounded_float(card_payload.get("y"), 36, 0, 5000),
+        "x": _bounded_float(
+            card_payload.get("x"),
+            36,
+            -1_000_000,
+            1_000_000,
+        ),
+        "y": _bounded_float(
+            card_payload.get("y"),
+            36,
+            -1_000_000,
+            1_000_000,
+        ),
         "rotation": _bounded_float(
             card_payload.get("rotation"),
             float(style["rotation"]),
@@ -20246,6 +20768,32 @@ def _save_creative_freeform_corkboard_card(
     data["cards"] = cards
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return card
+
+
+def _delete_creative_freeform_corkboard_card(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    card_id: str,
+) -> str:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    normalized_card_id = card_id.strip()[:100]
+    if not normalized_card_id:
+        raise StateError("freeform corkboard card id is required")
+    data = _load_creative_corkboard_document(path)
+    cards = _freeform_corkboard_cards(data)
+    remaining_cards = [
+        card for card in cards if card.get("id") != normalized_card_id
+    ]
+    if len(remaining_cards) == len(cards):
+        raise StateError(f"card does not exist: {normalized_card_id}")
+    data["cards"] = remaining_cards
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return normalized_card_id
 
 
 def _remap_creative_path_reference(path: str, old_path: str, new_path: str) -> str:

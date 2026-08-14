@@ -1190,13 +1190,24 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".output-workbench.pane-layout-enabled", INDEX_HTML)
         self.assertIn(".pane-layout-toolbar", INDEX_HTML)
         self.assertIn(".pane-layout-divider", INDEX_HTML)
+        self.assertIn(".pane-layout-corner", INDEX_HTML)
+        self.assertIn(".pane-layout-split-preview", INDEX_HTML)
         self.assertIn(
             'const PANE_LAYOUT_STORAGE_KEY = "electroboy.paneLayout.v1";',
             INDEX_HTML,
         )
         self.assertIn("function defaultPaneLayout()", INDEX_HTML)
         self.assertIn("function initializePaneLayout()", INDEX_HTML)
-        self.assertIn("function splitPaneLayoutLeaf(id, direction)", INDEX_HTML)
+        self.assertIn("function splitPaneLayoutLeaf(id, direction, ratio", INDEX_HTML)
+        self.assertIn("function paneCornerSplitCandidate(event, state)", INDEX_HTML)
+        self.assertIn(
+            "function showPaneCornerSplitPreview(preview, candidate)",
+            INDEX_HTML,
+        )
+        self.assertIn("function startPaneCornerSplit(event, leaf", INDEX_HTML)
+        self.assertIn("function buildPaneLayoutCorner(leaf", INDEX_HTML)
+        self.assertIn('handle.title = "Drag inward to split pane";', INDEX_HTML)
+        self.assertIn("let paneCornerSplitCancel = null;", INDEX_HTML)
         self.assertIn("function changePaneLayoutKind(id, kind)", INDEX_HTML)
         self.assertIn("function closePaneLayoutLeaf(id)", INDEX_HTML)
         self.assertIn("function ensurePaneInLayout(kind", INDEX_HTML)
@@ -1311,6 +1322,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="insertFileLink"', INDEX_HTML)
         self.assertIn('id="popoutAgentPane"', INDEX_HTML)
         self.assertIn("function popOutArtifactPreview(item)", INDEX_HTML)
+        self.assertIn('popOutPane("artifact", item);', INDEX_HTML)
+        self.assertIn("paneUrl(kind, requestedArtifactItem", INDEX_HTML)
+        self.assertIn("artifactPreviewStack.replaceChildren();", INDEX_HTML)
+        self.assertIn('if (poppedPanes.has("artifact"))', INDEX_HTML)
         self.assertIn('id="popoutProgressPane"', INDEX_HTML)
         self.assertIn('id="popoutScratchPane"', INDEX_HTML)
         self.assertIn('id="popoutStatusPane"', INDEX_HTML)
@@ -1483,7 +1498,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startProjectShellPaneResize(event)", INDEX_HTML)
         self.assertIn("function updateProjectShellPaneResize(event)", INDEX_HTML)
         self.assertIn("function finishProjectShellPaneResize(event)", INDEX_HTML)
-        self.assertIn("function popOutPane(kind)", INDEX_HTML)
+        self.assertIn("function popOutPane(kind, artifactItem = null)", INDEX_HTML)
         self.assertIn("function dockPoppedPane(kind)", INDEX_HTML)
         self.assertIn("function setPanePoppedOut(kind, poppedOut)", INDEX_HTML)
         self.assertIn("function applySidePaneVisibility()", INDEX_HTML)
@@ -2265,9 +2280,15 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("index-card", page)
             self.assertIn("card-size-control", page)
             self.assertIn('id="cardSizeSlider"', page)
+            self.assertIn('max="300"', page)
+            self.assertIn("const MAX_CARD_SCALE = 300;", page)
             self.assertIn("function updateCardScale", page)
             self.assertIn("electroboy.creative.corkboard.cardScale.", page)
-            self.assertIn("--card-grid-min-width", page)
+            self.assertIn(
+                "repeat(auto-fill, var(--card-width, 218px))",
+                page,
+            )
+            self.assertNotIn("--card-grid-min-width", page)
             self.assertIn(".index-card.selected", page)
             self.assertNotIn('id="status" class="status"', page)
             self.assertNotIn("function setStatus", page)
@@ -2329,8 +2350,8 @@ class ServiceTests(unittest.TestCase):
                         "id": "opening-beat",
                         "title": "Opening beat",
                         "note": "Start with a quiet contradiction.",
-                        "x": 188,
-                        "y": 144,
+                        "x": -188,
+                        "y": 8144,
                     },
                 },
             )
@@ -2344,16 +2365,46 @@ class ServiceTests(unittest.TestCase):
                     encoding="utf-8",
                 )
             )
+            deleted = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "action": "delete",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card_id": "opening-beat",
+                },
+            )
+            deleted_document = json.loads(
+                (project_root / "corkboard" / "plot.corkboard.json").read_text(
+                    encoding="utf-8",
+                )
+            )
 
             self.assertEqual(status, HTTPStatus.OK)
             self.assertIn('"board_type": "freeform"', page)
             self.assertIn("Add card", page)
             self.assertIn("Resize corkboard cards", page)
+            self.assertIn('id="canvasViewport"', page)
+            self.assertIn("function startCanvasPan(event)", page)
+            self.assertIn("event.button !== 1", page)
+            self.assertIn("function applyCanvasPan()", page)
+            self.assertIn("CANVAS_PAN_STORAGE_PREFIX", page)
+            self.assertIn('document.body.classList.add("canvas-panning")', page)
+            self.assertIn("card-delete-icon", page)
+            self.assertIn('remove.title = "Delete card";', page)
+            self.assertIn("function deleteFreeformCard(card, button)", page)
+            self.assertIn("await cardSaveRequests.get(key);", page)
+            self.assertIn('action: "delete"', page)
             self.assertIn("selectedCardKey = card.id;", page)
             self.assertIn("Opening beat", page)
             self.assertIn("Start with a quiet contradiction.", page)
             self.assertEqual(saved["card"]["id"], "opening-beat")
             self.assertEqual(document["cards"][0]["id"], "opening-beat")
+            self.assertEqual(document["cards"][0]["x"], -188)
+            self.assertEqual(document["cards"][0]["y"], 8144)
+            self.assertEqual(deleted["status"], "deleted")
+            self.assertEqual(deleted["card_id"], "opening-beat")
+            self.assertEqual(deleted_document["cards"], [])
 
     def test_service_state_starts_creative_writing_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
