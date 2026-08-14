@@ -195,10 +195,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function setArtifactEditMode(editing)", page)
         self.assertIn('artifactFrame.classList.add("loading");', page)
         self.assertIn('artifactFrame.addEventListener("load"', page)
+        self.assertIn("function artifactEditorFontSize()", page)
+        self.assertIn("function postArtifactEditorFontSize()", page)
+        self.assertIn('type: "electroboy-editor-font-size"', page)
         self.assertIn('artifactKind === "creative-corkboard"', page)
         self.assertIn("/artifacts/creative-corkboard", page)
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
+        self.assertIn('parameters.set("font_size", String(artifactEditorFontSize()))', page)
         self.assertIn('parameters.set("artifact", "route")', page)
         self.assertIn("function changeArtifactZoom(delta)", page)
         self.assertIn("function exportBlob(url, suggestedName, format = \"markdown\")", page)
@@ -733,11 +737,16 @@ class ServiceTests(unittest.TestCase):
                 "chapters/chapter-01.md",
                 title="Chapter 1",
                 rich_editor=True,
+                editor_font_size=20,
             )
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('"rich_editor": true', page)
+        self.assertIn('"editor_font_size": 20', page)
+        self.assertIn("--editor-font-size: 20px;", page)
         self.assertIn("RICH_EDITOR_ENABLED", page)
+        self.assertIn("function applyEditorFontSize(value = editorFontSize)", page)
+        self.assertIn('data.type === "electroboy-editor-font-size"', page)
         self.assertIn('className = "rich-editor-surface"', page)
         self.assertIn('import("https://esm.sh/@tiptap/core")', page)
         self.assertIn('import("https://esm.sh/@tiptap/markdown")', page)
@@ -857,6 +866,7 @@ class ServiceTests(unittest.TestCase):
                     (
                         f"/artifacts/edit?context_id={context_id}"
                         "&artifact=document&path=chapters/chapter-01.md"
+                        "&font_size=22"
                     ),
                 )
             finally:
@@ -868,6 +878,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(content_type, "text/html; charset=utf-8")
         self.assertIn('"mode": "markdown"', body)
         self.assertIn('"rich_editor": true', body)
+        self.assertIn('"editor_font_size": 22', body)
         self.assertIn("@tiptap/core", body)
 
     def test_document_export_endpoint_serves_active_project_document(self) -> None:
@@ -1312,6 +1323,11 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn("function artifactEditUrl(item)", INDEX_HTML)
+        self.assertIn("function artifactEditorFontSize()", INDEX_HTML)
+        self.assertIn("function postArtifactEditorFontSize(targetFrame = null)", INDEX_HTML)
+        self.assertIn('type: "electroboy-editor-font-size"', INDEX_HTML)
+        self.assertIn('parameters.set("font_size", String(artifactEditorFontSize()))', INDEX_HTML)
+        self.assertIn("postArtifactEditorFontSize(frame);", INDEX_HTML)
         self.assertIn("async function setArtifactPreviewEditing(item, editing)", INDEX_HTML)
         self.assertIn("function requestArtifactEditorSave(item)", INDEX_HTML)
         self.assertIn('type: "electroboy-save-request"', INDEX_HTML)

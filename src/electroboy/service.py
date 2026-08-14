@@ -5497,6 +5497,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       }
     }
 
+    function artifactEditorFontSize() {
+      return Math.max(11, Math.min(28, Math.round(16 * (documentZoom / 100))));
+    }
+
     function applyTerminalFontSize() {
       terminalFontValue.textContent = `${terminalFontSize}px`;
       document.documentElement.style.setProperty(
@@ -5571,6 +5575,28 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       }
       for (const button of artifactPreviewStack.querySelectorAll("[data-zoom='in']")) {
         button.disabled = documentZoom >= MAX_DOCUMENT_ZOOM;
+      }
+      postArtifactEditorFontSize();
+    }
+
+    function postArtifactEditorFontSize(targetFrame = null) {
+      const frames = targetFrame
+        ? [targetFrame]
+        : Array.from(artifactPreviewStack.querySelectorAll(".artifact-preview-frame"));
+      for (const frame of frames) {
+        const item = artifactPreviewItems.find(
+          (candidate) => candidate.id === frame.dataset.artifactId,
+        );
+        if (!item || !item.editing || !frame.contentWindow) {
+          continue;
+        }
+        frame.contentWindow.postMessage(
+          {
+            type: "electroboy-editor-font-size",
+            font_size: artifactEditorFontSize(),
+          },
+          window.location.origin,
+        );
       }
     }
 
@@ -8381,6 +8407,8 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       }
       const parameters = new URLSearchParams();
       parameters.set("artifact", artifactKindForPane(item));
+      parameters.set("document_zoom", String(documentZoom));
+      parameters.set("font_size", String(artifactEditorFontSize()));
       if (item.kind === "document" && item.target) {
         parameters.set("path", item.target.path);
         parameters.set("title", item.target.label);
@@ -9559,6 +9587,9 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         );
         frame.dataset.artifactId = item.id;
         markArtifactFrameLoading(frame);
+        frame.addEventListener("load", () => {
+          postArtifactEditorFontSize(frame);
+        });
         frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
 
         section.append(header, frame);
@@ -12407,7 +12438,28 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     function changeArtifactZoom(delta) {
       artifactZoom = clampArtifactZoom(artifactZoom + delta);
       applyArtifactZoom();
+      if (artifactEditing) {
+        postArtifactEditorFontSize();
+        return;
+      }
       refreshArtifact();
+    }
+
+    function artifactEditorFontSize() {
+      return Math.max(11, Math.min(28, Math.round(16 * (artifactZoom / 100))));
+    }
+
+    function postArtifactEditorFontSize() {
+      if (!artifactEditing || !artifactFrame.contentWindow) {
+        return;
+      }
+      artifactFrame.contentWindow.postMessage(
+        {
+          type: "electroboy-editor-font-size",
+          font_size: artifactEditorFontSize(),
+        },
+        window.location.origin,
+      );
     }
 
     function terminalOptions(disableStdin = true) {
@@ -12874,6 +12926,8 @@ PANE_WINDOW_HTML = r"""<!doctype html>
       }
       const parameters = new URLSearchParams();
       parameters.set("artifact", artifactKind);
+      parameters.set("document_zoom", String(artifactZoom));
+      parameters.set("font_size", String(artifactEditorFontSize()));
       if (artifactKind === "document" && artifactDocumentPath) {
         parameters.set("path", artifactDocumentPath);
         parameters.set("title", artifactDocumentTitle || artifactDocumentPath);
@@ -13191,6 +13245,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
     refreshArtifactButton.addEventListener("click", refreshArtifact);
     artifactFrame.addEventListener("load", () => {
       artifactFrame.classList.remove("loading");
+      postArtifactEditorFontSize();
     });
     previewArtifactButton.addEventListener("click", () => setArtifactEditMode(false));
     editArtifactButton.addEventListener("click", () => setArtifactEditMode(true));
@@ -18011,6 +18066,7 @@ def artifact_editor_html(
     create_missing: bool = False,
     context_id: str = "",
     rich_editor: bool = False,
+    editor_font_size: int | None = None,
 ) -> tuple[str, HTTPStatus]:
     """Return a live editor page for a Markdown or structured artifact."""
 
@@ -18022,6 +18078,7 @@ def artifact_editor_html(
         title=title,
         create_missing=create_missing,
         rich_editor=rich_editor,
+        editor_font_size=editor_font_size,
     )
     edit_data["context_id"] = context_id
     page = _artifact_editor_page(edit_data)
@@ -18207,6 +18264,26 @@ def _document_zoom_from_params(params: dict[str, list[str]]) -> int:
         return 100
 
 
+def _clamp_artifact_editor_font_size(value: object) -> int:
+    try:
+        requested = int(value) if value is not None else 16
+    except (TypeError, ValueError):
+        requested = 16
+    return max(11, min(28, requested))
+
+
+def _artifact_editor_font_size_from_params(params: dict[str, list[str]]) -> int:
+    raw_font_size = (params.get("font_size") or [""])[0]
+    if raw_font_size:
+        return _clamp_artifact_editor_font_size(raw_font_size)
+    raw_zoom = (params.get("document_zoom") or params.get("zoom") or [""])[0]
+    try:
+        zoom = _clamp_document_zoom(int(raw_zoom))
+    except (TypeError, ValueError):
+        zoom = 100
+    return _clamp_artifact_editor_font_size(round(16 * (zoom / 100)))
+
+
 def _normalize_document_target_path(relative_path: str) -> str:
     raw = relative_path.strip().replace("\\", "/")
     if not raw:
@@ -18263,8 +18340,10 @@ def _artifact_edit_payload(
     title: str | None = None,
     create_missing: bool = False,
     rich_editor: bool = False,
+    editor_font_size: int | None = None,
 ) -> dict[str, object]:
     artifact = artifact.strip()
+    editor_font_size = _clamp_artifact_editor_font_size(editor_font_size)
     structured_artifact, markdown_path = _structured_artifact_for_edit_request(
         project_root,
         artifact,
@@ -18287,6 +18366,7 @@ def _artifact_edit_payload(
             "records": records,
             "list_fields": sorted(ARTIFACT_EDITOR_LIST_FIELDS),
             "json_fields": sorted(ARTIFACT_EDITOR_JSON_FIELDS),
+            "editor_font_size": editor_font_size,
         }
 
     if artifact == "document":
@@ -18317,6 +18397,7 @@ def _artifact_edit_payload(
         "markdown_path": markdown_path,
         "markdown": document_path.read_text(encoding="utf-8"),
         "rich_editor": bool(rich_editor and artifact == "document"),
+        "editor_font_size": editor_font_size,
     }
 
 
@@ -18497,6 +18578,9 @@ def save_artifact_edit(
 def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     data_json = json.dumps(edit_data).replace("</", "<\\/")
     title = html.escape(str(edit_data.get("title") or "Artifact Editor"))
+    editor_font_size = _clamp_artifact_editor_font_size(
+        edit_data.get("editor_font_size")
+    )
     rich_editor_script = (
         _rich_markdown_editor_script() if edit_data.get("rich_editor") else ""
     )
@@ -18520,6 +18604,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       --dirty: #ffd43b;
       --ok: #8ce99a;
       --error: #ff8787;
+      --editor-font-size: {editor_font_size}px;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", sans-serif;
       font-size: 14px;
@@ -18766,6 +18851,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 
     textarea.body-field {{
       min-height: 180px;
+      font-size: var(--editor-font-size);
     }}
 
     .generated-fields {{
@@ -18833,6 +18919,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       min-height: 100%;
       border: 0;
       border-radius: 0;
+      font-size: var(--editor-font-size);
       resize: none;
       padding: 14px 16px 36px;
     }}
@@ -18882,6 +18969,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 
     .rich-editor-surface .tiptap {{
       min-height: 100%;
+      font-size: var(--editor-font-size);
       outline: none;
       padding: 16px 18px 40px;
     }}
@@ -18944,6 +19032,8 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     const LIST_FIELDS = new Set(EDIT_DATA.list_fields || []);
     const JSON_FIELDS = new Set(EDIT_DATA.json_fields || []);
     const RICH_EDITOR_ENABLED = Boolean(EDIT_DATA.rich_editor);
+    const MIN_EDITOR_FONT_SIZE = 11;
+    const MAX_EDITOR_FONT_SIZE = 28;
     const CORE_FIELDS = new Set([
       "schema_version",
       "artifact_type",
@@ -18972,6 +19062,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     let richMarkdownEditor = null;
     let richToolbar = null;
     let richEditorLoading = false;
+    let editorFontSize = clampEditorFontSize(EDIT_DATA.editor_font_size || 16);
 
     const GENERATED_FIELDS = new Set([
       "schema_version",
@@ -19075,6 +19166,25 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 
     function markDirty() {{
       setDirty(true);
+    }}
+
+    function clampEditorFontSize(value) {{
+      const requested = Number(value);
+      if (!Number.isFinite(requested)) {{
+        return 16;
+      }}
+      return Math.max(
+        MIN_EDITOR_FONT_SIZE,
+        Math.min(MAX_EDITOR_FONT_SIZE, Math.round(requested)),
+      );
+    }}
+
+    function applyEditorFontSize(value = editorFontSize) {{
+      editorFontSize = clampEditorFontSize(value);
+      document.documentElement.style.setProperty(
+        "--editor-font-size",
+        `${{editorFontSize}}px`,
+      );
     }}
 
     function displayId(record) {{
@@ -19590,6 +19700,10 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         return;
       }}
       const data = event.data || {{}};
+      if (data.type === "electroboy-editor-font-size") {{
+        applyEditorFontSize(data.font_size);
+        return;
+      }}
       if (data.type !== "electroboy-save-request") {{
         return;
       }}
@@ -19612,6 +19726,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       event.preventDefault();
       event.returnValue = "";
     }});
+    applyEditorFontSize();
     if (EDIT_DATA.mode === "structured") {{
       renderStructuredEditor();
     }} else {{
@@ -23914,6 +24029,7 @@ def _handler_for(
                     state.project_mode(context_id) == "creative"
                     and artifact == "document"
                 )
+                editor_font_size = _artifact_editor_font_size_from_params(params)
                 page, status = artifact_editor_html(
                     project_root,
                     artifact,
@@ -23922,6 +24038,7 @@ def _handler_for(
                     create_missing=create_missing,
                     context_id=context_id,
                     rich_editor=rich_editor,
+                    editor_font_size=editor_font_size,
                 )
             except (AgentSessionError, OSError, StateError) as error:
                 self._send_text(
