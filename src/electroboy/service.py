@@ -1574,6 +1574,174 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       grid-template-columns: minmax(0, 1fr);
     }
 
+    .output-workbench.pane-layout-enabled {
+      position: relative;
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .pane-layout-root,
+    .pane-layout-split,
+    .pane-layout-leaf {
+      min-width: 0;
+      min-height: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .pane-layout-split {
+      display: grid;
+      overflow: hidden;
+    }
+
+    .pane-layout-leaf {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--terminal);
+      container-type: inline-size;
+    }
+
+    .pane-layout-leaf[hidden],
+    .pane-layout-split[hidden],
+    .pane-layout-divider[hidden] {
+      display: none;
+    }
+
+    .pane-layout-toolbar {
+      display: grid;
+      grid-template-columns: minmax(76px, 1fr) 28px 28px 28px 28px;
+      gap: 4px;
+      align-items: center;
+      min-width: 0;
+      height: 32px;
+      border-bottom: 1px solid #2a3142;
+      background: #151d2b;
+      padding: 3px 5px;
+    }
+
+    .pane-layout-kind {
+      min-width: 0;
+      width: 100%;
+      height: 24px;
+      border: 1px solid #364156;
+      border-radius: 4px;
+      background: #1d2638;
+      color: #d8e3f4;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 0 5px;
+    }
+
+    .pane-layout-command {
+      position: relative;
+      width: 28px;
+      height: 24px;
+      border: 1px solid #364156;
+      border-radius: 4px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .pane-layout-command:hover:not(:disabled) {
+      border-color: #4e7f9d;
+      background: #22314a;
+    }
+
+    .pane-layout-command:disabled {
+      cursor: default;
+      opacity: 0.35;
+    }
+
+    .pane-layout-command.split-right::before,
+    .pane-layout-command.split-down::before {
+      position: absolute;
+      inset: 5px 6px;
+      border: 1px solid currentcolor;
+      border-radius: 1px;
+      content: "";
+    }
+
+    .pane-layout-command.split-right::after,
+    .pane-layout-command.split-down::after {
+      position: absolute;
+      background: currentcolor;
+      content: "";
+    }
+
+    .pane-layout-command.split-right::after {
+      top: 5px;
+      bottom: 5px;
+      left: 13px;
+      width: 1px;
+    }
+
+    .pane-layout-command.split-down::after {
+      right: 6px;
+      bottom: 11px;
+      left: 6px;
+      height: 1px;
+    }
+
+    .pane-layout-empty {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 0;
+      color: #77849a;
+      font-size: var(--ui-small-font-size);
+    }
+
+    .pane-layout-divider {
+      min-width: 0;
+      min-height: 0;
+      touch-action: none;
+      background: #253044;
+    }
+
+    .pane-layout-divider.row {
+      cursor: col-resize;
+    }
+
+    .pane-layout-divider.column {
+      cursor: row-resize;
+    }
+
+    .pane-layout-divider:hover,
+    .pane-layout-divider.resizing {
+      background: #3a78a0;
+    }
+
+    @container (max-width: 180px) {
+      .pane-layout-toolbar {
+        grid-template-columns: minmax(42px, 1fr) 24px 24px 24px;
+        gap: 2px;
+      }
+
+      .pane-layout-command {
+        width: 24px;
+      }
+
+      .pane-layout-command.reset-layout {
+        display: none;
+      }
+    }
+
+    @container (max-width: 138px) {
+      .pane-layout-toolbar {
+        grid-template-columns: minmax(36px, 1fr) 24px 24px;
+      }
+
+      .pane-layout-command.split-down {
+        display: none;
+      }
+    }
+
     .left-output-pane {
       display: grid;
       grid-template-rows: minmax(0, 1fr);
@@ -3682,6 +3850,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
     const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";
     const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";
+    const PANE_LAYOUT_STORAGE_KEY = "electroboy.paneLayout.v1";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
     const CREATIVE_WORKFLOW_MODE = "creative";
@@ -3793,6 +3962,9 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let resizeSidePaneState = null;
     let resizeArtifactPaneState = null;
     let resizeProjectShellState = null;
+    let paneLayout = null;
+    let paneLayoutObserver = null;
+    let paneLayoutIdSequence = 0;
     let terminalResizeObserver = null;
     let resizeTimer = null;
     let pendingTerminalResize = null;
@@ -3868,6 +4040,465 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let projectStatusMessages = [];
     const PROJECT_STATUS_MESSAGE_LIMIT = 80;
     const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
+
+    const PANE_LAYOUT_KINDS = {
+      agent: { label: "Agent", element: agentOutputPane },
+      progress: { label: "Progress", element: progressOutputPane },
+      artifact: { label: "Artifact", element: artifactPreviewPane },
+      shell: { label: "Shell", element: projectShellPane },
+      scratch: { label: "Scratch", element: scratchPane },
+      status: { label: "Status", element: projectStatusPane },
+    };
+
+    function newPaneLayoutId(prefix = "pane") {
+      paneLayoutIdSequence += 1;
+      return `${prefix}-${Date.now()}-${paneLayoutIdSequence}`;
+    }
+
+    function paneLayoutLeaf(kind = "empty") {
+      return { type: "leaf", id: newPaneLayoutId(), kind };
+    }
+
+    function paneLayoutSplit(direction, first, second, ratio = 0.5) {
+      return {
+        type: "split",
+        id: newPaneLayoutId("split"),
+        direction,
+        ratio,
+        first,
+        second,
+      };
+    }
+
+    function defaultPaneLayout() {
+      return paneLayoutSplit(
+        "row",
+        paneLayoutLeaf("agent"),
+        paneLayoutSplit(
+          "column",
+          paneLayoutLeaf("scratch"),
+          paneLayoutLeaf("status"),
+          0.62,
+        ),
+        0.72,
+      );
+    }
+
+    function normalizePaneLayoutNode(value, seenKinds) {
+      if (!value || typeof value !== "object") {
+        return null;
+      }
+      if (value.type === "leaf") {
+        const requestedKind = String(value.kind || "empty");
+        const validKind = requestedKind === "empty" || PANE_LAYOUT_KINDS[requestedKind];
+        const kind = validKind && !seenKinds.has(requestedKind) ? requestedKind : "empty";
+        if (kind !== "empty") {
+          seenKinds.add(kind);
+        }
+        return paneLayoutLeaf(kind);
+      }
+      if (value.type !== "split") {
+        return null;
+      }
+      const first = normalizePaneLayoutNode(value.first, seenKinds);
+      const second = normalizePaneLayoutNode(value.second, seenKinds);
+      if (!first || !second) {
+        return null;
+      }
+      const ratio = Number(value.ratio);
+      return paneLayoutSplit(
+        value.direction === "column" ? "column" : "row",
+        first,
+        second,
+        Number.isFinite(ratio) ? clampValue(ratio, 0.12, 0.88) : 0.5,
+      );
+    }
+
+    function storedPaneLayout() {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY));
+        return normalizePaneLayoutNode(stored, new Set()) || defaultPaneLayout();
+      } catch (error) {
+        return defaultPaneLayout();
+      }
+    }
+
+    function savePaneLayout() {
+      try {
+        window.localStorage.setItem(PANE_LAYOUT_STORAGE_KEY, JSON.stringify(paneLayout));
+      } catch (error) {
+        return;
+      }
+    }
+
+    function paneLayoutLeaves(node = paneLayout, leaves = []) {
+      if (!node) {
+        return leaves;
+      }
+      if (node.type === "leaf") {
+        leaves.push(node);
+        return leaves;
+      }
+      paneLayoutLeaves(node.first, leaves);
+      paneLayoutLeaves(node.second, leaves);
+      return leaves;
+    }
+
+    function paneLayoutLeafById(id) {
+      return paneLayoutLeaves().find((leaf) => leaf.id === id) || null;
+    }
+
+    function paneLayoutLeafByKind(kind) {
+      return paneLayoutLeaves().find((leaf) => leaf.kind === kind) || null;
+    }
+
+    function replacePaneLayoutNode(node, id, replacement) {
+      if (node.id === id) {
+        return replacement;
+      }
+      if (node.type === "leaf") {
+        return node;
+      }
+      node.first = replacePaneLayoutNode(node.first, id, replacement);
+      node.second = replacePaneLayoutNode(node.second, id, replacement);
+      return node;
+    }
+
+    function removePaneLayoutLeaf(node, id) {
+      if (node.type === "leaf") {
+        return node.id === id ? null : node;
+      }
+      if (node.first.id === id) {
+        return node.second;
+      }
+      if (node.second.id === id) {
+        return node.first;
+      }
+      const first = removePaneLayoutLeaf(node.first, id);
+      const second = removePaneLayoutLeaf(node.second, id);
+      if (!first) {
+        return second;
+      }
+      if (!second) {
+        return first;
+      }
+      node.first = first;
+      node.second = second;
+      return node;
+    }
+
+    function paneLayoutKindAvailable(kind) {
+      if (kind !== "artifact") {
+        return true;
+      }
+      return artifactPreviewItems.length > 0 || Boolean(paneLayoutLeafByKind("artifact"));
+    }
+
+    function buildPaneLayoutToolbar(leaf) {
+      const toolbar = document.createElement("div");
+      toolbar.className = "pane-layout-toolbar";
+
+      const select = document.createElement("select");
+      select.className = "pane-layout-kind";
+      select.title = "Choose pane type";
+      select.setAttribute("aria-label", "Choose pane type");
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "empty";
+      emptyOption.textContent = "Choose pane";
+      select.append(emptyOption);
+      for (const [kind, definition] of Object.entries(PANE_LAYOUT_KINDS)) {
+        const option = document.createElement("option");
+        option.value = kind;
+        option.textContent = definition.label;
+        option.disabled = !paneLayoutKindAvailable(kind);
+        select.append(option);
+      }
+      select.value = leaf.kind;
+      select.addEventListener("change", () => {
+        changePaneLayoutKind(leaf.id, select.value);
+      });
+
+      const splitRight = document.createElement("button");
+      splitRight.className = "pane-layout-command split-right";
+      splitRight.type = "button";
+      splitRight.title = "Split pane right";
+      splitRight.setAttribute("aria-label", "Split pane right");
+      splitRight.addEventListener("click", () => splitPaneLayoutLeaf(leaf.id, "row"));
+
+      const splitDown = document.createElement("button");
+      splitDown.className = "pane-layout-command split-down";
+      splitDown.type = "button";
+      splitDown.title = "Split pane down";
+      splitDown.setAttribute("aria-label", "Split pane down");
+      splitDown.addEventListener("click", () => splitPaneLayoutLeaf(leaf.id, "column"));
+
+      const close = document.createElement("button");
+      close.className = "pane-layout-command close-pane";
+      close.type = "button";
+      close.title = "Close pane and join area";
+      close.setAttribute("aria-label", "Close pane and join area");
+      close.textContent = "×";
+      close.disabled = paneLayoutLeaves().length <= 1;
+      close.addEventListener("click", () => closePaneLayoutLeaf(leaf.id));
+
+      const reset = document.createElement("button");
+      reset.className = "pane-layout-command reset-layout";
+      reset.type = "button";
+      reset.title = "Reset pane layout";
+      reset.setAttribute("aria-label", "Reset pane layout");
+      reset.textContent = "↺";
+      reset.addEventListener("click", resetPaneLayout);
+
+      toolbar.append(select, splitRight, splitDown, close, reset);
+      return toolbar;
+    }
+
+    function applyPaneLayoutSplitTemplate(element, node) {
+      const ratio = clampValue(Number(node.ratio) || 0.5, 0.12, 0.88);
+      if (node.direction === "column") {
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+        element.style.gridTemplateRows =
+          `minmax(0, ${ratio}fr) 7px minmax(0, ${1 - ratio}fr)`;
+      } else {
+        element.style.gridTemplateRows = "minmax(0, 1fr)";
+        element.style.gridTemplateColumns =
+          `minmax(0, ${ratio}fr) 7px minmax(0, ${1 - ratio}fr)`;
+      }
+    }
+
+    function startPaneLayoutResize(event, node, splitElement, divider) {
+      event.preventDefault();
+      const pointerId = event.pointerId;
+      divider.setPointerCapture(pointerId);
+      divider.classList.add("resizing");
+      const update = (moveEvent) => {
+        const rect = splitElement.getBoundingClientRect();
+        const available = node.direction === "column" ? rect.height - 7 : rect.width - 7;
+        if (available <= 0) {
+          return;
+        }
+        const position = node.direction === "column"
+          ? moveEvent.clientY - rect.top - 3.5
+          : moveEvent.clientX - rect.left - 3.5;
+        node.ratio = clampValue(position / available, 0.12, 0.88);
+        applyPaneLayoutSplitTemplate(splitElement, node);
+        fitTerminal();
+      };
+      const finish = () => {
+        divider.classList.remove("resizing");
+        divider.removeEventListener("pointermove", update);
+        divider.removeEventListener("pointerup", finish);
+        divider.removeEventListener("pointercancel", finish);
+        try {
+          divider.releasePointerCapture(pointerId);
+        } catch (error) {
+          // Pointer capture may already be released by the browser.
+        }
+        savePaneLayout();
+        fitTerminal();
+      };
+      divider.addEventListener("pointermove", update);
+      divider.addEventListener("pointerup", finish);
+      divider.addEventListener("pointercancel", finish);
+    }
+
+    function renderPaneLayoutNode(node) {
+      if (node.type === "leaf") {
+        const leaf = document.createElement("div");
+        leaf.className = "pane-layout-leaf";
+        leaf.dataset.paneLayoutId = node.id;
+        leaf.dataset.paneKind = node.kind;
+        leaf.append(buildPaneLayoutToolbar(node));
+        if (node.kind === "empty") {
+          const empty = document.createElement("div");
+          empty.className = "pane-layout-empty";
+          empty.textContent = "Choose a pane type";
+          leaf.append(empty);
+        } else {
+          leaf.append(PANE_LAYOUT_KINDS[node.kind].element);
+        }
+        return leaf;
+      }
+
+      const split = document.createElement("div");
+      split.className = `pane-layout-split ${node.direction}`;
+      split.dataset.paneLayoutId = node.id;
+      const first = renderPaneLayoutNode(node.first);
+      const divider = document.createElement("div");
+      divider.className = `pane-layout-divider ${node.direction}`;
+      divider.setAttribute("role", "separator");
+      divider.setAttribute(
+        "aria-orientation",
+        node.direction === "column" ? "horizontal" : "vertical",
+      );
+      divider.setAttribute("aria-label", "Resize split panes");
+      divider.addEventListener("pointerdown", (event) => {
+        startPaneLayoutResize(event, node, split, divider);
+      });
+      const second = renderPaneLayoutNode(node.second);
+      split.append(first, divider, second);
+      applyPaneLayoutSplitTemplate(split, node);
+      return split;
+    }
+
+    function refreshPaneLayoutVisibility(node = paneLayout, element = outputWorkbench.firstElementChild) {
+      if (!node || !element) {
+        return false;
+      }
+      if (node.type === "leaf") {
+        const visible = node.kind === "empty" || !PANE_LAYOUT_KINDS[node.kind].element.hidden;
+        element.hidden = !visible;
+        return visible;
+      }
+      const firstElement = element.children[0];
+      const divider = element.children[1];
+      const secondElement = element.children[2];
+      const firstVisible = refreshPaneLayoutVisibility(node.first, firstElement);
+      const secondVisible = refreshPaneLayoutVisibility(node.second, secondElement);
+      element.hidden = !firstVisible && !secondVisible;
+      divider.hidden = !firstVisible || !secondVisible;
+      if (firstVisible && secondVisible) {
+        applyPaneLayoutSplitTemplate(element, node);
+      } else if (node.direction === "column") {
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+        element.style.gridTemplateRows = "minmax(0, 1fr)";
+      } else {
+        element.style.gridTemplateRows = "minmax(0, 1fr)";
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+      }
+      return firstVisible || secondVisible;
+    }
+
+    function renderPaneLayout() {
+      const root = renderPaneLayoutNode(paneLayout);
+      root.classList.add("pane-layout-root");
+      outputWorkbench.replaceChildren(root);
+      refreshPaneLayoutVisibility();
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function splitPaneLayoutLeaf(id, direction) {
+      const leaf = paneLayoutLeafById(id);
+      if (!leaf) {
+        return;
+      }
+      const replacement = paneLayoutSplit(
+        direction,
+        paneLayoutLeaf(leaf.kind),
+        paneLayoutLeaf(),
+      );
+      paneLayout = replacePaneLayoutNode(paneLayout, id, replacement);
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
+    function changePaneLayoutKind(id, kind) {
+      const leaf = paneLayoutLeafById(id);
+      if (!leaf || (kind !== "empty" && !PANE_LAYOUT_KINDS[kind])) {
+        return;
+      }
+      const previousKind = leaf.kind;
+      const existing = kind === "empty" ? null : paneLayoutLeafByKind(kind);
+      if (existing && existing !== leaf) {
+        existing.kind = previousKind;
+      }
+      leaf.kind = kind;
+      savePaneLayout();
+      renderPaneLayout();
+      activatePaneLayoutKind(kind);
+      if (previousKind !== kind && !paneLayoutLeafByKind(previousKind)) {
+        deactivatePaneLayoutKind(previousKind);
+      }
+    }
+
+    function closePaneLayoutLeaf(id) {
+      if (paneLayoutLeaves().length <= 1) {
+        return;
+      }
+      const leaf = paneLayoutLeafById(id);
+      if (!leaf) {
+        return;
+      }
+      const removedKind = leaf.kind;
+      paneLayout = removePaneLayoutLeaf(paneLayout, id);
+      savePaneLayout();
+      renderPaneLayout();
+      if (!paneLayoutLeafByKind(removedKind)) {
+        deactivatePaneLayoutKind(removedKind);
+      }
+    }
+
+    function activatePaneLayoutKind(kind) {
+      if (poppedPanes.has(kind)) {
+        dockPoppedPane(kind);
+      }
+      if (kind === "progress") {
+        showProgressPane(true);
+      } else if (kind === "artifact") {
+        artifactPaneRequested = true;
+        applyOutputPaneVisibility();
+      } else if (kind === "shell") {
+        showProjectShellPane(true);
+      }
+    }
+
+    function deactivatePaneLayoutKind(kind) {
+      if (kind === "progress") {
+        showProgressPane(false);
+      } else if (kind === "artifact") {
+        artifactPaneRequested = false;
+        applyOutputPaneVisibility();
+      } else if (kind === "shell") {
+        hideProjectShellPane();
+      }
+    }
+
+    function ensurePaneInLayout(kind, targetKind = "agent", direction = "row") {
+      if (!paneLayout || paneLayoutLeafByKind(kind)) {
+        return;
+      }
+      const target = paneLayoutLeafByKind(targetKind) || paneLayoutLeaves()[0];
+      if (!target) {
+        paneLayout = paneLayoutLeaf(kind);
+      } else {
+        const replacement = paneLayoutSplit(
+          direction,
+          paneLayoutLeaf(target.kind),
+          paneLayoutLeaf(kind),
+        );
+        paneLayout = replacePaneLayoutNode(paneLayout, target.id, replacement);
+      }
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
+    function resetPaneLayout() {
+      paneLayout = defaultPaneLayout();
+      savePaneLayout();
+      renderPaneLayout();
+      if (progressPaneRequested) {
+        ensurePaneInLayout("progress", "agent", "row");
+      }
+      if (artifactPaneRequested && artifactPreviewItems.length > 0) {
+        ensurePaneInLayout("artifact", "agent", "row");
+      }
+      if (projectShellPaneRequested) {
+        ensurePaneInLayout("shell", "agent", "column");
+      }
+    }
+
+    function initializePaneLayout() {
+      paneLayout = storedPaneLayout();
+      outputWorkbench.classList.add("pane-layout-enabled");
+      renderPaneLayout();
+      paneLayoutObserver = new MutationObserver(() => refreshPaneLayoutVisibility());
+      for (const definition of Object.values(PANE_LAYOUT_KINDS)) {
+        paneLayoutObserver.observe(definition.element, {
+          attributes: true,
+          attributeFilter: ["hidden"],
+        });
+      }
+    }
 
     function storedTerminalFontSize() {
       try {
@@ -4946,6 +5577,9 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
 
     function applyProjectShellPaneVisibility() {
       const visible = projectShellPaneRequested && !poppedPanes.has("shell");
+      if (visible) {
+        ensurePaneInLayout("shell", "agent", "column");
+      }
       projectShellPane.hidden = !visible;
       shellPaneDivider.hidden = !visible;
       leftOutputPane.classList.toggle("shell-visible", visible);
@@ -5443,6 +6077,12 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       const artifactVisible =
         artifactPaneRequested && artifactPreviewItems.length > 0 && !poppedPanes.has("artifact");
       const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
+      if (artifactVisible) {
+        ensurePaneInLayout("artifact", "agent", "row");
+      }
+      if (progressVisible) {
+        ensurePaneInLayout("progress", "agent", "row");
+      }
       agentOutputPane.hidden = !agentVisible;
       artifactPreviewPane.hidden = !artifactVisible;
       progressOutputPane.hidden = !progressVisible;
@@ -10816,6 +11456,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       applyWorkflowSideSheetState();
       applyWorkflowMode();
       renderStageActionPanel();
+      initializePaneLayout();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
       applyStoredArtifactPaneSize();
