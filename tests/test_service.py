@@ -686,9 +686,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"jsonl_path": "docs/requirements.jsonl"', page)
         self.assertIn("Markdown body", page)
         self.assertIn("/api/artifacts/edit", page)
-        self.assertIn("function queueSave()", page)
-        self.assertIn('input.addEventListener("input", queueSave);', page)
-        self.assertNotIn('id="saveArtifact"', page)
+        self.assertIn('id="recordType"', page)
+        self.assertIn('id="saveArtifact"', page)
+        self.assertIn("function markDirty()", page)
+        self.assertIn('input.addEventListener("input", markDirty);', page)
+        self.assertIn('className = "generated-fields"', page)
+        self.assertNotIn("function queueSave()", page)
 
     def test_artifact_editor_markdown_mode_uses_direct_pane_editor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -707,8 +710,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('document.body.classList.add("markdown-mode");', page)
         self.assertIn('textarea.setAttribute("aria-label"', page)
+        self.assertIn('id="saveArtifact"', page)
         self.assertIn("body.markdown-mode .editor-header", page)
         self.assertIn("body.markdown-mode .markdown-editor", page)
+        self.assertIn('textarea.addEventListener("input", markDirty);', page)
         self.assertNotIn('label.textContent = "Markdown";', page)
 
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
@@ -1245,7 +1250,10 @@ class ServiceTests(unittest.TestCase):
             INDEX_HTML,
         )
         self.assertIn("function artifactEditUrl(item)", INDEX_HTML)
-        self.assertIn("function setArtifactPreviewEditing(item, editing)", INDEX_HTML)
+        self.assertIn("async function setArtifactPreviewEditing(item, editing)", INDEX_HTML)
+        self.assertIn("function requestArtifactEditorSave(item)", INDEX_HTML)
+        self.assertIn('type: "electroboy-save-request"', INDEX_HTML)
+        self.assertIn('data.type === "electroboy-artifact-save-complete"', INDEX_HTML)
         self.assertIn('preview.textContent = "Preview";', INDEX_HTML)
         self.assertIn('edit.textContent = "Edit";', INDEX_HTML)
         self.assertIn(

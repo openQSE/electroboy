@@ -4058,6 +4058,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let manualArtifactPreviewStage = "";
     let artifactPreviewStage = "";
     let artifactPreviewVersion = 0;
+    let artifactSaveTokenSequence = 0;
     let progressPaneRequested = false;
     let artifactPaneRequested = false;
     let projectShellPaneRequested = false;
@@ -4066,6 +4067,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let projectShellRunning = false;
     const poppedPanes = new Set();
     const poppedPaneWindows = new Map();
+    const pendingArtifactSaves = new Map();
     let slashCommandMode = false;
     let terminalInputQueue = Promise.resolve();
     let activeAgentKind = "";
@@ -6672,6 +6674,16 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       if (data.type === "electroboy-artifact-saved") {
         refreshArtifactPreview({ includeEditing: false });
         recordProjectStatusMessage(`saved: ${data.path || "artifact"}`);
+        return;
+      }
+      if (data.type === "electroboy-artifact-save-complete") {
+        const token = data.token || "";
+        const pending = pendingArtifactSaves.get(token);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingArtifactSaves.delete(token);
+          pending.resolve(Boolean(data.ok));
+        }
         return;
       }
       if (data.type === "electroboy-creative-open" && data.path) {
@@ -9555,7 +9567,43 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       applyDocumentZoom();
     }
 
-    function setArtifactPreviewEditing(item, editing) {
+    function artifactFrameForItem(item) {
+      if (!item) {
+        return null;
+      }
+      const escapedId = CSS.escape(item.id || "");
+      return artifactPreviewStack.querySelector(
+        `.artifact-preview-frame[data-artifact-id="${escapedId}"]`,
+      );
+    }
+
+    function requestArtifactEditorSave(item) {
+      const frame = artifactFrameForItem(item);
+      if (!frame || !frame.contentWindow) {
+        return Promise.resolve(true);
+      }
+      const token = `artifact-save-${++artifactSaveTokenSequence}`;
+      return new Promise((resolve) => {
+        const timeout = window.setTimeout(() => {
+          pendingArtifactSaves.delete(token);
+          resolve(false);
+        }, 15000);
+        pendingArtifactSaves.set(token, { resolve, timeout });
+        frame.contentWindow.postMessage(
+          { type: "electroboy-save-request", token },
+          window.location.origin,
+        );
+      });
+    }
+
+    async function setArtifactPreviewEditing(item, editing) {
+      if (!editing && item && item.editing) {
+        const saved = await requestArtifactEditorSave(item);
+        if (!saved) {
+          appendOutput("preview blocked: save failed\\n", "error");
+          return;
+        }
+      }
       item.editing = Boolean(editing);
       renderArtifactPreviewItems();
     }
@@ -18457,6 +18505,8 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       --border: #2a3142;
       --accent: #66d9e8;
       --accent-strong: #1f6f8b;
+      --dirty: #ffd43b;
+      --ok: #8ce99a;
       --error: #ff8787;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", sans-serif;
@@ -18536,9 +18586,11 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
     }}
 
-    button {{
+    button,
+    .editor-actions select {{
       min-height: 34px;
       border: 1px solid #364156;
       border-radius: 6px;
@@ -18548,6 +18600,12 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       font: inherit;
       font-weight: 650;
       padding: 0 12px;
+    }}
+
+    .editor-actions select {{
+      min-width: 130px;
+      cursor: pointer;
+      font-weight: 500;
     }}
 
     button.primary {{
@@ -18567,12 +18625,24 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       font-size: 13px;
     }}
 
+    .status.dirty {{
+      color: var(--dirty);
+    }}
+
+    .status.saved {{
+      color: var(--ok);
+    }}
+
     .status.error {{
       color: var(--error);
     }}
 
     body.markdown-mode .editor-header {{
-      display: none;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      border-width: 0 0 1px;
+      border-radius: 0;
     }}
 
     body.markdown-mode .status {{
@@ -18614,11 +18684,36 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       font-weight: 650;
     }}
 
+    .record-summary {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }}
+
+    .record-summary-text {{
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+
+    .record-summary-kind {{
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+    }}
+
     .record-body {{
       display: grid;
       gap: 12px;
       border-top: 1px solid var(--border);
       padding: 12px;
+    }}
+
+    .record-actions {{
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
     }}
 
     .field-grid {{
@@ -18661,6 +18756,45 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       min-height: 180px;
     }}
 
+    .generated-fields {{
+      border: 1px dashed #364156;
+      border-radius: 7px;
+      background: #101725;
+      color: var(--muted);
+    }}
+
+    .generated-fields > summary {{
+      cursor: pointer;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }}
+
+    .generated-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      padding: 0 10px 10px;
+    }}
+
+    .generated-field {{
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+      font-size: 12px;
+    }}
+
+    .generated-field code {{
+      overflow: hidden;
+      border-radius: 4px;
+      background: #0f1420;
+      color: var(--text);
+      padding: 4px 6px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+
     .markdown-editor {{
       display: grid;
       gap: 10px;
@@ -18700,7 +18834,17 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         <div id="editorMeta" class="editor-meta"></div>
       </div>
       <div class="editor-actions">
-        <button id="addRecord" type="button">Add section</button>
+        <select id="recordType" aria-label="Record type to add">
+          <option value="section">Section</option>
+          <option value="requirement">Requirement</option>
+          <option value="decision">Decision</option>
+          <option value="interface">Interface</option>
+          <option value="unit">Implementation unit</option>
+          <option value="suite">Test suite</option>
+          <option value="test">Test case</option>
+        </select>
+        <button id="addRecord" type="button">Add record</button>
+        <button id="saveArtifact" class="primary" type="button" disabled>Save</button>
       </div>
     </header>
     <div id="status" class="status"></div>
@@ -18724,15 +18868,92 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       "body",
     ]);
     const recordsRoot = document.getElementById("records");
+    const recordType = document.getElementById("recordType");
     const addRecord = document.getElementById("addRecord");
+    const saveArtifact = document.getElementById("saveArtifact");
     const statusLine = document.getElementById("status");
     const editorMeta = document.getElementById("editorMeta");
     let records = Array.isArray(EDIT_DATA.records)
       ? EDIT_DATA.records.map((record) => ({{ ...record }}))
       : [];
-    let saveTimer = null;
     let saveInFlight = false;
-    let saveQueued = false;
+    let dirty = false;
+
+    const GENERATED_FIELDS = new Set([
+      "schema_version",
+      "artifact_type",
+      "id",
+      "unit_id",
+      "order",
+      "heading_level",
+      "parent_id",
+      "updated_at",
+    ]);
+
+    const COMMON_FIELDS = ["record_type", "title", "status", "body"];
+    const RECORD_FIELDS = {{
+      document: ["title", "summary", "scope", "out_of_scope", "personas", "status", "body"],
+      section: ["title", "status", "body", "requirements", "tags", "links"],
+      requirement: [
+        "title",
+        "statement",
+        "body",
+        "rationale",
+        "priority",
+        "acceptance_criteria",
+        "verification",
+        "dependencies",
+        "status",
+      ],
+      decision: [
+        "title",
+        "context",
+        "decision",
+        "body",
+        "consequences",
+        "requirements",
+        "status",
+      ],
+      interface: [
+        "title",
+        "kind",
+        "producer",
+        "consumer",
+        "body",
+        "schema",
+        "requirements",
+        "status",
+      ],
+      unit: [
+        "title",
+        "phase",
+        "sequence",
+        "body",
+        "scope",
+        "commit_tasks",
+        "paths",
+        "requirements",
+        "design_sections",
+        "dependencies",
+        "exit_criteria",
+        "status",
+      ],
+      suite: ["title", "body", "scope", "requirements", "status"],
+      test: [
+        "title",
+        "level",
+        "suite",
+        "body",
+        "requirements",
+        "design_sections",
+        "implementation_units",
+        "preconditions",
+        "steps",
+        "expected_results",
+        "automation",
+        "status",
+      ],
+    }};
 
     function contextUrl(path) {{
       const contextId = EDIT_DATA.context_id || "";
@@ -18746,6 +18967,20 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     function setStatus(message, error = false) {{
       statusLine.textContent = message || "";
       statusLine.classList.toggle("error", Boolean(error));
+      statusLine.classList.toggle("dirty", !error && dirty);
+      statusLine.classList.toggle("saved", !error && !dirty && Boolean(message));
+    }}
+
+    function setDirty(nextDirty = true) {{
+      dirty = Boolean(nextDirty);
+      saveArtifact.disabled = saveInFlight || !dirty;
+      if (dirty) {{
+        setStatus("unsaved changes");
+      }}
+    }}
+
+    function markDirty() {{
+      setDirty(true);
     }}
 
     function displayId(record) {{
@@ -18781,6 +19016,63 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         return value;
       }}
       return JSON.stringify(value, null, 2);
+    }}
+
+    function recordKind(record) {{
+      return String(record.record_type || "section");
+    }}
+
+    function generatedFieldEntries(record) {{
+      return Object.entries(record)
+        .filter(([field]) => GENERATED_FIELDS.has(field))
+        .filter(([, value]) => value !== undefined && value !== null && value !== "");
+    }}
+
+    function editableFieldsForRecord(record) {{
+      const fields = new Set(RECORD_FIELDS[recordKind(record)] || COMMON_FIELDS);
+      fields.add("record_type");
+      for (const field of Object.keys(record)) {{
+        if (!GENERATED_FIELDS.has(field)) {{
+          fields.add(field);
+        }}
+      }}
+      return Array.from(fields);
+    }}
+
+    function fieldInputOptions(field) {{
+      if (field === "record_type") {{
+        return {{
+          kind: "select",
+          values: ["document", "section", "requirement", "decision", "interface", "unit", "suite", "test"],
+        }};
+      }}
+      if (field === "status") {{
+        return {{
+          kind: "select",
+          values: ["draft", "approved", "changed", "deprecated", "deferred"],
+        }};
+      }}
+      if (field === "priority") {{
+        return {{ kind: "select", values: ["", "must", "should", "could", "deferred"] }};
+      }}
+      if (["order", "phase", "sequence"].includes(field)) {{
+        return {{ numeric: true }};
+      }}
+      if (field === "body" || LIST_FIELDS.has(field) || JSON_FIELDS.has(field)) {{
+        return {{
+          kind: "textarea",
+          list: LIST_FIELDS.has(field),
+          json: JSON_FIELDS.has(field),
+        }};
+      }}
+      return {{}};
+    }}
+
+    function fieldLabel(field) {{
+      if (field === "record_type") {{
+        return "Type";
+      }}
+      return field.replace(/_/g, " ");
     }}
 
     function appendInput(container, record, field, label, options = {{}}) {{
@@ -18822,8 +19114,8 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         input.classList.add("body-field");
         input.placeholder = "Markdown text, tables, code fences, and Mermaid diagrams";
       }}
-      input.addEventListener("input", queueSave);
-      input.addEventListener("change", queueSave);
+      input.addEventListener("input", markDirty);
+      input.addEventListener("change", markDirty);
       wrapper.append(input);
       container.append(wrapper);
       return input;
@@ -18833,50 +19125,80 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       document.body.classList.remove("markdown-mode");
       editorMeta.textContent = `${{EDIT_DATA.markdown_path}} · source ${{EDIT_DATA.jsonl_path}}`;
       addRecord.hidden = false;
+      recordType.hidden = false;
       recordsRoot.replaceChildren();
       for (const [index, record] of records.entries()) {{
         const details = document.createElement("details");
         details.className = "record-editor";
-        details.open = index === 0;
+        details.open = index === 0 || dirty;
         details.dataset.index = String(index);
 
         const summary = document.createElement("summary");
-        summary.textContent = recordSummary(record, index);
+        const summaryInner = document.createElement("span");
+        summaryInner.className = "record-summary";
+        const summaryText = document.createElement("span");
+        summaryText.className = "record-summary-text";
+        summaryText.textContent = recordSummary(record, index);
+        const summaryKind = document.createElement("span");
+        summaryKind.className = "record-summary-kind";
+        summaryKind.textContent = recordKind(record);
+        summaryInner.append(summaryText, summaryKind);
+        summary.append(summaryInner);
         details.append(summary);
 
         const body = document.createElement("div");
         body.className = "record-body";
         const grid = document.createElement("div");
         grid.className = "field-grid";
-        appendInput(grid, record, "record_type", "Type", {{
-          kind: "select",
-          values: ["document", "section", "requirement", "decision", "interface", "unit", "suite", "test"],
-        }});
-        appendInput(grid, record, "id", "ID");
-        appendInput(grid, record, "unit_id", "Unit ID");
-        appendInput(grid, record, "title", "Title");
-        appendInput(grid, record, "order", "Order", {{ numeric: true }});
-        appendInput(grid, record, "status", "Status");
-        appendInput(grid, record, "phase", "Phase", {{ numeric: true }});
-        appendInput(grid, record, "sequence", "Sequence", {{ numeric: true }});
+        for (const field of editableFieldsForRecord(record)) {{
+          if (field === "body") {{
+            continue;
+          }}
+          appendInput(grid, record, field, fieldLabel(field), fieldInputOptions(field));
+        }}
         body.append(grid);
-        appendInput(body, record, "body", "Markdown body", {{ kind: "textarea" }});
+        if (editableFieldsForRecord(record).includes("body")) {{
+          appendInput(body, record, "body", "Markdown body", fieldInputOptions("body"));
+        }}
 
-        const extraGrid = document.createElement("div");
-        extraGrid.className = "field-grid";
-        const extraFields = Object.keys(record)
-          .filter((field) => !CORE_FIELDS.has(field))
-          .sort();
-        for (const field of extraFields) {{
-          appendInput(extraGrid, record, field, field.replace(/_/g, " "), {{
-            kind: LIST_FIELDS.has(field) || JSON_FIELDS.has(field) ? "textarea" : "input",
-            list: LIST_FIELDS.has(field),
-            json: JSON_FIELDS.has(field),
-          }});
+        const generatedEntries = generatedFieldEntries(record);
+        if (generatedEntries.length > 0) {{
+          const generated = document.createElement("details");
+          generated.className = "generated-fields";
+          const generatedSummary = document.createElement("summary");
+          generatedSummary.textContent = "Generated fields";
+          generated.append(generatedSummary);
+          const generatedGrid = document.createElement("div");
+          generatedGrid.className = "generated-grid";
+          for (const [field, value] of generatedEntries) {{
+            const wrapper = document.createElement("div");
+            wrapper.className = "generated-field";
+            const name = document.createElement("span");
+            name.textContent = field.replace(/_/g, " ");
+            const code = document.createElement("code");
+            code.textContent = Array.isArray(value) || typeof value === "object"
+              ? JSON.stringify(value)
+              : String(value);
+            wrapper.append(name, code);
+            generatedGrid.append(wrapper);
+          }}
+          generated.append(generatedGrid);
+          body.append(generated);
         }}
-        if (extraFields.length > 0) {{
-          body.append(extraGrid);
-        }}
+
+        const actions = document.createElement("div");
+        actions.className = "record-actions";
+        const duplicate = document.createElement("button");
+        duplicate.type = "button";
+        duplicate.textContent = "Duplicate";
+        duplicate.addEventListener("click", () => duplicateRecord(index));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Delete";
+        remove.disabled = records.length <= 1;
+        remove.addEventListener("click", () => deleteRecord(index));
+        actions.append(duplicate, remove);
+        body.append(actions);
 
         details.append(body);
         recordsRoot.append(details);
@@ -18887,6 +19209,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       document.body.classList.add("markdown-mode");
       editorMeta.textContent = EDIT_DATA.markdown_path || "";
       addRecord.hidden = true;
+      recordType.hidden = true;
       recordsRoot.replaceChildren();
       const wrapper = document.createElement("section");
       wrapper.className = "markdown-editor";
@@ -18895,8 +19218,8 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       textarea.setAttribute("aria-label", EDIT_DATA.markdown_path || "Markdown");
       textarea.spellcheck = true;
       textarea.value = EDIT_DATA.markdown || "";
-      textarea.addEventListener("input", queueSave);
-      textarea.addEventListener("change", queueSave);
+      textarea.addEventListener("input", markDirty);
+      textarea.addEventListener("change", markDirty);
       wrapper.append(textarea);
       recordsRoot.append(wrapper);
     }}
@@ -18932,10 +19255,9 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       const collected = [];
       for (const details of recordsRoot.querySelectorAll(".record-editor")) {{
         const original = records[Number(details.dataset.index || "0")] || {{}};
-        const record = {{
-          schema_version: original.schema_version || 1,
-          artifact_type: original.artifact_type || EDIT_DATA.artifact_name,
-        }};
+        const record = {{ ...original }};
+        record.schema_version = original.schema_version || 1;
+        record.artifact_type = original.artifact_type || EDIT_DATA.artifact_name;
         for (const input of details.querySelectorAll("[data-field]")) {{
           const field = input.dataset.field;
           const value = parseInputValue(input);
@@ -18952,40 +19274,108 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       return collected;
     }}
 
-    function addSectionRecord() {{
+    function nextGeneratedId(type) {{
+      const existing = new Set(records.map((record) => displayId(record)).filter(Boolean));
+      const prefixByType = {{
+        document: "DOC",
+        section: `${{String(EDIT_DATA.artifact_name || "doc").toUpperCase().replace(/[^A-Z0-9]+/g, "")}}SEC`,
+        requirement: "REQ",
+        decision: "DEC",
+        interface: "IFACE",
+        unit: "PH1-C",
+        suite: "TS",
+        test: "TEST",
+      }};
+      const prefix = prefixByType[type] || "REC";
+      for (let index = 1; index < 10000; index += 1) {{
+        const candidate = type === "unit"
+          ? `${{prefix}}${{index}}`
+          : `${{prefix}}-${{String(index).padStart(3, "0")}}`;
+        if (!existing.has(candidate)) {{
+          return candidate;
+        }}
+      }}
+      return `${{prefix}}-${{Date.now()}}`;
+    }}
+
+    function nextOrder() {{
       const nextOrder = records.reduce((maximum, record) => {{
         const order = Number(record.order || 0);
         return Number.isFinite(order) ? Math.max(maximum, order) : maximum;
       }}, 0) + 10;
-      records.push({{
+      return nextOrder;
+    }}
+
+    function newRecord(type) {{
+      const record = {{
         schema_version: 1,
         artifact_type: EDIT_DATA.artifact_name,
-        record_type: "section",
-        title: "New section",
-        order: nextOrder,
+        record_type: type,
+        title: `New ${{type.replace(/-/g, " ")}}`,
+        order: nextOrder(),
         body: "",
         status: "draft",
-      }});
+      }};
+      if (type === "unit") {{
+        record.unit_id = nextGeneratedId(type);
+        record.phase = 1;
+        record.sequence = 1;
+      }} else {{
+        record.id = nextGeneratedId(type);
+      }}
+      return record;
+    }}
+
+    function addSectionRecord() {{
+      records.push(newRecord(recordType.value || "section"));
       renderStructuredEditor();
       const last = recordsRoot.querySelector(".record-editor:last-child");
       if (last) {{
         last.open = true;
         last.scrollIntoView({{ block: "nearest" }});
       }}
-      queueSave();
+      markDirty();
     }}
 
-    function queueSave() {{
-      window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(save, 450);
-    }}
-
-    async function save() {{
-      if (saveInFlight) {{
-        saveQueued = true;
+    function duplicateRecord(index) {{
+      const original = records[index];
+      if (!original) {{
         return;
       }}
+      const copy = {{ ...original, order: nextOrder(), title: `${{original.title || "Record"}} copy` }};
+      if (copy.unit_id) {{
+        copy.unit_id = nextGeneratedId("unit");
+      }} else if (copy.id) {{
+        copy.id = nextGeneratedId(recordKind(copy));
+      }}
+      records.splice(index + 1, 0, copy);
+      renderStructuredEditor();
+      markDirty();
+    }}
+
+    function deleteRecord(index) {{
+      if (records.length <= 1) {{
+        return;
+      }}
+      const record = records[index];
+      const name = record ? recordSummary(record, index) : "this record";
+      if (!window.confirm(`Delete ${{name}}?`)) {{
+        return;
+      }}
+      records.splice(index, 1);
+      renderStructuredEditor();
+      markDirty();
+    }}
+
+    async function save(options = {{}}) {{
+      if (saveInFlight) {{
+        return false;
+      }}
+      if (!dirty && !options.force) {{
+        return true;
+      }}
       saveInFlight = true;
+      saveArtifact.disabled = true;
       setStatus("saving...");
       try {{
         const payload = EDIT_DATA.mode === "structured"
@@ -19013,6 +19403,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
         if (EDIT_DATA.mode === "structured") {{
           records = collectStructuredRecords();
         }}
+        setDirty(false);
         setStatus(`saved ${{result.markdown_path || EDIT_DATA.markdown_path}}`);
         if (window.parent) {{
           window.parent.postMessage(
@@ -19023,18 +19414,47 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
             window.location.origin,
           );
         }}
+        return true;
       }} catch (error) {{
         setStatus(error.message || String(error), true);
+        return false;
       }} finally {{
         saveInFlight = false;
-        if (saveQueued) {{
-          saveQueued = false;
-          queueSave();
-        }}
+        saveArtifact.disabled = !dirty;
       }}
     }}
 
     addRecord.addEventListener("click", addSectionRecord);
+    saveArtifact.addEventListener("click", () => {{
+      save({{ force: true }});
+    }});
+    window.addEventListener("message", async (event) => {{
+      if (event.origin !== window.location.origin) {{
+        return;
+      }}
+      const data = event.data || {{}};
+      if (data.type !== "electroboy-save-request") {{
+        return;
+      }}
+      const ok = await save({{ force: true }});
+      if (window.parent) {{
+        window.parent.postMessage(
+          {{
+            type: "electroboy-artifact-save-complete",
+            token: data.token || "",
+            ok,
+          }},
+          window.location.origin,
+        );
+      }}
+    }});
+    window.addEventListener("beforeunload", (event) => {{
+      if (!dirty) {{
+        return;
+      }}
+      event.preventDefault();
+      event.returnValue = "";
+    }});
     if (EDIT_DATA.mode === "structured") {{
       renderStructuredEditor();
     }} else {{
