@@ -6016,6 +6016,19 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       }
     }
 
+    function disposeProjectShellTerminal() {
+      if (projectShellTerminal) {
+        try {
+          projectShellTerminal.dispose();
+        } catch (error) {
+          // Best effort cleanup; the shell process itself remains attached server-side.
+        }
+        projectShellTerminal = null;
+        projectShellTerminalFit = null;
+      }
+      projectShellOutput.replaceChildren();
+    }
+
     async function sendProjectShellInput(data) {
       if (!projectShellRunning || !contextId || !data) {
         return;
@@ -6674,7 +6687,19 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         applyOutputPaneVisibility();
       }
       if (kind === "shell") {
+        if (poppedOut) {
+          closeProjectShellEventStream();
+          disposeProjectShellTerminal();
+        }
         applyProjectShellPaneVisibility();
+        if (
+          !poppedOut &&
+          projectShellRunning &&
+          projectShellPaneRequested &&
+          !projectShellEventSource
+        ) {
+          window.setTimeout(connectProjectShellEvents, 0);
+        }
       }
       window.requestAnimationFrame(fitTerminal);
     }

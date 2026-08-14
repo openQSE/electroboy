@@ -1068,6 +1068,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function startProjectShell()", INDEX_HTML)
         self.assertIn("function toggleProjectShellFromToolbar()", INDEX_HTML)
         self.assertIn("function updateProjectShellToggle()", INDEX_HTML)
+        self.assertIn("function disposeProjectShellTerminal()", INDEX_HTML)
+        self.assertIn("disposeProjectShellTerminal();", INDEX_HTML)
         self.assertIn("let projectShellPaneDismissed = false;", INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/start")', INDEX_HTML)
         self.assertIn('contextUrl("/api/shell/input")', INDEX_HTML)
