@@ -31,17 +31,24 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from .artifacts import ArtifactManager
-from .document_export import (
+from .registry import (
+    ModuleRegistry,
+    WorkflowRegistry,
+    build_module_registry,
+    build_workflow_registry,
+    registry_payload,
+)
+from ..artifacts import ArtifactManager
+from ..document_export import (
     DocumentExportError,
     export_markdown_document,
 )
-from .feature_artifacts import (
+from ..feature_artifacts import (
     artifact_paths_for_run,
     read_feature_record,
     resolve_artifact_path,
 )
-from .models import (
+from ..models import (
     ActivityEvent,
     GATE_DESIGN,
     STAGE_COMPLETE,
@@ -56,8 +63,8 @@ from .models import (
     STAGE_VALIDATION,
     utc_now,
 )
-from .state_store import StateError, StateStore
-from .structured_artifacts import (
+from ..state_store import StateError, StateStore
+from ..structured_artifacts import (
     ARTIFACT_DEFAULT_MARKDOWN_PATHS,
     ARTIFACT_TITLES,
     artifact_jsonl_path,
@@ -14875,8 +14882,8 @@ class ServiceState:
             requirements_started = context.requirements_started
         self._terminate_requirements_session(context_id)
         _record_requirements_complete(project_root, skipped=skip_approval)
-        from .cli import _cmd_stage, _stage_args
-        from .gates import GateEngine
+        from ..cli import _cmd_stage, _stage_args
+        from ..gates import GateEngine
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -15829,8 +15836,8 @@ class ServiceState:
             needs_design_review_completion = context.workflow_stage == "design-review"
         if session is not None and session.is_active():
             session.terminate()
-        from .cli import _cmd_stage, _stage_args
-        from .gates import GateEngine
+        from ..cli import _cmd_stage, _stage_args
+        from ..gates import GateEngine
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -16796,7 +16803,7 @@ def _force_reset_workflow_stage(
     workflow_stage: str,
     target_stage: str,
 ) -> tuple[str, str]:
-    from .cli import _force_reset_to_stage
+    from ..cli import _force_reset_to_stage
 
     stdout = io.StringIO()
     stderr = io.StringIO()
@@ -16818,6 +16825,8 @@ class ServiceConfig:
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
     session_backend: str = SESSION_BACKEND_PTY
+    module_registry: ModuleRegistry | None = None
+    workflow_registry: WorkflowRegistry | None = None
 
 
 class AgentSessionError(RuntimeError):
@@ -17547,11 +17556,15 @@ def create_server(
         if session_backend is None
         else _normalize_session_backend(session_backend)
     )
+    module_registry = build_module_registry()
+    workflow_registry = build_workflow_registry(module_registry)
     config = ServiceConfig(
         root=Path(root).expanduser().resolve(),
         host=host,
         port=port,
         session_backend=backend,
+        module_registry=module_registry,
+        workflow_registry=workflow_registry,
     )
     state = ServiceState(root=config.root, session_backend=config.session_backend)
     return ElectroBoyHTTPServer(
@@ -17610,12 +17623,23 @@ def run_service(
     return 0
 
 
-def health_payload(root: Path | str) -> dict[str, str]:
-    return {
+def health_payload(
+    root: Path | str,
+    module_registry: ModuleRegistry | None = None,
+    workflow_registry: WorkflowRegistry | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
         "status": "connected",
         "service": "electroboy",
         "root": str(Path(root).expanduser().resolve()),
     }
+    if module_registry is not None:
+        payload["modules"] = [module.id for module in module_registry.values()]
+    if workflow_registry is not None:
+        payload["workflows"] = [
+            workflow.id for workflow in workflow_registry.values()
+        ]
+    return payload
 
 
 def splash_image_bytes(resource: str = SPLASH_IMAGE_RESOURCE) -> bytes:
@@ -18280,7 +18304,7 @@ def _run_feature_start_context(
     stash_subrepo_changes: bool = False,
     branch_name: str | None = None,
 ) -> str:
-    from .cli import _cmd_feature_start
+    from ..cli import _cmd_feature_start
 
     args = SimpleNamespace(
         title_or_issue_url=title,
@@ -18299,7 +18323,7 @@ def _run_bug_start_context(
     branch: bool,
     stash_subrepo_changes: bool = False,
 ) -> str:
-    from .cli import _cmd_bug_start
+    from ..cli import _cmd_bug_start
 
     args = SimpleNamespace(
         issue_reference=issue_reference,
@@ -18330,7 +18354,7 @@ def _run_orchestrator_command(
 
 
 def _run_electroboy_cli_command(project_root: Path, args: list[str]) -> str:
-    from .cli import main
+    from ..cli import main
 
     stdout = io.StringIO()
     stderr = io.StringIO()
@@ -18565,7 +18589,7 @@ def _browser_entry_visible(path: Path, show_hidden: bool) -> bool:
 
 
 def initialize_project(project_root: Path | str):
-    from .cli import (
+    from ..cli import (
         _init_git_repository,
         _write_project_bin,
         _write_project_config,
@@ -18587,7 +18611,7 @@ def initialize_project(project_root: Path | str):
 
 
 def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:
-    from .cli import (
+    from ..cli import (
         _meta_registry_file,
         _read_meta_registry,
         _write_meta_environment,
@@ -18633,7 +18657,7 @@ def _existing_meta_context(path: str | Path) -> dict[str, object]:
 
 
 def _meta_context(meta_root: Path) -> dict[str, object]:
-    from .cli import _meta_repository_by_name, _read_meta_registry
+    from ..cli import _meta_repository_by_name, _read_meta_registry
 
     registry = _read_meta_registry(meta_root)
     repositories = _meta_repository_payloads(registry)
@@ -18661,7 +18685,7 @@ def _meta_context(meta_root: Path) -> dict[str, object]:
 
 
 def _meta_repository_payloads(registry: dict[str, object]) -> list[dict[str, object]]:
-    from .cli import _meta_repositories
+    from ..cli import _meta_repositories
 
     return [
         {
@@ -18673,7 +18697,7 @@ def _meta_repository_payloads(registry: dict[str, object]) -> list[dict[str, obj
 
 
 def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
-    from .cli import (
+    from ..cli import (
         _read_meta_registry,
         _register_meta_repository,
         _resolve_existing_repo_path,
@@ -18686,7 +18710,7 @@ def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
 
 
 def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
-    from .cli import (
+    from ..cli import (
         _ensure_target_pipeline_project,
         _read_meta_registry,
         _register_meta_repository,
@@ -18707,7 +18731,7 @@ def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object
 
 
 def _remove_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
-    from .cli import (
+    from ..cli import (
         _candidate_repo_path,
         _meta_repository_by_name,
         _meta_repositories,
@@ -18840,7 +18864,7 @@ def _stage_operations(
 def _reopen_requirements_for_restart(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
-    from .cli import _is_backward_stage_request, _record_stage_reopen
+    from ..cli import _is_backward_stage_request, _record_stage_reopen
 
     if _is_backward_stage_request(manifest.active_stage, STAGE_REQUIREMENTS):
         _record_stage_reopen(
@@ -18866,7 +18890,7 @@ def _reopen_requirements_for_restart(project_root: Path) -> None:
 def _reopen_design_for_restart(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
-    from .cli import _is_backward_stage_request, _record_stage_reopen
+    from ..cli import _is_backward_stage_request, _record_stage_reopen
 
     if _is_backward_stage_request(manifest.active_stage, STAGE_DESIGN):
         _record_stage_reopen(
@@ -18929,7 +18953,7 @@ def _record_design_complete(project_root: Path) -> None:
 
 
 def _should_force_completed_requirements_approval(store: StateStore) -> bool:
-    from .cli import _has_successful_agent_event
+    from ..cli import _has_successful_agent_event
 
     if _has_successful_agent_event(store, "design_author", STAGE_REQUIREMENTS):
         return False
@@ -23997,7 +24021,7 @@ def _electroboy_command(root: Path, args: list[str]) -> list[str]:
 
 
 def _service_module_search_path() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 def _progress_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, bool]:
@@ -24251,7 +24275,7 @@ def _agent_process_env() -> dict[str, str]:
 
 
 def _module_search_path() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 def _clean_terminal_output(
@@ -24490,7 +24514,26 @@ def _handler_for(
                 self._send_pane_window(path)
                 return
             if path == "/api/health":
-                self._send_json(health_payload(config.root))
+                self._send_json(
+                    health_payload(
+                        config.root,
+                        config.module_registry,
+                        config.workflow_registry,
+                    )
+                )
+                return
+            if path == "/api/registry":
+                module_registry = config.module_registry or build_module_registry()
+                workflow_registry = (
+                    config.workflow_registry
+                    or build_workflow_registry(module_registry)
+                )
+                self._send_json(
+                    registry_payload(
+                        module_registry,
+                        workflow_registry,
+                    )
+                )
                 return
             if path == "/api/project":
                 self._send_context_json(
@@ -24829,7 +24872,13 @@ def _handler_for(
                 )
                 return
             if path == "/api/health":
-                data = json.dumps(health_payload(config.root)).encode("utf-8")
+                data = json.dumps(
+                    health_payload(
+                        config.root,
+                        config.module_registry,
+                        config.workflow_registry,
+                    )
+                ).encode("utf-8")
                 self._send_headers(
                     HTTPStatus.OK,
                     "application/json; charset=utf-8",

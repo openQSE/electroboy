@@ -97,6 +97,37 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "connected")
         self.assertEqual(payload["service"], "electroboy")
         self.assertEqual(payload["root"], str(root.resolve()))
+        self.assertIn("agent_sessions", payload["modules"])
+        self.assertIn("software", payload["workflows"])
+
+    def test_registry_endpoint_reports_backend_modules_and_workflows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(server, "/api/registry")
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        payload = json.loads(body)
+        modules = {entry["id"]: entry for entry in payload["modules"]}
+        workflows = {entry["id"]: entry for entry in payload["workflows"]}
+        self.assertIn("agent_sessions", modules)
+        self.assertIn("structured_documents", modules)
+        self.assertIn("corkboard", modules)
+        self.assertIn("software", workflows)
+        self.assertIn("creative-writing", workflows)
+        self.assertIn("agent_sessions", workflows["software"]["modules"])
 
     def test_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
