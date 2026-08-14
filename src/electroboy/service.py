@@ -9541,7 +9541,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         const frame = document.createElement("iframe");
         frame.className = "artifact-preview-frame loading";
         frame.title = `${item.title} preview`;
-        frame.setAttribute("sandbox", "allow-scripts allow-popups allow-same-origin");
+        frame.setAttribute(
+          "sandbox",
+          "allow-scripts allow-popups allow-modals allow-same-origin",
+        );
         frame.dataset.artifactId = item.id;
         markArtifactFrameLoading(frame);
         frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
@@ -12033,7 +12036,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         id="artifactFrame"
         class="artifact-frame"
         title="Rendered artifact preview"
-        sandbox="allow-scripts allow-popups allow-same-origin"
+        sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
         hidden
       ></iframe>
       <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>

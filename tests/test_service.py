@@ -265,7 +265,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/shell/input")', PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/shell/resize")', PANE_WINDOW_HTML)
         self.assertIn('if (kind === "input") return "AI agent input";', PANE_WINDOW_HTML)
-        self.assertIn('sandbox="allow-scripts allow-popups allow-same-origin"', page)
+        self.assertIn(
+            'sandbox="allow-scripts allow-popups allow-modals allow-same-origin"',
+            page,
+        )
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
         self.assertIn('contextUrl("/api/progress/events")', page)
         self.assertIn('contextUrl("/api/sessions/message")', page)
@@ -1238,7 +1241,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('className = "document-zoom-button"', INDEX_HTML)
         self.assertIn('className = "document-zoom-level"', INDEX_HTML)
         self.assertIn(
-            'frame.setAttribute("sandbox", "allow-scripts allow-popups allow-same-origin")',
+            '"allow-scripts allow-popups allow-modals allow-same-origin"',
             INDEX_HTML,
         )
         self.assertIn("function artifactEditUrl(item)", INDEX_HTML)
