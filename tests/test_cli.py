@@ -127,6 +127,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         run_service.assert_called_once_with(str(cli_root), host="127.0.0.2", port=0)
 
+    def test_serve_accepts_session_backend_override(self) -> None:
+        with temp_project() as root:
+            with mock.patch(
+                "electroboy.service.run_service",
+                return_value=0,
+            ) as run_service:
+                code, stdout, stderr = self.run_cli(
+                    [
+                        "serve",
+                        "--root",
+                        str(root),
+                        "--session-backend",
+                        "tmux",
+                    ]
+                )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stdout, "")
+        run_service.assert_called_once_with(
+            str(root),
+            host="127.0.0.1",
+            port=8765,
+            session_backend="tmux",
+        )
+
     def test_serve_rejects_invalid_environment_port(self) -> None:
         with mock.patch.dict(os.environ, {"ELECTROBOY_SERVICE_PORT": "bad"}):
             code, stdout, stderr = self.run_cli(["serve"])
@@ -182,7 +207,30 @@ class CliTests(unittest.TestCase):
             )
             self.assertIn('ELECTROBOY_SERVICE_HOST="0.0.0.0"', env_text)
             self.assertIn('ELECTROBOY_SERVICE_PORT="9001"', env_text)
+            self.assertIn('ELECTROBOY_SESSION_BACKEND="pty"', env_text)
             self.assertIn('PATH="/custom/bin:/usr/bin"', env_text)
+
+    def test_service_install_writes_tmux_session_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                code, _stdout, stderr = self.run_cli(
+                    [
+                        "service",
+                        "install",
+                        "--session-backend",
+                        "tmux",
+                        "--no-reload",
+                    ]
+                )
+
+            env_path = home / ".config" / "electroboy" / "service.env"
+            env_text = env_path.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn('ELECTROBOY_SESSION_BACKEND="tmux"', env_text)
 
     def test_service_install_refuses_to_overwrite_without_force(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -33,6 +33,7 @@ from electroboy.service import (  # noqa: E402
     AgentSessionError,
     SESSION_ARTIFACT_LOCKS,
     ServiceState,
+    TmuxAgentSession,
     _agent_process_env,
     _artifact_event_document_path,
     _clean_terminal_output,
@@ -3048,6 +3049,84 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual(attach_payload["selected_session_id"], session.session_id)
         self.assertEqual(attach_payload["sessions"][0]["session_id"], session.session_id)
+
+    def test_service_state_tmux_backend_wraps_new_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root, session_backend="tmux")
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.TmuxAgentSession.start"):
+                session, started = state.start_ad_hoc_agent(context_id)
+
+            registry = state.session_registry_payload()
+
+        self.assertTrue(started)
+        self.assertIsInstance(session, TmuxAgentSession)
+        self.assertEqual(session.backend, "tmux")
+        self.assertTrue(session.tmux_name.startswith("electroboy-"))
+        self.assertEqual(registry["sessions"][0]["backend"], "tmux")
+        self.assertEqual(registry["sessions"][0]["tmux_session"], session.tmux_name)
+
+    def test_service_state_restores_running_tmux_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            record_path = _service_session_records_path(service_root)
+            record_path.parent.mkdir(parents=True, exist_ok=True)
+            record_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sessions": [
+                            {
+                                "active_project_root": str(project_root),
+                                "activation_root": str(project_root),
+                                "backend": "tmux",
+                                "command": [sys.executable, "-c", "print('ready')"],
+                                "context_id": "ctx-restored",
+                                "cwd": str(project_root),
+                                "interactive": True,
+                                "kind": "ad-hoc",
+                                "label": "ad-hoc agent",
+                                "metadata": {},
+                                "project_mode": "project",
+                                "session_id": "session-restored",
+                                "status": "running",
+                                "tmux_session": "electroboy-session-restored",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch("electroboy.service.shutil.which", return_value="/usr/bin/tmux"),
+                mock.patch("electroboy.service._tmux_has_session", return_value=True),
+                mock.patch(
+                    "electroboy.service.TmuxAgentSession.attach_existing"
+                ) as attach_existing,
+            ):
+                state = ServiceState(service_root, session_backend="tmux")
+                registry = state.session_registry_payload()
+
+        attach_existing.assert_called_once()
+        self.assertEqual(registry["sessions"][0]["session_id"], "session-restored")
+        self.assertEqual(registry["sessions"][0]["backend"], "tmux")
+        self.assertTrue(registry["sessions"][0]["attachable"])
+        self.assertEqual(
+            registry["sessions"][0]["active_project_root"],
+            str(project_root),
+        )
 
     def test_documentation_sidecar_session_does_not_change_workflow_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

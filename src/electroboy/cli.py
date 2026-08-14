@@ -195,6 +195,9 @@ META_MANAGEMENT_COMMANDS = {"add", "start"}
 SERVICE_ROOT_ENV = "ELECTROBOY_SERVICE_ROOT"
 SERVICE_HOST_ENV = "ELECTROBOY_SERVICE_HOST"
 SERVICE_PORT_ENV = "ELECTROBOY_SERVICE_PORT"
+SERVICE_SESSION_BACKEND_ENV = "ELECTROBOY_SESSION_BACKEND"
+SERVICE_SESSION_BACKEND_PTY = "pty"
+SERVICE_SESSION_BACKEND_TMUX = "tmux"
 SERVICE_DEFAULT_HOST = "127.0.0.1"
 SERVICE_DEFAULT_PORT = 8765
 SERVICE_NAME = "electroboy"
@@ -576,6 +579,18 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"port to write into the env file; defaults to {SERVICE_DEFAULT_PORT}",
     )
     service_install.add_argument(
+        "--session-backend",
+        choices=[SERVICE_SESSION_BACKEND_PTY, SERVICE_SESSION_BACKEND_TMUX],
+        default=os.environ.get(
+            SERVICE_SESSION_BACKEND_ENV,
+            SERVICE_SESSION_BACKEND_PTY,
+        ),
+        help=(
+            "agent session backend to write into the env file; pty exits with "
+            "the service, tmux survives service restarts"
+        ),
+    )
+    service_install.add_argument(
         "--path",
         dest="command_path",
         default=os.environ.get("PATH", ""),
@@ -623,6 +638,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--port",
         type=int,
         help="port to bind; defaults to ELECTROBOY_SERVICE_PORT or 8765",
+    )
+    serve.add_argument(
+        "--session-backend",
+        choices=[SERVICE_SESSION_BACKEND_PTY, SERVICE_SESSION_BACKEND_TMUX],
+        help=(
+            "agent session backend; defaults to ELECTROBOY_SESSION_BACKEND "
+            "or pty"
+        ),
     )
     subparsers.add_parser("deactivate", help="leave an activated pipeline project")
 
@@ -1335,8 +1358,11 @@ def _cmd_serve(args: argparse.Namespace, root_explicit: bool = False) -> int:
     root = _service_root(args, root_explicit=root_explicit)
     host = args.host or os.environ.get(SERVICE_HOST_ENV) or SERVICE_DEFAULT_HOST
     port = args.port if args.port is not None else _service_port_from_environment()
+    kwargs: dict[str, object] = {"host": host, "port": port}
+    if args.session_backend:
+        kwargs["session_backend"] = args.session_backend
     try:
-        return run_service(root, host=host, port=port)
+        return run_service(root, **kwargs)
     except OSError as error:
         print(f"error: could not start ElectroBoy service: {error}", file=sys.stderr)
         return 2
@@ -1362,6 +1388,7 @@ def _cmd_service_install(args: argparse.Namespace) -> int:
         browse_root=browse_root,
         host=args.host,
         port=port,
+        session_backend=args.session_backend,
         command_path=command_path,
     )
 
@@ -1372,6 +1399,7 @@ def _cmd_service_install(args: argparse.Namespace) -> int:
     print(f"installed service env: {env_path}")
     print(f"browse root: {browse_root}")
     print(f"bind: {args.host}:{port}")
+    print(f"session backend: {args.session_backend}")
 
     if args.reload:
         _run_systemctl(scope, ["daemon-reload"], required=False)
@@ -1409,7 +1437,7 @@ def _service_unit_text(scope: str, service_user: str | None = None) -> str:
 #
 # ElectroBoy runs as the operator because Codex, Git, and project credentials
 # are user-scoped. Use the env files below to configure browse root, host,
-# port, and PATH.
+# port, session backend, and PATH.
 
 [Unit]
 Description=ElectroBoy browser service
@@ -1436,6 +1464,7 @@ def _service_env_text(
     browse_root: Path,
     host: str,
     port: int,
+    session_backend: str,
     command_path: str,
 ) -> str:
     return "\n".join(
@@ -1452,6 +1481,10 @@ def _service_env_text(
             "",
             "# Browser URL port.",
             _systemd_env_assignment(SERVICE_PORT_ENV, str(port)),
+            "",
+            "# Agent session backend. Use tmux when sessions should survive",
+            "# browser-service restarts.",
+            _systemd_env_assignment(SERVICE_SESSION_BACKEND_ENV, session_backend),
             "",
             "# systemd does not inherit your interactive shell PATH at start",
             "# time, so the installer snapshots PATH here.",

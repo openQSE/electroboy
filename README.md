@@ -56,6 +56,7 @@ Start the browser UI directly while developing:
 ```bash
 electroboy serve
 electroboy serve --port 9001
+electroboy serve --session-backend tmux
 ```
 
 Document panes in the browser UI can export the rendered Markdown source as
@@ -69,6 +70,10 @@ provided:
   auto-open a project or select a meta-project repository.
 - `ELECTROBOY_SERVICE_HOST`: bind address, defaulting to `127.0.0.1`.
 - `ELECTROBOY_SERVICE_PORT`: bind port, defaulting to `8765`.
+- `ELECTROBOY_SESSION_BACKEND`: agent session backend. The default `pty`
+  backend stops sessions when the service stops. The opt-in `tmux` backend
+  keeps running agent sessions alive across browser-service restarts and lets a
+  later browser context attach to them.
 
 Install the systemd unit as a user service so the browser service runs with the
 same Codex, Git, and project configuration as the operator:
@@ -77,7 +82,8 @@ same Codex, Git, and project configuration as the operator:
 electroboy service install \
   --browse-root ~/ORNL/Quantum/openQSE \
   --host 127.0.0.1 \
-  --port 8765
+  --port 8765 \
+  --session-backend tmux
 systemctl --user start electroboy
 ```
 
@@ -86,6 +92,10 @@ The install command writes `~/.config/systemd/user/electroboy.service` and
 env file, and runs `systemctl --user daemon-reload`. Use `--force` to overwrite
 an existing installed unit or env file, `--enable` to enable the service, and
 `--start` to start it immediately.
+
+The default installed backend is `pty`. Use `--session-backend tmux` when long
+agent runs should survive a service restart. Explicitly stopping an agent from
+the GUI still terminates that agent.
 
 After editing `ELECTROBOY_SERVICE_PORT` in
 `~/.config/electroboy/service.env`, restart the service:

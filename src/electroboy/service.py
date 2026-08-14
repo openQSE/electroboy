@@ -105,6 +105,9 @@ SERVICE_SESSION_RECORDS_RELATIVE_PATH = (
 SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR = (
     Path(".electroboy") / "service" / "session-transcripts"
 )
+SESSION_BACKEND_ENV = "ELECTROBOY_SESSION_BACKEND"
+SESSION_BACKEND_PTY = "pty"
+SESSION_BACKEND_TMUX = "tmux"
 CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
     {"id": "butter", "label": "Butter", "value": "#fff6cf"},
     {"id": "rose", "label": "Rose", "value": "#f9e7dd"},
@@ -14410,21 +14413,30 @@ class BrowserContext:
 @dataclass
 class ServiceState:
     root: Path
+    session_backend: str = SESSION_BACKEND_PTY
     lock: threading.Lock = field(default_factory=threading.Lock)
     contexts: dict[str, BrowserContext] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.root = self.root.resolve()
+        self.session_backend = _normalize_session_backend(self.session_backend)
         (self.root / SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR).mkdir(
             parents=True,
             exist_ok=True,
         )
+        if self.session_backend == SESSION_BACKEND_TMUX:
+            self._restore_tmux_sessions()
 
     def _prepare_session_locked(
         self,
         context: BrowserContext,
         session: AgentSession,
-    ) -> None:
+    ) -> AgentSession:
+        if self.session_backend == SESSION_BACKEND_TMUX and not isinstance(
+            session,
+            TmuxAgentSession,
+        ):
+            session = TmuxAgentSession.from_agent_session(session)
         session.persist_to(
             context_id=context.context_id,
             transcript_path=_service_session_transcript_path(
@@ -14437,6 +14449,7 @@ class ServiceState:
             self.root,
             _service_session_record(self.root, context, session),
         )
+        return session
 
     def _record_session_status(self, session: AgentSession) -> None:
         with self.lock:
@@ -14447,6 +14460,73 @@ class ServiceState:
                 self.root,
                 _service_session_record(self.root, context, session),
             )
+
+    def _restore_tmux_sessions(self) -> None:
+        if shutil.which("tmux") is None:
+            return
+        records = _load_service_session_records(self.root)
+        restored_sessions: list[TmuxAgentSession] = []
+        with self.lock:
+            for entry in records.get("sessions", []):
+                if not isinstance(entry, dict):
+                    continue
+                if str(entry.get("backend") or "") != SESSION_BACKEND_TMUX:
+                    continue
+                session_id = str(entry.get("session_id") or "").strip()
+                tmux_name = str(entry.get("tmux_session") or "").strip()
+                if not session_id or not tmux_name or not _tmux_has_session(tmux_name):
+                    continue
+                context_id = str(entry.get("context_id") or "").strip() or uuid4().hex
+                context = self.contexts.setdefault(
+                    context_id,
+                    BrowserContext(context_id=context_id),
+                )
+                activation_root = str(entry.get("activation_root") or "").strip()
+                active_root = str(entry.get("active_project_root") or "").strip()
+                context.activation_root = Path(activation_root) if activation_root else None
+                context.active_project_root = Path(active_root) if active_root else None
+                context.project_mode = str(entry.get("project_mode") or "project")
+                context.active_repository_name = (
+                    str(entry.get("active_repository_name"))
+                    if entry.get("active_repository_name")
+                    else None
+                )
+                command = [
+                    str(item)
+                    for item in entry.get("command", [])
+                    if isinstance(item, str)
+                ]
+                if not command:
+                    continue
+                cwd = str(entry.get("cwd") or active_root or self.root)
+                session = TmuxAgentSession(
+                    command=command,
+                    cwd=Path(cwd),
+                    session_id=session_id,
+                    label=str(entry.get("label") or "agent"),
+                    kind=str(entry.get("kind") or "agent"),
+                    interactive=bool(entry.get("interactive", True)),
+                    metadata=(
+                        entry.get("metadata")
+                        if isinstance(entry.get("metadata"), dict)
+                        else None
+                    ),
+                    tmux_name=tmux_name,
+                )
+                session.persist_to(
+                    context_id=context.context_id,
+                    transcript_path=_service_session_transcript_path(
+                        self.root,
+                        session.session_id,
+                    ),
+                )
+                self._attach_session_locked(context, session)
+                if session.kind != "project-shell":
+                    context.selected_session_id = session.session_id
+                restored_sessions.append(session)
+        for session in restored_sessions:
+            session.on_status_changed = self._record_session_status
+            session.attach_existing()
 
     def create_context(self) -> dict[str, object]:
         context = BrowserContext(context_id=uuid4().hex)
@@ -15213,7 +15293,7 @@ class ServiceState:
                 interactive=True,
                 lock_names=lock_names,
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.requirements_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "requirements"
@@ -15287,7 +15367,7 @@ class ServiceState:
                 interactive=True,
                 lock_names=lock_names,
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.design_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "design"
@@ -15401,7 +15481,7 @@ class ServiceState:
                     )
                 ),
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.design_review_session = session
             context.selected_session_id = session.session_id
             context.design_review_interactive = interactive
@@ -15488,7 +15568,7 @@ class ServiceState:
                     "document_label": document_label,
                 },
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.documentation_sessions[session_key] = session
             context.selected_session_id = session.session_id
         try:
@@ -15688,7 +15768,7 @@ class ServiceState:
                 kind="creative-writing",
                 interactive=True,
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.creative_session = session
             context.selected_session_id = session.session_id
         try:
@@ -15897,7 +15977,7 @@ class ServiceState:
                     returncode,
                 ),
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.stage_sessions[stage] = session
             context.selected_session_id = session.session_id
             context.workflow_stage = stage
@@ -16118,7 +16198,7 @@ class ServiceState:
                 kind="ad-hoc",
                 interactive=True,
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.ad_hoc_session = session
             context.selected_session_id = session.session_id
         try:
@@ -16156,7 +16236,7 @@ class ServiceState:
                 interactive=True,
                 echo_input=True,
             )
-            self._prepare_session_locked(context, session)
+            session = self._prepare_session_locked(context, session)
             context.project_shell_session = session
         try:
             session.start()
@@ -16737,6 +16817,7 @@ class ServiceConfig:
     root: Path
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
+    session_backend: str = SESSION_BACKEND_PTY
 
 
 class AgentSessionError(RuntimeError):
@@ -16763,8 +16844,9 @@ class AgentSession:
         transcript_path: Path | str | None = None,
         backend: str = "pty",
         on_status_changed: Callable[["AgentSession"], None] | None = None,
+        session_id: str | None = None,
     ) -> None:
-        self.session_id = uuid4().hex
+        self.session_id = session_id or uuid4().hex
         self.command = command
         self.cwd = Path(cwd).resolve()
         self.columns = _clamp_terminal_columns(columns)
@@ -17105,6 +17187,251 @@ class AgentSession:
             return
 
 
+class TmuxAgentSession(AgentSession):
+    """Agent session backed by a named tmux session."""
+
+    def __init__(
+        self,
+        command: list[str],
+        cwd: Path | str,
+        columns: int = 120,
+        rows: int = 32,
+        label: str = "agent",
+        kind: str = "agent",
+        interactive: bool = True,
+        lock_names: frozenset[str] | set[str] | None = None,
+        on_completed: Callable[[int], None] | None = None,
+        echo_input: bool = False,
+        metadata: dict[str, object] | None = None,
+        context_id: str | None = None,
+        transcript_path: Path | str | None = None,
+        on_status_changed: Callable[["AgentSession"], None] | None = None,
+        session_id: str | None = None,
+        tmux_name: str | None = None,
+    ) -> None:
+        super().__init__(
+            command,
+            cwd,
+            columns=columns,
+            rows=rows,
+            label=label,
+            kind=kind,
+            interactive=interactive,
+            lock_names=lock_names,
+            on_completed=on_completed,
+            echo_input=echo_input,
+            metadata=metadata,
+            context_id=context_id,
+            transcript_path=transcript_path,
+            backend=SESSION_BACKEND_TMUX,
+            on_status_changed=on_status_changed,
+            session_id=session_id,
+        )
+        self.tmux_name = tmux_name or _tmux_session_name(self.session_id)
+        self._last_capture = ""
+
+    @classmethod
+    def from_agent_session(cls, session: AgentSession) -> "TmuxAgentSession":
+        return cls(
+            session.command,
+            session.cwd,
+            columns=session.columns,
+            rows=session.rows,
+            label=session.label,
+            kind=session.kind,
+            interactive=session.interactive,
+            lock_names=session.lock_names,
+            on_completed=session.on_completed,
+            echo_input=session.echo_input,
+            metadata=session.metadata,
+            context_id=session.context_id,
+            transcript_path=session.transcript_path,
+            on_status_changed=session.on_status_changed,
+            session_id=session.session_id,
+        )
+
+    def payload(self, selected: bool = False) -> dict[str, object]:
+        payload = super().payload(selected=selected)
+        payload["tmux_session"] = self.tmux_name
+        return payload
+
+    def start(self) -> None:
+        if shutil.which("tmux") is None:
+            raise AgentSessionError("tmux session backend requires tmux in PATH")
+        if _tmux_has_session(self.tmux_name):
+            raise AgentSessionError(f"tmux session already exists: {self.tmux_name}")
+        command = [
+            "tmux",
+            "new-session",
+            "-d",
+            "-s",
+            self.tmux_name,
+            "-c",
+            str(self.cwd),
+            _tmux_shell_command(self.command, self.cwd),
+        ]
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except subprocess.CalledProcessError as error:
+            stderr = error.stderr.decode("utf-8", errors="replace").strip()
+            raise AgentSessionError(
+                stderr or f"could not start tmux session {self.tmux_name}"
+            ) from error
+        self.status = "running"
+        self._notify_status_changed()
+        self._append_event(
+            {
+                "type": "system",
+                "text": f"started tmux session: {self.tmux_name}",
+            }
+        )
+        self.resize(self.columns, self.rows)
+        self._reader_thread = threading.Thread(
+            target=self._read_output,
+            name="electroboy-tmux-output",
+            daemon=True,
+        )
+        self._waiter_thread = threading.Thread(
+            target=self._wait_for_exit,
+            name="electroboy-tmux-wait",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        self._waiter_thread.start()
+
+    def attach_existing(self) -> None:
+        if not _tmux_has_session(self.tmux_name):
+            self.status = "completed"
+            self.returncode = 0
+            return
+        self.status = "running"
+        self._notify_status_changed()
+        self._append_event(
+            {
+                "type": "system",
+                "text": f"reattached tmux session: {self.tmux_name}",
+            }
+        )
+        self._reader_thread = threading.Thread(
+            target=self._read_output,
+            name="electroboy-tmux-output",
+            daemon=True,
+        )
+        self._waiter_thread = threading.Thread(
+            target=self._wait_for_exit,
+            name="electroboy-tmux-wait",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        self._waiter_thread.start()
+
+    def send(self, message: str) -> None:
+        if not self.is_active():
+            raise AgentSessionError(f"{self.label} is not running")
+        for index, text in enumerate(_terminal_input_chunks_for_message(message)):
+            if index > 0:
+                time.sleep(TERMINAL_SUBMIT_DELAY_SECONDS)
+            self.send_raw(text)
+
+    def send_key(self, key: str) -> None:
+        if not self.is_active():
+            raise AgentSessionError(f"{self.label} is not running")
+        tmux_key = _tmux_key_name(key)
+        if tmux_key is None:
+            self.send_raw(_terminal_input_for_key(key))
+            return
+        _tmux_run(["send-keys", "-t", self.tmux_name, tmux_key])
+
+    def send_raw(self, data: str) -> None:
+        if not self.is_active():
+            raise AgentSessionError(f"{self.label} is not running")
+        if not data:
+            return
+        buffer_name = f"electroboy-{self.session_id}"
+        encoded = data.encode("utf-8", errors="ignore")
+        _tmux_run(["load-buffer", "-b", buffer_name, "-"], input_bytes=encoded)
+        _tmux_run(["paste-buffer", "-d", "-b", buffer_name, "-t", self.tmux_name])
+
+    def interrupt(self) -> None:
+        self.send_key("escape")
+
+    def terminate(self, timeout: float = 2.0) -> None:
+        if self.is_active():
+            _tmux_run(["kill-session", "-t", self.tmux_name], check=False)
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline and self.is_active():
+                time.sleep(0.05)
+        self.returncode = 0
+        self.status = "terminated"
+        self._notify_status_changed()
+
+    def resize(self, columns: int, rows: int) -> None:
+        self.columns = _clamp_terminal_columns(columns)
+        self.rows = _clamp_terminal_rows(rows)
+        if self.is_active():
+            _tmux_run(
+                [
+                    "resize-window",
+                    "-t",
+                    self.tmux_name,
+                    "-x",
+                    str(self.columns),
+                    "-y",
+                    str(self.rows),
+                ],
+                check=False,
+            )
+
+    def is_active(self) -> bool:
+        return _tmux_has_session(self.tmux_name)
+
+    def _read_output(self) -> None:
+        while self.is_active():
+            capture = _tmux_capture_pane(self.tmux_name)
+            if capture and capture != self._last_capture:
+                text = _tmux_capture_delta(self._last_capture, capture)
+                self._last_capture = capture
+                if text:
+                    self._append_event(
+                        {
+                            "type": "output",
+                            "text": text,
+                            "terminal": text,
+                        }
+                    )
+            time.sleep(1)
+
+    def _wait_for_exit(self) -> None:
+        while self.is_active():
+            time.sleep(0.5)
+        self.returncode = 0 if self.returncode is None else self.returncode
+        completed = self.status == "running"
+        if completed:
+            self.status = "completed"
+        self._notify_status_changed()
+        if self.on_completed is not None and completed:
+            try:
+                self.on_completed(self.returncode or 0)
+            except Exception as error:
+                self._append_event(
+                    {
+                        "type": "error",
+                        "text": f"completion hook failed: {error}",
+                    }
+                )
+        self._append_event(
+            {
+                "type": "completed",
+                "returncode": self.returncode,
+            }
+        )
+
+
 def _terminate_process_tree(
     process: subprocess.Popen[bytes],
     timeout: float,
@@ -17201,7 +17528,10 @@ class ElectroBoyHTTPServer(ThreadingHTTPServer):
         super().__init__(server_address, RequestHandlerClass, bind_and_activate)
 
     def server_close(self) -> None:
-        if self.service_state is not None:
+        if (
+            self.service_state is not None
+            and self.service_state.session_backend != SESSION_BACKEND_TMUX
+        ):
             self.service_state.terminate_all_sessions()
         super().server_close()
 
@@ -17210,13 +17540,20 @@ def create_server(
     root: Path | str,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    session_backend: str | None = None,
 ) -> ElectroBoyHTTPServer:
+    backend = (
+        _session_backend_from_env()
+        if session_backend is None
+        else _normalize_session_backend(session_backend)
+    )
     config = ServiceConfig(
         root=Path(root).expanduser().resolve(),
         host=host,
         port=port,
+        session_backend=backend,
     )
-    state = ServiceState(root=config.root)
+    state = ServiceState(root=config.root, session_backend=config.session_backend)
     return ElectroBoyHTTPServer(
         (config.host, config.port),
         _handler_for(config, state),
@@ -17228,8 +17565,14 @@ def run_service(
     root: Path | str,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    session_backend: str | None = None,
 ) -> int:
-    server = create_server(root, host=host, port=port)
+    server = create_server(
+        root,
+        host=host,
+        port=port,
+        session_backend=session_backend,
+    )
     stop_signal: int | None = None
     previous_signal_handlers: dict[int, Any] = {}
 
@@ -17252,6 +17595,7 @@ def run_service(
         flush=True,
     )
     print(f"root: {Path(root).expanduser().resolve()}", flush=True)
+    print(f"session backend: {server.service_state.session_backend}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -17546,6 +17890,7 @@ def _service_session_record(
         "activation_root": str(activation_root) if activation_root else None,
         "project_mode": context.project_mode,
         "active_repository_name": context.active_repository_name,
+        "cwd": str(session.cwd),
         "updated_at": utc_now(),
         "transcript_path": (
             str(session.transcript_path)
@@ -17553,6 +17898,9 @@ def _service_session_record(
             else str(_service_session_transcript_path(service_root, session.session_id))
         ),
     }
+    tmux_name = getattr(session, "tmux_name", None)
+    if tmux_name:
+        record["tmux_session"] = str(tmux_name)
     return record
 
 
@@ -23747,6 +24095,106 @@ def _terminal_input_chunks_for_message(message: str) -> list[str]:
     if "\n" in text:
         return [f"\x1b[200~{text}\x1b[201~", "\r"]
     return [text, "\r"]
+
+
+def _normalize_session_backend(value: str | None) -> str:
+    backend = str(value or SESSION_BACKEND_PTY).strip().lower()
+    if backend in {"", SESSION_BACKEND_PTY}:
+        return SESSION_BACKEND_PTY
+    if backend == SESSION_BACKEND_TMUX:
+        return SESSION_BACKEND_TMUX
+    raise StateError(f"unknown session backend: {value}")
+
+
+def _session_backend_from_env() -> str:
+    return _normalize_session_backend(os.environ.get(SESSION_BACKEND_ENV))
+
+
+def _tmux_session_name(session_id: str) -> str:
+    safe_session_id = _download_name_part(session_id)
+    return f"electroboy-{safe_session_id[:32]}"
+
+
+def _tmux_run(
+    args: list[str],
+    *,
+    input_bytes: bytes | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess[bytes]:
+    command = ["tmux", *args]
+    result = subprocess.run(
+        command,
+        input=input_bytes,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if check and result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        raise AgentSessionError(stderr or f"tmux command failed: {shlex.join(command)}")
+    return result
+
+
+def _tmux_has_session(tmux_name: str) -> bool:
+    if shutil.which("tmux") is None:
+        return False
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", tmux_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
+def _tmux_shell_command(command: list[str], cwd: Path | str) -> str:
+    root = Path(cwd).expanduser().resolve()
+    env = _agent_process_env()
+    env["ELECTROBOY_PROJECT_ROOT"] = str(root)
+    env["AI_PIPELINE_PROJECT_ROOT"] = str(root)
+    env_args = [f"{key}={value}" for key, value in sorted(env.items())]
+    return "exec " + shlex.join(["env", *env_args, *command])
+
+
+def _tmux_key_name(key: str) -> str | None:
+    normalized = key.strip().lower()
+    mapping = {
+        "enter": "Enter",
+        "escape": "Escape",
+        "up": "Up",
+        "down": "Down",
+        "left": "Left",
+        "right": "Right",
+        "backspace": "BSpace",
+        "delete": "DC",
+    }
+    if normalized in mapping:
+        return mapping[normalized]
+    if re.fullmatch(r"[0-9]", normalized):
+        return None
+    return None
+
+
+def _tmux_capture_pane(tmux_name: str) -> str:
+    result = _tmux_run(
+        ["capture-pane", "-p", "-e", "-J", "-t", tmux_name, "-S", "-2000"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+def _tmux_capture_delta(previous: str, current: str) -> str:
+    if not previous:
+        return current
+    if current.startswith(previous):
+        return current[len(previous) :]
+    previous_lines = previous.splitlines()
+    current_lines = current.splitlines()
+    for count in range(min(len(previous_lines), len(current_lines)), 0, -1):
+        if previous_lines[-count:] == current_lines[:count]:
+            suffix = "\n".join(current_lines[count:])
+            return suffix + ("\n" if suffix and current.endswith("\n") else "")
+    return current
 
 
 def _disable_terminal_echo(slave_fd: int) -> None:
