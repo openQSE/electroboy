@@ -2855,6 +2855,12 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
           title="Open an interactive coding agent session."
         >Start interactive</button>
         <button
+          id="startCodeAdHocAgent"
+          type="button"
+          disabled
+          title="Start a plain interactive agent without staged workflow instructions."
+        >Start ad-hoc</button>
+        <button
           id="stopCode"
           type="button"
           title="Stop the running coding agent."
@@ -3541,6 +3547,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const setCodeStage = document.getElementById("setCodeStage");
     const startAutomaticCode = document.getElementById("startAutomaticCode");
     const startInteractiveCode = document.getElementById("startInteractiveCode");
+    const startCodeAdHocAgentButton = document.getElementById("startCodeAdHocAgent");
     const stopCode = document.getElementById("stopCode");
     const approveCode = document.getElementById("approveCode");
     const skipCodeApproval = document.getElementById("skipCodeApproval");
@@ -6689,6 +6696,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         approveCode,
         skipCodeApproval,
       );
+      startCodeAdHocAgentButton.disabled = !Boolean(activeProjectRoot);
+      startCodeAdHocAgentButton.textContent = adHocRunning
+        ? "Focus ad-hoc"
+        : "Start ad-hoc";
       updateAuthoringStageMenuState(
         "test-plan",
         setTestPlanStage,
@@ -7027,7 +7038,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         });
       }
       if (stageId === "code") {
-        return automaticStageActions({
+        const actions = automaticStageActions({
           stage: "code",
           label: "code",
           inStage: currentWorkflowStage === "code",
@@ -7045,6 +7056,15 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
           automaticTitle: "Run the non-interactive coding and review cycle.",
           interactiveTitle: "Open an interactive coding agent session.",
         });
+        actions.splice(3, 0, {
+          label: adHocRunning ? "Focus ad-hoc" : "Start ad-hoc",
+          title: adHocRunning
+            ? "Focus the running ad-hoc agent."
+            : "Start a plain interactive agent without staged workflow instructions.",
+          disabled: !activeProjectRoot,
+          run: startAdHocAgent,
+        });
+        return actions;
       }
       if (stageId === "test-plan") {
         return authoringStageActions({
@@ -10589,6 +10609,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     startInteractiveCode.addEventListener("click", () => {
       startGenericStageAgent("code", "$ electroboy code --interactive", true);
     });
+    startCodeAdHocAgentButton.addEventListener("click", startAdHocAgent);
     stopCode.addEventListener("click", () => stopGenericStageAgent("code", "code"));
     approveCode.addEventListener("click", () => approveGenericStage("code", "code"));
     skipCodeApproval.addEventListener("click", () => {
