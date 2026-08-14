@@ -1574,6 +1574,250 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       grid-template-columns: minmax(0, 1fr);
     }
 
+    .output-workbench.pane-layout-enabled {
+      position: relative;
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .pane-layout-root,
+    .pane-layout-split,
+    .pane-layout-leaf {
+      min-width: 0;
+      min-height: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .pane-layout-split {
+      display: grid;
+      overflow: hidden;
+    }
+
+    .pane-layout-leaf {
+      position: relative;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--terminal);
+      container-type: inline-size;
+    }
+
+    .pane-layout-leaf[hidden],
+    .pane-layout-split[hidden],
+    .pane-layout-divider[hidden] {
+      display: none;
+    }
+
+    .pane-layout-toolbar {
+      display: grid;
+      grid-template-columns: minmax(76px, 1fr) 28px 28px 28px 28px;
+      gap: 4px;
+      align-items: center;
+      min-width: 0;
+      height: 32px;
+      border-bottom: 1px solid #2a3142;
+      background: #151d2b;
+      padding: 3px 5px;
+    }
+
+    .pane-layout-kind {
+      min-width: 0;
+      width: 100%;
+      height: 24px;
+      border: 1px solid #364156;
+      border-radius: 4px;
+      background: #1d2638;
+      color: #d8e3f4;
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+      padding: 0 5px;
+    }
+
+    .pane-layout-command {
+      position: relative;
+      width: 28px;
+      height: 24px;
+      border: 1px solid #364156;
+      border-radius: 4px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .pane-layout-command:hover:not(:disabled) {
+      border-color: #4e7f9d;
+      background: #22314a;
+    }
+
+    .pane-layout-command:disabled {
+      cursor: default;
+      opacity: 0.35;
+    }
+
+    .pane-layout-command.split-right::before,
+    .pane-layout-command.split-down::before {
+      position: absolute;
+      inset: 5px 6px;
+      border: 1px solid currentcolor;
+      border-radius: 1px;
+      content: "";
+    }
+
+    .pane-layout-command.split-right::after,
+    .pane-layout-command.split-down::after {
+      position: absolute;
+      background: currentcolor;
+      content: "";
+    }
+
+    .pane-layout-command.split-right::after {
+      top: 5px;
+      bottom: 5px;
+      left: 13px;
+      width: 1px;
+    }
+
+    .pane-layout-command.split-down::after {
+      right: 6px;
+      bottom: 11px;
+      left: 6px;
+      height: 1px;
+    }
+
+    .pane-layout-empty {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 0;
+      color: #77849a;
+      font-size: var(--ui-small-font-size);
+    }
+
+    .pane-layout-divider {
+      min-width: 0;
+      min-height: 0;
+      touch-action: none;
+      background: #253044;
+    }
+
+    .pane-layout-divider.row {
+      cursor: col-resize;
+    }
+
+    .pane-layout-divider.column {
+      cursor: row-resize;
+    }
+
+    .pane-layout-divider:hover,
+    .pane-layout-divider.resizing {
+      background: #3a78a0;
+    }
+
+    .pane-layout-corner {
+      position: absolute;
+      z-index: 9;
+      width: 14px;
+      height: 14px;
+      border: 0;
+      background: transparent;
+      color: #60758d;
+      cursor: nesw-resize;
+      touch-action: none;
+    }
+
+    .pane-layout-corner.top-right {
+      top: 32px;
+      right: 0;
+    }
+
+    .pane-layout-corner.bottom-left {
+      bottom: 0;
+      left: 0;
+    }
+
+    .pane-layout-corner::before {
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      content: "";
+    }
+
+    .pane-layout-corner.top-right::before {
+      top: 2px;
+      right: 2px;
+      border-top: 2px solid currentcolor;
+      border-right: 2px solid currentcolor;
+    }
+
+    .pane-layout-corner.bottom-left::before {
+      bottom: 2px;
+      left: 2px;
+      border-bottom: 2px solid currentcolor;
+      border-left: 2px solid currentcolor;
+    }
+
+    .pane-layout-corner:hover,
+    .pane-layout-corner:focus-visible,
+    .pane-layout-leaf.splitting .pane-layout-corner {
+      color: #66d9e8;
+      outline: none;
+    }
+
+    .pane-layout-split-preview {
+      position: absolute;
+      z-index: 8;
+      border: 2px solid #66d9e8;
+      background: rgb(31 111 139 / 24%);
+      pointer-events: none;
+    }
+
+    .pane-layout-split-preview[hidden] {
+      display: none;
+    }
+
+    body.pane-layout-splitting {
+      cursor: nesw-resize;
+      user-select: none;
+    }
+
+    body.pane-layout-splitting-row {
+      cursor: col-resize;
+    }
+
+    body.pane-layout-splitting-column {
+      cursor: row-resize;
+    }
+
+    @container (max-width: 180px) {
+      .pane-layout-toolbar {
+        grid-template-columns: minmax(42px, 1fr) 24px 24px 24px;
+        gap: 2px;
+      }
+
+      .pane-layout-command {
+        width: 24px;
+      }
+
+      .pane-layout-command.reset-layout {
+        display: none;
+      }
+    }
+
+    @container (max-width: 138px) {
+      .pane-layout-toolbar {
+        grid-template-columns: minmax(36px, 1fr) 24px 24px;
+      }
+
+      .pane-layout-command.split-down {
+        display: none;
+      }
+    }
+
     .left-output-pane {
       display: grid;
       grid-template-rows: minmax(0, 1fr);
@@ -3682,6 +3926,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
     const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";
     const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";
+    const PANE_LAYOUT_STORAGE_KEY = "electroboy.paneLayout.v1";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
     const CREATIVE_WORKFLOW_MODE = "creative";
@@ -3793,6 +4038,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let resizeSidePaneState = null;
     let resizeArtifactPaneState = null;
     let resizeProjectShellState = null;
+    let paneLayout = null;
+    let paneLayoutObserver = null;
+    let paneLayoutIdSequence = 0;
+    let paneCornerSplitCancel = null;
     let terminalResizeObserver = null;
     let resizeTimer = null;
     let pendingTerminalResize = null;
@@ -3868,6 +4117,619 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let projectStatusMessages = [];
     const PROJECT_STATUS_MESSAGE_LIMIT = 80;
     const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
+
+    const PANE_LAYOUT_KINDS = {
+      agent: { label: "Agent", element: agentOutputPane },
+      progress: { label: "Progress", element: progressOutputPane },
+      artifact: { label: "Artifact", element: artifactPreviewPane },
+      shell: { label: "Shell", element: projectShellPane },
+      scratch: { label: "Scratch", element: scratchPane },
+      status: { label: "Status", element: projectStatusPane },
+    };
+
+    function newPaneLayoutId(prefix = "pane") {
+      paneLayoutIdSequence += 1;
+      return `${prefix}-${Date.now()}-${paneLayoutIdSequence}`;
+    }
+
+    function paneLayoutLeaf(kind = "empty") {
+      return { type: "leaf", id: newPaneLayoutId(), kind };
+    }
+
+    function paneLayoutSplit(direction, first, second, ratio = 0.5) {
+      return {
+        type: "split",
+        id: newPaneLayoutId("split"),
+        direction,
+        ratio,
+        first,
+        second,
+      };
+    }
+
+    function defaultPaneLayout() {
+      return paneLayoutSplit(
+        "row",
+        paneLayoutLeaf("agent"),
+        paneLayoutSplit(
+          "column",
+          paneLayoutLeaf("scratch"),
+          paneLayoutLeaf("status"),
+          0.62,
+        ),
+        0.72,
+      );
+    }
+
+    function normalizePaneLayoutNode(value, seenKinds) {
+      if (!value || typeof value !== "object") {
+        return null;
+      }
+      if (value.type === "leaf") {
+        const requestedKind = String(value.kind || "empty");
+        const validKind = requestedKind === "empty" || PANE_LAYOUT_KINDS[requestedKind];
+        const kind = validKind && !seenKinds.has(requestedKind) ? requestedKind : "empty";
+        if (kind !== "empty") {
+          seenKinds.add(kind);
+        }
+        return paneLayoutLeaf(kind);
+      }
+      if (value.type !== "split") {
+        return null;
+      }
+      const first = normalizePaneLayoutNode(value.first, seenKinds);
+      const second = normalizePaneLayoutNode(value.second, seenKinds);
+      if (!first || !second) {
+        return null;
+      }
+      const ratio = Number(value.ratio);
+      return paneLayoutSplit(
+        value.direction === "column" ? "column" : "row",
+        first,
+        second,
+        Number.isFinite(ratio) ? clampValue(ratio, 0.12, 0.88) : 0.5,
+      );
+    }
+
+    function storedPaneLayout() {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY));
+        return normalizePaneLayoutNode(stored, new Set()) || defaultPaneLayout();
+      } catch (error) {
+        return defaultPaneLayout();
+      }
+    }
+
+    function savePaneLayout() {
+      try {
+        window.localStorage.setItem(PANE_LAYOUT_STORAGE_KEY, JSON.stringify(paneLayout));
+      } catch (error) {
+        return;
+      }
+    }
+
+    function paneLayoutLeaves(node = paneLayout, leaves = []) {
+      if (!node) {
+        return leaves;
+      }
+      if (node.type === "leaf") {
+        leaves.push(node);
+        return leaves;
+      }
+      paneLayoutLeaves(node.first, leaves);
+      paneLayoutLeaves(node.second, leaves);
+      return leaves;
+    }
+
+    function paneLayoutLeafById(id) {
+      return paneLayoutLeaves().find((leaf) => leaf.id === id) || null;
+    }
+
+    function paneLayoutLeafByKind(kind) {
+      return paneLayoutLeaves().find((leaf) => leaf.kind === kind) || null;
+    }
+
+    function replacePaneLayoutNode(node, id, replacement) {
+      if (node.id === id) {
+        return replacement;
+      }
+      if (node.type === "leaf") {
+        return node;
+      }
+      node.first = replacePaneLayoutNode(node.first, id, replacement);
+      node.second = replacePaneLayoutNode(node.second, id, replacement);
+      return node;
+    }
+
+    function removePaneLayoutLeaf(node, id) {
+      if (node.type === "leaf") {
+        return node.id === id ? null : node;
+      }
+      if (node.first.id === id) {
+        return node.second;
+      }
+      if (node.second.id === id) {
+        return node.first;
+      }
+      const first = removePaneLayoutLeaf(node.first, id);
+      const second = removePaneLayoutLeaf(node.second, id);
+      if (!first) {
+        return second;
+      }
+      if (!second) {
+        return first;
+      }
+      node.first = first;
+      node.second = second;
+      return node;
+    }
+
+    function paneLayoutKindAvailable(kind) {
+      if (kind !== "artifact") {
+        return true;
+      }
+      return artifactPreviewItems.length > 0 || Boolean(paneLayoutLeafByKind("artifact"));
+    }
+
+    function buildPaneLayoutToolbar(leaf) {
+      const toolbar = document.createElement("div");
+      toolbar.className = "pane-layout-toolbar";
+
+      const select = document.createElement("select");
+      select.className = "pane-layout-kind";
+      select.title = "Choose pane type";
+      select.setAttribute("aria-label", "Choose pane type");
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "empty";
+      emptyOption.textContent = "Choose pane";
+      select.append(emptyOption);
+      for (const [kind, definition] of Object.entries(PANE_LAYOUT_KINDS)) {
+        const option = document.createElement("option");
+        option.value = kind;
+        option.textContent = definition.label;
+        option.disabled = !paneLayoutKindAvailable(kind);
+        select.append(option);
+      }
+      select.value = leaf.kind;
+      select.addEventListener("change", () => {
+        changePaneLayoutKind(leaf.id, select.value);
+      });
+
+      const splitRight = document.createElement("button");
+      splitRight.className = "pane-layout-command split-right";
+      splitRight.type = "button";
+      splitRight.title = "Split pane right";
+      splitRight.setAttribute("aria-label", "Split pane right");
+      splitRight.addEventListener("click", () => splitPaneLayoutLeaf(leaf.id, "row"));
+
+      const splitDown = document.createElement("button");
+      splitDown.className = "pane-layout-command split-down";
+      splitDown.type = "button";
+      splitDown.title = "Split pane down";
+      splitDown.setAttribute("aria-label", "Split pane down");
+      splitDown.addEventListener("click", () => splitPaneLayoutLeaf(leaf.id, "column"));
+
+      const close = document.createElement("button");
+      close.className = "pane-layout-command close-pane";
+      close.type = "button";
+      close.title = "Close pane and join area";
+      close.setAttribute("aria-label", "Close pane and join area");
+      close.textContent = "×";
+      close.disabled = paneLayoutLeaves().length <= 1;
+      close.addEventListener("click", () => closePaneLayoutLeaf(leaf.id));
+
+      const reset = document.createElement("button");
+      reset.className = "pane-layout-command reset-layout";
+      reset.type = "button";
+      reset.title = "Reset pane layout";
+      reset.setAttribute("aria-label", "Reset pane layout");
+      reset.textContent = "↺";
+      reset.addEventListener("click", resetPaneLayout);
+
+      toolbar.append(select, splitRight, splitDown, close, reset);
+      return toolbar;
+    }
+
+    function applyPaneLayoutSplitTemplate(element, node) {
+      const ratio = clampValue(Number(node.ratio) || 0.5, 0.12, 0.88);
+      if (node.direction === "column") {
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+        element.style.gridTemplateRows =
+          `minmax(0, ${ratio}fr) 7px minmax(0, ${1 - ratio}fr)`;
+      } else {
+        element.style.gridTemplateRows = "minmax(0, 1fr)";
+        element.style.gridTemplateColumns =
+          `minmax(0, ${ratio}fr) 7px minmax(0, ${1 - ratio}fr)`;
+      }
+    }
+
+    function startPaneLayoutResize(event, node, splitElement, divider) {
+      event.preventDefault();
+      const pointerId = event.pointerId;
+      divider.setPointerCapture(pointerId);
+      divider.classList.add("resizing");
+      const update = (moveEvent) => {
+        const rect = splitElement.getBoundingClientRect();
+        const available = node.direction === "column" ? rect.height - 7 : rect.width - 7;
+        if (available <= 0) {
+          return;
+        }
+        const position = node.direction === "column"
+          ? moveEvent.clientY - rect.top - 3.5
+          : moveEvent.clientX - rect.left - 3.5;
+        node.ratio = clampValue(position / available, 0.12, 0.88);
+        applyPaneLayoutSplitTemplate(splitElement, node);
+        fitTerminal();
+      };
+      const finish = () => {
+        divider.classList.remove("resizing");
+        divider.removeEventListener("pointermove", update);
+        divider.removeEventListener("pointerup", finish);
+        divider.removeEventListener("pointercancel", finish);
+        try {
+          divider.releasePointerCapture(pointerId);
+        } catch (error) {
+          // Pointer capture may already be released by the browser.
+        }
+        savePaneLayout();
+        fitTerminal();
+      };
+      divider.addEventListener("pointermove", update);
+      divider.addEventListener("pointerup", finish);
+      divider.addEventListener("pointercancel", finish);
+    }
+
+    function paneCornerSplitCandidate(event, state) {
+      const topRight = state.corner === "top-right";
+      const inwardX = topRight
+        ? state.startX - event.clientX
+        : event.clientX - state.startX;
+      const inwardY = topRight
+        ? event.clientY - state.startY
+        : state.startY - event.clientY;
+      if (Math.max(inwardX, inwardY) < 12) {
+        return null;
+      }
+      const row = inwardX >= inwardY;
+      const ratio = row
+        ? (event.clientX - state.rect.left) / state.rect.width
+        : (event.clientY - state.rect.top) / state.rect.height;
+      return {
+        direction: row ? "row" : "column",
+        emptyFirst: row ? !topRight : topRight,
+        ratio: clampValue(ratio, 0.12, 0.88),
+      };
+    }
+
+    function showPaneCornerSplitPreview(preview, candidate) {
+      preview.hidden = !candidate;
+      if (!candidate) {
+        return;
+      }
+      const ratioPercent = candidate.ratio * 100;
+      preview.style.top = "0";
+      preview.style.right = "auto";
+      preview.style.bottom = "auto";
+      preview.style.left = "0";
+      preview.style.width = "100%";
+      preview.style.height = "100%";
+      if (candidate.direction === "row") {
+        preview.style.width = candidate.emptyFirst
+          ? `${ratioPercent}%`
+          : `${100 - ratioPercent}%`;
+        preview.style.left = candidate.emptyFirst ? "0" : `${ratioPercent}%`;
+      } else {
+        preview.style.height = candidate.emptyFirst
+          ? `${ratioPercent}%`
+          : `${100 - ratioPercent}%`;
+        preview.style.top = candidate.emptyFirst ? "0" : `${ratioPercent}%`;
+      }
+    }
+
+    function startPaneCornerSplit(event, leaf, leafElement, corner, preview) {
+      if (event.button !== 0) {
+        return;
+      }
+      if (paneCornerSplitCancel) {
+        paneCornerSplitCancel();
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const state = {
+        corner,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        rect: leafElement.getBoundingClientRect(),
+        candidate: null,
+        finished: false,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const handle = event.currentTarget;
+      leafElement.classList.add("splitting");
+      document.body.classList.add("pane-layout-splitting");
+
+      const update = (moveEvent) => {
+        state.candidate = paneCornerSplitCandidate(moveEvent, state);
+        showPaneCornerSplitPreview(preview, state.candidate);
+        document.body.classList.toggle(
+          "pane-layout-splitting-row",
+          state.candidate?.direction === "row",
+        );
+        document.body.classList.toggle(
+          "pane-layout-splitting-column",
+          state.candidate?.direction === "column",
+        );
+      };
+      const finish = (commit) => {
+        if (state.finished) {
+          return;
+        }
+        state.finished = true;
+        paneCornerSplitCancel = null;
+        handle.removeEventListener("pointermove", update);
+        handle.removeEventListener("pointerup", pointerUp);
+        handle.removeEventListener("pointercancel", pointerCancel);
+        window.removeEventListener("keydown", keyDown);
+        leafElement.classList.remove("splitting");
+        document.body.classList.remove(
+          "pane-layout-splitting",
+          "pane-layout-splitting-row",
+          "pane-layout-splitting-column",
+        );
+        showPaneCornerSplitPreview(preview, null);
+        try {
+          handle.releasePointerCapture(state.pointerId);
+        } catch (error) {
+          // Pointer capture may already be released by the browser.
+        }
+        if (commit && state.candidate) {
+          splitPaneLayoutLeaf(
+            leaf.id,
+            state.candidate.direction,
+            state.candidate.ratio,
+            state.candidate.emptyFirst,
+          );
+        }
+      };
+      const pointerUp = () => finish(true);
+      const pointerCancel = () => finish(false);
+      const keyDown = (keyEvent) => {
+        if (keyEvent.key === "Escape") {
+          keyEvent.preventDefault();
+          finish(false);
+        }
+      };
+      paneCornerSplitCancel = () => finish(false);
+      handle.addEventListener("pointermove", update);
+      handle.addEventListener("pointerup", pointerUp);
+      handle.addEventListener("pointercancel", pointerCancel);
+      window.addEventListener("keydown", keyDown);
+    }
+
+    function buildPaneLayoutCorner(leaf, leafElement, corner, preview) {
+      const handle = document.createElement("div");
+      handle.className = `pane-layout-corner ${corner}`;
+      handle.title = "Drag inward to split pane";
+      handle.setAttribute("aria-hidden", "true");
+      handle.addEventListener("pointerdown", (event) => {
+        startPaneCornerSplit(event, leaf, leafElement, corner, preview);
+      });
+      return handle;
+    }
+
+    function renderPaneLayoutNode(node) {
+      if (node.type === "leaf") {
+        const leaf = document.createElement("div");
+        leaf.className = "pane-layout-leaf";
+        leaf.dataset.paneLayoutId = node.id;
+        leaf.dataset.paneKind = node.kind;
+        leaf.append(buildPaneLayoutToolbar(node));
+        if (node.kind === "empty") {
+          const empty = document.createElement("div");
+          empty.className = "pane-layout-empty";
+          empty.textContent = "Choose a pane type";
+          leaf.append(empty);
+        } else {
+          leaf.append(PANE_LAYOUT_KINDS[node.kind].element);
+        }
+        const preview = document.createElement("div");
+        preview.className = "pane-layout-split-preview";
+        preview.hidden = true;
+        preview.setAttribute("aria-hidden", "true");
+        leaf.append(
+          preview,
+          buildPaneLayoutCorner(node, leaf, "top-right", preview),
+          buildPaneLayoutCorner(node, leaf, "bottom-left", preview),
+        );
+        return leaf;
+      }
+
+      const split = document.createElement("div");
+      split.className = `pane-layout-split ${node.direction}`;
+      split.dataset.paneLayoutId = node.id;
+      const first = renderPaneLayoutNode(node.first);
+      const divider = document.createElement("div");
+      divider.className = `pane-layout-divider ${node.direction}`;
+      divider.setAttribute("role", "separator");
+      divider.setAttribute(
+        "aria-orientation",
+        node.direction === "column" ? "horizontal" : "vertical",
+      );
+      divider.setAttribute("aria-label", "Resize split panes");
+      divider.addEventListener("pointerdown", (event) => {
+        startPaneLayoutResize(event, node, split, divider);
+      });
+      const second = renderPaneLayoutNode(node.second);
+      split.append(first, divider, second);
+      applyPaneLayoutSplitTemplate(split, node);
+      return split;
+    }
+
+    function refreshPaneLayoutVisibility(node = paneLayout, element = outputWorkbench.firstElementChild) {
+      if (!node || !element) {
+        return false;
+      }
+      if (node.type === "leaf") {
+        const visible = node.kind === "empty" || !PANE_LAYOUT_KINDS[node.kind].element.hidden;
+        element.hidden = !visible;
+        return visible;
+      }
+      const firstElement = element.children[0];
+      const divider = element.children[1];
+      const secondElement = element.children[2];
+      const firstVisible = refreshPaneLayoutVisibility(node.first, firstElement);
+      const secondVisible = refreshPaneLayoutVisibility(node.second, secondElement);
+      element.hidden = !firstVisible && !secondVisible;
+      divider.hidden = !firstVisible || !secondVisible;
+      if (firstVisible && secondVisible) {
+        applyPaneLayoutSplitTemplate(element, node);
+      } else if (node.direction === "column") {
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+        element.style.gridTemplateRows = "minmax(0, 1fr)";
+      } else {
+        element.style.gridTemplateRows = "minmax(0, 1fr)";
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+      }
+      return firstVisible || secondVisible;
+    }
+
+    function renderPaneLayout() {
+      if (paneCornerSplitCancel) {
+        paneCornerSplitCancel();
+      }
+      const root = renderPaneLayoutNode(paneLayout);
+      root.classList.add("pane-layout-root");
+      outputWorkbench.replaceChildren(root);
+      refreshPaneLayoutVisibility();
+      window.requestAnimationFrame(fitTerminal);
+    }
+
+    function splitPaneLayoutLeaf(id, direction, ratio = 0.5, emptyFirst = false) {
+      const leaf = paneLayoutLeafById(id);
+      if (!leaf) {
+        return;
+      }
+      const existingLeaf = paneLayoutLeaf(leaf.kind);
+      const emptyLeaf = paneLayoutLeaf();
+      const replacement = paneLayoutSplit(
+        direction,
+        emptyFirst ? emptyLeaf : existingLeaf,
+        emptyFirst ? existingLeaf : emptyLeaf,
+        ratio,
+      );
+      paneLayout = replacePaneLayoutNode(paneLayout, id, replacement);
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
+    function changePaneLayoutKind(id, kind) {
+      const leaf = paneLayoutLeafById(id);
+      if (!leaf || (kind !== "empty" && !PANE_LAYOUT_KINDS[kind])) {
+        return;
+      }
+      const previousKind = leaf.kind;
+      const existing = kind === "empty" ? null : paneLayoutLeafByKind(kind);
+      if (existing && existing !== leaf) {
+        existing.kind = previousKind;
+      }
+      leaf.kind = kind;
+      savePaneLayout();
+      renderPaneLayout();
+      activatePaneLayoutKind(kind);
+      if (previousKind !== kind && !paneLayoutLeafByKind(previousKind)) {
+        deactivatePaneLayoutKind(previousKind);
+      }
+    }
+
+    function closePaneLayoutLeaf(id) {
+      if (paneLayoutLeaves().length <= 1) {
+        return;
+      }
+      const leaf = paneLayoutLeafById(id);
+      if (!leaf) {
+        return;
+      }
+      const removedKind = leaf.kind;
+      paneLayout = removePaneLayoutLeaf(paneLayout, id);
+      savePaneLayout();
+      renderPaneLayout();
+      if (!paneLayoutLeafByKind(removedKind)) {
+        deactivatePaneLayoutKind(removedKind);
+      }
+    }
+
+    function activatePaneLayoutKind(kind) {
+      if (poppedPanes.has(kind)) {
+        dockPoppedPane(kind);
+      }
+      if (kind === "progress") {
+        showProgressPane(true);
+      } else if (kind === "artifact") {
+        artifactPaneRequested = true;
+        applyOutputPaneVisibility();
+      } else if (kind === "shell") {
+        showProjectShellPane(true);
+      }
+    }
+
+    function deactivatePaneLayoutKind(kind) {
+      if (kind === "progress") {
+        showProgressPane(false);
+      } else if (kind === "artifact") {
+        artifactPaneRequested = false;
+        applyOutputPaneVisibility();
+      } else if (kind === "shell") {
+        hideProjectShellPane();
+      }
+    }
+
+    function ensurePaneInLayout(kind, targetKind = "agent", direction = "row") {
+      if (!paneLayout || paneLayoutLeafByKind(kind)) {
+        return;
+      }
+      const target = paneLayoutLeafByKind(targetKind) || paneLayoutLeaves()[0];
+      if (!target) {
+        paneLayout = paneLayoutLeaf(kind);
+      } else {
+        const replacement = paneLayoutSplit(
+          direction,
+          paneLayoutLeaf(target.kind),
+          paneLayoutLeaf(kind),
+        );
+        paneLayout = replacePaneLayoutNode(paneLayout, target.id, replacement);
+      }
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
+    function resetPaneLayout() {
+      paneLayout = defaultPaneLayout();
+      savePaneLayout();
+      renderPaneLayout();
+      if (progressPaneRequested) {
+        ensurePaneInLayout("progress", "agent", "row");
+      }
+      if (artifactPaneRequested && artifactPreviewItems.length > 0) {
+        ensurePaneInLayout("artifact", "agent", "row");
+      }
+      if (projectShellPaneRequested) {
+        ensurePaneInLayout("shell", "agent", "column");
+      }
+    }
+
+    function initializePaneLayout() {
+      paneLayout = storedPaneLayout();
+      outputWorkbench.classList.add("pane-layout-enabled");
+      renderPaneLayout();
+      paneLayoutObserver = new MutationObserver(() => refreshPaneLayoutVisibility());
+      for (const definition of Object.values(PANE_LAYOUT_KINDS)) {
+        paneLayoutObserver.observe(definition.element, {
+          attributes: true,
+          attributeFilter: ["hidden"],
+        });
+      }
+    }
 
     function storedTerminalFontSize() {
       try {
@@ -4946,6 +5808,9 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
 
     function applyProjectShellPaneVisibility() {
       const visible = projectShellPaneRequested && !poppedPanes.has("shell");
+      if (visible) {
+        ensurePaneInLayout("shell", "agent", "column");
+      }
       projectShellPane.hidden = !visible;
       shellPaneDivider.hidden = !visible;
       leftOutputPane.classList.toggle("shell-visible", visible);
@@ -5443,6 +6308,12 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       const artifactVisible =
         artifactPaneRequested && artifactPreviewItems.length > 0 && !poppedPanes.has("artifact");
       const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
+      if (artifactVisible) {
+        ensurePaneInLayout("artifact", "agent", "row");
+      }
+      if (progressVisible) {
+        ensurePaneInLayout("progress", "agent", "row");
+      }
       agentOutputPane.hidden = !agentVisible;
       artifactPreviewPane.hidden = !artifactVisible;
       progressOutputPane.hidden = !progressVisible;
@@ -5632,7 +6503,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
     }
 
-    function paneUrl(kind) {
+    function paneUrl(kind, requestedArtifactItem = null) {
       const parameters = new URLSearchParams();
       if (contextId) {
         parameters.set("context_id", contextId);
@@ -5640,7 +6511,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       if (selectedSessionId) {
         parameters.set("session_id", selectedSessionId);
       }
-      const artifactItem = artifactPreviewItems[0] || null;
+      const artifactItem = requestedArtifactItem || artifactPreviewItems[0] || null;
       if (artifactItem) {
         parameters.set("artifact", artifactKindForPane(artifactItem));
       }
@@ -5676,13 +6547,13 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       return `/pane/${encodeURIComponent(kind)}?${parameters.toString()}`;
     }
 
-    function popOutPane(kind) {
+    function popOutPane(kind, artifactItem = null) {
       if (!contextId && kind !== "scratch") {
         appendOutput("create a browser context first\\n", "error");
         return;
       }
       const popup = window.open(
-        paneUrl(kind),
+        paneUrl(kind, artifactItem),
         `electroboy-${kind}-${contextId || "local"}`,
         PANE_POPUP_FEATURES,
       );
@@ -5733,6 +6604,13 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         setAgentInputVisible(inputPaneRequested);
       }
       if (kind === "agent" || kind === "artifact" || kind === "progress") {
+        if (kind === "artifact") {
+          if (poppedOut) {
+            artifactPreviewStack.replaceChildren();
+          } else if (artifactPreviewItems.length > 0) {
+            renderArtifactPreviewItems();
+          }
+        }
         applyOutputPaneVisibility();
       }
       if (kind === "shell") {
@@ -8513,6 +9391,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
 
     function renderArtifactPreviewItems() {
       artifactPreviewStack.replaceChildren();
+      if (poppedPanes.has("artifact")) {
+        artifactPreviewStack.classList.remove("split");
+        return;
+      }
       artifactPreviewStack.classList.toggle("split", artifactPreviewItems.length > 1);
       for (const [index, item] of artifactPreviewItems.entries()) {
         if (index > 0) {
@@ -8659,7 +9541,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         const frame = document.createElement("iframe");
         frame.className = "artifact-preview-frame loading";
         frame.title = `${item.title} preview`;
-        frame.setAttribute("sandbox", "allow-scripts allow-popups allow-same-origin");
+        frame.setAttribute(
+          "sandbox",
+          "allow-scripts allow-popups allow-modals allow-same-origin",
+        );
         frame.dataset.artifactId = item.id;
         markArtifactFrameLoading(frame);
         frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
@@ -8676,6 +9561,10 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     }
 
     function popOutArtifactPreview(item) {
+      if (item.kind === "creative-corkboard") {
+        popOutPane("artifact", item);
+        return;
+      }
       if (!contextId) {
         appendOutput("create a browser context first\\n", "error");
         return;
@@ -10816,6 +11705,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       applyWorkflowSideSheetState();
       applyWorkflowMode();
       renderStageActionPanel();
+      initializePaneLayout();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
       applyStoredArtifactPaneSize();
@@ -11146,7 +12036,7 @@ PANE_WINDOW_HTML = r"""<!doctype html>
         id="artifactFrame"
         class="artifact-frame"
         title="Rendered artifact preview"
-        sandbox="allow-scripts allow-popups allow-same-origin"
+        sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
         hidden
       ></iframe>
       <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>
@@ -14339,6 +15229,16 @@ class ServiceState:
                 "card": card,
             }
         if board_type == "freeform":
+            if str(payload.get("action") or "") == "delete":
+                card_id = _delete_creative_freeform_corkboard_card(
+                    project_root,
+                    corkboard_path=str(payload.get("corkboard") or ""),
+                    card_id=str(payload.get("card_id") or ""),
+                )
+                return {
+                    "status": "deleted",
+                    "card_id": card_id,
+                }
             card_payload = payload.get("card")
             if not isinstance(card_payload, dict):
                 raise StateError("freeform corkboard card is required")
@@ -18425,6 +19325,16 @@ def creative_corkboard_html(
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }}
 
+    body.freeform-canvas {{
+      height: 100vh;
+      overflow: hidden;
+    }}
+
+    body.freeform-canvas .board-shell {{
+      height: 100vh;
+      overflow: hidden;
+    }}
+
     .board-toolbar {{
       display: flex;
       align-items: center;
@@ -18470,23 +19380,51 @@ def creative_corkboard_html(
       display: none;
     }}
 
+    .canvas-viewport {{
+      min-width: 100%;
+      min-height: calc(100vh - 90px);
+    }}
+
     .board {{
       min-width: 100%;
       min-height: calc(100vh - 90px);
       overflow: visible;
     }}
 
+    body.freeform-canvas .canvas-viewport {{
+      position: relative;
+      width: 100%;
+      height: calc(100vh - 90px);
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+    }}
+
     .board.folder {{
       position: relative;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(var(--card-grid-min-width, 210px), 1fr));
+      grid-template-columns: repeat(auto-fill, var(--card-width, 218px));
       align-content: start;
+      justify-content: start;
       gap: var(--card-gap, 24px);
       padding: 26px;
     }}
 
     .board.freeform {{
-      position: relative;
+      position: absolute;
+      inset: 0;
+      min-width: 100%;
+      min-height: 100%;
+      transform-origin: 0 0;
+      will-change: transform;
+    }}
+
+    body.canvas-panning,
+    body.canvas-panning .canvas-viewport {{
+      cursor: grabbing;
+      user-select: none;
     }}
 
     .empty-board {{
@@ -18665,6 +19603,61 @@ def creative_corkboard_html(
       padding: 0 10px;
     }}
 
+    .card-delete {{
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid rgba(38, 50, 71, 0.18);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.42);
+      color: #6f3f45;
+      cursor: pointer;
+      padding: 0;
+    }}
+
+    .card-delete:hover:not(:disabled) {{
+      border-color: rgba(140, 48, 58, 0.48);
+      background: rgba(255, 238, 234, 0.78);
+      color: #9b2634;
+    }}
+
+    .card-delete:disabled {{
+      cursor: default;
+      opacity: 0.45;
+    }}
+
+    .card-delete-icon {{
+      position: relative;
+      width: 11px;
+      height: 11px;
+      border: 1.5px solid currentcolor;
+      border-top: 0;
+      border-radius: 0 0 2px 2px;
+    }}
+
+    .card-delete-icon::before {{
+      position: absolute;
+      top: -4px;
+      left: -2px;
+      width: 13px;
+      height: 1.5px;
+      background: currentcolor;
+      content: "";
+    }}
+
+    .card-delete-icon::after {{
+      position: absolute;
+      top: -7px;
+      left: 2px;
+      width: 5px;
+      height: 3px;
+      border: 1.5px solid currentcolor;
+      border-bottom: 0;
+      border-radius: 2px 2px 0 0;
+      content: "";
+    }}
+
     .card-note {{
       display: block;
       width: calc(100% - 24px);
@@ -18728,7 +19721,9 @@ def creative_corkboard_html(
       </div>
       <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
     </header>
-    <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
+    <section id="canvasViewport" class="canvas-viewport">
+      <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
+    </section>
   </main>
   <label class="card-size-control">
     <span class="card-size-label">
@@ -18739,7 +19734,7 @@ def creative_corkboard_html(
       id="cardSizeSlider"
       type="range"
       min="70"
-      max="150"
+      max="300"
       step="5"
       value="100"
       aria-label="Resize corkboard cards"
@@ -18747,6 +19742,7 @@ def creative_corkboard_html(
   </label>
   <script>
     const CORKBOARD_DATA = {data_json};
+    const canvasViewport = document.getElementById("canvasViewport");
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
     const addCard = document.getElementById("addCard");
@@ -18755,16 +19751,22 @@ def creative_corkboard_html(
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
     const saveTimers = new Map();
+    const cardSaveRequests = new Map();
     const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
+    const CANVAS_PAN_STORAGE_PREFIX = "electroboy.creative.corkboard.canvasPan.";
     const MIN_CARD_SCALE = 70;
-    const MAX_CARD_SCALE = 150;
+    const MAX_CARD_SCALE = 300;
     let dragState = null;
+    let canvasPanState = null;
     let draggedPath = "";
     let folderInsertionMarker = null;
     let folderDropTarget = "";
     let folderDropPlacement = "before";
     let cardScale = storedCardScale();
+    let canvasPan = storedCanvasPan();
     let selectedCardKey = "";
+
+    document.body.classList.toggle("freeform-canvas", boardType === "freeform");
 
     function contextUrl(path) {{
       const contextId = CORKBOARD_DATA.context_id || "";
@@ -18787,6 +19789,43 @@ def creative_corkboard_html(
 
     function cardScaleStorageKey() {{
       return `${{CARD_SCALE_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
+    }}
+
+    function canvasPanStorageKey() {{
+      return `${{CANVAS_PAN_STORAGE_PREFIX}}${{boardStoragePath()}}`;
+    }}
+
+    function storedCanvasPan() {{
+      if (boardType !== "freeform") {{
+        return {{ x: 0, y: 0 }};
+      }}
+      try {{
+        const stored = JSON.parse(window.localStorage.getItem(canvasPanStorageKey()));
+        const x = Number(stored && stored.x);
+        const y = Number(stored && stored.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {{
+          return {{ x, y }};
+        }}
+      }} catch (error) {{
+        return {{ x: 0, y: 0 }};
+      }}
+      return {{ x: 0, y: 0 }};
+    }}
+
+    function saveCanvasPan() {{
+      try {{
+        window.localStorage.setItem(canvasPanStorageKey(), JSON.stringify(canvasPan));
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function applyCanvasPan() {{
+      if (boardType !== "freeform") {{
+        board.style.transform = "";
+        return;
+      }}
+      board.style.transform = `translate(${{canvasPan.x}}px, ${{canvasPan.y}}px)`;
     }}
 
     function clampCardScale(value) {{
@@ -18824,7 +19863,6 @@ def creative_corkboard_html(
     function applyCardScale() {{
       const root = document.documentElement;
       root.style.setProperty("--card-width", `${{scaledCardValue(218)}}px`);
-      root.style.setProperty("--card-grid-min-width", `${{scaledCardValue(210)}}px`);
       root.style.setProperty("--card-min-height", `${{scaledCardValue(158)}}px`);
       root.style.setProperty("--card-note-min-height", `${{scaledCardValue(82)}}px`);
       root.style.setProperty("--card-gap", `${{Math.max(14, scaledCardValue(24))}}px`);
@@ -18859,26 +19897,56 @@ def creative_corkboard_html(
     }}
 
     function applyCardPosition(cardElement, card) {{
-      cardElement.style.left = `${{Math.max(0, Number(card.x) || 0)}}px`;
-      cardElement.style.top = `${{Math.max(0, Number(card.y) || 0)}}px`;
+      cardElement.style.left = `${{Number(card.x) || 0}}px`;
+      cardElement.style.top = `${{Number(card.y) || 0}}px`;
       cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
       cardElement.style.setProperty("--paper", cardColor(card));
     }}
 
     function sizeBoard() {{
-      if (boardType !== "freeform") {{
+      applyCanvasPan();
+    }}
+
+    function startCanvasPan(event) {{
+      if (boardType !== "freeform" || event.button !== 1) {{
         return;
       }}
-      const width = Math.max(
-        window.innerWidth,
-        ...cards.map((card) => (Number(card.x) || 0) + scaledCardValue(280)),
-      );
-      const height = Math.max(
-        window.innerHeight,
-        ...cards.map((card) => (Number(card.y) || 0) + scaledCardValue(230)),
-      );
-      board.style.minWidth = `${{width}}px`;
-      board.style.minHeight = `${{height}}px`;
+      event.preventDefault();
+      canvasPanState = {{
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originalX: canvasPan.x,
+        originalY: canvasPan.y,
+      }};
+      canvasViewport.setPointerCapture(event.pointerId);
+      document.body.classList.add("canvas-panning");
+    }}
+
+    function updateCanvasPan(event) {{
+      if (!canvasPanState || event.pointerId !== canvasPanState.pointerId) {{
+        return;
+      }}
+      canvasPan = {{
+        x: canvasPanState.originalX + event.clientX - canvasPanState.startX,
+        y: canvasPanState.originalY + event.clientY - canvasPanState.startY,
+      }};
+      applyCanvasPan();
+    }}
+
+    function finishCanvasPan(event) {{
+      if (!canvasPanState || event.pointerId !== canvasPanState.pointerId) {{
+        return;
+      }}
+      const pointerId = canvasPanState.pointerId;
+      canvasPanState = null;
+      document.body.classList.remove("canvas-panning");
+      saveCanvasPan();
+      try {{
+        canvasViewport.releasePointerCapture(pointerId);
+      }} catch (error) {{
+        // Pointer capture may already be released by the browser.
+      }}
     }}
 
     function queueSave(card) {{
@@ -18886,8 +19954,23 @@ def creative_corkboard_html(
       window.clearTimeout(saveTimers.get(key));
       saveTimers.set(
         key,
-        window.setTimeout(() => saveCard(card), 350),
+        window.setTimeout(() => {{
+          saveTimers.delete(key);
+          persistCard(card);
+        }}, 350),
       );
+    }}
+
+    function persistCard(card) {{
+      const key = cardKey(card);
+      const request = saveCard(card);
+      cardSaveRequests.set(key, request);
+      request.finally(() => {{
+        if (cardSaveRequests.get(key) === request) {{
+          cardSaveRequests.delete(key);
+        }}
+      }});
+      return request;
     }}
 
     async function saveCard(card) {{
@@ -18922,6 +20005,49 @@ def creative_corkboard_html(
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify(payload),
       }}).catch(() => null);
+    }}
+
+    async function deleteFreeformCard(card, button) {{
+      if (boardType !== "freeform") {{
+        return;
+      }}
+      const title = card.title || "Untitled card";
+      if (!window.confirm(`Delete "${{title}}"?`)) {{
+        return;
+      }}
+      const key = cardKey(card);
+      window.clearTimeout(saveTimers.get(key));
+      saveTimers.delete(key);
+      button.disabled = true;
+      await cardSaveRequests.get(key);
+      if (CORKBOARD_DATA.context_id) {{
+        const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{
+            board_type: "freeform",
+            action: "delete",
+            corkboard: CORKBOARD_DATA.corkboard.path,
+            card_id: card.id,
+          }}),
+        }}).catch(() => null);
+        if (!response || !response.ok) {{
+          const payload = response
+            ? await response.json().catch(() => ({{}}))
+            : {{}};
+          button.disabled = false;
+          window.alert(payload.error || "Unable to delete card.");
+          return;
+        }}
+      }}
+      const index = cards.findIndex((candidate) => cardKey(candidate) === key);
+      if (index >= 0) {{
+        cards.splice(index, 1);
+      }}
+      if (selectedCardKey === key) {{
+        selectedCardKey = "";
+      }}
+      renderCards();
     }}
 
     async function saveOrder() {{
@@ -18981,12 +20107,12 @@ def creative_corkboard_html(
         return;
       }}
       dragState.card.x = Math.max(
-        0,
-        dragState.originalX + event.clientX - dragState.startX,
+        -1000000,
+        Math.min(1000000, dragState.originalX + event.clientX - dragState.startX),
       );
       dragState.card.y = Math.max(
-        0,
-        dragState.originalY + event.clientY - dragState.startY,
+        -1000000,
+        Math.min(1000000, dragState.originalY + event.clientY - dragState.startY),
       );
       applyCardPosition(dragState.cardElement, dragState.card);
       sizeBoard();
@@ -19099,15 +20225,15 @@ def creative_corkboard_html(
         id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
         title: "Untitled card",
         note: "",
-        x: 36 + (index % 4) * scaledCardValue(236),
-        y: 36 + Math.floor(index / 4) * scaledCardValue(206),
+        x: -canvasPan.x + 36 + (index % 4) * scaledCardValue(236),
+        y: -canvasPan.y + 36 + Math.floor(index / 4) * scaledCardValue(206),
         rotation: (index % 5) - 2,
         color: ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"][index % 5],
       }};
       cards.push(card);
       selectedCardKey = card.id;
       renderCards();
-      saveCard(card);
+      persistCard(card);
     }}
 
     function renderCards() {{
@@ -19186,14 +20312,13 @@ def creative_corkboard_html(
           title.className = "card-title";
           title.textContent = card.name || card.path;
         }}
-        const type = document.createElement("div");
-        type.className = "card-type";
-        type.textContent = boardType === "freeform"
-          ? "Idea"
-          : card.type === "directory" ? "Folder" : card.corkboard ? "Board" : "File";
-        titleBox.append(title, type);
-
         if (boardType === "folder") {{
+          const type = document.createElement("div");
+          type.className = "card-type";
+          type.textContent = card.type === "directory"
+            ? "Folder"
+            : card.corkboard ? "Board" : "File";
+          titleBox.append(title, type);
           const open = document.createElement("button");
           open.className = "card-open";
           open.type = "button";
@@ -19201,7 +20326,19 @@ def creative_corkboard_html(
           open.addEventListener("click", () => openCard(card));
           head.append(titleBox, open);
         }} else {{
-          head.append(titleBox);
+          titleBox.append(title);
+          const remove = document.createElement("button");
+          remove.className = "card-delete";
+          remove.type = "button";
+          remove.title = "Delete card";
+          remove.setAttribute("aria-label", `Delete ${{card.title || "card"}}`);
+          remove.addEventListener("pointerdown", (event) => event.stopPropagation());
+          remove.addEventListener("click", () => deleteFreeformCard(card, remove));
+          const icon = document.createElement("span");
+          icon.className = "card-delete-icon";
+          icon.setAttribute("aria-hidden", "true");
+          remove.append(icon);
+          head.append(titleBox, remove);
         }}
 
         const note = document.createElement("textarea");
@@ -19221,6 +20358,15 @@ def creative_corkboard_html(
 
     addCard.addEventListener("click", makeFreeformCard);
     cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
+    canvasViewport.addEventListener("pointerdown", startCanvasPan);
+    canvasViewport.addEventListener("pointermove", updateCanvasPan);
+    canvasViewport.addEventListener("pointerup", finishCanvasPan);
+    canvasViewport.addEventListener("pointercancel", finishCanvasPan);
+    canvasViewport.addEventListener("auxclick", (event) => {{
+      if (event.button === 1) {{
+        event.preventDefault();
+      }}
+    }});
     window.addEventListener("resize", sizeBoard);
     applyCardScale();
     renderCards();
@@ -19549,8 +20695,18 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
                 "id": card_id[:100],
                 "title": str(raw_card.get("title") or "Untitled card")[:200],
                 "note": str(raw_card.get("note") or "")[:5000],
-                "x": _bounded_float(raw_card.get("x"), 36 + index * 24, 0, 5000),
-                "y": _bounded_float(raw_card.get("y"), 36 + index * 18, 0, 5000),
+                "x": _bounded_float(
+                    raw_card.get("x"),
+                    36 + index * 24,
+                    -1_000_000,
+                    1_000_000,
+                ),
+                "y": _bounded_float(
+                    raw_card.get("y"),
+                    36 + index * 18,
+                    -1_000_000,
+                    1_000_000,
+                ),
                 "rotation": _bounded_float(
                     raw_card.get("rotation"),
                     float(style["rotation"]),
@@ -19584,8 +20740,18 @@ def _save_creative_freeform_corkboard_card(
         "id": card_id,
         "title": str(card_payload.get("title") or "Untitled card")[:200],
         "note": str(card_payload.get("note") or "")[:5000],
-        "x": _bounded_float(card_payload.get("x"), 36, 0, 5000),
-        "y": _bounded_float(card_payload.get("y"), 36, 0, 5000),
+        "x": _bounded_float(
+            card_payload.get("x"),
+            36,
+            -1_000_000,
+            1_000_000,
+        ),
+        "y": _bounded_float(
+            card_payload.get("y"),
+            36,
+            -1_000_000,
+            1_000_000,
+        ),
         "rotation": _bounded_float(
             card_payload.get("rotation"),
             float(style["rotation"]),
@@ -19605,6 +20771,32 @@ def _save_creative_freeform_corkboard_card(
     data["cards"] = cards
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return card
+
+
+def _delete_creative_freeform_corkboard_card(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    card_id: str,
+) -> str:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    normalized_card_id = card_id.strip()[:100]
+    if not normalized_card_id:
+        raise StateError("freeform corkboard card id is required")
+    data = _load_creative_corkboard_document(path)
+    cards = _freeform_corkboard_cards(data)
+    remaining_cards = [
+        card for card in cards if card.get("id") != normalized_card_id
+    ]
+    if len(remaining_cards) == len(cards):
+        raise StateError(f"card does not exist: {normalized_card_id}")
+    data["cards"] = remaining_cards
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return normalized_card_id
 
 
 def _remap_creative_path_reference(path: str, old_path: str, new_path: str) -> str:
