@@ -26,7 +26,7 @@ electroboy = "electroboy.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-electroboy = ["assets/*.png"]
+electroboy = ["assets/*.png", "assets/service/*.html"]
 
 [tool.black]
 line-length = 88

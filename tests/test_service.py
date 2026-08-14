@@ -99,6 +99,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["root"], str(root.resolve()))
         self.assertIn("agent_sessions", payload["modules"])
         self.assertIn("software", payload["workflows"])
+        self.assertIn("core-shell", payload["frontend_bundles"])
 
     def test_registry_endpoint_reports_backend_modules_and_workflows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -122,12 +123,18 @@ class ServiceTests(unittest.TestCase):
         payload = json.loads(body)
         modules = {entry["id"]: entry for entry in payload["modules"]}
         workflows = {entry["id"]: entry for entry in payload["workflows"]}
+        frontend_bundles = {
+            entry["id"]: entry for entry in payload["frontend_bundles"]
+        }
         self.assertIn("agent_sessions", modules)
         self.assertIn("structured_documents", modules)
         self.assertIn("corkboard", modules)
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
         self.assertIn("agent_sessions", workflows["software"]["modules"])
+        self.assertIn("core-shell", frontend_bundles)
+        self.assertIn("index.html", frontend_bundles["core-shell"]["assets"])
+        self.assertIn("pane-window", frontend_bundles)
 
     def test_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

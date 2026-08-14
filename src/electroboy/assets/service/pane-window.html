@@ -1,0 +1,1515 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ElectroBoy Pane</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
+  >
+  <style>
+    :root {
+      --terminal: #10141f;
+      --terminal-text: #e7edf7;
+      --border: #2a3142;
+      --font-size: 15px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      background: var(--terminal);
+      color: var(--terminal-text);
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      font-size: var(--font-size);
+      overflow: hidden;
+    }
+
+    .pane-window {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100vh;
+      min-height: 0;
+    }
+
+    .pane-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 38px;
+      border-bottom: 1px solid var(--border);
+      background: #151b29;
+      padding: 0 10px 0 12px;
+      font-weight: 400;
+      text-transform: uppercase;
+    }
+
+    .pane-toolbar button,
+    .pane-toolbar select,
+    .input-actions button,
+    .input-actions select {
+      min-height: 30px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: var(--terminal-text);
+      cursor: pointer;
+      font: inherit;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 750;
+    }
+
+    .pane-toolbar select {
+      min-width: 100px;
+      cursor: pointer;
+    }
+
+    .pane-toolbar button.active {
+      border-color: #66d9e8;
+      background: #1f6f8b;
+      color: #ffffff;
+    }
+
+    .input-actions select {
+      min-width: 150px;
+      cursor: pointer;
+    }
+
+    .pane-actions,
+    .artifact-zoom-controls,
+    .pane-font-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .artifact-zoom-controls[hidden] {
+      display: none;
+    }
+
+    .artifact-zoom-level {
+      min-width: 44px;
+      text-align: center;
+      color: #aab8cf;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 750;
+    }
+
+    .pane-font-level {
+      min-width: 44px;
+      text-align: center;
+      color: #aab8cf;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 750;
+    }
+
+    .pane-body {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .terminal-host,
+    .artifact-frame,
+    .scratch-pad,
+    .status-output,
+    .input-text {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      border: 0;
+      background: var(--terminal);
+      color: var(--terminal-text);
+      font-family:
+        "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: var(--font-size);
+      line-height: 1.45;
+      outline: none;
+    }
+
+    .terminal-host .xterm {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+    }
+
+    .artifact-frame {
+      background: var(--terminal);
+      color-scheme: dark;
+      opacity: 1;
+      transition: opacity 80ms ease;
+    }
+
+    .artifact-frame.loading {
+      opacity: 0;
+    }
+
+    .scratch-pad,
+    .status-output,
+    .input-text {
+      padding: 10px 12px;
+      resize: none;
+      white-space: pre-wrap;
+    }
+
+    .status-output {
+      margin: 0;
+      overflow: auto;
+    }
+
+    .input-layout {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .input-actions {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto auto;
+      align-items: end;
+      gap: 8px;
+      border-top: 1px solid var(--border);
+      background: #151b29;
+      padding: 8px;
+    }
+
+    .input-session-control {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .input-session-control label {
+      color: #aab8cf;
+      font-size: calc(var(--font-size) - 3px);
+      font-weight: 750;
+    }
+
+    .input-session-control select {
+      width: 100%;
+      min-width: 0;
+    }
+
+    [hidden] {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="pane-window">
+    <header class="pane-toolbar">
+      <span id="paneTitle">Pane</span>
+      <div class="pane-actions">
+        <div id="paneFontControls" class="pane-font-controls" aria-label="Pane font size">
+          <button
+            id="decreasePaneFont"
+            type="button"
+            title="Decrease pane font size"
+            aria-label="Decrease pane font size"
+          >A-</button>
+          <span id="paneFontLevel" class="pane-font-level">15px</span>
+          <button
+            id="resetPaneFont"
+            type="button"
+            title="Reset pane font size"
+            aria-label="Reset pane font size"
+          >0</button>
+          <button
+            id="increasePaneFont"
+            type="button"
+            title="Increase pane font size"
+            aria-label="Increase pane font size"
+          >A+</button>
+        </div>
+        <div id="artifactZoomControls" class="artifact-zoom-controls" hidden>
+          <button
+            id="decreaseArtifactZoom"
+            type="button"
+            title="Zoom document out"
+            aria-label="Zoom document out"
+          >-</button>
+          <span id="artifactZoomLevel" class="artifact-zoom-level">100%</span>
+          <button
+            id="increaseArtifactZoom"
+            type="button"
+            title="Zoom document in"
+            aria-label="Zoom document in"
+          >+</button>
+        </div>
+        <button
+          id="refreshArtifact"
+          type="button"
+          title="Refresh document"
+          aria-label="Refresh document"
+          hidden
+        >Refresh</button>
+        <button
+          id="previewArtifact"
+          type="button"
+          title="Preview document"
+          aria-label="Preview document"
+          hidden
+        >Preview</button>
+        <button
+          id="editArtifact"
+          type="button"
+          title="Edit document"
+          aria-label="Edit document"
+          hidden
+        >Edit</button>
+        <select
+          id="exportPaneFormat"
+          title="Export format"
+          aria-label="Export format"
+          hidden
+        >
+          <option value="markdown">Markdown</option>
+          <option value="docx">DOCX</option>
+          <option value="pdf">PDF</option>
+        </select>
+        <button
+          id="exportPaneOutput"
+          type="button"
+          title="Export pane output or document"
+          aria-label="Export pane output or document"
+          hidden
+        >Export</button>
+        <button id="dockPane" type="button">Dock</button>
+      </div>
+    </header>
+    <section class="pane-body">
+      <div id="terminalHost" class="terminal-host" hidden></div>
+      <iframe
+        id="artifactFrame"
+        class="artifact-frame"
+        title="Rendered artifact preview"
+        sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
+        hidden
+      ></iframe>
+      <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>
+      <pre id="statusOutput" class="status-output" hidden></pre>
+      <div id="inputLayout" class="input-layout" hidden>
+        <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
+        <div class="input-actions">
+          <div class="input-session-control">
+            <label for="sessionSwitcher">Select Agent</label>
+            <select
+              id="sessionSwitcher"
+              aria-label="Select Agent"
+              disabled
+            ></select>
+          </div>
+          <button id="interruptAgent" type="button">Interrupt</button>
+          <button id="sendAgentInput" type="button">Send</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script>
+    const PANE_KIND = __PANE_KIND__;
+    const params = new URLSearchParams(window.location.search);
+    const contextId = params.get("context_id") || "";
+    let selectedSessionId = params.get("session_id") || "";
+    const artifactKind = params.get("artifact") || "requirements";
+    const artifactDocumentPath = params.get("document_path") || "";
+    const artifactDocumentTitle = params.get("document_title") || "";
+    const artifactRoutePath = params.get("artifact_path") || "";
+    const artifactRouteTitle = params.get("artifact_title") || "";
+    const artifactFolderPath = params.get("folder_path") || "";
+    const artifactFolderTitle = params.get("folder_title") || "";
+    const artifactCorkboardPath = params.get("corkboard_path") || "";
+    const artifactCorkboardTitle = params.get("corkboard_title") || "";
+    const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
+    const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
+    const DEFAULT_FONT_SIZE = 15;
+    const MIN_FONT_SIZE = 11;
+    const MAX_FONT_SIZE = 24;
+    const MIN_FONT_OFFSET = -6;
+    const MAX_FONT_OFFSET = 6;
+    const fontPane = params.get("font_pane") || paneFontKeyForKind(PANE_KIND);
+    let baseFontSize = storedBaseFontSize();
+    let fontOffset = storedFontOffset();
+    let fontSize = effectiveFontSize();
+    const MIN_ARTIFACT_ZOOM = 70;
+    const MAX_ARTIFACT_ZOOM = 180;
+    const ARTIFACT_ZOOM_STEP = 10;
+    let artifactZoom = clampArtifactZoom(Number(params.get("document_zoom") || "100"));
+    const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
+    const paneTitle = document.getElementById("paneTitle");
+    const dockPane = document.getElementById("dockPane");
+    const paneFontControls = document.getElementById("paneFontControls");
+    const decreasePaneFont = document.getElementById("decreasePaneFont");
+    const paneFontLevel = document.getElementById("paneFontLevel");
+    const resetPaneFont = document.getElementById("resetPaneFont");
+    const increasePaneFont = document.getElementById("increasePaneFont");
+    const artifactZoomControls = document.getElementById("artifactZoomControls");
+    const decreaseArtifactZoom = document.getElementById("decreaseArtifactZoom");
+    const artifactZoomLevel = document.getElementById("artifactZoomLevel");
+    const increaseArtifactZoom = document.getElementById("increaseArtifactZoom");
+    const refreshArtifactButton = document.getElementById("refreshArtifact");
+    const previewArtifactButton = document.getElementById("previewArtifact");
+    const editArtifactButton = document.getElementById("editArtifact");
+    const exportPaneFormat = document.getElementById("exportPaneFormat");
+    const exportPaneOutput = document.getElementById("exportPaneOutput");
+    const terminalHost = document.getElementById("terminalHost");
+    const artifactFrame = document.getElementById("artifactFrame");
+    const scratchPad = document.getElementById("scratchPad");
+    const statusOutput = document.getElementById("statusOutput");
+    const inputLayout = document.getElementById("inputLayout");
+    const agentInput = document.getElementById("agentInput");
+    const sessionSwitcher = document.getElementById("sessionSwitcher");
+    const sendAgentInput = document.getElementById("sendAgentInput");
+    const interruptAgent = document.getElementById("interruptAgent");
+    let agentSessions = [];
+    let terminal = null;
+    let terminalFit = null;
+    let terminalResizeObserver = null;
+    let terminalResizeTimer = null;
+    let pendingTerminalResize = null;
+    let eventSource = null;
+    let artifactEventSource = null;
+    let slashCommandMode = false;
+    let terminalInputQueue = Promise.resolve();
+    let artifactVersion = 0;
+    let artifactEditing = false;
+    let statusTimer = null;
+
+    applyFontSize();
+
+    function paneFontKeyForKind(kind) {
+      if (kind === "shell") return "shell";
+      if (kind === "progress") return "progress";
+      if (kind === "input") return "input";
+      if (kind === "scratch") return "scratch";
+      if (kind === "status") return "status";
+      return "agent";
+    }
+
+    function storedBaseFontSize() {
+      const requested = Number(
+        params.get("base_font_size") || params.get("font_size") || "",
+      );
+      if (Number.isFinite(requested) && requested > 0) {
+        return clampFontSize(requested);
+      }
+      try {
+        const stored = Number(window.localStorage.getItem(TERMINAL_FONT_STORAGE_KEY));
+        if (Number.isFinite(stored) && stored > 0) {
+          return clampFontSize(stored);
+        }
+      } catch (error) {
+        return DEFAULT_FONT_SIZE;
+      }
+      return DEFAULT_FONT_SIZE;
+    }
+
+    function storedFontOffset() {
+      if (params.has("font_offset")) {
+        const requested = Number(params.get("font_offset") || "");
+        if (Number.isFinite(requested)) {
+          return clampFontOffset(requested);
+        }
+      }
+      return localStoredFontOffset();
+    }
+
+    function localStoredFontOffset() {
+      try {
+        const stored = Number(
+          window.localStorage.getItem(PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane),
+        );
+        if (Number.isFinite(stored)) {
+          return clampFontOffset(stored);
+        }
+      } catch (error) {
+        return 0;
+      }
+      return 0;
+    }
+
+    function clampFontSize(value) {
+      return Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(value)));
+    }
+
+    function clampFontOffset(value) {
+      return Math.max(MIN_FONT_OFFSET, Math.min(MAX_FONT_OFFSET, Math.round(value)));
+    }
+
+    function effectiveFontSize() {
+      return clampFontSize(baseFontSize + fontOffset);
+    }
+
+    function saveFontOffset() {
+      try {
+        window.localStorage.setItem(
+          PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane,
+          String(fontOffset),
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function notifyFontOffsetChanged() {
+      if (window.opener) {
+        window.opener.postMessage(
+          {
+            type: "electroboy-pane-font-offset",
+            pane: fontPane,
+            offset: fontOffset,
+          },
+          window.location.origin,
+        );
+      }
+    }
+
+    function applyFontSize() {
+      fontSize = effectiveFontSize();
+      document.documentElement.style.setProperty("--font-size", `${fontSize}px`);
+      if (terminal) {
+        terminal.options.fontSize = fontSize;
+        window.requestAnimationFrame(fitTerminal);
+      }
+      paneFontControls.hidden = PANE_KIND === "artifact";
+      paneFontLevel.textContent = `${fontSize}px`;
+      paneFontLevel.title = fontOffset === 0
+        ? "Global font size"
+        : `Global ${fontOffset > 0 ? "+" : ""}${fontOffset}px`;
+      decreasePaneFont.disabled = fontOffset <= MIN_FONT_OFFSET;
+      resetPaneFont.disabled = fontOffset === 0;
+      increasePaneFont.disabled = fontOffset >= MAX_FONT_OFFSET;
+    }
+
+    function changeFontSize(delta) {
+      fontOffset = clampFontOffset(fontOffset + delta);
+      saveFontOffset();
+      applyFontSize();
+      notifyFontOffsetChanged();
+    }
+
+    function resetFontSize() {
+      fontOffset = 0;
+      saveFontOffset();
+      applyFontSize();
+      notifyFontOffsetChanged();
+    }
+
+    function titleForPane(kind) {
+      if (kind === "agent") return "Agent output";
+      if (kind === "artifact") {
+        if (artifactKind === "document" && artifactDocumentTitle) {
+          return artifactDocumentTitle;
+        }
+        if (artifactKind === "route" && artifactRouteTitle) {
+          return artifactRouteTitle;
+        }
+        if (artifactKind === "creative-corkboard") {
+          return artifactCorkboardTitle || artifactFolderTitle || "Corkboard";
+        }
+        return "Artifact preview";
+      }
+      if (kind === "progress") return "Progress";
+      if (kind === "scratch") return "Scratch pad";
+      if (kind === "status") return "Project status";
+      if (kind === "input") return "AI agent input";
+      if (kind === "shell") return "Project shell";
+      return "Pane";
+    }
+
+    function contextUrl(path) {
+      const separator = path.includes("?") ? "&" : "?";
+      return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
+    }
+
+    function renderSessionSwitcher() {
+      sessionSwitcher.replaceChildren();
+      if (agentSessions.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No streams";
+        sessionSwitcher.append(option);
+        sessionSwitcher.disabled = true;
+        return;
+      }
+      for (const session of agentSessions) {
+        const option = document.createElement("option");
+        option.value = session.session_id;
+        const status = session.status === "running" ? "running" : session.status || "done";
+        option.textContent = `${session.kind || "agent"} · ${status}`;
+        sessionSwitcher.append(option);
+      }
+      if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
+        const selected = agentSessions.find((session) => session.selected) || agentSessions[0];
+        selectedSessionId = selected ? selected.session_id : "";
+      }
+      sessionSwitcher.value = selectedSessionId;
+      sessionSwitcher.disabled = false;
+    }
+
+    async function refreshSessions() {
+      if (!contextId) {
+        renderSessionSwitcher();
+        return;
+      }
+      const response = await fetch(contextUrl("/api/project"), { cache: "no-store" });
+      const payload = await response.json().catch(() => ({ error: "project load failed" }));
+      if (!response.ok) {
+        renderSessionSwitcher();
+        return;
+      }
+      agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      selectedSessionId = payload.selected_session_id || selectedSessionId || "";
+      renderSessionSwitcher();
+    }
+
+    async function selectAgentSession(sessionId) {
+      if (!sessionId || sessionId === selectedSessionId) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/sessions/select"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "session switch failed" }));
+      if (!response.ok) {
+        renderSessionSwitcher();
+        return;
+      }
+      agentSessions = Array.isArray(payload.sessions) ? payload.sessions : agentSessions;
+      selectedSessionId = payload.selected_session_id || sessionId;
+      renderSessionSwitcher();
+      if (PANE_KIND === "input") {
+        agentInput.focus();
+      }
+      if (PANE_KIND === "agent") {
+        connectAgentStream();
+      }
+    }
+
+    function clampArtifactZoom(value) {
+      if (!Number.isFinite(value)) {
+        return 100;
+      }
+      const stepped = Math.round(value / ARTIFACT_ZOOM_STEP) * ARTIFACT_ZOOM_STEP;
+      return Math.max(MIN_ARTIFACT_ZOOM, Math.min(MAX_ARTIFACT_ZOOM, stepped));
+    }
+
+    function applyArtifactZoom() {
+      artifactZoomLevel.textContent = `${artifactZoom}%`;
+      decreaseArtifactZoom.disabled = artifactZoom <= MIN_ARTIFACT_ZOOM;
+      increaseArtifactZoom.disabled = artifactZoom >= MAX_ARTIFACT_ZOOM;
+    }
+
+    function changeArtifactZoom(delta) {
+      artifactZoom = clampArtifactZoom(artifactZoom + delta);
+      applyArtifactZoom();
+      if (artifactEditing) {
+        postArtifactEditorFontSize();
+        return;
+      }
+      refreshArtifact();
+    }
+
+    function artifactEditorFontSize() {
+      return Math.max(11, Math.min(28, Math.round(16 * (artifactZoom / 100))));
+    }
+
+    function postArtifactEditorFontSize() {
+      if (!artifactEditing || !artifactFrame.contentWindow) {
+        return;
+      }
+      artifactFrame.contentWindow.postMessage(
+        {
+          type: "electroboy-editor-font-size",
+          font_size: artifactEditorFontSize(),
+        },
+        window.location.origin,
+      );
+    }
+
+    function terminalOptions(disableStdin = true) {
+      return {
+        allowProposedApi: false,
+        convertEol: true,
+        cursorBlink: false,
+        disableStdin,
+        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+        fontSize,
+        scrollback: 10000,
+        termName: "xterm-256color",
+        theme: {
+          background: "#10141f",
+          foreground: "#e7edf7",
+          cursor: "#e7edf7",
+          selectionBackground: "#2b6173",
+          black: "#151923",
+          red: "#ff6b6b",
+          green: "#51cf66",
+          yellow: "#ffd43b",
+          blue: "#74c0fc",
+          magenta: "#da77f2",
+          cyan: "#66d9e8",
+          white: "#f1f3f5",
+          brightBlack: "#5c677d",
+          brightRed: "#ff8787",
+          brightGreen: "#69db7c",
+          brightYellow: "#ffe066",
+          brightBlue: "#91caff",
+          brightMagenta: "#e599f7",
+          brightCyan: "#99e9f2",
+          brightWhite: "#ffffff",
+        },
+      };
+    }
+
+    function reportPaneError(message) {
+      if (terminal) {
+        terminal.write(formatTerminalMessage(`${message}\r\n`, "error"));
+        return;
+      }
+      window.alert(message);
+    }
+
+    function timestampForDownload() {
+      return new Date().toISOString().replace(/[:.]/g, "-");
+    }
+
+    function exportSafeName(value, fallback = "export") {
+      return String(value || fallback)
+        .replace(/[^A-Za-z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        || fallback;
+    }
+
+    function documentExportFormats() {
+      return [
+        {
+          value: "markdown",
+          label: "Markdown",
+          extension: "md",
+          description: "Markdown",
+          accept: {
+            "text/markdown": [".md"],
+            "text/plain": [".txt"],
+          },
+        },
+        {
+          value: "docx",
+          label: "DOCX",
+          extension: "docx",
+          description: "Word document",
+          accept: {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+              ".docx",
+            ],
+          },
+        },
+        {
+          value: "pdf",
+          label: "PDF",
+          extension: "pdf",
+          description: "PDF",
+          accept: {
+            "application/pdf": [".pdf"],
+          },
+        },
+      ];
+    }
+
+    function documentExportFormat(format) {
+      return documentExportFormats().find((candidate) => candidate.value === format)
+        || documentExportFormats()[0];
+    }
+
+    function documentExportPickerTypes(format = "markdown") {
+      const selected = documentExportFormat(format);
+      return [
+        {
+          description: selected.description,
+          accept: selected.accept,
+        },
+      ];
+    }
+
+    function downloadBlob(fileName, blob) {
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    }
+
+    async function writeBlobWithPicker(
+      blob,
+      suggestedName,
+      pickerTypes = documentExportPickerTypes("markdown"),
+    ) {
+      if (!window.showSaveFilePicker) {
+        downloadBlob(suggestedName, blob);
+        return;
+      }
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: pickerTypes,
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          return;
+        }
+        reportPaneError(`export picker failed: ${error}`);
+        downloadBlob(suggestedName, blob);
+      }
+    }
+
+    async function exportBlob(url, suggestedName, format = "markdown") {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        const message = await response.text();
+        reportPaneError(message || "export failed");
+        return;
+      }
+      const blob = await response.blob();
+      await writeBlobWithPicker(
+        blob,
+        suggestedName,
+        documentExportPickerTypes(format),
+      );
+    }
+
+    async function exportMarkdown(url, suggestedName) {
+      await exportBlob(url, suggestedName, "markdown");
+    }
+
+    function canExportPaneOutput() {
+      return PANE_KIND === "agent"
+        || PANE_KIND === "progress"
+        || PANE_KIND === "artifact";
+    }
+
+    function artifactExportBaseName() {
+      if (artifactKind === "document" && artifactDocumentPath) {
+        return exportSafeName(artifactDocumentPath);
+      }
+      if (artifactKind === "route" && artifactRouteTitle) {
+        return exportSafeName(artifactRouteTitle);
+      }
+      return exportSafeName(artifactKind || "document");
+    }
+
+    function paneExportFileName(format = "markdown") {
+      if (PANE_KIND === "artifact") {
+        const selected = documentExportFormat(format);
+        return `${artifactExportBaseName()}.${selected.extension}`;
+      }
+      if (PANE_KIND === "progress") {
+        return `progress-log-${timestampForDownload()}.md`;
+      }
+      return `agent-session-${timestampForDownload()}.md`;
+    }
+
+    function artifactDocumentExportUrl(format) {
+      const parameters = new URLSearchParams();
+      parameters.set("artifact", artifactKind);
+      parameters.set("format", format);
+      if (artifactKind === "document" && artifactDocumentPath) {
+        parameters.set("path", artifactDocumentPath);
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        parameters.set("path", artifactRoutePath);
+      }
+      return contextUrl(`/api/documents/export?${parameters.toString()}`);
+    }
+
+    async function exportCurrentPaneOutput() {
+      if (PANE_KIND === "artifact") {
+        const format = exportPaneFormat.value || "markdown";
+        await exportBlob(
+          artifactDocumentExportUrl(format),
+          paneExportFileName(format),
+          format,
+        );
+        return;
+      }
+      if (PANE_KIND === "progress") {
+        await exportMarkdown(
+          contextUrl("/api/progress/export"),
+          paneExportFileName(),
+        );
+        return;
+      }
+      await exportMarkdown(
+        contextUrl(
+          `/api/sessions/export?session_id=${encodeURIComponent(selectedSessionId)}`,
+        ),
+        paneExportFileName(),
+      );
+    }
+
+    function showTerminal(disableStdin = true, onData = null) {
+      terminalHost.hidden = false;
+      terminal = new window.Terminal(terminalOptions(disableStdin));
+      if (onData) {
+        terminal.onData(onData);
+      }
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        terminalFit = new window.FitAddon.FitAddon();
+        terminal.loadAddon(terminalFit);
+      }
+      terminal.open(terminalHost);
+      terminal.onResize(({ cols, rows }) => {
+        if (PANE_KIND === "shell") {
+          queueShellResize(cols, rows);
+        } else if (PANE_KIND === "agent") {
+          queueAgentResize(cols, rows);
+        }
+      });
+      observeTerminalPaneResize();
+      fitTerminal();
+      window.addEventListener("resize", fitTerminal);
+    }
+
+    function fitTerminal() {
+      if (!terminalFit) {
+        return;
+      }
+      try {
+        terminalFit.fit();
+      } catch (error) {
+        return;
+      }
+      if (PANE_KIND === "shell") {
+        window.requestAnimationFrame(() => queueShellResize());
+      } else if (PANE_KIND === "agent") {
+        window.requestAnimationFrame(() => queueAgentResize());
+      }
+    }
+
+    function observeTerminalPaneResize() {
+      if (!window.ResizeObserver || terminalResizeObserver) {
+        return;
+      }
+      terminalResizeObserver = new window.ResizeObserver(() => {
+        window.requestAnimationFrame(fitTerminal);
+      });
+      terminalResizeObserver.observe(terminalHost);
+    }
+
+    async function sendShellInput(data) {
+      if (!contextId || !data) {
+        return;
+      }
+      await fetch(contextUrl("/api/shell/input"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data }),
+      }).catch(() => {});
+    }
+
+    async function sendShellResize(columns = null, rows = null) {
+      if (!contextId || !terminal) {
+        return;
+      }
+      await fetch(contextUrl("/api/shell/resize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          columns: Number(columns || terminal.cols || 120),
+          rows: Number(rows || terminal.rows || 32),
+        }),
+      }).catch(() => {});
+    }
+
+    function agentResizePayload(columns = null, rows = null) {
+      if (!contextId || !terminal || !selectedSessionId) {
+        return null;
+      }
+      return {
+        session_id: selectedSessionId,
+        columns: Number(columns || terminal.cols || 120),
+        rows: Number(rows || terminal.rows || 32),
+      };
+    }
+
+    function queueAgentResize(columns = null, rows = null) {
+      const payload = agentResizePayload(columns, rows);
+      if (!payload) {
+        return;
+      }
+      pendingTerminalResize = payload;
+      window.clearTimeout(terminalResizeTimer);
+      terminalResizeTimer = window.setTimeout(() => {
+        const resize = pendingTerminalResize;
+        pendingTerminalResize = null;
+        sendAgentResize(resize);
+      }, 120);
+    }
+
+    async function sendAgentResize(payload = null) {
+      const resize = payload || agentResizePayload();
+      if (!resize) {
+        return;
+      }
+      await fetch(contextUrl("/api/sessions/resize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(resize),
+      }).catch(() => {});
+    }
+
+    function queueShellResize(columns = null, rows = null) {
+      window.clearTimeout(terminalResizeTimer);
+      terminalResizeTimer = window.setTimeout(
+        () => sendShellResize(columns, rows),
+        120,
+      );
+    }
+
+    function formatTerminalMessage(text, type) {
+      if (type === "error") return `\x1b[31m${text}\x1b[0m`;
+      if (type === "system") return `\x1b[36m${text}\x1b[0m`;
+      return text;
+    }
+
+    function connectAgentStream() {
+      showTerminal();
+      if (!contextId || !selectedSessionId) {
+        terminal.write("\x1b[31mno selected stream\x1b[0m\r\n");
+        return;
+      }
+      if (eventSource) {
+        eventSource.close();
+      }
+      eventSource = new EventSource(
+        contextUrl(
+          `/api/sessions/events?session_id=${encodeURIComponent(selectedSessionId)}`,
+        ),
+      );
+      eventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          terminal.write(payload.terminal || payload.text || "");
+        } else if (payload.type === "system" || payload.type === "error") {
+          terminal.write(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
+        } else if (payload.type === "completed") {
+          terminal.write(formatTerminalMessage(
+            `\r\nprocess exited with code ${payload.returncode}\r\n`,
+            "system",
+          ));
+        }
+      });
+      eventSource.onerror = () => {};
+    }
+
+    function connectProgressStream() {
+      showTerminal();
+      if (!contextId) {
+        terminal.write("\x1b[31mno active context\x1b[0m\r\n");
+        return;
+      }
+      eventSource = new EventSource(contextUrl("/api/progress/events"));
+      eventSource.addEventListener("progress-event", (event) => {
+        const payload = JSON.parse(event.data);
+        terminal.clear();
+        terminal.write(formatTerminalMessage(payload.text || "", payload.type));
+        if (payload.running === false) {
+          eventSource.close();
+        }
+      });
+      eventSource.onerror = () => {};
+    }
+
+    function connectShellStream() {
+      showTerminal(false, sendShellInput);
+      if (!contextId) {
+        terminal.write("\x1b[31mno active context\x1b[0m\r\n");
+        return;
+      }
+      eventSource = new EventSource(contextUrl("/api/shell/events"));
+      eventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          terminal.write(payload.terminal || payload.text || "");
+        } else if (payload.type === "system" || payload.type === "error") {
+          terminal.write(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
+        } else if (payload.type === "completed") {
+          terminal.write(formatTerminalMessage(
+            `\r\nproject shell exited with code ${payload.returncode}\r\n`,
+            "system",
+          ));
+        }
+      });
+      eventSource.onerror = () => {};
+      window.requestAnimationFrame(sendShellResize);
+    }
+
+    function artifactUrl() {
+      if (artifactKind === "requirements") {
+        return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${artifactZoom}&version=${artifactVersion}`;
+      }
+      if (artifactKind === "document" && artifactDocumentPath) {
+        const parameters = new URLSearchParams();
+        parameters.set("path", artifactDocumentPath);
+        parameters.set("title", artifactDocumentTitle || artifactDocumentPath);
+        parameters.set("embed", "1");
+        parameters.set("create", "1");
+        parameters.set("zoom", String(artifactZoom));
+        parameters.set("version", String(artifactVersion));
+        return contextUrl(`/artifacts/document?${parameters.toString()}`);
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        const routeUrl = contextUrl(`${artifactRoutePath}?embed=1`);
+        return `${routeUrl}&zoom=${artifactZoom}&version=${artifactVersion}`;
+      }
+      if (artifactKind === "creative-corkboard") {
+        const corkboardPath = artifactCorkboardPath || artifactFolderPath;
+        if (!corkboardPath) {
+          return "";
+        }
+        const parameters = new URLSearchParams();
+        parameters.set("path", corkboardPath);
+        parameters.set(
+          "title",
+          artifactCorkboardTitle || artifactFolderTitle || corkboardPath,
+        );
+        parameters.set("embed", "1");
+        parameters.set("version", String(artifactVersion));
+        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
+      }
+      return "";
+    }
+
+    function artifactEditUrl() {
+      if (artifactKind === "creative-corkboard") {
+        return artifactUrl();
+      }
+      const parameters = new URLSearchParams();
+      parameters.set("artifact", artifactKind);
+      parameters.set("document_zoom", String(artifactZoom));
+      parameters.set("font_size", String(artifactEditorFontSize()));
+      if (artifactKind === "document" && artifactDocumentPath) {
+        parameters.set("path", artifactDocumentPath);
+        parameters.set("title", artifactDocumentTitle || artifactDocumentPath);
+        parameters.set("create", "1");
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        parameters.set("path", artifactRoutePath);
+        parameters.set("title", artifactRouteTitle || artifactRoutePath);
+      }
+      return contextUrl(`/artifacts/edit?${parameters.toString()}`);
+    }
+
+    function refreshArtifact() {
+      artifactVersion += 1;
+      artifactFrame.classList.add("loading");
+      artifactFrame.src = artifactEditing ? artifactEditUrl() : artifactUrl();
+    }
+
+    function setArtifactEditMode(editing) {
+      artifactEditing = Boolean(editing);
+      previewArtifactButton.classList.toggle("active", !artifactEditing);
+      editArtifactButton.classList.toggle("active", artifactEditing);
+      refreshArtifact();
+    }
+
+    function artifactEventUrl() {
+      if (artifactKind === "requirements") {
+        return contextUrl("/api/artifacts/events?artifact=requirements");
+      }
+      const parameters = new URLSearchParams();
+      if (artifactKind === "document" && artifactDocumentPath) {
+        parameters.set("artifact", "document");
+        parameters.set("path", artifactDocumentPath);
+        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+      }
+      if (artifactKind === "route" && artifactRoutePath) {
+        parameters.set("artifact", "route");
+        parameters.set("path", artifactRoutePath);
+        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+      }
+      return "";
+    }
+
+    function connectArtifactStream() {
+      const isCorkboard = artifactKind === "creative-corkboard";
+      artifactFrame.hidden = false;
+      artifactZoomControls.hidden = isCorkboard;
+      refreshArtifactButton.hidden = false;
+      previewArtifactButton.hidden = isCorkboard;
+      editArtifactButton.hidden = isCorkboard;
+      exportPaneFormat.hidden = isCorkboard;
+      exportPaneOutput.hidden = isCorkboard;
+      previewArtifactButton.classList.toggle("active", !artifactEditing);
+      editArtifactButton.classList.toggle("active", artifactEditing);
+      applyArtifactZoom();
+      refreshArtifact();
+      if (!contextId) {
+        return;
+      }
+      const eventUrl = artifactEventUrl();
+      if (!eventUrl) {
+        return;
+      }
+      artifactEventSource = new EventSource(eventUrl);
+      artifactEventSource.addEventListener("artifact-event", refreshArtifact);
+      artifactEventSource.onerror = () => {};
+    }
+
+    function showScratchPad() {
+      scratchPad.hidden = false;
+      const storageKey = scratchPadStorageKey();
+      try {
+        scratchPad.value = storageKey
+          ? window.localStorage.getItem(storageKey) || ""
+          : "";
+      } catch (error) {
+        scratchPad.value = "";
+      }
+      scratchPad.addEventListener("input", () => {
+        const activeStorageKey = scratchPadStorageKey();
+        if (!activeStorageKey) {
+          return;
+        }
+        try {
+          window.localStorage.setItem(activeStorageKey, scratchPad.value);
+        } catch (error) {
+          return;
+        }
+      });
+      scratchPad.focus();
+    }
+
+    function scratchPadStorageKey() {
+      if (!contextId) {
+        return "";
+      }
+      return `${SCRATCH_PAD_STORAGE_KEY}.${contextId}`;
+    }
+
+    async function refreshStatus() {
+      if (!contextId) {
+        statusOutput.textContent = "no active project\n";
+        return;
+      }
+      statusOutput.textContent = "refreshing status...\n";
+      const response = await fetch(contextUrl("/api/project/status"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ error: "status failed" }));
+      statusOutput.textContent = response.ok
+        ? payload.output || "status: none\n"
+        : `${payload.error || "status failed"}\n`;
+    }
+
+    function showStatus() {
+      statusOutput.hidden = false;
+      refreshStatus();
+      statusTimer = window.setInterval(refreshStatus, 2500);
+    }
+
+    async function sendMessage() {
+      if (slashCommandMode) {
+        sendTerminalKey("enter");
+        finishSlashCommandMode();
+        return;
+      }
+      const message = agentInput.value;
+      if (!message.trim()) {
+        return;
+      }
+      agentInput.value = "";
+      await fetch(contextUrl("/api/sessions/message"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+    }
+
+    function queueTerminalInput(task) {
+      const next = terminalInputQueue.catch(() => {}).then(task);
+      terminalInputQueue = next.catch(() => {});
+      return next;
+    }
+
+    function sendTerminalKey(key) {
+      return queueTerminalInput(async () => {
+        await fetch(contextUrl("/api/sessions/key"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
+      });
+    }
+
+    function sendTerminalRaw(data) {
+      if (!data) {
+        return Promise.resolve();
+      }
+      return queueTerminalInput(async () => {
+        await fetch(contextUrl("/api/sessions/raw"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+      });
+    }
+
+    function printableInputEvent(event) {
+      return (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        event.key &&
+        event.key.length === 1
+      );
+    }
+
+    function slashCommandTerminalKeyForInputEvent(event) {
+      if (event.altKey || event.ctrlKey || event.metaKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "Escape") return "escape";
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Backspace") return "backspace";
+      if (event.key === "Delete") return "delete";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    function refreshSlashCommandModeAfterEdit() {
+      window.setTimeout(() => {
+        if (!agentInput.value.trimStart().startsWith("/")) {
+          slashCommandMode = false;
+        }
+      }, 0);
+    }
+
+    function finishSlashCommandMode() {
+      slashCommandMode = false;
+      agentInput.value = "";
+    }
+
+    function handleSlashCommandInput(event) {
+      if (
+        !slashCommandMode &&
+        printableInputEvent(event) &&
+        event.key === "/" &&
+        agentInput.value.trim().length === 0
+      ) {
+        slashCommandMode = true;
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      if (!slashCommandMode) {
+        return false;
+      }
+      const slashKey = slashCommandTerminalKeyForInputEvent(event);
+      if (slashKey) {
+        sendTerminalKey(slashKey);
+        if (slashKey === "enter" || slashKey === "escape") {
+          event.preventDefault();
+          finishSlashCommandMode();
+        } else if (slashKey === "backspace" || slashKey === "delete") {
+          refreshSlashCommandModeAfterEdit();
+        } else {
+          event.preventDefault();
+        }
+        return true;
+      }
+      if (printableInputEvent(event)) {
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      return false;
+    }
+
+    function terminalKeyForInputEvent(event) {
+      if (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.key === "Escape"
+      ) {
+        return "escape";
+      }
+      if (agentInput.value.length > 0) {
+        return "";
+      }
+      if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        /^[0-9]$/.test(event.key)
+      ) {
+        return event.key;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    async function interruptAgentSession() {
+      await fetch(contextUrl("/api/sessions/interrupt"), { method: "POST" });
+    }
+
+    function showInput() {
+      inputLayout.hidden = false;
+      refreshSessions();
+      applyFontSize();
+      agentInput.focus();
+    }
+
+    dockPane.addEventListener("click", () => {
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: "electroboy-pane-restore", pane: PANE_KIND },
+          window.location.origin,
+        );
+      }
+      window.close();
+    });
+    decreaseArtifactZoom.addEventListener(
+      "click",
+      () => changeArtifactZoom(-ARTIFACT_ZOOM_STEP),
+    );
+    increaseArtifactZoom.addEventListener(
+      "click",
+      () => changeArtifactZoom(ARTIFACT_ZOOM_STEP),
+    );
+    refreshArtifactButton.addEventListener("click", refreshArtifact);
+    artifactFrame.addEventListener("load", () => {
+      artifactFrame.classList.remove("loading");
+      postArtifactEditorFontSize();
+    });
+    previewArtifactButton.addEventListener("click", () => setArtifactEditMode(false));
+    editArtifactButton.addEventListener("click", () => setArtifactEditMode(true));
+    exportPaneOutput.addEventListener("click", () => {
+      exportCurrentPaneOutput().catch((error) => {
+        if (terminal) {
+          terminal.write(formatTerminalMessage(`export failed: ${error}\r\n`, "error"));
+        }
+      });
+    });
+    decreasePaneFont.addEventListener("click", () => changeFontSize(-1));
+    resetPaneFont.addEventListener("click", resetFontSize);
+    increasePaneFont.addEventListener("click", () => changeFontSize(1));
+    window.addEventListener("storage", (event) => {
+      if (event.key === TERMINAL_FONT_STORAGE_KEY) {
+        const nextBase = Number(event.newValue || "");
+        if (Number.isFinite(nextBase) && nextBase > 0) {
+          baseFontSize = clampFontSize(nextBase);
+          applyFontSize();
+        }
+        return;
+      }
+      if (event.key !== PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane) {
+        return;
+      }
+      fontOffset = localStoredFontOffset();
+      applyFontSize();
+    });
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      const data = event.data || {};
+      if (data.type === "electroboy-artifact-saved") {
+        artifactVersion += 1;
+        if (!artifactEditing) {
+          refreshArtifact();
+        }
+      }
+    });
+    sessionSwitcher.addEventListener("change", () => {
+      selectAgentSession(sessionSwitcher.value);
+    });
+    sendAgentInput.addEventListener("click", sendMessage);
+    interruptAgent.addEventListener("click", interruptAgentSession);
+    agentInput.addEventListener("keydown", (event) => {
+      if (handleSlashCommandInput(event)) {
+        return;
+      }
+      const terminalKey = terminalKeyForInputEvent(event);
+      if (terminalKey) {
+        event.preventDefault();
+        sendTerminalKey(terminalKey);
+        return;
+      }
+      const isEnter =
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter";
+      if (isEnter && event.shiftKey) {
+        event.preventDefault();
+        if (agentInput.value.trim()) {
+          sendMessage();
+        } else {
+          sendTerminalKey("enter");
+        }
+      }
+    });
+
+    paneTitle.textContent = titleForPane(PANE_KIND);
+    exportPaneFormat.hidden = PANE_KIND !== "artifact";
+    exportPaneOutput.hidden = !canExportPaneOutput();
+    if (PANE_KIND === "agent") connectAgentStream();
+    else if (PANE_KIND === "progress") connectProgressStream();
+    else if (PANE_KIND === "artifact") connectArtifactStream();
+    else if (PANE_KIND === "scratch") showScratchPad();
+    else if (PANE_KIND === "status") showStatus();
+    else if (PANE_KIND === "input") showInput();
+    else if (PANE_KIND === "shell") connectShellStream();
+
+    window.addEventListener("beforeunload", () => {
+      if (eventSource) eventSource.close();
+      if (artifactEventSource) artifactEventSource.close();
+      if (statusTimer) window.clearInterval(statusTimer);
+    });
+  </script>
+</body>
+</html>
