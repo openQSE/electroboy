@@ -1,0 +1,806 @@
+# ElectroBoy Modular Server Detailed Design
+
+## Table of Contents
+
+- [Purpose](#purpose)
+- [Design Principles](#design-principles)
+- [Goals](#goals)
+- [Non-Goals](#non-goals)
+- [Current Server Shape](#current-server-shape)
+- [Target Architecture](#target-architecture)
+- [Core Service](#core-service)
+- [Module Registry](#module-registry)
+- [Workflow Registry](#workflow-registry)
+- [Reusable Modules](#reusable-modules)
+- [Document Modules](#document-modules)
+- [Frontend Composition](#frontend-composition)
+- [Backend Route Model](#backend-route-model)
+- [State And Persistence](#state-and-persistence)
+- [Agent Session Model](#agent-session-model)
+- [Workflow Composition](#workflow-composition)
+- [Plugin Boundary](#plugin-boundary)
+- [Testing Strategy](#testing-strategy)
+- [Migration Plan](#migration-plan)
+- [Open Questions](#open-questions)
+
+## Purpose
+
+The ElectroBoy service should support multiple workflows and reusable GUI
+capabilities without concentrating every behavior in one server module. The
+software-engineering workflow, creative-writing workflow, document panes,
+corkboards, project shell, agent sessions, and file browser should be composed
+from clear modules.
+
+The service remains a local orchestration layer. It owns browser contexts,
+project activation, HTTP/SSE transport, session lifecycle, and safe access to
+project files. Workflow-specific behavior moves into workflow definitions.
+Reusable behavior moves into capability modules.
+
+This design prepares ElectroBoy for built-in workflows, user-defined
+workflows, and plugin-provided workflows while keeping the CLI authoritative.
+
+## Design Principles
+
+- Keep the CLI and service aligned around the same workflow state.
+- Treat workflows as compositions of reusable capabilities.
+- Keep browser-tab state isolated by context id.
+- Keep long-running agent processes behind a shared session layer.
+- Separate structured documents from plain Markdown documents.
+- Let complex GUI capabilities, such as corkboards, be imported by multiple
+  workflows.
+- Preserve existing behavior while moving code into smaller modules.
+- Add plugin loading after built-in workflows use the same registry model.
+- Keep route registration explicit and inspectable.
+- Avoid frontend behavior that depends on hidden workflow-specific globals.
+
+## Goals
+
+- Split the service into small backend modules with stable responsibilities.
+- Move large inline HTML, CSS, and JavaScript into package assets.
+- Add a backend module registry for reusable capabilities.
+- Add a workflow registry for software engineering, creative writing, and
+  future workflows.
+- Let workflows declare the modules, stages, panes, actions, and documents
+  they need.
+- Let modules register routes, static assets, commands, and state namespaces.
+- Preserve per-browser-tab contexts so two tabs can operate different projects.
+- Support module reuse across workflows, including corkboards and documents.
+- Keep Markdown export, live refresh, pane pop-outs, progress streaming, and
+  agent IO available to every workflow that imports the matching module.
+- Provide a path to external workflow plugins without rewriting the service.
+
+## Non-Goals
+
+- Do not replace the CLI with the service.
+- Do not require a web framework migration as part of the first split.
+- Do not make plugin loading the first refactor step.
+- Do not move workflow policy into frontend JavaScript.
+- Do not merge structured and unstructured document editing into one model.
+- Do not let modules write arbitrary global state outside their namespace.
+- Do not require creative-writing projects to contain software-engineering
+  artifacts.
+
+## Current Server Shape
+
+The service is implemented mainly in `src/electroboy/service.py`. That file is
+large because it contains several independent responsibilities:
+
+- Service constants and workflow metadata.
+- The main HTML, CSS, and JavaScript application template.
+- Pane-window and file-browser window templates.
+- `BrowserContext`, which stores per-tab activation and session state.
+- `ServiceState`, which coordinates project, workflow, document, creative, and
+  session operations.
+- `AgentSession`, which owns PTY process execution and event collection.
+- `ElectroBoyHTTPServer` and the request handler.
+- Manual HTTP route dispatch with `if path == ...` checks.
+- Markdown rendering and artifact editor pages.
+- Structured artifact editing.
+- Creative project, binder, scratchpad, and corkboard logic.
+- Project shell, progress, export, and terminal helpers.
+- Command builders for `electroboy`, `codex`, and shell sessions.
+
+The rest of the codebase is more modular. Runtime adapters, prompt generation,
+structured artifacts, document export, gates, state store, and upstream
+providers already live outside the service. The server should follow the same
+direction.
+
+## Target Architecture
+
+The service becomes a small composition layer. It loads reusable modules,
+loads workflows, creates a route table, serves static assets, and keeps browser
+contexts isolated.
+
+```text
+Browser
+  |
+  | HTTP + SSE
+  v
+Service Core
+  |
+  +-- Context Store
+  +-- Route Registry
+  +-- Session Manager
+  +-- Static Asset Server
+  +-- Workflow Registry
+  |
+  +-- Modules
+      +-- agent_sessions
+      +-- markdown_documents
+      +-- structured_documents
+      +-- corkboard
+      +-- binder
+      +-- project_shell
+      +-- file_browser
+      +-- progress
+      +-- recent_projects
+      +-- review_reports
+```
+
+Workflows depend on modules rather than owning every detail themselves.
+
+```text
+Software Engineering Workflow
+  imports structured_documents
+  imports markdown_documents
+  imports agent_sessions
+  imports progress
+  imports review_reports
+  imports project_shell
+
+Creative Writing Workflow
+  imports markdown_documents
+  imports agent_sessions
+  imports binder
+  imports corkboard
+  imports project_shell
+```
+
+## Core Service
+
+The core service owns concerns that every workflow needs.
+
+### Server Runtime
+
+The runtime creates the HTTP server, binds host and port, installs signal
+handlers, and shuts down active sessions when the service exits. This code can
+stay small and can remain on top of `ThreadingHTTPServer`.
+
+A web framework can be considered once route and asset boundaries are clean.
+The immediate design does not require FastAPI, Starlette, Flask, or another
+dependency.
+
+### Context Store
+
+The context store owns browser contexts. A context represents one browser tab
+or one GUI client session. It records:
+
+- context id
+- active workflow id
+- project mode
+- activation root
+- active project root
+- active repository name
+- selected agent session id
+- workflow-local state
+- module-local state
+
+Workflow and module state should move out of hard-coded fields. The target
+shape uses namespaced dictionaries:
+
+```python
+@dataclass
+class BrowserContext:
+    context_id: str
+    workflow_id: str = "software"
+    activation_root: Path | None = None
+    active_project_root: Path | None = None
+    selected_session_id: str | None = None
+    workflow_state: dict[str, object] = field(default_factory=dict)
+    module_state: dict[str, dict[str, object]] = field(default_factory=dict)
+```
+
+Existing named fields can be migrated gradually. The first refactor can keep
+compatibility properties while modules move to namespaced state.
+
+### Route Registry
+
+The service should build a route table instead of using one long request
+handler. Each route records the HTTP method, path, handler, and owning module.
+
+```python
+@dataclass(frozen=True)
+class Route:
+    method: str
+    path: str
+    handler: Callable[[RequestContext], Response]
+    owner: str
+```
+
+The request handler becomes generic. It parses the request, finds a route, and
+sends the returned response. SSE routes can use a streaming response object.
+
+### Asset Server
+
+The service serves packaged frontend assets. The initial implementation can
+use package resources and explicit `/assets/...` paths. A manifest maps asset
+names to package files.
+
+This avoids storing the main application, pane windows, corkboard UI, and
+editor UI as giant Python strings.
+
+## Module Registry
+
+A module is a reusable backend and frontend capability. It registers the
+routes, assets, pane types, commands, and state namespace it owns.
+
+```python
+@dataclass(frozen=True)
+class ServiceModule:
+    id: str
+    label: str
+    routes: tuple[Route, ...]
+    assets: tuple[Asset, ...] = ()
+    panes: tuple[PaneDefinition, ...] = ()
+    capabilities: frozenset[str] = frozenset()
+```
+
+The registry is initialized at service startup:
+
+```python
+registry = ModuleRegistry()
+registry.register(agent_sessions_module())
+registry.register(markdown_documents_module())
+registry.register(structured_documents_module())
+registry.register(corkboard_module())
+```
+
+Modules may call shared service APIs. They should not reach into unrelated
+module state. Shared APIs should be passed through a `ServiceServices` object:
+
+```python
+@dataclass
+class ServiceServices:
+    contexts: ContextStore
+    sessions: SessionManager
+    files: ProjectFileService
+    workflows: WorkflowRegistry
+```
+
+## Workflow Registry
+
+A workflow definition describes one operator workflow. It is data plus a small
+controller object. The definition declares stages, sidebar sections, default
+panes, document mappings, imported modules, and project lifecycle hooks.
+
+```python
+@dataclass(frozen=True)
+class WorkflowDefinition:
+    id: str
+    label: str
+    modules: tuple[str, ...]
+    stages: tuple[WorkflowStage, ...]
+    project_kinds: tuple[str, ...]
+    controller_factory: Callable[[ServiceServices], WorkflowController]
+```
+
+Stages use command-facing names. Software engineering should display `code`,
+not `implementation`, because the operator runs `electroboy code`.
+
+```python
+@dataclass(frozen=True)
+class WorkflowStage:
+    id: str
+    label: str
+    command: str | None
+    documents: tuple[DocumentRef, ...] = ()
+    actions: tuple[ActionRef, ...] = ()
+    next_stage: str | None = None
+```
+
+The workflow registry provides:
+
+- workflow lookup by id
+- project-kind lookup
+- active workflow lookup for a context
+- workflow-specific payload construction
+- validation that imported modules are present
+
+## Reusable Modules
+
+### Agent Sessions
+
+The agent session module owns PTY execution, process termination, terminal
+resize, raw input, key forwarding, transcript export, and SSE event streaming.
+
+Workflows ask the session manager to start a role:
+
+```python
+session = sessions.start_agent(
+    context_id=context_id,
+    role="design_author",
+    cwd=project_root,
+    prompt=prompt,
+    interactive=True,
+    locks={"docs/detailed-design.jsonl"},
+)
+```
+
+This module should use the runtime adapter layer for provider selection where
+possible. Direct `codex` command construction should move out of the service
+and into runtime adapters or workflow role configuration.
+
+### Progress
+
+The progress module owns progress snapshots, progress SSE, issue announcements,
+and progress export. It should read the same progress sources used by
+`electroboy progress`.
+
+The GUI should not know whether a progress line came from code review, design
+review, validation, or a future workflow. It receives structured events:
+
+```json
+{
+  "kind": "issue",
+  "severity": "major",
+  "summary": "The implementation misses retry handling."
+}
+```
+
+### Project Shell
+
+The project shell module owns interactive shell sessions in a project root.
+Any workflow can import it. It should depend only on an active project path and
+the session manager.
+
+### File Browser
+
+The file browser module owns directory and Markdown-file selection. It should
+serve one reusable browser window and one set of APIs. It should support:
+
+- directory selection
+- file selection
+- Markdown-only filtering
+- hidden-file toggle
+- direct path entry
+- project creation from a selected or entered path
+
+### Recent Projects
+
+Recent projects belong to the service core or a small shared module. The list
+is keyed by workflow id and project kind so creative-writing and
+software-engineering contexts do not overwrite each other.
+
+### Review Reports
+
+Review reports should be a reusable report index module. It can list review
+runs, show summaries, open Markdown reports, and expose JSONL issue metadata.
+
+Software engineering imports it for code review, design review, test review,
+and validation review. Future workflows can reuse it for editorial review or
+planning review.
+
+## Document Modules
+
+Documents are split into two capabilities because they have different sources
+of truth.
+
+### Markdown Documents
+
+Markdown documents use the Markdown file as the source of truth. This module
+supports:
+
+- preview mode
+- edit mode
+- Tiptap rich editing for creative writing
+- Markdown save
+- document export
+- live refresh
+- pop-out panes
+- document selection
+
+Creative-writing documents use this module. General documentation pages such
+as README or usage guides can also use it.
+
+### Structured Documents
+
+Structured documents use JSONL as the source of truth and Markdown as the
+rendered companion. This module supports:
+
+- JSONL record loading
+- schema-aware edit forms
+- body fields that accept Markdown
+- deterministic Markdown rendering
+- Markdown import as recovery or bootstrap
+- explicit save
+- refresh after save
+- document export from the rendered Markdown companion
+
+Software-engineering artifacts use this module:
+
+- requirements
+- detailed design
+- implementation plan
+- test plan
+- implementation log
+- implementation report
+- validation report
+
+The editor should show human-editable fields and hide mechanical fields where
+possible. Advanced mode can expose the raw record when needed.
+
+## Frontend Composition
+
+The browser application should become a shell that loads workflow and module
+contributions.
+
+Core frontend code owns:
+
+- context creation and persistence
+- workflow selector
+- top toolbar
+- left side sheet
+- pane layout
+- pane resizing
+- pop-out windows
+- session selector
+- common fetch/SSE helpers
+- status and error presentation
+
+Modules contribute frontend code through stable interfaces.
+
+```javascript
+window.ElectroBoy.registerModule({
+  id: "corkboard",
+  panes: {
+    corkboard: createCorkboardPane
+  },
+  actions: {
+    openCorkboard: openCorkboard
+  }
+});
+```
+
+Workflows contribute navigation and actions.
+
+```javascript
+window.ElectroBoy.registerWorkflow({
+  id: "creative-writing",
+  sidebar: creativeSidebar,
+  defaultLayout: creativeLayout
+});
+```
+
+The service can still ship one bundled application at first. The important
+change is source structure. The UI should be split into files such as:
+
+```text
+assets/service/js/core/context.js
+assets/service/js/core/panes.js
+assets/service/js/core/sessions.js
+assets/service/js/modules/documents.js
+assets/service/js/modules/structured-documents.js
+assets/service/js/modules/corkboard.js
+assets/service/js/workflows/software.js
+assets/service/js/workflows/creative-writing.js
+```
+
+## Backend Route Model
+
+Routes should be grouped by module.
+
+```text
+/api/contexts                         core
+/api/project/open                     core project
+/api/workflows                        workflow registry
+/api/workflows/<id>/actions/<action>  workflow controller
+/api/sessions                         agent_sessions
+/api/sessions/events                  agent_sessions
+/api/documents/preview                markdown_documents
+/api/documents/edit                   markdown_documents
+/api/structured-documents/edit        structured_documents
+/api/corkboards/<path>                corkboard
+/api/file-browser/browse              file_browser
+```
+
+The current route names can remain as compatibility wrappers during the split.
+New code should call module-owned routes.
+
+Each handler should return a typed response:
+
+```python
+@dataclass(frozen=True)
+class JsonResponse:
+    payload: dict[str, object]
+    status: HTTPStatus = HTTPStatus.OK
+
+@dataclass(frozen=True)
+class HtmlResponse:
+    body: str
+    status: HTTPStatus = HTTPStatus.OK
+
+@dataclass(frozen=True)
+class BinaryResponse:
+    data: bytes
+    content_type: str
+    filename: str | None = None
+```
+
+This removes repeated `_send_json`, `_send_text`, and download boilerplate
+from every domain handler.
+
+## State And Persistence
+
+State has three layers.
+
+### Browser Context State
+
+Browser context state is in memory. It isolates tabs and active sessions. It
+should never be shared implicitly between workflows.
+
+### Project State
+
+Project state lives in the project under `.electroboy`. It includes workflow
+manifest data, run records, review issues, progress files, project config, and
+workflow-specific state.
+
+Suggested layout:
+
+```text
+.electroboy/
+  project.toml
+  shared/
+    runs/
+    work-items.json
+    repositories.json
+  workflows/
+    software/
+      state.json
+    creative-writing/
+      state.json
+  modules/
+    corkboard/
+      corkboards.json
+    recent-projects/
+      recent-projects.json
+```
+
+Existing paths can stay where they are until migration is needed. New module
+state should use module-owned directories.
+
+### Service State
+
+Service-local state lives under the service root. It includes recent projects
+and service preferences. It should not encode an automatically opened project,
+because the service can serve multiple clients and each client has its own
+context.
+
+## Agent Session Model
+
+All workflows should use the same session manager. A session records:
+
+- session id
+- label
+- kind
+- role
+- command
+- cwd
+- interactive flag
+- lock names
+- metadata
+- current status
+- events
+- return code
+
+The session manager should support:
+
+- start
+- stop
+- interrupt
+- send message
+- send key
+- send raw bytes
+- resize terminal
+- stream events
+- export transcript
+
+Workflow code should provide the role and prompt. Runtime-specific command
+construction belongs to the runtime adapter layer.
+
+## Workflow Composition
+
+### Software Engineering
+
+The software workflow composes structured documents, review reports, progress,
+agent sessions, and project shell.
+
+It owns the software stage graph:
+
+```text
+requirements
+design
+design-review
+implementation-plan
+code
+test-plan
+validate
+document
+```
+
+Approval actions remain stage actions. For example, `plan-approve` is exposed
+inside the `implementation-plan` stage rather than modeled as a separate
+workflow node.
+
+The workflow controller maps stage actions to existing CLI commands. The CLI
+continues to enforce gates, forced movement, approvals, and artifact policy.
+
+### Creative Writing
+
+The creative-writing workflow composes Markdown documents, binder, corkboard,
+agent sessions, and project shell.
+
+It owns project creation defaults:
+
+```text
+chapters/
+characters/
+scratchpad/
+corkboard/
+reviews/
+research/
+```
+
+The binder mirrors the filesystem. Markdown documents open in document panes.
+Folder corkboards and freeform corkboards open through the corkboard module.
+The creative agent receives active-target updates when the operator switches
+documents or corkboards.
+
+### Future Workflows
+
+A planning workflow might import corkboards, Markdown documents, review
+reports, and agent sessions. It should not need to know how the creative
+workflow implements corkboard persistence or how the software workflow streams
+progress.
+
+## Plugin Boundary
+
+External plugins should use the same interfaces as built-in workflows and
+modules. Plugin support should be added after software and creative writing
+are moved onto the registry.
+
+Plugin discovery can use Python entry points:
+
+```toml
+[project.entry-points."electroboy.workflows"]
+creative_writing = "electroboy.workflows.creative:workflow"
+
+[project.entry-points."electroboy.modules"]
+corkboard = "electroboy.modules.corkboard:module"
+```
+
+The plugin contract should include:
+
+- workflow definitions
+- service modules
+- static assets
+- optional CLI commands
+- optional document schemas
+- optional runtime roles
+
+Plugins should run with the same local trust model as the project. The GUI
+should show which plugin provides a workflow or module.
+
+## Testing Strategy
+
+The refactor needs tests at each boundary.
+
+Core tests:
+
+- route registry dispatch
+- request parsing
+- response rendering
+- SSE stream helpers
+- context creation and isolation
+- session manager lifecycle
+
+Module tests:
+
+- document preview/edit/export
+- structured document save/render/import
+- corkboard CRUD, ordering, color, and group behavior
+- binder tree filtering and file operations
+- file browser path selection
+- progress event payloads
+
+Workflow tests:
+
+- software workflow stage payloads
+- software workflow action routing to CLI commands
+- creative workflow project creation
+- creative active-target notification
+- cross-workflow context isolation
+
+Frontend tests can start as targeted HTML/JS smoke tests. As the frontend moves
+into assets, string-search tests should be replaced with smaller module-level
+checks and browser-level smoke tests for key flows.
+
+## Migration Plan
+
+### Phase 1: Extract Pure Infrastructure
+
+Move low-risk infrastructure first:
+
+- `AgentSession` and terminal helpers to `service/sessions.py`.
+- `BrowserContext` and context helpers to `service/context.py`.
+- response helpers and typed responses to `service/http.py`.
+- command builders to `service/commands.py`.
+
+Keep import compatibility where tests still import from `electroboy.service`.
+
+### Phase 2: Add Route Registry
+
+Introduce a route registry while keeping the existing paths. Move small route
+groups out of the nested request handler:
+
+- health
+- project payload
+- sessions
+- progress
+- file browser
+
+The request handler becomes a generic adapter from `BaseHTTPRequestHandler` to
+registered routes.
+
+### Phase 3: Extract Document Modules
+
+Move Markdown preview, edit, export, artifact events, and structured artifact
+editing into document modules. Keep the GUI behavior unchanged.
+
+This phase should establish the split between `markdown_documents` and
+`structured_documents`.
+
+### Phase 4: Extract Creative Modules
+
+Move binder, scratchpad, and corkboard behavior into modules. The
+creative-writing workflow imports them and supplies project defaults.
+
+The corkboard module should expose APIs that any workflow can use.
+
+### Phase 5: Extract Software Workflow
+
+Move software-engineering stage definitions and actions into
+`workflows/software.py`. The workflow controller should call the existing CLI
+commands rather than duplicating gate logic in the service.
+
+### Phase 6: Extract Frontend Assets
+
+Move the main GUI template, pane windows, file browser, editor, and corkboard
+UI into package assets. Split JavaScript by core, module, and workflow.
+
+This phase reduces future merge conflicts and makes the GUI extension model
+real.
+
+### Phase 7: Enable Built-In Registry
+
+Register built-in modules and workflows through the same registry API that
+plugins will use. At this point new built-in workflows can be added without
+editing the service core.
+
+### Phase 8: Add Plugin Discovery
+
+Add entry-point discovery for external workflows and modules. Validate plugin
+metadata, expose loaded plugins in service health, and provide clear errors
+when a workflow depends on a missing module.
+
+## Open Questions
+
+- Should the service keep using `ThreadingHTTPServer`, or should it move to an
+  async framework after route boundaries are stable?
+- Should frontend module loading be static at build time or dynamic at service
+  startup?
+- How much of the workflow action model should be available to user-authored
+  YAML or TOML workflows before Python plugin support is required?
+- Should module state migrations be automatic, or should they run through an
+  explicit `electroboy migrate` command?
+- Should plugin-provided JavaScript be allowed by default, or should plugin UI
+  contributions be limited to declarative panes and actions?
