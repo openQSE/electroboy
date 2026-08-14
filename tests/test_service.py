@@ -1171,6 +1171,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="creativeBinder"', INDEX_HTML)
         self.assertIn('id="creativeProjectMenuButton"', INDEX_HTML)
         self.assertIn('id="creativeProjectActions"', INDEX_HTML)
+        self.assertIn('id="creativeRecentProjects"', INDEX_HTML)
         self.assertIn('id="creativeCloseProject"', INDEX_HTML)
         self.assertIn("creativeCloseProject.disabled = !Boolean(activationRoot)", INDEX_HTML)
         self.assertIn(
@@ -1258,6 +1259,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("let expandedProjectActionGroups = new Set();", INDEX_HTML)
         self.assertIn("function stageActionSubgroup(action)", INDEX_HTML)
         self.assertIn("function toggleProjectActionGroup(groupId)", INDEX_HTML)
+        self.assertIn("let recentProjects = [];", INDEX_HTML)
+        self.assertIn("recentProjects = Array.isArray(payload.recent_projects)", INDEX_HTML)
+        self.assertIn("function recentProjectsForWorkflow()", INDEX_HTML)
+        self.assertIn("function recentProjectActionsForWorkflow()", INDEX_HTML)
+        self.assertIn("async function openRecentProject(recent)", INDEX_HTML)
+        self.assertIn("function renderCreativeRecentProjects()", INDEX_HTML)
+        self.assertIn('label: "Recently opened"', INDEX_HTML)
         self.assertIn('id="documentTargets"', INDEX_HTML)
         self.assertIn('id="createDocumentTarget"', INDEX_HTML)
         self.assertIn('id="customDocumentName"', INDEX_HTML)
@@ -2252,6 +2260,45 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["project_mode"], "meta")
         self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
         self.assertIsNone(payload["active_project_root"])
+
+    def test_service_state_tracks_recent_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            creative_root = Path(tmp) / "story"
+            meta_root = Path(tmp) / "openQSE"
+            service_root.mkdir()
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            created_project = state.create_project(context_id, str(project_root))
+            created_creative = state.create_creative_project(
+                context_id,
+                str(creative_root),
+            )
+            created_meta = state.create_meta_project(context_id, str(meta_root))
+            reopened_project = state.open_project(context_id, str(project_root))
+            recent = reopened_project["recent_projects"]
+            recent_paths = [entry["path"] for entry in recent]
+            registry_path = (
+                service_root / ".electroboy" / "service" / "recent-projects.json"
+            )
+            registry_exists = registry_path.is_file()
+            registry_data = json.loads(registry_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(created_project["recent_projects"][0]["kind"], "project")
+        self.assertEqual(created_creative["recent_projects"][0]["kind"], "creative")
+        self.assertEqual(created_meta["recent_projects"][0]["kind"], "meta")
+        self.assertEqual(
+            [entry["kind"] for entry in recent[:3]],
+            ["project", "meta", "creative"],
+        )
+        self.assertEqual(recent_paths.count(str(project_root.resolve())), 1)
+        self.assertTrue(registry_exists)
+        self.assertEqual(
+            registry_data["projects"][0]["path"],
+            str(project_root.resolve()),
+        )
 
     def test_service_state_initializes_creative_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

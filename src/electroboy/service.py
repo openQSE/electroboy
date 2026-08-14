@@ -97,6 +97,8 @@ CREATIVE_CORKBOARD_GROUP_DIRECTORY = Path("corkboard") / "groups"
 CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
     Path(".electroboy") / "creative" / "corkboards.json"
 )
+RECENT_PROJECTS_RELATIVE_PATH = Path(".electroboy") / "service" / "recent-projects.json"
+RECENT_PROJECT_LIMIT = 12
 CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
     {"id": "butter", "label": "Butter", "value": "#fff6cf"},
     {"id": "rose", "label": "Rose", "value": "#f9e7dd"},
@@ -1237,6 +1239,16 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       display: grid;
       gap: 4px;
       padding: 4px 0 8px 18px;
+    }
+
+    .recent-project-list {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .recent-project-list[hidden] {
+      display: none;
     }
 
     .stage-action-list[hidden] {
@@ -2716,6 +2728,12 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
               <button id="creativeNewProject" class="stage-action-button" type="button">
                 New
               </button>
+              <div
+                id="creativeRecentProjects"
+                class="recent-project-list"
+                role="group"
+                hidden
+              ></div>
               <button id="creativeCloseProject" class="stage-action-button" type="button" disabled>
                 Close
               </button>
@@ -3752,6 +3770,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const creativeProjectActions = document.getElementById("creativeProjectActions");
     const creativeOpenProject = document.getElementById("creativeOpenProject");
     const creativeNewProject = document.getElementById("creativeNewProject");
+    const creativeRecentProjects = document.getElementById("creativeRecentProjects");
     const creativeCloseProject = document.getElementById("creativeCloseProject");
     const creativeActiveProjectSection =
       document.getElementById("creativeActiveProjectSection");
@@ -4107,6 +4126,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let activeProjectRoot = "";
     let activeRepositoryName = "";
     let registeredRepositories = [];
+    let recentProjects = [];
     let workItemState = { collections: [], features: [], bugs: [] };
     let stageRunState = {};
     let workItemMode = "";
@@ -7117,6 +7137,9 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       registeredRepositories = Array.isArray(payload.registered_repositories)
         ? payload.registered_repositories
         : [];
+      recentProjects = Array.isArray(payload.recent_projects)
+        ? payload.recent_projects
+        : [];
       workItemState = payload.work_items || { collections: [], features: [], bugs: [] };
       stageRunState = payload.stage_runs || {};
       requirementsRunning = Boolean(payload.requirements_running);
@@ -7200,6 +7223,52 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       const normalized = String(path || "").replace(/[/]+$/, "");
       const parts = normalized.split(/[\\/]+/).filter(Boolean);
       return parts.length ? parts[parts.length - 1] : normalized || "Project";
+    }
+
+    function recentProjectsForWorkflow() {
+      if (creativeModeActive()) {
+        return recentProjects.filter((recent) => recent.kind === "creative");
+      }
+      return recentProjects.filter((recent) => recent.kind !== "creative");
+    }
+
+    function recentProjectLabel(recent) {
+      const label = recent.label || basename(recent.path || "");
+      if (recent.kind === "meta") {
+        return `Meta: ${label}`;
+      }
+      if (recent.kind === "creative") {
+        return `Creative: ${label}`;
+      }
+      return `Project: ${label}`;
+    }
+
+    function recentProjectActionsForWorkflow() {
+      const entries = recentProjectsForWorkflow();
+      if (entries.length === 0) {
+        return [
+          {
+            label: "No recent projects",
+            title: "No projects have been opened in this service yet.",
+            disabled: true,
+          },
+        ];
+      }
+      return entries.map((recent) => ({
+        label: recentProjectLabel(recent),
+        title: recent.path || recentProjectLabel(recent),
+        disabled: Boolean(activationRoot),
+        run: () => openRecentProject(recent),
+      }));
+    }
+
+    async function openRecentProject(recent) {
+      const path = String((recent && recent.path) || "").trim();
+      if (!path || activationRoot) {
+        return;
+      }
+      projectMode = "open";
+      await applyProjectSelection(path);
     }
 
     function projectStatusLine() {
@@ -8043,6 +8112,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     function projectStageActions() {
       const hasContext = Boolean(activationRoot);
       const hasProject = Boolean(activeProjectRoot);
+      const recentActions = recentProjectActionsForWorkflow();
       const metaActions = [
         {
           label: "Open meta-project",
@@ -8125,6 +8195,12 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
           title: "Create and activate a new ElectroBoy project.",
           disabled: hasContext,
           run: () => openProjectBrowser("new", true),
+        },
+        {
+          subgroup: "project-recent",
+          label: "Recently opened",
+          title: "Open a recently used project.",
+          actions: recentActions,
         },
         {
           subgroup: "project-meta",
@@ -8567,6 +8643,34 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
         creativeAgentMenuButton,
         creativeAgentActionsExpanded,
       );
+      renderCreativeRecentProjects();
+    }
+
+    function renderCreativeRecentProjects() {
+      creativeRecentProjects.replaceChildren();
+      const entries = recentProjectsForWorkflow();
+      creativeRecentProjects.hidden = entries.length === 0;
+      if (entries.length === 0) {
+        return;
+      }
+      const heading = document.createElement("div");
+      heading.className = "stage-action-heading";
+      heading.textContent = "Recent";
+      creativeRecentProjects.append(heading);
+      for (const recent of entries) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "stage-action-button";
+        button.textContent = basename(recent.path || recent.label || "Project");
+        button.title = recent.path || recentProjectLabel(recent);
+        button.disabled = Boolean(activationRoot);
+        button.addEventListener("click", () => {
+          openRecentProject(recent).catch((error) => {
+            appendOutput(`action failed: ${error}\\n`, "error");
+          });
+        });
+        creativeRecentProjects.append(button);
+      }
     }
 
     function updateCreativeActionGroup(actions, button, expanded) {
@@ -14619,6 +14723,7 @@ class ServiceState:
             context.design_review_started = False
             context.design_review_interactive = False
             context.stage_started = set()
+        _remember_recent_project(self.root, project_root, "project")
         return {
             **project_payload(self.root, context, project_root),
             "status": "opened",
@@ -14652,6 +14757,7 @@ class ServiceState:
             context.design_review_started = False
             context.design_review_interactive = False
             context.stage_started = set()
+        _remember_recent_project(self.root, project_root, "project")
         return {
             **project_payload(self.root, context, project_root),
             "status": "created",
@@ -14686,6 +14792,7 @@ class ServiceState:
             context.design_review_started = False
             context.design_review_interactive = False
             context.stage_started = set()
+        _remember_recent_project(self.root, project_root, "creative")
         return {
             **project_payload(self.root, context, project_root),
             "status": "opened",
@@ -14720,6 +14827,7 @@ class ServiceState:
             context.design_review_started = False
             context.design_review_interactive = False
             context.stage_started = set()
+        _remember_recent_project(self.root, project_root, "creative")
         return {
             **project_payload(self.root, context, project_root),
             "status": "created",
@@ -14751,6 +14859,7 @@ class ServiceState:
             context.design_review_interactive = False
             context.stage_started = set()
             project_root = context.active_project_root
+        _remember_recent_project(self.root, meta_context["meta_root"], "meta")
         return {
             **project_payload(self.root, context, project_root),
             "status": "opened",
@@ -14784,6 +14893,7 @@ class ServiceState:
             context.design_review_started = False
             context.design_review_interactive = False
             context.stage_started = set()
+        _remember_recent_project(self.root, meta_root, "meta")
         return {
             **project_payload(self.root, context, None),
             "status": "created",
@@ -16936,7 +17046,84 @@ def project_payload(
         "selected_session_id": context.selected_session_id,
         "sessions": _session_payloads(context),
         "work_items": _work_item_payload(active_root) if active_root else _empty_work_item_payload(),
+        "recent_projects": _recent_project_entries(service_root),
     }
+
+
+def _recent_projects_path(service_root: Path | str) -> Path:
+    return Path(service_root).expanduser().resolve() / RECENT_PROJECTS_RELATIVE_PATH
+
+
+def _load_recent_projects(service_root: Path | str) -> dict[str, object]:
+    path = _recent_projects_path(service_root)
+    if not path.exists():
+        return {"schema_version": 1, "projects": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1, "projects": []}
+    if not isinstance(data, dict):
+        return {"schema_version": 1, "projects": []}
+    if not isinstance(data.get("projects"), list):
+        data["projects"] = []
+    data["schema_version"] = 1
+    return data
+
+
+def _save_recent_projects(service_root: Path | str, data: dict[str, object]) -> None:
+    path = _recent_projects_path(service_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _recent_project_entries(service_root: Path | str) -> list[dict[str, object]]:
+    data = _load_recent_projects(service_root)
+    entries: list[dict[str, object]] = []
+    for entry in data.get("projects", []):
+        if not isinstance(entry, dict):
+            continue
+        project_path = str(entry.get("path") or "").strip()
+        if not project_path:
+            continue
+        kind = str(entry.get("kind") or "project").strip()
+        if kind not in {"project", "meta", "creative"}:
+            kind = "project"
+        label = str(entry.get("label") or Path(project_path).name or project_path)
+        entries.append(
+            {
+                "kind": kind,
+                "label": label,
+                "path": project_path,
+                "opened_at": str(entry.get("opened_at") or ""),
+            }
+        )
+    return entries[:RECENT_PROJECT_LIMIT]
+
+
+def _remember_recent_project(
+    service_root: Path | str,
+    project_root: Path | str,
+    kind: str,
+) -> None:
+    project_path = str(Path(project_root).expanduser().resolve())
+    if kind not in {"project", "meta", "creative"}:
+        kind = "project"
+    data = _load_recent_projects(service_root)
+    existing = [
+        entry
+        for entry in data.get("projects", [])
+        if isinstance(entry, dict) and str(entry.get("path") or "") != project_path
+    ]
+    data["projects"] = [
+        {
+            "kind": kind,
+            "label": Path(project_path).name or project_path,
+            "path": project_path,
+            "opened_at": utc_now(),
+        },
+        *existing,
+    ][:RECENT_PROJECT_LIMIT]
+    _save_recent_projects(service_root, data)
 
 
 def _generic_stage_run_payload(
