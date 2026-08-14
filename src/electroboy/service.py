@@ -462,28 +462,26 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     }
 
     .side-sheet-toggle-icon {
-      position: relative;
-      width: 16px;
-      height: 16px;
+      display: block;
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
     }
 
-    .side-sheet-toggle-icon::before,
-    .side-sheet-toggle-icon::after {
-      position: absolute;
-      top: 2px;
-      bottom: 2px;
-      width: 2px;
-      border-radius: 999px;
-      background: currentColor;
-      content: "";
+    .side-sheet-toggle-icon-open {
+      display: none;
     }
 
-    .side-sheet-toggle-icon::before {
-      left: 4px;
+    .shell.side-sheet-collapsed .side-sheet-toggle-icon-close {
+      display: none;
     }
 
-    .side-sheet-toggle-icon::after {
-      right: 4px;
+    .shell.side-sheet-collapsed .side-sheet-toggle-icon-open {
+      display: block;
     }
 
     .side-sheet-title {
@@ -2370,6 +2368,16 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       aria-hidden="true"
       focusable="false"
     >
+      <symbol id="panelLeftCloseIcon" viewBox="0 0 24 24">
+        <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+        <path d="M9 3v18"></path>
+        <path d="m16 15-3-3 3-3"></path>
+      </symbol>
+      <symbol id="panelLeftOpenIcon" viewBox="0 0 24 24">
+        <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+        <path d="M9 3v18"></path>
+        <path d="m14 9 3 3-3 3"></path>
+      </symbol>
       <symbol id="stageDoubleArrowIcon" viewBox="0 0 58 58">
         <path
           fill="currentColor"
@@ -2394,7 +2402,20 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
           aria-label="Collapse workflow side sheet"
           title="Collapse workflow side sheet"
         >
-          <span class="side-sheet-toggle-icon" aria-hidden="true"></span>
+          <svg
+            class="side-sheet-toggle-icon side-sheet-toggle-icon-close"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <use href="#panelLeftCloseIcon"></use>
+          </svg>
+          <svg
+            class="side-sheet-toggle-icon side-sheet-toggle-icon-open"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <use href="#panelLeftOpenIcon"></use>
+          </svg>
         </button>
         <select
           id="workflowModeSelect"
