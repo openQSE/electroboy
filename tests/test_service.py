@@ -2345,6 +2345,7 @@ class ServiceTests(unittest.TestCase):
                     "folder": "chapters",
                     "path": "chapters/chapter-01.md",
                     "note": "Escalate this beat.",
+                    "color": "sky",
                 },
             )
             ordered = state.save_creative_corkboard(
@@ -2392,12 +2393,16 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function showFolderInsertionMarker", page)
             self.assertIn("function folderInsertionPlacement", page)
             self.assertIn("repeating-linear-gradient(27deg", page)
+            self.assertIn("CARD_PALETTE", page)
+            self.assertIn("card-palette", page)
+            self.assertIn("function buildColorButton(card, cardElement)", page)
             self.assertIn("chapter-01.md", page)
             self.assertIn("/api/creative/corkboard", page)
             self.assertIn("electroboy-creative-open", page)
             self.assertNotIn("drop-target", page)
             self.assertEqual(saved["status"], "saved")
             self.assertEqual(saved["card"]["path"], "chapters/chapter-01.md")
+            self.assertEqual(saved["card"]["color"], "sky")
             self.assertEqual(
                 ordered["order"][:2],
                 ["chapters/chapter-02.md", "chapters/chapter-01.md"],
@@ -2441,6 +2446,7 @@ class ServiceTests(unittest.TestCase):
                         "note": "Start with a quiet contradiction.",
                         "x": -188,
                         "y": 8144,
+                        "color": "mint",
                     },
                 },
             )
@@ -2483,6 +2489,9 @@ class ServiceTests(unittest.TestCase):
             self.assertIn('remove.title = "Delete card";', page)
             self.assertIn("function deleteFreeformCard(card, button)", page)
             self.assertIn("await cardSaveRequests.get(key);", page)
+            self.assertIn("function cardColorName(card)", page)
+            self.assertIn("function buildColorButton(card, cardElement)", page)
+            self.assertIn("card-color-icon", page)
             self.assertIn('action: "delete"', page)
             self.assertNotIn('"Idea"', page)
             self.assertIn("selectedCardKey = card.id;", page)
@@ -2492,6 +2501,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(document["cards"][0]["id"], "opening-beat")
             self.assertEqual(document["cards"][0]["x"], -188)
             self.assertEqual(document["cards"][0]["y"], 8144)
+            self.assertEqual(document["cards"][0]["color"], "mint")
             self.assertEqual(deleted["status"], "deleted")
             self.assertEqual(deleted["card_id"], "opening-beat")
             self.assertEqual(deleted_document["cards"], [])

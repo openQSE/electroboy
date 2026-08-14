@@ -179,6 +179,17 @@ META_REGISTRY_PATH = "repositories.json"
 CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json"
 CREATIVE_CORKBOARD_STATE_PATH = Path(".electroboy") / "creative" / "corkboards.json"
 CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
+CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
+    {"id": "butter", "label": "Butter", "value": "#fff6cf"},
+    {"id": "rose", "label": "Rose", "value": "#f9e7dd"},
+    {"id": "sky", "label": "Sky", "value": "#e6f0ff"},
+    {"id": "mint", "label": "Mint", "value": "#e8f7e6"},
+    {"id": "lilac", "label": "Lilac", "value": "#f1e9ff"},
+    {"id": "peach", "label": "Peach", "value": "#ffe8cc"},
+    {"id": "slate", "label": "Slate", "value": "#e9edf5"},
+)
+CREATIVE_CARD_PALETTE_IDS = frozenset(entry["id"] for entry in CREATIVE_CARD_PALETTE)
+CREATIVE_CARD_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 META_MANAGEMENT_COMMANDS = {"add", "start"}
 SERVICE_ROOT_ENV = "ELECTROBOY_SERVICE_ROOT"
 SERVICE_HOST_ENV = "ELECTROBOY_SERVICE_HOST"
@@ -987,6 +998,7 @@ def build_parser() -> argparse.ArgumentParser:
     corkboard_folder_note.add_argument("folder", help="folder board path")
     corkboard_folder_note.add_argument("card_path", help="child path or name")
     corkboard_folder_note.add_argument("--note", required=True, help="card note text")
+    corkboard_folder_note.add_argument("--color", help="card palette id or hex color")
     corkboard_folder_reorder = corkboard_folder_subparsers.add_parser(
         "reorder",
         help="set folder-backed card display order",
@@ -6514,6 +6526,7 @@ def _cmd_corkboard_folder(store: StateStore, args: argparse.Namespace) -> int:
             args.folder,
             args.card_path,
             args.note,
+            color=args.color,
         )
         print(f"updated folder card note: {card['path']}")
         return 0
@@ -6617,6 +6630,7 @@ def _freeform_corkboard_payload(
     return {
         "schema_version": 1,
         "board_type": "freeform",
+        "palette": _corkboard_card_palette_payload(),
         "corkboard": {
             "name": path.name,
             "path": relative_path,
@@ -6635,6 +6649,10 @@ def _freeform_cards(data: dict[str, object]) -> list[dict[str, object]]:
             continue
         card_id = str(raw_card.get("id") or f"card-{index + 1}")[:100]
         style = _corkboard_card_style(card_id, index)
+        color = _normalize_corkboard_card_color(
+            raw_card.get("color"),
+            str(style["color"]),
+        )
         normalized_cards.append(
             {
                 "id": card_id,
@@ -6648,7 +6666,7 @@ def _freeform_cards(data: dict[str, object]) -> list[dict[str, object]]:
                     -8,
                     8,
                 ),
-                "color": str(raw_card.get("color") or style["color"])[:40],
+                "color": color,
             }
         )
     return normalized_cards
@@ -6684,7 +6702,7 @@ def _add_freeform_corkboard_card(
             -8,
             8,
         ),
-        "color": str(color or style["color"])[:40],
+        "color": _normalize_corkboard_card_color(color, str(style["color"])),
     }
     cards.append(card)
     data["cards"] = cards
@@ -6721,7 +6739,10 @@ def _update_freeform_corkboard_card(
         if y is not None:
             card["y"] = _bounded_float(y, float(card["y"]), 0, 5000)
         if color is not None:
-            card["color"] = color[:40]
+            card["color"] = _normalize_corkboard_card_color(
+                color,
+                str(card["color"]),
+            )
         if rotation is not None:
             card["rotation"] = _bounded_float(rotation, float(card["rotation"]), -8, 8)
         data["cards"] = cards
@@ -6768,12 +6789,30 @@ def _corkboard_card_style(
     index: int,
 ) -> dict[str, object]:
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
-    palette = ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"]
     rotation = (int(digest[4:6], 16) % 9) - 4
     return {
         "rotation": rotation,
-        "color": palette[int(digest[6:8], 16) % len(palette)],
+        "color": _corkboard_card_palette_default(
+            int(digest[6:8], 16) % len(CREATIVE_CARD_PALETTE)
+        ),
     }
+
+
+def _corkboard_card_palette_payload() -> list[dict[str, str]]:
+    return [dict(entry) for entry in CREATIVE_CARD_PALETTE]
+
+
+def _corkboard_card_palette_default(index: int) -> str:
+    return CREATIVE_CARD_PALETTE[index % len(CREATIVE_CARD_PALETTE)]["id"]
+
+
+def _normalize_corkboard_card_color(value: object, default: str) -> str:
+    raw = str(value or "").strip()
+    if raw in CREATIVE_CARD_PALETTE_IDS:
+        return raw
+    if CREATIVE_CARD_COLOR_RE.fullmatch(raw):
+        return raw.lower()
+    return default
 
 
 def _bounded_float(
@@ -6806,6 +6845,7 @@ def _folder_corkboard_payload(
     return {
         "schema_version": 1,
         "board_type": "folder",
+        "palette": _corkboard_card_palette_payload(),
         "folder": {
             "name": folder.name,
             "path": relative_path,
@@ -6865,6 +6905,10 @@ def _folder_corkboard_card(
     card_state = state.get(relative_path, {})
     if not isinstance(card_state, dict):
         card_state = {}
+    color = _normalize_corkboard_card_color(
+        card_state.get("color"),
+        str(style["color"]),
+    )
     return {
         "name": path.name,
         "path": relative_path,
@@ -6872,7 +6916,7 @@ def _folder_corkboard_card(
         "corkboard": path.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
         "note": str(card_state.get("note") or ""),
         "rotation": style["rotation"],
-        "color": style["color"],
+        "color": color,
     }
 
 
@@ -6928,6 +6972,8 @@ def _set_folder_corkboard_note(
     folder_path: str,
     card_path: str,
     note: str,
+    *,
+    color: str | None = None,
 ) -> dict[str, object]:
     normalized_folder, folder = _creative_path(root, folder_path)
     normalized_card, card = _folder_card_path(root, normalized_folder, card_path)
@@ -6941,9 +6987,16 @@ def _set_folder_corkboard_note(
     folder_state = _folder_corkboard_state(state, normalized_folder)
     cards = _folder_corkboard_cards(folder_state)
     previous = cards.get(normalized_card, {})
+    style = _corkboard_card_style(normalized_card, len(cards))
+    previous_color = previous.get("color") if isinstance(previous, dict) else None
+    default_color = _normalize_corkboard_card_color(
+        previous_color,
+        str(style["color"]),
+    )
     cards[normalized_card] = {
         **(previous if isinstance(previous, dict) else {}),
         "note": note[:5000],
+        "color": _normalize_corkboard_card_color(color, default_color),
     }
     _save_corkboard_state(root, state)
     return {"path": normalized_card, **cards[normalized_card]}

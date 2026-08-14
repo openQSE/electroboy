@@ -96,6 +96,17 @@ CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json"
 CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
     Path(".electroboy") / "creative" / "corkboards.json"
 )
+CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
+    {"id": "butter", "label": "Butter", "value": "#fff6cf"},
+    {"id": "rose", "label": "Rose", "value": "#f9e7dd"},
+    {"id": "sky", "label": "Sky", "value": "#e6f0ff"},
+    {"id": "mint", "label": "Mint", "value": "#e8f7e6"},
+    {"id": "lilac", "label": "Lilac", "value": "#f1e9ff"},
+    {"id": "peach", "label": "Peach", "value": "#ffe8cc"},
+    {"id": "slate", "label": "Slate", "value": "#e9edf5"},
+)
+CREATIVE_CARD_PALETTE_IDS = frozenset(entry["id"] for entry in CREATIVE_CARD_PALETTE)
+CREATIVE_CARD_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
 _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
@@ -15331,6 +15342,7 @@ class ServiceState:
                 folder_path=str(payload.get("folder") or ""),
                 card_path=str(payload.get("path") or ""),
                 note=str(payload.get("note") or ""),
+                color=payload.get("color"),
             )
             return {
                 "status": "saved",
@@ -20521,6 +20533,75 @@ def creative_corkboard_html(
       padding: 0 10px;
     }}
 
+    .card-tools {{
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
+
+    .card-color {{
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid rgba(38, 50, 71, 0.18);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.46);
+      color: var(--ink);
+      cursor: pointer;
+      padding: 0;
+    }}
+
+    .card-color:hover {{
+      background: rgba(255, 255, 255, 0.72);
+    }}
+
+    .card-color-icon {{
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentcolor;
+      border-radius: 999px 999px 999px 2px;
+      background: var(--selected-paper, #fff6cf);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.62) inset;
+      transform: rotate(-45deg);
+    }}
+
+    .card-palette {{
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 1200;
+      display: none;
+      grid-template-columns: repeat(4, 24px);
+      gap: 6px;
+      border: 1px solid rgba(38, 50, 71, 0.18);
+      border-radius: 8px;
+      background: rgba(255, 249, 232, 0.96);
+      box-shadow: 0 16px 32px rgba(15, 20, 32, 0.28);
+      padding: 8px;
+    }}
+
+    .card-palette.open {{
+      display: grid;
+    }}
+
+    .card-swatch {{
+      width: 24px;
+      height: 24px;
+      border: 1px solid rgba(38, 50, 71, 0.2);
+      border-radius: 999px;
+      background: var(--swatch);
+      cursor: pointer;
+      padding: 0;
+    }}
+
+    .card-swatch.selected {{
+      box-shadow:
+        0 0 0 2px rgba(255, 249, 232, 0.9),
+        0 0 0 4px rgba(38, 50, 71, 0.72);
+    }}
+
     .card-delete {{
       display: grid;
       place-items: center;
@@ -20668,6 +20749,9 @@ def creative_corkboard_html(
     const cardSizeValue = document.getElementById("cardSizeValue");
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
+    const CARD_PALETTE = Array.isArray(CORKBOARD_DATA.palette)
+      ? CORKBOARD_DATA.palette
+      : [];
     const saveTimers = new Map();
     const cardSaveRequests = new Map();
     const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
@@ -20810,8 +20894,88 @@ def creative_corkboard_html(
       cardElement.setAttribute("aria-selected", "true");
     }}
 
+    function paletteEntryFor(color) {{
+      const raw = String(color || "").trim();
+      const lower = raw.toLowerCase();
+      return CARD_PALETTE.find((entry) =>
+        entry.id === raw || String(entry.value || "").toLowerCase() === lower,
+      );
+    }}
+
+    function cardColorName(card) {{
+      const entry = paletteEntryFor(card.color);
+      if (entry) {{
+        return entry.id;
+      }}
+      const raw = String(card.color || "").trim();
+      return /^#[0-9a-f]{{6}}$/i.test(raw) ? raw.toLowerCase() : "butter";
+    }}
+
     function cardColor(card) {{
-      return card.color || "#fff6cf";
+      const entry = paletteEntryFor(card.color);
+      if (entry) {{
+        return entry.value;
+      }}
+      const raw = String(card.color || "").trim();
+      return /^#[0-9a-f]{{6}}$/i.test(raw) ? raw.toLowerCase() : "#fff6cf";
+    }}
+
+    function closePalettes(except = null) {{
+      for (const palette of board.querySelectorAll(".card-palette.open")) {{
+        if (palette !== except) {{
+          palette.classList.remove("open");
+        }}
+      }}
+    }}
+
+    function buildColorButton(card, cardElement) {{
+      const wrapper = document.createElement("div");
+      wrapper.className = "card-color-wrap";
+      const button = document.createElement("button");
+      button.className = "card-color";
+      button.type = "button";
+      button.title = "Change card color";
+      button.setAttribute("aria-label", "Change card color");
+      const icon = document.createElement("span");
+      icon.className = "card-color-icon";
+      icon.setAttribute("aria-hidden", "true");
+      button.append(icon);
+      const palette = document.createElement("div");
+      palette.className = "card-palette";
+      palette.addEventListener("click", (event) => event.stopPropagation());
+      for (const entry of CARD_PALETTE) {{
+        const swatch = document.createElement("button");
+        swatch.className = "card-swatch";
+        swatch.type = "button";
+        swatch.title = entry.label || entry.id;
+        swatch.setAttribute("aria-label", `Set card color to ${{entry.label || entry.id}}`);
+        swatch.style.setProperty("--swatch", entry.value || "#fff6cf");
+        swatch.classList.toggle("selected", cardColorName(card) === entry.id);
+        swatch.addEventListener("click", (event) => {{
+          event.stopPropagation();
+          card.color = entry.id;
+          cardElement.style.setProperty("--paper", cardColor(card));
+          icon.style.setProperty("--selected-paper", cardColor(card));
+          for (const item of palette.querySelectorAll(".card-swatch.selected")) {{
+            item.classList.remove("selected");
+          }}
+          swatch.classList.add("selected");
+          palette.classList.remove("open");
+          queueSave(card);
+        }});
+        palette.append(swatch);
+      }}
+      button.addEventListener("click", (event) => {{
+        event.stopPropagation();
+        const isOpen = palette.classList.contains("open");
+        closePalettes(palette);
+        palette.classList.toggle("open", !isOpen);
+      }});
+      button.addEventListener("pointerdown", (event) => event.stopPropagation());
+      wrapper.addEventListener("pointerdown", (event) => event.stopPropagation());
+      icon.style.setProperty("--selected-paper", cardColor(card));
+      wrapper.append(button, palette);
+      return wrapper;
     }}
 
     function applyCardPosition(cardElement, card) {{
@@ -20902,6 +21066,7 @@ def creative_corkboard_html(
           folder: CORKBOARD_DATA.folder.path,
           path: card.path,
           note: card.note || "",
+          color: cardColorName(card),
         }};
       }} else {{
         payload = {{
@@ -20914,7 +21079,7 @@ def creative_corkboard_html(
             x: Number(card.x) || 0,
             y: Number(card.y) || 0,
             rotation: Number(card.rotation) || 0,
-            color: cardColor(card),
+            color: cardColorName(card),
           }},
         }};
       }}
@@ -21146,7 +21311,9 @@ def creative_corkboard_html(
         x: -canvasPan.x + 36 + (index % 4) * scaledCardValue(236),
         y: -canvasPan.y + 36 + Math.floor(index / 4) * scaledCardValue(206),
         rotation: (index % 5) - 2,
-        color: ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"][index % 5],
+        color: CARD_PALETTE.length
+          ? CARD_PALETTE[index % CARD_PALETTE.length].id
+          : "#fff6cf",
       }};
       cards.push(card);
       selectedCardKey = card.id;
@@ -21237,14 +21404,21 @@ def creative_corkboard_html(
             ? "Folder"
             : card.corkboard ? "Board" : "File";
           titleBox.append(title, type);
+          const tools = document.createElement("div");
+          tools.className = "card-tools";
+          tools.append(buildColorButton(card, cardElement));
           const open = document.createElement("button");
           open.className = "card-open";
           open.type = "button";
           open.textContent = "Open";
           open.addEventListener("click", () => openCard(card));
-          head.append(titleBox, open);
+          tools.append(open);
+          head.append(titleBox, tools);
         }} else {{
           titleBox.append(title);
+          const tools = document.createElement("div");
+          tools.className = "card-tools";
+          tools.append(buildColorButton(card, cardElement));
           const remove = document.createElement("button");
           remove.className = "card-delete";
           remove.type = "button";
@@ -21256,7 +21430,8 @@ def creative_corkboard_html(
           icon.className = "card-delete-icon";
           icon.setAttribute("aria-hidden", "true");
           remove.append(icon);
-          head.append(titleBox, remove);
+          tools.append(remove);
+          head.append(titleBox, tools);
         }}
 
         const note = document.createElement("textarea");
@@ -21275,6 +21450,7 @@ def creative_corkboard_html(
     }}
 
     addCard.addEventListener("click", makeFreeformCard);
+    document.addEventListener("click", () => closePalettes());
     cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
     canvasViewport.addEventListener("pointerdown", startCanvasPan);
     canvasViewport.addEventListener("pointermove", updateCanvasPan);
@@ -21369,6 +21545,7 @@ def _creative_folder_corkboard_payload(
         "schema_version": 1,
         "board_type": "folder",
         "context_id": context_id,
+        "palette": _creative_card_palette_payload(),
         "title": title or f"Folder board: {folder.name}",
         "folder": {
             "name": folder.name,
@@ -21391,6 +21568,7 @@ def _creative_freeform_corkboard_payload(
         "schema_version": 1,
         "board_type": "freeform",
         "context_id": context_id,
+        "palette": _creative_card_palette_payload(),
         "title": title or corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX),
         "corkboard": {
             "name": corkboard_path.name,
@@ -21415,6 +21593,23 @@ def _creative_corkboard_children(project_root: Path, folder: Path) -> list[Path]
     ]
 
 
+def _creative_card_palette_payload() -> list[dict[str, str]]:
+    return [dict(entry) for entry in CREATIVE_CARD_PALETTE]
+
+
+def _creative_card_palette_default(index: int) -> str:
+    return CREATIVE_CARD_PALETTE[index % len(CREATIVE_CARD_PALETTE)]["id"]
+
+
+def _normalize_creative_card_color(value: object, default: str) -> str:
+    raw = str(value or "").strip()
+    if raw in CREATIVE_CARD_PALETTE_IDS:
+        return raw
+    if CREATIVE_CARD_COLOR_RE.fullmatch(raw):
+        return raw.lower()
+    return default
+
+
 def _creative_folder_corkboard_card(
     path: Path,
     relative_path: str,
@@ -21422,6 +21617,7 @@ def _creative_folder_corkboard_card(
     state: dict[str, object],
 ) -> dict[str, object]:
     style = _creative_corkboard_card_style(relative_path, index)
+    color = _normalize_creative_card_color(state.get("color"), str(style["color"]))
     return {
         "name": path.name,
         "path": relative_path,
@@ -21429,7 +21625,7 @@ def _creative_folder_corkboard_card(
         "corkboard": path.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
         "note": str(state.get("note") or ""),
         "rotation": style["rotation"],
-        "color": style["color"],
+        "color": color,
     }
 
 
@@ -21438,11 +21634,12 @@ def _creative_corkboard_card_style(
     index: int,
 ) -> dict[str, object]:
     digest = hashlib.sha1(relative_path.encode("utf-8")).hexdigest()
-    palette = ["#fff6cf", "#f9e7dd", "#e6f0ff", "#e8f7e6", "#f1e9ff"]
     rotation = (int(digest[4:6], 16) % 9) - 4
     return {
         "rotation": rotation,
-        "color": palette[int(digest[6:8], 16) % len(palette)],
+        "color": _creative_card_palette_default(
+            int(digest[6:8], 16) % len(CREATIVE_CARD_PALETTE)
+        ),
     }
 
 
@@ -21524,6 +21721,7 @@ def _save_creative_folder_corkboard_card(
     folder_path: str,
     card_path: str,
     note: str,
+    color: object = None,
 ) -> dict[str, object]:
     normalized_folder, folder = _creative_path(project_root, folder_path)
     normalized_card, card = _creative_path(project_root, card_path)
@@ -21537,9 +21735,17 @@ def _save_creative_folder_corkboard_card(
     folder_state = _creative_corkboard_folder_state(state, normalized_folder)
     card_states = _creative_corkboard_folder_cards(folder_state)
     previous = card_states.get(normalized_card, {})
+    style = _creative_corkboard_card_style(normalized_card, len(card_states))
+    previous_color = (
+        previous.get("color")
+        if isinstance(previous, dict)
+        else None
+    )
+    default_color = _normalize_creative_card_color(previous_color, str(style["color"]))
     card_states[normalized_card] = {
         **(previous if isinstance(previous, dict) else {}),
         "note": note[:5000],
+        "color": _normalize_creative_card_color(color, default_color),
     }
     _save_creative_corkboard_state(project_root, state)
     return {
@@ -21608,6 +21814,10 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
             continue
         card_id = str(raw_card.get("id") or f"card-{index + 1}")
         style = _creative_corkboard_card_style(card_id, index)
+        color = _normalize_creative_card_color(
+            raw_card.get("color"),
+            str(style["color"]),
+        )
         normalized_cards.append(
             {
                 "id": card_id[:100],
@@ -21631,7 +21841,7 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
                     -8,
                     8,
                 ),
-                "color": str(raw_card.get("color") or style["color"])[:40],
+                "color": color,
             }
         )
     return normalized_cards
@@ -21654,6 +21864,12 @@ def _save_creative_freeform_corkboard_card(
     cards = _freeform_corkboard_cards(data)
     card_id = str(card_payload.get("id") or uuid4().hex)[:100]
     style = _creative_corkboard_card_style(card_id, len(cards))
+    existing_color: object = None
+    for existing in cards:
+        if existing.get("id") == card_id:
+            existing_color = existing.get("color")
+            break
+    default_color = _normalize_creative_card_color(existing_color, str(style["color"]))
     card = {
         "id": card_id,
         "title": str(card_payload.get("title") or "Untitled card")[:200],
@@ -21676,7 +21892,10 @@ def _save_creative_freeform_corkboard_card(
             -8,
             8,
         ),
-        "color": str(card_payload.get("color") or style["color"])[:40],
+        "color": _normalize_creative_card_color(
+            card_payload.get("color"),
+            default_color,
+        ),
     }
     replaced = False
     for index, existing in enumerate(cards):

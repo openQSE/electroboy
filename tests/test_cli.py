@@ -295,6 +295,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(update[0], 0, update[2])
         self.assertEqual(show_code, 0, show_stderr)
         self.assertEqual(data["board_type"], "freeform")
+        self.assertIn(
+            {"id": "butter", "label": "Butter", "value": "#fff6cf"},
+            data["palette"],
+        )
         self.assertEqual(card["id"], "opening-beat")
         self.assertEqual(card["title"], "Opening image")
         self.assertEqual(card["note"], "Make the contradiction visible.")
@@ -319,6 +323,8 @@ class CliTests(unittest.TestCase):
                     "chapter-01.md",
                     "--note",
                     "Needs a stronger hook.",
+                    "--color",
+                    "peach",
                 ]
             )
             reorder = self.run_cli(
@@ -343,11 +349,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(reorder[0], 0, reorder[2])
         self.assertEqual(show_code, 0, show_stderr)
         self.assertEqual(data["board_type"], "folder")
+        self.assertIn(
+            {"id": "peach", "label": "Peach", "value": "#ffe8cc"},
+            data["palette"],
+        )
         self.assertEqual(
             [card["path"] for card in data["cards"]],
             ["chapters/chapter-02.md", "chapters/chapter-01.md"],
         )
         self.assertEqual(data["cards"][1]["note"], "Needs a stronger hook.")
+        self.assertEqual(data["cards"][1]["color"], "peach")
 
     def test_progress_once_prints_run_progress_files(self) -> None:
         with temp_project() as root:

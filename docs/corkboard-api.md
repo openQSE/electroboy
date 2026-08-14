@@ -32,16 +32,20 @@ Each card has:
   "x": 188,
   "y": 144,
   "rotation": -1,
-  "color": "#fff6cf"
+  "color": "butter"
 }
 ```
+
+The `color` field may be one of the built-in palette ids (`butter`, `rose`,
+`sky`, `mint`, `lilac`, `peach`, or `slate`) or a six-digit hex color. Prefer
+palette ids unless the writer asks for a specific custom color.
 
 ### Folder Corkboards
 
 Folder corkboards are generated from the child files and folders in a
 directory. Adding, deleting, or renaming cards means adding, deleting, or
-renaming files or folders. Only card notes and display order are corkboard
-metadata.
+renaming files or folders. Only card notes, card colors, and display order are
+corkboard metadata.
 
 Use folder corkboards for chapter or scene ordering:
 
@@ -107,7 +111,7 @@ Style a card:
 
 ```bash
 electroboy corkboard card style corkboard/ideas.corkboard.json opening-beat \
-  --color "#fff6cf" \
+  --color butter \
   --rotation -2
 ```
 
@@ -129,7 +133,8 @@ Set a note on a folder-backed card:
 
 ```bash
 electroboy corkboard folder note chapters chapter-01.md \
-  --note "Needs a sharper final turn."
+  --note "Needs a sharper final turn." \
+  --color sky
 ```
 
 Set display order:
@@ -161,6 +166,8 @@ When the active target is a freeform corkboard:
 When the active target is a folder corkboard:
 
 - Use `electroboy corkboard folder note ...` for card notes.
+- Use `electroboy corkboard folder note ... --color <palette-id>` for card
+  colors.
 - Use `electroboy corkboard folder reorder ...` for visual order.
 - Create, delete, or rename files and folders only when the writer asks.
 
