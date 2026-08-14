@@ -2659,6 +2659,12 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       <div id="projectMenu" class="stage-menu" hidden>
         <button id="openProject" type="button">Open project</button>
         <button id="newProject" type="button">New project</button>
+        <button
+          id="startAdHocAgent"
+          type="button"
+          disabled
+          title="Start a plain interactive agent without staged workflow instructions."
+        >Start ad-hoc</button>
         <div id="metaProjectBranch" class="menu-branch">
           <button
             id="metaProjectMenuButton"
@@ -3488,6 +3494,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     const documentMenu = document.getElementById("documentMenu");
     const openProject = document.getElementById("openProject");
     const newProject = document.getElementById("newProject");
+    const startAdHocAgentButton = document.getElementById("startAdHocAgent");
     const metaProjectBranch = document.getElementById("metaProjectBranch");
     const metaProjectMenuButton = document.getElementById("metaProjectMenuButton");
     const metaProjectSubmenu = document.getElementById("metaProjectSubmenu");
@@ -3799,6 +3806,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     let designReviewInteractive = false;
     let designApproved = false;
     let documentationRunning = false;
+    let adHocRunning = false;
     let currentWorkflowStage = "project";
     let agentSessions = [];
     let selectedSessionId = "";
@@ -6058,6 +6066,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       designReviewInteractive = false;
       designApproved = false;
       documentationRunning = false;
+      adHocRunning = false;
       projectShellRunning = false;
       agentSessions = [];
       selectedSessionId = "";
@@ -6168,6 +6177,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       designReviewInteractive = Boolean(payload.design_review_interactive);
       designApproved = Boolean(payload.design_approved);
       documentationRunning = Boolean(payload.documentation_running);
+      adHocRunning = Boolean(payload.ad_hoc_running);
       projectShellRunning = Boolean(payload.project_shell_running);
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       selectedSessionId = payload.selected_session_id || selectedSessionId || "";
@@ -6189,6 +6199,8 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       updateStageNodes(hasProjectContext, hasStageTarget, workflowStage);
       openProject.disabled = hasProjectContext;
       newProject.disabled = hasProjectContext;
+      startAdHocAgentButton.disabled = !hasProjectContext;
+      startAdHocAgentButton.textContent = adHocRunning ? "Focus ad-hoc" : "Start ad-hoc";
       openMetaProject.disabled = hasProjectContext;
       newMetaProject.disabled = hasProjectContext;
       addMetaRepository.disabled = activeProjectMode !== "meta";
@@ -7165,6 +7177,14 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
           label: "Work items",
           title: "Start or switch feature and bug-resolution workflows.",
           actions: workItemActions,
+        },
+        {
+          label: adHocRunning ? "Focus ad-hoc" : "Start ad-hoc",
+          title: adHocRunning
+            ? "Focus the running ad-hoc agent."
+            : "Start a plain interactive agent without staged workflow instructions.",
+          disabled: !hasContext,
+          run: startAdHocAgent,
         },
         {
           label: "Deactivate",
@@ -9550,6 +9570,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       designReviewRunning = false;
       stageRunState = {};
       documentationRunning = false;
+      adHocRunning = false;
       projectShellRunning = false;
       projectShellPaneDismissed = false;
       agentSessions = [];
@@ -9802,6 +9823,37 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
       if (!acceptsInput) {
         connectProgressEvents();
       }
+      sendTerminalResize();
+    }
+
+    async function startAdHocAgent() {
+      if (!activationRoot) {
+        appendOutput("activate a project first\\n", "error");
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      closeProgressEventStream();
+      showProgressPane(false);
+      hideArtifactPreview();
+      setAgentInputVisible(true);
+      clearAgentOutput();
+      agentInput.disabled = false;
+      agentInput.focus();
+      appendOutput("$ codex ad-hoc\\n", "system");
+      const response = await fetch(contextUrl("/api/agents/ad-hoc/start"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "start failed"}\\n`, "error");
+        return;
+      }
+      updateProjectState(payload);
+      const sessionId = payload.session_id || selectedSessionId;
+      selectedSessionId = sessionId;
+      renderSessionSwitcher();
+      connectSessionEvents(sessionId);
       sendTerminalResize();
     }
 
@@ -10530,6 +10582,7 @@ INDEX_HTML_TEMPLATE = """<!doctype html>
     setCodeStage.addEventListener("click", () => {
       setWorkflowStageFromMenu("code");
     });
+    startAdHocAgentButton.addEventListener("click", startAdHocAgent);
     startAutomaticCode.addEventListener("click", () => {
       startGenericStageAgent("code", "$ electroboy code", false);
     });
@@ -13074,6 +13127,7 @@ class BrowserContext:
     design_review_session: AgentSession | None = None
     documentation_sessions: dict[str, AgentSession] = field(default_factory=dict)
     creative_session: AgentSession | None = None
+    ad_hoc_session: AgentSession | None = None
     project_shell_session: AgentSession | None = None
     stage_sessions: dict[str, AgentSession] = field(default_factory=dict)
     selected_session_id: str | None = None
@@ -13521,6 +13575,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13553,6 +13608,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13586,6 +13642,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13619,6 +13676,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13648,6 +13706,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13681,6 +13740,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13732,6 +13792,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13765,6 +13826,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -13796,6 +13858,7 @@ class ServiceState:
             context.design_review_session = None
             context.documentation_sessions = {}
             context.creative_session = None
+            context.ad_hoc_session = None
             context.project_shell_session = None
             context.stage_sessions = {}
             context.selected_session_id = None
@@ -14708,6 +14771,38 @@ class ServiceState:
                 return list(context.documentation_sessions.values())[-1]
             return None
 
+    def start_ad_hoc_agent(self, context_id: str) -> tuple[AgentSession, bool]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            command_root = self._command_root_locked(context)
+            if command_root is None:
+                raise AgentSessionError("activate a project first")
+            if (
+                context.ad_hoc_session is not None
+                and context.ad_hoc_session.is_active()
+            ):
+                context.selected_session_id = context.ad_hoc_session.session_id
+                return context.ad_hoc_session, False
+            session = AgentSession(
+                command=_ad_hoc_agent_command(command_root),
+                cwd=command_root,
+                label="ad-hoc agent",
+                kind="ad-hoc",
+                interactive=True,
+            )
+            context.ad_hoc_session = session
+            context.selected_session_id = session.session_id
+        try:
+            session.start()
+        except Exception:
+            with self.lock:
+                context = self._context_locked(context_id)
+                if context.ad_hoc_session is session:
+                    context.ad_hoc_session = None
+                    context.selected_session_id = None
+            raise
+        return session, True
+
     def current_project_shell_session(self, context_id: str) -> AgentSession | None:
         with self.lock:
             context = self._context_locked(context_id)
@@ -15000,6 +15095,7 @@ class ServiceState:
                     context.design_session,
                     context.design_review_session,
                     *context.stage_sessions.values(),
+                    context.ad_hoc_session,
                 ]
                 if session is not None
             ]
@@ -15046,6 +15142,7 @@ class ServiceState:
                 *context.stage_sessions.values(),
                 *context.documentation_sessions.values(),
                 context.creative_session,
+                context.ad_hoc_session,
             ]
             if session is not None
         ]
@@ -15092,6 +15189,8 @@ class ServiceState:
                     context.documentation_sessions.pop(key, None)
             if context.creative_session is session:
                 context.creative_session = None
+            if context.ad_hoc_session is session:
+                context.ad_hoc_session = None
             if context.project_shell_session is session:
                 context.project_shell_session = None
             session_id = getattr(session, "session_id", None)
@@ -15728,6 +15827,12 @@ def project_payload(
         and creative_session is not None
         and creative_session.is_active()
     )
+    ad_hoc_session = context.ad_hoc_session
+    ad_hoc_running = bool(
+        activation_root
+        and ad_hoc_session is not None
+        and ad_hoc_session.is_active()
+    )
     project_shell_session = context.project_shell_session
     project_shell_running = bool(
         active_root
@@ -15768,6 +15873,7 @@ def project_payload(
         "stage_runs": _generic_stage_run_payload(context, active_root),
         "documentation_running": documentation_running,
         "creative_writing_running": creative_running,
+        "ad_hoc_running": ad_hoc_running,
         "project_shell_running": project_shell_running,
         "design_approved": bool(
             active_root
@@ -15814,6 +15920,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         *context.stage_sessions.values(),
         *context.documentation_sessions.values(),
         context.creative_session,
+        context.ad_hoc_session,
     ]:
         if session is None:
             continue
@@ -20198,6 +20305,21 @@ def _documentation_command(
     return _electroboy_command(root, args)
 
 
+def _ad_hoc_agent_command(root: Path) -> list[str]:
+    return [
+        "codex",
+        "--cd",
+        str(root),
+        "--sandbox",
+        "workspace-write",
+        _ad_hoc_agent_prompt(),
+    ]
+
+
+def _ad_hoc_agent_prompt() -> str:
+    return "Here is the code base. Follow what the operator says."
+
+
 def _creative_agent_target(
     root: Path,
     *,
@@ -20916,6 +21038,9 @@ def _handler_for(
                 return
             if path == "/api/creative/agent/start":
                 self._start_creative_writing_agent(parsed.query)
+                return
+            if path == "/api/agents/ad-hoc/start":
+                self._start_ad_hoc_agent(parsed.query)
                 return
             if path == "/api/sessions/select":
                 self._select_session(parsed.query)
@@ -22416,6 +22541,31 @@ def _handler_for(
             except OSError as error:
                 self._send_json(
                     {"error": f"could not start creative writing agent: {error}"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(
+                {
+                    **state.project_payload(context_id),
+                    "status": "started" if started else "running",
+                    "command": session.command,
+                    "session_id": session.session_id,
+                }
+            )
+
+        def _start_ad_hoc_agent(self, query: str) -> None:
+            try:
+                context_id = self._context_id(query)
+                session, started = state.start_ad_hoc_agent(context_id)
+            except (AgentSessionError, StateError) as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.CONFLICT,
+                )
+                return
+            except OSError as error:
+                self._send_json(
+                    {"error": f"could not start ad-hoc agent: {error}"},
                     status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
                 return

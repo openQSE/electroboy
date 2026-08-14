@@ -1161,9 +1161,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
         self.assertIn('id="stageActionPanel"', INDEX_HTML)
         self.assertIn('id="stageActionBody"', INDEX_HTML)
+        self.assertIn('id="startAdHocAgent"', INDEX_HTML)
         self.assertIn("function renderStageActionPanel()", INDEX_HTML)
         self.assertIn("function refreshCreativeBinder()", INDEX_HTML)
         self.assertIn("function toggleCreativeActionGroup(group)", INDEX_HTML)
+        self.assertIn("function startAdHocAgent()", INDEX_HTML)
         self.assertIn("function startCreativeWritingAgent()", INDEX_HTML)
         self.assertIn("function toggleStageActionGroup(stageId)", INDEX_HTML)
         self.assertIn("let expandedWorkflowStages = new Set();", INDEX_HTML)
@@ -1579,6 +1581,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("designReviewInteractive = Boolean(payload.design_review_interactive)", INDEX_HTML)
         self.assertIn("designApproved = Boolean(payload.design_approved)", INDEX_HTML)
         self.assertIn("documentationRunning = Boolean(payload.documentation_running)", INDEX_HTML)
+        self.assertIn("adHocRunning = Boolean(payload.ad_hoc_running)", INDEX_HTML)
         self.assertIn("function renderSessionSwitcher()", INDEX_HTML)
         self.assertIn("function selectAgentSession(sessionId)", INDEX_HTML)
         self.assertIn("function connectSessionEvents(sessionId)", INDEX_HTML)
@@ -1821,6 +1824,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/design-review/stop"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/approve"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/skip-approval"', INDEX_HTML)
+        self.assertIn('"/api/agents/ad-hoc/start"', INDEX_HTML)
         self.assertNotIn('"/api/agents/design-review/restart"', INDEX_HTML)
         self.assertNotIn('"/api/agents/design-approve/approve"', INDEX_HTML)
         self.assertIn("body: JSON.stringify({ target: documentTarget.path })", INDEX_HTML)
@@ -2687,6 +2691,39 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("-m electroboy --root", session.command[2])
         self.assertIn("requirements", session.command[2])
+
+    def test_service_state_starts_ad_hoc_agent_with_minimal_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, started = state.start_ad_hoc_agent(context_id)
+            payload = state.project_payload(context_id)
+
+        self.assertTrue(started)
+        self.assertEqual(session.kind, "ad-hoc")
+        self.assertEqual(session.label, "ad-hoc agent")
+        self.assertTrue(session.interactive)
+        self.assertEqual(session.cwd, project_root.resolve())
+        self.assertEqual(session.command[:2], ["codex", "--cd"])
+        self.assertEqual(str(project_root.resolve()), session.command[2])
+        self.assertIn("--sandbox", session.command)
+        self.assertEqual(
+            session.command[-1],
+            "Here is the code base. Follow what the operator says.",
+        )
+        self.assertNotIn("requirements", session.command[-1])
+        self.assertNotIn("detailed-design", session.command[-1])
+        self.assertEqual(payload["selected_session_id"], session.session_id)
+        self.assertEqual(payload["sessions"][0]["kind"], "ad-hoc")
 
     def test_documentation_sidecar_session_does_not_change_workflow_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
