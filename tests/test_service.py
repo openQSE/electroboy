@@ -2502,9 +2502,63 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(document["cards"][0]["x"], -188)
             self.assertEqual(document["cards"][0]["y"], 8144)
             self.assertEqual(document["cards"][0]["color"], "mint")
+            self.assertEqual(document["cards"][0]["card_type"], "card")
             self.assertEqual(deleted["status"], "deleted")
             self.assertEqual(deleted["card_id"], "opening-beat")
             self.assertEqual(deleted_document["cards"], [])
+
+    def test_creative_freeform_corkboard_converts_card_to_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.create_creative_corkboard(
+                context_id,
+                "corkboard/plot.corkboard.json",
+            )
+
+            saved = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card": {
+                        "id": "scene-one",
+                        "title": "Scene one",
+                        "note": "Break this scene down.",
+                        "card_type": "group",
+                    },
+                },
+            )
+            page, status = creative_corkboard_html(
+                project_root,
+                "corkboard/plot.corkboard.json",
+                context_id=context_id,
+            )
+            document = json.loads(
+                (project_root / "corkboard" / "plot.corkboard.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+
+            board_path = str(saved["card"]["board_path"])
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertEqual(saved["card"]["card_type"], "group")
+            self.assertTrue(board_path.endswith(".corkboard.json"))
+            self.assertTrue((project_root / board_path).is_file())
+            self.assertEqual(document["cards"][0]["card_type"], "group")
+            self.assertEqual(document["cards"][0]["board_path"], board_path)
+            self.assertIn(
+                "function convertCardToGroup(card, cardElement, button)",
+                page,
+            )
+            self.assertIn("function openGroupCard(card)", page)
+            self.assertIn("card-group-action", page)
+            self.assertIn('"card_type": "group"', page)
+            self.assertIn(board_path, page)
 
     def test_service_state_starts_creative_writing_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

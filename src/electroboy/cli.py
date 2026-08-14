@@ -177,6 +177,7 @@ BUG_ARTIFACT_KEYS = {
 }
 META_REGISTRY_PATH = "repositories.json"
 CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json"
+CREATIVE_CORKBOARD_GROUP_DIRECTORY = Path("corkboard") / "groups"
 CREATIVE_CORKBOARD_STATE_PATH = Path(".electroboy") / "creative" / "corkboards.json"
 CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
 CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
@@ -975,6 +976,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--rotation",
         type=float,
         help="new card rotation in degrees",
+    )
+    corkboard_card_group = corkboard_card_subparsers.add_parser(
+        "group",
+        help="convert a freeform card into a nested corkboard group",
+    )
+    corkboard_card_group.add_argument("path", help="freeform corkboard path")
+    corkboard_card_group.add_argument("card_id", help="card id")
+    corkboard_card_group.add_argument(
+        "--board-path",
+        help="child corkboard path; defaults under corkboard/groups",
     )
     corkboard_card_delete = corkboard_card_subparsers.add_parser(
         "delete",
@@ -6512,6 +6523,16 @@ def _cmd_corkboard_card(store: StateStore, args: argparse.Namespace) -> int:
         )
         print(f"styled card: {card['id']}")
         return 0
+    if args.corkboard_card_command == "group":
+        card = _convert_freeform_corkboard_card_to_group(
+            store.root,
+            args.path,
+            args.card_id,
+            board_path=args.board_path,
+        )
+        print(f"grouped card: {card['id']}")
+        print(f"board: {card['board_path']}")
+        return 0
     if args.corkboard_card_command == "delete":
         _delete_freeform_corkboard_card(store.root, args.path, args.card_id)
         print(f"deleted card: {args.card_id}")
@@ -6653,22 +6674,27 @@ def _freeform_cards(data: dict[str, object]) -> list[dict[str, object]]:
             raw_card.get("color"),
             str(style["color"]),
         )
-        normalized_cards.append(
-            {
-                "id": card_id,
-                "title": str(raw_card.get("title") or "Untitled card")[:200],
-                "note": str(raw_card.get("note") or "")[:5000],
-                "x": _bounded_float(raw_card.get("x"), 36 + index * 24, 0, 5000),
-                "y": _bounded_float(raw_card.get("y"), 36 + index * 18, 0, 5000),
-                "rotation": _bounded_float(
-                    raw_card.get("rotation"),
-                    float(style["rotation"]),
-                    -8,
-                    8,
-                ),
-                "color": color,
-            }
-        )
+        card_type = _freeform_card_type(raw_card.get("card_type"))
+        card = {
+            "id": card_id,
+            "title": str(raw_card.get("title") or "Untitled card")[:200],
+            "note": str(raw_card.get("note") or "")[:5000],
+            "x": _bounded_float(raw_card.get("x"), 36 + index * 24, 0, 5000),
+            "y": _bounded_float(raw_card.get("y"), 36 + index * 18, 0, 5000),
+            "rotation": _bounded_float(
+                raw_card.get("rotation"),
+                float(style["rotation"]),
+                -8,
+                8,
+            ),
+            "color": color,
+            "card_type": card_type,
+        }
+        if card_type == "group":
+            board_path = _normalize_corkboard_reference(raw_card.get("board_path"))
+            if board_path:
+                card["board_path"] = board_path
+        normalized_cards.append(card)
     return normalized_cards
 
 
@@ -6703,6 +6729,7 @@ def _add_freeform_corkboard_card(
             8,
         ),
         "color": _normalize_corkboard_card_color(color, str(style["color"])),
+        "card_type": "card",
     }
     cards.append(card)
     data["cards"] = cards
@@ -6721,6 +6748,8 @@ def _update_freeform_corkboard_card(
     y: float | None = None,
     color: str | None = None,
     rotation: float | None = None,
+    card_type: str | None = None,
+    board_path: str | None = None,
 ) -> dict[str, object]:
     normalized, path = _creative_path(root, relative_path)
     if not normalized.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
@@ -6745,10 +6774,37 @@ def _update_freeform_corkboard_card(
             )
         if rotation is not None:
             card["rotation"] = _bounded_float(rotation, float(card["rotation"]), -8, 8)
+        if card_type is not None:
+            card["card_type"] = _freeform_card_type(card_type)
+        if card.get("card_type") == "group":
+            card["board_path"] = _ensure_corkboard_group_file(
+                root,
+                parent_corkboard_path=normalized,
+                card_id=card_id,
+                board_path=board_path or str(card.get("board_path") or ""),
+            )
+        else:
+            card.pop("board_path", None)
         data["cards"] = cards
         _write_json(path, data)
         return card
     raise StateError(f"card does not exist: {card_id}")
+
+
+def _convert_freeform_corkboard_card_to_group(
+    root: Path,
+    relative_path: str,
+    card_id: str,
+    *,
+    board_path: str | None = None,
+) -> dict[str, object]:
+    return _update_freeform_corkboard_card(
+        root,
+        relative_path,
+        card_id,
+        card_type="group",
+        board_path=board_path,
+    )
 
 
 def _delete_freeform_corkboard_card(
@@ -6813,6 +6869,52 @@ def _normalize_corkboard_card_color(value: object, default: str) -> str:
     if CREATIVE_CARD_COLOR_RE.fullmatch(raw):
         return raw.lower()
     return default
+
+
+def _freeform_card_type(value: object) -> str:
+    return "group" if str(value or "").strip() == "group" else "card"
+
+
+def _normalize_corkboard_reference(value: object) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw:
+        return ""
+    path = Path(raw)
+    if (
+        path.is_absolute()
+        or any(part in {"", ".."} for part in path.parts)
+        or not path.as_posix().endswith(CREATIVE_CORKBOARD_SUFFIX)
+    ):
+        return ""
+    return path.as_posix()
+
+
+def _corkboard_group_default_path(parent_corkboard_path: str, card_id: str) -> str:
+    parent_stem = parent_corkboard_path.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
+    parent_slug = _slug(parent_stem.replace("/", "-"))
+    card_slug = _slug(card_id)
+    return (
+        CREATIVE_CORKBOARD_GROUP_DIRECTORY
+        / parent_slug
+        / f"{card_slug}{CREATIVE_CORKBOARD_SUFFIX}"
+    ).as_posix()
+
+
+def _ensure_corkboard_group_file(
+    root: Path,
+    *,
+    parent_corkboard_path: str,
+    card_id: str,
+    board_path: object,
+) -> str:
+    normalized_board_path = _normalize_corkboard_reference(board_path)
+    if not normalized_board_path:
+        normalized_board_path = _corkboard_group_default_path(
+            parent_corkboard_path,
+            card_id,
+        )
+    _create_corkboard_file(root, normalized_board_path)
+    return normalized_board_path
 
 
 def _bounded_float(

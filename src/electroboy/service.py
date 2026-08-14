@@ -93,6 +93,7 @@ CREATIVE_DEFAULT_FOLDERS = (
 CREATIVE_SCRATCHPAD_PATH = "scratchpad/scratchpad.md"
 CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
 CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json"
+CREATIVE_CORKBOARD_GROUP_DIRECTORY = Path("corkboard") / "groups"
 CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
     Path(".electroboy") / "creative" / "corkboards.json"
 )
@@ -20404,6 +20405,21 @@ def creative_corkboard_html(
       z-index: 10;
     }}
 
+    .index-card.group {{
+      box-shadow:
+        10px 10px 0 rgba(255, 249, 232, 0.38),
+        18px 18px 30px rgba(15, 20, 32, 0.28),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+    }}
+
+    .index-card.group.selected {{
+      box-shadow:
+        8px 8px 0 rgba(255, 249, 232, 0.38),
+        0 0 0 1px rgba(255, 249, 232, 0.86),
+        0 24px 46px rgba(15, 20, 32, 0.34),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
+    }}
+
     .board.folder .index-card {{
       position: relative;
       width: auto;
@@ -20531,6 +20547,58 @@ def creative_corkboard_html(
       font-size: 11px;
       font-weight: 800;
       padding: 0 10px;
+    }}
+
+    .card-group-action {{
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid rgba(38, 50, 71, 0.18);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.46);
+      color: var(--ink);
+      cursor: pointer;
+      padding: 0;
+    }}
+
+    .card-group-action:hover {{
+      background: rgba(255, 255, 255, 0.72);
+    }}
+
+    .card-group-action.active {{
+      border-color: rgba(42, 87, 148, 0.38);
+      background: rgba(216, 230, 255, 0.74);
+    }}
+
+    .card-stack-icon {{
+      position: relative;
+      width: 14px;
+      height: 12px;
+      border: 1.5px solid currentcolor;
+      border-radius: 2px;
+    }}
+
+    .card-stack-icon::before,
+    .card-stack-icon::after {{
+      position: absolute;
+      width: 14px;
+      height: 12px;
+      border: 1.5px solid currentcolor;
+      border-radius: 2px;
+      content: "";
+    }}
+
+    .card-stack-icon::before {{
+      top: 3px;
+      left: -4px;
+      opacity: 0.74;
+    }}
+
+    .card-stack-icon::after {{
+      top: 6px;
+      left: -8px;
+      opacity: 0.48;
     }}
 
     .card-tools {{
@@ -20884,6 +20952,17 @@ def creative_corkboard_html(
       return String(card.id || card.path || "");
     }}
 
+    function cardKind(card) {{
+      return card && card.card_type === "group" ? "group" : "card";
+    }}
+
+    function cardCssType(card) {{
+      if (boardType === "freeform") {{
+        return cardKind(card);
+      }}
+      return card.type || "file";
+    }}
+
     function selectCard(card, cardElement) {{
       selectedCardKey = cardKey(card);
       for (const element of board.querySelectorAll(".index-card.selected")) {{
@@ -21057,7 +21136,7 @@ def creative_corkboard_html(
 
     async function saveCard(card) {{
       if (!CORKBOARD_DATA.context_id) {{
-        return;
+        return null;
       }}
       let payload = null;
       if (boardType === "folder") {{
@@ -21080,14 +21159,20 @@ def creative_corkboard_html(
             y: Number(card.y) || 0,
             rotation: Number(card.rotation) || 0,
             color: cardColorName(card),
+            card_type: cardKind(card),
+            board_path: card.board_path || "",
           }},
         }};
       }}
-      await fetch(contextUrl("/api/creative/corkboard"), {{
+      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify(payload),
       }}).catch(() => null);
+      if (!response || !response.ok) {{
+        return null;
+      }}
+      return response.json().catch(() => null);
     }}
 
     async function deleteFreeformCard(card, button) {{
@@ -21162,6 +21247,70 @@ def creative_corkboard_html(
         }},
         window.location.origin,
       );
+    }}
+
+    function openGroupCard(card) {{
+      const targetWindow =
+        window.parent && window.parent !== window ? window.parent : window.opener;
+      if (!targetWindow || cardKind(card) !== "group" || !card.board_path) {{
+        return;
+      }}
+      targetWindow.postMessage(
+        {{
+          type: "electroboy-creative-open",
+          path: card.board_path,
+          entry_type: "corkboard",
+        }},
+        window.location.origin,
+      );
+    }}
+
+    async function convertCardToGroup(card, cardElement, button) {{
+      if (boardType !== "freeform") {{
+        return;
+      }}
+      if (cardKind(card) === "group") {{
+        openGroupCard(card);
+        return;
+      }}
+      const title = card.title || "Untitled card";
+      if (!window.confirm(`Convert "${{title}}" to a card group?`)) {{
+        return;
+      }}
+      const key = cardKey(card);
+      window.clearTimeout(saveTimers.get(key));
+      saveTimers.delete(key);
+      button.disabled = true;
+      await cardSaveRequests.get(key);
+      card.card_type = "group";
+      const saved = await persistCard(card);
+      if (saved && saved.card) {{
+        Object.assign(card, saved.card);
+      }}
+      button.disabled = false;
+      renderCards();
+      if (card.board_path) {{
+        openGroupCard(card);
+      }}
+    }}
+
+    function buildGroupButton(card, cardElement) {{
+      const button = document.createElement("button");
+      const isGroup = cardKind(card) === "group";
+      button.className = `card-group-action ${{isGroup ? "active" : ""}}`;
+      button.type = "button";
+      button.title = isGroup ? "Open card group" : "Convert to card group";
+      button.setAttribute(
+        "aria-label",
+        isGroup ? "Open card group" : "Convert to card group",
+      );
+      button.addEventListener("pointerdown", (event) => event.stopPropagation());
+      button.addEventListener("click", () => convertCardToGroup(card, cardElement, button));
+      const icon = document.createElement("span");
+      icon.className = "card-stack-icon";
+      icon.setAttribute("aria-hidden", "true");
+      button.append(icon);
+      return button;
     }}
 
     function startDrag(event) {{
@@ -21314,6 +21463,7 @@ def creative_corkboard_html(
         color: CARD_PALETTE.length
           ? CARD_PALETTE[index % CARD_PALETTE.length].id
           : "#fff6cf",
+        card_type: "card",
       }};
       cards.push(card);
       selectedCardKey = card.id;
@@ -21341,7 +21491,7 @@ def creative_corkboard_html(
       }}
       for (const card of cards) {{
         const cardElement = document.createElement("article");
-        cardElement.className = `index-card ${{card.type || "file"}}`;
+        cardElement.className = `index-card ${{cardCssType(card)}}`;
         cardElement.dataset.key = cardKey(card);
         cardElement.tabIndex = 0;
         cardElement.classList.toggle("selected", selectedCardKey === cardElement.dataset.key);
@@ -21419,6 +21569,7 @@ def creative_corkboard_html(
           const tools = document.createElement("div");
           tools.className = "card-tools";
           tools.append(buildColorButton(card, cardElement));
+          tools.append(buildGroupButton(card, cardElement));
           const remove = document.createElement("button");
           remove.className = "card-delete";
           remove.type = "button";
@@ -21608,6 +21759,55 @@ def _normalize_creative_card_color(value: object, default: str) -> str:
     if CREATIVE_CARD_COLOR_RE.fullmatch(raw):
         return raw.lower()
     return default
+
+
+def _creative_freeform_card_type(value: object) -> str:
+    return "group" if str(value or "").strip() == "group" else "card"
+
+
+def _normalize_creative_corkboard_reference(value: object) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw:
+        return ""
+    try:
+        relative_path = Path(raw)
+    except ValueError:
+        return ""
+    if (
+        relative_path.is_absolute()
+        or any(part in {"", ".."} for part in relative_path.parts)
+        or not relative_path.as_posix().endswith(CREATIVE_CORKBOARD_SUFFIX)
+    ):
+        return ""
+    return relative_path.as_posix()
+
+
+def _creative_card_group_default_path(parent_corkboard_path: str, card_id: str) -> str:
+    parent_stem = parent_corkboard_path.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
+    parent_slug = _slugify_work_item(parent_stem.replace("/", "-"))
+    card_slug = _slugify_work_item(card_id)
+    return (
+        CREATIVE_CORKBOARD_GROUP_DIRECTORY
+        / parent_slug
+        / f"{card_slug}{CREATIVE_CORKBOARD_SUFFIX}"
+    ).as_posix()
+
+
+def _ensure_creative_card_group_corkboard(
+    project_root: Path | str,
+    *,
+    parent_corkboard_path: str,
+    card_id: str,
+    board_path: object,
+) -> str:
+    normalized_board_path = _normalize_creative_corkboard_reference(board_path)
+    if not normalized_board_path:
+        normalized_board_path = _creative_card_group_default_path(
+            parent_corkboard_path,
+            card_id,
+        )
+    _create_creative_corkboard(project_root, normalized_board_path)
+    return normalized_board_path
 
 
 def _creative_folder_corkboard_card(
@@ -21818,32 +22018,39 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
             raw_card.get("color"),
             str(style["color"]),
         )
-        normalized_cards.append(
-            {
-                "id": card_id[:100],
-                "title": str(raw_card.get("title") or "Untitled card")[:200],
-                "note": str(raw_card.get("note") or "")[:5000],
-                "x": _bounded_float(
-                    raw_card.get("x"),
-                    36 + index * 24,
-                    -1_000_000,
-                    1_000_000,
-                ),
-                "y": _bounded_float(
-                    raw_card.get("y"),
-                    36 + index * 18,
-                    -1_000_000,
-                    1_000_000,
-                ),
-                "rotation": _bounded_float(
-                    raw_card.get("rotation"),
-                    float(style["rotation"]),
-                    -8,
-                    8,
-                ),
-                "color": color,
-            }
-        )
+        card_type = _creative_freeform_card_type(raw_card.get("card_type"))
+        card = {
+            "id": card_id[:100],
+            "title": str(raw_card.get("title") or "Untitled card")[:200],
+            "note": str(raw_card.get("note") or "")[:5000],
+            "x": _bounded_float(
+                raw_card.get("x"),
+                36 + index * 24,
+                -1_000_000,
+                1_000_000,
+            ),
+            "y": _bounded_float(
+                raw_card.get("y"),
+                36 + index * 18,
+                -1_000_000,
+                1_000_000,
+            ),
+            "rotation": _bounded_float(
+                raw_card.get("rotation"),
+                float(style["rotation"]),
+                -8,
+                8,
+            ),
+            "color": color,
+            "card_type": card_type,
+        }
+        if card_type == "group":
+            board_path = _normalize_creative_corkboard_reference(
+                raw_card.get("board_path")
+            )
+            if board_path:
+                card["board_path"] = board_path
+        normalized_cards.append(card)
     return normalized_cards
 
 
@@ -21864,12 +22071,17 @@ def _save_creative_freeform_corkboard_card(
     cards = _freeform_corkboard_cards(data)
     card_id = str(card_payload.get("id") or uuid4().hex)[:100]
     style = _creative_corkboard_card_style(card_id, len(cards))
+    existing_card: dict[str, object] = {}
     existing_color: object = None
     for existing in cards:
         if existing.get("id") == card_id:
+            existing_card = existing
             existing_color = existing.get("color")
             break
     default_color = _normalize_creative_card_color(existing_color, str(style["color"]))
+    card_type = _creative_freeform_card_type(
+        card_payload.get("card_type") or existing_card.get("card_type")
+    )
     card = {
         "id": card_id,
         "title": str(card_payload.get("title") or "Untitled card")[:200],
@@ -21896,7 +22108,18 @@ def _save_creative_freeform_corkboard_card(
             card_payload.get("color"),
             default_color,
         ),
+        "card_type": card_type,
     }
+    if card_type == "group":
+        card["board_path"] = _ensure_creative_card_group_corkboard(
+            project_root,
+            parent_corkboard_path=normalized_path,
+            card_id=card_id,
+            board_path=(
+                card_payload.get("board_path")
+                or existing_card.get("board_path")
+            ),
+        )
     replaced = False
     for index, existing in enumerate(cards):
         if existing.get("id") == card_id:

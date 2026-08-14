@@ -307,6 +307,53 @@ class CliTests(unittest.TestCase):
         self.assertEqual(card["rotation"], -2.0)
         self.assertEqual(card["color"], "#fff6cf")
 
+    def test_corkboard_cli_converts_card_to_group(self) -> None:
+        with temp_project() as root:
+            self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "add",
+                    "corkboard/ideas.corkboard.json",
+                    "--id",
+                    "scene-one",
+                    "--title",
+                    "Scene one",
+                ]
+            )
+            group = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "group",
+                    "corkboard/ideas.corkboard.json",
+                    "scene-one",
+                ]
+            )
+            show_code, show_stdout, show_stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "show",
+                    "corkboard/ideas.corkboard.json",
+                ]
+            )
+
+            data = json.loads(show_stdout)
+            card = data["cards"][0]
+            board_path = card["board_path"]
+            self.assertEqual(group[0], 0, group[2])
+            self.assertIn("grouped card: scene-one", group[1])
+            self.assertEqual(show_code, 0, show_stderr)
+            self.assertEqual(card["card_type"], "group")
+            self.assertTrue(board_path.endswith(".corkboard.json"))
+            self.assertTrue((root / board_path).is_file())
+
     def test_corkboard_cli_manages_folder_board_notes_and_order(self) -> None:
         with temp_project() as root:
             write_file(root / "chapters" / "chapter-01.md", "# Chapter 1\n")
