@@ -8,6 +8,7 @@ from importlib import resources
 
 SERVICE_ASSET_PACKAGE = "electroboy"
 SERVICE_ASSET_DIRECTORY = ("assets", "service")
+SERVICE_STATIC_ROUTE_PREFIX = "/assets/service/"
 
 
 @dataclass(frozen=True)
@@ -36,13 +37,34 @@ def read_service_text_asset(name: str) -> str:
     )
 
 
+def read_service_binary_asset(relative_path: str) -> bytes:
+    parts = _asset_path_parts(relative_path)
+    return (
+        resources.files(SERVICE_ASSET_PACKAGE)
+        .joinpath(*SERVICE_ASSET_DIRECTORY, *parts)
+        .read_bytes()
+    )
+
+
+def service_asset_content_type(relative_path: str) -> str:
+    suffix = relative_path.rsplit(".", 1)[-1].lower()
+    return {
+        "css": "text/css; charset=utf-8",
+        "html": "text/html; charset=utf-8",
+        "js": "application/javascript; charset=utf-8",
+        "json": "application/json; charset=utf-8",
+        "png": "image/png",
+        "svg": "image/svg+xml",
+    }.get(suffix, "application/octet-stream")
+
+
 def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
     return (
         FrontendBundle(
             id="core-shell",
             label="Core Browser Shell",
             owner="core",
-            assets=("index.html",),
+            assets=("index.html", "css/shell.css", "js/app.js"),
         ),
         FrontendBundle(
             id="pane-window",
@@ -61,3 +83,10 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
 
 def frontend_asset_payload() -> list[dict[str, object]]:
     return [bundle.payload() for bundle in built_in_frontend_bundles()]
+
+
+def _asset_path_parts(relative_path: str) -> tuple[str, ...]:
+    parts = tuple(part for part in relative_path.split("/") if part)
+    if not parts or any(part in {".", ".."} for part in parts):
+        raise FileNotFoundError(relative_path)
+    return parts

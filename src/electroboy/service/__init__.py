@@ -31,7 +31,13 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from .frontend import frontend_asset_payload, read_service_text_asset
+from .frontend import (
+    SERVICE_STATIC_ROUTE_PREFIX,
+    frontend_asset_payload,
+    read_service_binary_asset,
+    read_service_text_asset,
+    service_asset_content_type,
+)
 from .registry import (
     ModuleRegistry,
     WorkflowRegistry,
@@ -304,9 +310,25 @@ ARTIFACT_EDITOR_JSON_FIELDS = {"automation", "schema"}
 
 INDEX_HTML_TEMPLATE = read_service_text_asset("index.html")
 
-INDEX_HTML = (
-    INDEX_HTML_TEMPLATE.replace("__SPLASH_IMAGE_ROUTE__", SPLASH_IMAGE_ROUTE)
-    .replace("__CREATIVE_SPLASH_IMAGE_ROUTE__", CREATIVE_SPLASH_IMAGE_ROUTE)
+
+def _render_service_text_asset(name: str) -> str:
+    return _apply_service_asset_replacements(read_service_text_asset(name))
+
+
+def _apply_service_asset_replacements(text: str) -> str:
+    return (
+        text.replace("__SPLASH_IMAGE_ROUTE__", SPLASH_IMAGE_ROUTE)
+        .replace("__CREATIVE_SPLASH_IMAGE_ROUTE__", CREATIVE_SPLASH_IMAGE_ROUTE)
+    )
+
+
+INDEX_PAGE_HTML = _render_service_text_asset("index.html")
+INDEX_HTML = "\n".join(
+    [
+        INDEX_PAGE_HTML,
+        read_service_text_asset("css/shell.css"),
+        _render_service_text_asset("js/app.js"),
+    ]
 )
 
 
@@ -10445,13 +10467,16 @@ def _handler_for(
             parsed = urlparse(self.path)
             path = parsed.path
             if path in {"/", "/index.html"}:
-                self._send_text(INDEX_HTML, "text/html; charset=utf-8")
+                self._send_text(INDEX_PAGE_HTML, "text/html; charset=utf-8")
                 return
             if path == SPLASH_IMAGE_ROUTE:
                 self._send_splash_image(SPLASH_IMAGE_RESOURCE)
                 return
             if path == CREATIVE_SPLASH_IMAGE_ROUTE:
                 self._send_splash_image(CREATIVE_SPLASH_IMAGE_RESOURCE)
+                return
+            if path.startswith(SERVICE_STATIC_ROUTE_PREFIX):
+                self._send_service_asset(path)
                 return
             if path == "/file-browser":
                 self._send_file_browser_window(parsed.query)
@@ -10805,7 +10830,7 @@ def _handler_for(
                 self._send_headers(
                     HTTPStatus.OK,
                     "text/html; charset=utf-8",
-                    len(INDEX_HTML.encode("utf-8")),
+                    len(INDEX_PAGE_HTML.encode("utf-8")),
                 )
                 return
             if path == SPLASH_IMAGE_ROUTE:
@@ -10819,6 +10844,9 @@ def _handler_for(
                     CREATIVE_SPLASH_IMAGE_RESOURCE,
                     headers_only=True,
                 )
+                return
+            if path.startswith(SERVICE_STATIC_ROUTE_PREFIX):
+                self._send_service_asset(path, headers_only=True)
                 return
             if path == "/api/health":
                 data = json.dumps(
@@ -10858,6 +10886,32 @@ def _handler_for(
                 )
                 return
             self._send_headers(HTTPStatus.OK, "image/png", len(data))
+            if not headers_only:
+                self.wfile.write(data)
+
+        def _send_service_asset(
+            self,
+            path: str,
+            *,
+            headers_only: bool = False,
+        ) -> None:
+            relative_path = path.removeprefix(SERVICE_STATIC_ROUTE_PREFIX)
+            try:
+                data = read_service_binary_asset(relative_path)
+            except FileNotFoundError:
+                self._send_json(
+                    {"error": "service asset not found"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            if relative_path in {"index.html", "js/app.js"}:
+                text = data.decode("utf-8")
+                data = _apply_service_asset_replacements(text).encode("utf-8")
+            self._send_headers(
+                HTTPStatus.OK,
+                service_asset_content_type(relative_path),
+                len(data),
+            )
             if not headers_only:
                 self.wfile.write(data)
 

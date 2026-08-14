@@ -161,6 +161,42 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(body, splash_image_bytes())
         self.assertEqual(headers["Content-Length"], str(len(body)))
 
+    def test_service_asset_endpoint_serves_extracted_frontend_files(self) -> None:
+        self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
+        self.assertIn("/assets/service/js/app.js", INDEX_HTML)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                css_status, css_body, css_type, _css_headers = request_bytes(
+                    server,
+                    "/assets/service/css/shell.css",
+                )
+                js_status, js_body, js_type, _js_headers = request_bytes(
+                    server,
+                    "/assets/service/js/app.js",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(css_status, 200)
+        self.assertEqual(css_type, "text/css; charset=utf-8")
+        self.assertIn(b":root", css_body)
+        self.assertEqual(js_status, 200)
+        self.assertEqual(js_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"async function initialize()", js_body)
+        self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE.encode("utf-8"), js_body)
+        self.assertNotIn(b"__CREATIVE_SPLASH_IMAGE_ROUTE__", js_body)
+
     def test_creative_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
