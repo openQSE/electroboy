@@ -65,6 +65,7 @@ from electroboy.service import (  # noqa: E402
     workflow_payload,
 )
 from electroboy.service.routes import build_route_dispatcher  # noqa: E402
+from electroboy.service.frontend import read_service_text_asset  # noqa: E402
 from electroboy.service.registry import (  # noqa: E402
     WorkflowDefinition,
     WorkflowStage,
@@ -147,11 +148,32 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
+        self.assertIn("binder", frontend_bundles)
         self.assertIn("pane-window", frontend_bundles)
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
             ["software", "creative-writing"],
         )
+
+    def test_frontend_contributions_own_workflow_and_module_behavior(self) -> None:
+        registry = read_service_text_asset("js/core/registry.js")
+        software = read_service_text_asset("js/workflows/software.js")
+        creative = read_service_text_asset("js/workflows/creative-writing.js")
+        binder = read_service_text_asset("js/modules/binder.js")
+        corkboard = read_service_text_asset("js/modules/corkboard.js")
+        app = read_service_text_asset("js/app.js")
+
+        self.assertIn("bindRuntime(nextRuntime)", registry)
+        self.assertIn("invokeWorkflow(id, action, ...args)", registry)
+        self.assertIn("invokeModule(id, action, ...args)", registry)
+        self.assertIn("function stageActions(stageId, runtime)", software)
+        self.assertIn("function mount(runtime)", software)
+        self.assertIn("async function startAgent(runtime)", creative)
+        self.assertIn("function selectFolder(runtime, path)", creative)
+        self.assertIn("function renderTree(runtime)", binder)
+        self.assertIn("function show(runtime, path, options = {})", corkboard)
+        self.assertNotIn("function projectStageActions()", app)
+        self.assertNotIn("function appendCreativeTreeEntry", app)
 
     def test_route_dispatcher_uses_registered_module_routes(self) -> None:
         dispatcher = build_route_dispatcher(
@@ -1436,7 +1458,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="creativeCloseProject"', INDEX_HTML)
         self.assertIn("creativeCloseProject.disabled = !Boolean(activationRoot)", INDEX_HTML)
         self.assertIn(
-            'creativeCloseProject.addEventListener("click", deactivateActiveProject)',
+            'element.creativeCloseProject.addEventListener(',
             INDEX_HTML,
         )
         self.assertIn("let creativeProjectActionsExpanded = false;", INDEX_HTML)
@@ -1458,7 +1480,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("let creativeActiveFolder = \"\";", INDEX_HTML)
         self.assertIn("let creativeLastNotifiedTarget = \"\";", INDEX_HTML)
         self.assertIn("let expandedCreativeFolders = new Set();", INDEX_HTML)
-        self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
+        self.assertIn("function toggleFolder(runtime, path)", INDEX_HTML)
         self.assertIn("function showCreativeCorkboard(path, options = {})", INDEX_HTML)
         self.assertIn("function selectCreativeCorkboard(path)", INDEX_HTML)
         self.assertIn("function selectCreativeFolder(path)", INDEX_HTML)
@@ -1467,11 +1489,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Active target: freeform corkboard", INDEX_HTML)
         self.assertIn("Active target: folder corkboard", INDEX_HTML)
         self.assertIn("docs/corkboard-api.md", INDEX_HTML)
-        self.assertIn("active_target: activeCreativeTarget()", INDEX_HTML)
+        self.assertIn("active_target: action.activeCreativeTarget()", INDEX_HTML)
         self.assertIn("session_id: session.session_id", INDEX_HTML)
-        self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
+        self.assertIn("function appendFolderActions(runtime, path, depth)", INDEX_HTML)
         self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
-        self.assertIn("function creativeTreeActionIconSvg(name)", INDEX_HTML)
+        self.assertIn("function actionIconSvg(name)", INDEX_HTML)
         self.assertIn("function createCreativeFolderInline(basePath = \"\")", INDEX_HTML)
         self.assertIn("function createCreativeDocumentInline(basePath = \"\")", INDEX_HTML)
         self.assertIn("function createCreativeCorkboardInline(basePath = \"\")", INDEX_HTML)
@@ -1490,15 +1512,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("--creative-depth-indent", INDEX_HTML)
         self.assertIn(".creative-tree-name-input", INDEX_HTML)
         self.assertIn(".creative-tree-icon-button", INDEX_HTML)
-        self.assertIn("function creativeTreeIconSvg(name)", INDEX_HTML)
-        self.assertIn("function creativeTreeIconName(entry, expanded)", INDEX_HTML)
-        self.assertIn("function creativeTreeIconClass(entry)", INDEX_HTML)
+        self.assertIn("function iconSvg(name)", INDEX_HTML)
+        self.assertIn("function iconName(entry, expanded)", INDEX_HTML)
+        self.assertIn("function iconClass(entry)", INDEX_HTML)
         self.assertIn('row.setAttribute("role", "treeitem")', INDEX_HTML)
         self.assertIn('row.setAttribute("aria-expanded"', INDEX_HTML)
         self.assertIn("if (isDirectory && expanded)", INDEX_HTML)
         self.assertLess(
-            INDEX_HTML.index("appendCreativeTreeEntry(child, depth + 1);"),
-            INDEX_HTML.index("appendCreativeFolderActions(path, depth + 1);"),
+            INDEX_HTML.index("appendEntry(runtime, child, depth + 1);"),
+            INDEX_HTML.index("appendFolderActions(runtime, path, depth + 1);"),
         )
         self.assertIn(".creative-tree-row.directory.expanded", INDEX_HTML)
         self.assertIn(".creative-tree-row.directory.active", INDEX_HTML)
@@ -2222,7 +2244,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"/api/agents/design-review/approve"', INDEX_HTML)
         self.assertIn('"/api/agents/design-review/skip-approval"', INDEX_HTML)
         self.assertIn('"/api/agents/ad-hoc/start"', INDEX_HTML)
-        self.assertIn("startCodeAdHocAgentButton.addEventListener", INDEX_HTML)
+        self.assertIn("element.startCodeAdHocAgent.addEventListener", INDEX_HTML)
         self.assertIn("actions.splice(3, 0", INDEX_HTML)
         self.assertNotIn('"/api/agents/design-review/restart"', INDEX_HTML)
         self.assertNotIn('"/api/agents/design-approve/approve"', INDEX_HTML)

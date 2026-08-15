@@ -78,6 +78,12 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             assets=("js/modules/documents.js",),
         ),
         FrontendBundle(
+            id="binder",
+            label="Binder Tree",
+            owner="binder",
+            assets=("js/modules/binder.js",),
+        ),
+        FrontendBundle(
             id="corkboard",
             label="Corkboard Pane",
             owner="corkboard",

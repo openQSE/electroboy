@@ -4382,345 +4382,10 @@
     }
 
     function stageActions(stageId) {
-      if (stageId === "project") {
-        return projectStageActions();
-      }
-      if (stageId === "requirements") {
-        const inStage = currentWorkflowStage === "requirements";
-        return [
-          {
-            label: "Set stage",
-            title: "Move the workflow to requirements without starting an agent.",
-            disabled: !activeProjectRoot || inStage,
-            run: () => setWorkflowStageFromMenu("requirements"),
-          },
-          {
-            label: "Start",
-            title: "Launch or resume the interactive requirements authoring agent.",
-            primary: true,
-            disabled: !activeProjectRoot || !inStage || requirementsRunning,
-            run: startRequirementsAgent,
-          },
-          {
-            label: "Approve",
-            title: "Record requirements approval and advance the workflow.",
-            disabled: !activeProjectRoot || !inStage,
-            run: approveRequirementsStage,
-          },
-          {
-            label: "Skip approval",
-            title: "Force requirements approval when the operator accepts the risk.",
-            disabled: !activeProjectRoot || !inStage,
-            run: skipRequirementsApprovalStage,
-          },
-        ];
-      }
-      if (stageId === "design") {
-        const inStage = currentWorkflowStage === "design";
-        return [
-          {
-            label: "Set stage",
-            title: "Move the workflow to design without starting an agent.",
-            disabled: !activeProjectRoot || inStage,
-            run: () => setWorkflowStageFromMenu("design"),
-          },
-          {
-            label: "Start",
-            title: "Launch or resume the interactive design authoring agent.",
-            primary: true,
-            disabled: !activeProjectRoot || !inStage || designRunning,
-            run: startDesignAgent,
-          },
-          {
-            label: "Complete",
-            title: "Finish design authoring and move to design review.",
-            disabled: !activeProjectRoot || !inStage,
-            run: completeDesignAgent,
-          },
-        ];
-      }
-      if (stageId === "design-review") {
-        const inStage = currentWorkflowStage === "design-review";
-        return automaticStageActions({
-          stage: "design-review",
-          label: "design review",
-          inStage,
-          running: designReviewRunning,
-          setStage: () => setWorkflowStageFromMenu("design-review"),
-          startAutomatic: startAutomaticDesignReviewAgent,
-          startInteractive: startInteractiveDesignReviewAgent,
-          stop: stopDesignReviewAgent,
-          approve: approveDesignReviewStage,
-          skip: skipDesignReviewApprovalStage,
-          automaticTitle: "Run the non-interactive design review and design-update loop.",
-          interactiveTitle: "Open an interactive design-review agent session.",
-        });
-      }
-      if (stageId === "implementation-plan") {
-        return authoringStageActions({
-          stage: "implementation-plan",
-          label: "implementation plan",
-          setStage: () => setWorkflowStageFromMenu("implementation-plan"),
-          start: () => startGenericStageAgent(
-            "implementation-plan",
-            "$ electroboy implementation-plan",
-            true,
-          ),
-          approve: () => approveGenericStage("implementation-plan", "implementation plan"),
-          skip: () => skipGenericStageApproval("implementation-plan", "Implementation plan"),
-          startTitle: "Launch or resume the interactive implementation-plan agent.",
-        });
-      }
-      if (stageId === "code") {
-        const actions = automaticStageActions({
-          stage: "code",
-          label: "code",
-          inStage: currentWorkflowStage === "code",
-          running: genericStageRun("code").running,
-          setStage: () => setWorkflowStageFromMenu("code"),
-          startAutomatic: () => startGenericStageAgent("code", "$ electroboy code", false),
-          startInteractive: () => startGenericStageAgent(
-            "code",
-            "$ electroboy code --interactive",
-            true,
-          ),
-          stop: () => stopGenericStageAgent("code", "code"),
-          approve: () => approveGenericStage("code", "code"),
-          skip: () => skipGenericStageApproval("code", "Code"),
-          automaticTitle: "Run the non-interactive coding and review cycle.",
-          interactiveTitle: "Open an interactive coding agent session.",
-        });
-        actions.splice(3, 0, {
-          label: adHocRunning ? "Focus ad-hoc" : "Start ad-hoc",
-          title: adHocRunning
-            ? "Focus the running ad-hoc agent."
-            : "Start a plain interactive agent without staged workflow instructions.",
-          disabled: !activeProjectRoot,
-          run: startAdHocAgent,
-        });
-        return actions;
-      }
-      if (stageId === "test-plan") {
-        return authoringStageActions({
-          stage: "test-plan",
-          label: "test plan",
-          setStage: () => setWorkflowStageFromMenu("test-plan"),
-          start: () => startGenericStageAgent("test-plan", "$ electroboy test-plan", true),
-          approve: () => approveGenericStage("test-plan", "test plan"),
-          skip: () => skipGenericStageApproval("test-plan", "Test plan"),
-          startTitle: "Launch or resume the interactive system test-plan agent.",
-        });
-      }
-      if (stageId === "validate") {
-        return automaticStageActions({
-          stage: "validate",
-          label: "validation",
-          inStage: currentWorkflowStage === "validate",
-          running: genericStageRun("validate").running,
-          setStage: () => setWorkflowStageFromMenu("validate"),
-          startAutomatic: () => startGenericStageAgent("validate", "$ electroboy validate", false),
-          startInteractive: () => startGenericStageAgent(
-            "validate",
-            "$ electroboy validate --interactive",
-            true,
-          ),
-          stop: () => stopGenericStageAgent("validate", "validation"),
-          approve: () => approveGenericStage("validate", "validation"),
-          skip: () => skipGenericStageApproval("validate", "Validation"),
-          automaticTitle: "Run the non-interactive validation command set.",
-          interactiveTitle: "Open an interactive validation agent session.",
-        });
-      }
-      return [];
-    }
-
-    function projectStageActions() {
-      const hasContext = Boolean(activationRoot);
-      const hasProject = Boolean(activeProjectRoot);
-      const recentActions = recentProjectActionsForWorkflow();
-      const metaActions = [
-        {
-          label: "Open meta-project",
-          title: "Activate an existing ElectroBoy meta-project.",
-          disabled: hasContext,
-          run: () => openProjectBrowser("open", true),
-        },
-        {
-          label: "New meta-project",
-          title: "Create and activate a new ElectroBoy meta-project.",
-          disabled: hasContext,
-          run: () => openProjectBrowser("meta-new", true),
-        },
-        {
-          label: "Add repo",
-          title: "Register another repository with the active meta-project.",
-          disabled: activeProjectMode !== "meta",
-          run: () => showProjectPanel("meta-add"),
-        },
-      ];
-      for (const repository of registeredRepositories) {
-        const label = repositoryLabel(repository);
-        metaActions.push({
-          label: `Start repo: ${label}`,
-          title: String(repository.path || label),
-          disabled: activeProjectMode !== "meta" || label === activeRepositoryName,
-          run: () => startMetaRepositoryFromMenu(repository),
-        });
-      }
-      for (const repository of registeredRepositories) {
-        const label = repositoryLabel(repository);
-        metaActions.push({
-          label: `Remove repo: ${label}`,
-          title: String(repository.path || label),
-          disabled: activeProjectMode !== "meta",
-          run: () => removeMetaRepositoryFromMenu(repository),
-        });
-      }
-
-      const workItemActions = [
-        {
-          label: "Add feature",
-          title: "Start a new feature workflow in the active project.",
-          disabled: !hasProject,
-          run: () => showWorkItemPanel("feature-new"),
-        },
-        {
-          label: "Add bug resolution",
-          title: "Start a new bug-resolution workflow in the active project.",
-          disabled: !hasProject,
-          run: () => showWorkItemPanel("bug-new"),
-        },
-      ];
-      for (const feature of workItemFeatures()) {
-        workItemActions.push({
-          label: `Switch feature: ${featureLabel(feature)}`,
-          title: feature.title || feature.slug || "",
-          disabled: !hasProject || feature.slug === workItemState.active_feature_slug,
-          run: () => switchFeatureWorkItemContext(feature.slug),
-        });
-      }
-      for (const bug of workItemBugs()) {
-        workItemActions.push({
-          label: `Switch bug: ${bug.title || bug.slug || "Bug"}`,
-          title: bug.reference || bug.slug || "",
-          disabled: !hasProject || bug.slug === workItemState.active_bug_slug,
-          run: () => switchBugWorkItemContext(bug.slug),
-        });
-      }
-
-      return [
-        {
-          label: "Open project",
-          title: "Activate an existing ElectroBoy project.",
-          disabled: hasContext,
-          run: () => openProjectBrowser("open", true),
-        },
-        {
-          label: "New project",
-          title: "Create and activate a new ElectroBoy project.",
-          disabled: hasContext,
-          run: () => openProjectBrowser("new", true),
-        },
-        {
-          subgroup: "project-recent",
-          label: "Recently opened",
-          title: "Open a recently used project.",
-          actions: recentActions,
-        },
-        {
-          subgroup: "project-meta",
-          label: "Meta project",
-          title: "Open, create, or manage repositories in a meta-project.",
-          actions: metaActions,
-        },
-        {
-          subgroup: "project-work-items",
-          label: "Work items",
-          title: "Start or switch feature and bug-resolution workflows.",
-          actions: workItemActions,
-        },
-        {
-          label: "Deactivate",
-          title: "Deactivate this browser context's active project.",
-          disabled: !hasContext,
-          run: deactivateActiveProject,
-        },
-      ];
-    }
-
-    function authoringStageActions(options) {
-      const inStage = currentWorkflowStage === options.stage;
-      const runState = genericStageRun(options.stage);
-      return [
-        {
-          label: "Set stage",
-          title: `Move the workflow to ${options.stage} without starting an agent.`,
-          disabled: !activeProjectRoot || inStage,
-          run: options.setStage,
-        },
-        {
-          label: "Start",
-          title: options.startTitle,
-          primary: true,
-          disabled: !activeProjectRoot || !inStage || runState.running,
-          run: options.start,
-        },
-        {
-          label: "Approve",
-          title: `Approve ${options.label} and advance the workflow.`,
-          disabled: !activeProjectRoot || !inStage,
-          run: options.approve,
-        },
-        {
-          label: "Skip approval",
-          title: `Force ${options.label} approval when the operator accepts the risk.`,
-          disabled: !activeProjectRoot || !inStage,
-          run: options.skip,
-        },
-      ];
-    }
-
-    function automaticStageActions(options) {
-      const hasProject = Boolean(activeProjectRoot);
-      return [
-        {
-          label: "Set stage",
-          title: `Move the workflow to ${options.stage} without starting an agent.`,
-          disabled: !hasProject || options.inStage,
-          run: options.setStage,
-        },
-        {
-          label: "Start automatic",
-          title: options.automaticTitle,
-          primary: true,
-          disabled: !hasProject || !options.inStage || options.running,
-          run: options.startAutomatic,
-        },
-        {
-          label: "Start interactive",
-          title: options.interactiveTitle,
-          disabled: !hasProject || !options.inStage || options.running,
-          run: options.startInteractive,
-        },
-        {
-          label: "Stop",
-          title: `Stop the running ${options.label} agent.`,
-          disabled: !hasProject || !options.inStage || !options.running,
-          run: options.stop,
-        },
-        {
-          label: "Approve",
-          title: `Approve ${options.label} and advance the workflow.`,
-          disabled: !hasProject || !options.inStage,
-          run: options.approve,
-        },
-        {
-          label: "Skip approval",
-          title: `Force ${options.label} approval when the operator accepts the risk.`,
-          disabled: !hasProject || !options.inStage,
-          run: options.skip,
-        },
-      ];
+      return window.ElectroBoyFrontend.stageActions(
+        workflowMode,
+        stageId,
+      );
     }
 
     function renderDocumentActionPanel(container) {
@@ -5155,365 +4820,57 @@
     }
 
     function showCreativeTreeMessage(message) {
-      creativeTree.replaceChildren();
-      const empty = document.createElement("div");
-      empty.className = "creative-binder-status";
-      empty.textContent = message;
-      creativeTree.append(empty);
+      return window.ElectroBoyFrontend.invokeModule(
+        "binder",
+        "showMessage",
+        message,
+      );
     }
 
     function renderCreativeTree() {
-      creativeTree.replaceChildren();
-      const entries = creativeTreePayload && Array.isArray(creativeTreePayload.entries)
-        ? creativeTreePayload.entries
-        : [];
-      if (entries.length === 0) {
-        showCreativeTreeMessage("No writing documents yet.");
-        return;
-      }
-      for (const entry of entries) {
-        appendCreativeTreeEntry(entry, 0);
-      }
-    }
-
-    function creativeTreeIconSvg(name) {
-      const icons = {
-        file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path>',
-        folder: '<path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
-        "folder-open": '<path d="M3 7h7l2 2h9l-2 9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7v11"></path>',
-        markdown: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 15V9l3 3 3-3v6"></path><path d="M17 9v6"></path><path d="M15 13l2 2 2-2"></path>',
-        corkboard: '<rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M8 8h5v4H8z"></path><path d="M14 12h4v5h-4z"></path><path d="M8 14h4v3H8z"></path>',
-      };
-      return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.file}</svg>`;
-    }
-
-    function creativeTreeIconName(entry, expanded) {
-      if ((entry.type || "") === "directory") {
-        return expanded ? "folder-open" : "folder";
-      }
-      if (entry.corkboard) {
-        return "corkboard";
-      }
-      return entry.markdown ? "markdown" : "file";
-    }
-
-    function creativeTreeIconClass(entry) {
-      if ((entry.type || "") === "directory") {
-        return "folder";
-      }
-      if (entry.corkboard) {
-        return "corkboard";
-      }
-      return entry.markdown ? "markdown" : "file";
-    }
-
-    function creativeTreeActionIconSvg(name) {
-      const icons = {
-        rename: '<path d="m12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>',
-        trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
-      };
-      return `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || ""}</svg>`;
-    }
-
-    function appendCreativeTreeEntry(entry, depth) {
-      const type = entry.type || "file";
-      const entryActionType = entry.corkboard ? "corkboard" : type;
-      const path = String(entry.path || "");
-      const isDirectory = type === "directory";
-      const expanded = isDirectory && expandedCreativeFolders.has(path);
-      const row = document.createElement("div");
-      row.className = `creative-tree-row ${type}`;
-      row.classList.toggle("expanded", expanded);
-      row.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
-      row.title = path;
-      row.tabIndex = 0;
-      row.classList.toggle(
-        "active",
-        (isDirectory && path === creativeActiveFolder) ||
-          (!isDirectory && path === creativeActiveDocument),
-      );
-      row.setAttribute("role", "treeitem");
-      if (isDirectory) {
-        row.setAttribute("aria-expanded", expanded ? "true" : "false");
-      }
-
-      const icon = document.createElement("span");
-      icon.className = `creative-tree-icon ${creativeTreeIconClass(entry)}`;
-      icon.innerHTML = creativeTreeIconSvg(creativeTreeIconName(entry, expanded));
-
-      const name = creativeEditingPath === path
-        ? creativeRenameInput(entry, type, path)
-        : creativeTreeName(entry, path);
-
-      const rename = creativeTreeIconButton(
-        "rename",
-        `Rename ${path}`,
-        () => beginCreativeRename(path, entryActionType),
-      );
-      const remove = creativeTreeIconButton(
-        "trash",
-        `Delete ${path}`,
-        () => deleteCreativeEntry(path, entryActionType),
-        "danger",
-      );
-
-      if (isDirectory) {
-        const disclosure = document.createElement("span");
-        disclosure.className = "creative-tree-disclosure";
-        disclosure.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          toggleCreativeFolder(path);
-        });
-        row.append(icon, name, rename, remove, disclosure);
-      } else {
-        row.append(icon, name, rename, remove);
-      }
-      row.addEventListener("click", () => activateCreativeTreeEntry(entry, path, type));
-      row.addEventListener("dblclick", (event) => {
-        event.preventDefault();
-        beginCreativeRename(path, entryActionType);
-      });
-      row.addEventListener("keydown", (event) => {
-        if (event.target !== row) {
-          return;
-        }
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          activateCreativeTreeEntry(entry, path, type);
-        } else if (event.key === "F2") {
-          event.preventDefault();
-          beginCreativeRename(path, entryActionType);
-        } else if (event.key === "Delete") {
-          event.preventDefault();
-          deleteCreativeEntry(path, entryActionType);
-        }
-      });
-      creativeTree.append(row);
-
-      if (isDirectory && expanded) {
-        for (const child of entry.children || []) {
-          appendCreativeTreeEntry(child, depth + 1);
-        }
-        appendCreativeFolderActions(path, depth + 1);
-      }
-    }
-
-    function creativeTreeName(entry, path) {
-      const name = document.createElement("span");
-      name.className = "creative-tree-name";
-      name.textContent = String(entry.name || path || "Untitled");
-      return name;
-    }
-
-    function creativeTreeIconButton(iconName, title, handler, extraClass = "") {
-      const button = document.createElement("button");
-      button.className = `creative-tree-icon-button ${extraClass}`.trim();
-      button.type = "button";
-      button.title = title;
-      button.setAttribute("aria-label", title);
-      button.innerHTML = creativeTreeActionIconSvg(iconName);
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        handler();
-      });
-      button.addEventListener("dblclick", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      });
-      return button;
-    }
-
-    function activateCreativeTreeEntry(entry, path, type) {
-      if (type === "directory") {
-        selectCreativeFolder(path);
-        return;
-      }
-      if (entry.corkboard) {
-        selectCreativeCorkboard(path);
-        return;
-      }
-      if (entry.markdown) {
-        selectCreativeDocument(path);
-        return;
-      }
-      appendOutput(`${path} is visible in the Binder but is not editable yet.\n`, "system");
-    }
-
-    function creativeRenameInput(entry, type, path) {
-      const input = document.createElement("input");
-      input.className = "creative-tree-name-input";
-      input.type = "text";
-      input.value = String(entry.name || basename(path));
-      input.setAttribute("aria-label", `Rename ${path}`);
-      input.addEventListener("click", (event) => event.stopPropagation());
-      input.addEventListener("dblclick", (event) => event.stopPropagation());
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          finishCreativeRename(path, type, input.value);
-        } else if (event.key === "Escape") {
-          event.preventDefault();
-          cancelCreativeRename();
-        }
-      });
-      input.addEventListener("blur", () => {
-        finishCreativeRename(path, type, input.value);
-      });
-      window.requestAnimationFrame(() => {
-        input.focus();
-        input.select();
-      });
-      return input;
-    }
-
-    function appendCreativeFolderActions(path, depth) {
-      const actions = document.createElement("div");
-      actions.className = "creative-tree-actions";
-      actions.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
-
-      const newFolder = document.createElement("button");
-      newFolder.className = "creative-tree-action";
-      newFolder.type = "button";
-      newFolder.textContent = "New folder";
-      newFolder.addEventListener("click", (event) => {
-        event.stopPropagation();
-        creativeActiveFolder = path;
-        renderCreativeTree();
-        createCreativeFolderInline(path);
-      });
-
-      const newFile = document.createElement("button");
-      newFile.className = "creative-tree-action";
-      newFile.type = "button";
-      newFile.textContent = "New file";
-      newFile.addEventListener("click", (event) => {
-        event.stopPropagation();
-        creativeActiveFolder = path;
-        renderCreativeTree();
-        createCreativeDocumentInline(path);
-      });
-
-      const newBoard = document.createElement("button");
-      newBoard.className = "creative-tree-action";
-      newBoard.type = "button";
-      newBoard.textContent = "New board";
-      newBoard.addEventListener("click", (event) => {
-        event.stopPropagation();
-        creativeActiveFolder = path;
-        renderCreativeTree();
-        createCreativeCorkboardInline(path);
-      });
-
-      actions.append(newFolder, newFile, newBoard);
-      creativeTree.append(actions);
-    }
-
-    function toggleCreativeFolder(path) {
-      if (!path) {
-        return;
-      }
-      if (expandedCreativeFolders.has(path)) {
-        expandedCreativeFolders.delete(path);
-      } else {
-        expandedCreativeFolders.add(path);
-      }
-      renderCreativeTree();
+      return window.ElectroBoyFrontend.invokeModule("binder", "renderTree");
     }
 
     function showCreativeCorkboard(path, options = {}) {
-      if (!path) {
-        return;
-      }
-      const freeform = Boolean(options.freeform) || creativePathIsCorkboard(path);
-      const label = freeform
-        ? basename(path).replace(/\.corkboard\.json$/i, "")
-        : basename(path);
-      const board = {
-        label,
+      return window.ElectroBoyFrontend.invokeModule(
+        "corkboard",
+        "show",
         path,
-      };
-      const item = {
-        id: `creative-corkboard-${path}`,
-        kind: "creative-corkboard",
-        title: `${freeform ? "Corkboard" : "Folder board"}: ${label}`,
-        editing: false,
-      };
-      if (freeform) {
-        item.corkboard = board;
-      } else {
-        item.folder = board;
-      }
-      showArtifactPreviews(
-        [item],
-        { manual: true, stage: "creative-writing" },
+        options,
       );
     }
 
     function selectCreativeFolder(path) {
-      if (!path) {
-        return;
-      }
-      creativeActiveFolder = path;
-      creativeActiveDocument = "";
-      creativeLastNotifiedTarget = "";
-      showCreativeCorkboard(path);
-      renderCreativeTree();
-      renderCreativeProjectStatus();
-      notifyCreativeAgentTargetSwitch();
+      return window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        "selectFolder",
+        path,
+      );
     }
 
     function selectCreativeCorkboard(path) {
-      if (!path) {
-        return;
-      }
-      creativeActiveDocument = path;
-      creativeActiveFolder = creativeParentPath(path);
-      creativeLastNotifiedTarget = "";
-      showCreativeCorkboard(path, { freeform: true });
-      renderCreativeTree();
-      renderCreativeProjectStatus();
-      notifyCreativeAgentTargetSwitch();
+      return window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        "selectCorkboard",
+        path,
+      );
     }
 
     function showCreativeDocument(path) {
-      if (!path) {
-        return;
-      }
-      const target = {
-        label: basename(path),
+      return window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        "showDocument",
         path,
-      };
-      showArtifactPreviews(
-        [
-          {
-            id: "creative-document",
-            kind: "document",
-            title: target.label,
-            target,
-            editing: false,
-          },
-        ],
-        { manual: true, stage: "creative-writing" },
       );
     }
 
     function selectCreativeDocument(path, options = {}) {
-      if (!path) {
-        return;
-      }
-      creativeActiveDocument = path;
-      creativeActiveFolder = path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
-      creativeLastNotifiedTarget = options.notifyAgent === false
-        ? creativeLastNotifiedTarget
-        : "";
-      showCreativeDocument(path);
-      renderCreativeTree();
-      renderCreativeProjectStatus();
-      if (options.notifyAgent !== false) {
-        notifyCreativeAgentTargetSwitch();
-      }
+      return window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        "selectDocument",
+        path,
+        options,
+      );
     }
 
     function creativeAgentSession() {
@@ -5933,30 +5290,10 @@
     }
 
     async function startCreativeWritingAgent() {
-      if (!activeProjectRoot || !contextId) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      setAgentInputVisible(true);
-      clearAgentOutput();
-      appendOutput("$ codex creative-writing\n", "system");
-      const response = await fetch(contextUrl("/api/creative/agent/start"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          active_document: creativeActiveDocument,
-          active_target: activeCreativeTarget(),
-        }),
-      });
-      const payload = await response.json().catch(() => ({ error: "start failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "start failed"}\n`, "error");
-        return;
-      }
-      updateProjectState(payload);
-      const sessionId = payload.session_id || selectedSessionId;
-      connectSessionEvents(sessionId);
-      sendTerminalResize();
+      return window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        "startAgent",
+      );
     }
 
     function markArtifactFrameLoading(frame) {
@@ -8077,86 +7414,6 @@
       }
     });
 
-    setRequirementsStage.addEventListener("click", () => {
-      setWorkflowStageFromMenu("requirements");
-    });
-    startRequirements.addEventListener("click", startRequirementsAgent);
-    approveRequirements.addEventListener("click", approveRequirementsStage);
-    skipRequirementsApproval.addEventListener("click", skipRequirementsApprovalStage);
-    setDesignStage.addEventListener("click", () => {
-      setWorkflowStageFromMenu("design");
-    });
-    startDesign.addEventListener("click", startDesignAgent);
-    completeDesign.addEventListener("click", completeDesignAgent);
-    setDesignReviewStage.addEventListener("click", () => {
-      setWorkflowStageFromMenu("design-review");
-    });
-    startAutomaticDesignReview.addEventListener("click", startAutomaticDesignReviewAgent);
-    startInteractiveDesignReview.addEventListener("click", startInteractiveDesignReviewAgent);
-    stopDesignReview.addEventListener("click", stopDesignReviewAgent);
-    approveDesignReview.addEventListener("click", approveDesignReviewStage);
-    skipDesignReviewApproval.addEventListener("click", skipDesignReviewApprovalStage);
-    setImplementationPlanStage.addEventListener("click", () => {
-      setWorkflowStageFromMenu("implementation-plan");
-    });
-    startImplementationPlan.addEventListener("click", () => {
-      startGenericStageAgent(
-        "implementation-plan",
-        "$ electroboy implementation-plan",
-        true,
-      );
-    });
-    approveImplementationPlan.addEventListener("click", () => {
-      approveGenericStage("implementation-plan", "implementation plan");
-    });
-    skipImplementationPlanApproval.addEventListener("click", () => {
-      skipGenericStageApproval("implementation-plan", "Implementation plan");
-    });
-    setCodeStage.addEventListener("click", () => {
-      setWorkflowStageFromMenu("code");
-    });
-    startAutomaticCode.addEventListener("click", () => {
-      startGenericStageAgent("code", "$ electroboy code", false);
-    });
-    startInteractiveCode.addEventListener("click", () => {
-      startGenericStageAgent("code", "$ electroboy code --interactive", true);
-    });
-    startCodeAdHocAgentButton.addEventListener("click", startAdHocAgent);
-    stopCode.addEventListener("click", () => stopGenericStageAgent("code", "code"));
-    approveCode.addEventListener("click", () => approveGenericStage("code", "code"));
-    skipCodeApproval.addEventListener("click", () => {
-      skipGenericStageApproval("code", "Code");
-    });
-    setTestPlanStage.addEventListener("click", () => {
-      setWorkflowStageFromMenu("test-plan");
-    });
-    startTestPlan.addEventListener("click", () => {
-      startGenericStageAgent("test-plan", "$ electroboy test-plan", true);
-    });
-    approveTestPlan.addEventListener("click", () => {
-      approveGenericStage("test-plan", "test plan");
-    });
-    skipTestPlanApproval.addEventListener("click", () => {
-      skipGenericStageApproval("test-plan", "Test plan");
-    });
-    setValidateStage.addEventListener("click", () => {
-      setWorkflowStageFromMenu("validate");
-    });
-    startAutomaticValidate.addEventListener("click", () => {
-      startGenericStageAgent("validate", "$ electroboy validate", false);
-    });
-    startInteractiveValidate.addEventListener("click", () => {
-      startGenericStageAgent("validate", "$ electroboy validate --interactive", true);
-    });
-    stopValidate.addEventListener("click", () => {
-      stopGenericStageAgent("validate", "validation");
-    });
-    approveValidate.addEventListener("click", () => {
-      approveGenericStage("validate", "validation");
-    });
-    skipValidateApproval.addEventListener("click", () => {
-      skipGenericStageApproval("validate", "Validation");
-    });
     createDocumentTarget.addEventListener("click", () => {
       customDocumentForm.hidden = !customDocumentForm.hidden;
       if (!customDocumentForm.hidden) {
@@ -8304,24 +7561,152 @@
 `, "error");
       });
     });
-    creativeProjectMenuButton.addEventListener("click", () => {
-      toggleCreativeActionGroup("project");
-    });
-    creativeAgentMenuButton.addEventListener("click", () => {
-      toggleCreativeActionGroup("agent");
-    });
-    creativeOpenProject.addEventListener("click", () => {
-      openProjectBrowser("open", true);
-    });
-    creativeNewProject.addEventListener("click", () => {
-      openProjectBrowser("new", true);
-    });
-    creativeCloseProject.addEventListener("click", deactivateActiveProject);
-    creativeStartAgent.addEventListener("click", () => {
-      startCreativeWritingAgent();
-    });
+
+    const frontendRuntime = {
+      elements: {
+        creativeTree,
+        creativeProjectMenuButton,
+        creativeAgentMenuButton,
+        creativeOpenProject,
+        creativeNewProject,
+        creativeCloseProject,
+        creativeStartAgent,
+        setRequirementsStage,
+        startRequirements,
+        approveRequirements,
+        skipRequirementsApproval,
+        setDesignStage,
+        startDesign,
+        completeDesign,
+        setDesignReviewStage,
+        startAutomaticDesignReview,
+        startInteractiveDesignReview,
+        stopDesignReview,
+        approveDesignReview,
+        skipDesignReviewApproval,
+        setImplementationPlanStage,
+        startImplementationPlan,
+        approveImplementationPlan,
+        skipImplementationPlanApproval,
+        setCodeStage,
+        startAutomaticCode,
+        startInteractiveCode,
+        startCodeAdHocAgent: startCodeAdHocAgentButton,
+        stopCode,
+        approveCode,
+        skipCodeApproval,
+        setTestPlanStage,
+        startTestPlan,
+        approveTestPlan,
+        skipTestPlanApproval,
+        setValidateStage,
+        startAutomaticValidate,
+        startInteractiveValidate,
+        stopValidate,
+        approveValidate,
+        skipValidateApproval,
+      },
+      getState() {
+        return {
+          contextId,
+          workflowMode,
+          currentWorkflowStage,
+          activationRoot,
+          activeProjectRoot,
+          activeProjectMode,
+          activeRepositoryName,
+          registeredRepositories,
+          workItemState,
+          requirementsRunning,
+          designRunning,
+          designReviewRunning,
+          adHocRunning,
+          selectedSessionId,
+          creativeTreePayload,
+          creativeActiveDocument,
+          creativeActiveFolder,
+          creativeEditingPath,
+          creativeLastNotifiedTarget,
+          expandedCreativeFolders,
+        };
+      },
+      updateState(patch) {
+        if (Object.hasOwn(patch, "creativeActiveDocument")) {
+          creativeActiveDocument = patch.creativeActiveDocument;
+        }
+        if (Object.hasOwn(patch, "creativeActiveFolder")) {
+          creativeActiveFolder = patch.creativeActiveFolder;
+        }
+        if (Object.hasOwn(patch, "creativeEditingPath")) {
+          creativeEditingPath = patch.creativeEditingPath;
+        }
+        if (Object.hasOwn(patch, "creativeLastNotifiedTarget")) {
+          creativeLastNotifiedTarget = patch.creativeLastNotifiedTarget;
+        }
+      },
+      actions: {
+        appendOutput,
+        setAgentInputVisible,
+        clearAgentOutput,
+        contextUrl,
+        updateProjectState,
+        connectSessionEvents,
+        sendTerminalResize,
+        activeCreativeTarget,
+        basename,
+        creativePathIsCorkboard,
+        creativeParentPath,
+        showArtifactPreviews,
+        showCreativeCorkboard,
+        renderCreativeTree,
+        renderCreativeProjectStatus,
+        notifyCreativeAgentTargetSwitch,
+        beginCreativeRename,
+        cancelCreativeRename,
+        finishCreativeRename,
+        deleteCreativeEntry,
+        createCreativeFolder: createCreativeFolderInline,
+        createCreativeDocument: createCreativeDocumentInline,
+        createCreativeCorkboard: createCreativeCorkboardInline,
+        selectCreativeFolder,
+        selectCreativeCorkboard,
+        selectCreativeDocument,
+        toggleCreativeActionGroup,
+        openProjectBrowser,
+        deactivateProject: deactivateActiveProject,
+        setWorkflowStage: setWorkflowStageFromMenu,
+        startRequirementsAgent,
+        approveRequirementsStage,
+        skipRequirementsApprovalStage,
+        startDesignAgent,
+        completeDesignAgent,
+        startAutomaticDesignReviewAgent,
+        startInteractiveDesignReviewAgent,
+        stopDesignReviewAgent,
+        approveDesignReviewStage,
+        skipDesignReviewApprovalStage,
+        genericStageRun,
+        startGenericStageAgent,
+        stopGenericStageAgent,
+        approveGenericStage,
+        skipGenericStageApproval,
+        startAdHocAgent,
+        recentProjectActions: recentProjectActionsForWorkflow,
+        repositoryLabel,
+        startMetaRepository: startMetaRepositoryFromMenu,
+        removeMetaRepository: removeMetaRepositoryFromMenu,
+        showProjectPanel,
+        showWorkItemPanel,
+        workItemFeatures,
+        workItemBugs,
+        featureLabel,
+        switchFeature: switchFeatureWorkItemContext,
+        switchBug: switchBugWorkItemContext,
+      },
+    };
 
     async function initialize() {
+      window.ElectroBoyFrontend.bindRuntime(frontendRuntime);
       renderWorkflowModeOptions();
       applyStageDescriptions();
       applyWorkflowSideSheetState();

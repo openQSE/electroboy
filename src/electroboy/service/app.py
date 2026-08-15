@@ -347,6 +347,15 @@ INDEX_HTML = "\n".join(
     [
         INDEX_PAGE_HTML,
         read_service_text_asset("css/shell.css"),
+        read_service_text_asset("js/core/registry.js"),
+        read_service_text_asset("js/modules/documents.js"),
+        read_service_text_asset("js/modules/binder.js"),
+        read_service_text_asset("js/modules/corkboard.js"),
+        read_service_text_asset("js/modules/file-browser.js"),
+        read_service_text_asset("js/modules/progress.js"),
+        read_service_text_asset("js/modules/project-shell.js"),
+        read_service_text_asset("js/workflows/software.js"),
+        read_service_text_asset("js/workflows/creative-writing.js"),
         _render_service_text_asset("js/app.js"),
     ]
 )
