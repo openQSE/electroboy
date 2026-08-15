@@ -30,7 +30,7 @@ from .document_service import (
 def _preview(request: RouteRequest) -> HtmlResponse:
     try:
         params = request.params
-        root = request.state.active_project_root(request.context_id)
+        root = request.services.contexts.active_project_root(request.context_id)
         path = str((params.get("path") or [""])[0])
         title = str((params.get("title") or [""])[0]).strip() or None
         page, status = document_target_html(
@@ -55,7 +55,9 @@ def _export(request: RouteRequest) -> ServiceResponse:
     requested_path = str((params.get("path") or [""])[0])
     export_format = str((params.get("format") or ["markdown"])[0])
     try:
-        root = Path(request.state.active_project_root(request.context_id)).resolve()
+        root = Path(
+            request.services.contexts.active_project_root(request.context_id)
+        ).resolve()
         if artifact == "document" and requested_path:
             _ensure_document_target(root, requested_path)
         document_path = _artifact_event_document_path(
@@ -82,7 +84,7 @@ def _events(request: RouteRequest) -> ServiceResponse:
     params = request.params
     artifact = str((params.get("artifact") or [""])[0]).strip()
     try:
-        root = request.state.active_project_root(request.context_id)
+        root = request.services.contexts.active_project_root(request.context_id)
         path = _artifact_event_document_path(
             root,
             artifact,

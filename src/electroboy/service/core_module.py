@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from http import HTTPStatus
 
 from .http import HtmlResponse, JsonResponse, ServiceResponse
@@ -38,12 +39,12 @@ def _health(request: RouteRequest) -> JsonResponse:
 
 
 def _create_context(request: RouteRequest) -> JsonResponse:
-    return JsonResponse(request.state.create_context())
+    return JsonResponse(request.services.contexts.create())
 
 
 def _project_payload(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.project_payload(request.context_id)
+        payload = request.services.contexts.project_payload(request.context_id)
     except Exception as error:
         return _conflict(error)
     return JsonResponse(payload)
@@ -51,16 +52,21 @@ def _project_payload(request: RouteRequest) -> ServiceResponse:
 
 def _project_status(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.project_status_payload(request.context_id)
+        payload = request.services.contexts.project_status_payload(
+            request.context_id
+        )
     except Exception as error:
         return _conflict(error)
     return JsonResponse(payload)
 
 
-def _project_action(request: RouteRequest, method: str) -> ServiceResponse:
+def _project_action(
+    request: RouteRequest,
+    action: Callable[[str, str], dict[str, object]],
+) -> ServiceResponse:
     try:
         payload = request.body()
-        result = getattr(request.state, method)(
+        result = action(
             request.context_id,
             str(payload.get("path") or ""),
         )
@@ -70,16 +76,16 @@ def _project_action(request: RouteRequest, method: str) -> ServiceResponse:
 
 
 def _open_project(request: RouteRequest) -> ServiceResponse:
-    return _project_action(request, "open_project")
+    return _project_action(request, request.services.contexts.open_project)
 
 
 def _create_project(request: RouteRequest) -> ServiceResponse:
-    return _project_action(request, "create_project")
+    return _project_action(request, request.services.contexts.create_project)
 
 
 def _deactivate_project(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.deactivate_project(request.context_id)
+        payload = request.services.contexts.deactivate_project(request.context_id)
     except Exception as error:
         return _conflict(error)
     return JsonResponse(payload)
@@ -87,7 +93,7 @@ def _deactivate_project(request: RouteRequest) -> ServiceResponse:
 
 def _workflow_payload(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.workflow_payload(request.context_id)
+        payload = request.services.contexts.workflow_payload(request.context_id)
     except Exception as error:
         return _conflict(error)
     return JsonResponse(payload)
@@ -96,7 +102,7 @@ def _workflow_payload(request: RouteRequest) -> ServiceResponse:
 def _set_workflow_stage(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.select_workflow_stage(
+        result = request.services.workflows.select_stage(
             request.context_id,
             str(payload.get("stage") or ""),
         )
@@ -144,7 +150,7 @@ def _add_configured_workflow(request: RouteRequest) -> ServiceResponse:
                 installed_workflow_factories(),
             ),
         )
-        request.state.bind_workflow_registry(request.config.workflow_registry)
+        request.services.workflows.bind_registry(request.config.workflow_registry)
     except (ImportError, AttributeError, TypeError, ValueError) as error:
         return _conflict(error)
     return JsonResponse(

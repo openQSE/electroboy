@@ -23,7 +23,7 @@ from .progress_service import (
 
 def _events(request: RouteRequest) -> ServiceResponse:
     try:
-        root = request.state.command_root(request.context_id)
+        root = request.services.contexts.command_root_for(request.context_id)
     except Exception as error:
         return TextResponse(str(error), status=HTTPStatus.CONFLICT)
     return StreamResponse(
@@ -37,7 +37,7 @@ def _events(request: RouteRequest) -> ServiceResponse:
 
 def _export(request: RouteRequest) -> ServiceResponse:
     try:
-        root = request.state.command_root(request.context_id)
+        root = request.services.contexts.command_root_for(request.context_id)
         text, ok = _progress_snapshot(root)
     except Exception as error:
         return TextResponse(str(error), status=HTTPStatus.CONFLICT)

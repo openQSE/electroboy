@@ -2,56 +2,76 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
 from electroboy.service.http import JsonResponse, ServiceResponse
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import conflict, route
+from .creative_workspace import (
+    _create_creative_document,
+    _create_creative_folder,
+    _creative_tree_payload,
+    _delete_creative_entry,
+    _rename_creative_entry,
+)
 
 
 def _tree(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.creative_tree(request.context_id)
+        root = request.services.contexts.active_project_root(request.context_id)
+        payload = _creative_tree_payload(root)
     except Exception as error:
         return conflict(error)
     return JsonResponse(payload)
 
 
-def _path_action(request: RouteRequest, method: str) -> ServiceResponse:
+def _path_action(
+    request: RouteRequest,
+    action: Callable[[Path | str, str], str],
+    status: str,
+) -> ServiceResponse:
     try:
         payload = request.body()
-        result = getattr(request.state, method)(
-            request.context_id,
-            str(payload.get("path") or ""),
-        )
+        root = request.services.contexts.active_project_root(request.context_id)
+        path = action(root, str(payload.get("path") or ""))
+        result = {"status": status, "path": path}
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)
 
 
 def _create_folder(request: RouteRequest) -> ServiceResponse:
-    return _path_action(request, "create_creative_folder")
+    return _path_action(request, _create_creative_folder, "created")
 
 
 def _create_document(request: RouteRequest) -> ServiceResponse:
-    return _path_action(request, "create_creative_document")
+    return _path_action(request, _create_creative_document, "created")
 
 
 def _rename(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.rename_creative_entry(
-            request.context_id,
+        root = request.services.contexts.active_project_root(request.context_id)
+        old_path, new_path = _rename_creative_entry(
+            root,
             str(payload.get("path") or ""),
             str(payload.get("new_name") or ""),
         )
+        result = {
+            "status": "renamed",
+            "old_path": old_path,
+            "path": new_path,
+        }
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)
 
 
 def _delete(request: RouteRequest) -> ServiceResponse:
-    return _path_action(request, "delete_creative_entry")
+    return _path_action(request, _delete_creative_entry, "deleted")
 
 
 _HANDLERS = {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from http import HTTPStatus
 
 from electroboy.service.http import (
@@ -21,26 +22,26 @@ from .progress_service import _session_events_markdown, _session_export_filename
 def _selected_session(request: RouteRequest):
     session_id = str((request.params.get("session_id") or [""])[0])
     if session_id:
-        return request.state.session_by_id(request.context_id, session_id)
-    return request.state.selected_session(request.context_id)
+        return request.services.sessions.by_id(request.context_id, session_id)
+    return request.services.sessions.selected(request.context_id)
 
 
 def _list_sessions(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.session_payload(request.context_id)
+        payload = request.services.sessions.payload(request.context_id)
     except Exception as error:
         return conflict(error)
     return JsonResponse(payload)
 
 
 def _session_registry(request: RouteRequest) -> JsonResponse:
-    return JsonResponse(request.state.session_registry_payload())
+    return JsonResponse(request.services.sessions.registry_payload())
 
 
 def _attach(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.attach_session(
+        result = request.services.sessions.attach(
             request.context_id,
             str(payload.get("session_id") or ""),
         )
@@ -60,13 +61,16 @@ def _message(request: RouteRequest) -> ServiceResponse:
             )
         session_id = str(payload.get("session_id") or "")
         if session_id:
-            request.state.send_session_message(
+            request.services.sessions.send_message(
                 request.context_id,
                 session_id,
                 message,
             )
         else:
-            request.state.send_selected_session_message(request.context_id, message)
+            request.services.sessions.send_selected_message(
+                request.context_id,
+                message,
+            )
     except Exception as error:
         return conflict(error)
     return JsonResponse({"status": "sent"})
@@ -75,7 +79,7 @@ def _message(request: RouteRequest) -> ServiceResponse:
 def _terminal_input(
     request: RouteRequest,
     field: str,
-    method: str,
+    action: Callable[[str, str], None],
 ) -> ServiceResponse:
     try:
         payload = request.body()
@@ -85,23 +89,31 @@ def _terminal_input(
                 {"error": f"{field} is required"},
                 status=HTTPStatus.BAD_REQUEST,
             )
-        getattr(request.state, method)(request.context_id, value)
+        action(request.context_id, value)
     except Exception as error:
         return conflict(error)
     return JsonResponse({"status": "sent"})
 
 
 def _key(request: RouteRequest) -> ServiceResponse:
-    return _terminal_input(request, "key", "send_selected_session_key")
+    return _terminal_input(
+        request,
+        "key",
+        request.services.sessions.send_selected_key,
+    )
 
 
 def _raw(request: RouteRequest) -> ServiceResponse:
-    return _terminal_input(request, "data", "send_selected_session_raw")
+    return _terminal_input(
+        request,
+        "data",
+        request.services.sessions.send_selected_raw,
+    )
 
 
 def _interrupt(request: RouteRequest) -> ServiceResponse:
     try:
-        request.state.interrupt_selected_session(request.context_id)
+        request.services.sessions.interrupt_selected(request.context_id)
     except Exception as error:
         return conflict(error)
     return JsonResponse({"status": "interrupted"})
@@ -114,14 +126,18 @@ def _resize(request: RouteRequest) -> ServiceResponse:
         rows = int(payload.get("rows") or 32)
         session_id = str(payload.get("session_id") or "").strip()
         if session_id:
-            request.state.resize_session(
+            request.services.sessions.resize(
                 request.context_id,
                 session_id,
                 columns,
                 rows,
             )
         else:
-            request.state.resize_selected_session(request.context_id, columns, rows)
+            request.services.sessions.resize_selected(
+                request.context_id,
+                columns,
+                rows,
+            )
     except Exception as error:
         return conflict(error)
     return JsonResponse({"status": "resized"})

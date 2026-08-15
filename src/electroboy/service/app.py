@@ -2401,6 +2401,12 @@ def _handler_for(
     config: ServiceConfig,
     state: ServiceState,
 ) -> type[BaseHTTPRequestHandler]:
+    route_services = build_service_services(
+        state,
+        config.workflow_registry or build_workflow_registry(
+            config.module_registry or build_module_registry()
+        ),
+    )
     route_dispatcher = build_route_dispatcher(
         config.module_registry or build_module_registry(),
         config.workflow_registry,
@@ -2579,7 +2585,7 @@ def _handler_for(
                     method=method,
                     path=path,
                     query=query,
-                    state=state,
+                    services=route_services,
                     config=config,
                     transport=self,
                     operations=route_operations,

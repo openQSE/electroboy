@@ -36,6 +36,28 @@ class ServiceInterfaceTests(unittest.TestCase):
         self.assertNotIn("transport._", source)
         self.assertNotIn("Any", source)
         self.assertNotIn("def operation(", source)
+        self.assertNotIn("state:", source)
+        self.assertIn("services: ServiceServices", source)
+
+    def test_plugin_routes_do_not_access_central_service_state(self) -> None:
+        plugin_roots = (
+            ROOT / "src" / "electroboy" / "modules",
+            ROOT / "src" / "electroboy" / "workflows",
+        )
+        for plugin_root in plugin_roots:
+            for path in plugin_root.rglob("*.py"):
+                source = path.read_text(encoding="utf-8")
+                self.assertNotIn("request.state", source, str(path))
+                self.assertNotIn("getattr(request.state", source, str(path))
+
+    def test_public_plugin_api_exports_service_contracts(self) -> None:
+        from electroboy.service import plugin_api
+
+        self.assertIs(plugin_api.RouteRequest, RouteRequest)
+        self.assertIs(plugin_api.ServiceServices, ServiceServices)
+        self.assertIn("ContextServices", plugin_api.__all__)
+        self.assertIn("SessionServices", plugin_api.__all__)
+        self.assertIn("WorkflowServices", plugin_api.__all__)
 
 
 if __name__ == "__main__":

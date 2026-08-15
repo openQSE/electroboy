@@ -17,7 +17,10 @@ from .common import route
 
 
 def _window(request: RouteRequest) -> HtmlResponse:
-    initial_path = (request.params.get("path") or [str(request.state.root)])[0]
+    initial_path = (
+        request.params.get("path")
+        or [str(request.services.files.service_root)]
+    )[0]
     mode = (request.params.get("mode") or ["project"])[0]
     return HtmlResponse(
         request.operations.file_browser_window_html(initial_path, mode)
@@ -25,7 +28,10 @@ def _window(request: RouteRequest) -> HtmlResponse:
 
 
 def _browse(request: RouteRequest) -> JsonResponse:
-    path = (request.params.get("path") or [str(request.state.root)])[0]
+    path = (
+        request.params.get("path")
+        or [str(request.services.files.service_root)]
+    )[0]
     mode = (request.params.get("mode") or ["directory"])[0]
     show_hidden = (request.params.get("hidden") or ["0"])[0] == "1"
     try:

@@ -13,9 +13,11 @@ from .common import conflict, route
 
 def _start(request: RouteRequest) -> ServiceResponse:
     try:
-        session, started = request.state.start_project_shell(request.context_id)
+        session, started = request.services.sessions.start_project_shell(
+            request.context_id
+        )
         payload = {
-            **request.state.project_payload(request.context_id),
+            **request.services.contexts.project_payload(request.context_id),
             "status": "started" if started else "already running",
             "shell_session": session.payload(selected=False),
         }
@@ -26,7 +28,10 @@ def _start(request: RouteRequest) -> ServiceResponse:
 
 def _events(request: RouteRequest) -> ServiceResponse:
     try:
-        session = request.state.current_project_shell_session(request.context_id)
+        session = request.services.sessions.current(
+            request.context_id,
+            "project-shell",
+        )
     except Exception as error:
         return conflict(error)
     if session is None:
@@ -40,7 +45,7 @@ def _events(request: RouteRequest) -> ServiceResponse:
 def _input(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        request.state.send_project_shell_input(
+        request.services.sessions.send_project_shell_input(
             request.context_id,
             str(payload.get("data") or ""),
         )
@@ -52,7 +57,7 @@ def _input(request: RouteRequest) -> ServiceResponse:
 def _resize(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        request.state.resize_project_shell(
+        request.services.sessions.resize_project_shell(
             request.context_id,
             int(payload.get("columns") or 120),
             int(payload.get("rows") or 32),
@@ -64,7 +69,7 @@ def _resize(request: RouteRequest) -> ServiceResponse:
 
 def _stop(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.stop_project_shell(request.context_id)
+        payload = request.services.sessions.stop_project_shell(request.context_id)
     except Exception as error:
         return conflict(error)
     return JsonResponse(payload)

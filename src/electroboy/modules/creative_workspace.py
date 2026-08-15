@@ -2255,6 +2255,52 @@ def _delete_creative_freeform_corkboard_card(
     return normalized_card_id
 
 
+def save_creative_corkboard(
+    project_root: Path | str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    """Persist one folder or freeform corkboard operation."""
+
+    board_type = str(payload.get("board_type") or "folder")
+    if board_type == "folder" and "order" in payload:
+        order = payload.get("order")
+        if not isinstance(order, list):
+            raise StateError("folder corkboard order must be a list")
+        saved_order = _save_creative_folder_corkboard_order(
+            project_root,
+            folder_path=str(payload.get("folder") or ""),
+            order=[str(item) for item in order],
+        )
+        return {"status": "saved", "order": saved_order}
+    if board_type == "folder":
+        card = _save_creative_folder_corkboard_card(
+            project_root,
+            folder_path=str(payload.get("folder") or ""),
+            card_path=str(payload.get("path") or ""),
+            note=str(payload.get("note") or ""),
+            color=payload.get("color"),
+        )
+        return {"status": "saved", "card": card}
+    if board_type == "freeform":
+        if str(payload.get("action") or "") == "delete":
+            card_id = _delete_creative_freeform_corkboard_card(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                card_id=str(payload.get("card_id") or ""),
+            )
+            return {"status": "deleted", "card_id": card_id}
+        card_payload = payload.get("card")
+        if not isinstance(card_payload, dict):
+            raise StateError("freeform corkboard card is required")
+        card = _save_creative_freeform_corkboard_card(
+            project_root,
+            corkboard_path=str(payload.get("corkboard") or ""),
+            card_payload=card_payload,
+        )
+        return {"status": "saved", "card": card}
+    raise StateError(f"unknown corkboard type: {board_type}")
+
+
 def _remap_creative_path_reference(path: str, old_path: str, new_path: str) -> str:
     if path == old_path:
         return new_path

@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from .context import BrowserContext, ContextStore
 from .registry import WorkflowRegistry
 from .sessions import AgentSession
+
+ControllerT = TypeVar("ControllerT")
 
 
 class ServiceLock(Protocol):
@@ -41,6 +43,48 @@ class ContextServices(Protocol):
 
     def project_payload(self, context_id: str) -> dict[str, object]: ...
 
+    def create(self) -> dict[str, object]: ...
+
+    def project_mode(self, context_id: str) -> str: ...
+
+    def project_status_payload(self, context_id: str) -> dict[str, object]: ...
+
+    def workflow_payload(self, context_id: str) -> dict[str, object]: ...
+
+    def open_project(self, context_id: str, path: str) -> dict[str, object]: ...
+
+    def create_project(self, context_id: str, path: str) -> dict[str, object]: ...
+
+    def deactivate_project(self, context_id: str) -> dict[str, object]: ...
+
+    def requirements_document_root(self, context_id: str) -> Path: ...
+
+    def command_root_for(self, context_id: str) -> Path: ...
+
+    def create_meta_project(
+        self,
+        context_id: str,
+        path: str,
+    ) -> dict[str, object]: ...
+
+    def add_meta_repository(
+        self,
+        context_id: str,
+        path: str,
+    ) -> dict[str, object]: ...
+
+    def start_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]: ...
+
+    def remove_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]: ...
+
 
 class SessionServices(Protocol):
     """Agent-session lifecycle operations available to plugins."""
@@ -71,6 +115,71 @@ class SessionServices(Protocol):
 
     def terminate_kind(self, context_id: str, kind: str) -> None: ...
 
+    def payload(self, context_id: str) -> dict[str, object]: ...
+
+    def registry_payload(self) -> dict[str, object]: ...
+
+    def selected(self, context_id: str) -> AgentSession | None: ...
+
+    def by_id(self, context_id: str, session_id: str) -> AgentSession: ...
+
+    def current(self, context_id: str, kind: str) -> AgentSession | None: ...
+
+    def attach(self, context_id: str, session_id: str) -> dict[str, object]: ...
+
+    def send_message(
+        self,
+        context_id: str,
+        session_id: str,
+        message: str,
+    ) -> None: ...
+
+    def send_selected_message(self, context_id: str, message: str) -> None: ...
+
+    def send_selected_key(self, context_id: str, key: str) -> None: ...
+
+    def send_selected_raw(self, context_id: str, data: str) -> None: ...
+
+    def interrupt_selected(self, context_id: str) -> None: ...
+
+    def interrupt_kind(self, context_id: str, kind: str) -> None: ...
+
+    def resize_selected(self, context_id: str, columns: int, rows: int) -> None: ...
+
+    def resize(
+        self,
+        context_id: str,
+        session_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def resize_kind(
+        self,
+        context_id: str,
+        kind: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def start_project_shell(
+        self,
+        context_id: str,
+    ) -> tuple[AgentSession, bool]: ...
+
+    def send_project_shell_input(self, context_id: str, data: str) -> None: ...
+
+    def resize_project_shell(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def stop_project_shell(self, context_id: str) -> dict[str, object]: ...
+
+    def start_ad_hoc(self, context_id: str) -> tuple[AgentSession, bool]: ...
+
 
 class ProjectFileServices(Protocol):
     """Filesystem roots exposed to plugins without the service runtime."""
@@ -84,6 +193,20 @@ class WorkflowServices(Protocol):
 
     @property
     def registry(self) -> WorkflowRegistry: ...
+
+    def controller(
+        self,
+        workflow_id: str,
+        expected_type: type[ControllerT],
+    ) -> ControllerT: ...
+
+    def select_stage(
+        self,
+        context_id: str,
+        stage: str,
+    ) -> dict[str, object]: ...
+
+    def bind_registry(self, registry: WorkflowRegistry) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -111,6 +234,48 @@ class ServiceRuntimeBackend(Protocol):
     def active_project_root(self, context_id: str) -> Path: ...
 
     def project_payload(self, context_id: str) -> dict[str, object]: ...
+
+    def create_context(self) -> dict[str, object]: ...
+
+    def project_mode(self, context_id: str) -> str: ...
+
+    def project_status_payload(self, context_id: str) -> dict[str, object]: ...
+
+    def workflow_payload(self, context_id: str) -> dict[str, object]: ...
+
+    def open_project(self, context_id: str, path: str) -> dict[str, object]: ...
+
+    def create_project(self, context_id: str, path: str) -> dict[str, object]: ...
+
+    def deactivate_project(self, context_id: str) -> dict[str, object]: ...
+
+    def requirements_document_root(self, context_id: str) -> Path: ...
+
+    def command_root(self, context_id: str) -> Path: ...
+
+    def create_meta_project(
+        self,
+        context_id: str,
+        path: str,
+    ) -> dict[str, object]: ...
+
+    def add_meta_repository(
+        self,
+        context_id: str,
+        path: str,
+    ) -> dict[str, object]: ...
+
+    def start_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]: ...
+
+    def remove_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]: ...
 
     def _prepare_session_locked(
         self,
@@ -143,6 +308,134 @@ class ServiceRuntimeBackend(Protocol):
 
     def _terminate_design_session(self, context_id: str) -> None: ...
 
+    def session_payload(self, context_id: str) -> dict[str, object]: ...
+
+    def session_registry_payload(self) -> dict[str, object]: ...
+
+    def selected_session(self, context_id: str) -> AgentSession | None: ...
+
+    def session_by_id(self, context_id: str, session_id: str) -> AgentSession: ...
+
+    def attach_session(
+        self,
+        context_id: str,
+        session_id: str,
+    ) -> dict[str, object]: ...
+
+    def send_session_message(
+        self,
+        context_id: str,
+        session_id: str,
+        message: str,
+    ) -> None: ...
+
+    def send_selected_session_message(
+        self,
+        context_id: str,
+        message: str,
+    ) -> None: ...
+
+    def send_selected_session_key(self, context_id: str, key: str) -> None: ...
+
+    def send_selected_session_raw(self, context_id: str, data: str) -> None: ...
+
+    def interrupt_selected_session(self, context_id: str) -> None: ...
+
+    def resize_selected_session(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def resize_session(
+        self,
+        context_id: str,
+        session_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def current_requirements_session(
+        self,
+        context_id: str,
+    ) -> AgentSession | None: ...
+
+    def current_design_session(self, context_id: str) -> AgentSession | None: ...
+
+    def current_design_review_session(
+        self,
+        context_id: str,
+    ) -> AgentSession | None: ...
+
+    def current_documentation_session(
+        self,
+        context_id: str,
+    ) -> AgentSession | None: ...
+
+    def current_project_shell_session(
+        self,
+        context_id: str,
+    ) -> AgentSession | None: ...
+
+    def interrupt_requirements_agent(self, context_id: str) -> None: ...
+
+    def interrupt_design_agent(self, context_id: str) -> None: ...
+
+    def interrupt_design_review_agent(self, context_id: str) -> None: ...
+
+    def resize_requirements_agent(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def resize_design_agent(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def resize_design_review_agent(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def start_project_shell(
+        self,
+        context_id: str,
+    ) -> tuple[AgentSession, bool]: ...
+
+    def send_project_shell_input(self, context_id: str, data: str) -> None: ...
+
+    def resize_project_shell(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None: ...
+
+    def stop_project_shell(self, context_id: str) -> dict[str, object]: ...
+
+    def start_ad_hoc_agent(
+        self,
+        context_id: str,
+    ) -> tuple[AgentSession, bool]: ...
+
+    def workflow_controller(self, workflow_id: str) -> object: ...
+
+    def select_workflow_stage(
+        self,
+        context_id: str,
+        stage: str,
+    ) -> dict[str, object]: ...
+
+    def bind_workflow_registry(self, registry: WorkflowRegistry) -> None: ...
+
 
 @dataclass(frozen=True)
 class RuntimeContextServices:
@@ -166,6 +459,61 @@ class RuntimeContextServices:
 
     def project_payload(self, context_id: str) -> dict[str, object]:
         return self.runtime.project_payload(context_id)
+
+    def create(self) -> dict[str, object]:
+        return self.runtime.create_context()
+
+    def project_mode(self, context_id: str) -> str:
+        return self.runtime.project_mode(context_id)
+
+    def project_status_payload(self, context_id: str) -> dict[str, object]:
+        return self.runtime.project_status_payload(context_id)
+
+    def workflow_payload(self, context_id: str) -> dict[str, object]:
+        return self.runtime.workflow_payload(context_id)
+
+    def open_project(self, context_id: str, path: str) -> dict[str, object]:
+        return self.runtime.open_project(context_id, path)
+
+    def create_project(self, context_id: str, path: str) -> dict[str, object]:
+        return self.runtime.create_project(context_id, path)
+
+    def deactivate_project(self, context_id: str) -> dict[str, object]:
+        return self.runtime.deactivate_project(context_id)
+
+    def requirements_document_root(self, context_id: str) -> Path:
+        return self.runtime.requirements_document_root(context_id)
+
+    def command_root_for(self, context_id: str) -> Path:
+        return self.runtime.command_root(context_id)
+
+    def create_meta_project(
+        self,
+        context_id: str,
+        path: str,
+    ) -> dict[str, object]:
+        return self.runtime.create_meta_project(context_id, path)
+
+    def add_meta_repository(
+        self,
+        context_id: str,
+        path: str,
+    ) -> dict[str, object]:
+        return self.runtime.add_meta_repository(context_id, path)
+
+    def start_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]:
+        return self.runtime.start_meta_repository(context_id, repository)
+
+    def remove_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]:
+        return self.runtime.remove_meta_repository(context_id, repository)
 
 
 @dataclass(frozen=True)
@@ -214,6 +562,121 @@ class RuntimeSessionServices:
             return
         raise ValueError(f"unsupported workflow session kind: {kind}")
 
+    def payload(self, context_id: str) -> dict[str, object]:
+        return self.runtime.session_payload(context_id)
+
+    def registry_payload(self) -> dict[str, object]:
+        return self.runtime.session_registry_payload()
+
+    def selected(self, context_id: str) -> AgentSession | None:
+        return self.runtime.selected_session(context_id)
+
+    def by_id(self, context_id: str, session_id: str) -> AgentSession:
+        return self.runtime.session_by_id(context_id, session_id)
+
+    def current(self, context_id: str, kind: str) -> AgentSession | None:
+        methods = {
+            "requirements": self.runtime.current_requirements_session,
+            "design": self.runtime.current_design_session,
+            "design-review": self.runtime.current_design_review_session,
+            "documentation": self.runtime.current_documentation_session,
+            "project-shell": self.runtime.current_project_shell_session,
+        }
+        try:
+            method = methods[kind]
+        except KeyError as error:
+            raise ValueError(f"unsupported session kind: {kind}") from error
+        return method(context_id)
+
+    def attach(self, context_id: str, session_id: str) -> dict[str, object]:
+        return self.runtime.attach_session(context_id, session_id)
+
+    def send_message(
+        self,
+        context_id: str,
+        session_id: str,
+        message: str,
+    ) -> None:
+        self.runtime.send_session_message(context_id, session_id, message)
+
+    def send_selected_message(self, context_id: str, message: str) -> None:
+        self.runtime.send_selected_session_message(context_id, message)
+
+    def send_selected_key(self, context_id: str, key: str) -> None:
+        self.runtime.send_selected_session_key(context_id, key)
+
+    def send_selected_raw(self, context_id: str, data: str) -> None:
+        self.runtime.send_selected_session_raw(context_id, data)
+
+    def interrupt_selected(self, context_id: str) -> None:
+        self.runtime.interrupt_selected_session(context_id)
+
+    def interrupt_kind(self, context_id: str, kind: str) -> None:
+        methods = {
+            "requirements": self.runtime.interrupt_requirements_agent,
+            "design": self.runtime.interrupt_design_agent,
+            "design-review": self.runtime.interrupt_design_review_agent,
+        }
+        try:
+            method = methods[kind]
+        except KeyError as error:
+            raise ValueError(
+                f"unsupported interrupt session kind: {kind}"
+            ) from error
+        method(context_id)
+
+    def resize_selected(self, context_id: str, columns: int, rows: int) -> None:
+        self.runtime.resize_selected_session(context_id, columns, rows)
+
+    def resize(
+        self,
+        context_id: str,
+        session_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        self.runtime.resize_session(context_id, session_id, columns, rows)
+
+    def resize_kind(
+        self,
+        context_id: str,
+        kind: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        methods = {
+            "requirements": self.runtime.resize_requirements_agent,
+            "design": self.runtime.resize_design_agent,
+            "design-review": self.runtime.resize_design_review_agent,
+        }
+        try:
+            method = methods[kind]
+        except KeyError as error:
+            raise ValueError(
+                f"unsupported resize session kind: {kind}"
+            ) from error
+        method(context_id, columns, rows)
+
+    def start_project_shell(self, context_id: str) -> tuple[AgentSession, bool]:
+        return self.runtime.start_project_shell(context_id)
+
+    def send_project_shell_input(self, context_id: str, data: str) -> None:
+        self.runtime.send_project_shell_input(context_id, data)
+
+    def resize_project_shell(
+        self,
+        context_id: str,
+        columns: int,
+        rows: int,
+    ) -> None:
+        self.runtime.resize_project_shell(context_id, columns, rows)
+
+    def stop_project_shell(self, context_id: str) -> dict[str, object]:
+        return self.runtime.stop_project_shell(context_id)
+
+    def start_ad_hoc(self, context_id: str) -> tuple[AgentSession, bool]:
+        return self.runtime.start_ad_hoc_agent(context_id)
+
 
 @dataclass(frozen=True)
 class RuntimeProjectFileServices:
@@ -224,13 +687,37 @@ class RuntimeProjectFileServices:
         return self.runtime.root
 
 
-@dataclass(frozen=True)
+@dataclass
 class RuntimeWorkflowServices:
+    runtime: ServiceRuntimeBackend
     _registry: WorkflowRegistry
 
     @property
     def registry(self) -> WorkflowRegistry:
         return self._registry
+
+    def controller(
+        self,
+        workflow_id: str,
+        expected_type: type[ControllerT],
+    ) -> ControllerT:
+        controller = self.runtime.workflow_controller(workflow_id)
+        if not isinstance(controller, expected_type):
+            raise TypeError(
+                f"workflow controller has unexpected type: {workflow_id}"
+            )
+        return controller
+
+    def select_stage(
+        self,
+        context_id: str,
+        stage: str,
+    ) -> dict[str, object]:
+        return self.runtime.select_workflow_stage(context_id, stage)
+
+    def bind_registry(self, registry: WorkflowRegistry) -> None:
+        self.runtime.bind_workflow_registry(registry)
+        self._registry = registry
 
 
 def build_service_services(
@@ -243,5 +730,5 @@ def build_service_services(
         contexts=RuntimeContextServices(runtime),
         sessions=RuntimeSessionServices(runtime),
         files=RuntimeProjectFileServices(runtime),
-        workflows=RuntimeWorkflowServices(workflow_registry),
+        workflows=RuntimeWorkflowServices(runtime, workflow_registry),
     )

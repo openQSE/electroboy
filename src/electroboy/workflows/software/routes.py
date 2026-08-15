@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from http import HTTPStatus
-from typing import Any
 
 from electroboy.service.http import JsonResponse, ServiceResponse, StreamResponse
 from electroboy.service.registry import RouteDefinition, RouteHandler
@@ -12,6 +11,7 @@ from electroboy.service.routes import RouteRequest
 from electroboy.service.sessions import AgentSession
 
 from .domain import _work_item_error_payload
+from .controller import SoftwareWorkflowController
 
 
 def _route(method: str, path: str, name: str) -> RouteDefinition:
@@ -25,7 +25,7 @@ def _error(
     return JsonResponse({"error": str(error)}, status=status)
 
 
-def _state_action(
+def _workflow_action(
     action: Callable[[], dict[str, object]],
 ) -> ServiceResponse:
     try:
@@ -35,38 +35,56 @@ def _state_action(
     return JsonResponse(payload)
 
 
-def _meta_action(request: RouteRequest, method: str) -> ServiceResponse:
+def _controller(request: RouteRequest) -> SoftwareWorkflowController:
+    return request.services.workflows.controller(
+        "software",
+        SoftwareWorkflowController,
+    )
+
+
+def _meta_action(
+    request: RouteRequest,
+    action: Callable[[str, str], dict[str, object]],
+    *,
+    repository: bool = False,
+) -> ServiceResponse:
     try:
         payload = request.body()
-        value = payload.get("repository") or payload.get("path") or ""
-        if method in {"create_meta_project", "add_meta_repository"}:
-            value = payload.get("path") or ""
-        result = getattr(request.state, method)(request.context_id, str(value))
+        field = "repository" if repository else "path"
+        result = action(request.context_id, str(payload.get(field) or ""))
     except Exception as error:
         return _error(error)
     return JsonResponse(result)
 
 
 def _meta_init(request: RouteRequest) -> ServiceResponse:
-    return _meta_action(request, "create_meta_project")
+    return _meta_action(request, request.services.contexts.create_meta_project)
 
 
 def _meta_add(request: RouteRequest) -> ServiceResponse:
-    return _meta_action(request, "add_meta_repository")
+    return _meta_action(request, request.services.contexts.add_meta_repository)
 
 
 def _meta_start(request: RouteRequest) -> ServiceResponse:
-    return _meta_action(request, "start_meta_repository")
+    return _meta_action(
+        request,
+        request.services.contexts.start_meta_repository,
+        repository=True,
+    )
 
 
 def _meta_remove(request: RouteRequest) -> ServiceResponse:
-    return _meta_action(request, "remove_meta_repository")
+    return _meta_action(
+        request,
+        request.services.contexts.remove_meta_repository,
+        repository=True,
+    )
 
 
 def _create_collection(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.create_feature_collection(
+        result = _controller(request).create_feature_collection(
             request.context_id,
             str(payload.get("name") or ""),
         )
@@ -78,7 +96,7 @@ def _create_collection(request: RouteRequest) -> ServiceResponse:
 def _switch_collection(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.switch_feature_collection(
+        result = _controller(request).switch_feature_collection(
             request.context_id,
             str(payload.get("collection_id") or ""),
         )
@@ -90,7 +108,7 @@ def _switch_collection(request: RouteRequest) -> ServiceResponse:
 def _start_feature(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.start_feature_work_item(
+        result = _controller(request).start_feature_work_item(
             request.context_id,
             title=str(payload.get("title") or ""),
             feature_name=str(payload.get("name") or "") or None,
@@ -110,7 +128,7 @@ def _start_feature(request: RouteRequest) -> ServiceResponse:
 def _switch_feature(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.switch_feature_work_item(
+        result = _controller(request).switch_feature_work_item(
             request.context_id,
             str(payload.get("slug") or ""),
         )
@@ -122,7 +140,7 @@ def _switch_feature(request: RouteRequest) -> ServiceResponse:
 def _start_bug(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.start_bug_work_item(
+        result = _controller(request).start_bug_work_item(
             request.context_id,
             issue_reference=str(payload.get("issue_reference") or ""),
             branch=bool(payload.get("branch")),
@@ -139,7 +157,7 @@ def _start_bug(request: RouteRequest) -> ServiceResponse:
 def _switch_bug(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.switch_bug_work_item(
+        result = _controller(request).switch_bug_work_item(
             request.context_id,
             str(payload.get("slug") or ""),
         )
@@ -150,7 +168,7 @@ def _switch_bug(request: RouteRequest) -> ServiceResponse:
 
 def _agent_started(
     request: RouteRequest,
-    start: Callable[[], tuple[Any, bool]],
+    start: Callable[[], tuple[AgentSession, bool]],
     label: str,
     *,
     restarted: bool = False,
@@ -159,7 +177,7 @@ def _agent_started(
     try:
         session, started = start()
         payload = {
-            **request.state.project_payload(request.context_id),
+            **request.services.contexts.project_payload(request.context_id),
             "status": "restarted" if restarted else (
                 "started" if started else "running"
             ),
@@ -180,7 +198,7 @@ def _agent_started(
 def _ad_hoc_start(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.start_ad_hoc_agent(request.context_id),
+        lambda: request.services.sessions.start_ad_hoc(request.context_id),
         "ad-hoc agent",
         include_session_id=True,
     )
@@ -189,7 +207,7 @@ def _ad_hoc_start(request: RouteRequest) -> ServiceResponse:
 def _requirements_start(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.start_requirements_agent(request.context_id),
+        lambda: _controller(request).start_requirements_agent(request.context_id),
         "requirements agent",
     )
 
@@ -197,7 +215,9 @@ def _requirements_start(request: RouteRequest) -> ServiceResponse:
 def _requirements_restart(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.restart_requirements_agent(request.context_id),
+        lambda: _controller(request).restart_requirements_agent(
+            request.context_id
+        ),
         "requirements agent",
         restarted=True,
     )
@@ -206,7 +226,7 @@ def _requirements_restart(request: RouteRequest) -> ServiceResponse:
 def _design_start(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.start_design_agent(request.context_id),
+        lambda: _controller(request).start_design_agent(request.context_id),
         "design agent",
     )
 
@@ -214,7 +234,7 @@ def _design_start(request: RouteRequest) -> ServiceResponse:
 def _design_restart(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.restart_design_agent(request.context_id),
+        lambda: _controller(request).restart_design_agent(request.context_id),
         "design agent",
         restarted=True,
     )
@@ -223,7 +243,9 @@ def _design_restart(request: RouteRequest) -> ServiceResponse:
 def _design_review_start(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.start_design_review_agent(request.context_id),
+        lambda: _controller(request).start_design_review_agent(
+            request.context_id
+        ),
         "design review",
     )
 
@@ -231,7 +253,7 @@ def _design_review_start(request: RouteRequest) -> ServiceResponse:
 def _design_review_start_interactive(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.start_design_review_agent(
+        lambda: _controller(request).start_design_review_agent(
             request.context_id,
             interactive=True,
         ),
@@ -242,7 +264,9 @@ def _design_review_start_interactive(request: RouteRequest) -> ServiceResponse:
 def _design_review_restart(request: RouteRequest) -> ServiceResponse:
     return _agent_started(
         request,
-        lambda: request.state.restart_design_review_agent(request.context_id),
+        lambda: _controller(request).restart_design_review_agent(
+            request.context_id
+        ),
         "design review",
         restarted=True,
     )
@@ -255,7 +279,7 @@ def _documentation_start(request: RouteRequest) -> ServiceResponse:
         return _error(error, HTTPStatus.BAD_REQUEST)
     return _agent_started(
         request,
-        lambda: request.state.start_documentation_agent(
+        lambda: _controller(request).start_documentation_agent(
             request.context_id,
             interactive=True,
             target=str(payload.get("target") or ""),
@@ -265,17 +289,12 @@ def _documentation_start(request: RouteRequest) -> ServiceResponse:
     )
 
 
-def _simple_state_handler(method: str, **kwargs: object) -> RouteHandler:
-    def handle(request: RouteRequest) -> ServiceResponse:
-        return _state_action(
-            lambda: getattr(request.state, method)(request.context_id, **kwargs),
-        )
-
-    return handle
-
-
-def _session_for(request: RouteRequest, method: str, missing: str) -> AgentSession:
-    session = getattr(request.state, method)(request.context_id)
+def _session_for(
+    request: RouteRequest,
+    kind: str,
+    missing: str,
+) -> AgentSession:
+    session = request.services.sessions.current(request.context_id, kind)
     if session is None:
         raise RuntimeError(missing)
     return session
@@ -283,11 +302,11 @@ def _session_for(request: RouteRequest, method: str, missing: str) -> AgentSessi
 
 def _session_message(
     request: RouteRequest,
-    method: str,
+    kind: str,
     missing: str,
 ) -> ServiceResponse:
     try:
-        session = _session_for(request, method, missing)
+        session = _session_for(request, kind, missing)
         payload = request.body()
         message = str(payload.get("message") or "")
         if not message.strip():
@@ -302,29 +321,30 @@ def _session_message(
 
 def _session_events(
     request: RouteRequest,
-    method: str,
+    kind: str,
     missing: str,
 ) -> ServiceResponse:
     try:
-        session = _session_for(request, method, missing)
+        session = _session_for(request, kind, missing)
     except Exception as error:
         return _error(error)
     return StreamResponse(lambda: request.stream_session_events(session))
 
 
-def _interrupt(request: RouteRequest, method: str) -> ServiceResponse:
+def _interrupt(request: RouteRequest, kind: str) -> ServiceResponse:
     try:
-        getattr(request.state, method)(request.context_id)
+        request.services.sessions.interrupt_kind(request.context_id, kind)
     except Exception as error:
         return _error(error)
     return JsonResponse({"status": "interrupted"})
 
 
-def _resize(request: RouteRequest, method: str) -> ServiceResponse:
+def _resize(request: RouteRequest, kind: str) -> ServiceResponse:
     try:
         payload = request.body()
-        getattr(request.state, method)(
+        request.services.sessions.resize_kind(
             request.context_id,
+            kind,
             int(payload.get("columns") or 120),
             int(payload.get("rows") or 32),
         )
@@ -336,7 +356,7 @@ def _resize(request: RouteRequest, method: str) -> ServiceResponse:
 def _requirements_message(request: RouteRequest) -> ServiceResponse:
     return _session_message(
         request,
-        "current_requirements_session",
+        "requirements",
         "requirements agent has not been started",
     )
 
@@ -344,23 +364,23 @@ def _requirements_message(request: RouteRequest) -> ServiceResponse:
 def _requirements_events(request: RouteRequest) -> ServiceResponse:
     return _session_events(
         request,
-        "current_requirements_session",
+        "requirements",
         "requirements agent has not been started",
     )
 
 
 def _requirements_interrupt(request: RouteRequest) -> ServiceResponse:
-    return _interrupt(request, "interrupt_requirements_agent")
+    return _interrupt(request, "requirements")
 
 
 def _requirements_resize(request: RouteRequest) -> ServiceResponse:
-    return _resize(request, "resize_requirements_agent")
+    return _resize(request, "requirements")
 
 
 def _design_message(request: RouteRequest) -> ServiceResponse:
     return _session_message(
         request,
-        "current_design_session",
+        "design",
         "design agent has not been started",
     )
 
@@ -368,33 +388,91 @@ def _design_message(request: RouteRequest) -> ServiceResponse:
 def _design_events(request: RouteRequest) -> ServiceResponse:
     return _session_events(
         request,
-        "current_design_session",
+        "design",
         "design agent has not been started",
     )
 
 
 def _design_interrupt(request: RouteRequest) -> ServiceResponse:
-    return _interrupt(request, "interrupt_design_agent")
+    return _interrupt(request, "design")
 
 
 def _design_resize(request: RouteRequest) -> ServiceResponse:
-    return _resize(request, "resize_design_agent")
+    return _resize(request, "design")
 
 
 def _design_review_events(request: RouteRequest) -> ServiceResponse:
     return _session_events(
         request,
-        "current_design_review_session",
+        "design-review",
         "design review has not been started",
     )
 
 
 def _design_review_interrupt(request: RouteRequest) -> ServiceResponse:
-    return _interrupt(request, "interrupt_design_review_agent")
+    return _interrupt(request, "design-review")
 
 
 def _design_review_resize(request: RouteRequest) -> ServiceResponse:
-    return _resize(request, "resize_design_review_agent")
+    return _resize(request, "design-review")
+
+
+def _requirements_complete(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).complete_requirements_agent(
+            request.context_id
+        )
+    )
+
+
+def _requirements_skip(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).approve_requirements(
+            request.context_id,
+            skip_approval=True,
+        )
+    )
+
+
+def _requirements_approve(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).approve_requirements(request.context_id)
+    )
+
+
+def _design_complete(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).complete_design_agent(request.context_id)
+    )
+
+
+def _design_review_stop(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).stop_design_review_agent(request.context_id)
+    )
+
+
+def _design_review_complete(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).complete_design_review_agent(
+            request.context_id
+        )
+    )
+
+
+def _design_review_approve(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).approve_design(request.context_id)
+    )
+
+
+def _design_review_skip(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).approve_design(
+            request.context_id,
+            skip_approval=True,
+        )
+    )
 
 
 ROUTES = (
@@ -475,19 +553,16 @@ HANDLERS: dict[str, RouteHandler] = {
     "ad_hoc_start": _ad_hoc_start,
     "requirements_start": _requirements_start,
     "requirements_restart": _requirements_restart,
-    "requirements_complete": _simple_state_handler("complete_requirements_agent"),
-    "requirements_skip": _simple_state_handler(
-        "approve_requirements",
-        skip_approval=True,
-    ),
-    "requirements_approve": _simple_state_handler("approve_requirements"),
+    "requirements_complete": _requirements_complete,
+    "requirements_skip": _requirements_skip,
+    "requirements_approve": _requirements_approve,
     "requirements_message": _requirements_message,
     "requirements_interrupt": _requirements_interrupt,
     "requirements_resize": _requirements_resize,
     "requirements_events": _requirements_events,
     "design_start": _design_start,
     "design_restart": _design_restart,
-    "design_complete": _simple_state_handler("complete_design_agent"),
+    "design_complete": _design_complete,
     "design_message": _design_message,
     "design_interrupt": _design_interrupt,
     "design_resize": _design_resize,
@@ -495,10 +570,10 @@ HANDLERS: dict[str, RouteHandler] = {
     "design_review_start": _design_review_start,
     "design_review_start_interactive": _design_review_start_interactive,
     "design_review_restart": _design_review_restart,
-    "design_review_stop": _simple_state_handler("stop_design_review_agent"),
-    "design_review_complete": _simple_state_handler("complete_design_review_agent"),
-    "design_review_approve": _simple_state_handler("approve_design"),
-    "design_review_skip": _simple_state_handler("approve_design", skip_approval=True),
+    "design_review_stop": _design_review_stop,
+    "design_review_complete": _design_review_complete,
+    "design_review_approve": _design_review_approve,
+    "design_review_skip": _design_review_skip,
     "design_review_interrupt": _design_review_interrupt,
     "design_review_resize": _design_review_resize,
     "design_review_events": _design_review_events,

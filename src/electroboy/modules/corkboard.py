@@ -10,12 +10,16 @@ from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import conflict, route
-from .creative_workspace import creative_corkboard_html
+from .creative_workspace import (
+    _create_creative_corkboard,
+    creative_corkboard_html,
+    save_creative_corkboard,
+)
 
 
 def _view(request: RouteRequest) -> HtmlResponse:
     try:
-        root = request.state.active_project_root(request.context_id)
+        root = request.services.contexts.active_project_root(request.context_id)
         folder = str((request.params.get("path") or [""])[0])
         title = str((request.params.get("title") or [""])[0]).strip() or None
         page, status = creative_corkboard_html(
@@ -34,8 +38,9 @@ def _view(request: RouteRequest) -> HtmlResponse:
 
 def _save(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.state.save_creative_corkboard(
-            request.context_id,
+        root = request.services.contexts.active_project_root(request.context_id)
+        payload = save_creative_corkboard(
+            root,
             request.body(),
         )
     except Exception as error:
@@ -46,10 +51,9 @@ def _save(request: RouteRequest) -> ServiceResponse:
 def _create(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
-        result = request.state.create_creative_corkboard(
-            request.context_id,
-            str(payload.get("path") or ""),
-        )
+        root = request.services.contexts.active_project_root(request.context_id)
+        path = _create_creative_corkboard(root, str(payload.get("path") or ""))
+        result = {"status": "created", "path": path}
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)

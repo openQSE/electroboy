@@ -24,13 +24,13 @@ from .document_service import (
 def _editor(request: RouteRequest) -> HtmlResponse:
     try:
         params = request.params
-        root = request.state.active_project_root(request.context_id)
+        root = request.services.contexts.active_project_root(request.context_id)
         artifact = str((params.get("artifact") or [""])[0]).strip()
         requested_path = str((params.get("path") or [""])[0])
         title = str((params.get("title") or [""])[0]).strip() or None
         create_missing = str((params.get("create") or [""])[0]) == "1"
         rich_editor = (
-            request.state.project_mode(request.context_id) == "creative"
+            request.services.contexts.project_mode(request.context_id) == "creative"
             and artifact == "document"
         )
         font_size = _artifact_editor_font_size_from_params(params)
@@ -54,7 +54,7 @@ def _editor(request: RouteRequest) -> HtmlResponse:
 
 def _save(request: RouteRequest) -> ServiceResponse:
     try:
-        root = request.state.active_project_root(request.context_id)
+        root = request.services.contexts.active_project_root(request.context_id)
         payload = request.body()
         result = save_artifact_edit(
             root,
@@ -71,7 +71,9 @@ def _view(request: RouteRequest) -> HtmlResponse:
     artifact = request.path.removeprefix("/artifacts/")
     try:
         if artifact == "requirements":
-            root = request.state.requirements_document_root(request.context_id)
+            root = request.services.contexts.requirements_document_root(
+                request.context_id
+            )
             embedded = str((request.params.get("embed") or [""])[0]) == "1"
             zoom = _document_zoom_from_params(request.params)
             page, status = requirements_document_html(
@@ -80,10 +82,10 @@ def _view(request: RouteRequest) -> HtmlResponse:
                 zoom_percent=zoom,
             )
         elif artifact == "design":
-            root = request.state.active_project_root(request.context_id)
+            root = request.services.contexts.active_project_root(request.context_id)
             page, status = design_document_html(root)
         else:
-            root = request.state.active_project_root(request.context_id)
+            root = request.services.contexts.active_project_root(request.context_id)
             stage = {
                 "implementation-log": "implementation-log",
                 "implementation-report": "code",

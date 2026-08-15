@@ -16,7 +16,7 @@ from .review_service import review_report_index, review_report_index_html
 
 def _view(request: RouteRequest) -> HtmlResponse:
     try:
-        root = request.state.active_project_root(request.context_id)
+        root = request.services.contexts.active_project_root(request.context_id)
         page, status = design_review_document_html(root)
     except Exception as error:
         return HtmlResponse(
@@ -27,12 +27,12 @@ def _view(request: RouteRequest) -> HtmlResponse:
 
 
 def _index(request: RouteRequest) -> JsonResponse:
-    root = request.state.active_project_root(request.context_id)
+    root = request.services.contexts.active_project_root(request.context_id)
     return JsonResponse(review_report_index(root))
 
 
 def _category(request: RouteRequest) -> HtmlResponse:
-    root = request.state.active_project_root(request.context_id)
+    root = request.services.contexts.active_project_root(request.context_id)
     category = request.path.removeprefix("/artifacts/").removesuffix("-reviews")
     return HtmlResponse(review_report_index_html(root, category))
 
