@@ -236,6 +236,80 @@ electroboy-workflow-creative-writing
   frontend: creative navigation, binder, editor layout
 ```
 
+The following diagram shows the deployable packages, their internal ownership,
+and the registration paths that compose a running service. Solid arrows mark
+package or runtime dependencies. Dashed arrows mark plugin registration and
+aggregate packaging.
+
+```mermaid
+flowchart TB
+  Clients["CLI and browser clients"]
+
+  subgraph Core["electroboy-core"]
+    CLI["CLI dispatcher"]
+    Discovery["Configuration and<br/>entry-point discovery"]
+    Contexts["Context and session store"]
+    Services["Stable service interfaces"]
+    Routes["Route registry and dispatcher"]
+    Frontend["Browser shell and<br/>frontend registry"]
+
+    CLI --> Discovery
+    Discovery --> Routes
+    Discovery --> Frontend
+    Contexts --> Services
+    Services --> Routes
+  end
+
+  subgraph Modules["electroboy-modules"]
+    AgentSessions["Agent sessions"]
+    Documents["Markdown and structured documents"]
+    Reviews["Progress and review reports"]
+    ProjectTools["File browser and project shell"]
+    CreativeTools["Binder, corkboard, and recent projects"]
+  end
+
+  subgraph Software["electroboy-workflow-software"]
+    SoftwareBackend["Stage graph, controllers,<br/>routes, and agent roles"]
+    SoftwareFrontend["Workflow navigation,<br/>actions, and status views"]
+    SoftwareCLI["Software workflow commands"]
+  end
+
+  subgraph Creative["electroboy-workflow-creative-writing"]
+    CreativeBackend["Project lifecycle, controllers,<br/>routes, and agent roles"]
+    CreativeFrontend["Creative navigation,<br/>binder, editor, and corkboard views"]
+  end
+
+  Aggregate["electroboy aggregate distribution"]
+
+  Clients --> CLI
+  Clients --> Frontend
+
+  Modules -->|depends on| Core
+  Software -->|depends on| Core
+  Software -->|uses| Modules
+  Creative -->|depends on| Core
+  Creative -->|uses| Modules
+
+  Modules -. "electroboy.modules" .-> Discovery
+  Software -. "electroboy.workflows<br/>and electroboy.cli" .-> Discovery
+  Creative -. "electroboy.workflows" .-> Discovery
+
+  Routes --> SoftwareBackend
+  Routes --> CreativeBackend
+  Routes --> AgentSessions
+  Routes --> Documents
+  Routes --> Reviews
+  Routes --> ProjectTools
+  Routes --> CreativeTools
+  Frontend --> SoftwareFrontend
+  Frontend --> CreativeFrontend
+
+  Aggregate -. installs .-> Core
+  Aggregate -. installs .-> Modules
+  Aggregate -. installs .-> Software
+  Aggregate -. installs .-> Creative
+```
+
 Exact Python distribution names can change. The architectural rule is that the
 core package cannot require optional workflow packages at import time. The core
 loads installed workflows and modules through registries. A production build can
