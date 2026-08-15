@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 
@@ -48,3 +49,63 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
     ).is_file()
     legacy_asset = ROOT / "src/electroboy/assets/service/js/workflows/software.js"
     assert not legacy_asset.exists()
+
+
+def test_workflow_controllers_do_not_import_service_app() -> None:
+    controllers = (
+        ROOT / "src/electroboy/workflows/software/controller.py",
+        ROOT / "src/electroboy/workflows/creative_writing/controller.py",
+    )
+
+    for controller in controllers:
+        source = controller.read_text(encoding="utf-8")
+        assert "service import app" not in source
+        assert "service.app" not in source
+        assert "service_app" not in source
+
+
+def test_service_app_does_not_own_capability_domain_implementations() -> None:
+    source = (ROOT / "src/electroboy/service/app.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    definitions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    moved_implementations = {
+        "requirements_document_html",
+        "artifact_editor_html",
+        "save_artifact_edit",
+        "creative_corkboard_html",
+        "_creative_tree_payload",
+        "_save_creative_freeform_corkboard_card",
+        "_progress_snapshot",
+        "_session_events_markdown",
+        "_load_work_item_registry",
+        "_run_feature_start_context",
+    }
+
+    assert definitions.isdisjoint(moved_implementations)
+
+
+def test_service_app_has_no_optional_package_imports() -> None:
+    source = (ROOT / "src/electroboy/service/app.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imported_modules = {
+        node.module or ""
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+    }
+    imported_modules.update(
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    )
+
+    assert not any(
+        module.startswith("electroboy.modules")
+        or module.startswith("electroboy.workflows.software")
+        or module.startswith("electroboy.workflows.creative_writing")
+        for module in imported_modules
+    )

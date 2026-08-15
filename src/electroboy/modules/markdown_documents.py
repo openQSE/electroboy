@@ -11,6 +11,12 @@ from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import route
+from .document_service import (
+    _artifact_event_document_path,
+    _document_zoom_from_params,
+    _ensure_document_target,
+    document_target_html,
+)
 
 
 def _preview(request: RouteRequest) -> None:
@@ -19,14 +25,13 @@ def _preview(request: RouteRequest) -> None:
         root = request.state.active_project_root(request.context_id)
         path = str((params.get("path") or [""])[0])
         title = str((params.get("title") or [""])[0]).strip() or None
-        page, status = request.operation(
-            "document_target_html",
+        page, status = document_target_html(
             root,
             path,
             title=title,
             embedded=(params.get("embed") or ["0"])[0] == "1",
             create_missing=(params.get("create") or ["0"])[0] == "1",
-            zoom_percent=request.operation("document_zoom", params),
+            zoom_percent=_document_zoom_from_params(params),
         )
     except Exception as error:
         request.send_text(
@@ -46,9 +51,8 @@ def _export(request: RouteRequest) -> None:
     try:
         root = Path(request.state.active_project_root(request.context_id)).resolve()
         if artifact == "document" and requested_path:
-            request.operation("ensure_document_target", root, requested_path)
-        document_path = request.operation(
-            "artifact_event_document_path",
+            _ensure_document_target(root, requested_path)
+        document_path = _artifact_event_document_path(
             root,
             artifact,
             requested_path,
@@ -74,8 +78,7 @@ def _events(request: RouteRequest) -> None:
     artifact = str((params.get("artifact") or [""])[0]).strip()
     try:
         root = request.state.active_project_root(request.context_id)
-        path = request.operation(
-            "artifact_event_document_path",
+        path = _artifact_event_document_path(
             root,
             artifact,
             str((params.get("path") or [""])[0]),

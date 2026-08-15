@@ -2,37 +2,36 @@
 
 from __future__ import annotations
 
-from electroboy.service import app as service_app
-from electroboy.service.workflow_controller import BoundWorkflowController
+from pathlib import Path
 
-AgentSession = service_app.AgentSession
-AgentSessionError = service_app.AgentSessionError
-StateError = service_app.StateError
-_create_creative_corkboard = service_app._create_creative_corkboard
-_create_creative_document = service_app._create_creative_document
-_create_creative_folder = service_app._create_creative_folder
-_creative_agent_target = service_app._creative_agent_target
-_creative_tree_payload = service_app._creative_tree_payload
-_creative_writing_command = service_app._creative_writing_command
-_delete_creative_entry = service_app._delete_creative_entry
-_delete_creative_freeform_corkboard_card = (
-    service_app._delete_creative_freeform_corkboard_card
+from electroboy.modules.creative_workspace import (
+    _create_creative_corkboard,
+    _create_creative_document,
+    _create_creative_folder,
+    _creative_agent_target,
+    _creative_tree_payload,
+    _creative_writing_command,
+    _delete_creative_entry,
+    _delete_creative_freeform_corkboard_card,
+    _document_target_path,
+    _ensure_creative_scratchpad,
+    _ensure_creative_workspace,
+    _existing_creative_project_root,
+    _rename_creative_entry,
+    _save_creative_folder_corkboard_card,
+    _save_creative_folder_corkboard_order,
+    _save_creative_freeform_corkboard_card,
 )
-_document_target_path = service_app._document_target_path
-_ensure_creative_scratchpad = service_app._ensure_creative_scratchpad
-_ensure_creative_workspace = service_app._ensure_creative_workspace
-_existing_creative_project_root = service_app._existing_creative_project_root
-_remember_recent_project = service_app._remember_recent_project
-_rename_creative_entry = service_app._rename_creative_entry
-_resolve_project_path = service_app._resolve_project_path
-_save_creative_folder_corkboard_card = service_app._save_creative_folder_corkboard_card
-_save_creative_folder_corkboard_order = (
-    service_app._save_creative_folder_corkboard_order
+from electroboy.service.recent_projects import (
+    remember_recent_project as _remember_recent_project,
 )
-_save_creative_freeform_corkboard_card = (
-    service_app._save_creative_freeform_corkboard_card
-)
-project_payload = service_app.project_payload
+from electroboy.service.sessions import AgentSession, AgentSessionError
+from electroboy.service.workflow_controller import BoundWorkflowController
+from electroboy.state_store import StateError
+
+
+def _resolve_project_path(path: str) -> Path:
+    return Path(path).expanduser().resolve()
 
 
 class CreativeWritingWorkflowController(BoundWorkflowController):
@@ -70,7 +69,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             context.stage_started = set()
         _remember_recent_project(self.root, project_root, "creative")
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "opened",
         }
 
@@ -105,7 +104,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             context.stage_started = set()
         _remember_recent_project(self.root, project_root, "creative")
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "created",
         }
 

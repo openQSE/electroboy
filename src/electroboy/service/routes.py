@@ -81,8 +81,13 @@ class RouteRequest:
     def stream_artifact_events(self, artifact: str, path: Any) -> None:
         self.transport._stream_artifact_events(artifact, path)
 
-    def stream_progress_events(self, context_id: str, root: Any) -> None:
-        self.transport._stream_progress_events(context_id, root)
+    def stream_progress_events(
+        self,
+        context_id: str,
+        root: Any,
+        snapshot: Callable[[Any], tuple[str, bool]],
+    ) -> None:
+        self.transport._stream_progress_events(context_id, root, snapshot)
 
 
 @dataclass(frozen=True)

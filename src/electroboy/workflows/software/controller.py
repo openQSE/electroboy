@@ -6,56 +6,54 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from electroboy.models import GATE_DESIGN
-from electroboy.service import app as service_app
-from electroboy.service.workflow_controller import BoundWorkflowController
-
-APPROVAL_WORKFLOW_STAGES = service_app.APPROVAL_WORKFLOW_STAGES
-AgentSession = service_app.AgentSession
-AgentSessionError = service_app.AgentSessionError
-SESSION_ARTIFACT_LOCKS = service_app.SESSION_ARTIFACT_LOCKS
-STAGE_DESIGN_ACCEPTANCE = service_app.STAGE_DESIGN_ACCEPTANCE
-STAGE_DESIGN_REVIEW = service_app.STAGE_DESIGN_REVIEW
-STAGE_REQUIREMENTS = service_app.STAGE_REQUIREMENTS
-StateError = service_app.StateError
-StateStore = service_app.StateStore
-WORKFLOW_STAGES = service_app.WORKFLOW_STAGES
-WORKFLOW_STAGE_RESET_TARGETS = service_app.WORKFLOW_STAGE_RESET_TARGETS
-_active_workflow_stage = service_app._active_workflow_stage
-_bug_by_slug = service_app._bug_by_slug
-_bug_record_label = service_app._bug_record_label
-_current_bug_record = service_app._current_bug_record
-_current_feature_record = service_app._current_feature_record
-_documentation_command = service_app._documentation_command
-_ensure_collection_for_feature = service_app._ensure_collection_for_feature
-_ensure_document_target = service_app._ensure_document_target
-_feature_by_slug = service_app._feature_by_slug
-_feature_collection_by_id = service_app._feature_collection_by_id
-_feature_record_label = service_app._feature_record_label
-_force_reset_workflow_stage = service_app._force_reset_workflow_stage
-_generic_stage_command = service_app._generic_stage_command
-_generic_stage_config = service_app._generic_stage_config
-_load_work_item_registry = service_app._load_work_item_registry
-_record_design_complete = service_app._record_design_complete
-_record_requirements_complete = service_app._record_requirements_complete
-_reopen_design_for_restart = service_app._reopen_design_for_restart
-_reopen_requirements_for_restart = service_app._reopen_requirements_for_restart
-_requirements_command = service_app._requirements_command
-_run_bug_start_context = service_app._run_bug_start_context
-_run_electroboy_cli_command = service_app._run_electroboy_cli_command
-_run_feature_start_context = service_app._run_feature_start_context
-_save_work_item_registry = service_app._save_work_item_registry
-_should_force_completed_requirements_approval = (
-    service_app._should_force_completed_requirements_approval
+from electroboy.models import (
+    GATE_DESIGN,
+    STAGE_DESIGN_ACCEPTANCE,
+    STAGE_DESIGN_REVIEW,
+    STAGE_REQUIREMENTS,
 )
-_stage_command = service_app._stage_command
-_stage_display_label = service_app._stage_display_label
-_stage_has_approvals = service_app._stage_has_approvals
-_upsert_bug_record = service_app._upsert_bug_record
-_upsert_feature_collection = service_app._upsert_feature_collection
-_upsert_feature_record = service_app._upsert_feature_record
-_write_current_bug_record = service_app._write_current_bug_record
-project_payload = service_app.project_payload
+from electroboy.modules.document_service import _ensure_document_target
+from electroboy.service.sessions import AgentSession, AgentSessionError
+from electroboy.service.workflow_controller import BoundWorkflowController
+from electroboy.state_store import StateError, StateStore
+
+from .domain import (
+    APPROVAL_WORKFLOW_STAGES,
+    SESSION_ARTIFACT_LOCKS,
+    WORKFLOW_STAGES,
+    WORKFLOW_STAGE_RESET_TARGETS,
+    _active_workflow_stage,
+    _bug_by_slug,
+    _bug_record_label,
+    _current_bug_record,
+    _current_feature_record,
+    _documentation_command,
+    _ensure_collection_for_feature,
+    _feature_by_slug,
+    _feature_collection_by_id,
+    _feature_record_label,
+    _force_reset_workflow_stage,
+    _generic_stage_command,
+    _generic_stage_config,
+    _load_work_item_registry,
+    _record_design_complete,
+    _record_requirements_complete,
+    _reopen_design_for_restart,
+    _reopen_requirements_for_restart,
+    _requirements_command,
+    _run_bug_start_context,
+    _run_electroboy_cli_command,
+    _run_feature_start_context,
+    _save_work_item_registry,
+    _should_force_completed_requirements_approval,
+    _stage_command,
+    _stage_display_label,
+    _stage_has_approvals,
+    _upsert_bug_record,
+    _upsert_feature_collection,
+    _upsert_feature_record,
+    _write_current_bug_record,
+)
 
 
 class SoftwareWorkflowController(BoundWorkflowController):
@@ -85,7 +83,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self._context_locked(context_id)
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "created collection",
             "label": collection["name"],
         }
@@ -112,7 +110,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self._context_locked(context_id)
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "switched collection",
             "label": collection["name"],
         }
@@ -171,7 +169,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.workflow_stage = _active_workflow_stage(project_root)
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "started feature",
             "label": _feature_record_label(feature_record) if feature_record else title,
             "output": output,
@@ -229,7 +227,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.workflow_stage = _active_workflow_stage(project_root)
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "switched feature",
             "label": _feature_record_label(feature),
             "output": output,
@@ -270,7 +268,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self._context_locked(context_id)
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "started bug resolution",
             "label": _bug_record_label(bug_record) if bug_record else issue_reference,
             "output": output,
@@ -301,7 +299,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self._context_locked(context_id)
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "switched bug resolution",
             "label": _bug_record_label(bug),
             "terminated_agent": terminated_agent,
@@ -348,7 +346,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             self._clear_sessions_locked(context, sessions)
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "selected",
             "previous_stage": previous_stage,
             "terminated_agent": terminated_agent,
@@ -429,7 +427,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.requirements_started = requirements_started
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
             "next_stage": "design",
             "output": output,
@@ -605,7 +603,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.design_review_interactive = False
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "completed",
             "next_stage": "design-review",
         }
@@ -784,7 +782,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 context.selected_session_id = None
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "stopped",
         }
 
@@ -893,7 +891,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.design_review_started = design_review_started
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
             "next_stage": "implementation-plan",
             "output": output,
@@ -1030,7 +1028,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 context.selected_session_id = None
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "stopped",
         }
 
@@ -1085,7 +1083,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 context.selected_session_id = None
             project_root = context.active_project_root
         return {
-            **project_payload(self.root, context, project_root),
+            **self.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
             "next_stage": context.workflow_stage,
             "output": output,

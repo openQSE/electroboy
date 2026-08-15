@@ -8,6 +8,11 @@ from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import route
+from .progress_service import (
+    _progress_export_filename,
+    _progress_snapshot,
+    _progress_snapshot_markdown,
+)
 
 
 def _events(request: RouteRequest) -> None:
@@ -16,19 +21,19 @@ def _events(request: RouteRequest) -> None:
     except Exception as error:
         request.send_json({"error": str(error)}, status=HTTPStatus.CONFLICT)
         return
-    request.stream_progress_events(request.context_id, root)
+    request.stream_progress_events(request.context_id, root, _progress_snapshot)
 
 
 def _export(request: RouteRequest) -> None:
     try:
         root = request.state.command_root(request.context_id)
-        text, ok = request.operation("progress_snapshot", root)
+        text, ok = _progress_snapshot(root)
     except Exception as error:
         request.send_text(str(error), status=HTTPStatus.CONFLICT)
         return
     request.send_download(
-        request.operation("progress_snapshot_markdown", root, text, ok),
-        request.operation("progress_export_filename"),
+        _progress_snapshot_markdown(root, text, ok),
+        _progress_export_filename(),
     )
 
 

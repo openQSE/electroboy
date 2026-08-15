@@ -9,6 +9,7 @@ from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import route, send_conflict
+from .creative_workspace import creative_corkboard_html
 
 
 def _view(request: RouteRequest) -> None:
@@ -16,8 +17,7 @@ def _view(request: RouteRequest) -> None:
         root = request.state.active_project_root(request.context_id)
         folder = str((request.params.get("path") or [""])[0])
         title = str((request.params.get("title") or [""])[0]).strip() or None
-        page, status = request.operation(
-            "creative_corkboard_html",
+        page, status = creative_corkboard_html(
             root,
             folder,
             title=title,

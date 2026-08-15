@@ -8,6 +8,7 @@ from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import route, send_conflict
+from .progress_service import _session_events_markdown, _session_export_filename
 
 
 def _selected_session(request: RouteRequest):
@@ -151,8 +152,8 @@ def _export(request: RouteRequest) -> None:
         )
         return
     request.send_download(
-        request.operation("session_events_markdown", session),
-        request.operation("session_export_filename", session),
+        _session_events_markdown(session),
+        _session_export_filename(session),
     )
 
 

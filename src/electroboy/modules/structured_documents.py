@@ -9,6 +9,15 @@ from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import route, send_conflict
+from .document_service import (
+    _artifact_editor_font_size_from_params,
+    _document_zoom_from_params,
+    artifact_editor_html,
+    design_document_html,
+    requirements_document_html,
+    save_artifact_edit,
+    stage_document_html,
+)
 
 
 def _editor(request: RouteRequest) -> None:
@@ -23,9 +32,8 @@ def _editor(request: RouteRequest) -> None:
             request.state.project_mode(request.context_id) == "creative"
             and artifact == "document"
         )
-        font_size = request.operation("artifact_editor_font_size", params)
-        page, status = request.operation(
-            "artifact_editor_html",
+        font_size = _artifact_editor_font_size_from_params(params)
+        page, status = artifact_editor_html(
             root,
             artifact,
             requested_path,
@@ -49,8 +57,7 @@ def _save(request: RouteRequest) -> None:
     try:
         root = request.state.active_project_root(request.context_id)
         payload = request.body()
-        result = request.operation(
-            "save_artifact_edit",
+        result = save_artifact_edit(
             root,
             str(payload.get("artifact") or ""),
             str(payload.get("path") or ""),
@@ -68,23 +75,22 @@ def _view(request: RouteRequest) -> None:
         if artifact == "requirements":
             root = request.state.requirements_document_root(request.context_id)
             embedded = str((request.params.get("embed") or [""])[0]) == "1"
-            zoom = request.operation("document_zoom", request.params)
-            page, status = request.operation(
-                "requirements_document_html",
+            zoom = _document_zoom_from_params(request.params)
+            page, status = requirements_document_html(
                 root,
                 embedded=embedded,
                 zoom_percent=zoom,
             )
         elif artifact == "design":
             root = request.state.active_project_root(request.context_id)
-            page, status = request.operation("design_document_html", root)
+            page, status = design_document_html(root)
         else:
             root = request.state.active_project_root(request.context_id)
             stage = {
                 "implementation-report": "code",
                 "validation-report": "validate",
             }.get(artifact, artifact)
-            page, status = request.operation("stage_document_html", root, stage)
+            page, status = stage_document_html(root, stage)
     except Exception as error:
         request.send_text(
             f"<p>{html.escape(str(error))}</p>",

@@ -9,6 +9,8 @@ from typing import Any
 from electroboy.service.registry import RouteDefinition, RouteHandler
 from electroboy.service.routes import RouteRequest
 
+from .domain import _work_item_error_payload
+
 
 def _route(method: str, path: str, name: str) -> RouteDefinition:
     return RouteDefinition(method, path, "software", name)
@@ -103,7 +105,7 @@ def _start_feature(request: RouteRequest) -> None:
         )
     except Exception as error:
         request.send_json(
-            request.operation("work_item_error_payload", error),
+            _work_item_error_payload(error),
             status=HTTPStatus.CONFLICT,
         )
         return
@@ -134,7 +136,7 @@ def _start_bug(request: RouteRequest) -> None:
         )
     except Exception as error:
         request.send_json(
-            request.operation("work_item_error_payload", error),
+            _work_item_error_payload(error),
             status=HTTPStatus.CONFLICT,
         )
         return
