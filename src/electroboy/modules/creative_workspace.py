@@ -667,34 +667,14 @@ def creative_corkboard_html(
       background: rgba(216, 230, 255, 0.74);
     }}
 
-    .card-stack-icon {{
-      position: relative;
-      width: 14px;
-      height: 12px;
-      border: 1.5px solid currentcolor;
-      border-radius: 2px;
-    }}
-
-    .card-stack-icon::before,
-    .card-stack-icon::after {{
-      position: absolute;
-      width: 14px;
-      height: 12px;
-      border: 1.5px solid currentcolor;
-      border-radius: 2px;
-      content: "";
-    }}
-
-    .card-stack-icon::before {{
-      top: 3px;
-      left: -4px;
-      opacity: 0.74;
-    }}
-
-    .card-stack-icon::after {{
-      top: 6px;
-      left: -8px;
-      opacity: 0.48;
+    .card-group-icon {{
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
     }}
 
     .card-tools {{
@@ -1402,9 +1382,15 @@ def creative_corkboard_html(
       );
       button.addEventListener("pointerdown", (event) => event.stopPropagation());
       button.addEventListener("click", () => convertCardToGroup(card, cardElement, button));
-      const icon = document.createElement("span");
-      icon.className = "card-stack-icon";
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.classList.add("card-group-icon");
       icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("viewBox", "0 0 24 24");
+      icon.innerHTML = `
+        <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"></path>
+        <path d="m22 12.5-9.17 4.17a2 2 0 0 1-1.66 0L2 12.5"></path>
+        <path d="m22 17.5-9.17 4.17a2 2 0 0 1-1.66 0L2 17.5"></path>
+      `;
       button.append(icon);
       return button;
     }}
@@ -1638,6 +1624,15 @@ def creative_corkboard_html(
             card.title = title.value;
             queueSave(card);
           }});
+          title.addEventListener("pointerdown", (event) => event.stopPropagation());
+          if (cardKind(card) === "group") {{
+            title.title = "Double-click to open card group";
+            title.addEventListener("dblclick", (event) => {{
+              event.preventDefault();
+              event.stopPropagation();
+              openGroupCard(card);
+            }});
+          }}
         }} else {{
           title = document.createElement("div");
           title.className = "card-title";
