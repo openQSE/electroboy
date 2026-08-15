@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from electroboy.service.registry import WorkflowDefinition, WorkflowStage
+from electroboy.workflows.software_controller import SoftwareWorkflowController
 
 
 def workflow() -> WorkflowDefinition:
@@ -88,4 +89,5 @@ def workflow() -> WorkflowDefinition:
         project_kinds=("project", "meta-project"),
         backend_package="electroboy.workflows.software",
         frontend_bundle="workflows/software.js",
+        controller_factory=SoftwareWorkflowController,
     )

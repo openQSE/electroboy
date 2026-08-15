@@ -3,7 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Protocol
+
+
+class WorkflowController(Protocol):
+    """Executable workflow behavior bound to one service runtime."""
+
+    workflow_id: str
+
+
+WorkflowControllerFactory = Callable[[object], WorkflowController]
 
 
 @dataclass(frozen=True)
@@ -79,6 +88,11 @@ class WorkflowDefinition:
     project_kinds: tuple[str, ...]
     backend_package: str
     frontend_bundle: str
+    controller_factory: WorkflowControllerFactory | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def payload(self) -> dict[str, object]:
         return {
@@ -143,6 +157,24 @@ class WorkflowRegistry:
 
     def payload(self) -> list[dict[str, object]]:
         return [workflow.payload() for workflow in self.values()]
+
+    def create_controllers(
+        self,
+        runtime: object,
+    ) -> dict[str, WorkflowController]:
+        """Bind every executable workflow to a service runtime."""
+        controllers: dict[str, WorkflowController] = {}
+        for workflow in self.values():
+            if workflow.controller_factory is None:
+                continue
+            controller = workflow.controller_factory(runtime)
+            if controller.workflow_id != workflow.id:
+                raise ValueError(
+                    "workflow controller id does not match its definition: "
+                    f"{controller.workflow_id} != {workflow.id}"
+                )
+            controllers[workflow.id] = controller
+        return controllers
 
 
 def build_module_registry(

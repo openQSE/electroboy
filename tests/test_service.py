@@ -65,7 +65,12 @@ from electroboy.service import (  # noqa: E402
     workflow_payload,
 )
 from electroboy.service.routes import build_route_dispatcher  # noqa: E402
-from electroboy.service.registry import build_module_registry  # noqa: E402
+from electroboy.service.registry import (  # noqa: E402
+    WorkflowDefinition,
+    WorkflowStage,
+    build_module_registry,
+    build_workflow_registry,
+)
 from electroboy.models import (  # noqa: E402
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
@@ -161,6 +166,59 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(match.handler_name, "health")
         self.assertEqual(match.handler_method, "_send_health")
 
+    def test_workflow_registry_binds_executable_controller(self) -> None:
+        class SampleController:
+            workflow_id = "sample"
+
+            def __init__(self, runtime: object) -> None:
+                self.runtime = runtime
+
+        runtime = object()
+        definition = WorkflowDefinition(
+            id="sample",
+            label="Sample",
+            modules=("core",),
+            stages=(WorkflowStage("project", "Project", None),),
+            project_kinds=("sample",),
+            backend_package="sample",
+            frontend_bundle="workflows/sample.js",
+            controller_factory=SampleController,
+        )
+        registry = build_workflow_registry(
+            build_module_registry(),
+            (definition,),
+        )
+
+        controllers = registry.create_controllers(runtime)
+
+        self.assertEqual(set(controllers), {"sample"})
+        self.assertIs(controllers["sample"].runtime, runtime)
+
+    def test_workflow_registry_rejects_mismatched_controller(self) -> None:
+        class WrongController:
+            workflow_id = "wrong"
+
+            def __init__(self, runtime: object) -> None:
+                self.runtime = runtime
+
+        definition = WorkflowDefinition(
+            id="sample",
+            label="Sample",
+            modules=("core",),
+            stages=(WorkflowStage("project", "Project", None),),
+            project_kinds=("sample",),
+            backend_package="sample",
+            frontend_bundle="workflows/sample.js",
+            controller_factory=WrongController,
+        )
+        registry = build_workflow_registry(
+            build_module_registry(),
+            (definition,),
+        )
+
+        with self.assertRaisesRegex(ValueError, "controller id"):
+            registry.create_controllers(object())
+
     def test_configured_workflow_endpoint_persists_extra_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "service"
@@ -173,6 +231,12 @@ class ServiceTests(unittest.TestCase):
                         "from electroboy.service.registry import WorkflowDefinition",
                         "from electroboy.service.registry import WorkflowStage",
                         "",
+                        "class SampleController:",
+                        "    workflow_id = 'sample-workflow'",
+                        "",
+                        "    def __init__(self, runtime):",
+                        "        self.runtime = runtime",
+                        "",
                         "def workflow():",
                         "    return WorkflowDefinition(",
                         "        id='sample-workflow',",
@@ -182,6 +246,7 @@ class ServiceTests(unittest.TestCase):
                         "        project_kinds=('sample',),",
                         "        backend_package='sample_workflow',",
                         "        frontend_bundle='workflows/sample.js',",
+                        "        controller_factory=SampleController,",
                         "    )",
                     ]
                 )
@@ -211,6 +276,7 @@ class ServiceTests(unittest.TestCase):
                     )
                     config_path = root / ".electroboy" / "service" / "workflows.json"
                     config_exists = config_path.exists()
+                    controller_ids = set(server.service_state.workflow_controllers)
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)
@@ -228,6 +294,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
         self.assertIn("sample-workflow", workflows)
+        self.assertIn("sample-workflow", controller_ids)
         self.assertTrue(config_exists)
 
     def test_splash_image_endpoint_serves_packaged_png(self) -> None:
