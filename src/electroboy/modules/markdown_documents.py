@@ -7,6 +7,14 @@ from http import HTTPStatus
 from pathlib import Path
 
 from electroboy.document_export import export_markdown_document
+from electroboy.service.http import (
+    BinaryResponse,
+    HtmlResponse,
+    JsonResponse,
+    ServiceResponse,
+    StreamResponse,
+    TextResponse,
+)
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
@@ -19,7 +27,7 @@ from .document_service import (
 )
 
 
-def _preview(request: RouteRequest) -> None:
+def _preview(request: RouteRequest) -> HtmlResponse:
     try:
         params = request.params
         root = request.state.active_project_root(request.context_id)
@@ -34,16 +42,14 @@ def _preview(request: RouteRequest) -> None:
             zoom_percent=_document_zoom_from_params(params),
         )
     except Exception as error:
-        request.send_text(
+        return HtmlResponse(
             f"<p>{html.escape(str(error))}</p>",
-            "text/html; charset=utf-8",
             status=HTTPStatus.CONFLICT,
         )
-        return
-    request.send_text(page, "text/html; charset=utf-8", status=status)
+    return HtmlResponse(page, status=status)
 
 
-def _export(request: RouteRequest) -> None:
+def _export(request: RouteRequest) -> ServiceResponse:
     params = request.params
     artifact = str((params.get("artifact") or [""])[0]).strip()
     requested_path = str((params.get("path") or [""])[0])
@@ -64,16 +70,15 @@ def _export(request: RouteRequest) -> None:
             export_format,
         )
     except Exception as error:
-        request.send_text(str(error), status=HTTPStatus.CONFLICT)
-        return
-    request.send_binary_download(
+        return TextResponse(str(error), status=HTTPStatus.CONFLICT)
+    return BinaryResponse(
         exported.data,
-        exported.filename,
         exported.content_type,
+        filename=exported.filename,
     )
 
 
-def _events(request: RouteRequest) -> None:
+def _events(request: RouteRequest) -> ServiceResponse:
     params = request.params
     artifact = str((params.get("artifact") or [""])[0]).strip()
     try:
@@ -84,9 +89,8 @@ def _events(request: RouteRequest) -> None:
             str((params.get("path") or [""])[0]),
         )
     except Exception as error:
-        request.send_json({"error": str(error)}, status=HTTPStatus.CONFLICT)
-        return
-    request.stream_artifact_events(artifact, path)
+        return JsonResponse({"error": str(error)}, status=HTTPStatus.CONFLICT)
+    return StreamResponse(lambda: request.stream_artifact_events(artifact, path))
 
 
 _HANDLERS = {"preview": _preview, "export": _export, "events": _events}

@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
+from electroboy.service.http import JsonResponse, ServiceResponse
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
-from .common import route, send_conflict
+from .common import conflict, route
 
 
-def _tree(request: RouteRequest) -> None:
+def _tree(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.creative_tree(request.context_id)
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(payload)
+        return conflict(error)
+    return JsonResponse(payload)
 
 
-def _path_action(request: RouteRequest, method: str) -> None:
+def _path_action(request: RouteRequest, method: str) -> ServiceResponse:
     try:
         payload = request.body()
         result = getattr(request.state, method)(
@@ -25,20 +25,19 @@ def _path_action(request: RouteRequest, method: str) -> None:
             str(payload.get("path") or ""),
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(result)
+        return conflict(error)
+    return JsonResponse(result)
 
 
-def _create_folder(request: RouteRequest) -> None:
-    _path_action(request, "create_creative_folder")
+def _create_folder(request: RouteRequest) -> ServiceResponse:
+    return _path_action(request, "create_creative_folder")
 
 
-def _create_document(request: RouteRequest) -> None:
-    _path_action(request, "create_creative_document")
+def _create_document(request: RouteRequest) -> ServiceResponse:
+    return _path_action(request, "create_creative_document")
 
 
-def _rename(request: RouteRequest) -> None:
+def _rename(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         result = request.state.rename_creative_entry(
@@ -47,13 +46,12 @@ def _rename(request: RouteRequest) -> None:
             str(payload.get("new_name") or ""),
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(result)
+        return conflict(error)
+    return JsonResponse(result)
 
 
-def _delete(request: RouteRequest) -> None:
-    _path_action(request, "delete_creative_entry")
+def _delete(request: RouteRequest) -> ServiceResponse:
+    return _path_action(request, "delete_creative_entry")
 
 
 _HANDLERS = {

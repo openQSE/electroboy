@@ -33,6 +33,10 @@ _STAGE_DOCUMENT_CONFIG = {
         "artifact_path": "docs/implementation-report.md",
         "artifact_title": "Implementation Report",
     },
+    "implementation-log": {
+        "artifact_path": "docs/implementation-log.md",
+        "artifact_title": "Implementation Log",
+    },
     "test-plan": {
         "artifact_path": "docs/test-plan.md",
         "artifact_title": "Test Plan",
@@ -56,6 +60,7 @@ ARTIFACT_EVENT_ROUTE_PATHS = {
     "/artifacts/design": "docs/detailed-design.md",
     "/artifacts/design-review": "docs/design-review.md",
     "/artifacts/implementation-plan": "docs/implementation-plan.md",
+    "/artifacts/implementation-log": "docs/implementation-log.md",
     "/artifacts/implementation-report": "docs/implementation-report.md",
     "/artifacts/test-plan": "docs/test-plan.md",
     "/artifacts/validation-report": "docs/validation-report.md",

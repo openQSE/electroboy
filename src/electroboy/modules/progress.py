@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
+from electroboy.service.http import (
+    BinaryResponse,
+    ServiceResponse,
+    StreamResponse,
+    TextResponse,
+)
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
@@ -15,25 +21,30 @@ from .progress_service import (
 )
 
 
-def _events(request: RouteRequest) -> None:
+def _events(request: RouteRequest) -> ServiceResponse:
     try:
         root = request.state.command_root(request.context_id)
     except Exception as error:
-        request.send_json({"error": str(error)}, status=HTTPStatus.CONFLICT)
-        return
-    request.stream_progress_events(request.context_id, root, _progress_snapshot)
+        return TextResponse(str(error), status=HTTPStatus.CONFLICT)
+    return StreamResponse(
+        lambda: request.stream_progress_events(
+            request.context_id,
+            root,
+            _progress_snapshot,
+        )
+    )
 
 
-def _export(request: RouteRequest) -> None:
+def _export(request: RouteRequest) -> ServiceResponse:
     try:
         root = request.state.command_root(request.context_id)
         text, ok = _progress_snapshot(root)
     except Exception as error:
-        request.send_text(str(error), status=HTTPStatus.CONFLICT)
-        return
-    request.send_download(
-        _progress_snapshot_markdown(root, text, ok),
-        _progress_export_filename(),
+        return TextResponse(str(error), status=HTTPStatus.CONFLICT)
+    return BinaryResponse(
+        _progress_snapshot_markdown(root, text, ok).encode("utf-8"),
+        "text/markdown; charset=utf-8",
+        filename=_progress_export_filename(),
     )
 
 

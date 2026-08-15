@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
+from electroboy.service.http import JsonResponse, ServiceResponse, StreamResponse
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
-from .common import route, send_conflict
+from .common import conflict, route
 
 
-def _start(request: RouteRequest) -> None:
+def _start(request: RouteRequest) -> ServiceResponse:
     try:
         session, started = request.state.start_project_shell(request.context_id)
         payload = {
@@ -19,27 +20,24 @@ def _start(request: RouteRequest) -> None:
             "shell_session": session.payload(selected=False),
         }
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(payload)
+        return conflict(error)
+    return JsonResponse(payload)
 
 
-def _events(request: RouteRequest) -> None:
+def _events(request: RouteRequest) -> ServiceResponse:
     try:
         session = request.state.current_project_shell_session(request.context_id)
     except Exception as error:
-        send_conflict(request, error)
-        return
+        return conflict(error)
     if session is None:
-        request.send_json(
+        return JsonResponse(
             {"error": "project shell has not been started"},
             status=HTTPStatus.CONFLICT,
         )
-        return
-    request.stream_session_events(session)
+    return StreamResponse(lambda: request.stream_session_events(session))
 
 
-def _input(request: RouteRequest) -> None:
+def _input(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         request.state.send_project_shell_input(
@@ -47,12 +45,11 @@ def _input(request: RouteRequest) -> None:
             str(payload.get("data") or ""),
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json({"status": "sent"})
+        return conflict(error)
+    return JsonResponse({"status": "sent"})
 
 
-def _resize(request: RouteRequest) -> None:
+def _resize(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         request.state.resize_project_shell(
@@ -61,18 +58,16 @@ def _resize(request: RouteRequest) -> None:
             int(payload.get("rows") or 32),
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json({"status": "resized"})
+        return conflict(error)
+    return JsonResponse({"status": "resized"})
 
 
-def _stop(request: RouteRequest) -> None:
+def _stop(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.stop_project_shell(request.context_id)
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(payload)
+        return conflict(error)
+    return JsonResponse(payload)
 
 
 _HANDLERS = {

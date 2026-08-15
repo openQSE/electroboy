@@ -5,14 +5,15 @@ from __future__ import annotations
 import html
 from http import HTTPStatus
 
+from electroboy.service.http import HtmlResponse, JsonResponse, ServiceResponse
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
-from .common import route, send_conflict
+from .common import conflict, route
 from .creative_workspace import creative_corkboard_html
 
 
-def _view(request: RouteRequest) -> None:
+def _view(request: RouteRequest) -> HtmlResponse:
     try:
         root = request.state.active_project_root(request.context_id)
         folder = str((request.params.get("path") or [""])[0])
@@ -24,28 +25,25 @@ def _view(request: RouteRequest) -> None:
             context_id=request.context_id,
         )
     except Exception as error:
-        request.send_text(
+        return HtmlResponse(
             f"<p>{html.escape(str(error))}</p>",
-            "text/html; charset=utf-8",
             status=HTTPStatus.CONFLICT,
         )
-        return
-    request.send_text(page, "text/html; charset=utf-8", status=status)
+    return HtmlResponse(page, status=status)
 
 
-def _save(request: RouteRequest) -> None:
+def _save(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.save_creative_corkboard(
             request.context_id,
             request.body(),
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(payload)
+        return conflict(error)
+    return JsonResponse(payload)
 
 
-def _create(request: RouteRequest) -> None:
+def _create(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         result = request.state.create_creative_corkboard(
@@ -53,9 +51,8 @@ def _create(request: RouteRequest) -> None:
             str(payload.get("path") or ""),
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(result)
+        return conflict(error)
+    return JsonResponse(result)
 
 
 _HANDLERS = {"view": _view, "save": _save, "create": _create}

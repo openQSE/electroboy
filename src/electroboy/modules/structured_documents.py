@@ -5,10 +5,11 @@ from __future__ import annotations
 import html
 from http import HTTPStatus
 
+from electroboy.service.http import HtmlResponse, JsonResponse, ServiceResponse
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
-from .common import route, send_conflict
+from .common import conflict, route
 from .document_service import (
     _artifact_editor_font_size_from_params,
     _document_zoom_from_params,
@@ -20,7 +21,7 @@ from .document_service import (
 )
 
 
-def _editor(request: RouteRequest) -> None:
+def _editor(request: RouteRequest) -> HtmlResponse:
     try:
         params = request.params
         root = request.state.active_project_root(request.context_id)
@@ -44,16 +45,14 @@ def _editor(request: RouteRequest) -> None:
             editor_font_size=font_size,
         )
     except Exception as error:
-        request.send_text(
+        return HtmlResponse(
             f"<p>{html.escape(str(error))}</p>",
-            "text/html; charset=utf-8",
             status=HTTPStatus.CONFLICT,
         )
-        return
-    request.send_text(page, "text/html; charset=utf-8", status=status)
+    return HtmlResponse(page, status=status)
 
 
-def _save(request: RouteRequest) -> None:
+def _save(request: RouteRequest) -> ServiceResponse:
     try:
         root = request.state.active_project_root(request.context_id)
         payload = request.body()
@@ -64,12 +63,11 @@ def _save(request: RouteRequest) -> None:
             payload,
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(result)
+        return conflict(error)
+    return JsonResponse(result)
 
 
-def _view(request: RouteRequest) -> None:
+def _view(request: RouteRequest) -> HtmlResponse:
     artifact = request.path.removeprefix("/artifacts/")
     try:
         if artifact == "requirements":
@@ -87,18 +85,17 @@ def _view(request: RouteRequest) -> None:
         else:
             root = request.state.active_project_root(request.context_id)
             stage = {
+                "implementation-log": "implementation-log",
                 "implementation-report": "code",
                 "validation-report": "validate",
             }.get(artifact, artifact)
             page, status = stage_document_html(root, stage)
     except Exception as error:
-        request.send_text(
+        return HtmlResponse(
             f"<p>{html.escape(str(error))}</p>",
-            "text/html; charset=utf-8",
             status=HTTPStatus.CONFLICT,
         )
-        return
-    request.send_text(page, "text/html; charset=utf-8", status=status)
+    return HtmlResponse(page, status=status)
 
 
 _HANDLERS = {"editor": _editor, "save": _save, "view": _view}
@@ -120,6 +117,12 @@ def module() -> ServiceModule:
                 "view",
             ),
             route("GET", "/artifacts/test-plan", "structured_documents", "view"),
+            route(
+                "GET",
+                "/artifacts/implementation-log",
+                "structured_documents",
+                "view",
+            ),
             route(
                 "GET",
                 "/artifacts/implementation-report",

@@ -10,6 +10,7 @@ from importlib import metadata
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from .http import ServiceResponse
     from .routes import RouteRequest
     from .services import ServiceServices
 
@@ -43,7 +44,7 @@ class WorkflowController(Protocol):
 
 
 WorkflowControllerFactory = Callable[["ServiceServices"], WorkflowController]
-RouteHandler = Callable[["RouteRequest"], None]
+RouteHandler = Callable[["RouteRequest"], "ServiceResponse"]
 
 
 @dataclass(frozen=True)

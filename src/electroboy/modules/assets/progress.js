@@ -60,6 +60,14 @@
           closeProgressEventStream();
         }
       });
+      progressEventSource.addEventListener("progress-issue", (event) => {
+        const payload = JSON.parse(event.data);
+        const severity = String(payload.severity || "issue").toUpperCase();
+        appendProgressOutput(
+          `\r\nISSUE FOUND - ${severity} - ${payload.summary || ""}\r\n`,
+          "error",
+        );
+      });
       progressEventSource.onerror = () => {};
     }
 

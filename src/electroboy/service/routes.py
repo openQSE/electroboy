@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from http import HTTPStatus
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import parse_qs
 
+from .http import ServiceResponse
 from .registry import (
     ModuleRegistry,
     RouteDefinition,
@@ -49,28 +49,6 @@ class RouteTransport(Protocol):
 
     def read_json_body(self) -> dict[str, object]: ...
 
-    def send_json(
-        self,
-        payload: dict[str, object],
-        status: HTTPStatus = HTTPStatus.OK,
-    ) -> None: ...
-
-    def send_text(
-        self,
-        text: str,
-        content_type: str,
-        status: HTTPStatus = HTTPStatus.OK,
-    ) -> None: ...
-
-    def send_download(self, text: str, filename: str) -> None: ...
-
-    def send_binary_download(
-        self,
-        data: bytes,
-        filename: str,
-        content_type: str,
-    ) -> None: ...
-
     def stream_session_events(self, session: AgentSession) -> None: ...
 
     def stream_artifact_events(self, artifact: str, path: Path) -> None: ...
@@ -81,6 +59,8 @@ class RouteTransport(Protocol):
         root: Path,
         snapshot: Callable[[Path], tuple[str, bool]],
     ) -> None: ...
+
+    def emit_response(self, response: ServiceResponse) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -127,32 +107,6 @@ class RouteRequest:
 
     def body(self) -> dict[str, object]:
         return self.transport.read_json_body()
-
-    def send_json(
-        self,
-        payload: dict[str, object],
-        status: HTTPStatus = HTTPStatus.OK,
-    ) -> None:
-        self.transport.send_json(payload, status=status)
-
-    def send_text(
-        self,
-        text: str,
-        content_type: str = "text/plain; charset=utf-8",
-        status: HTTPStatus = HTTPStatus.OK,
-    ) -> None:
-        self.transport.send_text(text, content_type, status=status)
-
-    def send_download(self, text: str, filename: str) -> None:
-        self.transport.send_download(text, filename)
-
-    def send_binary_download(
-        self,
-        data: bytes,
-        filename: str,
-        content_type: str,
-    ) -> None:
-        self.transport.send_binary_download(data, filename, content_type)
 
     def stream_session_events(self, session: AgentSession) -> None:
         self.transport.stream_session_events(session)
@@ -207,7 +161,7 @@ class RouteDispatcher:
         match = self.match(request.method, request.path)
         if match is None:
             return False
-        match.handler(request)
+        request.transport.emit_response(match.handler(request))
         return True
 
 

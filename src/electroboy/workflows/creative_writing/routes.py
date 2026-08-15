@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
+from electroboy.service.http import JsonResponse, ServiceResponse
 from electroboy.service.registry import RouteDefinition, RouteHandler
 from electroboy.service.routes import RouteRequest
 
@@ -12,11 +13,11 @@ def _route(method: str, path: str, name: str) -> RouteDefinition:
     return RouteDefinition(method, path, "creative-writing", name)
 
 
-def _error(request: RouteRequest, error: Exception) -> None:
-    request.send_json({"error": str(error)}, status=HTTPStatus.CONFLICT)
+def _error(error: Exception) -> JsonResponse:
+    return JsonResponse({"error": str(error)}, status=HTTPStatus.CONFLICT)
 
 
-def _project_action(request: RouteRequest, method: str) -> None:
+def _project_action(request: RouteRequest, method: str) -> ServiceResponse:
     try:
         payload = request.body()
         result = getattr(request.state, method)(
@@ -24,38 +25,35 @@ def _project_action(request: RouteRequest, method: str) -> None:
             str(payload.get("path") or ""),
         )
     except Exception as error:
-        _error(request, error)
-        return
-    request.send_json(result)
+        return _error(error)
+    return JsonResponse(result)
 
 
-def _open_project(request: RouteRequest) -> None:
-    _project_action(request, "open_creative_project")
+def _open_project(request: RouteRequest) -> ServiceResponse:
+    return _project_action(request, "open_creative_project")
 
 
-def _create_project(request: RouteRequest) -> None:
-    _project_action(request, "create_creative_project")
+def _create_project(request: RouteRequest) -> ServiceResponse:
+    return _project_action(request, "create_creative_project")
 
 
-def _initialize(request: RouteRequest) -> None:
+def _initialize(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.initialize_creative_workspace(request.context_id)
     except Exception as error:
-        _error(request, error)
-        return
-    request.send_json(payload)
+        return _error(error)
+    return JsonResponse(payload)
 
 
-def _scratch(request: RouteRequest) -> None:
+def _scratch(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.creative_scratchpad(request.context_id)
     except Exception as error:
-        _error(request, error)
-        return
-    request.send_json(payload)
+        return _error(error)
+    return JsonResponse(payload)
 
 
-def _save_scratch(request: RouteRequest) -> None:
+def _save_scratch(request: RouteRequest) -> ServiceResponse:
     try:
         body = request.body()
         payload = request.state.save_creative_scratchpad(
@@ -63,12 +61,11 @@ def _save_scratch(request: RouteRequest) -> None:
             str(body.get("markdown") or ""),
         )
     except Exception as error:
-        _error(request, error)
-        return
-    request.send_json(payload)
+        return _error(error)
+    return JsonResponse(payload)
 
 
-def _start_agent(request: RouteRequest) -> None:
+def _start_agent(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         active_target = payload.get("active_target")
@@ -86,15 +83,13 @@ def _start_agent(request: RouteRequest) -> None:
             "session_id": session.session_id,
         }
     except OSError as error:
-        request.send_json(
+        return JsonResponse(
             {"error": f"could not start creative writing agent: {error}"},
             status=HTTPStatus.INTERNAL_SERVER_ERROR,
         )
-        return
     except Exception as error:
-        _error(request, error)
-        return
-    request.send_json(result)
+        return _error(error)
+    return JsonResponse(result)
 
 
 ROUTES = (

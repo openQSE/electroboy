@@ -30,6 +30,8 @@ from ..models import (
     utc_now,
 )
 from ..state_store import StateError, StateStore
+from .context import BrowserContext, ContextStore
+from .file_watch import file_signature as _file_signature
 from .frontend import (
     SERVICE_STATIC_ROUTE_PREFIX,
     frontend_asset_payload,
@@ -38,8 +40,15 @@ from .frontend import (
     render_service_index,
     service_asset_content_type,
 )
-from .context import BrowserContext, ContextStore
-from .file_watch import file_signature as _file_signature
+from .http import (
+    BinaryResponse,
+    HtmlResponse,
+    JsonResponse,
+    ServiceResponse,
+    StreamResponse,
+    TextResponse,
+)
+from .progress_events import progress_issue_events
 from .recent_projects import (
     recent_project_entries as _recent_project_entries,
 )
@@ -2402,32 +2411,6 @@ def _handler_for(
         def read_json_body(self) -> dict[str, object]:
             return self._read_json_body()
 
-        def send_json(
-            self,
-            payload: dict[str, object],
-            status: HTTPStatus = HTTPStatus.OK,
-        ) -> None:
-            self._send_json(payload, status=status)
-
-        def send_text(
-            self,
-            text: str,
-            content_type: str,
-            status: HTTPStatus = HTTPStatus.OK,
-        ) -> None:
-            self._send_text(text, content_type, status=status)
-
-        def send_download(self, text: str, filename: str) -> None:
-            self._send_download(text, filename)
-
-        def send_binary_download(
-            self,
-            data: bytes,
-            filename: str,
-            content_type: str,
-        ) -> None:
-            self._send_binary_download(data, filename, content_type)
-
         def stream_session_events(self, session: AgentSession) -> None:
             self._stream_session_events(session)
 
@@ -2441,6 +2424,45 @@ def _handler_for(
             snapshot: Callable[[Path], tuple[str, bool]],
         ) -> None:
             self._stream_progress_events(context_id, root, snapshot)
+
+        def emit_response(self, response: ServiceResponse) -> None:
+            if isinstance(response, JsonResponse):
+                self._send_json(response.payload, status=response.status)
+                return
+            if isinstance(response, HtmlResponse):
+                self._send_text(
+                    response.body,
+                    "text/html; charset=utf-8",
+                    status=response.status,
+                )
+                return
+            if isinstance(response, TextResponse):
+                self._send_text(
+                    response.body,
+                    response.content_type,
+                    status=response.status,
+                )
+                return
+            if isinstance(response, BinaryResponse):
+                if response.filename:
+                    self._send_binary_download(
+                        response.data,
+                        response.filename,
+                        response.content_type,
+                        status=response.status,
+                    )
+                    return
+                self._send_headers(
+                    response.status,
+                    response.content_type,
+                    len(response.data),
+                )
+                self.wfile.write(response.data)
+                return
+            if isinstance(response, StreamResponse):
+                response.stream()
+                return
+            raise TypeError(f"unsupported service response: {type(response)!r}")
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
@@ -2811,6 +2833,7 @@ def _handler_for(
             self.send_header("Connection", "keep-alive")
             self.end_headers()
             last_snapshot = ""
+            emitted_issues: set[tuple[str, str]] = set()
             event_id = 1
             try:
                 while True:
@@ -2829,6 +2852,24 @@ def _handler_for(
                         self.wfile.flush()
                         event_id += 1
                         last_snapshot = snapshot
+                        for issue in progress_issue_events(text):
+                            issue_key = (
+                                str(issue["severity"]),
+                                str(issue["summary"]),
+                            )
+                            if issue_key in emitted_issues:
+                                continue
+                            issue_payload = json.dumps(issue, sort_keys=True)
+                            self.wfile.write(
+                                f"id: {event_id}\n".encode("utf-8")
+                            )
+                            self.wfile.write(b"event: progress-issue\n")
+                            self.wfile.write(
+                                f"data: {issue_payload}\n\n".encode("utf-8")
+                            )
+                            self.wfile.flush()
+                            event_id += 1
+                            emitted_issues.add(issue_key)
                     else:
                         self.wfile.write(b": keep-alive\n\n")
                         self.wfile.flush()

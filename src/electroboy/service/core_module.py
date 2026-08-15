@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
+from .http import HtmlResponse, JsonResponse, ServiceResponse
 from .registry import (
     RouteDefinition,
     ServiceModule,
@@ -24,44 +25,39 @@ def _route(method: str, path: str, handler_name: str) -> RouteDefinition:
     return RouteDefinition(method, path, "core", handler_name)
 
 
-def _conflict(request: RouteRequest, error: Exception) -> None:
-    request.send_json({"error": str(error)}, status=HTTPStatus.CONFLICT)
+def _conflict(error: Exception) -> JsonResponse:
+    return JsonResponse({"error": str(error)}, status=HTTPStatus.CONFLICT)
 
 
-def _index(request: RouteRequest) -> None:
-    request.send_text(
-        request.operations.service_index(),
-        "text/html; charset=utf-8",
-    )
+def _index(request: RouteRequest) -> HtmlResponse:
+    return HtmlResponse(request.operations.service_index())
 
 
-def _health(request: RouteRequest) -> None:
-    request.send_json(request.operations.health_payload())
+def _health(request: RouteRequest) -> JsonResponse:
+    return JsonResponse(request.operations.health_payload())
 
 
-def _create_context(request: RouteRequest) -> None:
-    request.send_json(request.state.create_context())
+def _create_context(request: RouteRequest) -> JsonResponse:
+    return JsonResponse(request.state.create_context())
 
 
-def _project_payload(request: RouteRequest) -> None:
+def _project_payload(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.project_payload(request.context_id)
     except Exception as error:
-        _conflict(request, error)
-        return
-    request.send_json(payload)
+        return _conflict(error)
+    return JsonResponse(payload)
 
 
-def _project_status(request: RouteRequest) -> None:
+def _project_status(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.project_status_payload(request.context_id)
     except Exception as error:
-        _conflict(request, error)
-        return
-    request.send_json(payload)
+        return _conflict(error)
+    return JsonResponse(payload)
 
 
-def _project_action(request: RouteRequest, method: str) -> None:
+def _project_action(request: RouteRequest, method: str) -> ServiceResponse:
     try:
         payload = request.body()
         result = getattr(request.state, method)(
@@ -69,38 +65,35 @@ def _project_action(request: RouteRequest, method: str) -> None:
             str(payload.get("path") or ""),
         )
     except Exception as error:
-        _conflict(request, error)
-        return
-    request.send_json(result)
+        return _conflict(error)
+    return JsonResponse(result)
 
 
-def _open_project(request: RouteRequest) -> None:
-    _project_action(request, "open_project")
+def _open_project(request: RouteRequest) -> ServiceResponse:
+    return _project_action(request, "open_project")
 
 
-def _create_project(request: RouteRequest) -> None:
-    _project_action(request, "create_project")
+def _create_project(request: RouteRequest) -> ServiceResponse:
+    return _project_action(request, "create_project")
 
 
-def _deactivate_project(request: RouteRequest) -> None:
+def _deactivate_project(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.deactivate_project(request.context_id)
     except Exception as error:
-        _conflict(request, error)
-        return
-    request.send_json(payload)
+        return _conflict(error)
+    return JsonResponse(payload)
 
 
-def _workflow_payload(request: RouteRequest) -> None:
+def _workflow_payload(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.workflow_payload(request.context_id)
     except Exception as error:
-        _conflict(request, error)
-        return
-    request.send_json(payload)
+        return _conflict(error)
+    return JsonResponse(payload)
 
 
-def _set_workflow_stage(request: RouteRequest) -> None:
+def _set_workflow_stage(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         result = request.state.select_workflow_stage(
@@ -108,25 +101,23 @@ def _set_workflow_stage(request: RouteRequest) -> None:
             str(payload.get("stage") or ""),
         )
     except Exception as error:
-        _conflict(request, error)
-        return
-    request.send_json(result)
+        return _conflict(error)
+    return JsonResponse(result)
 
 
-def _workflow_config(request: RouteRequest) -> None:
-    request.send_json(workflow_config_payload(request.config.root))
+def _workflow_config(request: RouteRequest) -> JsonResponse:
+    return JsonResponse(workflow_config_payload(request.config.root))
 
 
-def _registry(request: RouteRequest) -> None:
+def _registry(request: RouteRequest) -> JsonResponse:
     modules = request.config.module_registry
     workflows = request.config.workflow_registry
     if modules is None or workflows is None:
-        request.send_json(
+        return JsonResponse(
             {"error": "service registry is not configured"},
             status=HTTPStatus.INTERNAL_SERVER_ERROR,
         )
-        return
-    request.send_json(
+    return JsonResponse(
         {
             **registry_payload(modules, workflows),
             "frontend_bundles": request.operations.frontend_asset_payload(),
@@ -135,7 +126,7 @@ def _registry(request: RouteRequest) -> None:
     )
 
 
-def _add_configured_workflow(request: RouteRequest) -> None:
+def _add_configured_workflow(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         workflow_id = str(payload.get("id") or "")
@@ -155,9 +146,8 @@ def _add_configured_workflow(request: RouteRequest) -> None:
         )
         request.state.bind_workflow_registry(request.config.workflow_registry)
     except (ImportError, AttributeError, TypeError, ValueError) as error:
-        _conflict(request, error)
-        return
-    request.send_json(
+        return _conflict(error)
+    return JsonResponse(
         {
             "status": "added",
             "workflow_config": workflow_config.payload(),

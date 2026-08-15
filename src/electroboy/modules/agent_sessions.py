@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
+from electroboy.service.http import (
+    BinaryResponse,
+    JsonResponse,
+    ServiceResponse,
+    StreamResponse,
+    TextResponse,
+)
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
-from .common import route, send_conflict
+from .common import conflict, route
 from .progress_service import _session_events_markdown, _session_export_filename
 
 
@@ -18,20 +25,19 @@ def _selected_session(request: RouteRequest):
     return request.state.selected_session(request.context_id)
 
 
-def _list_sessions(request: RouteRequest) -> None:
+def _list_sessions(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.state.session_payload(request.context_id)
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(payload)
+        return conflict(error)
+    return JsonResponse(payload)
 
 
-def _session_registry(request: RouteRequest) -> None:
-    request.send_json(request.state.session_registry_payload())
+def _session_registry(request: RouteRequest) -> JsonResponse:
+    return JsonResponse(request.state.session_registry_payload())
 
 
-def _attach(request: RouteRequest) -> None:
+def _attach(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         result = request.state.attach_session(
@@ -39,21 +45,19 @@ def _attach(request: RouteRequest) -> None:
             str(payload.get("session_id") or ""),
         )
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json(result)
+        return conflict(error)
+    return JsonResponse(result)
 
 
-def _message(request: RouteRequest) -> None:
+def _message(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         message = str(payload.get("message") or "")
         if not message.strip():
-            request.send_json(
+            return JsonResponse(
                 {"error": "message is empty"},
                 status=HTTPStatus.BAD_REQUEST,
             )
-            return
         session_id = str(payload.get("session_id") or "")
         if session_id:
             request.state.send_session_message(
@@ -64,46 +68,46 @@ def _message(request: RouteRequest) -> None:
         else:
             request.state.send_selected_session_message(request.context_id, message)
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json({"status": "sent"})
+        return conflict(error)
+    return JsonResponse({"status": "sent"})
 
 
-def _terminal_input(request: RouteRequest, field: str, method: str) -> None:
+def _terminal_input(
+    request: RouteRequest,
+    field: str,
+    method: str,
+) -> ServiceResponse:
     try:
         payload = request.body()
         value = str(payload.get(field) or "")
         if not value:
-            request.send_json(
+            return JsonResponse(
                 {"error": f"{field} is required"},
                 status=HTTPStatus.BAD_REQUEST,
             )
-            return
         getattr(request.state, method)(request.context_id, value)
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json({"status": "sent"})
+        return conflict(error)
+    return JsonResponse({"status": "sent"})
 
 
-def _key(request: RouteRequest) -> None:
-    _terminal_input(request, "key", "send_selected_session_key")
+def _key(request: RouteRequest) -> ServiceResponse:
+    return _terminal_input(request, "key", "send_selected_session_key")
 
 
-def _raw(request: RouteRequest) -> None:
-    _terminal_input(request, "data", "send_selected_session_raw")
+def _raw(request: RouteRequest) -> ServiceResponse:
+    return _terminal_input(request, "data", "send_selected_session_raw")
 
 
-def _interrupt(request: RouteRequest) -> None:
+def _interrupt(request: RouteRequest) -> ServiceResponse:
     try:
         request.state.interrupt_selected_session(request.context_id)
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json({"status": "interrupted"})
+        return conflict(error)
+    return JsonResponse({"status": "interrupted"})
 
 
-def _resize(request: RouteRequest) -> None:
+def _resize(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
         columns = int(payload.get("columns") or 120)
@@ -119,41 +123,37 @@ def _resize(request: RouteRequest) -> None:
         else:
             request.state.resize_selected_session(request.context_id, columns, rows)
     except Exception as error:
-        send_conflict(request, error)
-        return
-    request.send_json({"status": "resized"})
+        return conflict(error)
+    return JsonResponse({"status": "resized"})
 
 
-def _events(request: RouteRequest) -> None:
+def _events(request: RouteRequest) -> ServiceResponse:
     try:
         session = _selected_session(request)
     except Exception as error:
-        send_conflict(request, error)
-        return
+        return conflict(error)
     if session is None:
-        request.send_json(
+        return JsonResponse(
             {"error": "no agent session is selected"},
             status=HTTPStatus.CONFLICT,
         )
-        return
-    request.stream_session_events(session)
+    return StreamResponse(lambda: request.stream_session_events(session))
 
 
-def _export(request: RouteRequest) -> None:
+def _export(request: RouteRequest) -> ServiceResponse:
     try:
         session = _selected_session(request)
     except Exception as error:
-        request.send_text(str(error), status=HTTPStatus.CONFLICT)
-        return
+        return TextResponse(str(error), status=HTTPStatus.CONFLICT)
     if session is None:
-        request.send_text(
+        return TextResponse(
             "no agent session is selected",
             status=HTTPStatus.CONFLICT,
         )
-        return
-    request.send_download(
-        _session_events_markdown(session),
-        _session_export_filename(session),
+    return BinaryResponse(
+        _session_events_markdown(session).encode("utf-8"),
+        "text/markdown; charset=utf-8",
+        filename=_session_export_filename(session),
     )
 
 
