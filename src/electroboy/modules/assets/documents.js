@@ -11,10 +11,12 @@
     "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
   let runtimeApi = null;
   let runtimeState = null;
+  let documentMenuEventsBound = false;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
     runtimeState = runtime.state;
+    bindDocumentMenuEvents();
     if (runtimeState.customDocumentTargets.length === 0) {
       runtimeState.customDocumentTargets = storedDocumentTargets();
     }
@@ -150,6 +152,141 @@
           accept: selected.accept,
         },
       ];
+    }
+
+    function closeDocumentMenus(except = null) {
+      for (const menu of document.querySelectorAll(".pane-document-menu[open]")) {
+        if (menu !== except) {
+          menu.open = false;
+        }
+      }
+    }
+
+    function bindDocumentMenuEvents() {
+      if (documentMenuEventsBound) {
+        return;
+      }
+      documentMenuEventsBound = true;
+      document.addEventListener("click", (event) => {
+        const activeMenu = event.target instanceof Element
+          ? event.target.closest(".pane-document-menu")
+          : null;
+        closeDocumentMenus(activeMenu);
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") {
+          return;
+        }
+        const openMenu = document.querySelector(".pane-document-menu[open]");
+        if (!openMenu) {
+          return;
+        }
+        event.preventDefault();
+        openMenu.open = false;
+        openMenu.querySelector("summary")?.focus();
+      });
+    }
+
+    function documentMenuButton(label, title, run, options = {}) {
+      const button = document.createElement("button");
+      button.className = "pane-document-menu-item";
+      button.type = "button";
+      button.role = options.role || "menuitem";
+      button.title = title;
+      button.setAttribute("aria-label", title);
+      if (options.checked !== undefined) {
+        button.setAttribute("aria-checked", String(Boolean(options.checked)));
+      }
+      const check = document.createElement("span");
+      check.className = "pane-document-menu-check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = options.checked ? "\u2713" : "";
+      const text = document.createElement("span");
+      text.textContent = label;
+      button.append(check, text);
+      button.addEventListener("click", () => {
+        closeDocumentMenus();
+        run();
+      });
+      return button;
+    }
+
+    function buildDocumentMenu(item) {
+      const menu = document.createElement("details");
+      menu.className = "pane-document-menu";
+      menu.addEventListener("toggle", () => {
+        if (menu.open) {
+          closeDocumentMenus(menu);
+          return;
+        }
+        for (const submenu of menu.querySelectorAll("details[open]")) {
+          submenu.open = false;
+        }
+      });
+
+      const summary = document.createElement("summary");
+      summary.className = "pane-document-menu-trigger";
+      summary.title = `Document actions for ${item.title}`;
+      summary.setAttribute("aria-label", `Document actions for ${item.title}`);
+      summary.textContent = "Document";
+
+      const panel = document.createElement("div");
+      panel.className = "pane-document-menu-panel";
+      panel.role = "menu";
+      panel.setAttribute("aria-label", `Document actions for ${item.title}`);
+      panel.append(
+        documentMenuButton(
+          "Preview",
+          `Preview ${item.title}`,
+          () => setArtifactPreviewEditing(item, false),
+          { role: "menuitemradio", checked: !item.editing },
+        ),
+        documentMenuButton(
+          "Edit",
+          `Edit ${item.title}`,
+          () => setArtifactPreviewEditing(item, true),
+          { role: "menuitemradio", checked: Boolean(item.editing) },
+        ),
+      );
+
+      const separator = document.createElement("div");
+      separator.className = "pane-document-menu-separator";
+      separator.role = "separator";
+      panel.append(
+        separator,
+        documentMenuButton(
+          "Refresh",
+          `Refresh ${item.title}`,
+          () => refreshArtifactPreview(),
+        ),
+      );
+
+      const exportMenu = document.createElement("details");
+      exportMenu.className = "pane-document-export-menu";
+      const exportSummary = document.createElement("summary");
+      exportSummary.className = "pane-document-menu-item pane-document-submenu-trigger";
+      exportSummary.textContent = "Export";
+      exportSummary.title = `Export ${item.title}`;
+      exportSummary.setAttribute("aria-label", `Export ${item.title}`);
+      const exportPanel = document.createElement("div");
+      exportPanel.className = "pane-document-export-panel";
+      for (const format of documentExportFormats()) {
+        exportPanel.append(
+          documentMenuButton(
+            format.label,
+            `Export ${item.title} as ${format.label}`,
+            () => {
+              exportArtifactDocument(item, format.value).catch((error) => {
+                appendOutput(`export failed: ${error}\n`, "error");
+              });
+            },
+          ),
+        );
+      }
+      exportMenu.append(exportSummary, exportPanel);
+      panel.append(exportMenu);
+      menu.append(summary, panel);
+      return menu;
     }
 
     function artifactDocumentBaseName(item) {
@@ -630,52 +767,7 @@
         refresh.title = `Refresh ${item.title}`;
         refresh.setAttribute("aria-label", `Refresh ${item.title}`);
         refresh.textContent = "Refresh";
-        refresh.addEventListener("click", refreshArtifactPreview);
-
-        const preview = document.createElement("button");
-        preview.className = "pane-popout-button";
-        preview.type = "button";
-        preview.title = `Preview ${item.title}`;
-        preview.setAttribute("aria-label", `Preview ${item.title}`);
-        preview.textContent = "Preview";
-        preview.classList.toggle("active", !item.editing);
-        preview.addEventListener("click", () => {
-          setArtifactPreviewEditing(item, false);
-        });
-
-        const edit = document.createElement("button");
-        edit.className = "pane-popout-button";
-        edit.type = "button";
-        edit.title = `Edit ${item.title}`;
-        edit.setAttribute("aria-label", `Edit ${item.title}`);
-        edit.textContent = "Edit";
-        edit.classList.toggle("active", Boolean(item.editing));
-        edit.addEventListener("click", () => {
-          setArtifactPreviewEditing(item, true);
-        });
-
-        const exportFormat = document.createElement("select");
-        exportFormat.className = "document-export-format";
-        exportFormat.title = `Export format for ${item.title}`;
-        exportFormat.setAttribute("aria-label", `Export format for ${item.title}`);
-        for (const format of documentExportFormats()) {
-          const option = document.createElement("option");
-          option.value = format.value;
-          option.textContent = format.label;
-          exportFormat.append(option);
-        }
-
-        const exportButton = document.createElement("button");
-        exportButton.className = "pane-popout-button";
-        exportButton.type = "button";
-        exportButton.title = `Export ${item.title}`;
-        exportButton.setAttribute("aria-label", `Export ${item.title}`);
-        exportButton.textContent = "Export";
-        exportButton.addEventListener("click", () => {
-          exportArtifactDocument(item, exportFormat.value).catch((error) => {
-            appendOutput(`export failed: ${error}\n`, "error");
-          });
-        });
+        refresh.addEventListener("click", () => refreshArtifactPreview());
 
         const popout = document.createElement("button");
         popout.className = "pane-popout-button";
@@ -728,12 +820,10 @@
         if (supportsZoom) {
           actions.append(zoomControls);
         }
-        if (supportsExport) {
-          actions.append(exportFormat, exportButton);
-        }
-        actions.append(refresh);
-        if (supportsModeSwitch) {
-          actions.append(preview, edit);
+        if (supportsModeSwitch && supportsExport) {
+          actions.append(buildDocumentMenu(item));
+        } else {
+          actions.append(refresh);
         }
         if (agentButton) {
           actions.append(agentButton);

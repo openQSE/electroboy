@@ -342,6 +342,13 @@ class ServiceTests(unittest.TestCase):
             documents,
         )
         self.assertIn("rememberOpenDocumentTarget(item.target);", documents)
+        self.assertIn("function buildDocumentMenu(item)", documents)
+        self.assertIn('summary.textContent = "Document"', documents)
+        self.assertIn('"Preview",', documents)
+        self.assertIn('"Edit",', documents)
+        self.assertIn('"Refresh",', documents)
+        self.assertIn('exportSummary.textContent = "Export"', documents)
+        self.assertNotIn('exportFormat.className = "document-export-format"', documents)
         self.assertIn("function openDocumentTarget(target)", documents)
         self.assertIn("function popOutArtifactPreview(item)", documents)
         self.assertNotIn('popOutPane("artifact", item)', documents)
