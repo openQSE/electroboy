@@ -88,7 +88,7 @@
   }
 
   function recentProjectsForWorkflow() {
-    return runtimeApi.recent.list("creative");
+    return runtimeApi.recent.list();
   }
 
   function recentProjectLabel(project) {
@@ -101,6 +101,73 @@
 
   function recordProjectStatusMessage(message) {
     runtimeApi.project.recordStatus(message);
+  }
+
+  function renderProjectStatus(runtime) {
+    bindRuntime(runtime);
+    const lines = [];
+    if (activeProjectRoot || activationRoot) {
+      lines.push(`project: ${activeProjectRoot || activationRoot}`);
+    } else {
+      lines.push("no active project");
+    }
+    if (creativeActiveDocument) {
+      lines.push(`document: ${creativeActiveDocument}`);
+    } else if (creativeActiveFolder) {
+      lines.push(`folder: ${creativeActiveFolder}`);
+    }
+    const messages = runtime.project.statusMessages();
+    if (messages.length > 0) {
+      lines.push("", ...messages.slice(-12));
+    }
+    runtime.project.renderStatus(lines);
+    return true;
+  }
+
+  function restoreWorkflowScratchPad(runtime) {
+    bindRuntime(runtime);
+    loadCreativeScratchPad();
+    return true;
+  }
+
+  function saveWorkflowScratchPad(runtime) {
+    bindRuntime(runtime);
+    queueCreativeScratchPadSave();
+    return true;
+  }
+
+  function projectChanged(runtime, _payload, options = {}) {
+    bindRuntime(runtime);
+    applyCreativeWorkspace();
+    if (!options.deferWorkspaceInit) {
+      ensureCreativeWorkspaceLoaded();
+    }
+    return true;
+  }
+
+  function handleWindowMessage(runtime, data) {
+    bindRuntime(runtime);
+    if (data.type !== "electroboy-creative-open" || !data.path) {
+      return false;
+    }
+    if (data.entry_type === "directory") {
+      selectFolder(runtime, data.path);
+    } else if (data.entry_type === "corkboard") {
+      selectCorkboard(runtime, data.path);
+    } else {
+      selectDocument(runtime, data.path);
+    }
+    return true;
+  }
+
+  function projectEndpoint(_runtime, mode) {
+    if (mode === "open") {
+      return "/api/creative/project/open";
+    }
+    if (mode === "new") {
+      return "/api/creative/project/new";
+    }
+    return "";
   }
 
   function hideArtifactPreview() {
@@ -271,7 +338,7 @@
     });
     showCreativeCorkboard(path);
     renderCreativeTree();
-    runtime.project.renderCreativeStatus();
+    renderProjectStatus(runtime);
     notifyCreativeAgentTargetSwitch();
   }
 
@@ -287,7 +354,7 @@
     });
     showCreativeCorkboard(path, { freeform: true });
     renderCreativeTree();
-    runtime.project.renderCreativeStatus();
+    renderProjectStatus(runtime);
     notifyCreativeAgentTargetSwitch();
   }
 
@@ -329,7 +396,7 @@
     });
     showDocument(runtime, path);
     renderCreativeTree();
-    runtime.project.renderCreativeStatus();
+    renderProjectStatus(runtime);
     if (options.notifyAgent !== false) {
       notifyCreativeAgentTargetSwitch();
     }
@@ -951,6 +1018,14 @@
     capabilities: ["creative-workspace"],
     layoutClass: "creative-workflow",
     splashImage: "__CREATIVE_SPLASH_IMAGE_ROUTE__",
+    rightPaneStorageKey: "electroboy.creativeRightPaneWidth",
+    recentProjectFilter: (project) => project.kind === "creative",
+    projectEndpoint,
+    projectChanged,
+    handleWindowMessage,
+    renderProjectStatus,
+    restoreScratchPad: restoreWorkflowScratchPad,
+    saveScratchPad: saveWorkflowScratchPad,
     renderNavigation,
     refreshNavigation,
     activate,

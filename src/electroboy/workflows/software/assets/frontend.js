@@ -1035,6 +1035,7 @@
     stageDescriptions: STAGE_DESCRIPTIONS,
     artifactPreviews: ARTIFACT_PREVIEWS,
     splashImage: "__SPLASH_IMAGE_ROUTE__",
+    recentProjectFilter: (project) => project.kind !== "creative",
     activate(runtime) {
       bindRuntime(runtime);
       restoreSoftwareWorkspace();

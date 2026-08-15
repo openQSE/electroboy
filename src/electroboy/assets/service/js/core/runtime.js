@@ -106,8 +106,6 @@
     const PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY =
       "electroboy.projectShellPaneHeight";
     const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";
-    const CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY =
-      "electroboy.creativeRightPaneWidth";
     const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";
     const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";
     const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";
@@ -1080,9 +1078,7 @@
 
     function applyStoredWorkbenchPaneSize() {
       const rightWidth = storedNumber(
-        creativeModeActive()
-          ? CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY
-          : RIGHT_PANE_WIDTH_STORAGE_KEY,
+        activeWorkflowSetting("rightPaneStorageKey", RIGHT_PANE_WIDTH_STORAGE_KEY),
       );
       if (rightWidth) {
         outputWorkbench.style.setProperty("--right-pane-width", `${rightWidth}px`);
@@ -1124,9 +1120,7 @@
 
     function saveRightPaneWidth(width) {
       saveNumber(
-        creativeModeActive()
-          ? CREATIVE_RIGHT_PANE_WIDTH_STORAGE_KEY
-          : RIGHT_PANE_WIDTH_STORAGE_KEY,
+        activeWorkflowSetting("rightPaneStorageKey", RIGHT_PANE_WIDTH_STORAGE_KEY),
         width,
       );
     }
@@ -1148,8 +1142,7 @@
     }
 
     function restoreScratchPad() {
-      if (creativeModeActive()) {
-        loadCreativeScratchPad();
+      if (invokeActiveWorkflowHook("restoreScratchPad") === true) {
         return;
       }
       const storageKey = scratchPadStorageKey();
@@ -1167,8 +1160,7 @@
     }
 
     function saveScratchPad() {
-      if (creativeModeActive()) {
-        queueCreativeScratchPadSave();
+      if (invokeActiveWorkflowHook("saveScratchPad") === true) {
         return;
       }
       const storageKey = scratchPadStorageKey();
@@ -1324,8 +1316,19 @@
       }
     }
 
-    function creativeModeActive() {
-      return workflowHasCapability("creative-workspace");
+    function activeWorkflowSetting(name, fallback = undefined) {
+      const contribution = activeWorkflowContribution();
+      return contribution && Object.hasOwn(contribution, name)
+        ? contribution[name]
+        : fallback;
+    }
+
+    function invokeActiveWorkflowHook(name, ...args) {
+      const contribution = activeWorkflowContribution();
+      const handler = contribution ? contribution[name] : null;
+      return typeof handler === "function"
+        ? handler(frontendRuntime, ...args)
+        : undefined;
     }
 
     function stageConnector() {
@@ -1894,36 +1897,9 @@
       if (projectStatusMessages.length > PROJECT_STATUS_MESSAGE_LIMIT) {
         projectStatusMessages = projectStatusMessages.slice(-PROJECT_STATUS_MESSAGE_LIMIT);
       }
-      if (creativeModeActive()) {
-        renderCreativeProjectStatus();
-      } else {
+      if (invokeActiveWorkflowHook("renderProjectStatus") !== true) {
         projectStatusOutput.textContent = `${projectStatusMessages.slice(-12).join("\n")}\n`;
       }
-    }
-
-    function renderCreativeProjectStatus() {
-      if (!projectStatusOutput) {
-        return;
-      }
-      if (!creativeModeActive()) {
-        return;
-      }
-      const lines = [];
-      if (activeProjectRoot || activationRoot) {
-        lines.push(`project: ${activeProjectRoot || activationRoot}`);
-      } else {
-        lines.push("no active project");
-      }
-      if (creativeActiveDocument) {
-        lines.push(`document: ${creativeActiveDocument}`);
-      } else if (creativeActiveFolder) {
-        lines.push(`folder: ${creativeActiveFolder}`);
-      }
-      if (projectStatusMessages.length > 0) {
-        lines.push("");
-        lines.push(...projectStatusMessages.slice(-12));
-      }
-      projectStatusOutput.textContent = `${lines.join("\n")}\n`;
     }
 
     function appendAgentOutput(text) {
@@ -2047,7 +2023,6 @@
       );
       shell.style.setProperty("--workflow-pane-height", `${nextHeight}px`);
       saveWorkflowPaneHeight(nextHeight);
-      repositionOpenStageMenu();
       fitTerminal();
     }
 
@@ -2062,7 +2037,6 @@
       } catch (error) {
         return;
       }
-      repositionOpenStageMenu();
       fitTerminal();
     }
 
@@ -2697,14 +2671,7 @@
         }
         return;
       }
-      if (data.type === "electroboy-creative-open" && data.path) {
-        if (data.entry_type === "directory") {
-          selectCreativeFolder(data.path);
-        } else if (data.entry_type === "corkboard") {
-          selectCreativeCorkboard(data.path);
-        } else {
-          selectCreativeDocument(data.path);
-        }
+      if (invokeActiveWorkflowHook("handleWindowMessage", data) === true) {
         return;
       }
       if (
@@ -3141,12 +3108,7 @@
         restoreScratchPad();
       }
       syncProjectShellPane();
-      if (creativeModeActive()) {
-        applyCreativeWorkspace();
-        if (!options.deferCreativeWorkspaceInit) {
-          ensureCreativeWorkspaceLoaded();
-        }
-      } else {
+      if (invokeActiveWorkflowHook("projectChanged", payload, options) !== true) {
         syncArtifactPreviewWithProject();
       }
       projectStatus.textContent = projectStatusLine();
@@ -3170,10 +3132,11 @@
     }
 
     function recentProjectsForWorkflow() {
-      if (creativeModeActive()) {
-        return recentProjects.filter((recent) => recent.kind === "creative");
-      }
-      return recentProjects.filter((recent) => recent.kind !== "creative");
+      const contribution = activeWorkflowContribution();
+      const filter = contribution ? contribution.recentProjectFilter : null;
+      return typeof filter === "function"
+        ? recentProjects.filter((recent) => filter(recent))
+        : [...recentProjects];
     }
 
     function recentProjectLabel(recent) {
@@ -3652,178 +3615,6 @@
       return window.ElectroBoyFrontend.invokeModule("documents", "showDocumentPreview", ...args);
     }
 
-    function applyCreativeWorkspace(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "applyCreativeWorkspace", ...args);
-    }
-
-    function restoreSoftwareWorkspace(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "restoreSoftwareWorkspace", ...args);
-    }
-
-    function updateCreativeBinderActions(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "updateCreativeBinderActions", ...args);
-    }
-
-    function renderCreativeRecentProjects(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "renderCreativeRecentProjects", ...args);
-    }
-
-    function updateCreativeActionGroup(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "updateCreativeActionGroup", ...args);
-    }
-
-    function toggleCreativeActionGroup(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "toggleCreativeActionGroup", ...args);
-    }
-
-    function refreshCreativeBinder(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "refreshCreativeBinder", ...args);
-    }
-
-    function firstCreativeMarkdown(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "firstCreativeMarkdown", ...args);
-    }
-
-    function showCreativeTreeMessage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "showCreativeTreeMessage", ...args);
-    }
-
-    function renderCreativeTree(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "renderCreativeTree", ...args);
-    }
-
-    function showCreativeCorkboard(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "showCreativeCorkboard", ...args);
-    }
-
-    function selectCreativeFolder(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "selectCreativeFolder", ...args);
-    }
-
-    function selectCreativeCorkboard(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "selectCreativeCorkboard", ...args);
-    }
-
-    function showCreativeDocument(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "showCreativeDocument", ...args);
-    }
-
-    function selectCreativeDocument(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "selectCreativeDocument", ...args);
-    }
-
-    function creativeAgentSession(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeAgentSession", ...args);
-    }
-
-    function creativeAgentRunning(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeAgentRunning", ...args);
-    }
-
-    function activeCreativeTarget(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "activeCreativeTarget", ...args);
-    }
-
-    function creativeTargetKey(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeTargetKey", ...args);
-    }
-
-    function creativeTargetContextLines(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeTargetContextLines", ...args);
-    }
-
-    function notifyCreativeAgentTargetSwitch(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "notifyCreativeAgentTargetSwitch", ...args);
-    }
-
-    function creativePromptMessage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativePromptMessage", ...args);
-    }
-
-    function loadCreativeScratchPad(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "loadCreativeScratchPad", ...args);
-    }
-
-    function queueCreativeScratchPadSave(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "queueCreativeScratchPadSave", ...args);
-    }
-
-    function saveCreativeScratchPad(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "saveCreativeScratchPad", ...args);
-    }
-
-    function initializeCreativeWorkspace(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "initializeCreativeWorkspace", ...args);
-    }
-
-    function ensureCreativeWorkspaceLoaded(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "ensureCreativeWorkspaceLoaded", ...args);
-    }
-
-    function creativeEntryChildren(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeEntryChildren", ...args);
-    }
-
-    function findCreativeEntry(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "findCreativeEntry", ...args);
-    }
-
-    function uniqueCreativeChildPath(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "uniqueCreativeChildPath", ...args);
-    }
-
-    function creativeParentPath(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeParentPath", ...args);
-    }
-
-    function creativePathIsCorkboard(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativePathIsCorkboard", ...args);
-    }
-
-    function creativePathIsInside(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativePathIsInside", ...args);
-    }
-
-    function remapCreativePath(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "remapCreativePath", ...args);
-    }
-
-    function beginCreativeRename(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "beginCreativeRename", ...args);
-    }
-
-    function cancelCreativeRename(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "cancelCreativeRename", ...args);
-    }
-
-    function normalizedCreativeName(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "normalizedCreativeName", ...args);
-    }
-
-    function finishCreativeRename(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "finishCreativeRename", ...args);
-    }
-
-    function createCreativeFolderInline(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "createCreativeFolderInline", ...args);
-    }
-
-    function createCreativeDocumentInline(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "createCreativeDocumentInline", ...args);
-    }
-
-    function createCreativeCorkboardInline(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "createCreativeCorkboardInline", ...args);
-    }
-
-    function deleteCreativeEntry(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "deleteCreativeEntry", ...args);
-    }
-
-    function startCreativeWritingAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "startCreativeWritingAgent", ...args);
-    }
-
     function markArtifactFrameLoading(...args) {
       return window.ElectroBoyFrontend.invokeModule("documents", "markArtifactFrameLoading", ...args);
     }
@@ -3915,8 +3706,7 @@
     function queueProjectStatusRefresh(delay = 120) {
       window.clearTimeout(statusRefreshTimer);
       const sequence = ++statusRefreshSequence;
-      if (creativeModeActive()) {
-        renderCreativeProjectStatus();
+      if (invokeActiveWorkflowHook("renderProjectStatus") === true) {
         return;
       }
       if (!contextId || !activationRoot) {
@@ -3931,8 +3721,7 @@
     }
 
     async function refreshProjectStatus(sequence = ++statusRefreshSequence) {
-      if (creativeModeActive()) {
-        renderCreativeProjectStatus();
+      if (invokeActiveWorkflowHook("renderProjectStatus") === true) {
         return;
       }
       if (!contextId || !activationRoot) {
@@ -3954,22 +3743,6 @@
         return;
       }
       projectStatusOutput.textContent = payload.output || "status: none\n";
-    }
-
-    function selectWorkflowStage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "selectWorkflowStage", ...args);
-    }
-
-    function setWorkflowStageFromMenu(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "setWorkflowStageFromMenu", ...args);
-    }
-
-    function approveRequirementsStage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "approveRequirementsStage", ...args);
-    }
-
-    function skipRequirementsApprovalStage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "skipRequirementsApprovalStage", ...args);
     }
 
     async function browseDirectory(path = projectPath.value || ".", mode = currentBrowserMode) {
@@ -4145,19 +3918,14 @@
       projectPanel.hidden = true;
       hideStageMenus();
       recordProjectStatusMessage(`${payload.status}: ${activationRoot || activeProjectRoot}`);
-      updateProjectState(payload, { deferCreativeWorkspaceInit: creativeModeActive() });
-      if (creativeModeActive()) {
-        await ensureCreativeWorkspaceLoaded();
-      }
+      updateProjectState(payload);
       activateProject.disabled = false;
     }
 
     function projectEndpoint(mode) {
-      if (creativeModeActive() && mode === "open") {
-        return "/api/creative/project/open";
-      }
-      if (creativeModeActive() && mode === "new") {
-        return "/api/creative/project/new";
+      const workflowEndpoint = invokeActiveWorkflowHook("projectEndpoint", mode);
+      if (workflowEndpoint) {
+        return workflowEndpoint;
       }
       if (mode === "new") {
         return "/api/project/new";
@@ -4563,78 +4331,6 @@
       return window.ElectroBoyFrontend.invokeModule("agent-sessions", "setAgentRunning", ...args);
     }
 
-    function setRequirementsRunning(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "setRequirementsRunning", ...args);
-    }
-
-    function runStageAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "runStageAgent", ...args);
-    }
-
-    function startAdHocAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "startAdHocAgent", ...args);
-    }
-
-    function runRequirementsAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "runRequirementsAgent", ...args);
-    }
-
-    function startRequirementsAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "startRequirementsAgent", ...args);
-    }
-
-    function completeRequirementsAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "completeRequirementsAgent", ...args);
-    }
-
-    function startDesignAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "startDesignAgent", ...args);
-    }
-
-    function completeDesignAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "completeDesignAgent", ...args);
-    }
-
-    function startAutomaticDesignReviewAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "startAutomaticDesignReviewAgent", ...args);
-    }
-
-    function startInteractiveDesignReviewAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "startInteractiveDesignReviewAgent", ...args);
-    }
-
-    function stopDesignReviewAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "stopDesignReviewAgent", ...args);
-    }
-
-    function completeDesignReviewAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "completeDesignReviewAgent", ...args);
-    }
-
-    function approveDesignReviewStage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "approveDesignReviewStage", ...args);
-    }
-
-    function skipDesignReviewApprovalStage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "skipDesignReviewApprovalStage", ...args);
-    }
-
-    function startGenericStageAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "startGenericStageAgent", ...args);
-    }
-
-    function stopGenericStageAgent(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "stopGenericStageAgent", ...args);
-    }
-
-    function approveGenericStage(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "approveGenericStage", ...args);
-    }
-
-    function skipGenericStageApproval(...args) {
-      return window.ElectroBoyFrontend.invokeWorkflow("software", "skipGenericStageApproval", ...args);
-    }
-
     function startDocumentationAgent(...args) {
       return window.ElectroBoyFrontend.invokeModule("documents", "startDocumentationAgent", ...args);
     }
@@ -5022,16 +4718,17 @@
         update: updateProjectState,
         refresh: refreshProject,
         recordStatus: recordProjectStatusMessage,
-        renderCreativeStatus: renderCreativeProjectStatus,
+        statusMessages: () => [...projectStatusMessages],
+        renderStatus: (lines) => {
+          projectStatusOutput.textContent = `${lines.join("\n")}\n`;
+        },
         deactivate: deactivateActiveProject,
       },
       paths: {
         basename,
       },
       recent: {
-        list: (mode) => recentProjects.filter((recent) =>
-          mode === "creative" ? recent.kind === "creative" : recent.kind !== "creative"
-        ),
+        list: recentProjectsForWorkflow,
         label: recentProjectLabel,
         open: openRecentProject,
         actions: recentProjectActionsForWorkflow,
@@ -5090,13 +4787,7 @@
             ? handler(frontendRuntime, message)
             : message;
         },
-        updateMenus: () => {
-          updateRequirementsMenuState();
-          updateDesignMenuState();
-          updateDesignReviewMenuState();
-          updateGenericStageMenuStates();
-          updateDocumentMenuState();
-        },
+        updateMenus: refreshStageActionPanel,
       },
       agent: {
         appendOutput: appendAgentOutput,

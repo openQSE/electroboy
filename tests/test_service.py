@@ -349,6 +349,9 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("runtime.actions", binder)
         self.assertNotIn("runtime.actions", corkboard)
         self.assertNotIn("runtimeApi.actions", documents)
+        self.assertNotIn('invokeWorkflow("software"', app)
+        self.assertNotIn('invokeWorkflow("creative-writing"', app)
+        self.assertIn('invokeActiveWorkflowHook("projectChanged"', app)
         self.assertIn(
             "async function notifyCreativeAgentTargetSwitch()",
             creative,
