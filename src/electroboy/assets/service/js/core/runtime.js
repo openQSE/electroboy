@@ -1281,9 +1281,7 @@
         const provider = String(workflow.definition.provider || "").trim();
         const entryPoint = String(workflow.definition.entry_point || "").trim();
         option.value = workflow.id;
-        option.textContent = provider
-          ? `${workflow.label} (${provider})`
-          : workflow.label;
+        option.textContent = workflow.label;
         option.title = entryPoint
           ? `Provided by ${provider || "installed plugin"}: ${entryPoint}`
           : `Provided by ${provider || "the service"}`;
