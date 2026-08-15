@@ -6,10 +6,14 @@
       return;
     }
     const freeform = Boolean(options.freeform) ||
-      runtime.actions.creativePathIsCorkboard(path);
+      window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        "creativePathIsCorkboard",
+        path,
+      );
     const label = freeform
-      ? runtime.actions.basename(path).replace(/\.corkboard\.json$/i, "")
-      : runtime.actions.basename(path);
+      ? runtime.paths.basename(path).replace(/\.corkboard\.json$/i, "")
+      : runtime.paths.basename(path);
     const board = { label, path };
     const item = {
       id: `creative-corkboard-${path}`,
@@ -22,7 +26,9 @@
     } else {
       item.folder = board;
     }
-    runtime.actions.showArtifactPreviews(
+    runtime.modules.invoke(
+      "documents",
+      "showArtifactPreviews",
       [item],
       { manual: true, stage: "creative-writing" },
     );

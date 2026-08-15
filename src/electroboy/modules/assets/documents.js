@@ -61,7 +61,7 @@
   const setAgentInputVisible = (...args) =>
     runtimeApi.ui.setAgentInputVisible(...args);
   const clearAgentOutput = (...args) =>
-    runtimeApi.actions.clearAgentOutput(...args);
+    runtimeApi.agent.clearOutput(...args);
   const setAgentRunning = (...args) =>
     runtimeApi.modules.invoke("agent-sessions", "setAgentRunning", ...args);
   const updateProjectState = (...args) => runtimeApi.project.update(...args);
@@ -70,7 +70,7 @@
   const connectSessionEvents = (...args) =>
     runtimeApi.modules.invoke("agent-sessions", "connectSessionEvents", ...args);
   const sendTerminalResize = (...args) =>
-    runtimeApi.actions.sendTerminalResize(...args);
+    runtimeApi.agent.sendResize(...args);
 
     function storedDocumentTargets() {
       try {

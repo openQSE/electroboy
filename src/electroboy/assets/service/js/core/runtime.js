@@ -4816,6 +4816,7 @@
     const frontendRuntime = {
       elements: {
         creativeTree: null,
+        scratchPad,
         exportProgressOutput,
         progressOutput,
         progressOutputPane,
@@ -4850,22 +4851,35 @@
           registeredRepositories,
           workItemState,
           requirementsRunning,
+          requirementsApproved,
           designRunning,
           designReviewRunning,
+          designReviewInteractive,
+          designApproved,
           adHocRunning,
           projectShellRunning,
           projectShellPaneRequested,
           projectShellPaneDismissed,
           selectedSessionId,
+          agentSessions,
+          artifactPaneRequested,
+          artifactPreviewStage,
           creativeTreePayload,
           creativeActiveDocument,
           creativeActiveFolder,
           creativeEditingPath,
+          creativeEditingType,
           creativeLastNotifiedTarget,
           expandedCreativeFolders,
         };
       },
       updateState(patch) {
+        if (Object.hasOwn(patch, "artifactPaneRequested")) {
+          artifactPaneRequested = Boolean(patch.artifactPaneRequested);
+        }
+        if (Object.hasOwn(patch, "creativeTreePayload")) {
+          creativeTreePayload = patch.creativeTreePayload;
+        }
         if (Object.hasOwn(patch, "creativeActiveDocument")) {
           creativeActiveDocument = patch.creativeActiveDocument;
         }
@@ -4875,8 +4889,20 @@
         if (Object.hasOwn(patch, "creativeEditingPath")) {
           creativeEditingPath = patch.creativeEditingPath;
         }
+        if (Object.hasOwn(patch, "creativeEditingType")) {
+          creativeEditingType = patch.creativeEditingType;
+        }
         if (Object.hasOwn(patch, "creativeLastNotifiedTarget")) {
           creativeLastNotifiedTarget = patch.creativeLastNotifiedTarget;
+        }
+        if (Object.hasOwn(patch, "expandedCreativeFolders")) {
+          expandedCreativeFolders = patch.expandedCreativeFolders;
+        }
+        if (Object.hasOwn(patch, "selectedSessionId")) {
+          selectedSessionId = patch.selectedSessionId || "";
+        }
+        if (Object.hasOwn(patch, "designReviewInteractive")) {
+          designReviewInteractive = Boolean(patch.designReviewInteractive);
         }
         if (Object.hasOwn(patch, "projectShellRunning")) {
           projectShellRunning = Boolean(patch.projectShellRunning);
@@ -4995,6 +5021,38 @@
       project: {
         update: updateProjectState,
         refresh: refreshProject,
+        recordStatus: recordProjectStatusMessage,
+        renderCreativeStatus: renderCreativeProjectStatus,
+        deactivate: deactivateActiveProject,
+      },
+      paths: {
+        basename,
+      },
+      recent: {
+        list: (mode) => recentProjects.filter((recent) =>
+          mode === "creative" ? recent.kind === "creative" : recent.kind !== "creative"
+        ),
+        label: recentProjectLabel,
+        open: openRecentProject,
+        actions: recentProjectActionsForWorkflow,
+      },
+      browser: {
+        openProject: (...args) =>
+          window.ElectroBoyFrontend.invokeModule("file-browser", "openProjectBrowser", ...args),
+      },
+      metaProject: {
+        repositoryLabel,
+        startRepository: startMetaRepositoryFromMenu,
+        removeRepository: removeMetaRepositoryFromMenu,
+      },
+      workItems: {
+        features: workItemFeatures,
+        bugs: workItemBugs,
+        switchFeature: switchFeatureWorkItemContext,
+        switchBug: switchBugWorkItemContext,
+      },
+      scratch: {
+        restore: restoreScratchPad,
       },
       modules: {
         invoke: (moduleId, action, ...args) =>
@@ -5008,8 +5066,11 @@
         applyOutputPaneVisibility,
         popOutPane,
         hideWorkItemPanel,
+        showProjectPanel,
+        showWorkItemPanel,
         applyProjectSelection,
         insertTextAtCursor,
+        setWorkflowSideSheetCollapsed,
       },
       artifacts: {
         applyStoredPaneSize: applyStoredArtifactPaneSize,
@@ -5020,7 +5081,15 @@
       },
       workflows: {
         stageRun: genericStageRun,
-        creativePromptMessage,
+        preparePrompt: (message) => {
+          const definition = workflowDefinition();
+          const handler = definition && definition.actions
+            ? definition.actions.preparePrompt
+            : null;
+          return typeof handler === "function"
+            ? handler(frontendRuntime, message)
+            : message;
+        },
         updateMenus: () => {
           updateRequirementsMenuState();
           updateDesignMenuState();
@@ -5035,107 +5104,6 @@
         prepareTerminal: prepareTerminalStream,
         sendResize: sendTerminalResize,
         insertFileLink,
-      },
-      actions: {
-        appendOutput,
-        showStageActionPanel,
-        handleWorkflowStageClick,
-        setAgentInputVisible,
-        clearAgentOutput,
-        setWorkflowSideSheetCollapsed,
-        restoreScratchPad,
-        contextUrl,
-        updateProjectState,
-        connectSessionEvents,
-        sendTerminalResize,
-        activeCreativeTarget,
-        basename,
-        creativePathIsCorkboard,
-        creativeParentPath,
-        showArtifactPreviews,
-        showCreativeCorkboard,
-        renderCreativeTree,
-        renderCreativeProjectStatus,
-        notifyCreativeAgentTargetSwitch,
-        beginCreativeRename,
-        cancelCreativeRename,
-        finishCreativeRename,
-        deleteCreativeEntry,
-        createCreativeFolder: createCreativeFolderInline,
-        createCreativeDocument: createCreativeDocumentInline,
-        createCreativeCorkboard: createCreativeCorkboardInline,
-        selectCreativeFolder,
-        selectCreativeCorkboard,
-        selectCreativeDocument,
-        toggleCreativeActionGroup,
-        openProjectBrowser,
-        deactivateProject: deactivateActiveProject,
-        setWorkflowStage: setWorkflowStageFromMenu,
-        startRequirementsAgent,
-        approveRequirementsStage,
-        skipRequirementsApprovalStage,
-        startDesignAgent,
-        completeDesignAgent,
-        startAutomaticDesignReviewAgent,
-        startInteractiveDesignReviewAgent,
-        stopDesignReviewAgent,
-        approveDesignReviewStage,
-        skipDesignReviewApprovalStage,
-        genericStageRun,
-        startGenericStageAgent,
-        stopGenericStageAgent,
-        approveGenericStage,
-        skipGenericStageApproval,
-        startAdHocAgent,
-        recentProjectActions: recentProjectActionsForWorkflow,
-        repositoryLabel,
-        startMetaRepository: startMetaRepositoryFromMenu,
-        removeMetaRepository: removeMetaRepositoryFromMenu,
-        showProjectPanel,
-        showWorkItemPanel,
-        workItemFeatures,
-        workItemBugs,
-        switchFeature: switchFeatureWorkItemContext,
-        switchBug: switchBugWorkItemContext,
-        showStageArtifactPreview,
-        showArtifactPreview,
-        showDocumentPreview,
-        applyCreativeWorkspace,
-        restoreSoftwareWorkspace,
-        updateCreativeBinderActions,
-        renderCreativeRecentProjects,
-        updateCreativeActionGroup,
-        refreshCreativeBinder,
-        firstCreativeMarkdown,
-        showCreativeTreeMessage,
-        showCreativeDocument,
-        creativeAgentSession,
-        creativeAgentRunning,
-        creativeTargetKey,
-        creativeTargetContextLines,
-        creativePromptMessage,
-        loadCreativeScratchPad,
-        queueCreativeScratchPadSave,
-        saveCreativeScratchPad,
-        initializeCreativeWorkspace,
-        ensureCreativeWorkspaceLoaded,
-        creativeEntryChildren,
-        findCreativeEntry,
-        uniqueCreativeChildPath,
-        creativePathIsInside,
-        remapCreativePath,
-        normalizedCreativeName,
-        createCreativeFolderInline,
-        createCreativeDocumentInline,
-        createCreativeCorkboardInline,
-        startCreativeWritingAgent,
-        selectWorkflowStage,
-        setWorkflowStageFromMenu,
-        setRequirementsRunning,
-        runStageAgent,
-        runRequirementsAgent,
-        completeRequirementsAgent,
-        completeDesignReviewAgent,
       },
     };
 

@@ -68,7 +68,7 @@
 
   function appendEntry(runtime, entry, depth) {
     const state = runtime.getState();
-    const action = runtime.actions;
+    const action = creativeActions(runtime);
     const tree = runtime.elements.creativeTree;
     const type = entry.type || "file";
     const entryActionType = entry.corkboard ? "corkboard" : type;
@@ -178,7 +178,7 @@
   }
 
   function activateEntry(runtime, entry, path, type) {
-    const action = runtime.actions;
+    const action = creativeActions(runtime);
     if (type === "directory") {
       action.selectCreativeFolder(path);
     } else if (entry.corkboard) {
@@ -194,7 +194,7 @@
   }
 
   function renameInput(runtime, entry, type, path) {
-    const action = runtime.actions;
+    const action = creativeActions(runtime);
     const input = document.createElement("input");
     input.className = "creative-tree-name-input";
     input.type = "text";
@@ -222,7 +222,7 @@
   }
 
   function appendFolderActions(runtime, path, depth) {
-    const action = runtime.actions;
+    const action = creativeActions(runtime);
     const actions = document.createElement("div");
     actions.className = "creative-tree-actions";
     actions.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
@@ -263,6 +263,28 @@
   function basename(path) {
     const parts = String(path || "").split("/").filter(Boolean);
     return parts.length ? parts[parts.length - 1] : "";
+  }
+
+  function creativeActions(runtime) {
+    const invoke = (action, ...args) =>
+      window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        action,
+        ...args,
+      );
+    return {
+      appendOutput: runtime.notifications.appendOutput,
+      beginCreativeRename: (...args) => invoke("beginCreativeRename", ...args),
+      cancelCreativeRename: (...args) => invoke("cancelCreativeRename", ...args),
+      createCreativeCorkboard: (...args) => invoke("createCreativeCorkboardInline", ...args),
+      createCreativeDocument: (...args) => invoke("createCreativeDocumentInline", ...args),
+      createCreativeFolder: (...args) => invoke("createCreativeFolderInline", ...args),
+      deleteCreativeEntry: (...args) => invoke("deleteCreativeEntry", ...args),
+      finishCreativeRename: (...args) => invoke("finishCreativeRename", ...args),
+      selectCreativeCorkboard: (...args) => invoke("selectCreativeCorkboard", ...args),
+      selectCreativeDocument: (...args) => invoke("selectCreativeDocument", ...args),
+      selectCreativeFolder: (...args) => invoke("selectCreativeFolder", ...args),
+    };
   }
 
   window.ElectroBoyFrontend.registerModule({

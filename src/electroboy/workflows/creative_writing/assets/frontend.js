@@ -1,6 +1,112 @@
 (function () {
   "use strict";
 
+  const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
+  let runtimeApi = null;
+  let scratchPad = null;
+  let activationRoot = "";
+  let activeProjectRoot = "";
+  let contextId = "";
+  let agentSessions = [];
+  let artifactPaneRequested = false;
+  let creativeTreePayload = null;
+  let creativeActiveDocument = "";
+  let creativeActiveFolder = "";
+  let creativeEditingPath = "";
+  let creativeEditingType = "";
+  let creativeLastNotifiedTarget = "";
+  let expandedCreativeFolders = new Set();
+  let restoredScratchContextId = "";
+  let creativeScratchSaveTimer = null;
+  let creativeProjectActionsExpanded = false;
+  let creativeAgentActionsExpanded = false;
+
+  function bindRuntime(runtime) {
+    runtimeApi = runtime;
+    const state = runtime.getState();
+    scratchPad = runtime.elements.scratchPad;
+    activationRoot = state.activationRoot || "";
+    activeProjectRoot = state.activeProjectRoot || "";
+    contextId = state.contextId || "";
+    agentSessions = Array.isArray(state.agentSessions) ? state.agentSessions : [];
+    artifactPaneRequested = Boolean(state.artifactPaneRequested);
+    creativeTreePayload = state.creativeTreePayload || null;
+    creativeActiveDocument = state.creativeActiveDocument || "";
+    creativeActiveFolder = state.creativeActiveFolder || "";
+    creativeEditingPath = state.creativeEditingPath || "";
+    creativeEditingType = state.creativeEditingType || "";
+    creativeLastNotifiedTarget = state.creativeLastNotifiedTarget || "";
+    expandedCreativeFolders = state.expandedCreativeFolders instanceof Set
+      ? state.expandedCreativeFolders
+      : new Set(state.expandedCreativeFolders || []);
+  }
+
+  function publishState() {
+    runtimeApi.updateState({
+      artifactPaneRequested,
+      creativeTreePayload,
+      creativeActiveDocument,
+      creativeActiveFolder,
+      creativeEditingPath,
+      creativeEditingType,
+      creativeLastNotifiedTarget,
+      expandedCreativeFolders,
+    });
+  }
+
+  function invoke(runtime, handler, args) {
+    bindRuntime(runtime);
+    return handler(...args);
+  }
+
+  function contextUrl(path) {
+    return runtimeApi.http.contextUrl(path);
+  }
+
+  function appendOutput(text, kind) {
+    runtimeApi.notifications.appendOutput(text, kind);
+  }
+
+  function basename(path) {
+    return runtimeApi.paths.basename(path);
+  }
+
+  function setAgentInputVisible(visible) {
+    runtimeApi.ui.setAgentInputVisible(visible);
+  }
+
+  function showProgressPane(visible) {
+    runtimeApi.layout.showProgressPane(visible);
+  }
+
+  function applyOutputPaneVisibility() {
+    runtimeApi.ui.applyOutputPaneVisibility();
+  }
+
+  function creativeModeActive() {
+    return runtimeApi.getState().workflowMode === "creative";
+  }
+
+  function recentProjectsForWorkflow() {
+    return runtimeApi.recent.list("creative");
+  }
+
+  function recentProjectLabel(project) {
+    return runtimeApi.recent.label(project);
+  }
+
+  function openRecentProject(project) {
+    return runtimeApi.recent.open(project);
+  }
+
+  function recordProjectStatusMessage(message) {
+    runtimeApi.project.recordStatus(message);
+  }
+
+  function hideArtifactPreview() {
+    return runtimeApi.modules.invoke("documents", "hideArtifactPreview");
+  }
+
   let creativeProjectMenuButton = null;
   let creativeProjectActions = null;
   let creativeOpenProject = null;
@@ -14,6 +120,7 @@
   let creativeStartAgent = null;
 
   function renderNavigation(container, runtime) {
+    bindRuntime(runtime);
     container.innerHTML = `
       <section class="creative-binder" aria-label="Creative writing binder">
         <div class="creative-section">
@@ -69,19 +176,19 @@
     runtime.elements.creativeTree = find("tree");
 
     creativeProjectMenuButton.addEventListener("click", () => {
-      runtime.actions.toggleCreativeActionGroup("project");
+      toggleCreativeActionGroup("project");
     });
     creativeAgentMenuButton.addEventListener("click", () => {
-      runtime.actions.toggleCreativeActionGroup("agent");
+      toggleCreativeActionGroup("agent");
     });
     creativeOpenProject.addEventListener("click", () => {
-      runtime.actions.openProjectBrowser("open", true);
+      runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);
     });
     creativeNewProject.addEventListener("click", () => {
-      runtime.actions.openProjectBrowser("new", true);
+      runtime.modules.invoke("file-browser", "openProjectBrowser", "new", true);
     });
     creativeCloseProject.addEventListener("click", () => {
-      runtime.actions.deactivateProject();
+      runtime.project.deactivate();
     });
     creativeStartAgent.addEventListener("click", () => {
       startAgent(runtime);
@@ -89,20 +196,23 @@
     updateCreativeBinderActions();
   }
 
-  function refreshNavigation() {
+  function refreshNavigation(runtime) {
+    bindRuntime(runtime);
     if (creativeProjectMenuButton) {
       updateCreativeBinderActions();
     }
   }
 
   function activate(runtime) {
-    runtime.actions.setWorkflowSideSheetCollapsed(false);
-    runtime.actions.applyCreativeWorkspace();
-    runtime.actions.restoreScratchPad();
-    runtime.actions.refreshCreativeBinder();
+    bindRuntime(runtime);
+    runtime.ui.setWorkflowSideSheetCollapsed(false);
+    applyCreativeWorkspace();
+    runtime.scratch.restore();
+    refreshCreativeBinder();
   }
 
   function deactivate(runtime) {
+    bindRuntime(runtime);
     runtime.elements.creativeTree = null;
     creativeProjectMenuButton = null;
     creativeProjectActions = null;
@@ -118,37 +228,39 @@
   }
 
   async function startAgent(runtime) {
+    bindRuntime(runtime);
     const state = runtime.getState();
-    const action = runtime.actions;
     if (!state.activeProjectRoot || !state.contextId) {
-      action.appendOutput("activate a project first\n", "error");
+      appendOutput("activate a project first\n", "error");
       return;
     }
-    action.setAgentInputVisible(true);
-    action.clearAgentOutput();
-    action.appendOutput("$ codex creative-writing\n", "system");
-    const response = await fetch(action.contextUrl("/api/creative/agent/start"), {
+    setAgentInputVisible(true);
+    runtime.agent.clearOutput();
+    appendOutput("$ codex creative-writing\n", "system");
+    const response = await runtime.http.fetch(contextUrl("/api/creative/agent/start"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         active_document: state.creativeActiveDocument,
-        active_target: action.activeCreativeTarget(),
+        active_target: activeCreativeTarget(),
       }),
     });
     const payload = await response
       .json()
       .catch(() => ({ error: "start failed" }));
     if (!response.ok) {
-      action.appendOutput(`${payload.error || "start failed"}\n`, "error");
+      appendOutput(`${payload.error || "start failed"}\n`, "error");
       return;
     }
-    action.updateProjectState(payload);
+    runtime.project.update(payload);
+    bindRuntime(runtime);
     const sessionId = payload.session_id || runtime.getState().selectedSessionId;
-    action.connectSessionEvents(sessionId);
-    action.sendTerminalResize();
+    runtime.modules.invoke("agent-sessions", "connectSessionEvents", sessionId);
+    runtime.agent.sendResize();
   }
 
   function selectFolder(runtime, path) {
+    bindRuntime(runtime);
     if (!path) {
       return;
     }
@@ -157,36 +269,38 @@
       creativeActiveDocument: "",
       creativeLastNotifiedTarget: "",
     });
-    runtime.actions.showCreativeCorkboard(path);
-    runtime.actions.renderCreativeTree();
-    runtime.actions.renderCreativeProjectStatus();
-    runtime.actions.notifyCreativeAgentTargetSwitch();
+    showCreativeCorkboard(path);
+    renderCreativeTree();
+    runtime.project.renderCreativeStatus();
+    notifyCreativeAgentTargetSwitch();
   }
 
   function selectCorkboard(runtime, path) {
+    bindRuntime(runtime);
     if (!path) {
       return;
     }
     runtime.updateState({
       creativeActiveDocument: path,
-      creativeActiveFolder: runtime.actions.creativeParentPath(path),
+      creativeActiveFolder: creativeParentPath(path),
       creativeLastNotifiedTarget: "",
     });
-    runtime.actions.showCreativeCorkboard(path, { freeform: true });
-    runtime.actions.renderCreativeTree();
-    runtime.actions.renderCreativeProjectStatus();
-    runtime.actions.notifyCreativeAgentTargetSwitch();
+    showCreativeCorkboard(path, { freeform: true });
+    renderCreativeTree();
+    runtime.project.renderCreativeStatus();
+    notifyCreativeAgentTargetSwitch();
   }
 
   function showDocument(runtime, path) {
+    bindRuntime(runtime);
     if (!path) {
       return;
     }
     const target = {
-      label: runtime.actions.basename(path),
+      label: basename(path),
       path,
     };
-    runtime.actions.showArtifactPreviews(
+    runtime.modules.invoke("documents", "showArtifactPreviews",
       [
         {
           id: "creative-document",
@@ -201,22 +315,23 @@
   }
 
   function selectDocument(runtime, path, options = {}) {
+    bindRuntime(runtime);
     if (!path) {
       return;
     }
     const state = runtime.getState();
     runtime.updateState({
       creativeActiveDocument: path,
-      creativeActiveFolder: runtime.actions.creativeParentPath(path),
+      creativeActiveFolder: creativeParentPath(path),
       creativeLastNotifiedTarget: options.notifyAgent === false
         ? state.creativeLastNotifiedTarget
         : "",
     });
     showDocument(runtime, path);
-    runtime.actions.renderCreativeTree();
-    runtime.actions.renderCreativeProjectStatus();
+    renderCreativeTree();
+    runtime.project.renderCreativeStatus();
     if (options.notifyAgent !== false) {
-      runtime.actions.notifyCreativeAgentTargetSwitch();
+      notifyCreativeAgentTargetSwitch();
     }
   }
 
@@ -345,6 +460,7 @@
     }
 
     function showCreativeTreeMessage(message) {
+      publishState();
       return window.ElectroBoyFrontend.invokeModule(
         "binder",
         "showMessage",
@@ -353,10 +469,12 @@
     }
 
     function renderCreativeTree() {
+      publishState();
       return window.ElectroBoyFrontend.invokeModule("binder", "renderTree");
     }
 
     function showCreativeCorkboard(path, options = {}) {
+      publishState();
       return window.ElectroBoyFrontend.invokeModule(
         "corkboard",
         "show",
@@ -382,6 +500,7 @@
     }
 
     function showCreativeDocument(path) {
+      publishState();
       return window.ElectroBoyFrontend.invokeWorkflow(
         "creative-writing",
         "showDocument",
@@ -390,6 +509,7 @@
     }
 
     function selectCreativeDocument(path, options = {}) {
+      publishState();
       return window.ElectroBoyFrontend.invokeWorkflow(
         "creative-writing",
         "selectDocument",
@@ -841,48 +961,49 @@
       selectCorkboard,
       showDocument,
       selectDocument,
-      applyCreativeWorkspace: (_runtime, ...args) => applyCreativeWorkspace(...args),
-      updateCreativeBinderActions: (_runtime, ...args) => updateCreativeBinderActions(...args),
-      renderCreativeRecentProjects: (_runtime, ...args) => renderCreativeRecentProjects(...args),
-      updateCreativeActionGroup: (_runtime, ...args) => updateCreativeActionGroup(...args),
-      toggleCreativeActionGroup: (_runtime, ...args) => toggleCreativeActionGroup(...args),
-      refreshCreativeBinder: (_runtime, ...args) => refreshCreativeBinder(...args),
-      firstCreativeMarkdown: (_runtime, ...args) => firstCreativeMarkdown(...args),
-      showCreativeTreeMessage: (_runtime, ...args) => showCreativeTreeMessage(...args),
-      renderCreativeTree: (_runtime, ...args) => renderCreativeTree(...args),
-      showCreativeCorkboard: (_runtime, ...args) => showCreativeCorkboard(...args),
-      selectCreativeFolder: (_runtime, ...args) => selectCreativeFolder(...args),
-      selectCreativeCorkboard: (_runtime, ...args) => selectCreativeCorkboard(...args),
-      showCreativeDocument: (_runtime, ...args) => showCreativeDocument(...args),
-      selectCreativeDocument: (_runtime, ...args) => selectCreativeDocument(...args),
-      creativeAgentSession: (_runtime, ...args) => creativeAgentSession(...args),
-      creativeAgentRunning: (_runtime, ...args) => creativeAgentRunning(...args),
-      activeCreativeTarget: (_runtime, ...args) => activeCreativeTarget(...args),
-      creativeTargetKey: (_runtime, ...args) => creativeTargetKey(...args),
-      creativeTargetContextLines: (_runtime, ...args) => creativeTargetContextLines(...args),
-      notifyCreativeAgentTargetSwitch: (_runtime, ...args) => notifyCreativeAgentTargetSwitch(...args),
-      creativePromptMessage: (_runtime, ...args) => creativePromptMessage(...args),
-      loadCreativeScratchPad: (_runtime, ...args) => loadCreativeScratchPad(...args),
-      queueCreativeScratchPadSave: (_runtime, ...args) => queueCreativeScratchPadSave(...args),
-      saveCreativeScratchPad: (_runtime, ...args) => saveCreativeScratchPad(...args),
-      initializeCreativeWorkspace: (_runtime, ...args) => initializeCreativeWorkspace(...args),
-      ensureCreativeWorkspaceLoaded: (_runtime, ...args) => ensureCreativeWorkspaceLoaded(...args),
-      creativeEntryChildren: (_runtime, ...args) => creativeEntryChildren(...args),
-      findCreativeEntry: (_runtime, ...args) => findCreativeEntry(...args),
-      uniqueCreativeChildPath: (_runtime, ...args) => uniqueCreativeChildPath(...args),
-      creativeParentPath: (_runtime, ...args) => creativeParentPath(...args),
-      creativePathIsCorkboard: (_runtime, ...args) => creativePathIsCorkboard(...args),
-      creativePathIsInside: (_runtime, ...args) => creativePathIsInside(...args),
-      remapCreativePath: (_runtime, ...args) => remapCreativePath(...args),
-      beginCreativeRename: (_runtime, ...args) => beginCreativeRename(...args),
-      cancelCreativeRename: (_runtime, ...args) => cancelCreativeRename(...args),
-      normalizedCreativeName: (_runtime, ...args) => normalizedCreativeName(...args),
-      finishCreativeRename: (_runtime, ...args) => finishCreativeRename(...args),
-      createCreativeFolderInline: (_runtime, ...args) => createCreativeFolderInline(...args),
-      createCreativeDocumentInline: (_runtime, ...args) => createCreativeDocumentInline(...args),
-      createCreativeCorkboardInline: (_runtime, ...args) => createCreativeCorkboardInline(...args),
-      deleteCreativeEntry: (_runtime, ...args) => deleteCreativeEntry(...args),
-      startCreativeWritingAgent: (_runtime, ...args) => startCreativeWritingAgent(...args),
+      applyCreativeWorkspace: (runtime, ...args) => invoke(runtime, applyCreativeWorkspace, args),
+      updateCreativeBinderActions: (runtime, ...args) => invoke(runtime, updateCreativeBinderActions, args),
+      renderCreativeRecentProjects: (runtime, ...args) => invoke(runtime, renderCreativeRecentProjects, args),
+      updateCreativeActionGroup: (runtime, ...args) => invoke(runtime, updateCreativeActionGroup, args),
+      toggleCreativeActionGroup: (runtime, ...args) => invoke(runtime, toggleCreativeActionGroup, args),
+      refreshCreativeBinder: (runtime, ...args) => invoke(runtime, refreshCreativeBinder, args),
+      firstCreativeMarkdown: (runtime, ...args) => invoke(runtime, firstCreativeMarkdown, args),
+      showCreativeTreeMessage: (runtime, ...args) => invoke(runtime, showCreativeTreeMessage, args),
+      renderCreativeTree: (runtime, ...args) => invoke(runtime, renderCreativeTree, args),
+      showCreativeCorkboard: (runtime, ...args) => invoke(runtime, showCreativeCorkboard, args),
+      selectCreativeFolder: (runtime, ...args) => invoke(runtime, selectCreativeFolder, args),
+      selectCreativeCorkboard: (runtime, ...args) => invoke(runtime, selectCreativeCorkboard, args),
+      showCreativeDocument: (runtime, ...args) => invoke(runtime, showCreativeDocument, args),
+      selectCreativeDocument: (runtime, ...args) => invoke(runtime, selectCreativeDocument, args),
+      creativeAgentSession: (runtime, ...args) => invoke(runtime, creativeAgentSession, args),
+      creativeAgentRunning: (runtime, ...args) => invoke(runtime, creativeAgentRunning, args),
+      activeCreativeTarget: (runtime, ...args) => invoke(runtime, activeCreativeTarget, args),
+      creativeTargetKey: (runtime, ...args) => invoke(runtime, creativeTargetKey, args),
+      creativeTargetContextLines: (runtime, ...args) => invoke(runtime, creativeTargetContextLines, args),
+      notifyCreativeAgentTargetSwitch: (runtime, ...args) => invoke(runtime, notifyCreativeAgentTargetSwitch, args),
+      creativePromptMessage: (runtime, ...args) => invoke(runtime, creativePromptMessage, args),
+      preparePrompt: (runtime, ...args) => invoke(runtime, creativePromptMessage, args),
+      loadCreativeScratchPad: (runtime, ...args) => invoke(runtime, loadCreativeScratchPad, args),
+      queueCreativeScratchPadSave: (runtime, ...args) => invoke(runtime, queueCreativeScratchPadSave, args),
+      saveCreativeScratchPad: (runtime, ...args) => invoke(runtime, saveCreativeScratchPad, args),
+      initializeCreativeWorkspace: (runtime, ...args) => invoke(runtime, initializeCreativeWorkspace, args),
+      ensureCreativeWorkspaceLoaded: (runtime, ...args) => invoke(runtime, ensureCreativeWorkspaceLoaded, args),
+      creativeEntryChildren: (runtime, ...args) => invoke(runtime, creativeEntryChildren, args),
+      findCreativeEntry: (runtime, ...args) => invoke(runtime, findCreativeEntry, args),
+      uniqueCreativeChildPath: (runtime, ...args) => invoke(runtime, uniqueCreativeChildPath, args),
+      creativeParentPath: (runtime, ...args) => invoke(runtime, creativeParentPath, args),
+      creativePathIsCorkboard: (runtime, ...args) => invoke(runtime, creativePathIsCorkboard, args),
+      creativePathIsInside: (runtime, ...args) => invoke(runtime, creativePathIsInside, args),
+      remapCreativePath: (runtime, ...args) => invoke(runtime, remapCreativePath, args),
+      beginCreativeRename: (runtime, ...args) => invoke(runtime, beginCreativeRename, args),
+      cancelCreativeRename: (runtime, ...args) => invoke(runtime, cancelCreativeRename, args),
+      normalizedCreativeName: (runtime, ...args) => invoke(runtime, normalizedCreativeName, args),
+      finishCreativeRename: (runtime, ...args) => invoke(runtime, finishCreativeRename, args),
+      createCreativeFolderInline: (runtime, ...args) => invoke(runtime, createCreativeFolderInline, args),
+      createCreativeDocumentInline: (runtime, ...args) => invoke(runtime, createCreativeDocumentInline, args),
+      createCreativeCorkboardInline: (runtime, ...args) => invoke(runtime, createCreativeCorkboardInline, args),
+      deleteCreativeEntry: (runtime, ...args) => invoke(runtime, deleteCreativeEntry, args),
+      startCreativeWritingAgent: (runtime, ...args) => invoke(runtime, startCreativeWritingAgent, args),
     },
   });
 })();

@@ -342,6 +342,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("runtime.http.eventSource", project_shell)
         self.assertIn("async function startRequirementsAgent()", software)
         self.assertIn("async function startGenericStageAgent(", software)
+        self.assertIn("function bindRuntime(runtime)", software)
+        self.assertIn("function bindRuntime(runtime)", creative)
+        self.assertNotIn("runtime.actions", software)
+        self.assertNotIn("runtime.actions", creative)
+        self.assertNotIn("runtime.actions", binder)
+        self.assertNotIn("runtime.actions", corkboard)
+        self.assertNotIn("runtimeApi.actions", documents)
         self.assertIn(
             "async function notifyCreativeAgentTargetSwitch()",
             creative,

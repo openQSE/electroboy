@@ -54,7 +54,7 @@
   const appendAgentOutput = (...args) => runtimeApi.agent.appendOutput(...args);
   const refreshProject = (...args) => runtimeApi.project.refresh(...args);
   const creativePromptMessage = (...args) =>
-    runtimeApi.workflows.creativePromptMessage(...args);
+    runtimeApi.workflows.preparePrompt(...args);
 
     function sessionExportName(session) {
       const kind = exportSafeName(session && session.kind, "agent");

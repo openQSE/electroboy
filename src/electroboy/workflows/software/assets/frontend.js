@@ -1,6 +1,164 @@
 (function () {
   "use strict";
 
+  let runtimeApi = null;
+  let scratchPad = null;
+  let agentInput = null;
+  let activationRoot = "";
+  let activeProjectRoot = "";
+  let currentWorkflowStage = "project";
+  let requirementsApproved = false;
+  let designApproved = false;
+  let designReviewInteractive = false;
+  let designReviewRunning = false;
+  let artifactPreviewStage = "";
+  let selectedSessionId = "";
+
+  function bindRuntime(runtime) {
+    runtimeApi = runtime;
+    const state = runtime.getState();
+    scratchPad = runtime.elements.scratchPad;
+    agentInput = runtime.elements.agentInput;
+    activationRoot = state.activationRoot || "";
+    activeProjectRoot = state.activeProjectRoot || "";
+    currentWorkflowStage = state.currentWorkflowStage || "project";
+    requirementsApproved = Boolean(state.requirementsApproved);
+    designApproved = Boolean(state.designApproved);
+    designReviewInteractive = Boolean(state.designReviewInteractive);
+    designReviewRunning = Boolean(state.designReviewRunning);
+    artifactPreviewStage = state.artifactPreviewStage || "";
+    selectedSessionId = state.selectedSessionId || "";
+  }
+
+  function invoke(runtime, handler, args) {
+    bindRuntime(runtime);
+    return handler(...args);
+  }
+
+  function contextUrl(path) {
+    return runtimeApi.http.contextUrl(path);
+  }
+
+  function appendOutput(text, kind) {
+    runtimeApi.notifications.appendOutput(text, kind);
+  }
+
+  function updateProjectState(payload) {
+    runtimeApi.project.update(payload);
+    bindRuntime(runtimeApi);
+  }
+
+  function refreshProject() {
+    return runtimeApi.project.refresh();
+  }
+
+  function restoreScratchPad() {
+    return runtimeApi.scratch.restore();
+  }
+
+  function hideStageMenus() {
+    runtimeApi.ui.hideStageMenus();
+  }
+
+  function setAgentInputVisible(visible) {
+    runtimeApi.ui.setAgentInputVisible(visible);
+  }
+
+  function clearAgentOutput() {
+    runtimeApi.agent.clearOutput();
+  }
+
+  function sendTerminalResize() {
+    runtimeApi.agent.sendResize();
+  }
+
+  function closeAgentEventStream() {
+    return runtimeApi.modules.invoke("agent-sessions", "closeAgentEventStream");
+  }
+
+  function connectAgentEvents(kind) {
+    return runtimeApi.modules.invoke("agent-sessions", "connectAgentEvents", kind);
+  }
+
+  function connectSessionEvents(sessionId) {
+    return runtimeApi.modules.invoke("agent-sessions", "connectSessionEvents", sessionId);
+  }
+
+  function renderSessionSwitcher() {
+    return runtimeApi.modules.invoke("agent-sessions", "renderSessionSwitcher");
+  }
+
+  function setAgentRunning(kind, running) {
+    return runtimeApi.modules.invoke("agent-sessions", "setAgentRunning", kind, running);
+  }
+
+  function showProgressPane(visible) {
+    runtimeApi.layout.showProgressPane(visible);
+  }
+
+  function clearProgressOutput() {
+    return runtimeApi.modules.invoke("progress", "clearProgressOutput");
+  }
+
+  function connectProgressEvents() {
+    return runtimeApi.modules.invoke("progress", "connectProgressEvents");
+  }
+
+  function closeProgressEventStream() {
+    return runtimeApi.modules.invoke("progress", "closeProgressEventStream");
+  }
+
+  function showStageArtifactPreview(stage) {
+    return runtimeApi.modules.invoke("documents", "showStageArtifactPreview", stage);
+  }
+
+  function hideArtifactPreview() {
+    return runtimeApi.modules.invoke("documents", "hideArtifactPreview");
+  }
+
+  function syncArtifactPreviewWithProject() {
+    return runtimeApi.modules.invoke("documents", "syncArtifactPreviewWithProject");
+  }
+
+  function genericStageRun(stage) {
+    return runtimeApi.workflows.stageRun(stage);
+  }
+
+  function workflowActions(runtime) {
+    bindRuntime(runtime);
+    return {
+      approveDesignReviewStage,
+      approveGenericStage,
+      approveRequirementsStage,
+      completeDesignAgent,
+      deactivateProject: runtime.project.deactivate,
+      genericStageRun,
+      openProjectBrowser: runtime.browser.openProject,
+      recentProjectActions: runtime.recent.actions,
+      removeMetaRepository: runtime.metaProject.removeRepository,
+      repositoryLabel: runtime.metaProject.repositoryLabel,
+      setWorkflowStage: setWorkflowStageFromMenu,
+      showProjectPanel: runtime.ui.showProjectPanel,
+      showWorkItemPanel: runtime.ui.showWorkItemPanel,
+      skipDesignReviewApprovalStage,
+      skipGenericStageApproval,
+      skipRequirementsApprovalStage,
+      startAdHocAgent,
+      startAutomaticDesignReviewAgent,
+      startDesignAgent,
+      startGenericStageAgent,
+      startInteractiveDesignReviewAgent,
+      startMetaRepository: runtime.metaProject.startRepository,
+      startRequirementsAgent,
+      stopDesignReviewAgent,
+      stopGenericStageAgent,
+      switchBug: runtime.workItems.switchBug,
+      switchFeature: runtime.workItems.switchFeature,
+      workItemBugs: runtime.workItems.bugs,
+      workItemFeatures: runtime.workItems.features,
+    };
+  }
+
   const STAGE_DESCRIPTIONS = {
     project: "Open an existing ElectroBoy project or create a new one.",
     requirements: "Author or resume the requirements document with the requirements agent.",
@@ -64,8 +222,9 @@
   }
 
   function stageActions(stageId, runtime) {
+    bindRuntime(runtime);
     const state = runtime.getState();
-    const action = runtime.actions;
+    const action = workflowActions(runtime);
     if (stageId === "project") {
       return projectStageActions(runtime, state);
     }
@@ -236,7 +395,7 @@
   }
 
   function projectStageActions(runtime, state) {
-    const action = runtime.actions;
+    const action = workflowActions(runtime);
     const hasContext = Boolean(state.activationRoot);
     const hasProject = Boolean(state.activeProjectRoot);
     const metaActions = [
@@ -354,7 +513,7 @@
   function authoringStageActions(runtime, options) {
     const state = runtime.getState();
     const inStage = state.currentWorkflowStage === options.stage;
-    const runState = runtime.actions.genericStageRun(options.stage);
+    const runState = genericStageRun(options.stage);
     return [
       {
         label: "Set stage",
@@ -610,6 +769,7 @@
       updateProjectState(payload);
       const sessionId = payload.session_id || selectedSessionId;
       selectedSessionId = sessionId;
+      runtimeApi.updateState({ selectedSessionId });
       renderSessionSwitcher();
       connectSessionEvents(sessionId);
       sendTerminalResize();
@@ -654,7 +814,7 @@
       if (currentWorkflowStage !== "design") {
         return;
       }
-      designMenu.hidden = true;
+      hideStageMenus();
       closeAgentEventStream();
       const response = await fetch(contextUrl("/api/agents/design/complete"), {
         method: "POST",
@@ -675,6 +835,7 @@
         return;
       }
       designReviewInteractive = false;
+      runtimeApi.updateState({ designReviewInteractive });
       await runStageAgent(
         "design-review",
         "/api/agents/design-review/start",
@@ -689,6 +850,7 @@
         return;
       }
       designReviewInteractive = true;
+      runtimeApi.updateState({ designReviewInteractive });
       await runStageAgent(
         "design-review",
         "/api/agents/design-review/start-interactive",
@@ -730,7 +892,7 @@
       if (currentWorkflowStage !== "design-review") {
         return;
       }
-      designReviewMenu.hidden = true;
+      hideStageMenus();
       closeAgentEventStream();
       closeProgressEventStream();
       const endpoint = skipApproval
@@ -874,33 +1036,34 @@
     artifactPreviews: ARTIFACT_PREVIEWS,
     splashImage: "__SPLASH_IMAGE_ROUTE__",
     activate(runtime) {
-      runtime.actions.restoreSoftwareWorkspace();
+      bindRuntime(runtime);
+      restoreSoftwareWorkspace();
     },
     stageActions,
     actions: {
-      restoreSoftwareWorkspace: (_runtime, ...args) => restoreSoftwareWorkspace(...args),
-      selectWorkflowStage: (_runtime, ...args) => selectWorkflowStage(...args),
-      setWorkflowStageFromMenu: (_runtime, ...args) => setWorkflowStageFromMenu(...args),
-      approveRequirementsStage: (_runtime, ...args) => approveRequirementsStage(...args),
-      skipRequirementsApprovalStage: (_runtime, ...args) => skipRequirementsApprovalStage(...args),
-      setRequirementsRunning: (_runtime, ...args) => setRequirementsRunning(...args),
-      runStageAgent: (_runtime, ...args) => runStageAgent(...args),
-      startAdHocAgent: (_runtime, ...args) => startAdHocAgent(...args),
-      runRequirementsAgent: (_runtime, ...args) => runRequirementsAgent(...args),
-      startRequirementsAgent: (_runtime, ...args) => startRequirementsAgent(...args),
-      completeRequirementsAgent: (_runtime, ...args) => completeRequirementsAgent(...args),
-      startDesignAgent: (_runtime, ...args) => startDesignAgent(...args),
-      completeDesignAgent: (_runtime, ...args) => completeDesignAgent(...args),
-      startAutomaticDesignReviewAgent: (_runtime, ...args) => startAutomaticDesignReviewAgent(...args),
-      startInteractiveDesignReviewAgent: (_runtime, ...args) => startInteractiveDesignReviewAgent(...args),
-      stopDesignReviewAgent: (_runtime, ...args) => stopDesignReviewAgent(...args),
-      completeDesignReviewAgent: (_runtime, ...args) => completeDesignReviewAgent(...args),
-      approveDesignReviewStage: (_runtime, ...args) => approveDesignReviewStage(...args),
-      skipDesignReviewApprovalStage: (_runtime, ...args) => skipDesignReviewApprovalStage(...args),
-      startGenericStageAgent: (_runtime, ...args) => startGenericStageAgent(...args),
-      stopGenericStageAgent: (_runtime, ...args) => stopGenericStageAgent(...args),
-      approveGenericStage: (_runtime, ...args) => approveGenericStage(...args),
-      skipGenericStageApproval: (_runtime, ...args) => skipGenericStageApproval(...args),
+      restoreSoftwareWorkspace: (runtime, ...args) => invoke(runtime, restoreSoftwareWorkspace, args),
+      selectWorkflowStage: (runtime, ...args) => invoke(runtime, selectWorkflowStage, args),
+      setWorkflowStageFromMenu: (runtime, ...args) => invoke(runtime, setWorkflowStageFromMenu, args),
+      approveRequirementsStage: (runtime, ...args) => invoke(runtime, approveRequirementsStage, args),
+      skipRequirementsApprovalStage: (runtime, ...args) => invoke(runtime, skipRequirementsApprovalStage, args),
+      setRequirementsRunning: (runtime, ...args) => invoke(runtime, setRequirementsRunning, args),
+      runStageAgent: (runtime, ...args) => invoke(runtime, runStageAgent, args),
+      startAdHocAgent: (runtime, ...args) => invoke(runtime, startAdHocAgent, args),
+      runRequirementsAgent: (runtime, ...args) => invoke(runtime, runRequirementsAgent, args),
+      startRequirementsAgent: (runtime, ...args) => invoke(runtime, startRequirementsAgent, args),
+      completeRequirementsAgent: (runtime, ...args) => invoke(runtime, completeRequirementsAgent, args),
+      startDesignAgent: (runtime, ...args) => invoke(runtime, startDesignAgent, args),
+      completeDesignAgent: (runtime, ...args) => invoke(runtime, completeDesignAgent, args),
+      startAutomaticDesignReviewAgent: (runtime, ...args) => invoke(runtime, startAutomaticDesignReviewAgent, args),
+      startInteractiveDesignReviewAgent: (runtime, ...args) => invoke(runtime, startInteractiveDesignReviewAgent, args),
+      stopDesignReviewAgent: (runtime, ...args) => invoke(runtime, stopDesignReviewAgent, args),
+      completeDesignReviewAgent: (runtime, ...args) => invoke(runtime, completeDesignReviewAgent, args),
+      approveDesignReviewStage: (runtime, ...args) => invoke(runtime, approveDesignReviewStage, args),
+      skipDesignReviewApprovalStage: (runtime, ...args) => invoke(runtime, skipDesignReviewApprovalStage, args),
+      startGenericStageAgent: (runtime, ...args) => invoke(runtime, startGenericStageAgent, args),
+      stopGenericStageAgent: (runtime, ...args) => invoke(runtime, stopGenericStageAgent, args),
+      approveGenericStage: (runtime, ...args) => invoke(runtime, approveGenericStage, args),
+      skipGenericStageApproval: (runtime, ...args) => invoke(runtime, skipGenericStageApproval, args),
     },
   });
 })();
