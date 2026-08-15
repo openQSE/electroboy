@@ -1580,6 +1580,10 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIn("function renderStageGraph(definition, contribution)", runtime)
         self.assertIn("function renderWorkflowNavigation()", runtime)
+        self.assertIn(
+            'else if (typeof contribution.refreshNavigation === "function")',
+            runtime,
+        )
         self.assertIn("No workflows are installed or enabled.", runtime)
         self.assertIn("activeWorkflowDefinitions", runtime)
         self.assertNotIn("const SOFTWARE_WORKFLOW_MODE", runtime)

@@ -3442,7 +3442,14 @@
     function hideStageActionPanel() {
       expandedWorkflowStages.clear();
       expandedProjectActionGroups.clear();
-      stageActionBody.replaceChildren();
+      const contribution = activeWorkflowContribution();
+      if (!contribution) {
+        stageActionBody.replaceChildren();
+      } else if (contribution.navigation === "stages") {
+        renderStageActionPanel();
+      } else if (typeof contribution.refreshNavigation === "function") {
+        contribution.refreshNavigation(frontendRuntime);
+      }
     }
 
     function stageActionName(stageId) {
