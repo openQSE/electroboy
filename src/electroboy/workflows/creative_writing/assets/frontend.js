@@ -154,7 +154,7 @@
     if (data.entry_type === "directory") {
       selectFolder(runtime, data.path);
     } else if (data.entry_type === "corkboard") {
-      selectCorkboard(runtime, data.path);
+      selectCorkboard(runtime, data.path, { title: data.title || "" });
     } else {
       selectDocument(runtime, data.path);
     }
@@ -360,7 +360,7 @@
     notifyCreativeAgentTargetSwitch();
   }
 
-  function selectCorkboard(runtime, path) {
+  function selectCorkboard(runtime, path, options = {}) {
     bindRuntime(runtime);
     if (!path) {
       return;
@@ -370,7 +370,10 @@
       creativeActiveFolder: creativeParentPath(path),
       creativeLastNotifiedTarget: "",
     });
-    showCreativeCorkboard(path, { freeform: true });
+    showCreativeCorkboard(path, {
+      freeform: true,
+      title: options.title || "",
+    });
     renderCreativeTree();
     renderProjectStatus(runtime);
     notifyCreativeAgentTargetSwitch();

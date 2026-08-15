@@ -11,9 +11,9 @@
         "creativePathIsCorkboard",
         path,
       );
-    const label = freeform
+    const label = String(options.title || "").trim() || (freeform
       ? runtime.paths.basename(path).replace(/\.corkboard\.json$/i, "")
-      : runtime.paths.basename(path);
+      : runtime.paths.basename(path));
     const board = { label, path };
     const item = {
       id: `creative-corkboard-${path}`,

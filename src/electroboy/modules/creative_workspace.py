@@ -155,26 +155,54 @@ def _create_creative_document(project_root: Path | str, relative_path: str) -> s
     return normalized_path
 
 
-def _empty_creative_corkboard_document() -> dict[str, object]:
+def _normalize_creative_corkboard_title(value: object, fallback: str) -> str:
+    title = str(value or "").strip()
+    return (title or fallback.strip() or "Untitled corkboard")[:200]
+
+
+def _empty_creative_corkboard_document(
+    title: str = "Untitled corkboard",
+) -> dict[str, object]:
     return {
         "schema_version": 1,
         "type": "electroboy.creative.corkboard",
+        "title": _normalize_creative_corkboard_title(title, "Untitled corkboard"),
         "cards": [],
     }
 
 
-def _create_creative_corkboard(project_root: Path | str, relative_path: str) -> str:
+def _create_creative_corkboard(
+    project_root: Path | str,
+    relative_path: str,
+    *,
+    title: str | None = None,
+) -> str:
     normalized_path, corkboard_path = _creative_path(project_root, relative_path)
     if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
         raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
     if corkboard_path.exists() and not corkboard_path.is_file():
         raise StateError("corkboard path already exists as a folder")
+    default_title = corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
     if not corkboard_path.exists() or not corkboard_path.read_text(encoding="utf-8").strip():
         corkboard_path.parent.mkdir(parents=True, exist_ok=True)
         corkboard_path.write_text(
-            json.dumps(_empty_creative_corkboard_document(), indent=2) + "\n",
+            json.dumps(
+                _empty_creative_corkboard_document(
+                    _normalize_creative_corkboard_title(title, default_title)
+                ),
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
+    elif title:
+        data = _load_creative_corkboard_document(corkboard_path)
+        if not str(data.get("title") or "").strip():
+            data["title"] = _normalize_creative_corkboard_title(title, default_title)
+            corkboard_path.write_text(
+                json.dumps(data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
     return normalized_path
 
 
@@ -252,6 +280,8 @@ def _creative_tree_entries(
         if child.name in CREATIVE_IGNORED_NAMES or child.name.startswith("."):
             continue
         relative_path = child.relative_to(project_root).as_posix()
+        if relative_path == CREATIVE_CORKBOARD_GROUP_DIRECTORY.as_posix():
+            continue
         if child.is_dir():
             entries.append(
                 {
@@ -381,13 +411,25 @@ def creative_corkboard_html(
       text-transform: uppercase;
     }}
 
-    h1 {{
+    .board-title {{
+      width: min(560px, 70vw);
       margin: 2px 0 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
       color: #fff9e8;
       font-family: Georgia, "Times New Roman", serif;
       font-size: 22px;
       font-weight: 700;
       line-height: 1.15;
+      outline: none;
+      padding: 2px 5px;
+    }}
+
+    .board-title:not([readonly]):hover,
+    .board-title:not([readonly]):focus {{
+      border-color: rgba(255, 249, 232, 0.42);
+      background: rgba(255, 249, 232, 0.10);
     }}
 
     .toolbar-button {{
@@ -860,7 +902,11 @@ def creative_corkboard_html(
     <header class="board-toolbar">
       <div>
         <div id="boardEyebrow" class="board-eyebrow"></div>
-        <h1>{html.escape(str(payload["title"]))}</h1>
+        <input id="boardTitle" class="board-title" type="text"
+               value="{html.escape(str(payload["title"]), quote=True)}"
+               maxlength="200" aria-label="Corkboard title"
+               title="Edit corkboard title"
+               {"readonly" if payload["board_type"] != "freeform" else ""}>
       </div>
       <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
     </header>
@@ -888,6 +934,7 @@ def creative_corkboard_html(
     const canvasViewport = document.getElementById("canvasViewport");
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
+    const boardTitle = document.getElementById("boardTitle");
     const addCard = document.getElementById("addCard");
     const cardSizeSlider = document.getElementById("cardSizeSlider");
     const cardSizeValue = document.getElementById("cardSizeValue");
@@ -898,6 +945,7 @@ def creative_corkboard_html(
       : [];
     const saveTimers = new Map();
     const cardSaveRequests = new Map();
+    let boardTitleSaveTimer = null;
     const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
     const CANVAS_PAN_STORAGE_PREFIX = "electroboy.creative.corkboard.canvasPan.";
     const MIN_CARD_SCALE = 70;
@@ -939,6 +987,43 @@ def creative_corkboard_html(
 
     function canvasPanStorageKey() {{
       return `${{CANVAS_PAN_STORAGE_PREFIX}}${{boardStoragePath()}}`;
+    }}
+
+    async function saveBoardTitle() {{
+      window.clearTimeout(boardTitleSaveTimer);
+      boardTitleSaveTimer = null;
+      if (boardType !== "freeform" || !CORKBOARD_DATA.context_id) {{
+        return;
+      }}
+      const title = boardTitle.value.trim();
+      if (!title) {{
+        boardTitle.value = CORKBOARD_DATA.title || "Untitled corkboard";
+        return;
+      }}
+      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          board_type: "freeform",
+          action: "title",
+          corkboard: CORKBOARD_DATA.corkboard.path,
+          title,
+        }}),
+      }}).catch(() => null);
+      if (!response || !response.ok) {{
+        boardTitle.value = CORKBOARD_DATA.title || "Untitled corkboard";
+        return;
+      }}
+      const payload = await response.json().catch(() => ({{}}));
+      CORKBOARD_DATA.title = payload.title || title;
+      boardTitle.value = CORKBOARD_DATA.title;
+      document.title = CORKBOARD_DATA.title;
+      board.setAttribute("aria-label", CORKBOARD_DATA.title);
+    }}
+
+    function queueBoardTitleSave() {{
+      window.clearTimeout(boardTitleSaveTimer);
+      boardTitleSaveTimer = window.setTimeout(saveBoardTitle, 450);
     }}
 
     function storedCanvasPan() {{
@@ -1335,6 +1420,7 @@ def creative_corkboard_html(
         {{
           type: "electroboy-creative-open",
           path: card.board_path,
+          title: card.title || "Untitled card group",
           entry_type: "corkboard",
         }},
         window.location.origin,
@@ -1702,6 +1788,14 @@ def creative_corkboard_html(
     }}
 
     addCard.addEventListener("click", makeFreeformCard);
+    boardTitle.addEventListener("input", queueBoardTitleSave);
+    boardTitle.addEventListener("blur", saveBoardTitle);
+    boardTitle.addEventListener("keydown", (event) => {{
+      if (event.key === "Enter") {{
+        event.preventDefault();
+        boardTitle.blur();
+      }}
+    }});
     document.addEventListener("click", () => closePalettes());
     cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
     canvasViewport.addEventListener("pointerdown", startCanvasPan);
@@ -1816,12 +1910,19 @@ def _creative_freeform_corkboard_payload(
     context_id: str = "",
 ) -> dict[str, object]:
     data = _load_creative_corkboard_document(corkboard_path)
+    stored_title = str(data.get("title") or "").strip()
+    group_title = _creative_card_group_title(project_root, normalized_path)
     return {
         "schema_version": 1,
         "board_type": "freeform",
         "context_id": context_id,
         "palette": _creative_card_palette_payload(),
-        "title": title or corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX),
+        "title": (
+            stored_title
+            or group_title
+            or title
+            or corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
+        ),
         "corkboard": {
             "name": corkboard_path.name,
             "path": normalized_path,
@@ -1838,11 +1939,15 @@ def _creative_corkboard_children(project_root: Path, folder: Path) -> list[Path]
         )
     except OSError:
         return []
-    return [
-        child
-        for child in children
-        if child.name not in CREATIVE_IGNORED_NAMES and not child.name.startswith(".")
-    ]
+    visible_children = []
+    for child in children:
+        if child.name in CREATIVE_IGNORED_NAMES or child.name.startswith("."):
+            continue
+        relative_path = child.relative_to(project_root).as_posix()
+        if relative_path == CREATIVE_CORKBOARD_GROUP_DIRECTORY.as_posix():
+            continue
+        visible_children.append(child)
+    return visible_children
 
 
 def _creative_card_palette_payload() -> list[dict[str, str]]:
@@ -1894,11 +1999,42 @@ def _creative_card_group_default_path(parent_corkboard_path: str, card_id: str) 
     ).as_posix()
 
 
+def _creative_card_group_title(
+    project_root: Path | str,
+    board_path: str,
+) -> str:
+    project_root_path = Path(project_root).expanduser().resolve()
+    for parent_path in project_root_path.rglob(f"*{CREATIVE_CORKBOARD_SUFFIX}"):
+        if not parent_path.is_file():
+            continue
+        try:
+            data = json.loads(parent_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        cards = data.get("cards") if isinstance(data, dict) else None
+        if not isinstance(cards, list):
+            continue
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            if (
+                _creative_freeform_card_type(card.get("card_type")) == "group"
+                and _normalize_creative_corkboard_reference(card.get("board_path"))
+                == board_path
+            ):
+                return _normalize_creative_corkboard_title(
+                    card.get("title"),
+                    "Untitled card group",
+                )
+    return ""
+
+
 def _ensure_creative_card_group_corkboard(
     project_root: Path | str,
     *,
     parent_corkboard_path: str,
     card_id: str,
+    board_title: str,
     board_path: object,
 ) -> str:
     normalized_board_path = _normalize_creative_corkboard_reference(board_path)
@@ -1907,7 +2043,11 @@ def _ensure_creative_card_group_corkboard(
             parent_corkboard_path,
             card_id,
         )
-    _create_creative_corkboard(project_root, normalized_board_path)
+    _create_creative_corkboard(
+        project_root,
+        normalized_board_path,
+        title=board_title,
+    )
     return normalized_board_path
 
 
@@ -2216,6 +2356,7 @@ def _save_creative_freeform_corkboard_card(
             project_root,
             parent_corkboard_path=normalized_path,
             card_id=card_id,
+            board_title=str(card["title"]),
             board_path=(
                 card_payload.get("board_path")
                 or existing_card.get("board_path")
@@ -2260,6 +2401,26 @@ def _delete_creative_freeform_corkboard_card(
     return normalized_card_id
 
 
+def _save_creative_freeform_corkboard_title(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    title: object,
+) -> str:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    normalized_title = _normalize_creative_corkboard_title(title, "")
+    if not str(title or "").strip():
+        raise StateError("corkboard title is required")
+    data = _load_creative_corkboard_document(path)
+    data["title"] = normalized_title
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return normalized_title
+
+
 def save_creative_corkboard(
     project_root: Path | str,
     payload: dict[str, object],
@@ -2287,7 +2448,15 @@ def save_creative_corkboard(
         )
         return {"status": "saved", "card": card}
     if board_type == "freeform":
-        if str(payload.get("action") or "") == "delete":
+        action = str(payload.get("action") or "")
+        if action == "title":
+            title = _save_creative_freeform_corkboard_title(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                title=payload.get("title"),
+            )
+            return {"status": "saved", "title": title}
+        if action == "delete":
             card_id = _delete_creative_freeform_corkboard_card(
                 project_root,
                 corkboard_path=str(payload.get("corkboard") or ""),

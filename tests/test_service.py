@@ -2227,12 +2227,60 @@ class ServiceTests(unittest.TestCase):
             )
 
             board_path = str(saved["card"]["board_path"])
+            child_document = json.loads(
+                (project_root / board_path).read_text(encoding="utf-8")
+            )
+            child_page, child_status = creative_corkboard_html(
+                project_root,
+                board_path,
+                context_id=context_id,
+            )
+            duplicate = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card": {
+                        "id": "scene-two",
+                        "title": "Scene one",
+                        "card_type": "group",
+                    },
+                },
+            )
+            duplicate_path = str(duplicate["card"]["board_path"])
+            duplicate_document = json.loads(
+                (project_root / duplicate_path).read_text(encoding="utf-8")
+            )
+            renamed = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "action": "title",
+                    "corkboard": board_path,
+                    "title": "Scene outline",
+                },
+            )
+            renamed_document = json.loads(
+                (project_root / board_path).read_text(encoding="utf-8")
+            )
+            tree = state.creative_tree(context_id)
+
             self.assertEqual(status, HTTPStatus.OK)
+            self.assertEqual(child_status, HTTPStatus.OK)
             self.assertEqual(saved["card"]["card_type"], "group")
             self.assertTrue(board_path.endswith(".corkboard.json"))
             self.assertTrue((project_root / board_path).is_file())
             self.assertEqual(document["cards"][0]["card_type"], "group")
             self.assertEqual(document["cards"][0]["board_path"], board_path)
+            self.assertEqual(child_document["title"], "Scene one")
+            self.assertIn('id="boardTitle"', child_page)
+            self.assertIn('value="Scene one"', child_page)
+            self.assertNotEqual(duplicate_path, board_path)
+            self.assertEqual(duplicate_document["title"], "Scene one")
+            self.assertEqual(renamed["title"], "Scene outline")
+            self.assertEqual(renamed_document["title"], "Scene outline")
+            self.assertTrue((project_root / board_path).is_file())
+            self.assertNotIn("corkboard/groups", json.dumps(tree))
             self.assertIn(
                 "function convertCardToGroup(card, cardElement, button)",
                 page,
@@ -2242,6 +2290,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("card-group-icon", page)
             self.assertIn("Double-click to open card group", page)
             self.assertIn("currentPress - previousTitlePress <= 500", page)
+            self.assertIn('action: "title"', child_page)
             self.assertIn('"card_type": "group"', page)
             self.assertIn(board_path, page)
 

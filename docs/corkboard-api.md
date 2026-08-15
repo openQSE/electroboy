@@ -15,6 +15,10 @@ ElectroBoy supports two corkboard types.
 
 Freeform corkboards are JSON files ending in `.corkboard.json`.
 
+Each board stores a user-facing `title` independently from its file path. The
+path is the stable internal identity; changing the title does not rename the
+file or change its `.corkboard.json` type.
+
 Use them for arbitrary idea cards with x/y positions:
 
 ```bash
@@ -53,6 +57,11 @@ freeform corkboard file instead of embedding its child cards:
   "board_path": "corkboard/groups/ideas/opening-scene.corkboard.json"
 }
 ```
+
+The child board initially inherits the group card's title. Multiple groups may
+have the same visible title because their `board_path` values remain unique.
+Internal group-board files are hidden from the Binder and should be renamed by
+editing the title in the corkboard toolbar, not by renaming the JSON file.
 
 ### Folder Corkboards
 
