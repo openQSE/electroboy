@@ -117,6 +117,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "index.html",
                 "css/shell.css",
                 "js/core/registry.js",
+                "js/core/pane-layout-drag.js",
                 "js/core/runtime.js",
             ),
         ),

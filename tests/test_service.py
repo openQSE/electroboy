@@ -280,6 +280,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("agent_sessions", workflows["software"]["modules"])
         self.assertIn("core-shell", frontend_bundles)
         self.assertIn("index.html", frontend_bundles["core-shell"]["assets"])
+        self.assertIn(
+            "js/core/pane-layout-drag.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
@@ -404,6 +408,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertLess(
             page.index("js/workflows/software.js"),
+            page.index("js/core/runtime.js"),
+        )
+        self.assertLess(
+            page.index("js/core/pane-layout-drag.js"),
             page.index("js/core/runtime.js"),
         )
         self.assertIn("css/workflows/creative-writing.css", page)
@@ -619,6 +627,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_service_asset_endpoint_serves_extracted_frontend_files(self) -> None:
         self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/pane-layout-drag.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -644,6 +653,10 @@ class ServiceTests(unittest.TestCase):
                         server,
                         "/assets/service/js/core/registry.js",
                     )
+                )
+                drag_status, drag_body, drag_type, _drag_headers = request_bytes(
+                    server,
+                    "/assets/service/js/core/pane-layout-drag.js",
                 )
                 software_status, software_body, software_type, _software_headers = (
                     request_bytes(
@@ -679,6 +692,11 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(registry_status, 200)
         self.assertEqual(registry_type, "application/javascript; charset=utf-8")
         self.assertIn(b"registerWorkflow", registry_body)
+        self.assertEqual(drag_status, 200)
+        self.assertEqual(drag_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"function createController(options)", drag_body)
+        self.assertIn(b"event.shiftKey", drag_body)
+        self.assertIn(b"options.onDetach", drag_body)
         self.assertEqual(software_status, 200)
         self.assertEqual(software_type, "application/javascript; charset=utf-8")
         self.assertIn(b"Software engineering", software_body)

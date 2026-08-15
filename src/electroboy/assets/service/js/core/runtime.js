@@ -158,6 +158,7 @@
     let resizeProjectShellState = null;
     let paneLayout = null;
     let paneLayoutObserver = null;
+    let paneDragController = null;
     let paneLayoutIdSequence = 0;
     let paneCornerSplitCancel = null;
     let terminalResizeObserver = null;
@@ -394,6 +395,8 @@
     function buildPaneLayoutToolbar(leaf) {
       const toolbar = document.createElement("div");
       toolbar.className = "pane-layout-toolbar";
+      toolbar.dataset.paneDragHandle = "true";
+      toolbar.title = "Drag title or Shift-drag pane to move";
 
       const select = document.createElement("select");
       select.className = "pane-layout-kind";
@@ -651,7 +654,14 @@
           empty.textContent = "Choose a pane type";
           leaf.append(empty);
         } else {
-          leaf.append(PANE_LAYOUT_KINDS[node.kind].element);
+          const paneElement = PANE_LAYOUT_KINDS[node.kind].element;
+          for (const header of paneElement.querySelectorAll(
+            ".pane-header, .side-pane-header",
+          )) {
+            header.dataset.paneDragHandle = "true";
+            header.title = "Drag title or Shift-drag pane to move";
+          }
+          leaf.append(paneElement);
         }
         const preview = document.createElement("div");
         preview.className = "pane-layout-split-preview";
@@ -779,6 +789,42 @@
       }
     }
 
+    function movePaneLayoutLeaf(sourceId, targetId, position) {
+      const source = paneLayoutLeafById(sourceId);
+      const target = paneLayoutLeafById(targetId);
+      if (!source || !target || source === target) {
+        return;
+      }
+      if (position === "center") {
+        const sourceKind = source.kind;
+        source.kind = target.kind;
+        target.kind = sourceKind;
+      } else {
+        const movedLeaf = { ...source };
+        paneLayout = removePaneLayoutLeaf(paneLayout, sourceId);
+        const remainingTarget = paneLayoutLeafById(targetId);
+        if (!remainingTarget) {
+          return;
+        }
+        const direction = position === "left" || position === "right"
+          ? "row"
+          : "column";
+        const movedFirst = position === "left" || position === "top";
+        const replacement = paneLayoutSplit(
+          direction,
+          movedFirst ? movedLeaf : remainingTarget,
+          movedFirst ? remainingTarget : movedLeaf,
+        );
+        paneLayout = replacePaneLayoutNode(
+          paneLayout,
+          remainingTarget.id,
+          replacement,
+        );
+      }
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
     function activatePaneLayoutKind(kind) {
       if (poppedPanes.has(kind)) {
         dockPoppedPane(kind);
@@ -838,9 +884,43 @@
       }
     }
 
+    function initializePaneDragController() {
+      if (paneDragController || !window.ElectroBoyPaneDrag) {
+        return;
+      }
+      paneDragController = window.ElectroBoyPaneDrag.createController({
+        root: outputWorkbench,
+        source(element) {
+          const id = String(element.dataset.paneLayoutId || "");
+          const leaf = paneLayoutLeafById(id);
+          if (!leaf) {
+            return null;
+          }
+          return {
+            id: leaf.id,
+            kind: leaf.kind,
+            label: PANE_LAYOUT_KINDS[leaf.kind]?.label || "Pane",
+          };
+        },
+        canDrag(source) {
+          return source.kind !== "empty" && Boolean(PANE_LAYOUT_KINDS[source.kind]);
+        },
+        label(source) {
+          return source.label;
+        },
+        onDrop(source, target, position) {
+          movePaneLayoutLeaf(source.id, target.id, position);
+        },
+        onDetach(source) {
+          popOutPane(source.kind);
+        },
+      });
+    }
+
     function initializePaneLayout() {
       paneLayout = storedPaneLayout();
       outputWorkbench.classList.add("pane-layout-enabled");
+      initializePaneDragController();
       renderPaneLayout();
       paneLayoutObserver = new MutationObserver(() => refreshPaneLayoutVisibility());
       for (const definition of Object.values(PANE_LAYOUT_KINDS)) {
