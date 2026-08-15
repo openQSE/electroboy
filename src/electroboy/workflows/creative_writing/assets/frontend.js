@@ -1,6 +1,7 @@
 (function () {
   "use strict";
 
+  const WORKFLOW_ID = "creative-writing";
   const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
   let runtimeApi = null;
   let scratchPad = null;
@@ -84,7 +85,7 @@
   }
 
   function creativeModeActive() {
-    return runtimeApi.getState().workflowMode === "creative";
+    return runtimeApi.getState().workflowMode === WORKFLOW_ID;
   }
 
   function recentProjectsForWorkflow() {
@@ -394,7 +395,7 @@
           editing: false,
         },
       ],
-      { manual: true, stage: "creative-writing" },
+      { manual: true, stage: WORKFLOW_ID },
     );
   }
 
@@ -577,7 +578,7 @@
 
     function selectCreativeFolder(path) {
       return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
+        WORKFLOW_ID,
         "selectFolder",
         path,
       );
@@ -585,7 +586,7 @@
 
     function selectCreativeCorkboard(path) {
       return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
+        WORKFLOW_ID,
         "selectCorkboard",
         path,
       );
@@ -594,7 +595,7 @@
     function showCreativeDocument(path) {
       publishState();
       return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
+        WORKFLOW_ID,
         "showDocument",
         path,
       );
@@ -603,7 +604,7 @@
     function selectCreativeDocument(path, options = {}) {
       publishState();
       return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
+        WORKFLOW_ID,
         "selectDocument",
         path,
         options,
@@ -612,10 +613,10 @@
 
     function creativeAgentSession() {
       return agentSessions.some(
-        (session) => session.kind === "creative-writing" && session.status === "running",
+        (session) => session.kind === WORKFLOW_ID && session.status === "running",
       )
         ? agentSessions.find(
-            (session) => session.kind === "creative-writing" && session.status === "running",
+            (session) => session.kind === WORKFLOW_ID && session.status === "running",
           )
         : null;
     }
@@ -1028,13 +1029,13 @@
 
     async function startCreativeWritingAgent() {
       return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
+        WORKFLOW_ID,
         "startAgent",
       );
     }
 
   window.ElectroBoyFrontend.registerWorkflow({
-    id: "creative-writing",
+    id: WORKFLOW_ID,
     mode: "creative",
     label: "Creative writing",
     order: 20,
