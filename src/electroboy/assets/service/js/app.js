@@ -1423,6 +1423,39 @@
       }
     }
 
+    function registeredWorkflows() {
+      const frontend = window.ElectroBoyFrontend;
+      if (frontend && typeof frontend.listWorkflows === "function") {
+        const workflows = frontend.listWorkflows();
+        if (workflows.length) {
+          return workflows;
+        }
+      }
+      return [
+        {
+          id: "software",
+          mode: SOFTWARE_WORKFLOW_MODE,
+          label: "Software engineering",
+        },
+        {
+          id: "creative-writing",
+          mode: CREATIVE_WORKFLOW_MODE,
+          label: "Creative writing",
+        },
+      ];
+    }
+
+    function renderWorkflowModeOptions() {
+      const workflows = registeredWorkflows();
+      workflowModeSelect.replaceChildren();
+      workflows.forEach((workflow) => {
+        const option = document.createElement("option");
+        option.value = workflow.mode;
+        option.textContent = workflow.label;
+        workflowModeSelect.append(option);
+      });
+    }
+
     function saveWorkflowMode() {
       try {
         window.localStorage.setItem(WORKFLOW_MODE_STORAGE_KEY, workflowMode);
@@ -8289,6 +8322,7 @@
     });
 
     async function initialize() {
+      renderWorkflowModeOptions();
       applyStageDescriptions();
       applyWorkflowSideSheetState();
       applyWorkflowMode();

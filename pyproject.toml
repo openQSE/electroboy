@@ -31,6 +31,9 @@ electroboy = [
   "assets/service/*.html",
   "assets/service/css/*.css",
   "assets/service/js/*.js",
+  "assets/service/js/core/*.js",
+  "assets/service/js/modules/*.js",
+  "assets/service/js/workflows/*.js",
 ]
 
 [tool.black]

@@ -50,10 +50,15 @@ separately deliverable workflow packages.
 ## Production Packaging Goal
 
 ElectroBoy should be deliverable as a small core product with optional workflow
-packages. A customer should be able to install only the workflows they need. A
-software-engineering customer should not receive creative-writing code unless
-that workflow is included. A writing customer should not receive the
-software-engineering workflow unless it is included.
+packages. The standard ElectroBoy distribution enables the software-engineering
+and creative-writing workflows by default. Customer-specific or paid workflows
+are added through configuration and should use the same registry path as the
+built-in workflows.
+
+Future product packaging can still ship selected workflow sets. For example, a
+customer-specific build can include only the workflows that customer is entitled
+to use. The default developer build, however, is expected to include software
+engineering and creative writing without requiring extra setup.
 
 This packaging goal drives the modularity work:
 
@@ -68,6 +73,9 @@ This packaging goal drives the modularity work:
   review reports.
 - Paid or customer-specific workflows can be shipped as separately installed
   packages that register through the same interfaces as built-in workflows.
+- Additional workflow factories are persisted in service workflow configuration,
+  so a running service can expose more workflows without hardcoding them into the
+  core registry.
 
 The first implementation does not need a billing or license server. It must
 create clean package boundaries so entitlement and distribution policy can be
@@ -888,8 +896,9 @@ progress.
 ## Plugin Boundary
 
 External plugins should use the same interfaces as built-in workflows and
-modules. Plugin support should be added after software and creative writing
-are moved onto the registry.
+modules. Software engineering and creative writing are enabled by default, while
+additional workflow factories are persisted in service configuration. Python
+entry point discovery can be layered on top of that configuration model.
 
 Plugin discovery can use Python entry points:
 
@@ -1066,6 +1075,11 @@ the service core.
 Register built-in backend modules and workflows through the same registry API
 that external packages will use. Validate missing module dependencies and expose
 the loaded backend module/workflow list in service health.
+
+The standard service configuration enables the `software` and
+`creative-writing` workflows by default. Extra workflow factories are stored in
+`.electroboy/service/workflows.json` under the service root and can be added
+through the workflow configuration API.
 
 Phases 1 through 6 should be committed together as the backend modularization
 cleanup once behavior and tests are stable.

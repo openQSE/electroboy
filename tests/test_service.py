@@ -64,6 +64,8 @@ from electroboy.service import (  # noqa: E402
     splash_image_bytes,
     workflow_payload,
 )
+from electroboy.service.routes import build_route_dispatcher  # noqa: E402
+from electroboy.service.registry import build_module_registry  # noqa: E402
 from electroboy.models import (  # noqa: E402
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
@@ -129,12 +131,104 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("agent_sessions", modules)
         self.assertIn("structured_documents", modules)
         self.assertIn("corkboard", modules)
+        core_handlers = {route["handler"] for route in modules["core"]["routes"]}
+        self.assertIn("workflow_config", core_handlers)
+        self.assertIn("add_configured_workflow", core_handlers)
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
         self.assertIn("agent_sessions", workflows["software"]["modules"])
         self.assertIn("core-shell", frontend_bundles)
         self.assertIn("index.html", frontend_bundles["core-shell"]["assets"])
+        self.assertIn("software-workflow", frontend_bundles)
+        self.assertIn("creative-writing-workflow", frontend_bundles)
+        self.assertIn("documents", frontend_bundles)
         self.assertIn("pane-window", frontend_bundles)
+        self.assertEqual(
+            payload["workflow_config"]["enabled_builtins"],
+            ["software", "creative-writing"],
+        )
+
+    def test_route_dispatcher_uses_registered_module_routes(self) -> None:
+        dispatcher = build_route_dispatcher(
+            build_module_registry(),
+            {"core:health": "_send_health"},
+        )
+
+        match = dispatcher.match("GET", "/api/health")
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match.owner, "core")
+        self.assertEqual(match.handler_name, "health")
+        self.assertEqual(match.handler_method, "_send_health")
+
+    def test_configured_workflow_endpoint_persists_extra_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "service"
+            plugin_dir = Path(tmp) / "plugins"
+            root.mkdir()
+            plugin_dir.mkdir()
+            (plugin_dir / "sample_workflow.py").write_text(
+                "\n".join(
+                    [
+                        "from electroboy.service.registry import WorkflowDefinition",
+                        "from electroboy.service.registry import WorkflowStage",
+                        "",
+                        "def workflow():",
+                        "    return WorkflowDefinition(",
+                        "        id='sample-workflow',",
+                        "        label='Sample Workflow',",
+                        "        modules=('core',),",
+                        "        stages=(WorkflowStage('project', 'Project', None),),",
+                        "        project_kinds=('sample',),",
+                        "        backend_package='sample_workflow',",
+                        "        frontend_bundle='workflows/sample.js',",
+                        "    )",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            sys.path.insert(0, str(plugin_dir))
+            try:
+                try:
+                    server = create_server(root, port=0)
+                except PermissionError as error:
+                    self.skipTest(f"local socket creation is not permitted: {error}")
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    status, body, content_type = post_json(
+                        server,
+                        "/api/workflows/config/workflows",
+                        {
+                            "id": "sample-workflow",
+                            "factory": "sample_workflow:workflow",
+                        },
+                    )
+                    registry_status, registry_body, _registry_type = request(
+                        server,
+                        "/api/registry",
+                    )
+                    config_path = root / ".electroboy" / "service" / "workflows.json"
+                    config_exists = config_path.exists()
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+            finally:
+                sys.path.remove(str(plugin_dir))
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "added")
+        self.assertEqual(registry_status, 200)
+        registry = json.loads(registry_body)
+        workflows = {entry["id"]: entry for entry in registry["workflows"]}
+        self.assertIn("software", workflows)
+        self.assertIn("creative-writing", workflows)
+        self.assertIn("sample-workflow", workflows)
+        self.assertTrue(config_exists)
 
     def test_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,6 +277,18 @@ class ServiceTests(unittest.TestCase):
                     server,
                     "/assets/service/js/app.js",
                 )
+                registry_status, registry_body, registry_type, _registry_headers = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/core/registry.js",
+                    )
+                )
+                software_status, software_body, software_type, _software_headers = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/workflows/software.js",
+                    )
+                )
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -196,6 +302,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(b"async function initialize()", js_body)
         self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE.encode("utf-8"), js_body)
         self.assertNotIn(b"__CREATIVE_SPLASH_IMAGE_ROUTE__", js_body)
+        self.assertEqual(registry_status, 200)
+        self.assertEqual(registry_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"registerWorkflow", registry_body)
+        self.assertEqual(software_status, 200)
+        self.assertEqual(software_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"Software engineering", software_body)
 
     def test_creative_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3017,7 +3129,7 @@ class ServiceTests(unittest.TestCase):
             state.create_meta_project(context_id, str(meta_root))
 
             with mock.patch(
-                "electroboy.service._status_snapshot",
+                "electroboy.service.app._status_snapshot",
                 return_value=("meta-project status\n", True),
             ) as status_snapshot:
                 payload = state.project_status_payload(context_id)
@@ -3184,8 +3296,11 @@ class ServiceTests(unittest.TestCase):
             )
 
             with (
-                mock.patch("electroboy.service.shutil.which", return_value="/usr/bin/tmux"),
-                mock.patch("electroboy.service._tmux_has_session", return_value=True),
+                mock.patch(
+                    "electroboy.service.app.shutil.which",
+                    return_value="/usr/bin/tmux",
+                ),
+                mock.patch("electroboy.service.app._tmux_has_session", return_value=True),
                 mock.patch(
                     "electroboy.service.TmuxAgentSession.attach_existing"
                 ) as attach_existing,
@@ -3439,7 +3554,7 @@ class ServiceTests(unittest.TestCase):
             state.open_project(context_id, str(project_root))
 
             with mock.patch(
-                "electroboy.service._status_snapshot",
+                "electroboy.service.app._status_snapshot",
                 return_value=("active stage: requirements\n", True),
             ) as status_snapshot:
                 payload = state.project_status_payload(context_id)
@@ -4448,8 +4563,8 @@ class ServiceTests(unittest.TestCase):
         session.process.poll.return_value = None
 
         with (
-            mock.patch("electroboy.service._set_terminal_size") as set_size,
-            mock.patch("electroboy.service.os.killpg") as killpg,
+            mock.patch("electroboy.service.sessions._set_terminal_size") as set_size,
+            mock.patch("electroboy.service.sessions.os.killpg") as killpg,
         ):
             session.resize(100, 40)
 
@@ -4845,7 +4960,7 @@ class ServiceTests(unittest.TestCase):
             )
 
             with mock.patch(
-                "electroboy.service.subprocess.run",
+                "electroboy.service.app.subprocess.run",
                 return_value=completed,
             ) as run:
                 output, ok = _status_snapshot(root)
@@ -4885,6 +5000,28 @@ def request(
     connection = http.client.HTTPConnection(host, port, timeout=2)
     try:
         connection.request("GET", path)
+        response = connection.getresponse()
+        body = response.read().decode("utf-8")
+        content_type = response.getheader("Content-Type", "")
+    finally:
+        connection.close()
+    return response.status, body, content_type
+
+
+def post_json(
+    server: object,
+    path: str,
+    payload: dict[str, object],
+) -> tuple[int, str, str]:
+    host, port = server.server_address[:2]
+    connection = http.client.HTTPConnection(host, port, timeout=2)
+    try:
+        connection.request(
+            "POST",
+            path,
+            body=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
         response = connection.getresponse()
         body = response.read().decode("utf-8")
         content_type = response.getheader("Content-Type", "")
