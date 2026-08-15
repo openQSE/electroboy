@@ -946,6 +946,11 @@ def creative_corkboard_html(
     const saveTimers = new Map();
     const cardSaveRequests = new Map();
     let boardTitleSaveTimer = null;
+    const corkboardChannel = typeof window.BroadcastChannel === "function"
+      ? new window.BroadcastChannel(
+          `electroboy.corkboard.${{CORKBOARD_DATA.context_id || "local"}}`,
+        )
+      : null;
     const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
     const CANVAS_PAN_STORAGE_PREFIX = "electroboy.creative.corkboard.canvasPan.";
     const MIN_CARD_SCALE = 70;
@@ -1019,6 +1024,13 @@ def creative_corkboard_html(
       boardTitle.value = CORKBOARD_DATA.title;
       document.title = CORKBOARD_DATA.title;
       board.setAttribute("aria-label", CORKBOARD_DATA.title);
+      if (corkboardChannel) {{
+        corkboardChannel.postMessage({{
+          type: "corkboard-title-changed",
+          board_path: CORKBOARD_DATA.corkboard.path,
+          title: CORKBOARD_DATA.title,
+        }});
+      }}
     }}
 
     function queueBoardTitleSave() {{
@@ -1796,6 +1808,28 @@ def creative_corkboard_html(
         boardTitle.blur();
       }}
     }});
+    if (corkboardChannel) {{
+      corkboardChannel.addEventListener("message", (event) => {{
+        const message = event.data || {{}};
+        if (message.type !== "corkboard-title-changed" || !message.board_path) {{
+          return;
+        }}
+        let changed = false;
+        for (const card of cards) {{
+          if (
+            cardKind(card) === "group" &&
+            card.board_path === message.board_path &&
+            card.title !== message.title
+          ) {{
+            card.title = message.title || "Untitled card group";
+            changed = true;
+          }}
+        }}
+        if (changed) {{
+          renderCards();
+        }}
+      }});
+    }}
     document.addEventListener("click", () => closePalettes());
     cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
     canvasViewport.addEventListener("pointerdown", startCanvasPan);
@@ -2406,7 +2440,7 @@ def _save_creative_freeform_corkboard_title(
     *,
     corkboard_path: str,
     title: object,
-) -> str:
+) -> dict[str, object]:
     normalized_path, path = _creative_path(project_root, corkboard_path)
     if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
         raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
@@ -2418,7 +2452,44 @@ def _save_creative_freeform_corkboard_title(
     data = _load_creative_corkboard_document(path)
     data["title"] = normalized_title
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return normalized_title
+    updated_groups: list[dict[str, str]] = []
+    project_root_path = Path(project_root).expanduser().resolve()
+    for parent_path in project_root_path.rglob(f"*{CREATIVE_CORKBOARD_SUFFIX}"):
+        if not parent_path.is_file() or parent_path == path:
+            continue
+        try:
+            parent_data = json.loads(parent_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        cards = parent_data.get("cards") if isinstance(parent_data, dict) else None
+        if not isinstance(cards, list):
+            continue
+        changed = False
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            if (
+                _creative_freeform_card_type(card.get("card_type")) == "group"
+                and _normalize_creative_corkboard_reference(card.get("board_path"))
+                == normalized_path
+                and card.get("title") != normalized_title
+            ):
+                card["title"] = normalized_title
+                changed = True
+                updated_groups.append(
+                    {
+                        "corkboard": parent_path.relative_to(
+                            project_root_path
+                        ).as_posix(),
+                        "card_id": str(card.get("id") or ""),
+                    }
+                )
+        if changed:
+            parent_path.write_text(
+                json.dumps(parent_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+    return {"title": normalized_title, "group_cards": updated_groups}
 
 
 def save_creative_corkboard(
@@ -2450,12 +2521,12 @@ def save_creative_corkboard(
     if board_type == "freeform":
         action = str(payload.get("action") or "")
         if action == "title":
-            title = _save_creative_freeform_corkboard_title(
+            title_result = _save_creative_freeform_corkboard_title(
                 project_root,
                 corkboard_path=str(payload.get("corkboard") or ""),
                 title=payload.get("title"),
             )
-            return {"status": "saved", "title": title}
+            return {"status": "saved", **title_result}
         if action == "delete":
             card_id = _delete_creative_freeform_corkboard_card(
                 project_root,

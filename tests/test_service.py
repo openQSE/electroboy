@@ -2263,6 +2263,11 @@ class ServiceTests(unittest.TestCase):
             renamed_document = json.loads(
                 (project_root / board_path).read_text(encoding="utf-8")
             )
+            renamed_parent_document = json.loads(
+                (project_root / "corkboard" / "plot.corkboard.json").read_text(
+                    encoding="utf-8",
+                )
+            )
             tree = state.creative_tree(context_id)
 
             self.assertEqual(status, HTTPStatus.OK)
@@ -2279,6 +2284,19 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(duplicate_document["title"], "Scene one")
             self.assertEqual(renamed["title"], "Scene outline")
             self.assertEqual(renamed_document["title"], "Scene outline")
+            self.assertEqual(
+                renamed_parent_document["cards"][0]["title"],
+                "Scene outline",
+            )
+            self.assertEqual(
+                renamed["group_cards"],
+                [
+                    {
+                        "corkboard": "corkboard/plot.corkboard.json",
+                        "card_id": "scene-one",
+                    }
+                ],
+            )
             self.assertTrue((project_root / board_path).is_file())
             self.assertNotIn("corkboard/groups", json.dumps(tree))
             self.assertIn(
@@ -2291,6 +2309,8 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("Double-click to open card group", page)
             self.assertIn("currentPress - previousTitlePress <= 500", page)
             self.assertIn('action: "title"', child_page)
+            self.assertIn('type: "corkboard-title-changed"', child_page)
+            self.assertIn("new window.BroadcastChannel", child_page)
             self.assertIn('"card_type": "group"', page)
             self.assertIn(board_path, page)
 
