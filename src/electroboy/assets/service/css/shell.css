@@ -1479,6 +1479,15 @@
       grid-template-rows: minmax(0, 1fr);
     }
 
+    .artifact-workspace-empty {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 0;
+      color: #77849a;
+      font-size: var(--ui-small-font-size);
+    }
+
     .terminal-pane[hidden],
     .artifact-preview-pane[hidden],
     .artifact-pane-resize-handle[hidden] {

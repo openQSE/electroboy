@@ -280,7 +280,7 @@
       container.append(
         stageActionButton({
           label: "Open",
-          title: "Choose an existing Markdown file and start the documentation agent.",
+          title: "Choose an existing Markdown file.",
           primary: true,
           disabled: !runtimeState.activeProjectRoot,
           run: openDocumentFileBrowser,
@@ -289,7 +289,7 @@
       container.append(
         stageActionButton({
           label: "New",
-          title: "Choose where to create a Markdown document and start the agent.",
+          title: "Choose where to create a Markdown document.",
           disabled: !runtimeState.activeProjectRoot,
           run: openNewDocumentFileBrowser,
         }),
@@ -342,12 +342,12 @@
       refreshStageActionPanel();
     }
 
-    function launchDocumentTarget(target) {
+    function openDocumentTarget(target) {
       if (!target) {
         return;
       }
       registerDocumentTarget(target);
-      startDocumentationAgent(target);
+      showDocumentPreview(target);
     }
 
     function selectOpenDocumentTarget(path) {
@@ -368,7 +368,7 @@
         });
         return;
       }
-      launchDocumentTarget(target);
+      showDocumentPreview(target);
     }
 
     function artifactKindForPane(item) {
@@ -557,6 +557,14 @@
         runtimeApi.elements.artifactPreviewStack.classList.remove("split");
         return;
       }
+      if (runtimeState.artifactPreviewItems.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "artifact-workspace-empty";
+        empty.textContent = "No document open";
+        runtimeApi.elements.artifactPreviewStack.classList.remove("split");
+        runtimeApi.elements.artifactPreviewStack.append(empty);
+        return;
+      }
       runtimeApi.elements.artifactPreviewStack.classList.toggle("split", runtimeState.artifactPreviewItems.length > 1);
       for (const [index, item] of runtimeState.artifactPreviewItems.entries()) {
         if (index > 0) {
@@ -674,6 +682,43 @@
           popOutArtifactPreview(item);
         });
 
+        let agentButton = null;
+        if (item.kind === "document" && item.target) {
+          const session = documentationSessionForTarget(item.target);
+          agentButton = document.createElement("button");
+          agentButton.className = "pane-popout-button";
+          agentButton.type = "button";
+          if (session) {
+            agentButton.textContent = "Agent";
+            agentButton.title = `Select the agent for ${item.title}`;
+            agentButton.setAttribute(
+              "aria-label",
+              `Select the agent for ${item.title}`,
+            );
+            agentButton.classList.toggle(
+              "active",
+              session.session_id === runtimeState.selectedSessionId,
+            );
+            agentButton.addEventListener("click", () => {
+              selectAgentSession(session.session_id).catch((error) => {
+                appendOutput(`session switch failed: ${error}\n`, "error");
+              });
+            });
+          } else {
+            agentButton.textContent = "Start agent";
+            agentButton.title = `Start an agent for ${item.title}`;
+            agentButton.setAttribute(
+              "aria-label",
+              `Start an agent for ${item.title}`,
+            );
+            agentButton.addEventListener("click", () => {
+              startDocumentationAgent(item.target).catch((error) => {
+                appendOutput(`agent start failed: ${error}\n`, "error");
+              });
+            });
+          }
+        }
+
         zoomControls.append(zoomOut, zoomLevel, zoomIn);
         if (supportsZoom) {
           actions.append(zoomControls);
@@ -684,6 +729,9 @@
         actions.append(refresh);
         if (supportsModeSwitch) {
           actions.append(preview, edit);
+        }
+        if (agentButton) {
+          actions.append(agentButton);
         }
         actions.append(popout);
         if (item.kind === "document") {
@@ -809,10 +857,9 @@
       runtimeState.manualArtifactPreview = false;
       runtimeState.manualArtifactPreviewStage = "";
       runtimeState.artifactPreviewStage = "";
-      runtimeState.artifactPaneRequested = false;
+      runtimeState.artifactPaneRequested = Boolean(runtimeState.activeProjectRoot);
       closeArtifactEventStream();
-      runtimeApi.elements.artifactPreviewStack.replaceChildren();
-      runtimeApi.elements.artifactPreviewStack.classList.remove("split");
+      renderArtifactPreviewItems();
       applyOutputPaneVisibility();
     }
 
@@ -896,6 +943,8 @@
         hideArtifactPreview();
         return;
       }
+      runtimeState.artifactPaneRequested = true;
+      applyOutputPaneVisibility();
       if (runtimeState.manualArtifactPreview && runtimeState.manualArtifactPreviewStage === runtimeState.currentWorkflowStage) {
         connectArtifactEvents();
         return;
@@ -980,7 +1029,7 @@
       documentTargetFromInput: (runtime, ...args) => invoke(runtime, documentTargetFromInput, args),
       documentTargetFromSelectedPath: (runtime, ...args) => invoke(runtime, documentTargetFromSelectedPath, args),
       registerDocumentTarget: (runtime, ...args) => invoke(runtime, registerDocumentTarget, args),
-      launchDocumentTarget: (runtime, ...args) => invoke(runtime, launchDocumentTarget, args),
+      openDocumentTarget: (runtime, ...args) => invoke(runtime, openDocumentTarget, args),
       selectOpenDocumentTarget: (runtime, ...args) => invoke(runtime, selectOpenDocumentTarget, args),
       artifactKindForPane: (runtime, ...args) => invoke(runtime, artifactKindForPane, args),
       artifactRouteUrl: (runtime, ...args) => invoke(runtime, artifactRouteUrl, args),

@@ -127,7 +127,7 @@
         data.path,
       );
       if (target) {
-        runtimeApi.modules.invoke("documents", "launchDocumentTarget", target);
+        runtimeApi.modules.invoke("documents", "openDocumentTarget", target);
       }
       return true;
     }

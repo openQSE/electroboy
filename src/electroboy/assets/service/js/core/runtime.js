@@ -389,7 +389,8 @@
       if (kind !== "artifact") {
         return true;
       }
-      return artifactPreviewItems.length > 0 || Boolean(paneLayoutLeafByKind("artifact"));
+      return Boolean(activeProjectRoot) || artifactPreviewItems.length > 0 ||
+        Boolean(paneLayoutLeafByKind("artifact"));
     }
 
     function buildPaneLayoutToolbar(leaf) {
@@ -2379,7 +2380,7 @@
     function applyOutputPaneVisibility() {
       const agentVisible = !poppedPanes.has("agent");
       const artifactVisible =
-        artifactPaneRequested && artifactPreviewItems.length > 0 && !poppedPanes.has("artifact");
+        artifactPaneRequested && !poppedPanes.has("artifact");
       const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
       if (artifactVisible) {
         ensurePaneInLayout("artifact", "agent", "row");
@@ -3633,8 +3634,8 @@
       return window.ElectroBoyFrontend.invokeModule("documents", "registerDocumentTarget", ...args);
     }
 
-    function launchDocumentTarget(...args) {
-      return window.ElectroBoyFrontend.invokeModule("documents", "launchDocumentTarget", ...args);
+    function openDocumentTarget(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "openDocumentTarget", ...args);
     }
 
     function selectOpenDocumentTarget(...args) {

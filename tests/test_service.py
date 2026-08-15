@@ -331,10 +331,14 @@ class ServiceTests(unittest.TestCase):
             "function showArtifactPreviews(items, options = {})",
             documents,
         )
+        self.assertIn("function openDocumentTarget(target)", documents)
+        self.assertIn('agentButton.textContent = "Start agent"', documents)
+        self.assertNotIn("launchDocumentTarget", documents)
         self.assertIn(
             "function openProjectBrowser(mode = state().projectMode",
             file_browser,
         )
+        self.assertIn('"documents", "openDocumentTarget"', file_browser)
         self.assertNotIn("_runtime", sessions)
         self.assertNotIn("_runtime", documents)
         self.assertNotIn("_runtime", file_browser)
