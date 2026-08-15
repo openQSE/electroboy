@@ -40,6 +40,14 @@ def test_production_distributions_have_independent_manifests() -> None:
 
 
 def test_optional_frontend_assets_follow_package_ownership() -> None:
+    core_runtime = ROOT / "src/electroboy/assets/service/js/core/runtime.js"
+    legacy_runtime = ROOT / "src/electroboy/assets/service/js/app.js"
+    assert core_runtime.is_file()
+    assert not legacy_runtime.exists()
+    assert (ROOT / "src/electroboy/modules/assets/agent-sessions.js").is_file()
+    assert (ROOT / "src/electroboy/modules/assets/documents.js").is_file()
+    assert (ROOT / "src/electroboy/modules/assets/progress.js").is_file()
+    assert (ROOT / "src/electroboy/modules/assets/project-shell.js").is_file()
     assert (ROOT / "src/electroboy/modules/assets/corkboard.js").is_file()
     assert (
         ROOT / "src/electroboy/workflows/software/assets/frontend.js"
@@ -49,6 +57,12 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
     ).is_file()
     legacy_asset = ROOT / "src/electroboy/assets/service/js/workflows/software.js"
     assert not legacy_asset.exists()
+
+    core_manifest = (
+        ROOT / "packages/electroboy-core/pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert '"assets/service/js/core/*.js"' in core_manifest
+    assert '"assets/service/js/*.js"' not in core_manifest
 
 
 def test_workflow_controllers_do_not_import_service_app() -> None:

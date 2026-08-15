@@ -104,8 +104,14 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "index.html",
                 "css/shell.css",
                 "js/core/registry.js",
-                "js/app.js",
+                "js/core/runtime.js",
             ),
+        ),
+        FrontendBundle(
+            id="agent-sessions",
+            label="Agent Sessions",
+            owner="agent_sessions",
+            assets=("js/modules/agent-sessions.js",),
         ),
         FrontendBundle(
             id="documents",
@@ -279,6 +285,12 @@ def _contributed_assets(
             )
     # Compatibility for direct asset reads in source checkouts and tests.
     return tuple(assets) + (
+        (
+            "js/modules/agent-sessions.js",
+            "electroboy.modules",
+            "assets",
+            "agent-sessions.js",
+        ),
         (
             "js/modules/documents.js",
             "electroboy.modules",

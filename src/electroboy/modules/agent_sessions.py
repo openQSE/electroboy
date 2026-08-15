@@ -188,6 +188,8 @@ def module() -> ServiceModule:
             route("GET", "/api/sessions/export", "agent_sessions", "export"),
         ),
         handlers=_HANDLERS,
+        assets=("js/modules/agent-sessions.js",),
+        asset_package="electroboy.modules",
         capabilities=frozenset({"terminal", "sse", "transcript-export"}),
         state_namespace="sessions",
     )

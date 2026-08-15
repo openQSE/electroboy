@@ -121,6 +121,7 @@ INDEX_HTML = "\n".join(
         INDEX_PAGE_HTML,
         read_service_text_asset("css/shell.css"),
         read_service_text_asset("js/core/registry.js"),
+        _optional_service_text_asset("js/modules/agent-sessions.js"),
         _optional_service_text_asset("js/modules/documents.js"),
         _optional_service_text_asset("js/modules/binder.js"),
         _optional_service_text_asset("js/modules/corkboard.js"),
@@ -129,7 +130,7 @@ INDEX_HTML = "\n".join(
         _optional_service_text_asset("js/modules/project-shell.js"),
         _optional_service_text_asset("js/workflows/software.js"),
         _optional_service_text_asset("js/workflows/creative-writing.js"),
-        _render_service_text_asset("js/app.js"),
+        _render_service_text_asset("js/core/runtime.js"),
     ]
 )
 
@@ -2603,7 +2604,7 @@ def _handler_for(
                     status=HTTPStatus.NOT_FOUND,
                 )
                 return
-            if relative_path in {"index.html", "js/app.js"}:
+            if relative_path in {"index.html", "js/core/runtime.js"}:
                 text = data.decode("utf-8")
                 data = _apply_service_asset_replacements(text).encode("utf-8")
             self._send_headers(

@@ -365,9 +365,458 @@
     ];
   }
 
+    function restoreSoftwareWorkspace() {
+      scratchPad.spellcheck = true;
+      restoreScratchPad();
+      syncArtifactPreviewWithProject();
+    }
+
+    async function selectWorkflowStage(stageId) {
+      if (!activeProjectRoot || stageId === "project") {
+        return false;
+      }
+      const response = await fetch(contextUrl("/api/workflow/stage"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: stageId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "stage update failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "stage update failed"}\n`, "error");
+        return false;
+      }
+      if (payload.terminated_agent || payload.workflow_stage !== "requirements") {
+        closeAgentEventStream();
+        showProgressPane(false);
+        setAgentInputVisible(true);
+        setRequirementsRunning(false);
+        agentInput.value = "";
+      }
+      updateProjectState(payload);
+      return true;
+    }
+
+    async function setWorkflowStageFromMenu(stageId) {
+      if (!activeProjectRoot || currentWorkflowStage === stageId) {
+        return;
+      }
+      hideStageMenus();
+      const selected = await selectWorkflowStage(stageId);
+      if (selected) {
+        appendOutput(`stage set: ${stageId}\n`, "system");
+      }
+    }
+
+    async function approveRequirementsStage(skipApproval = false) {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== "requirements") {
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      const endpoint = skipApproval
+        ? "/api/agents/requirements/skip-approval"
+        : "/api/agents/requirements/approve";
+      const response = await fetch(contextUrl(endpoint), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "approval failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "approval failed"}\n`, "error");
+        if (payload.output) {
+          appendOutput(`${payload.output}\n`, "error");
+        }
+        return;
+      }
+      setRequirementsRunning(false);
+      agentInput.value = "";
+      clearAgentOutput();
+      if (payload.output) {
+        appendOutput(`${payload.output}\n`, "system");
+      }
+      if (payload.warning) {
+        appendOutput(`${payload.warning}\n`, "system");
+      }
+      appendOutput(
+        skipApproval
+          ? "requirements approval skipped; next: design\n"
+          : "requirements approved; next: design\n",
+        "system",
+      );
+      updateProjectState(payload);
+    }
+
+    async function skipRequirementsApprovalStage() {
+      if (
+        !requirementsApproved &&
+        !window.confirm(
+          "Requirements have not been explicitly approved.\n\nSkip approval and advance to design anyway?",
+        )
+      ) {
+        return;
+      }
+      await approveRequirementsStage(true);
+    }
+
+    function setRequirementsRunning(isRunning) {
+      setAgentRunning("requirements", isRunning);
+    }
+
+    async function runStageAgent(
+      kind,
+      endpoint,
+      label,
+      clearOutput = false,
+      acceptsInput = true,
+    ) {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\n", "error");
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      if (acceptsInput) {
+        showProgressPane(false);
+      } else {
+        showProgressPane(true);
+        clearProgressOutput();
+      }
+      showStageArtifactPreview(kind);
+      setAgentInputVisible(acceptsInput);
+      if (clearOutput) {
+        clearAgentOutput();
+      }
+      setAgentRunning(kind, true);
+      agentInput.disabled = !acceptsInput;
+      if (acceptsInput) {
+        agentInput.focus();
+      }
+      appendOutput(`${label}\n`, "system");
+      const response = await fetch(contextUrl(endpoint), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "start failed"}\n`, "error");
+        if (!acceptsInput) {
+          closeProgressEventStream();
+          showProgressPane(false);
+          setAgentInputVisible(true);
+        }
+        if (artifactPreviewStage === kind) {
+          hideArtifactPreview();
+        }
+        setAgentRunning(kind, false);
+        return;
+      }
+      updateProjectState(payload);
+      setAgentRunning(kind, true);
+      agentInput.disabled = !acceptsInput;
+      connectAgentEvents(kind);
+      if (!acceptsInput) {
+        connectProgressEvents();
+      }
+      sendTerminalResize();
+    }
+
+    async function startAdHocAgent() {
+      if (!activationRoot) {
+        appendOutput("activate a project first\n", "error");
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      closeProgressEventStream();
+      showProgressPane(false);
+      hideArtifactPreview();
+      setAgentInputVisible(true);
+      clearAgentOutput();
+      agentInput.disabled = false;
+      agentInput.focus();
+      appendOutput("$ codex ad-hoc\n", "system");
+      const response = await fetch(contextUrl("/api/agents/ad-hoc/start"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "start failed"}\n`, "error");
+        return;
+      }
+      updateProjectState(payload);
+      const sessionId = payload.session_id || selectedSessionId;
+      selectedSessionId = sessionId;
+      renderSessionSwitcher();
+      connectSessionEvents(sessionId);
+      sendTerminalResize();
+    }
+
+    async function runRequirementsAgent(endpoint, label, clearOutput = false) {
+      await runStageAgent("requirements", endpoint, label, clearOutput, true);
+    }
+
+    async function startRequirementsAgent() {
+      if (currentWorkflowStage !== "requirements") {
+        return;
+      }
+      await runRequirementsAgent(
+        "/api/agents/requirements/start",
+        "$ electroboy requirements",
+      );
+    }
+
+    async function completeRequirementsAgent() {
+      await approveRequirementsStage(false);
+    }
+
+    async function startDesignAgent() {
+      if (currentWorkflowStage !== "design") {
+        return;
+      }
+      await runStageAgent(
+        "design",
+        "/api/agents/design/start",
+        "$ electroboy design",
+        false,
+        true,
+      );
+    }
+
+    async function completeDesignAgent() {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== "design") {
+        return;
+      }
+      designMenu.hidden = true;
+      closeAgentEventStream();
+      const response = await fetch(contextUrl("/api/agents/design/complete"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "complete failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "complete failed"}\n`, "error");
+        return;
+      }
+      setAgentRunning("design", false);
+      agentInput.value = "";
+      clearAgentOutput();
+      updateProjectState(payload);
+    }
+
+    async function startAutomaticDesignReviewAgent() {
+      if (currentWorkflowStage !== "design-review") {
+        return;
+      }
+      designReviewInteractive = false;
+      await runStageAgent(
+        "design-review",
+        "/api/agents/design-review/start",
+        "$ electroboy design-review",
+        true,
+        false,
+      );
+    }
+
+    async function startInteractiveDesignReviewAgent() {
+      if (currentWorkflowStage !== "design-review") {
+        return;
+      }
+      designReviewInteractive = true;
+      await runStageAgent(
+        "design-review",
+        "/api/agents/design-review/start-interactive",
+        "$ electroboy design-review --interactive",
+        true,
+        true,
+      );
+    }
+
+    async function stopDesignReviewAgent() {
+      if (currentWorkflowStage !== "design-review" || !designReviewRunning) {
+        return;
+      }
+      hideStageMenus();
+      const response = await fetch(contextUrl("/api/agents/design-review/stop"), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "stop failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "stop failed"}\n`, "error");
+        return;
+      }
+      closeAgentEventStream();
+      closeProgressEventStream();
+      setAgentRunning("design-review", false);
+      appendOutput("design review stopped\n", "system");
+      updateProjectState(payload);
+    }
+
+    async function completeDesignReviewAgent() {
+      await approveDesignReviewStage(false);
+    }
+
+    async function approveDesignReviewStage(skipApproval = false) {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== "design-review") {
+        return;
+      }
+      designReviewMenu.hidden = true;
+      closeAgentEventStream();
+      closeProgressEventStream();
+      const endpoint = skipApproval
+        ? "/api/agents/design-review/skip-approval"
+        : "/api/agents/design-review/approve";
+      const response = await fetch(contextUrl(endpoint), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "approval failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "approval failed"}\n`, "error");
+        if (payload.output) {
+          appendOutput(`${payload.output}\n`, "error");
+        }
+        setAgentRunning("design-review", false);
+        refreshProject();
+        return;
+      }
+      setAgentRunning("design-review", false);
+      if (payload.output) {
+        appendOutput(`${payload.output}\n`, "system");
+      }
+      if (payload.warning) {
+        appendOutput(`${payload.warning}\n`, "system");
+      }
+      appendOutput(
+        skipApproval
+          ? "design approval skipped; next: implementation-plan\n"
+          : "design approved; next: implementation-plan\n",
+        "system",
+      );
+      updateProjectState(payload);
+    }
+
+    async function skipDesignReviewApprovalStage() {
+      if (
+        !designApproved &&
+        !window.confirm(
+          "Design has not been explicitly approved.\n\nSkip approval and advance to implementation planning anyway?",
+        )
+      ) {
+        return;
+      }
+      await approveDesignReviewStage(true);
+    }
+
+    async function startGenericStageAgent(stage, label, acceptsInput = true) {
+      if (currentWorkflowStage !== stage) {
+        return;
+      }
+      const endpoint = acceptsInput
+        ? `/api/agents/${stage}/start-interactive`
+        : `/api/agents/${stage}/start`;
+      await runStageAgent(stage, endpoint, label, acceptsInput === false, acceptsInput);
+    }
+
+    async function stopGenericStageAgent(stage, label) {
+      const runState = genericStageRun(stage);
+      if (currentWorkflowStage !== stage || !runState.running) {
+        return;
+      }
+      hideStageMenus();
+      const response = await fetch(contextUrl(`/api/agents/${stage}/stop`), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "stop failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "stop failed"}\n`, "error");
+        return;
+      }
+      closeAgentEventStream();
+      closeProgressEventStream();
+      setAgentRunning(stage, false);
+      appendOutput(`${label} stopped\n`, "system");
+      updateProjectState(payload);
+    }
+
+    async function approveGenericStage(stage, label, skipApproval = false) {
+      if (!activeProjectRoot) {
+        appendOutput("activate a project first\n", "error");
+        return;
+      }
+      if (currentWorkflowStage !== stage) {
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      closeProgressEventStream();
+      const endpoint = skipApproval
+        ? `/api/agents/${stage}/skip-approval`
+        : `/api/agents/${stage}/approve`;
+      const response = await fetch(contextUrl(endpoint), {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "approval failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "approval failed"}\n`, "error");
+        if (payload.output) {
+          appendOutput(`${payload.output}\n`, "error");
+        }
+        setAgentRunning(stage, false);
+        refreshProject();
+        return;
+      }
+      setAgentRunning(stage, false);
+      if (payload.output) {
+        appendOutput(`${payload.output}\n`, "system");
+      }
+      if (payload.warning) {
+        appendOutput(`${payload.warning}\n`, "system");
+      }
+      appendOutput(
+        skipApproval
+          ? `${label} approval skipped\n`
+          : `${label} approved\n`,
+        "system",
+      );
+      updateProjectState(payload);
+    }
+
+    async function skipGenericStageApproval(stage, label) {
+      if (
+        !window.confirm(
+          `${label} has not been explicitly approved.\n\nSkip approval and advance anyway?`,
+        )
+      ) {
+        return;
+      }
+      await approveGenericStage(stage, label, true);
+    }
+
+
   function mount(runtime) {
     const element = runtime.elements;
     const action = runtime.actions;
+    element.projectStage.addEventListener("click", () => {
+      action.showStageActionPanel("project");
+    });
+    for (const stageNode of element.stageNodes) {
+      if (stageNode.dataset.stage === "project") {
+        continue;
+      }
+      stageNode.addEventListener("click", () => {
+        action.handleWorkflowStageClick(stageNode).catch((error) => {
+          action.appendOutput(`stage update failed: ${error}\n`, "error");
+        });
+      });
+    }
     element.setRequirementsStage.addEventListener(
       "click",
       () => action.setWorkflowStage("requirements"),
@@ -513,6 +962,31 @@
     order: 10,
     backendPackage: "electroboy.workflows.software",
     stageActions,
+    actions: {
+      restoreSoftwareWorkspace: (_runtime, ...args) => restoreSoftwareWorkspace(...args),
+      selectWorkflowStage: (_runtime, ...args) => selectWorkflowStage(...args),
+      setWorkflowStageFromMenu: (_runtime, ...args) => setWorkflowStageFromMenu(...args),
+      approveRequirementsStage: (_runtime, ...args) => approveRequirementsStage(...args),
+      skipRequirementsApprovalStage: (_runtime, ...args) => skipRequirementsApprovalStage(...args),
+      setRequirementsRunning: (_runtime, ...args) => setRequirementsRunning(...args),
+      runStageAgent: (_runtime, ...args) => runStageAgent(...args),
+      startAdHocAgent: (_runtime, ...args) => startAdHocAgent(...args),
+      runRequirementsAgent: (_runtime, ...args) => runRequirementsAgent(...args),
+      startRequirementsAgent: (_runtime, ...args) => startRequirementsAgent(...args),
+      completeRequirementsAgent: (_runtime, ...args) => completeRequirementsAgent(...args),
+      startDesignAgent: (_runtime, ...args) => startDesignAgent(...args),
+      completeDesignAgent: (_runtime, ...args) => completeDesignAgent(...args),
+      startAutomaticDesignReviewAgent: (_runtime, ...args) => startAutomaticDesignReviewAgent(...args),
+      startInteractiveDesignReviewAgent: (_runtime, ...args) => startInteractiveDesignReviewAgent(...args),
+      stopDesignReviewAgent: (_runtime, ...args) => stopDesignReviewAgent(...args),
+      completeDesignReviewAgent: (_runtime, ...args) => completeDesignReviewAgent(...args),
+      approveDesignReviewStage: (_runtime, ...args) => approveDesignReviewStage(...args),
+      skipDesignReviewApprovalStage: (_runtime, ...args) => skipDesignReviewApprovalStage(...args),
+      startGenericStageAgent: (_runtime, ...args) => startGenericStageAgent(...args),
+      stopGenericStageAgent: (_runtime, ...args) => stopGenericStageAgent(...args),
+      approveGenericStage: (_runtime, ...args) => approveGenericStage(...args),
+      skipGenericStageApproval: (_runtime, ...args) => skipGenericStageApproval(...args),
+    },
     mount,
   });
 })();

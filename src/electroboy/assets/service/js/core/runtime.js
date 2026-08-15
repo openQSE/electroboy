@@ -1363,34 +1363,12 @@
       return `${SCRATCH_PAD_STORAGE_KEY}.${contextId}`;
     }
 
-    function storedDocumentTargets() {
-      try {
-        const parsed = JSON.parse(
-          window.localStorage.getItem(DOCUMENT_TARGETS_STORAGE_KEY) || "[]",
-        );
-        if (!Array.isArray(parsed)) {
-          return [];
-        }
-        return parsed
-          .map((target) => ({
-            label: String(target.label || target.path || "").trim(),
-            path: String(target.path || "").trim(),
-          }))
-          .filter((target) => target.label && target.path);
-      } catch (error) {
-        return [];
-      }
+    function storedDocumentTargets(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "storedDocumentTargets", ...args);
     }
 
-    function saveDocumentTargets() {
-      try {
-        window.localStorage.setItem(
-          DOCUMENT_TARGETS_STORAGE_KEY,
-          JSON.stringify(customDocumentTargets),
-        );
-      } catch (error) {
-        return;
-      }
+    function saveDocumentTargets(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "saveDocumentTargets", ...args);
     }
 
     function storedWorkflowSideSheetCollapsed() {
@@ -1554,33 +1532,12 @@
       window.addEventListener("resize", fitTerminal);
     }
 
-    function initializeProgressTerminal() {
-      if (progressTerminal || !window.Terminal) {
-        return;
-      }
-      progressTerminal = new window.Terminal(terminalOptions(true, "progress"));
-      if (window.FitAddon && window.FitAddon.FitAddon) {
-        progressTerminalFit = new window.FitAddon.FitAddon();
-        progressTerminal.loadAddon(progressTerminalFit);
-      }
-      progressTerminal.open(progressOutput);
-      applyTerminalFontSize();
+    function initializeProgressTerminal(...args) {
+      return window.ElectroBoyFrontend.invokeModule("progress", "initializeProgressTerminal", ...args);
     }
 
-    function initializeProjectShellTerminal() {
-      if (projectShellTerminal || !window.Terminal) {
-        return;
-      }
-      projectShellTerminal = new window.Terminal(terminalOptions(false, "shell"));
-      if (window.FitAddon && window.FitAddon.FitAddon) {
-        projectShellTerminalFit = new window.FitAddon.FitAddon();
-        projectShellTerminal.loadAddon(projectShellTerminalFit);
-      }
-      projectShellTerminal.onData((data) => {
-        sendProjectShellInput(data);
-      });
-      projectShellTerminal.open(projectShellOutput);
-      applyTerminalFontSize();
+    function initializeProjectShellTerminal(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "initializeProjectShellTerminal", ...args);
     }
 
     function terminalOptions(disableStdin = true, pane = "agent") {
@@ -1629,54 +1586,16 @@
         || fallback;
     }
 
-    function documentExportFormats() {
-      return [
-        {
-          value: "markdown",
-          label: "Markdown",
-          extension: "md",
-          description: "Markdown",
-          accept: {
-            "text/markdown": [".md"],
-            "text/plain": [".txt"],
-          },
-        },
-        {
-          value: "docx",
-          label: "DOCX",
-          extension: "docx",
-          description: "Word document",
-          accept: {
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
-              ".docx",
-            ],
-          },
-        },
-        {
-          value: "pdf",
-          label: "PDF",
-          extension: "pdf",
-          description: "PDF",
-          accept: {
-            "application/pdf": [".pdf"],
-          },
-        },
-      ];
+    function documentExportFormats(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentExportFormats", ...args);
     }
 
-    function documentExportFormat(format) {
-      return documentExportFormats().find((candidate) => candidate.value === format)
-        || documentExportFormats()[0];
+    function documentExportFormat(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentExportFormat", ...args);
     }
 
-    function documentExportPickerTypes(format = "markdown") {
-      const selected = documentExportFormat(format);
-      return [
-        {
-          description: selected.description,
-          accept: selected.accept,
-        },
-      ];
+    function documentExportPickerTypes(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentExportPickerTypes", ...args);
     }
 
     function downloadBlob(fileName, blob) {
@@ -1735,64 +1654,32 @@
       await exportBlob(url, suggestedName, "markdown");
     }
 
-    function sessionExportName(session) {
-      const kind = exportSafeName(session && session.kind, "agent");
-      return `agent-session-${kind}-${timestampForDownload()}.md`;
+    function sessionExportName(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "sessionExportName", ...args);
     }
 
-    async function exportAgentSession() {
-      const session = selectedSession();
-      if (!session) {
-        appendOutput("select an agent session first\n", "error");
-        return;
-      }
-      const url = contextUrl(
-        `/api/sessions/export?session_id=${encodeURIComponent(session.session_id)}`,
-      );
-      await exportMarkdown(url, sessionExportName(session));
+    function exportAgentSession(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "exportAgentSession", ...args);
     }
 
-    async function exportProgressLog() {
-      await exportMarkdown(
-        contextUrl("/api/progress/export"),
-        `progress-log-${timestampForDownload()}.md`,
-      );
+    function exportProgressLog(...args) {
+      return window.ElectroBoyFrontend.invokeModule("progress", "exportProgressLog", ...args);
     }
 
-    function artifactDocumentBaseName(item) {
-      if (item.kind === "document" && item.target) {
-        return exportSafeName(item.target.path || item.target.label || item.title);
-      }
-      if (item.kind === "route" && item.title) {
-        return exportSafeName(item.title);
-      }
-      return exportSafeName(item.title || item.kind || "document");
+    function artifactDocumentBaseName(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactDocumentBaseName", ...args);
     }
 
-    function artifactDocumentExportName(item, format) {
-      const selected = documentExportFormat(format);
-      return `${artifactDocumentBaseName(item)}.${selected.extension}`;
+    function artifactDocumentExportName(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactDocumentExportName", ...args);
     }
 
-    function artifactDocumentExportUrl(item, format) {
-      const parameters = new URLSearchParams();
-      parameters.set("artifact", artifactKindForPane(item));
-      parameters.set("format", format);
-      if (item.kind === "document" && item.target) {
-        parameters.set("path", item.target.path);
-      }
-      if (item.kind === "route" && item.path) {
-        parameters.set("path", item.path);
-      }
-      return contextUrl(`/api/documents/export?${parameters.toString()}`);
+    function artifactDocumentExportUrl(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactDocumentExportUrl", ...args);
     }
 
-    async function exportArtifactDocument(item, format) {
-      await exportBlob(
-        artifactDocumentExportUrl(item, format),
-        artifactDocumentExportName(item, format),
-        format,
-      );
+    function exportArtifactDocument(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "exportArtifactDocument", ...args);
     }
 
     function changeTerminalFontSize(delta) {
@@ -2012,31 +1899,12 @@
       }).catch(() => {});
     }
 
-    function queueProjectShellResize() {
-      if (
-        !projectShellRunning ||
-        !contextId ||
-        !projectShellTerminal ||
-        projectShellPane.hidden
-      ) {
-        return;
-      }
-      window.clearTimeout(shellResizeTimer);
-      shellResizeTimer = window.setTimeout(sendProjectShellResize, 120);
+    function queueProjectShellResize(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "queueProjectShellResize", ...args);
     }
 
-    async function sendProjectShellResize() {
-      if (!projectShellRunning || !contextId || !projectShellTerminal) {
-        return;
-      }
-      await fetch(contextUrl("/api/shell/resize"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          columns: projectShellTerminal.cols,
-          rows: projectShellTerminal.rows,
-        }),
-      }).catch(() => {});
+    function sendProjectShellResize(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "sendProjectShellResize", ...args);
     }
 
     function appendOutput(text, className = "") {
@@ -2119,242 +1987,68 @@
       agentOutput.replaceChildren();
     }
 
-    function appendProgressOutput(text, className = "") {
-      if (progressTerminal) {
-        progressTerminal.write(formatTerminalMessage(text, className));
-        return;
-      }
-      const span = document.createElement("span");
-      span.textContent = text;
-      if (className) {
-        span.className = className;
-      }
-      progressOutput.appendChild(span);
-      progressOutput.scrollTop = progressOutput.scrollHeight;
+    function appendProgressOutput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("progress", "appendProgressOutput", ...args);
     }
 
-    function clearProgressOutput() {
-      if (progressTerminal) {
-        progressTerminal.clear();
-        return;
-      }
-      progressOutput.replaceChildren();
+    function clearProgressOutput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("progress", "clearProgressOutput", ...args);
     }
 
-    function appendProjectShellOutput(text, className = "") {
-      if (projectShellTerminal) {
-        projectShellTerminal.write(
-          className ? formatTerminalMessage(text, className) : text,
-        );
-        return;
-      }
-      const span = document.createElement("span");
-      span.textContent = text;
-      if (className) {
-        span.className = className;
-      }
-      projectShellOutput.appendChild(span);
-      projectShellOutput.scrollTop = projectShellOutput.scrollHeight;
+    function appendProjectShellOutput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "appendProjectShellOutput", ...args);
     }
 
-    function clearProjectShellOutput() {
-      if (projectShellTerminal) {
-        projectShellTerminal.clear();
-        return;
-      }
-      projectShellOutput.replaceChildren();
+    function clearProjectShellOutput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "clearProjectShellOutput", ...args);
     }
 
-    function applyProjectShellPaneVisibility() {
-      const visible = projectShellPaneRequested && !poppedPanes.has("shell");
-      if (visible) {
-        ensurePaneInLayout("shell", "agent", "column");
-      }
-      projectShellPane.hidden = !visible;
-      shellPaneDivider.hidden = !visible;
-      leftOutputPane.classList.toggle("shell-visible", visible);
-      if (visible) {
-        applyStoredProjectShellPaneHeight();
-        initializeProjectShellTerminal();
-      }
-      window.requestAnimationFrame(fitTerminal);
-      updateProjectShellToggle();
+    function applyProjectShellPaneVisibility(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "applyProjectShellPaneVisibility", ...args);
     }
 
-    function showProjectShellPane(show) {
-      if (show) {
-        projectShellPaneDismissed = false;
-      }
-      projectShellPaneRequested = show;
-      applyProjectShellPaneVisibility();
+    function showProjectShellPane(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "showProjectShellPane", ...args);
     }
 
-    function hideProjectShellPane() {
-      projectShellPaneDismissed = projectShellRunning;
-      projectShellPaneRequested = false;
-      applyProjectShellPaneVisibility();
+    function hideProjectShellPane(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "hideProjectShellPane", ...args);
     }
 
-    function syncProjectShellPane() {
-      if (
-        projectShellRunning &&
-        !projectShellPaneRequested &&
-        !projectShellPaneDismissed
-      ) {
-        projectShellPaneRequested = true;
-      }
-      if (!projectShellRunning) {
-        projectShellPaneDismissed = false;
-        closeProjectShellEventStream();
-      }
-      applyProjectShellPaneVisibility();
-      if (projectShellRunning && !projectShellEventSource) {
-        window.setTimeout(connectProjectShellEvents, 0);
-      }
+    function syncProjectShellPane(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "syncProjectShellPane", ...args);
     }
 
-    async function toggleProjectShellFromToolbar() {
-      if (!activeProjectRoot || !contextId) {
-        return;
-      }
-      const visible = projectShellPaneRequested && !poppedPanes.has("shell");
-      if (visible) {
-        hideProjectShellPane();
-        return;
-      }
-      if (poppedPanes.has("shell")) {
-        dockPoppedPane("shell");
-      }
-      if (projectShellRunning) {
-        showProjectShellPane(true);
-        projectShellTerminal?.focus();
-        return;
-      }
-      await startProjectShell();
+    function toggleProjectShellFromToolbar(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "toggleProjectShellFromToolbar", ...args);
     }
 
-    function updateProjectShellToggle() {
-      if (!toggleProjectShellPane) {
-        return;
-      }
-      const hasActiveProject = Boolean(activeProjectRoot);
-      const visible = projectShellPaneRequested && !poppedPanes.has("shell");
-      toggleProjectShellPane.disabled = !hasActiveProject;
-      toggleProjectShellPane.classList.toggle("active", visible);
-      if (!hasActiveProject) {
-        toggleProjectShellPane.textContent = "Shell";
-        toggleProjectShellPane.title = "Activate a project to open a shell";
-      } else if (visible) {
-        toggleProjectShellPane.textContent = "Hide";
-        toggleProjectShellPane.title = "Hide the project shell pane";
-      } else if (projectShellRunning) {
-        toggleProjectShellPane.textContent = poppedPanes.has("shell") ? "Dock" : "Show";
-        toggleProjectShellPane.title = "Show the running project shell";
-      } else {
-        toggleProjectShellPane.textContent = "Open";
-        toggleProjectShellPane.title = "Open a shell in the active project";
-      }
+    function updateProjectShellToggle(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "updateProjectShellToggle", ...args);
     }
 
-    async function startProjectShell() {
-      if (!activeProjectRoot || !contextId) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      showProjectShellPane(true);
-      initializeProjectShellTerminal();
-      appendProjectShellOutput("starting project shell...\r\n", "system");
-      const response = await fetch(contextUrl("/api/shell/start"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "shell start failed" }));
-      if (!response.ok) {
-        appendProjectShellOutput(`${payload.error || "shell start failed"}\r\n`, "error");
-        return;
-      }
-      projectShellRunning = Boolean(payload.project_shell_running);
-      updateProjectState(payload);
-      projectShellTerminal?.focus();
+    function startProjectShell(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "startProjectShell", ...args);
     }
 
-    function connectProjectShellEvents() {
-      if (!contextId) {
-        return;
-      }
-      if (projectShellEventSource) {
-        projectShellEventSource.close();
-      }
-      showProjectShellPane(true);
-      initializeProjectShellTerminal();
-      projectShellEventSource = new EventSource(contextUrl("/api/shell/events"));
-      projectShellEventSource.addEventListener("agent-event", (event) => {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "output") {
-          appendProjectShellOutput(payload.terminal || payload.text || "");
-        } else if (payload.type === "system" || payload.type === "error") {
-          appendProjectShellOutput(`${payload.text}\r\n`, payload.type);
-        } else if (payload.type === "completed") {
-          appendProjectShellOutput(
-            `\r\nproject shell exited with code ${payload.returncode}\r\n`,
-            "system",
-          );
-          projectShellRunning = false;
-          projectShellPaneDismissed = false;
-          closeProjectShellEventStream();
-          refreshProject();
-        }
-      });
-      projectShellEventSource.onerror = () => {};
-      window.requestAnimationFrame(sendProjectShellResize);
+    function connectProjectShellEvents(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "connectProjectShellEvents", ...args);
     }
 
-    function closeProjectShellEventStream() {
-      if (projectShellEventSource) {
-        projectShellEventSource.close();
-        projectShellEventSource = null;
-      }
+    function closeProjectShellEventStream(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "closeProjectShellEventStream", ...args);
     }
 
-    function disposeProjectShellTerminal() {
-      if (projectShellTerminal) {
-        try {
-          projectShellTerminal.dispose();
-        } catch (error) {
-          // Best effort cleanup; the shell process itself remains attached server-side.
-        }
-        projectShellTerminal = null;
-        projectShellTerminalFit = null;
-      }
-      projectShellOutput.replaceChildren();
+    function disposeProjectShellTerminal(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "disposeProjectShellTerminal", ...args);
     }
 
-    async function sendProjectShellInput(data) {
-      if (!projectShellRunning || !contextId || !data) {
-        return;
-      }
-      await fetch(contextUrl("/api/shell/input"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data }),
-      }).catch(() => {});
+    function sendProjectShellInput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "sendProjectShellInput", ...args);
     }
 
-    async function stopProjectShellProcess() {
-      if (!contextId) {
-        return;
-      }
-      const response = await fetch(contextUrl("/api/shell/stop"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "shell stop failed" }));
-      if (!response.ok) {
-        appendProjectShellOutput(`${payload.error || "shell stop failed"}\r\n`, "error");
-        return;
-      }
-      projectShellRunning = false;
-      projectShellPaneDismissed = false;
-      closeProjectShellEventStream();
-      updateProjectState(payload);
+    function stopProjectShellProcess(...args) {
+      return window.ElectroBoyFrontend.invokeModule("project-shell", "stopProjectShellProcess", ...args);
     }
 
     function setAgentInputVisible(isVisible) {
@@ -3022,35 +2716,7 @@
         return;
       }
       const data = event.data || {};
-      if (data.type === "electroboy-file-browser-select" && data.path) {
-        if (data.mode === "link") {
-          insertTextAtCursor(data.path);
-          agentInput.focus();
-          return;
-        }
-        if (data.mode === "document" || data.mode === "document-new") {
-          const target = documentTargetFromSelectedPath(data.path);
-          if (target) {
-            launchDocumentTarget(target);
-          }
-          return;
-        }
-        if (
-          (data.mode === "project" || data.mode === "project-new") &&
-          (projectBrowserActivatesSelection || data.project_action)
-        ) {
-          if (data.project_action) {
-            projectMode = data.project_action;
-          }
-          projectBrowserActivatesSelection = false;
-          applyProjectSelection(data.path).catch((error) => {
-            appendOutput(`project update failed: ${error}\n`, "error");
-          });
-          return;
-        }
-        projectPath.value = data.path;
-        projectStatus.textContent = `selected: ${data.path}`;
-        projectPath.focus();
+      if (handleFileBrowserMessage(data)) {
         return;
       }
       if (data.type === "electroboy-artifact-saved") {
@@ -3750,294 +3416,84 @@
       }
     }
 
-    function selectedSession() {
-      return agentSessions.find((session) => session.session_id === selectedSessionId) || null;
+    function selectedSession(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "selectedSession", ...args);
     }
 
-    function sessionIsRunning(session) {
-      return session && session.status === "running";
+    function sessionIsRunning(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "sessionIsRunning", ...args);
     }
 
-    function selectedSessionAcceptsInput() {
-      const session = selectedSession();
-      return Boolean(session && session.interactive && sessionIsRunning(session));
+    function selectedSessionAcceptsInput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "selectedSessionAcceptsInput", ...args);
     }
 
-    function updateSessionIndicator(session) {
-      const status = session ? session.status || "done" : "idle";
-      let className = "agent-session-indicator";
-      if (status === "running") {
-        className += " running";
-      } else if (status === "error" || status === "failed") {
-        className += " error";
-      } else if (session) {
-        className += " done";
-      }
-      agentSessionIndicator.className = className;
-      agentSessionIndicator.title = session
-        ? agentSessionDisplayLabel(session)
-        : "No selected agent";
+    function updateSessionIndicator(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "updateSessionIndicator", ...args);
     }
 
-    function sessionMetadata(session) {
-      return session && session.metadata && typeof session.metadata === "object"
-        ? session.metadata
-        : {};
+    function sessionMetadata(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "sessionMetadata", ...args);
     }
 
-    function documentTargetKey(target) {
-      return String(target && target.path ? target.path : "").trim();
+    function documentTargetKey(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentTargetKey", ...args);
     }
 
-    function documentTargetLabel(target) {
-      return String((target && (target.label || target.path)) || "Document");
+    function documentTargetLabel(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentTargetLabel", ...args);
     }
 
-    function documentTargetForSession(session) {
-      const metadata = sessionMetadata(session);
-      const path = String(metadata.document_path || "").trim();
-      if (!path) {
-        return null;
-      }
-      const fallback = documentTargetFromInput(path) || { label: path, path };
-      return {
-        label: String(metadata.document_label || fallback.label || path),
-        path,
-      };
+    function documentTargetForSession(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentTargetForSession", ...args);
     }
 
-    function documentationSessionForTarget(target) {
-      const path = documentTargetKey(target);
-      if (!path) {
-        return null;
-      }
-      return (
-        agentSessions.find((session) => {
-          const sessionTarget = documentTargetForSession(session);
-          return sessionTarget && sessionTarget.path === path;
-        }) || null
-      );
+    function documentationSessionForTarget(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentationSessionForTarget", ...args);
     }
 
-    function agentSessionDisplayLabel(session) {
-      const status = session.status === "running" ? "running" : session.status || "done";
-      const documentTarget = documentTargetForSession(session);
-      if (documentTarget) {
-        return `Document: ${documentTargetLabel(documentTarget)} · ${status}`;
-      }
-      return `${session.kind || "agent"} · ${status}`;
+    function agentSessionDisplayLabel(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "agentSessionDisplayLabel", ...args);
     }
 
-    function attachableServiceSessions() {
-      const localIds = new Set(agentSessions.map((session) => session.session_id));
-      return serviceSessions.filter((session) => {
-        if (!session || !session.attachable || !session.session_id) {
-          return false;
-        }
-        if (localIds.has(session.session_id)) {
-          return false;
-        }
-        return session.kind !== "project-shell";
-      });
+    function attachableServiceSessions(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "attachableServiceSessions", ...args);
     }
 
-    function serviceSessionDisplayLabel(session) {
-      const baseLabel = agentSessionDisplayLabel(session);
-      const project = String(session.active_project_root || "").split("/").filter(Boolean).pop();
-      return project ? `${project}: ${baseLabel}` : baseLabel;
+    function serviceSessionDisplayLabel(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "serviceSessionDisplayLabel", ...args);
     }
 
-    function rememberOpenDocumentTarget(target) {
-      const path = documentTargetKey(target);
-      if (!path) {
-        return;
-      }
-      const storedTarget = {
-        label: documentTargetLabel(target),
-        path,
-      };
-      const existingIndex = openDocumentTargets.findIndex(
-        (candidate) => documentTargetKey(candidate) === path,
-      );
-      if (existingIndex >= 0) {
-        openDocumentTargets.splice(existingIndex, 1, storedTarget);
-      } else {
-        openDocumentTargets.push(storedTarget);
-      }
+    function rememberOpenDocumentTarget(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "rememberOpenDocumentTarget", ...args);
     }
 
-    function syncOpenDocumentTargetsFromSessions() {
-      for (const session of agentSessions) {
-        const target = documentTargetForSession(session);
-        if (target) {
-          rememberOpenDocumentTarget(target);
-        }
-      }
-      refreshDocumentTargetSwitchers();
+    function syncOpenDocumentTargetsFromSessions(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "syncOpenDocumentTargetsFromSessions", ...args);
     }
 
-    function renderDocumentTargetSwitcher(select) {
-      select.replaceChildren();
-      const targets = openDocumentTargets.length > 0
-        ? openDocumentTargets
-        : artifactPreviewDocumentTarget
-          ? [artifactPreviewDocumentTarget]
-          : [];
-      for (const target of targets) {
-        const option = document.createElement("option");
-        option.value = target.path;
-        option.textContent = documentTargetLabel(target);
-        select.append(option);
-      }
-      select.value = documentTargetKey(artifactPreviewDocumentTarget);
-      select.disabled = targets.length <= 1;
+    function renderDocumentTargetSwitcher(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "renderDocumentTargetSwitcher", ...args);
     }
 
-    function refreshDocumentTargetSwitchers() {
-      for (const select of artifactPreviewStack.querySelectorAll(
-        ".document-target-switcher",
-      )) {
-        renderDocumentTargetSwitcher(select);
-      }
+    function refreshDocumentTargetSwitchers(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "refreshDocumentTargetSwitchers", ...args);
     }
 
-    function renderSessionSwitcher() {
-      sessionSwitcher.replaceChildren();
-      const remoteSessions = attachableServiceSessions();
-      if (agentSessions.length === 0 && remoteSessions.length === 0) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = "No streams";
-        sessionSwitcher.append(option);
-        sessionSwitcher.disabled = true;
-        updateSessionIndicator(null);
-        return;
-      }
-      if (agentSessions.length === 0 && remoteSessions.length > 0) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = "Attach service stream...";
-        sessionSwitcher.append(option);
-      }
-      const localParent = agentSessions.length > 0
-        ? document.createElement("optgroup")
-        : sessionSwitcher;
-      if (agentSessions.length > 0) {
-        localParent.label = "Current context";
-        sessionSwitcher.append(localParent);
-      }
-      for (const session of agentSessions) {
-        const option = document.createElement("option");
-        option.value = session.session_id;
-        option.textContent = agentSessionDisplayLabel(session);
-        localParent.append(option);
-      }
-      if (remoteSessions.length > 0) {
-        const remoteParent = document.createElement("optgroup");
-        remoteParent.label = "Service sessions";
-        for (const session of remoteSessions) {
-          const option = document.createElement("option");
-          option.value = `attach:${session.session_id}`;
-          option.textContent = serviceSessionDisplayLabel(session);
-          remoteParent.append(option);
-        }
-        sessionSwitcher.append(remoteParent);
-      }
-      sessionSwitcher.disabled = false;
-      if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
-        const selected = agentSessions.find((session) => session.selected) || agentSessions[0];
-        selectedSessionId = selected ? selected.session_id : "";
-      }
-      sessionSwitcher.value = selectedSessionId;
-      updateSessionIndicator(selectedSession());
+    function renderSessionSwitcher(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "renderSessionSwitcher", ...args);
     }
 
-    async function selectAgentSession(sessionId) {
-      if (sessionId && sessionId.startsWith("attach:")) {
-        await attachAgentSession(sessionId.slice("attach:".length));
-        return;
-      }
-      if (!sessionId || sessionId === selectedSessionId) {
-        return;
-      }
-      const response = await fetch(contextUrl("/api/sessions/select"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId }),
-      });
-      const payload = await response.json().catch(() => ({ error: "session switch failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "session switch failed"}\n`, "error");
-        renderSessionSwitcher();
-        return;
-      }
-      agentSessions = Array.isArray(payload.sessions) ? payload.sessions : agentSessions;
-      selectedSessionId = payload.selected_session_id || sessionId;
-      syncOpenDocumentTargetsFromSessions();
-      renderSessionSwitcher();
-      const session = selectedSession();
-      activeAgentKind = session ? session.kind || "" : "";
-      const documentTarget = documentTargetForSession(session);
-      if (documentTarget) {
-        showDocumentPreview(documentTarget);
-      }
-      clearAgentOutput();
-      connectSessionEvents(selectedSessionId);
-      updateAgentControls();
-      sendTerminalResize();
+    function selectAgentSession(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "selectAgentSession", ...args);
     }
 
-    async function refreshServiceSessions() {
-      const response = await fetch("/api/session-registry", { cache: "no-store" });
-      if (!response.ok) {
-        return;
-      }
-      const payload = await response.json().catch(() => ({ sessions: [] }));
-      serviceSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
-      renderSessionSwitcher();
+    function refreshServiceSessions(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "refreshServiceSessions", ...args);
     }
 
-    async function attachAgentSession(sessionId) {
-      if (!contextId || !sessionId) {
-        return;
-      }
-      const response = await fetch(contextUrl("/api/sessions/attach"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId }),
-      });
-      const payload = await response.json().catch(() => ({ error: "session attach failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "session attach failed"}\n`, "error");
-        renderSessionSwitcher();
-        return;
-      }
-      updateProjectState(payload);
-      await refreshServiceSessions();
-      const session = selectedSession();
-      if (!session) {
-        return;
-      }
-      clearAgentOutput();
-      if (session.interactive) {
-        showProgressPane(false);
-        setAgentInputVisible(true);
-      } else {
-        clearProgressOutput();
-        showProgressPane(true);
-        setAgentInputVisible(false);
-      }
-      activeAgentKind = session.kind || "";
-      const documentTarget = documentTargetForSession(session);
-      if (documentTarget) {
-        showDocumentPreview(documentTarget);
-      }
-      connectSessionEvents(session.session_id);
-      if (!session.interactive && session.status === "running") {
-        connectProgressEvents();
-      }
-      updateAgentControls();
-      sendTerminalResize();
+    function attachAgentSession(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "attachAgentSession", ...args);
     }
 
     function showSubmenu(submenu, button) {
@@ -4388,1370 +3844,344 @@
       );
     }
 
-    function renderDocumentActionPanel(container) {
-      container.append(
-        stageActionButton({
-          label: "Open",
-          title: "Choose an existing Markdown file and start the documentation agent.",
-          primary: true,
-          disabled: !activeProjectRoot,
-          run: openDocumentFileBrowser,
-        }),
-      );
-      container.append(
-        stageActionButton({
-          label: "New",
-          title: "Choose where to create a Markdown document and start the agent.",
-          disabled: !activeProjectRoot,
-          run: openNewDocumentFileBrowser,
-        }),
-      );
-    }
-
-    function allDocumentTargets() {
-      const byPath = new Map();
-      for (const target of [...DEFAULT_DOCUMENT_TARGETS, ...customDocumentTargets]) {
-        byPath.set(target.path, target);
-      }
-      return Array.from(byPath.values());
-    }
-
-    function renderDocumentTargets() {
-      documentTargets.replaceChildren();
-      const disabled = !activeProjectRoot;
-      for (const target of allDocumentTargets()) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = target.label;
-        button.title = target.path;
-        button.disabled = disabled;
-        button.addEventListener("click", () => {
-          launchDocumentTarget(target);
-        });
-        documentTargets.append(button);
-      }
-    }
-
-    function documentTargetFromInput(value) {
-      const raw = value.trim();
-      if (!raw) {
-        return null;
-      }
-      const path = raw.includes("/") || raw.endsWith(".md")
-        ? raw
-        : raw.toLowerCase() === "readme"
-          ? "README.md"
-        : `docs/${raw.replace(/\s+/g, "-").toLowerCase()}.md`;
-      const label = raw.replace(/\.md$/i, "") || path;
-      return { label, path };
-    }
-
-    function documentTargetFromSelectedPath(path) {
-      const selected = String(path || "").trim();
-      const root = String(activeProjectRoot || "").replace(/\/+$/, "");
-      if (!selected) {
-        return null;
-      }
-      let relativePath = selected;
-      if (root && selected.startsWith(`${root}/`)) {
-        relativePath = selected.slice(root.length + 1);
-      }
-      if (relativePath.startsWith("/")) {
-        appendOutput(
-          `document must be under the active project: ${selected}\n`,
-          "error",
-        );
-        return null;
-      }
-      return documentTargetFromInput(relativePath);
-    }
-
-    function registerDocumentTarget(target) {
-      if (!target) {
-        return;
-      }
-      customDocumentTargets = customDocumentTargets.filter(
-        (existing) => existing.path !== target.path,
-      );
-      customDocumentTargets.push(target);
-      saveDocumentTargets();
-      renderDocumentTargets();
-      refreshStageActionPanel();
-    }
-
-    function launchDocumentTarget(target) {
-      if (!target) {
-        return;
-      }
-      registerDocumentTarget(target);
-      startDocumentationAgent(target);
-    }
-
-    function selectOpenDocumentTarget(path) {
-      const target = openDocumentTargets.find(
-        (candidate) => documentTargetKey(candidate) === path,
-      );
-      if (!target) {
-        return;
-      }
-      const session = documentationSessionForTarget(target);
-      if (session) {
-        if (session.session_id === selectedSessionId) {
-          showDocumentPreview(target);
-          return;
-        }
-        selectAgentSession(session.session_id).catch((error) => {
-          appendOutput(`session switch failed: ${error}\n`, "error");
-        });
-        return;
-      }
-      launchDocumentTarget(target);
-    }
-
-    function startCustomDocumentTargetFromValue(value) {
-      if (!activeProjectRoot) {
-        return;
-      }
-      const target = documentTargetFromInput(value);
-      if (!target) {
-        return;
-      }
-      if (customDocumentName) {
-        customDocumentName.value = "";
-        customDocumentForm.hidden = true;
-      }
-      launchDocumentTarget(target);
-    }
-
-    function addCustomDocumentTarget() {
-      startCustomDocumentTargetFromValue(customDocumentName.value);
-    }
-
-    function artifactKindForPane(item) {
-      if (!item) {
-        return "";
-      }
-      if (item.kind === "route") {
-        return "route";
-      }
-      return item.kind || "";
-    }
-
-    function artifactRouteUrl(path, version = artifactPreviewVersion) {
-      return `${contextUrl(`${path}?embed=1`)}&zoom=${documentZoom}&version=${version}`;
-    }
-
-    function artifactPreviewUrl(item) {
-      if (!item) {
-        return "";
-      }
-      if (item.kind === "requirements") {
-        return artifactRouteUrl("/artifacts/requirements");
-      }
-      if (item.kind === "creative-corkboard") {
-        const board = item.folder || item.corkboard;
-        if (!board) {
-          return "";
-        }
-        const parameters = new URLSearchParams();
-        parameters.set("path", board.path);
-        parameters.set("title", board.label || item.title);
-        parameters.set("embed", "1");
-        parameters.set("version", String(artifactPreviewVersion));
-        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
-      }
-      if (item.kind === "route" && item.path) {
-        return artifactRouteUrl(item.path);
-      }
-      if (item.kind === "document" && item.target) {
-        const parameters = new URLSearchParams();
-        parameters.set("path", item.target.path);
-        parameters.set("title", item.target.label);
-        parameters.set("embed", "1");
-        parameters.set("create", "1");
-        parameters.set("zoom", String(documentZoom));
-        parameters.set("version", String(artifactPreviewVersion));
-        return contextUrl(`/artifacts/document?${parameters.toString()}`);
-      }
-      return "";
-    }
-
-    function artifactEditUrl(item) {
-      if (!item) {
-        return "";
-      }
-      if (item.kind === "creative-corkboard") {
-        return artifactPreviewUrl(item);
-      }
-      const parameters = new URLSearchParams();
-      parameters.set("artifact", artifactKindForPane(item));
-      parameters.set("document_zoom", String(documentZoom));
-      parameters.set("font_size", String(artifactEditorFontSize()));
-      if (item.kind === "document" && item.target) {
-        parameters.set("path", item.target.path);
-        parameters.set("title", item.target.label);
-        parameters.set("create", "1");
-      }
-      if (item.kind === "route" && item.path) {
-        parameters.set("path", item.path);
-        parameters.set("title", item.title);
-      }
-      return contextUrl(`/artifacts/edit?${parameters.toString()}`);
-    }
-
-    function artifactPaneSupportsModeSwitch(item) {
-      return item && item.kind !== "creative-corkboard";
-    }
-
-    function artifactPaneSupportsDocumentExport(item) {
-      return item && item.kind !== "creative-corkboard";
-    }
-
-    function artifactPaneSupportsDocumentZoom(item) {
-      return item && item.kind !== "creative-corkboard";
-    }
-
-    function artifactPreviewsForStage(stage) {
-      return (STAGE_ARTIFACT_PREVIEWS[stage] || []).map((item) => ({ ...item }));
-    }
-
-    function setArtifactCompatibilityState(items) {
-      const first = items[0] || null;
-      artifactPreviewKind = first ? artifactKindForPane(first) : "";
-      artifactPreviewDocumentTarget =
-        first && first.kind === "document" && first.target ? first.target : null;
-    }
-
-    function showArtifactPreviews(items, options = {}) {
-      if (!activeProjectRoot) {
-        hideArtifactPreview();
-        return;
-      }
-      const nextItems = items.filter((item) => artifactPreviewUrl(item));
-      if (nextItems.length === 0) {
-        hideArtifactPreview();
-        return;
-      }
-      artifactPreviewItems = nextItems;
-      manualArtifactPreview = Boolean(options.manual);
-      manualArtifactPreviewStage = manualArtifactPreview ? currentWorkflowStage : "";
-      artifactPreviewStage = options.stage || currentWorkflowStage;
-      setArtifactCompatibilityState(nextItems);
-      artifactPaneRequested = true;
-      applyStoredArtifactPaneSize();
-      renderArtifactPreviewItems();
-      applyOutputPaneVisibility();
-      connectArtifactEvents();
-    }
-
-    function showStageArtifactPreview(stage) {
-      const previews = artifactPreviewsForStage(stage);
-      if (previews.length === 0) {
-        hideArtifactPreview();
-        return;
-      }
-      showArtifactPreviews(previews, { stage });
-    }
-
-    function showArtifactPreview(kind, options = {}) {
-      if (kind === "document") {
-        const target = options.target || artifactPreviewDocumentTarget;
-        if (!target) {
-          return;
-        }
-        showArtifactPreviews(
-          [
-            {
-              id: "document",
-              kind: "document",
-              title: target.label || target.path || "Document",
-              target,
-            },
-          ],
-          { manual: true },
-        );
-        return;
-      }
-      const item = kind === "requirements"
-        ? { id: "requirements", kind: "requirements", title: "Requirements" }
-        : null;
-      if (item) {
-        showArtifactPreviews([item], options);
-      }
-    }
-
-    function showDocumentPreview(target) {
-      if (!target) {
-        return;
-      }
-      rememberOpenDocumentTarget(target);
-      showArtifactPreview("document", { target });
-      refreshDocumentTargetSwitchers();
-    }
-
-    function applyCreativeWorkspace() {
-      scratchPad.spellcheck = true;
-      setAgentInputVisible(true);
-      showProgressPane(false);
-      if (creativeActiveDocument) {
-        if (creativePathIsCorkboard(creativeActiveDocument)) {
-          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
-        } else {
-          showCreativeDocument(creativeActiveDocument);
-        }
-      } else if (creativeActiveFolder) {
-        showCreativeCorkboard(creativeActiveFolder);
-      } else {
-        artifactPaneRequested = true;
-        applyOutputPaneVisibility();
-      }
-    }
-
-    function restoreSoftwareWorkspace() {
-      scratchPad.spellcheck = true;
-      restoreScratchPad();
-      syncArtifactPreviewWithProject();
-    }
-
-    function updateCreativeBinderActions() {
-      const hasProject = Boolean(activeProjectRoot);
-      creativeOpenProject.disabled = Boolean(activationRoot);
-      creativeNewProject.disabled = Boolean(activationRoot);
-      creativeCloseProject.disabled = !Boolean(activationRoot);
-      creativeActiveProjectSection.hidden = !hasProject;
-      creativeProjectName.textContent = hasProject
-        ? `Project: ${basename(activeProjectRoot)}`
-        : "";
-      creativeStartAgent.disabled = !hasProject;
-      updateCreativeActionGroup(
-        creativeProjectActions,
-        creativeProjectMenuButton,
-        creativeProjectActionsExpanded,
-      );
-      updateCreativeActionGroup(
-        creativeAgentActions,
-        creativeAgentMenuButton,
-        creativeAgentActionsExpanded,
-      );
-      renderCreativeRecentProjects();
-    }
-
-    function renderCreativeRecentProjects() {
-      creativeRecentProjects.replaceChildren();
-      const entries = recentProjectsForWorkflow();
-      creativeRecentProjects.hidden = entries.length === 0;
-      if (entries.length === 0) {
-        return;
-      }
-      const heading = document.createElement("div");
-      heading.className = "stage-action-heading";
-      heading.textContent = "Recent";
-      creativeRecentProjects.append(heading);
-      for (const recent of entries) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "stage-action-button";
-        button.textContent = basename(recent.path || recent.label || "Project");
-        button.title = recent.path || recentProjectLabel(recent);
-        button.disabled = Boolean(activationRoot);
-        button.addEventListener("click", () => {
-          openRecentProject(recent).catch((error) => {
-            appendOutput(`action failed: ${error}\n`, "error");
-          });
-        });
-        creativeRecentProjects.append(button);
-      }
-    }
-
-    function updateCreativeActionGroup(actions, button, expanded) {
-      actions.hidden = !expanded;
-      button.classList.toggle("expanded", expanded);
-      button.setAttribute("aria-expanded", expanded ? "true" : "false");
-    }
-
-    function toggleCreativeActionGroup(group) {
-      if (group === "project") {
-        creativeProjectActionsExpanded = !creativeProjectActionsExpanded;
-      } else if (group === "agent") {
-        creativeAgentActionsExpanded = !creativeAgentActionsExpanded;
-      }
-      updateCreativeBinderActions();
-    }
-
-    async function refreshCreativeBinder() {
-      if (!creativeModeActive()) {
-        return;
-      }
-      updateCreativeBinderActions();
-      if (!activeProjectRoot || !contextId) {
-        showCreativeTreeMessage("Open or create a project to start writing.");
-        return;
-      }
-      showCreativeTreeMessage("Loading Binder...");
-      const response = await fetch(contextUrl("/api/creative/tree"), {
-        cache: "no-store",
-      });
-      const payload = await response.json().catch(() => ({ error: "Binder failed" }));
-      if (!response.ok) {
-        showCreativeTreeMessage(payload.error || "Binder failed");
-        return;
-      }
-      creativeTreePayload = payload;
-      renderCreativeTree();
-      if (!creativeActiveDocument) {
-        const firstDocument = firstCreativeMarkdown(payload.entries || []);
-        if (firstDocument) {
-          selectCreativeDocument(firstDocument.path, { notifyAgent: false });
-        }
-      }
-    }
-
-    function firstCreativeMarkdown(entries) {
-      for (const entry of entries) {
-        if ((entry.type || "") === "file" && entry.markdown) {
-          return entry;
-        }
-        const child = firstCreativeMarkdown(entry.children || []);
-        if (child) {
-          return child;
-        }
-      }
-      return null;
-    }
-
-    function showCreativeTreeMessage(message) {
-      return window.ElectroBoyFrontend.invokeModule(
-        "binder",
-        "showMessage",
-        message,
-      );
-    }
-
-    function renderCreativeTree() {
-      return window.ElectroBoyFrontend.invokeModule("binder", "renderTree");
-    }
-
-    function showCreativeCorkboard(path, options = {}) {
-      return window.ElectroBoyFrontend.invokeModule(
-        "corkboard",
-        "show",
-        path,
-        options,
-      );
-    }
-
-    function selectCreativeFolder(path) {
-      return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
-        "selectFolder",
-        path,
-      );
-    }
-
-    function selectCreativeCorkboard(path) {
-      return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
-        "selectCorkboard",
-        path,
-      );
-    }
-
-    function showCreativeDocument(path) {
-      return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
-        "showDocument",
-        path,
-      );
-    }
-
-    function selectCreativeDocument(path, options = {}) {
-      return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
-        "selectDocument",
-        path,
-        options,
-      );
-    }
-
-    function creativeAgentSession() {
-      return agentSessions.some(
-        (session) => session.kind === "creative-writing" && session.status === "running",
-      )
-        ? agentSessions.find(
-            (session) => session.kind === "creative-writing" && session.status === "running",
-          )
-        : null;
-    }
-
-    function creativeAgentRunning() {
-      return Boolean(creativeAgentSession());
-    }
-
-    function activeCreativeTarget() {
-      if (creativeActiveDocument) {
-        if (creativePathIsCorkboard(creativeActiveDocument)) {
-          return {
-            type: "freeform-corkboard",
-            path: creativeActiveDocument,
-          };
-        }
-        return {
-          type: "document",
-          path: creativeActiveDocument,
-        };
-      }
-      if (creativeActiveFolder) {
-        return {
-          type: "folder-corkboard",
-          path: creativeActiveFolder,
-        };
-      }
-      return {
-        type: "none",
-        path: "",
-      };
-    }
-
-    function creativeTargetKey(target) {
-      return `${target.type || "none"}:${target.path || ""}`;
-    }
-
-    function creativeTargetContextLines(target) {
-      if (!target || target.type === "none") {
-        return ["Active target: none"];
-      }
-      if (target.type === "document") {
-        return [
-          "Active target: document",
-          `Path: ${target.path}`,
-          "Mode: markdown editing",
-          "Use the active document as the writing target unless the writer names another file.",
-        ];
-      }
-      if (target.type === "freeform-corkboard") {
-        return [
-          "Active target: freeform corkboard",
-          `Path: ${target.path}`,
-          "Mode: arbitrary cards with x/y positions",
-          "API guide: docs/corkboard-api.md",
-          "Use `electroboy corkboard` commands for card changes.",
-          "Do not edit corkboard JSON directly unless the writer explicitly asks.",
-        ];
-      }
-      return [
-        "Active target: folder corkboard",
-        `Path: ${target.path}`,
-        "Mode: folder-backed card ordering and notes",
-        "API guide: docs/corkboard-api.md",
-        "Use `electroboy corkboard folder` commands for notes and order.",
-        "Create, delete, or rename files only when the writer explicitly asks.",
-      ];
-    }
-
-    async function notifyCreativeAgentTargetSwitch() {
-      const target = activeCreativeTarget();
-      const targetKey = creativeTargetKey(target);
-      const session = creativeAgentSession();
-      if (
-        !creativeModeActive() ||
-        target.type === "none" ||
-        targetKey === creativeLastNotifiedTarget ||
-        !session ||
-        !session.interactive
-      ) {
-        return;
-      }
-      creativeLastNotifiedTarget = targetKey;
-      const message = [
-        "[ElectroBoy creative-writing context update]",
-        ...creativeTargetContextLines(target),
-        "The target is now displayed in the middle pane.",
-        "Do not modify it unless the writer asks.",
-        "[/ElectroBoy creative-writing context update]",
-      ].join("\n");
-      await fetch(contextUrl("/api/sessions/message"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: session.session_id, message }),
-      }).catch(() => {});
-    }
-
-    function creativePromptMessage(message) {
-      if (!creativeModeActive()) {
-        return message;
-      }
-      const target = activeCreativeTarget();
-      const contextLines = [
-        "[ElectroBoy creative-writing context]",
-        ...creativeTargetContextLines(target),
-        "Project scratchpad: scratchpad/scratchpad.md",
-        "[/ElectroBoy creative-writing context]",
-        "",
-        message,
-      ];
-      return contextLines.join("\n");
-    }
-
-    async function loadCreativeScratchPad() {
-      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
-        scratchPad.value = "";
-        restoredScratchContextId = contextId;
-        return;
-      }
-      const response = await fetch(contextUrl("/api/creative/scratch"), {
-        cache: "no-store",
-      });
-      const payload = await response.json().catch(() => ({ markdown: "" }));
-      scratchPad.value = response.ok ? String(payload.markdown || "") : "";
-      restoredScratchContextId = contextId;
-    }
-
-    function queueCreativeScratchPadSave() {
-      window.clearTimeout(creativeScratchSaveTimer);
-      creativeScratchSaveTimer = window.setTimeout(saveCreativeScratchPad, 450);
-    }
-
-    async function saveCreativeScratchPad() {
-      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
-        return;
-      }
-      await fetch(contextUrl("/api/creative/scratch"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markdown: scratchPad.value }),
-      }).catch(() => {});
-    }
-
-    async function initializeCreativeWorkspace() {
-      if (!activeProjectRoot || !contextId) {
-        return;
-      }
-      await fetch(contextUrl("/api/creative/init"), { method: "POST" }).catch(() => {});
-    }
-
-    async function ensureCreativeWorkspaceLoaded() {
-      if (!creativeModeActive() || !activeProjectRoot || !contextId) {
-        return;
-      }
-      await refreshCreativeBinder();
-    }
-
-    function creativeEntryChildren(basePath = "") {
-      const entries = creativeTreePayload && Array.isArray(creativeTreePayload.entries)
-        ? creativeTreePayload.entries
-        : [];
-      if (!basePath) {
-        return entries;
-      }
-      const entry = findCreativeEntry(entries, basePath);
-      return entry && Array.isArray(entry.children) ? entry.children : [];
-    }
-
-    function findCreativeEntry(entries, path) {
-      for (const entry of entries || []) {
-        if (String(entry.path || "") === path) {
-          return entry;
-        }
-        const child = findCreativeEntry(entry.children || [], path);
-        if (child) {
-          return child;
-        }
-      }
-      return null;
-    }
-
-    function uniqueCreativeChildPath(basePath, stem, extension = "") {
-      const existing = new Set(
-        creativeEntryChildren(basePath).map((entry) =>
-          String(entry.name || "").toLowerCase(),
-        ),
-      );
-      let index = 1;
-      let name = `${stem}${extension}`;
-      while (existing.has(name.toLowerCase())) {
-        index += 1;
-        name = `${stem}-${index}${extension}`;
-      }
-      return basePath ? `${basePath}/${name}` : name;
-    }
-
-    function creativeParentPath(path) {
-      return path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
-    }
-
-    function creativePathIsCorkboard(path) {
-      return String(path || "").toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX);
-    }
-
-    function creativePathIsInside(path, container) {
-      return path === container || path.startsWith(`${container}/`);
-    }
-
-    function remapCreativePath(path, oldPath, newPath) {
-      if (!path) {
-        return "";
-      }
-      if (path === oldPath) {
-        return newPath;
-      }
-      if (path.startsWith(`${oldPath}/`)) {
-        return `${newPath}/${path.slice(oldPath.length + 1)}`;
-      }
-      return path;
-    }
-
-    function beginCreativeRename(path, type) {
-      creativeEditingPath = path;
-      creativeEditingType = type;
-      renderCreativeTree();
-    }
-
-    function cancelCreativeRename() {
-      creativeEditingPath = "";
-      creativeEditingType = "";
-      renderCreativeTree();
-    }
-
-    function normalizedCreativeName(raw, type) {
-      let name = String(raw || "").trim();
-      name = name.replace(/[\/]+/g, "-");
-      if (!name || name === "." || name === "..") {
-        return "";
-      }
-      if (type === "corkboard") {
-        if (!name.toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX)) {
-          name = name.replace(/\.(md|json)$/i, "");
-          name = `${name}${CREATIVE_CORKBOARD_SUFFIX}`;
-        }
-        return name;
-      }
-      if (type === "file" && !/\.[^./]+$/.test(name)) {
-        name = `${name}.md`;
-      }
-      return name;
-    }
-
-    async function finishCreativeRename(path, type, rawName) {
-      if (creativeEditingPath !== path) {
-        return;
-      }
-      const newName = normalizedCreativeName(rawName, type);
-      if (!newName || newName === basename(path)) {
-        creativeEditingPath = "";
-        creativeEditingType = "";
-        renderCreativeTree();
-        return;
-      }
-      const response = await fetch(contextUrl("/api/creative/rename"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, new_name: newName }),
-      });
-      const payload = await response.json().catch(() => ({ error: "rename failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "rename failed"}\n`, "error");
-        renderCreativeTree();
-        return;
-      }
-      const newPath = String(payload.path || "");
-      creativeActiveDocument = remapCreativePath(creativeActiveDocument, path, newPath);
-      creativeActiveFolder = remapCreativePath(creativeActiveFolder, path, newPath);
-      expandedCreativeFolders = new Set(
-        Array.from(expandedCreativeFolders).map((folder) =>
-          remapCreativePath(folder, path, newPath),
-        ),
-      );
-      creativeEditingPath = "";
-      creativeEditingType = "";
-      await refreshCreativeBinder();
-      recordProjectStatusMessage(`renamed: ${newPath}`);
-      if (creativeActiveDocument) {
-        if (creativePathIsCorkboard(creativeActiveDocument)) {
-          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
-        } else {
-          showCreativeDocument(creativeActiveDocument);
-        }
-      }
-    }
-
-    async function createCreativeFolderInline(basePath = "") {
-      if (!activeProjectRoot) {
-        return;
-      }
-      const path = uniqueCreativeChildPath(basePath, "new-folder");
-      const response = await fetch(contextUrl("/api/creative/folders"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      });
-      const payload = await response.json().catch(() => ({ error: "folder failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "folder failed"}\n`, "error");
-        return;
-      }
-      expandedCreativeFolders.add(basePath);
-      creativeActiveFolder = payload.path || path;
-      creativeEditingPath = payload.path || path;
-      creativeEditingType = "directory";
-      await refreshCreativeBinder();
-      recordProjectStatusMessage(`created folder: ${payload.path || path}`);
-    }
-
-    async function createCreativeDocumentInline(basePath = "") {
-      if (!activeProjectRoot) {
-        return;
-      }
-      const path = uniqueCreativeChildPath(basePath, "untitled", ".md");
-      const response = await fetch(contextUrl("/api/creative/documents"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      });
-      const payload = await response.json().catch(() => ({ error: "document failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "document failed"}\n`, "error");
-        return;
-      }
-      creativeActiveDocument = payload.path || path;
-      creativeActiveFolder = basePath;
-      creativeEditingPath = payload.path || path;
-      creativeEditingType = "file";
-      await refreshCreativeBinder();
-      showCreativeDocument(creativeActiveDocument);
-      recordProjectStatusMessage(`created file: ${payload.path || path}`);
-    }
-
-    async function createCreativeCorkboardInline(basePath = "") {
-      if (!activeProjectRoot) {
-        return;
-      }
-      const path = uniqueCreativeChildPath(
-        basePath,
-        "ideas",
-        CREATIVE_CORKBOARD_SUFFIX,
-      );
-      const response = await fetch(contextUrl("/api/creative/corkboards"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      });
-      const payload = await response.json().catch(() => ({ error: "corkboard failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "corkboard failed"}\n`, "error");
-        return;
-      }
-      creativeActiveDocument = payload.path || path;
-      creativeActiveFolder = basePath;
-      creativeEditingPath = payload.path || path;
-      creativeEditingType = "corkboard";
-      await refreshCreativeBinder();
-      showCreativeCorkboard(creativeActiveDocument, { freeform: true });
-      recordProjectStatusMessage(`created board: ${payload.path || path}`);
-    }
-
-    async function deleteCreativeEntry(path, type) {
-      if (!activeProjectRoot || !path) {
-        return;
-      }
-      const label = type === "directory"
-        ? "folder and all of its contents"
-        : type === "corkboard" ? "corkboard" : "file";
-      if (!window.confirm(`Delete this ${label}?\n\n${path}`)) {
-        return;
-      }
-      const response = await fetch(contextUrl("/api/creative/delete"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      });
-      const payload = await response.json().catch(() => ({ error: "delete failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "delete failed"}\n`, "error");
-        return;
-      }
-      if (creativePathIsInside(creativeActiveDocument, path)) {
-        creativeActiveDocument = "";
-        hideArtifactPreview();
-      }
-      if (creativePathIsInside(creativeActiveFolder, path)) {
-        creativeActiveFolder = creativeParentPath(path);
-      }
-      if (creativePathIsInside(creativeEditingPath, path)) {
-        creativeEditingPath = "";
-        creativeEditingType = "";
-      }
-      expandedCreativeFolders = new Set(
-        Array.from(expandedCreativeFolders).filter(
-          (folder) => !creativePathIsInside(folder, path),
-        ),
-      );
-      await refreshCreativeBinder();
-      recordProjectStatusMessage(`deleted ${type}: ${path}`);
-    }
-
-    async function startCreativeWritingAgent() {
-      return window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
-        "startAgent",
-      );
-    }
-
-    function markArtifactFrameLoading(frame) {
-      frame.classList.add("loading");
-      frame.addEventListener(
-        "load",
-        () => {
-          frame.classList.remove("loading");
-        },
-        { once: true },
-      );
-    }
-
-    function renderArtifactPreviewItems() {
-      artifactPreviewStack.replaceChildren();
-      if (poppedPanes.has("artifact")) {
-        artifactPreviewStack.classList.remove("split");
-        return;
-      }
-      artifactPreviewStack.classList.toggle("split", artifactPreviewItems.length > 1);
-      for (const [index, item] of artifactPreviewItems.entries()) {
-        if (index > 0) {
-          const divider = document.createElement("div");
-          divider.className = "artifact-preview-divider";
-          artifactPreviewStack.append(divider);
-        }
-        const section = document.createElement("section");
-        section.className = "artifact-preview-item";
-        section.setAttribute("aria-label", `${item.title} preview`);
-
-        const header = document.createElement("div");
-        header.className = "pane-header";
-
-        const title = document.createElement("span");
-        title.className = "pane-title";
-        title.textContent = item.title;
-
-        const actions = document.createElement("div");
-        actions.className = "pane-actions";
-        const supportsZoom = artifactPaneSupportsDocumentZoom(item);
-        const supportsExport = artifactPaneSupportsDocumentExport(item);
-        const supportsModeSwitch = artifactPaneSupportsModeSwitch(item);
-
-        const zoomControls = document.createElement("div");
-        zoomControls.className = "document-zoom-controls";
-        zoomControls.setAttribute("aria-label", "Document zoom");
-
-        const zoomOut = document.createElement("button");
-        zoomOut.className = "document-zoom-button";
-        zoomOut.type = "button";
-        zoomOut.title = "Zoom document out";
-        zoomOut.setAttribute("aria-label", "Zoom document out");
-        zoomOut.dataset.zoom = "out";
-        zoomOut.textContent = "-";
-        zoomOut.addEventListener("click", () => {
-          changeDocumentZoom(-DOCUMENT_ZOOM_STEP);
-        });
-
-        const zoomLevel = document.createElement("span");
-        zoomLevel.className = "document-zoom-level";
-        zoomLevel.textContent = `${documentZoom}%`;
-
-        const zoomIn = document.createElement("button");
-        zoomIn.className = "document-zoom-button";
-        zoomIn.type = "button";
-        zoomIn.title = "Zoom document in";
-        zoomIn.setAttribute("aria-label", "Zoom document in");
-        zoomIn.dataset.zoom = "in";
-        zoomIn.textContent = "+";
-        zoomIn.addEventListener("click", () => {
-          changeDocumentZoom(DOCUMENT_ZOOM_STEP);
-        });
-
-        const refresh = document.createElement("button");
-        refresh.className = "pane-popout-button";
-        refresh.type = "button";
-        refresh.title = `Refresh ${item.title}`;
-        refresh.setAttribute("aria-label", `Refresh ${item.title}`);
-        refresh.textContent = "Refresh";
-        refresh.addEventListener("click", refreshArtifactPreview);
-
-        const preview = document.createElement("button");
-        preview.className = "pane-popout-button";
-        preview.type = "button";
-        preview.title = `Preview ${item.title}`;
-        preview.setAttribute("aria-label", `Preview ${item.title}`);
-        preview.textContent = "Preview";
-        preview.classList.toggle("active", !item.editing);
-        preview.addEventListener("click", () => {
-          setArtifactPreviewEditing(item, false);
-        });
-
-        const edit = document.createElement("button");
-        edit.className = "pane-popout-button";
-        edit.type = "button";
-        edit.title = `Edit ${item.title}`;
-        edit.setAttribute("aria-label", `Edit ${item.title}`);
-        edit.textContent = "Edit";
-        edit.classList.toggle("active", Boolean(item.editing));
-        edit.addEventListener("click", () => {
-          setArtifactPreviewEditing(item, true);
-        });
-
-        const exportFormat = document.createElement("select");
-        exportFormat.className = "document-export-format";
-        exportFormat.title = `Export format for ${item.title}`;
-        exportFormat.setAttribute("aria-label", `Export format for ${item.title}`);
-        for (const format of documentExportFormats()) {
-          const option = document.createElement("option");
-          option.value = format.value;
-          option.textContent = format.label;
-          exportFormat.append(option);
-        }
-
-        const exportButton = document.createElement("button");
-        exportButton.className = "pane-popout-button";
-        exportButton.type = "button";
-        exportButton.title = `Export ${item.title}`;
-        exportButton.setAttribute("aria-label", `Export ${item.title}`);
-        exportButton.textContent = "Export";
-        exportButton.addEventListener("click", () => {
-          exportArtifactDocument(item, exportFormat.value).catch((error) => {
-            appendOutput(`export failed: ${error}\n`, "error");
-          });
-        });
-
-        const popout = document.createElement("button");
-        popout.className = "pane-popout-button";
-        popout.type = "button";
-        popout.title = `Pop out ${item.title}`;
-        popout.setAttribute("aria-label", `Pop out ${item.title}`);
-        popout.textContent = "Pop";
-        popout.addEventListener("click", () => {
-          popOutArtifactPreview(item);
-        });
-
-        zoomControls.append(zoomOut, zoomLevel, zoomIn);
-        if (supportsZoom) {
-          actions.append(zoomControls);
-        }
-        if (supportsExport) {
-          actions.append(exportFormat, exportButton);
-        }
-        actions.append(refresh);
-        if (supportsModeSwitch) {
-          actions.append(preview, edit);
-        }
-        actions.append(popout);
-        if (item.kind === "document") {
-          const documentSwitcher = document.createElement("select");
-          documentSwitcher.className = "document-target-switcher";
-          documentSwitcher.title = "Open documents";
-          documentSwitcher.setAttribute("aria-label", "Open documents");
-          renderDocumentTargetSwitcher(documentSwitcher);
-          documentSwitcher.addEventListener("change", () => {
-            selectOpenDocumentTarget(documentSwitcher.value);
-          });
-          header.append(documentSwitcher, actions);
-        } else {
-          header.append(title, actions);
-        }
-
-        const frame = document.createElement("iframe");
-        frame.className = "artifact-preview-frame loading";
-        frame.title = `${item.title} preview`;
-        frame.setAttribute(
-          "sandbox",
-          "allow-scripts allow-popups allow-modals allow-same-origin",
-        );
-        frame.dataset.artifactId = item.id;
-        markArtifactFrameLoading(frame);
-        frame.addEventListener("load", () => {
-          postArtifactEditorFontSize(frame);
-        });
-        frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
-
-        section.append(header, frame);
-        artifactPreviewStack.append(section);
-      }
-      applyDocumentZoom();
-    }
-
-    function artifactFrameForItem(item) {
-      if (!item) {
-        return null;
-      }
-      const escapedId = CSS.escape(item.id || "");
-      return artifactPreviewStack.querySelector(
-        `.artifact-preview-frame[data-artifact-id="${escapedId}"]`,
-      );
-    }
-
-    function requestArtifactEditorSave(item) {
-      const frame = artifactFrameForItem(item);
-      if (!frame || !frame.contentWindow) {
-        return Promise.resolve(true);
-      }
-      const token = `artifact-save-${++artifactSaveTokenSequence}`;
-      return new Promise((resolve) => {
-        const timeout = window.setTimeout(() => {
-          pendingArtifactSaves.delete(token);
-          resolve(false);
-        }, 15000);
-        pendingArtifactSaves.set(token, { resolve, timeout });
-        frame.contentWindow.postMessage(
-          { type: "electroboy-save-request", token },
-          window.location.origin,
-        );
-      });
-    }
-
-    async function setArtifactPreviewEditing(item, editing) {
-      if (!editing && item && item.editing) {
-        const saved = await requestArtifactEditorSave(item);
-        if (!saved) {
-          appendOutput("preview blocked: save failed\n", "error");
-          return;
-        }
-      }
-      item.editing = Boolean(editing);
-      renderArtifactPreviewItems();
-    }
-
-    function popOutArtifactPreview(item) {
-      if (item.kind === "creative-corkboard") {
-        popOutPane("artifact", item);
-        return;
-      }
-      if (!contextId) {
-        appendOutput("create a browser context first\n", "error");
-        return;
-      }
-      const parameters = new URLSearchParams();
-      parameters.set("context_id", contextId);
-      parameters.set("artifact", artifactKindForPane(item));
-      parameters.set("font_size", String(terminalFontSize));
-      parameters.set("base_font_size", String(terminalFontSize));
-      parameters.set("document_zoom", String(documentZoom));
-      if (item.kind === "document" && item.target) {
-        parameters.set("document_path", item.target.path);
-        parameters.set("document_title", item.target.label);
-      }
-      if (item.kind === "route" && item.path) {
-        parameters.set("artifact_path", item.path);
-        parameters.set("artifact_title", item.title);
-      }
-      if (item.kind === "creative-corkboard" && item.folder) {
-        parameters.set("folder_path", item.folder.path);
-        parameters.set("folder_title", item.folder.label || item.title);
-      }
-      if (item.kind === "creative-corkboard" && item.corkboard) {
-        parameters.set("corkboard_path", item.corkboard.path);
-        parameters.set("corkboard_title", item.corkboard.label || item.title);
-      }
-      const popup = window.open(
-        `/pane/artifact?${parameters.toString()}`,
-        `electroboy-artifact-${item.id}-${contextId}`,
-        PANE_POPUP_FEATURES,
-      );
-      if (!popup) {
-        appendOutput("popup was blocked by the browser\n", "error");
-      }
-    }
-
-    function fileBrowserUrl(path, mode = "project", projectAction = "") {
-      const parameters = new URLSearchParams();
-      parameters.set("path", path || activeProjectRoot || activationRoot || serviceRoot || ".");
-      parameters.set("mode", mode);
-      if (projectAction) {
-        parameters.set("project_action", projectAction);
-      }
-      return `/file-browser?${parameters.toString()}`;
-    }
-
-    function openProjectBrowser(mode = projectMode, activateSelection = false) {
-      if (activationRoot && mode !== "meta-add" && mode !== "meta-start") {
-        return;
-      }
-      if ((mode === "meta-add" || mode === "meta-start") && activeProjectMode !== "meta") {
-        return;
-      }
-      projectMode = mode;
-      projectBrowserActivatesSelection = Boolean(activateSelection);
-      hideStageMenus();
-      hideWorkItemPanel();
-      projectPanel.hidden = true;
-      const path = projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".";
-      const browserMode = mode === "new" || mode === "meta-new"
-        ? "project-new"
-        : "project";
-      const popup = window.open(
-        fileBrowserUrl(path, browserMode, activateSelection ? mode : ""),
-        "electroboy-file-browser",
-        PANE_POPUP_FEATURES,
-      );
-      if (!popup) {
-        projectBrowserActivatesSelection = false;
-        projectStatus.textContent = "popup was blocked by the browser";
-        appendOutput("popup was blocked by the browser\n", "error");
-      }
-    }
-
-    function openLinkFileBrowser() {
-      projectBrowserActivatesSelection = false;
-      const path = activeProjectRoot || activationRoot || serviceRoot || projectPath.value || ".";
-      const popup = window.open(
-        fileBrowserUrl(path, "link"),
-        "electroboy-file-link-browser",
-        PANE_POPUP_FEATURES,
-      );
-      if (!popup) {
-        appendOutput("popup was blocked by the browser\n", "error");
-      }
-    }
-
-    function openDocumentFileBrowser() {
-      projectBrowserActivatesSelection = false;
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      const popup = window.open(
-        fileBrowserUrl(activeProjectRoot, "document"),
-        "electroboy-document-browser",
-        PANE_POPUP_FEATURES,
-      );
-      if (!popup) {
-        appendOutput("popup was blocked by the browser\n", "error");
-      }
-    }
-
-    function openNewDocumentFileBrowser() {
-      projectBrowserActivatesSelection = false;
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      const popup = window.open(
-        fileBrowserUrl(activeProjectRoot, "document-new"),
-        "electroboy-new-document-browser",
-        PANE_POPUP_FEATURES,
-      );
-      if (!popup) {
-        appendOutput("popup was blocked by the browser\n", "error");
-      }
-    }
-
-    function hideArtifactPreview() {
-      artifactPreviewKind = "";
-      artifactPreviewDocumentTarget = null;
-      artifactPreviewItems = [];
-      manualArtifactPreview = false;
-      manualArtifactPreviewStage = "";
-      artifactPreviewStage = "";
-      artifactPaneRequested = false;
-      closeArtifactEventStream();
-      artifactPreviewStack.replaceChildren();
-      artifactPreviewStack.classList.remove("split");
-      applyOutputPaneVisibility();
-    }
-
-    function refreshArtifactPreview(options = {}) {
-      const includeEditing = options.includeEditing !== false;
-      artifactPreviewVersion += 1;
-      for (const frame of artifactPreviewStack.querySelectorAll(".artifact-preview-frame")) {
-        const item = artifactPreviewItems.find(
-          (candidate) => candidate.id === frame.dataset.artifactId,
-        );
-        if (item && item.editing && !includeEditing) {
-          continue;
-        }
-        const url = item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
-        if (url) {
-          markArtifactFrameLoading(frame);
-          frame.src = url;
-        }
-      }
-    }
-
-    function artifactEventUrl(item) {
-      if (!item) {
-        return "";
-      }
-      if (item.kind === "requirements") {
-        return contextUrl("/api/artifacts/events?artifact=requirements");
-      }
-      const parameters = new URLSearchParams();
-      if (item.kind === "document" && item.target) {
-        parameters.set("artifact", "document");
-        parameters.set("path", item.target.path);
-        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
-      }
-      if (item.kind === "route" && item.path) {
-        parameters.set("artifact", "route");
-        parameters.set("path", item.path);
-        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
-      }
-      return "";
-    }
-
-    function connectArtifactEvents() {
-      closeArtifactEventStream();
-      if (!contextId) {
-        return;
-      }
-      const urls = new Set(artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
-      for (const url of urls) {
-        const source = new EventSource(url);
-        source.addEventListener("artifact-event", () => {
-          refreshArtifactPreview({ includeEditing: false });
-        });
-        source.onerror = () => {};
-        artifactEventSources.push(source);
-      }
-    }
-
-    function closeArtifactEventStream() {
-      for (const source of artifactEventSources) {
-        source.close();
-      }
-      artifactEventSources = [];
-    }
-
-    function stageIsRunning(stage) {
-      if (stage === "requirements") {
-        return requirementsRunning;
-      }
-      if (stage === "design") {
-        return designRunning;
-      }
-      if (stage === "design-review") {
-        return designReviewRunning;
-      }
-      return Boolean(genericStageRun(stage).running);
-    }
-
-    function syncArtifactPreviewWithProject() {
-      if (!activeProjectRoot) {
-        hideArtifactPreview();
-        return;
-      }
-      if (manualArtifactPreview && manualArtifactPreviewStage === currentWorkflowStage) {
-        connectArtifactEvents();
-        return;
-      }
-      manualArtifactPreview = false;
-      manualArtifactPreviewStage = "";
-      if (artifactPreviewStage === currentWorkflowStage && artifactPreviewItems.length > 0) {
-        connectArtifactEvents();
-        return;
-      }
-      if (stageIsRunning(currentWorkflowStage)) {
-        showStageArtifactPreview(currentWorkflowStage);
-        return;
-      }
-      if (artifactPreviewStage && artifactPreviewStage !== currentWorkflowStage) {
-        hideArtifactPreview();
-      }
+    function renderDocumentActionPanel(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "renderDocumentActionPanel", ...args);
+    }
+
+    function allDocumentTargets(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "allDocumentTargets", ...args);
+    }
+
+    function renderDocumentTargets(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "renderDocumentTargets", ...args);
+    }
+
+    function documentTargetFromInput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentTargetFromInput", ...args);
+    }
+
+    function documentTargetFromSelectedPath(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "documentTargetFromSelectedPath", ...args);
+    }
+
+    function registerDocumentTarget(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "registerDocumentTarget", ...args);
+    }
+
+    function launchDocumentTarget(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "launchDocumentTarget", ...args);
+    }
+
+    function selectOpenDocumentTarget(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "selectOpenDocumentTarget", ...args);
+    }
+
+    function startCustomDocumentTargetFromValue(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "startCustomDocumentTargetFromValue", ...args);
+    }
+
+    function addCustomDocumentTarget(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "addCustomDocumentTarget", ...args);
+    }
+
+    function artifactKindForPane(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactKindForPane", ...args);
+    }
+
+    function artifactRouteUrl(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactRouteUrl", ...args);
+    }
+
+    function artifactPreviewUrl(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactPreviewUrl", ...args);
+    }
+
+    function artifactEditUrl(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactEditUrl", ...args);
+    }
+
+    function artifactPaneSupportsModeSwitch(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactPaneSupportsModeSwitch", ...args);
+    }
+
+    function artifactPaneSupportsDocumentExport(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactPaneSupportsDocumentExport", ...args);
+    }
+
+    function artifactPaneSupportsDocumentZoom(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactPaneSupportsDocumentZoom", ...args);
+    }
+
+    function artifactPreviewsForStage(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactPreviewsForStage", ...args);
+    }
+
+    function setArtifactCompatibilityState(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "setArtifactCompatibilityState", ...args);
+    }
+
+    function showArtifactPreviews(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "showArtifactPreviews", ...args);
+    }
+
+    function showStageArtifactPreview(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "showStageArtifactPreview", ...args);
+    }
+
+    function showArtifactPreview(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "showArtifactPreview", ...args);
+    }
+
+    function showDocumentPreview(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "showDocumentPreview", ...args);
+    }
+
+    function applyCreativeWorkspace(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "applyCreativeWorkspace", ...args);
+    }
+
+    function restoreSoftwareWorkspace(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "restoreSoftwareWorkspace", ...args);
+    }
+
+    function updateCreativeBinderActions(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "updateCreativeBinderActions", ...args);
+    }
+
+    function renderCreativeRecentProjects(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "renderCreativeRecentProjects", ...args);
+    }
+
+    function updateCreativeActionGroup(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "updateCreativeActionGroup", ...args);
+    }
+
+    function toggleCreativeActionGroup(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "toggleCreativeActionGroup", ...args);
+    }
+
+    function refreshCreativeBinder(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "refreshCreativeBinder", ...args);
+    }
+
+    function firstCreativeMarkdown(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "firstCreativeMarkdown", ...args);
+    }
+
+    function showCreativeTreeMessage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "showCreativeTreeMessage", ...args);
+    }
+
+    function renderCreativeTree(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "renderCreativeTree", ...args);
+    }
+
+    function showCreativeCorkboard(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "showCreativeCorkboard", ...args);
+    }
+
+    function selectCreativeFolder(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "selectCreativeFolder", ...args);
+    }
+
+    function selectCreativeCorkboard(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "selectCreativeCorkboard", ...args);
+    }
+
+    function showCreativeDocument(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "showCreativeDocument", ...args);
+    }
+
+    function selectCreativeDocument(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "selectCreativeDocument", ...args);
+    }
+
+    function creativeAgentSession(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeAgentSession", ...args);
+    }
+
+    function creativeAgentRunning(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeAgentRunning", ...args);
+    }
+
+    function activeCreativeTarget(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "activeCreativeTarget", ...args);
+    }
+
+    function creativeTargetKey(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeTargetKey", ...args);
+    }
+
+    function creativeTargetContextLines(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeTargetContextLines", ...args);
+    }
+
+    function notifyCreativeAgentTargetSwitch(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "notifyCreativeAgentTargetSwitch", ...args);
+    }
+
+    function creativePromptMessage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativePromptMessage", ...args);
+    }
+
+    function loadCreativeScratchPad(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "loadCreativeScratchPad", ...args);
+    }
+
+    function queueCreativeScratchPadSave(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "queueCreativeScratchPadSave", ...args);
+    }
+
+    function saveCreativeScratchPad(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "saveCreativeScratchPad", ...args);
+    }
+
+    function initializeCreativeWorkspace(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "initializeCreativeWorkspace", ...args);
+    }
+
+    function ensureCreativeWorkspaceLoaded(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "ensureCreativeWorkspaceLoaded", ...args);
+    }
+
+    function creativeEntryChildren(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeEntryChildren", ...args);
+    }
+
+    function findCreativeEntry(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "findCreativeEntry", ...args);
+    }
+
+    function uniqueCreativeChildPath(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "uniqueCreativeChildPath", ...args);
+    }
+
+    function creativeParentPath(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativeParentPath", ...args);
+    }
+
+    function creativePathIsCorkboard(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativePathIsCorkboard", ...args);
+    }
+
+    function creativePathIsInside(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "creativePathIsInside", ...args);
+    }
+
+    function remapCreativePath(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "remapCreativePath", ...args);
+    }
+
+    function beginCreativeRename(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "beginCreativeRename", ...args);
+    }
+
+    function cancelCreativeRename(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "cancelCreativeRename", ...args);
+    }
+
+    function normalizedCreativeName(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "normalizedCreativeName", ...args);
+    }
+
+    function finishCreativeRename(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "finishCreativeRename", ...args);
+    }
+
+    function createCreativeFolderInline(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "createCreativeFolderInline", ...args);
+    }
+
+    function createCreativeDocumentInline(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "createCreativeDocumentInline", ...args);
+    }
+
+    function createCreativeCorkboardInline(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "createCreativeCorkboardInline", ...args);
+    }
+
+    function deleteCreativeEntry(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "deleteCreativeEntry", ...args);
+    }
+
+    function startCreativeWritingAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("creative-writing", "startCreativeWritingAgent", ...args);
+    }
+
+    function markArtifactFrameLoading(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "markArtifactFrameLoading", ...args);
+    }
+
+    function renderArtifactPreviewItems(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "renderArtifactPreviewItems", ...args);
+    }
+
+    function artifactFrameForItem(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactFrameForItem", ...args);
+    }
+
+    function requestArtifactEditorSave(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "requestArtifactEditorSave", ...args);
+    }
+
+    function setArtifactPreviewEditing(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "setArtifactPreviewEditing", ...args);
+    }
+
+    function popOutArtifactPreview(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "popOutArtifactPreview", ...args);
+    }
+
+    function fileBrowserUrl(...args) {
+      return window.ElectroBoyFrontend.invokeModule("file-browser", "fileBrowserUrl", ...args);
+    }
+
+    function openProjectBrowser(...args) {
+      return window.ElectroBoyFrontend.invokeModule("file-browser", "openProjectBrowser", ...args);
+    }
+
+    function openLinkFileBrowser(...args) {
+      return window.ElectroBoyFrontend.invokeModule("file-browser", "openLinkFileBrowser", ...args);
+    }
+
+    function openDocumentFileBrowser(...args) {
+      return window.ElectroBoyFrontend.invokeModule("file-browser", "openDocumentFileBrowser", ...args);
+    }
+
+    function openNewDocumentFileBrowser(...args) {
+      return window.ElectroBoyFrontend.invokeModule("file-browser", "openNewDocumentFileBrowser", ...args);
+    }
+
+    function handleFileBrowserMessage(...args) {
+      return window.ElectroBoyFrontend.invokeModule("file-browser", "handleFileBrowserMessage", ...args);
+    }
+
+    function hideArtifactPreview(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "hideArtifactPreview", ...args);
+    }
+
+    function refreshArtifactPreview(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "refreshArtifactPreview", ...args);
+    }
+
+    function artifactEventUrl(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "artifactEventUrl", ...args);
+    }
+
+    function connectArtifactEvents(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "connectArtifactEvents", ...args);
+    }
+
+    function closeArtifactEventStream(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "closeArtifactEventStream", ...args);
+    }
+
+    function stageIsRunning(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "stageIsRunning", ...args);
+    }
+
+    function syncArtifactPreviewWithProject(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "syncArtifactPreviewWithProject", ...args);
     }
 
     async function refreshProject() {
@@ -5810,94 +4240,20 @@
       projectStatusOutput.textContent = payload.output || "status: none\n";
     }
 
-    async function selectWorkflowStage(stageId) {
-      if (!activeProjectRoot || stageId === "project") {
-        return false;
-      }
-      const response = await fetch(contextUrl("/api/workflow/stage"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage: stageId }),
-      });
-      const payload = await response.json().catch(() => ({ error: "stage update failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "stage update failed"}\n`, "error");
-        return false;
-      }
-      if (payload.terminated_agent || payload.workflow_stage !== "requirements") {
-        closeAgentEventStream();
-        showProgressPane(false);
-        setAgentInputVisible(true);
-        setRequirementsRunning(false);
-        agentInput.value = "";
-      }
-      updateProjectState(payload);
-      return true;
+    function selectWorkflowStage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "selectWorkflowStage", ...args);
     }
 
-    async function setWorkflowStageFromMenu(stageId) {
-      if (!activeProjectRoot || currentWorkflowStage === stageId) {
-        return;
-      }
-      hideStageMenus();
-      const selected = await selectWorkflowStage(stageId);
-      if (selected) {
-        appendOutput(`stage set: ${stageId}\n`, "system");
-      }
+    function setWorkflowStageFromMenu(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "setWorkflowStageFromMenu", ...args);
     }
 
-    async function approveRequirementsStage(skipApproval = false) {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      if (currentWorkflowStage !== "requirements") {
-        return;
-      }
-      hideStageMenus();
-      closeAgentEventStream();
-      const endpoint = skipApproval
-        ? "/api/agents/requirements/skip-approval"
-        : "/api/agents/requirements/approve";
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "approval failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "approval failed"}\n`, "error");
-        if (payload.output) {
-          appendOutput(`${payload.output}\n`, "error");
-        }
-        return;
-      }
-      setRequirementsRunning(false);
-      agentInput.value = "";
-      clearAgentOutput();
-      if (payload.output) {
-        appendOutput(`${payload.output}\n`, "system");
-      }
-      if (payload.warning) {
-        appendOutput(`${payload.warning}\n`, "system");
-      }
-      appendOutput(
-        skipApproval
-          ? "requirements approval skipped; next: design\n"
-          : "requirements approved; next: design\n",
-        "system",
-      );
-      updateProjectState(payload);
+    function approveRequirementsStage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "approveRequirementsStage", ...args);
     }
 
-    async function skipRequirementsApprovalStage() {
-      if (
-        !requirementsApproved &&
-        !window.confirm(
-          "Requirements have not been explicitly approved.\n\nSkip approval and advance to design anyway?",
-        )
-      ) {
-        return;
-      }
-      await approveRequirementsStage(true);
+    function skipRequirementsApprovalStage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "skipRequirementsApprovalStage", ...args);
     }
 
     async function browseDirectory(path = projectPath.value || ".", mode = currentBrowserMode) {
@@ -6465,749 +4821,156 @@
       updateProjectState(payload);
     }
 
-    function connectAgentEvents(kind) {
-      const session = agentSessions.find((candidate) => candidate.kind === kind);
-      if (session) {
-        connectSessionEvents(session.session_id);
-        return;
-      }
-      if (eventSource) {
-        eventSource.close();
-      }
-      activeAgentKind = kind;
-      prepareTerminalStream();
-      eventSource = new EventSource(contextUrl(`/api/agents/${kind}/events`));
-      eventSource.addEventListener("agent-event", (event) => {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "output") {
-          const outputText = terminal
-            ? payload.terminal || payload.text || ""
-            : payload.text || "";
-          appendAgentOutput(outputText);
-        } else if (payload.type === "system") {
-          appendOutput(`${payload.text}\n`, "system");
-        } else if (payload.type === "error") {
-          appendOutput(`${payload.text}\n`, "error");
-        } else if (payload.type === "completed") {
-          appendOutput(`\nprocess exited with code ${payload.returncode}\n`, "system");
-          if (kind === "requirements") {
-            refreshArtifactPreview();
-          }
-          if (kind === "design-review") {
-            closeProgressEventStream();
-          }
-          setAgentRunning(kind, false);
-          refreshProject();
-        }
-      });
-      eventSource.onerror = () => {};
+    function connectAgentEvents(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "connectAgentEvents", ...args);
     }
 
-    function connectSessionEvents(sessionId) {
-      if (!sessionId) {
-        return;
-      }
-      if (eventSource) {
-        eventSource.close();
-      }
-      selectedSessionId = sessionId;
-      const session = selectedSession();
-      activeAgentKind = session ? session.kind || "" : activeAgentKind;
-      prepareTerminalStream();
-      eventSource = new EventSource(
-        contextUrl(`/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`),
-      );
-      eventSource.addEventListener("agent-event", (event) => {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "output") {
-          const outputText = terminal
-            ? payload.terminal || payload.text || ""
-            : payload.text || "";
-          appendAgentOutput(outputText);
-        } else if (payload.type === "system") {
-          appendOutput(`${payload.text}\n`, "system");
-        } else if (payload.type === "error") {
-          appendOutput(`${payload.text}\n`, "error");
-        } else if (payload.type === "completed") {
-          appendOutput(`\nprocess exited with code ${payload.returncode}\n`, "system");
-          if (session && session.kind === "requirements") {
-            refreshArtifactPreview();
-          }
-          if (session && !session.interactive) {
-            closeProgressEventStream();
-          }
-          refreshProject();
-        }
-      });
-      eventSource.onerror = () => {};
+    function connectSessionEvents(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "connectSessionEvents", ...args);
     }
 
-    function connectProgressEvents() {
-      if (progressEventSource) {
-        progressEventSource.close();
-      }
-      showProgressPane(true);
-      progressEventSource = new EventSource(contextUrl("/api/progress/events"));
-      progressEventSource.addEventListener("progress-event", (event) => {
-        const payload = JSON.parse(event.data);
-        clearProgressOutput();
-        appendProgressOutput(
-          payload.text || "",
-          payload.type === "error" ? "error" : "",
-        );
-        if (payload.running === false) {
-          closeProgressEventStream();
-        }
-      });
-      progressEventSource.onerror = () => {};
+    function connectProgressEvents(...args) {
+      return window.ElectroBoyFrontend.invokeModule("progress", "connectProgressEvents", ...args);
     }
 
-    function closeAgentEventStream() {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
+    function closeAgentEventStream(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "closeAgentEventStream", ...args);
     }
 
-    function closeProgressEventStream() {
-      if (progressEventSource) {
-        progressEventSource.close();
-        progressEventSource = null;
-      }
+    function closeProgressEventStream(...args) {
+      return window.ElectroBoyFrontend.invokeModule("progress", "closeProgressEventStream", ...args);
     }
 
-    function agentProcessRunning() {
-      return agentSessions.some((session) => session.status === "running");
+    function agentProcessRunning(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "agentProcessRunning", ...args);
     }
 
-    function updateAgentControls() {
-      const acceptsInput = selectedSessionAcceptsInput();
-      const session = selectedSession();
-      agentInput.disabled = !acceptsInput;
-      insertFileLink.disabled = !acceptsInput;
-      interruptAgent.disabled = !sessionIsRunning(session);
-      exportAgentOutput.disabled = !session;
-      exportProgressOutput.disabled = !activationRoot;
+    function updateAgentControls(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "updateAgentControls", ...args);
     }
 
-    function setAgentRunning(kind, isRunning) {
-      if (kind === "requirements") {
-        requirementsRunning = isRunning;
-      } else if (kind === "design") {
-        designRunning = isRunning;
-      } else if (kind === "design-review") {
-        designReviewRunning = isRunning;
-        if (!isRunning) {
-          designReviewInteractive = false;
-        }
-      } else if (kind === "documentation") {
-        documentationRunning = isRunning;
-      } else if (stageRunState[kind]) {
-        stageRunState = {
-          ...stageRunState,
-          [kind]: {
-            ...stageRunState[kind],
-            running: isRunning,
-            started: stageRunState[kind].started || isRunning,
-          },
-        };
-      }
-      if (kind === "requirements") {
-        if (isRunning) {
-          if (!manualArtifactPreview) {
-            showArtifactPreview("requirements");
-          }
-        } else {
-          closeArtifactEventStream();
-          refreshArtifactPreview();
-        }
-      }
-      if (isRunning) {
-        activeAgentKind = kind;
-      } else if (activeAgentKind === kind) {
-        activeAgentKind = "";
-      }
-      updateAgentControls();
-      updateRequirementsMenuState();
-      updateDesignMenuState();
-      updateDesignReviewMenuState();
-      updateGenericStageMenuStates();
-      updateDocumentMenuState();
+    function setAgentRunning(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "setAgentRunning", ...args);
     }
 
-    function setRequirementsRunning(isRunning) {
-      setAgentRunning("requirements", isRunning);
+    function setRequirementsRunning(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "setRequirementsRunning", ...args);
     }
 
-    async function runStageAgent(
-      kind,
-      endpoint,
-      label,
-      clearOutput = false,
-      acceptsInput = true,
-    ) {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      hideStageMenus();
-      closeAgentEventStream();
-      if (acceptsInput) {
-        showProgressPane(false);
-      } else {
-        showProgressPane(true);
-        clearProgressOutput();
-      }
-      showStageArtifactPreview(kind);
-      setAgentInputVisible(acceptsInput);
-      if (clearOutput) {
-        clearAgentOutput();
-      }
-      setAgentRunning(kind, true);
-      agentInput.disabled = !acceptsInput;
-      if (acceptsInput) {
-        agentInput.focus();
-      }
-      appendOutput(`${label}\n`, "system");
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "start failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "start failed"}\n`, "error");
-        if (!acceptsInput) {
-          closeProgressEventStream();
-          showProgressPane(false);
-          setAgentInputVisible(true);
-        }
-        if (artifactPreviewStage === kind) {
-          hideArtifactPreview();
-        }
-        setAgentRunning(kind, false);
-        return;
-      }
-      updateProjectState(payload);
-      setAgentRunning(kind, true);
-      agentInput.disabled = !acceptsInput;
-      connectAgentEvents(kind);
-      if (!acceptsInput) {
-        connectProgressEvents();
-      }
-      sendTerminalResize();
+    function runStageAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "runStageAgent", ...args);
     }
 
-    async function startAdHocAgent() {
-      if (!activationRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      hideStageMenus();
-      closeAgentEventStream();
-      closeProgressEventStream();
-      showProgressPane(false);
-      hideArtifactPreview();
-      setAgentInputVisible(true);
-      clearAgentOutput();
-      agentInput.disabled = false;
-      agentInput.focus();
-      appendOutput("$ codex ad-hoc\n", "system");
-      const response = await fetch(contextUrl("/api/agents/ad-hoc/start"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "start failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "start failed"}\n`, "error");
-        return;
-      }
-      updateProjectState(payload);
-      const sessionId = payload.session_id || selectedSessionId;
-      selectedSessionId = sessionId;
-      renderSessionSwitcher();
-      connectSessionEvents(sessionId);
-      sendTerminalResize();
+    function startAdHocAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "startAdHocAgent", ...args);
     }
 
-    async function runRequirementsAgent(endpoint, label, clearOutput = false) {
-      await runStageAgent("requirements", endpoint, label, clearOutput, true);
+    function runRequirementsAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "runRequirementsAgent", ...args);
     }
 
-    async function startRequirementsAgent() {
-      if (currentWorkflowStage !== "requirements") {
-        return;
-      }
-      await runRequirementsAgent(
-        "/api/agents/requirements/start",
-        "$ electroboy requirements",
-      );
+    function startRequirementsAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "startRequirementsAgent", ...args);
     }
 
-    async function completeRequirementsAgent() {
-      await approveRequirementsStage(false);
+    function completeRequirementsAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "completeRequirementsAgent", ...args);
     }
 
-    async function startDesignAgent() {
-      if (currentWorkflowStage !== "design") {
-        return;
-      }
-      await runStageAgent(
-        "design",
-        "/api/agents/design/start",
-        "$ electroboy design",
-        false,
-        true,
-      );
+    function startDesignAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "startDesignAgent", ...args);
     }
 
-    async function completeDesignAgent() {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      if (currentWorkflowStage !== "design") {
-        return;
-      }
-      designMenu.hidden = true;
-      closeAgentEventStream();
-      const response = await fetch(contextUrl("/api/agents/design/complete"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "complete failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "complete failed"}\n`, "error");
-        return;
-      }
-      setAgentRunning("design", false);
-      agentInput.value = "";
-      clearAgentOutput();
-      updateProjectState(payload);
+    function completeDesignAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "completeDesignAgent", ...args);
     }
 
-    async function startAutomaticDesignReviewAgent() {
-      if (currentWorkflowStage !== "design-review") {
-        return;
-      }
-      designReviewInteractive = false;
-      await runStageAgent(
-        "design-review",
-        "/api/agents/design-review/start",
-        "$ electroboy design-review",
-        true,
-        false,
-      );
+    function startAutomaticDesignReviewAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "startAutomaticDesignReviewAgent", ...args);
     }
 
-    async function startInteractiveDesignReviewAgent() {
-      if (currentWorkflowStage !== "design-review") {
-        return;
-      }
-      designReviewInteractive = true;
-      await runStageAgent(
-        "design-review",
-        "/api/agents/design-review/start-interactive",
-        "$ electroboy design-review --interactive",
-        true,
-        true,
-      );
+    function startInteractiveDesignReviewAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "startInteractiveDesignReviewAgent", ...args);
     }
 
-    async function stopDesignReviewAgent() {
-      if (currentWorkflowStage !== "design-review" || !designReviewRunning) {
-        return;
-      }
-      hideStageMenus();
-      const response = await fetch(contextUrl("/api/agents/design-review/stop"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "stop failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "stop failed"}\n`, "error");
-        return;
-      }
-      closeAgentEventStream();
-      closeProgressEventStream();
-      setAgentRunning("design-review", false);
-      appendOutput("design review stopped\n", "system");
-      updateProjectState(payload);
+    function stopDesignReviewAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "stopDesignReviewAgent", ...args);
     }
 
-    async function completeDesignReviewAgent() {
-      await approveDesignReviewStage(false);
+    function completeDesignReviewAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "completeDesignReviewAgent", ...args);
     }
 
-    async function approveDesignReviewStage(skipApproval = false) {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      if (currentWorkflowStage !== "design-review") {
-        return;
-      }
-      designReviewMenu.hidden = true;
-      closeAgentEventStream();
-      closeProgressEventStream();
-      const endpoint = skipApproval
-        ? "/api/agents/design-review/skip-approval"
-        : "/api/agents/design-review/approve";
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "approval failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "approval failed"}\n`, "error");
-        if (payload.output) {
-          appendOutput(`${payload.output}\n`, "error");
-        }
-        setAgentRunning("design-review", false);
-        refreshProject();
-        return;
-      }
-      setAgentRunning("design-review", false);
-      if (payload.output) {
-        appendOutput(`${payload.output}\n`, "system");
-      }
-      if (payload.warning) {
-        appendOutput(`${payload.warning}\n`, "system");
-      }
-      appendOutput(
-        skipApproval
-          ? "design approval skipped; next: implementation-plan\n"
-          : "design approved; next: implementation-plan\n",
-        "system",
-      );
-      updateProjectState(payload);
+    function approveDesignReviewStage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "approveDesignReviewStage", ...args);
     }
 
-    async function skipDesignReviewApprovalStage() {
-      if (
-        !designApproved &&
-        !window.confirm(
-          "Design has not been explicitly approved.\n\nSkip approval and advance to implementation planning anyway?",
-        )
-      ) {
-        return;
-      }
-      await approveDesignReviewStage(true);
+    function skipDesignReviewApprovalStage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "skipDesignReviewApprovalStage", ...args);
     }
 
-    async function startGenericStageAgent(stage, label, acceptsInput = true) {
-      if (currentWorkflowStage !== stage) {
-        return;
-      }
-      const endpoint = acceptsInput
-        ? `/api/agents/${stage}/start-interactive`
-        : `/api/agents/${stage}/start`;
-      await runStageAgent(stage, endpoint, label, acceptsInput === false, acceptsInput);
+    function startGenericStageAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "startGenericStageAgent", ...args);
     }
 
-    async function stopGenericStageAgent(stage, label) {
-      const runState = genericStageRun(stage);
-      if (currentWorkflowStage !== stage || !runState.running) {
-        return;
-      }
-      hideStageMenus();
-      const response = await fetch(contextUrl(`/api/agents/${stage}/stop`), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "stop failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "stop failed"}\n`, "error");
-        return;
-      }
-      closeAgentEventStream();
-      closeProgressEventStream();
-      setAgentRunning(stage, false);
-      appendOutput(`${label} stopped\n`, "system");
-      updateProjectState(payload);
+    function stopGenericStageAgent(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "stopGenericStageAgent", ...args);
     }
 
-    async function approveGenericStage(stage, label, skipApproval = false) {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      if (currentWorkflowStage !== stage) {
-        return;
-      }
-      hideStageMenus();
-      closeAgentEventStream();
-      closeProgressEventStream();
-      const endpoint = skipApproval
-        ? `/api/agents/${stage}/skip-approval`
-        : `/api/agents/${stage}/approve`;
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "approval failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "approval failed"}\n`, "error");
-        if (payload.output) {
-          appendOutput(`${payload.output}\n`, "error");
-        }
-        setAgentRunning(stage, false);
-        refreshProject();
-        return;
-      }
-      setAgentRunning(stage, false);
-      if (payload.output) {
-        appendOutput(`${payload.output}\n`, "system");
-      }
-      if (payload.warning) {
-        appendOutput(`${payload.warning}\n`, "system");
-      }
-      appendOutput(
-        skipApproval
-          ? `${label} approval skipped\n`
-          : `${label} approved\n`,
-        "system",
-      );
-      updateProjectState(payload);
+    function approveGenericStage(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "approveGenericStage", ...args);
     }
 
-    async function skipGenericStageApproval(stage, label) {
-      if (
-        !window.confirm(
-          `${label} has not been explicitly approved.\n\nSkip approval and advance anyway?`,
-        )
-      ) {
-        return;
-      }
-      await approveGenericStage(stage, label, true);
+    function skipGenericStageApproval(...args) {
+      return window.ElectroBoyFrontend.invokeWorkflow("software", "skipGenericStageApproval", ...args);
     }
 
-    async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {
-      if (!activeProjectRoot) {
-        appendOutput("activate a project first\n", "error");
-        return;
-      }
-      const documentTarget = target || DEFAULT_DOCUMENT_TARGETS[0];
-      hideStageMenus();
-      closeAgentEventStream();
-      showProgressPane(false);
-      showDocumentPreview(documentTarget);
-      setAgentInputVisible(true);
-      clearAgentOutput();
-      setAgentRunning("documentation", true);
-      agentInput.disabled = false;
-      agentInput.focus();
-      appendOutput(
-        `$ electroboy document --sidecar --interactive --target ${documentTarget.path}\n`,
-        "system",
-      );
-      const response = await fetch(contextUrl("/api/agents/documentation/start"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: documentTarget.path }),
-      });
-      const payload = await response.json().catch(() => ({ error: "start failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "start failed"}\n`, "error");
-        setAgentRunning("documentation", false);
-        return;
-      }
-      updateProjectState(payload);
-      setAgentRunning("documentation", true);
-      const sessionId = payload.session_id || selectedSessionId;
-      selectedSessionId = sessionId;
-      renderSessionSwitcher();
-      connectSessionEvents(sessionId);
-      sendTerminalResize();
+    function startDocumentationAgent(...args) {
+      return window.ElectroBoyFrontend.invokeModule("documents", "startDocumentationAgent", ...args);
     }
 
-    async function sendMessage() {
-      if (!selectedSessionAcceptsInput()) {
-        return;
-      }
-      if (slashCommandMode) {
-        sendTerminalKey("enter");
-        finishSlashCommandMode();
-        return;
-      }
-      const message = agentInput.value;
-      if (!message.trim()) {
-        return;
-      }
-      agentInput.value = "";
-      const response = await fetch(contextUrl("/api/sessions/message"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: creativePromptMessage(message) }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({ error: "send failed" }));
-        appendOutput(`${payload.error || "send failed"}\n`, "error");
-      }
+    function sendMessage(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "sendMessage", ...args);
     }
 
-    function queueTerminalInput(task) {
-      const next = terminalInputQueue.catch(() => {}).then(task);
-      terminalInputQueue = next.catch(() => {});
-      return next;
+    function queueTerminalInput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "queueTerminalInput", ...args);
     }
 
-    function sendTerminalKey(key) {
-      if (!selectedSessionAcceptsInput()) {
-        return Promise.resolve();
-      }
-      return queueTerminalInput(async () => {
-        const response = await fetch(contextUrl("/api/sessions/key"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key }),
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({ error: "send failed" }));
-          appendOutput(`${payload.error || "send failed"}\n`, "error");
-        }
-      });
+    function sendTerminalKey(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "sendTerminalKey", ...args);
     }
 
-    function sendTerminalRaw(data) {
-      if (!selectedSessionAcceptsInput() || !data) {
-        return Promise.resolve();
-      }
-      return queueTerminalInput(async () => {
-        const response = await fetch(contextUrl("/api/sessions/raw"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data }),
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({ error: "send failed" }));
-          appendOutput(`${payload.error || "send failed"}\n`, "error");
-        }
-      });
+    function sendTerminalRaw(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "sendTerminalRaw", ...args);
     }
 
-    function printableInputEvent(event) {
-      return (
-        !event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        event.key &&
-        event.key.length === 1
-      );
+    function printableInputEvent(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "printableInputEvent", ...args);
     }
 
-    function slashCommandTerminalKeyForInputEvent(event) {
-      if (event.altKey || event.ctrlKey || event.metaKey) {
-        return "";
-      }
-      if (
-        event.key === "Enter" ||
-        event.code === "Enter" ||
-        event.code === "NumpadEnter"
-      ) {
-        return "enter";
-      }
-      if (event.key === "Escape") return "escape";
-      if (event.key === "ArrowUp") return "up";
-      if (event.key === "ArrowDown") return "down";
-      if (event.key === "ArrowLeft") return "left";
-      if (event.key === "ArrowRight") return "right";
-      if (event.key === "Backspace") return "backspace";
-      if (event.key === "Delete") return "delete";
-      if (event.key === "Tab") return "tab";
-      return "";
+    function slashCommandTerminalKeyForInputEvent(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "slashCommandTerminalKeyForInputEvent", ...args);
     }
 
-    function refreshSlashCommandModeAfterEdit() {
-      window.setTimeout(() => {
-        if (!agentInput.value.trimStart().startsWith("/")) {
-          slashCommandMode = false;
-        }
-      }, 0);
+    function refreshSlashCommandModeAfterEdit(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "refreshSlashCommandModeAfterEdit", ...args);
     }
 
-    function finishSlashCommandMode() {
-      slashCommandMode = false;
-      agentInput.value = "";
+    function finishSlashCommandMode(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "finishSlashCommandMode", ...args);
     }
 
-    function handleSlashCommandInput(event) {
-      if (
-        !slashCommandMode &&
-        printableInputEvent(event) &&
-        event.key === "/" &&
-        agentInput.value.trim().length === 0
-      ) {
-        slashCommandMode = true;
-        sendTerminalRaw(event.key);
-        return true;
-      }
-      if (!slashCommandMode) {
-        return false;
-      }
-      const slashKey = slashCommandTerminalKeyForInputEvent(event);
-      if (slashKey) {
-        sendTerminalKey(slashKey);
-        if (slashKey === "enter" || slashKey === "escape") {
-          event.preventDefault();
-          finishSlashCommandMode();
-        } else if (slashKey === "backspace" || slashKey === "delete") {
-          refreshSlashCommandModeAfterEdit();
-        } else {
-          event.preventDefault();
-        }
-        return true;
-      }
-      if (printableInputEvent(event)) {
-        sendTerminalRaw(event.key);
-        return true;
-      }
-      return false;
+    function handleSlashCommandInput(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "handleSlashCommandInput", ...args);
     }
 
-    function terminalKeyForInputEvent(event) {
-      if (
-        !event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.shiftKey &&
-        event.key === "Escape"
-      ) {
-        return "escape";
-      }
-      if (agentInput.value.length > 0) {
-        return "";
-      }
-      if (
-        event.ctrlKey &&
-        !event.altKey &&
-        !event.metaKey &&
-        !event.shiftKey &&
-        /^[0-9]$/.test(event.key)
-      ) {
-        return event.key;
-      }
-      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
-        return "";
-      }
-      if (
-        event.key === "Enter" ||
-        event.code === "Enter" ||
-        event.code === "NumpadEnter"
-      ) {
-        return "enter";
-      }
-      if (event.key === "ArrowUp") return "up";
-      if (event.key === "ArrowDown") return "down";
-      if (event.key === "ArrowLeft") return "left";
-      if (event.key === "ArrowRight") return "right";
-      if (event.key === "Tab") return "tab";
-      return "";
+    function terminalKeyForInputEvent(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "terminalKeyForInputEvent", ...args);
     }
 
-    async function interruptActiveAgent() {
-      if (!sessionIsRunning(selectedSession())) {
-        return;
-      }
-      const response = await fetch(contextUrl("/api/sessions/interrupt"), {
-        method: "POST",
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({ error: "interrupt failed" }));
-        appendOutput(`${payload.error || "interrupt failed"}\n`, "error");
-      }
+    function interruptActiveAgent(...args) {
+      return window.ElectroBoyFrontend.invokeModule("agent-sessions", "interruptActiveAgent", ...args);
     }
 
     function positionStageMenu(menu, stage) {
@@ -7304,20 +5067,6 @@
       showStageActionPanel(stageId);
     }
 
-    projectStage.addEventListener("click", () => {
-      showStageActionPanel("project");
-    });
-    for (const stageNode of stageNodes) {
-      if (stageNode.dataset.stage === "project") {
-        continue;
-      }
-      stageNode.addEventListener("click", () => {
-        handleWorkflowStageClick(stageNode).catch((error) => {
-          appendOutput(`stage update failed: ${error}\n`, "error");
-        });
-      });
-    }
-
     openProject.addEventListener("click", () => openProjectBrowser("open", true));
     newProject.addEventListener("click", () => openProjectBrowser("new", true));
     openMetaProject.addEventListener("click", () => openProjectBrowser("open", true));
@@ -7381,13 +5130,7 @@
     newBugWorkItem.addEventListener("click", () => showWorkItemPanel("bug-new"));
     applyWorkItem.addEventListener("click", applyWorkItemSelection);
     cancelWorkItem.addEventListener("click", hideWorkItemPanel);
-    openProjectShell.addEventListener("click", startProjectShell);
     retryWorkItem.addEventListener("click", applyWorkItemSelection);
-    toggleProjectShellPane.addEventListener("click", () => {
-      toggleProjectShellFromToolbar().catch((error) => {
-        appendOutput(`project shell failed: ${error}\n`, "error");
-      });
-    });
     workItemTitle.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -7414,34 +5157,6 @@
       }
     });
 
-    createDocumentTarget.addEventListener("click", () => {
-      customDocumentForm.hidden = !customDocumentForm.hidden;
-      if (!customDocumentForm.hidden) {
-        customDocumentName.focus();
-      }
-    });
-    addDocumentTarget.addEventListener("click", addCustomDocumentTarget);
-    customDocumentName.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        addCustomDocumentTarget();
-      }
-    });
-    sessionSwitcher.addEventListener("change", () => {
-      selectAgentSession(sessionSwitcher.value).catch((error) => {
-        appendOutput(`session switch failed: ${error}\n`, "error");
-      });
-    });
-    exportAgentOutput.addEventListener("click", () => {
-      exportAgentSession().catch((error) => {
-        appendOutput(`export failed: ${error}\n`, "error");
-      });
-    });
-    exportProgressOutput.addEventListener("click", () => {
-      exportProgressLog().catch((error) => {
-        appendOutput(`export failed: ${error}\n`, "error");
-      });
-    });
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
     document.querySelectorAll("[data-pane-font-delta]").forEach((button) => {
@@ -7506,9 +5221,6 @@
     artifactPaneResizeHandle.addEventListener("pointermove", updateArtifactPaneResize);
     artifactPaneResizeHandle.addEventListener("pointerup", finishArtifactPaneResize);
     artifactPaneResizeHandle.addEventListener("pointercancel", finishArtifactPaneResize);
-    interruptAgent.addEventListener("click", interruptActiveAgent);
-    closeProjectShellPane.addEventListener("click", hideProjectShellPane);
-    stopProjectShell.addEventListener("click", stopProjectShellProcess);
     insertFileLink.addEventListener("click", () => {
       if (insertFileLink.disabled) {
         return;
@@ -7531,29 +5243,6 @@
       }
     });
 
-    agentInput.addEventListener("keydown", (event) => {
-      if (handleSlashCommandInput(event)) {
-        return;
-      }
-      const terminalKey = terminalKeyForInputEvent(event);
-      if (terminalKey) {
-        event.preventDefault();
-        sendTerminalKey(terminalKey);
-        return;
-      }
-      const isEnter =
-        event.key === "Enter" ||
-        event.code === "Enter" ||
-        event.code === "NumpadEnter";
-      if (isEnter && event.shiftKey) {
-        event.preventDefault();
-        if (agentInput.value.trim()) {
-          sendMessage();
-        } else {
-          sendTerminalKey("enter");
-        }
-      }
-    });
     scratchPad.addEventListener("input", saveScratchPad);
     workflowModeSelect.addEventListener("change", () => {
       setWorkflowMode(workflowModeSelect.value).catch((error) => {
@@ -7564,6 +5253,8 @@
 
     const frontendRuntime = {
       elements: {
+        projectStage,
+        stageNodes,
         creativeTree,
         creativeProjectMenuButton,
         creativeAgentMenuButton,
@@ -7605,6 +5296,19 @@
         stopValidate,
         approveValidate,
         skipValidateApproval,
+        createDocumentTarget,
+        customDocumentForm,
+        customDocumentName,
+        addDocumentTarget,
+        exportProgressOutput,
+        openProjectShell,
+        toggleProjectShellPane,
+        closeProjectShellPane,
+        stopProjectShell,
+        sessionSwitcher,
+        exportAgentOutput,
+        interruptAgent,
+        agentInput,
       },
       getState() {
         return {
@@ -7646,6 +5350,8 @@
       },
       actions: {
         appendOutput,
+        showStageActionPanel,
+        handleWorkflowStageClick,
         setAgentInputVisible,
         clearAgentOutput,
         contextUrl,
@@ -7702,6 +5408,148 @@
         featureLabel,
         switchFeature: switchFeatureWorkItemContext,
         switchBug: switchBugWorkItemContext,
+        storedDocumentTargets,
+        saveDocumentTargets,
+        initializeProgressTerminal,
+        initializeProjectShellTerminal,
+        documentExportFormats,
+        documentExportFormat,
+        documentExportPickerTypes,
+        sessionExportName,
+        exportAgentSession,
+        exportProgressLog,
+        artifactDocumentBaseName,
+        artifactDocumentExportName,
+        artifactDocumentExportUrl,
+        exportArtifactDocument,
+        queueProjectShellResize,
+        sendProjectShellResize,
+        appendProgressOutput,
+        clearProgressOutput,
+        appendProjectShellOutput,
+        clearProjectShellOutput,
+        applyProjectShellPaneVisibility,
+        showProjectShellPane,
+        hideProjectShellPane,
+        syncProjectShellPane,
+        toggleProjectShellFromToolbar,
+        updateProjectShellToggle,
+        startProjectShell,
+        connectProjectShellEvents,
+        closeProjectShellEventStream,
+        disposeProjectShellTerminal,
+        sendProjectShellInput,
+        stopProjectShellProcess,
+        selectedSession,
+        sessionIsRunning,
+        selectedSessionAcceptsInput,
+        updateSessionIndicator,
+        sessionMetadata,
+        documentTargetKey,
+        documentTargetLabel,
+        documentTargetForSession,
+        documentationSessionForTarget,
+        agentSessionDisplayLabel,
+        attachableServiceSessions,
+        serviceSessionDisplayLabel,
+        rememberOpenDocumentTarget,
+        syncOpenDocumentTargetsFromSessions,
+        renderDocumentTargetSwitcher,
+        refreshDocumentTargetSwitchers,
+        renderSessionSwitcher,
+        selectAgentSession,
+        refreshServiceSessions,
+        attachAgentSession,
+        renderDocumentActionPanel,
+        allDocumentTargets,
+        renderDocumentTargets,
+        documentTargetFromInput,
+        documentTargetFromSelectedPath,
+        registerDocumentTarget,
+        launchDocumentTarget,
+        selectOpenDocumentTarget,
+        startCustomDocumentTargetFromValue,
+        addCustomDocumentTarget,
+        artifactKindForPane,
+        artifactRouteUrl,
+        artifactPreviewUrl,
+        artifactEditUrl,
+        artifactPaneSupportsModeSwitch,
+        artifactPaneSupportsDocumentExport,
+        artifactPaneSupportsDocumentZoom,
+        artifactPreviewsForStage,
+        setArtifactCompatibilityState,
+        showStageArtifactPreview,
+        showArtifactPreview,
+        showDocumentPreview,
+        applyCreativeWorkspace,
+        restoreSoftwareWorkspace,
+        updateCreativeBinderActions,
+        renderCreativeRecentProjects,
+        updateCreativeActionGroup,
+        refreshCreativeBinder,
+        firstCreativeMarkdown,
+        showCreativeTreeMessage,
+        showCreativeDocument,
+        creativeAgentSession,
+        creativeAgentRunning,
+        creativeTargetKey,
+        creativeTargetContextLines,
+        creativePromptMessage,
+        loadCreativeScratchPad,
+        queueCreativeScratchPadSave,
+        saveCreativeScratchPad,
+        initializeCreativeWorkspace,
+        ensureCreativeWorkspaceLoaded,
+        creativeEntryChildren,
+        findCreativeEntry,
+        uniqueCreativeChildPath,
+        creativePathIsInside,
+        remapCreativePath,
+        normalizedCreativeName,
+        createCreativeFolderInline,
+        createCreativeDocumentInline,
+        createCreativeCorkboardInline,
+        startCreativeWritingAgent,
+        markArtifactFrameLoading,
+        renderArtifactPreviewItems,
+        artifactFrameForItem,
+        requestArtifactEditorSave,
+        setArtifactPreviewEditing,
+        popOutArtifactPreview,
+        hideArtifactPreview,
+        refreshArtifactPreview,
+        artifactEventUrl,
+        connectArtifactEvents,
+        closeArtifactEventStream,
+        stageIsRunning,
+        syncArtifactPreviewWithProject,
+        selectWorkflowStage,
+        setWorkflowStageFromMenu,
+        connectAgentEvents,
+        connectProgressEvents,
+        closeAgentEventStream,
+        closeProgressEventStream,
+        agentProcessRunning,
+        updateAgentControls,
+        setAgentRunning,
+        setRequirementsRunning,
+        runStageAgent,
+        runRequirementsAgent,
+        completeRequirementsAgent,
+        completeDesignReviewAgent,
+        startDocumentationAgent,
+        sendMessage,
+        queueTerminalInput,
+        sendTerminalKey,
+        sendTerminalRaw,
+        printableInputEvent,
+        slashCommandTerminalKeyForInputEvent,
+        refreshSlashCommandModeAfterEdit,
+        finishSlashCommandMode,
+        handleSlashCommandInput,
+        terminalKeyForInputEvent,
+        interruptActiveAgent,
       },
     };
 
@@ -7737,4 +5585,10 @@
       }
     });
 
-    initialize().catch(() => {});
+    if (document.readyState === "loading") {
+      window.addEventListener("DOMContentLoaded", () => {
+        initialize().catch(() => {});
+      }, { once: true });
+    } else {
+      initialize().catch(() => {});
+    }

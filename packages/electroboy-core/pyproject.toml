@@ -37,6 +37,5 @@ electroboy = [
   "assets/*.png",
   "assets/service/*.html",
   "assets/service/css/*.css",
-  "assets/service/js/*.js",
   "assets/service/js/core/*.js",
 ]

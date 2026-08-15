@@ -191,7 +191,7 @@ class ServiceTests(unittest.TestCase):
         )
         template = (
             "<!-- __ELECTROBOY_CONTRIBUTION_SCRIPTS__ -->\n"
-            '<script src="/assets/service/js/app.js"></script>'
+            '<script src="/assets/service/js/core/runtime.js"></script>'
         )
 
         page = render_service_index(template, modules, workflows)
@@ -277,9 +277,14 @@ class ServiceTests(unittest.TestCase):
         registry = read_service_text_asset("js/core/registry.js")
         software = read_service_text_asset("js/workflows/software.js")
         creative = read_service_text_asset("js/workflows/creative-writing.js")
+        sessions = read_service_text_asset("js/modules/agent-sessions.js")
+        documents = read_service_text_asset("js/modules/documents.js")
         binder = read_service_text_asset("js/modules/binder.js")
         corkboard = read_service_text_asset("js/modules/corkboard.js")
-        app = read_service_text_asset("js/app.js")
+        file_browser = read_service_text_asset("js/modules/file-browser.js")
+        progress = read_service_text_asset("js/modules/progress.js")
+        project_shell = read_service_text_asset("js/modules/project-shell.js")
+        app = read_service_text_asset("js/core/runtime.js")
 
         self.assertIn("bindRuntime(nextRuntime)", registry)
         self.assertIn("invokeWorkflow(id, action, ...args)", registry)
@@ -290,8 +295,48 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function selectFolder(runtime, path)", creative)
         self.assertIn("function renderTree(runtime)", binder)
         self.assertIn("function show(runtime, path, options = {})", corkboard)
+        self.assertIn("async function refreshServiceSessions()", sessions)
+        self.assertIn(
+            "function showArtifactPreviews(items, options = {})",
+            documents,
+        )
+        self.assertIn(
+            "function openProjectBrowser(mode = projectMode",
+            file_browser,
+        )
+        self.assertIn("function connectProgressEvents()", progress)
+        self.assertIn("async function startProjectShell()", project_shell)
+        self.assertIn("async function startRequirementsAgent()", software)
+        self.assertIn("async function startGenericStageAgent(", software)
+        self.assertIn(
+            "async function notifyCreativeAgentTargetSwitch()",
+            creative,
+        )
         self.assertNotIn("function projectStageActions()", app)
         self.assertNotIn("function appendCreativeTreeEntry", app)
+        self.assertNotIn("async function refreshServiceSessions()", app)
+        self.assertNotIn(
+            "function showArtifactPreviews(items, options = {})",
+            app,
+        )
+        self.assertNotIn("function connectProgressEvents()", app)
+        self.assertNotIn("async function startProjectShell()", app)
+        self.assertNotIn("async function startRequirementsAgent()", app)
+        self.assertNotIn("async function startGenericStageAgent(", app)
+
+        page = render_service_index(
+            read_service_text_asset("index.html"),
+            build_module_registry(),
+            build_workflow_registry(build_module_registry()),
+        )
+        self.assertLess(
+            page.index("js/modules/documents.js"),
+            page.index("js/core/runtime.js"),
+        )
+        self.assertLess(
+            page.index("js/workflows/software.js"),
+            page.index("js/core/runtime.js"),
+        )
 
     def test_route_dispatcher_uses_registered_module_routes(self) -> None:
         dispatcher = build_route_dispatcher(build_module_registry())
@@ -478,7 +523,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_service_asset_endpoint_serves_extracted_frontend_files(self) -> None:
         self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
-        self.assertIn("/assets/service/js/app.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -496,7 +541,7 @@ class ServiceTests(unittest.TestCase):
                 )
                 js_status, js_body, js_type, _js_headers = request_bytes(
                     server,
-                    "/assets/service/js/app.js",
+                    "/assets/service/js/core/runtime.js",
                 )
                 registry_status, registry_body, registry_type, _registry_headers = (
                     request_bytes(
@@ -2038,9 +2083,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("sidePaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("artifactPaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
         self.assertIn("shellPaneDivider.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("toggleProjectShellPane.addEventListener(\"click\"", INDEX_HTML)
         self.assertIn(
-            'closeProjectShellPane.addEventListener("click", hideProjectShellPane);',
+            'element.toggleProjectShellPane.addEventListener("click"',
+            INDEX_HTML,
+        )
+        self.assertIn(
+            'element.closeProjectShellPane.addEventListener(',
             INDEX_HTML,
         )
         self.assertIn('scratchPad.addEventListener("input", saveScratchPad);', INDEX_HTML)
