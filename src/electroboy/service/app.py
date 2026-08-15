@@ -71,6 +71,15 @@ from ..modules.file_browser import (
     browse_files,
     browse_markdown_files,
 )
+from ..modules.recent_projects import (
+    RECENT_PROJECT_LIMIT,
+    RECENT_PROJECTS_RELATIVE_PATH,
+    load_recent_projects as _load_recent_projects,
+    recent_project_entries as _recent_project_entries,
+    recent_projects_path as _recent_projects_path,
+    remember_recent_project as _remember_recent_project,
+    save_recent_projects as _save_recent_projects,
+)
 from ..artifacts import ArtifactManager
 from ..document_export import (
     DocumentExportError,
@@ -132,8 +141,6 @@ CREATIVE_CORKBOARD_GROUP_DIRECTORY = Path("corkboard") / "groups"
 CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
     Path(".electroboy") / "creative" / "corkboards.json"
 )
-RECENT_PROJECTS_RELATIVE_PATH = Path(".electroboy") / "service" / "recent-projects.json"
-RECENT_PROJECT_LIMIT = 12
 SERVICE_SESSION_RECORDS_RELATIVE_PATH = (
     Path(".electroboy") / "service" / "sessions.json"
 )
@@ -3053,82 +3060,6 @@ def project_payload(
         "work_items": _work_item_payload(active_root) if active_root else _empty_work_item_payload(),
         "recent_projects": _recent_project_entries(service_root),
     }
-
-
-def _recent_projects_path(service_root: Path | str) -> Path:
-    return Path(service_root).expanduser().resolve() / RECENT_PROJECTS_RELATIVE_PATH
-
-
-def _load_recent_projects(service_root: Path | str) -> dict[str, object]:
-    path = _recent_projects_path(service_root)
-    if not path.exists():
-        return {"schema_version": 1, "projects": []}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"schema_version": 1, "projects": []}
-    if not isinstance(data, dict):
-        return {"schema_version": 1, "projects": []}
-    if not isinstance(data.get("projects"), list):
-        data["projects"] = []
-    data["schema_version"] = 1
-    return data
-
-
-def _save_recent_projects(service_root: Path | str, data: dict[str, object]) -> None:
-    path = _recent_projects_path(service_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def _recent_project_entries(service_root: Path | str) -> list[dict[str, object]]:
-    data = _load_recent_projects(service_root)
-    entries: list[dict[str, object]] = []
-    for entry in data.get("projects", []):
-        if not isinstance(entry, dict):
-            continue
-        project_path = str(entry.get("path") or "").strip()
-        if not project_path:
-            continue
-        kind = str(entry.get("kind") or "project").strip()
-        if kind not in {"project", "meta", "creative"}:
-            kind = "project"
-        label = str(entry.get("label") or Path(project_path).name or project_path)
-        entries.append(
-            {
-                "kind": kind,
-                "label": label,
-                "path": project_path,
-                "opened_at": str(entry.get("opened_at") or ""),
-            }
-        )
-    return entries[:RECENT_PROJECT_LIMIT]
-
-
-def _remember_recent_project(
-    service_root: Path | str,
-    project_root: Path | str,
-    kind: str,
-) -> None:
-    project_path = str(Path(project_root).expanduser().resolve())
-    if kind not in {"project", "meta", "creative"}:
-        kind = "project"
-    data = _load_recent_projects(service_root)
-    existing = [
-        entry
-        for entry in data.get("projects", [])
-        if isinstance(entry, dict) and str(entry.get("path") or "") != project_path
-    ]
-    data["projects"] = [
-        {
-            "kind": kind,
-            "label": Path(project_path).name or project_path,
-            "path": project_path,
-            "opened_at": utc_now(),
-        },
-        *existing,
-    ][:RECENT_PROJECT_LIMIT]
-    _save_recent_projects(service_root, data)
 
 
 def _service_session_records_path(service_root: Path | str) -> Path:
