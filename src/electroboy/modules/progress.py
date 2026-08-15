@@ -15,7 +15,8 @@ def module() -> ServiceModule:
             route("GET", "/api/progress/events", "progress", "events"),
             route("GET", "/api/progress/export", "progress", "export"),
         ),
+        assets=("js/modules/progress.js",),
+        asset_package="electroboy.modules",
         capabilities=frozenset({"progress-stream", "issue-announcements"}),
         state_namespace="progress",
     )
-

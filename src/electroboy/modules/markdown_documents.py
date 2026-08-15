@@ -16,7 +16,8 @@ def module() -> ServiceModule:
             route("GET", "/api/documents/export", "markdown_documents", "export"),
             route("GET", "/api/artifacts/events", "markdown_documents", "events"),
         ),
+        assets=("js/modules/documents.js",),
+        asset_package="electroboy.modules",
         capabilities=frozenset({"markdown-preview", "markdown-edit", "export"}),
         state_namespace="markdown_documents",
     )
-

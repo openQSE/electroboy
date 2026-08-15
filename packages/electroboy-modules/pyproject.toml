@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "electroboy-modules"
+version = "0.1.0"
+description = "Reusable built-in capability modules for ElectroBoy."
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = ["electroboy-core==0.1.0"]
+
+[project.entry-points."electroboy.modules"]
+agent_sessions = "electroboy.modules.agent_sessions:module"
+binder = "electroboy.modules.binder:module"
+corkboard = "electroboy.modules.corkboard:module"
+file_browser = "electroboy.modules.file_browser:module"
+markdown_documents = "electroboy.modules.markdown_documents:module"
+progress = "electroboy.modules.progress:module"
+project_shell = "electroboy.modules.project_shell:module"
+recent_projects = "electroboy.modules.recent_projects:module"
+review_reports = "electroboy.modules.review_reports:module"
+structured_documents = "electroboy.modules.structured_documents:module"
+
+[tool.setuptools]
+package-dir = { "" = "../../src" }
+packages = ["electroboy.modules"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+"electroboy.modules" = ["assets/*.js"]

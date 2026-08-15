@@ -31,14 +31,15 @@ from .frontend import (
     frontend_asset_payload,
     read_service_binary_asset,
     read_service_text_asset,
+    render_service_index,
     service_asset_content_type,
 )
 from .registry import (
     ModuleRegistry,
     WorkflowRegistry,
-    built_in_workflow_factories,
     build_module_registry,
     build_workflow_registry,
+    installed_workflow_factories,
     registry_payload,
 )
 from .routes import build_route_dispatcher
@@ -66,12 +67,12 @@ from .workflow_config import (
     configured_workflows,
     workflow_config_payload,
 )
-from ..modules.file_browser import (
+from .file_browser import (
     browse_directories,
     browse_files,
     browse_markdown_files,
 )
-from ..modules.recent_projects import (
+from .recent_projects import (
     RECENT_PROJECT_LIMIT,
     RECENT_PROJECTS_RELATIVE_PATH,
     load_recent_projects as _load_recent_projects,
@@ -342,20 +343,29 @@ def _apply_service_asset_replacements(text: str) -> str:
     )
 
 
-INDEX_PAGE_HTML = _render_service_text_asset("index.html")
+def _optional_service_text_asset(name: str) -> str:
+    try:
+        return read_service_text_asset(name)
+    except FileNotFoundError:
+        return ""
+
+
+INDEX_PAGE_HTML = _apply_service_asset_replacements(
+    render_service_index(INDEX_HTML_TEMPLATE)
+)
 INDEX_HTML = "\n".join(
     [
         INDEX_PAGE_HTML,
         read_service_text_asset("css/shell.css"),
         read_service_text_asset("js/core/registry.js"),
-        read_service_text_asset("js/modules/documents.js"),
-        read_service_text_asset("js/modules/binder.js"),
-        read_service_text_asset("js/modules/corkboard.js"),
-        read_service_text_asset("js/modules/file-browser.js"),
-        read_service_text_asset("js/modules/progress.js"),
-        read_service_text_asset("js/modules/project-shell.js"),
-        read_service_text_asset("js/workflows/software.js"),
-        read_service_text_asset("js/workflows/creative-writing.js"),
+        _optional_service_text_asset("js/modules/documents.js"),
+        _optional_service_text_asset("js/modules/binder.js"),
+        _optional_service_text_asset("js/modules/corkboard.js"),
+        _optional_service_text_asset("js/modules/file-browser.js"),
+        _optional_service_text_asset("js/modules/progress.js"),
+        _optional_service_text_asset("js/modules/project-shell.js"),
+        _optional_service_text_asset("js/workflows/software.js"),
+        _optional_service_text_asset("js/workflows/creative-writing.js"),
         _render_service_text_asset("js/app.js"),
     ]
 )
@@ -1955,7 +1965,7 @@ def create_server(
     module_registry = build_module_registry()
     workflow_registry = build_workflow_registry(
         module_registry,
-        configured_workflows(resolved_root, built_in_workflow_factories()),
+        configured_workflows(resolved_root, installed_workflow_factories()),
     )
     config = ServiceConfig(
         root=resolved_root,
@@ -2044,7 +2054,8 @@ def health_payload(
         ]
     payload["workflow_config"] = workflow_config_payload(root)
     payload["frontend_bundles"] = [
-        bundle["id"] for bundle in frontend_asset_payload()
+        bundle["id"]
+        for bundle in frontend_asset_payload(module_registry, workflow_registry)
     ]
     return payload
 
@@ -8521,7 +8532,10 @@ def _handler_for(
                             module_registry,
                             workflow_registry,
                         ),
-                        "frontend_bundles": frontend_asset_payload(),
+                        "frontend_bundles": frontend_asset_payload(
+                            module_registry,
+                            workflow_registry,
+                        ),
                         "workflow_config": workflow_config_payload(config.root),
                     }
                 )
@@ -8784,7 +8798,15 @@ def _handler_for(
             return True
 
         def _send_index(self, query: str) -> None:
-            self._send_text(INDEX_PAGE_HTML, "text/html; charset=utf-8")
+            page = render_service_index(
+                INDEX_HTML_TEMPLATE,
+                config.module_registry,
+                config.workflow_registry,
+            )
+            self._send_text(
+                _apply_service_asset_replacements(page),
+                "text/html; charset=utf-8",
+            )
 
         def _send_health(self, query: str) -> None:
             self._send_json(
@@ -8854,7 +8876,11 @@ def _handler_for(
         ) -> None:
             relative_path = path.removeprefix(SERVICE_STATIC_ROUTE_PREFIX)
             try:
-                data = read_service_binary_asset(relative_path)
+                data = read_service_binary_asset(
+                    relative_path,
+                    config.module_registry,
+                    config.workflow_registry,
+                )
             except FileNotFoundError:
                 self._send_json(
                     {"error": "service asset not found"},
@@ -9170,7 +9196,7 @@ def _handler_for(
                     module_registry,
                     configured_workflows(
                         config.root,
-                        built_in_workflow_factories(),
+                        installed_workflow_factories(),
                     ),
                 )
                 state.bind_workflow_registry(config.workflow_registry)

@@ -18,7 +18,8 @@ def module() -> ServiceModule:
             route("POST", "/api/shell/stop", "project_shell", "stop"),
             route("GET", "/api/shell/events", "project_shell", "events"),
         ),
+        assets=("js/modules/project-shell.js",),
+        asset_package="electroboy.modules",
         capabilities=frozenset({"shell", "terminal"}),
         state_namespace="project_shell",
     )
-

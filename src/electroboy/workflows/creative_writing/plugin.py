@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from electroboy.service.registry import WorkflowDefinition, WorkflowStage
-from electroboy.workflows.creative_writing_controller import (
+from electroboy.workflows.creative_writing.controller import (
     CreativeWritingWorkflowController,
 )
 
@@ -40,5 +40,6 @@ def workflow() -> WorkflowDefinition:
         project_kinds=("creative-writing",),
         backend_package="electroboy.workflows.creative_writing",
         frontend_bundle="workflows/creative-writing.js",
+        asset_package="electroboy.workflows.creative_writing",
         controller_factory=CreativeWritingWorkflowController,
     )

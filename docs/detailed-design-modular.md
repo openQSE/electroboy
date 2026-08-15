@@ -252,6 +252,20 @@ This keeps optional packaging honest. If software engineering or creative
 writing needs a private core hook, that hook should become a formal registry API
 or module service.
 
+The repository provides four production build manifests under `packages/`.
+They build `electroboy-core`, `electroboy-modules`,
+`electroboy-workflow-software`, and
+`electroboy-workflow-creative-writing`. The root `electroboy` manifest is the
+standard aggregate installation used by developers and general users. It
+registers the same entry points as the split distributions, so both delivery
+forms exercise one discovery path.
+
+Frontend assets follow the Python ownership boundary. Core owns the shell and
+shared layout assets. Capability JavaScript is package data in
+`electroboy.modules`. Each workflow wheel carries its own frontend bundle.
+Stable `/assets/service/...` URLs are resolved to the resource package declared
+by the registered module or workflow.
+
 ## Core Service
 
 The core service owns concerns that every workflow needs.
@@ -895,12 +909,12 @@ progress.
 
 ## Plugin Boundary
 
-External plugins should use the same interfaces as built-in workflows and
-modules. Software engineering and creative writing are enabled by default, while
-additional workflow factories are persisted in service configuration. Python
-entry point discovery can be layered on top of that configuration model.
+External plugins use the same interfaces as built-in workflows and modules.
+Software engineering and creative writing are enabled by default. Additional
+workflow selections are persisted in service configuration. Installed package
+discovery and explicit `module:callable` references feed the same registry.
 
-Plugin discovery can use Python entry points:
+Plugin discovery uses Python entry points:
 
 ```toml
 [project.entry-points."electroboy.workflows"]
@@ -921,6 +935,13 @@ The plugin contract should include:
 
 Plugins should run with the same local trust model as the project. The GUI
 should show which plugin provides a workflow or module.
+
+The service discovers every installed `electroboy.modules` entry point during
+registry construction. Workflow entry points are discovered at the same time,
+but configuration controls which installed workflows are enabled. A configured
+workflow can use `entry-point:<workflow-id>` instead of repeating an import
+path. Registry and configuration payloads expose the providing distribution and
+entry-point reference.
 
 ## Testing Strategy
 
@@ -1011,13 +1032,9 @@ include only the workflow frontend assets selected for a customer.
 
 ### Later Commits
 
-After the backend and frontend are modular, later commits can add:
-
-- Python entry-point discovery for external workflow packages.
-- Asset manifests for installed frontend modules and workflows.
-- Packaging metadata for optional workflow distributions.
-- Workflow enable/disable settings.
-- License or entitlement checks, if product distribution requires them.
+After the package boundary is established, later commits can add workflow
+enable and disable controls to the GUI. License or entitlement checks can also
+be applied when product distribution requires them.
 
 ## Migration Plan
 

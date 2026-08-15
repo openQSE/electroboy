@@ -7,7 +7,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from electroboy.service import app as service_app
-from electroboy.workflows.controller import BoundWorkflowController
+from electroboy.service.workflow_controller import BoundWorkflowController
 
 APPROVAL_WORKFLOW_STAGES = service_app.APPROVAL_WORKFLOW_STAGES
 AgentSession = service_app.AgentSession
@@ -372,8 +372,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
             requirements_started = context.requirements_started
         self._terminate_requirements_session(context_id)
         _record_requirements_complete(project_root, skipped=skip_approval)
-        from ..cli import _cmd_stage, _stage_args
-        from ..gates import GateEngine
+        from electroboy.cli import _cmd_stage, _stage_args
+        from electroboy.gates import GateEngine
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -809,8 +809,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
             needs_design_review_completion = context.workflow_stage == "design-review"
         if session is not None and session.is_active():
             session.terminate()
-        from ..cli import _cmd_stage, _stage_args
-        from ..gates import GateEngine
+        from electroboy.cli import _cmd_stage, _stage_args
+        from electroboy.gates import GateEngine
 
         stdout = io.StringIO()
         stderr = io.StringIO()

@@ -64,13 +64,26 @@ from electroboy.service import (  # noqa: E402
     splash_image_bytes,
     workflow_payload,
 )
-from electroboy.service.routes import build_route_dispatcher  # noqa: E402
-from electroboy.service.frontend import read_service_text_asset  # noqa: E402
+from electroboy.service.frontend import (  # noqa: E402
+    read_service_text_asset,
+    render_service_index,
+)
 from electroboy.service.registry import (  # noqa: E402
+    MODULE_ENTRY_POINT_GROUP,
+    WORKFLOW_ENTRY_POINT_GROUP,
+    InstalledFactory,
+    ServiceModule,
     WorkflowDefinition,
     WorkflowStage,
     build_module_registry,
     build_workflow_registry,
+    installed_module_factories,
+)
+from electroboy.service.routes import build_route_dispatcher  # noqa: E402
+from electroboy.service.workflow_config import (  # noqa: E402
+    add_configured_workflow,
+    configured_workflows,
+    load_workflow_config,
 )
 from electroboy.models import (  # noqa: E402
     STAGE_DESIGN,
@@ -82,6 +95,111 @@ from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 
 class ServiceTests(unittest.TestCase):
+    def test_installed_entry_points_register_provider_metadata(self) -> None:
+        class Distribution:
+            metadata = {"Name": "sample-capabilities"}
+
+        class EntryPoint:
+            name = "sample"
+            value = "sample_package:module"
+            dist = Distribution()
+
+            @staticmethod
+            def load():
+                return lambda: ServiceModule(id="sample", label="Sample")
+
+        factories = installed_module_factories((EntryPoint(),))
+        contribution = factories["sample"]()
+
+        self.assertEqual(factories["sample"].provider, "sample-capabilities")
+        self.assertEqual(contribution.provider, "sample-capabilities")
+        self.assertEqual(contribution.entry_point, "sample_package:module")
+
+    def test_installed_workflow_can_be_enabled_by_entry_point_id(self) -> None:
+        definition = WorkflowDefinition(
+            id="sample-workflow",
+            label="Sample Workflow",
+            modules=("core",),
+            stages=(WorkflowStage("project", "Project", None),),
+            project_kinds=("sample",),
+            backend_package="sample_workflow",
+            frontend_bundle="workflows/sample.js",
+        )
+        factory = InstalledFactory(
+            id="sample-workflow",
+            group=WORKFLOW_ENTRY_POINT_GROUP,
+            provider="sample-workflow-package",
+            reference="sample_workflow:workflow",
+            factory=lambda: definition,
+        )
+        installed = {"sample-workflow": factory}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch(
+                "electroboy.service.workflow_config.installed_workflow_factories",
+                return_value=installed,
+            ):
+                add_configured_workflow(tmp, "sample-workflow", "")
+                config = load_workflow_config(tmp)
+                workflows = configured_workflows(tmp, installed)
+
+        self.assertEqual(
+            config.extra_workflows[0].factory,
+            "entry-point:sample-workflow",
+        )
+        self.assertEqual(
+            [workflow.id for workflow in workflows],
+            ["sample-workflow"],
+        )
+        self.assertEqual(workflows[0].provider, "sample-workflow-package")
+
+    def test_installed_factory_rejects_mismatched_definition_id(self) -> None:
+        factory = InstalledFactory(
+            id="declared",
+            group=MODULE_ENTRY_POINT_GROUP,
+            provider="sample-package",
+            reference="sample_package:module",
+            factory=lambda: ServiceModule(id="returned", label="Returned"),
+        )
+
+        with self.assertRaisesRegex(ValueError, "entry point name"):
+            factory()
+
+    def test_index_includes_only_registered_contribution_scripts(self) -> None:
+        modules = build_module_registry(
+            (
+                ServiceModule(
+                    id="sample-module",
+                    label="Sample Module",
+                    assets=("js/modules/sample.js",),
+                ),
+            )
+        )
+        workflows = build_workflow_registry(
+            modules,
+            (
+                WorkflowDefinition(
+                    id="sample-workflow",
+                    label="Sample Workflow",
+                    modules=("sample-module",),
+                    stages=(WorkflowStage("project", "Project", None),),
+                    project_kinds=("sample",),
+                    backend_package="sample_workflow",
+                    frontend_bundle="workflows/sample.js",
+                ),
+            ),
+        )
+        template = (
+            "<!-- __ELECTROBOY_CONTRIBUTION_SCRIPTS__ -->\n"
+            '<script src="/assets/service/js/app.js"></script>'
+        )
+
+        page = render_service_index(template, modules, workflows)
+
+        self.assertIn("/assets/service/js/modules/sample.js", page)
+        self.assertIn("/assets/service/js/workflows/sample.js", page)
+        self.assertNotIn("creative-writing.js", page)
+
     def test_health_endpoint_reports_connected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

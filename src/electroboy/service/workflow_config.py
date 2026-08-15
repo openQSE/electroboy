@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .registry import WorkflowDefinition
+from .registry import WorkflowDefinition, installed_workflow_factories
+
+ENTRY_POINT_FACTORY_PREFIX = "entry-point:"
 
 DEFAULT_WORKFLOW_IDS = ("software", "creative-writing")
 WORKFLOW_CONFIG_RELATIVE_PATH = Path(".electroboy") / "service" / "workflows.json"
@@ -99,8 +101,9 @@ def add_configured_workflow(
     if not normalized_id:
         raise ValueError("workflow id is required")
     if not normalized_factory:
-        raise ValueError("workflow factory is required")
-    _load_workflow_factory(normalized_factory)
+        normalized_factory = f"{ENTRY_POINT_FACTORY_PREFIX}{normalized_id}"
+    available = installed_workflow_factories()
+    _load_workflow_factory(normalized_factory, available)
     config = load_workflow_config(service_root)
     references = [
         reference
@@ -131,7 +134,7 @@ def configured_workflows(
         if factory is not None:
             workflows.append(factory())
     for reference in config.extra_workflows:
-        factory = _load_workflow_factory(reference.factory)
+        factory = _load_workflow_factory(reference.factory, builtins)
         workflow = factory()
         if workflow.id != reference.id:
             raise ValueError(
@@ -146,9 +149,23 @@ def workflow_config_payload(service_root: Path | str) -> dict[str, object]:
     """Return the persisted workflow configuration and path."""
 
     config = load_workflow_config(service_root)
+    installed = installed_workflow_factories()
     return {
         **config.payload(),
         "path": str(workflow_config_path(service_root)),
+        "installed_workflows": [
+            {
+                "id": workflow_id,
+                "provider": factory.provider,
+                "entry_point": factory.reference,
+                "enabled": workflow_id in config.enabled_builtins
+                or any(
+                    reference.id == workflow_id
+                    for reference in config.extra_workflows
+                ),
+            }
+            for workflow_id, factory in installed.items()
+        ],
     }
 
 
@@ -159,7 +176,19 @@ def _string_tuple(value: object, default: tuple[str, ...]) -> tuple[str, ...]:
     return values or default
 
 
-def _load_workflow_factory(factory_reference: str) -> Callable[[], WorkflowDefinition]:
+def _load_workflow_factory(
+    factory_reference: str,
+    installed: dict[str, Callable[[], WorkflowDefinition]] | None = None,
+) -> Callable[[], WorkflowDefinition]:
+    if factory_reference.startswith(ENTRY_POINT_FACTORY_PREFIX):
+        workflow_id = factory_reference.removeprefix(ENTRY_POINT_FACTORY_PREFIX)
+        available = installed or installed_workflow_factories()
+        try:
+            return available[workflow_id]
+        except KeyError as error:
+            raise ValueError(
+                f"installed workflow entry point was not found: {workflow_id}"
+            ) from error
     module_name, separator, attribute = factory_reference.partition(":")
     if not separator or not module_name or not attribute:
         raise ValueError("workflow factory must use the form module.path:callable")

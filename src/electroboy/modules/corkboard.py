@@ -16,7 +16,8 @@ def module() -> ServiceModule:
             route("POST", "/api/creative/corkboard", "corkboard", "save"),
             route("POST", "/api/creative/corkboards", "corkboard", "create"),
         ),
+        assets=("js/modules/corkboard.js",),
+        asset_package="electroboy.modules",
         capabilities=frozenset({"folder-corkboard", "freeform-corkboard"}),
         state_namespace="corkboard",
     )
-

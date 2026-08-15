@@ -18,7 +18,8 @@ def module() -> ServiceModule:
             route("POST", "/api/creative/rename", "binder", "rename"),
             route("POST", "/api/creative/delete", "binder", "delete"),
         ),
+        assets=("js/modules/binder.js",),
+        asset_package="electroboy.modules",
         capabilities=frozenset({"filesystem-tree", "creative-documents"}),
         state_namespace="binder",
     )
-

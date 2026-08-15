@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from electroboy.service import app as service_app
-from electroboy.workflows.controller import BoundWorkflowController
+from electroboy.service.workflow_controller import BoundWorkflowController
 
 AgentSession = service_app.AgentSession
 AgentSessionError = service_app.AgentSessionError

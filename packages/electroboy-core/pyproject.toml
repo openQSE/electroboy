@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "electroboy-core"
+version = "0.1.0"
+description = "Core runtime and browser shell for ElectroBoy."
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = [
+  "Markdown>=3.6",
+  "reportlab>=4",
+  "rich>=13",
+]
+
+[project.scripts]
+ai-pipeline = "electroboy.cli:main"
+electroboy = "electroboy.cli:main"
+
+[project.entry-points."electroboy.modules"]
+core = "electroboy.service.core_module:module"
+
+[tool.setuptools]
+package-dir = { "" = "../../src" }
+packages = [
+  "electroboy",
+  "electroboy.adapters",
+  "electroboy.prompts",
+  "electroboy.service",
+  "electroboy.workflows",
+]
+include-package-data = false
+
+[tool.setuptools.package-data]
+electroboy = [
+  "assets/*.png",
+  "assets/service/*.html",
+  "assets/service/css/*.css",
+  "assets/service/js/*.js",
+  "assets/service/js/core/*.js",
+]

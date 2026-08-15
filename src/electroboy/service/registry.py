@@ -2,8 +2,33 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import importlib
+import importlib.util
+from dataclasses import dataclass, field, replace
+from importlib import metadata
 from typing import Callable, Iterable, Protocol
+
+MODULE_ENTRY_POINT_GROUP = "electroboy.modules"
+WORKFLOW_ENTRY_POINT_GROUP = "electroboy.workflows"
+
+_SOURCE_MODULE_FACTORIES = {
+    "core": "electroboy.service.core_module:module",
+    "agent_sessions": "electroboy.modules.agent_sessions:module",
+    "binder": "electroboy.modules.binder:module",
+    "corkboard": "electroboy.modules.corkboard:module",
+    "file_browser": "electroboy.modules.file_browser:module",
+    "markdown_documents": "electroboy.modules.markdown_documents:module",
+    "progress": "electroboy.modules.progress:module",
+    "project_shell": "electroboy.modules.project_shell:module",
+    "recent_projects": "electroboy.modules.recent_projects:module",
+    "review_reports": "electroboy.modules.review_reports:module",
+    "structured_documents": "electroboy.modules.structured_documents:module",
+}
+
+_SOURCE_WORKFLOW_FACTORIES = {
+    "software": "electroboy.workflows.software.plugin:workflow",
+    "creative-writing": "electroboy.workflows.creative_writing.plugin:workflow",
+}
 
 
 class WorkflowController(Protocol):
@@ -41,8 +66,12 @@ class ServiceModule:
     label: str
     routes: tuple[RouteDefinition, ...] = ()
     assets: tuple[str, ...] = ()
+    asset_package: str | None = None
+    asset_root: str = "assets"
     capabilities: frozenset[str] = frozenset()
     state_namespace: str | None = None
+    provider: str = "electroboy"
+    entry_point: str | None = None
 
     def payload(self) -> dict[str, object]:
         return {
@@ -50,8 +79,11 @@ class ServiceModule:
             "label": self.label,
             "routes": [route.payload() for route in self.routes],
             "assets": list(self.assets),
+            "asset_package": self.asset_package,
             "capabilities": sorted(self.capabilities),
             "state_namespace": self.state_namespace,
+            "provider": self.provider,
+            "entry_point": self.entry_point,
         }
 
 
@@ -88,11 +120,16 @@ class WorkflowDefinition:
     project_kinds: tuple[str, ...]
     backend_package: str
     frontend_bundle: str
+    asset_package: str | None = None
+    asset_root: str = "assets"
+    asset_resource: str = "frontend.js"
     controller_factory: WorkflowControllerFactory | None = field(
         default=None,
         repr=False,
         compare=False,
     )
+    provider: str = "electroboy"
+    entry_point: str | None = None
 
     def payload(self) -> dict[str, object]:
         return {
@@ -103,7 +140,45 @@ class WorkflowDefinition:
             "project_kinds": list(self.project_kinds),
             "backend_package": self.backend_package,
             "frontend_bundle": self.frontend_bundle,
+            "asset_package": self.asset_package,
+            "asset_resource": self.asset_resource,
+            "provider": self.provider,
+            "entry_point": self.entry_point,
         }
+
+
+@dataclass(frozen=True)
+class InstalledFactory:
+    """A definition factory discovered from installed package metadata."""
+
+    id: str
+    group: str
+    provider: str
+    reference: str
+    factory: Callable[[], object] = field(repr=False, compare=False)
+
+    def __call__(self) -> ServiceModule | WorkflowDefinition:
+        definition = self.factory()
+        expected_type = (
+            ServiceModule
+            if self.group == MODULE_ENTRY_POINT_GROUP
+            else WorkflowDefinition
+        )
+        if not isinstance(definition, expected_type):
+            raise TypeError(
+                f"entry point {self.reference} did not return "
+                f"{expected_type.__name__}"
+            )
+        if definition.id != self.id:
+            raise ValueError(
+                "entry point name does not match definition id: "
+                f"{self.id} != {definition.id}"
+            )
+        return replace(
+            definition,
+            provider=self.provider,
+            entry_point=self.reference,
+        )
 
 
 @dataclass
@@ -197,33 +272,13 @@ def build_workflow_registry(
 
 
 def built_in_service_modules() -> tuple[ServiceModule, ...]:
-    from electroboy.modules.agent_sessions import module as agent_sessions_module
-    from electroboy.modules.binder import module as binder_module
-    from electroboy.modules.core import module as core_module
-    from electroboy.modules.corkboard import module as corkboard_module
-    from electroboy.modules.file_browser import module as file_browser_module
-    from electroboy.modules.markdown_documents import module as markdown_documents_module
-    from electroboy.modules.progress import module as progress_module
-    from electroboy.modules.project_shell import module as project_shell_module
-    from electroboy.modules.recent_projects import module as recent_projects_module
-    from electroboy.modules.review_reports import module as review_reports_module
-    from electroboy.modules.structured_documents import (
-        module as structured_documents_module,
-    )
+    """Return all installed service module contributions.
 
-    return (
-        core_module(),
-        agent_sessions_module(),
-        markdown_documents_module(),
-        structured_documents_module(),
-        corkboard_module(),
-        binder_module(),
-        file_browser_module(),
-        progress_module(),
-        project_shell_module(),
-        review_reports_module(),
-        recent_projects_module(),
-    )
+    The historical function name remains as a compatibility API. Discovery is
+    now driven by installed package entry points.
+    """
+
+    return tuple(factory() for factory in installed_module_factories().values())
 
 
 def built_in_workflows() -> tuple[WorkflowDefinition, ...]:
@@ -231,13 +286,117 @@ def built_in_workflows() -> tuple[WorkflowDefinition, ...]:
 
 
 def built_in_workflow_factories() -> dict[str, Callable[[], WorkflowDefinition]]:
-    from electroboy.workflows.creative_writing import workflow as creative_workflow
-    from electroboy.workflows.software import workflow as software_workflow
+    """Return installed workflow factories through the compatibility API."""
 
-    return {
-        "software": software_workflow,
-        "creative-writing": creative_workflow,
-    }
+    return dict(installed_workflow_factories())
+
+
+def installed_module_factories(
+    entry_points: Iterable[object] | None = None,
+) -> dict[str, InstalledFactory]:
+    """Discover installed backend module factories."""
+
+    return _installed_factories(
+        MODULE_ENTRY_POINT_GROUP,
+        _SOURCE_MODULE_FACTORIES,
+        entry_points,
+    )
+
+
+def installed_workflow_factories(
+    entry_points: Iterable[object] | None = None,
+) -> dict[str, InstalledFactory]:
+    """Discover installed workflow factories."""
+
+    return _installed_factories(
+        WORKFLOW_ENTRY_POINT_GROUP,
+        _SOURCE_WORKFLOW_FACTORIES,
+        entry_points,
+    )
+
+
+def _installed_factories(
+    group: str,
+    source_fallbacks: dict[str, str],
+    entry_points: Iterable[object] | None,
+) -> dict[str, InstalledFactory]:
+    discovered: dict[str, InstalledFactory] = {}
+    candidates = (
+        tuple(entry_points)
+        if entry_points is not None
+        else _entry_points_for_group(group)
+    )
+    for entry_point in candidates:
+        name = str(getattr(entry_point, "name", "")).strip()
+        reference = str(getattr(entry_point, "value", "")).strip()
+        if not name or not reference:
+            raise ValueError(f"invalid entry point in {group}")
+        if name in discovered:
+            if discovered[name].reference == reference:
+                continue
+            raise ValueError(f"duplicate {group} entry point: {name}")
+        factory = entry_point.load()
+        if not callable(factory):
+            raise TypeError(f"entry point is not callable: {reference}")
+        discovered[name] = InstalledFactory(
+            id=name,
+            group=group,
+            provider=_entry_point_provider(entry_point),
+            reference=reference,
+            factory=factory,
+        )
+
+    # Source checkouts do not always have refreshed wheel metadata. This
+    # fallback uses import strings only when the corresponding package exists.
+    for name, reference in source_fallbacks.items():
+        if name in discovered or not _factory_reference_available(reference):
+            continue
+        discovered[name] = InstalledFactory(
+            id=name,
+            group=group,
+            provider="electroboy-source",
+            reference=reference,
+            factory=_load_factory_reference(reference),
+        )
+    return discovered
+
+
+def _entry_points_for_group(group: str) -> tuple[object, ...]:
+    available = metadata.entry_points()
+    if hasattr(available, "select"):
+        return tuple(available.select(group=group))
+    return tuple(available.get(group, ()))
+
+
+def _entry_point_provider(entry_point: object) -> str:
+    distribution = getattr(entry_point, "dist", None)
+    distribution_metadata = getattr(distribution, "metadata", None)
+    if distribution_metadata is not None:
+        provider = str(distribution_metadata.get("Name") or "").strip()
+        if provider:
+            return provider
+    return "installed-package"
+
+
+def _factory_reference_available(reference: str) -> bool:
+    module_name, separator, _attribute = reference.partition(":")
+    if not separator:
+        return False
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
+def _load_factory_reference(reference: str) -> Callable[[], object]:
+    module_name, separator, attribute = reference.partition(":")
+    if not separator or not module_name or not attribute:
+        raise ValueError("factory must use the form module.path:callable")
+    module = importlib.import_module(module_name)
+    factory = getattr(module, attribute)
+    if not callable(factory):
+        raise TypeError(f"factory is not callable: {reference}")
+    return factory
 
 def registry_payload(
     module_registry: ModuleRegistry,
