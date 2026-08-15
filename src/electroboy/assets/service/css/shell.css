@@ -651,7 +651,8 @@
       content: "";
     }
 
-    .stage-action-stage.expanded .stage-action-chevron::before {
+    .stage-action-stage.expanded .stage-action-chevron::before,
+    .stage-action-subgroup-trigger.expanded .stage-action-chevron::before {
       top: 4px;
       transform: rotate(45deg);
     }
