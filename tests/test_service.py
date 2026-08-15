@@ -2241,7 +2241,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("card-group-action", page)
             self.assertIn("card-group-icon", page)
             self.assertIn("Double-click to open card group", page)
-            self.assertIn('title.addEventListener("dblclick"', page)
+            self.assertIn("currentPress - previousTitlePress <= 500", page)
             self.assertIn('"card_type": "group"', page)
             self.assertIn(board_path, page)
 

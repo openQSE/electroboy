@@ -1624,14 +1624,24 @@ def creative_corkboard_html(
             card.title = title.value;
             queueSave(card);
           }});
-          title.addEventListener("pointerdown", (event) => event.stopPropagation());
-          if (cardKind(card) === "group") {{
-            title.title = "Double-click to open card group";
-            title.addEventListener("dblclick", (event) => {{
+          const isGroupTitle = cardKind(card) === "group";
+          let previousTitlePress = 0;
+          title.addEventListener("pointerdown", (event) => {{
+            event.stopPropagation();
+            if (!isGroupTitle || event.button !== 0) {{
+              return;
+            }}
+            const currentPress = window.performance.now();
+            if (currentPress - previousTitlePress <= 500) {{
               event.preventDefault();
-              event.stopPropagation();
+              previousTitlePress = 0;
               openGroupCard(card);
-            }});
+              return;
+            }}
+            previousTitlePress = currentPress;
+          }});
+          if (isGroupTitle) {{
+            title.title = "Double-click to open card group";
           }}
         }} else {{
           title = document.createElement("div");
