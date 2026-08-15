@@ -47,26 +47,13 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         _ensure_creative_workspace(project_root)
         with self.lock:
             context = self._context_locked(context_id)
-            context.activation_root = project_root
-            context.project_mode = "creative"
-            context.active_project_root = project_root
-            context.active_repository_name = None
-            context.registered_repositories = []
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.workflow_stage = "project"
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id=self.workflow_id,
+                project_mode="creative",
+                activation_root=project_root,
+                active_project_root=project_root,
+                workflow_stage="project",
+            )
         _remember_recent_project(self.root, project_root, "creative")
         return {
             **self.project_payload(context_id),
@@ -82,26 +69,13 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         _ensure_creative_workspace(project_root)
         with self.lock:
             context = self._context_locked(context_id)
-            context.activation_root = project_root
-            context.project_mode = "creative"
-            context.active_project_root = project_root
-            context.active_repository_name = None
-            context.registered_repositories = []
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.workflow_stage = "project"
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id=self.workflow_id,
+                project_mode="creative",
+                activation_root=project_root,
+                active_project_root=project_root,
+                workflow_stage="project",
+            )
         _remember_recent_project(self.root, project_root, "creative")
         return {
             **self.project_payload(context_id),

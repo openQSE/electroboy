@@ -38,6 +38,7 @@ from .frontend import (
     render_service_index,
     service_asset_content_type,
 )
+from .context import BrowserContext, ContextStore
 from .file_watch import file_signature as _file_signature
 from .recent_projects import (
     recent_project_entries as _recent_project_entries,
@@ -160,41 +161,23 @@ def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
 
 
 @dataclass
-class BrowserContext:
-    context_id: str
-    activation_root: Path | None = None
-    project_mode: str = "none"
-    active_project_root: Path | None = None
-    active_repository_name: str | None = None
-    registered_repositories: list[dict[str, object]] = field(default_factory=list)
-    requirements_session: AgentSession | None = None
-    design_session: AgentSession | None = None
-    design_review_session: AgentSession | None = None
-    documentation_sessions: dict[str, AgentSession] = field(default_factory=dict)
-    creative_session: AgentSession | None = None
-    ad_hoc_session: AgentSession | None = None
-    project_shell_session: AgentSession | None = None
-    stage_sessions: dict[str, AgentSession] = field(default_factory=dict)
-    selected_session_id: str | None = None
-    workflow_stage: str | None = None
-    requirements_started: bool = False
-    design_started: bool = False
-    design_review_started: bool = False
-    design_review_interactive: bool = False
-    stage_started: set[str] = field(default_factory=set)
-
-
-@dataclass
 class ServiceState:
     root: Path
     session_backend: str = SESSION_BACKEND_PTY
     workflow_registry: WorkflowRegistry | None = None
-    lock: threading.Lock = field(default_factory=threading.Lock)
-    contexts: dict[str, BrowserContext] = field(default_factory=dict)
+    context_store: ContextStore = field(default_factory=ContextStore)
     workflow_controllers: dict[str, Any] = field(
         init=False,
         default_factory=dict,
     )
+
+    @property
+    def lock(self) -> threading.RLock:
+        return self.context_store.lock
+
+    @property
+    def contexts(self) -> dict[str, BrowserContext]:
+        return self.context_store.contexts
 
     def __post_init__(self) -> None:
         self.root = self.root.resolve()
@@ -276,15 +259,17 @@ class ServiceState:
                 if not session_id or not tmux_name or not _tmux_has_session(tmux_name):
                     continue
                 context_id = str(entry.get("context_id") or "").strip() or uuid4().hex
-                context = self.contexts.setdefault(
-                    context_id,
-                    BrowserContext(context_id=context_id),
-                )
+                context = self.context_store.get_or_create(context_id)
                 activation_root = str(entry.get("activation_root") or "").strip()
                 active_root = str(entry.get("active_project_root") or "").strip()
                 context.activation_root = Path(activation_root) if activation_root else None
                 context.active_project_root = Path(active_root) if active_root else None
                 context.project_mode = str(entry.get("project_mode") or "project")
+                context.workflow_id = (
+                    "creative-writing"
+                    if context.project_mode == "creative"
+                    else "software"
+                )
                 context.active_repository_name = (
                     str(entry.get("active_repository_name"))
                     if entry.get("active_repository_name")
@@ -328,9 +313,7 @@ class ServiceState:
             session.attach_existing()
 
     def create_context(self) -> dict[str, object]:
-        context = BrowserContext(context_id=uuid4().hex)
-        with self.lock:
-            self.contexts[context.context_id] = context
+        context = self.context_store.create()
         return {
             **project_payload(self.root, context),
             "status": "created",
@@ -352,6 +335,33 @@ class ServiceState:
             context = self._context_locked(context_id)
             active_project_root = context.active_project_root
         return workflow_payload(active_project_root)
+
+    def workflow_context_state(
+        self,
+        context_id: str,
+        workflow_id: str,
+    ) -> dict[str, object]:
+        """Return state isolated to one registered workflow."""
+
+        if self.workflow_registry is None:
+            raise StateError("workflow registry is not configured")
+        self.workflow_registry.get(workflow_id)
+        with self.lock:
+            return self._context_locked(context_id).workflow(workflow_id)
+
+    def module_context_state(
+        self,
+        context_id: str,
+        module_id: str,
+    ) -> dict[str, object]:
+        """Return state under a module's declared namespace."""
+
+        if self.workflow_registry is None:
+            raise StateError("workflow registry is not configured")
+        module = self.workflow_registry.modules.get(module_id)
+        namespace = module.state_namespace or module.id
+        with self.lock:
+            return self._context_locked(context_id).module(namespace)
 
     def project_status_payload(self, context_id: str) -> dict[str, object]:
         with self.lock:
@@ -470,26 +480,13 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             self._require_no_active_agent_locked(context)
-            context.activation_root = project_root
-            context.project_mode = "project"
-            context.active_project_root = project_root
-            context.active_repository_name = None
-            context.registered_repositories = []
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.workflow_stage = workflow_stage
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id="software",
+                project_mode="project",
+                activation_root=project_root,
+                active_project_root=project_root,
+                workflow_stage=workflow_stage,
+            )
         _remember_recent_project(self.root, project_root, "project")
         return {
             **project_payload(self.root, context, project_root),
@@ -504,26 +501,15 @@ class ServiceState:
         manifest = initialize_project(project_root)
         with self.lock:
             context = self._context_locked(context_id)
-            context.activation_root = project_root
-            context.project_mode = "project"
-            context.active_project_root = project_root
-            context.active_repository_name = None
-            context.registered_repositories = []
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.workflow_stage = _software_domain()._visible_workflow_stage(manifest.active_stage)
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id="software",
+                project_mode="project",
+                activation_root=project_root,
+                active_project_root=project_root,
+                workflow_stage=_software_domain()._visible_workflow_stage(
+                    manifest.active_stage
+                ),
+            )
         _remember_recent_project(self.root, project_root, "project")
         return {
             **project_payload(self.root, context, project_root),
@@ -548,26 +534,15 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             self._require_no_active_agent_locked(context)
-            context.activation_root = meta_context["meta_root"]
-            context.project_mode = "meta"
-            context.active_project_root = meta_context["active_project_root"]
-            context.active_repository_name = meta_context["active_repository_name"]
-            context.registered_repositories = meta_context["registered_repositories"]
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.workflow_stage = meta_context["workflow_stage"]
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id="software",
+                project_mode="meta",
+                activation_root=meta_context["meta_root"],
+                active_project_root=meta_context["active_project_root"],
+                active_repository_name=meta_context["active_repository_name"],
+                registered_repositories=meta_context["registered_repositories"],
+                workflow_stage=meta_context["workflow_stage"],
+            )
             project_root = context.active_project_root
         _remember_recent_project(self.root, meta_context["meta_root"], "meta")
         return {
@@ -583,26 +558,13 @@ class ServiceState:
         repositories = _meta_repository_payloads(registry)
         with self.lock:
             context = self._context_locked(context_id)
-            context.activation_root = meta_root
-            context.project_mode = "meta"
-            context.active_project_root = None
-            context.active_repository_name = None
-            context.registered_repositories = repositories
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.workflow_stage = None
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id="software",
+                project_mode="meta",
+                activation_root=meta_root,
+                active_project_root=None,
+                registered_repositories=repositories,
+            )
         _remember_recent_project(self.root, meta_root, "meta")
         return {
             **project_payload(self.root, context, None),
@@ -637,24 +599,15 @@ class ServiceState:
         meta_context = _start_meta_repository(meta_root, repository)
         with self.lock:
             context = self._context_locked(context_id)
-            context.active_project_root = meta_context["active_project_root"]
-            context.active_repository_name = meta_context["active_repository_name"]
-            context.registered_repositories = meta_context["registered_repositories"]
-            context.workflow_stage = meta_context["workflow_stage"]
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id="software",
+                project_mode="meta",
+                activation_root=meta_root,
+                active_project_root=meta_context["active_project_root"],
+                active_repository_name=meta_context["active_repository_name"],
+                registered_repositories=meta_context["registered_repositories"],
+                workflow_stage=meta_context["workflow_stage"],
+            )
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -671,24 +624,15 @@ class ServiceState:
         meta_context = _remove_meta_repository(meta_root, repository)
         with self.lock:
             context = self._context_locked(context_id)
-            context.active_project_root = meta_context["active_project_root"]
-            context.active_repository_name = meta_context["active_repository_name"]
-            context.registered_repositories = meta_context["registered_repositories"]
-            context.workflow_stage = meta_context["workflow_stage"]
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id="software",
+                project_mode="meta",
+                activation_root=meta_root,
+                active_project_root=meta_context["active_project_root"],
+                active_repository_name=meta_context["active_repository_name"],
+                registered_repositories=meta_context["registered_repositories"],
+                workflow_stage=meta_context["workflow_stage"],
+            )
             project_root = context.active_project_root
         return {
             **project_payload(self.root, context, project_root),
@@ -702,26 +646,12 @@ class ServiceState:
         self._terminate_sessions(sessions)
         with self.lock:
             context = self._context_locked(context_id)
-            context.activation_root = None
-            context.project_mode = "none"
-            context.active_project_root = None
-            context.active_repository_name = None
-            context.registered_repositories = []
-            context.requirements_session = None
-            context.design_session = None
-            context.design_review_session = None
-            context.documentation_sessions = {}
-            context.creative_session = None
-            context.ad_hoc_session = None
-            context.project_shell_session = None
-            context.stage_sessions = {}
-            context.selected_session_id = None
-            context.workflow_stage = None
-            context.requirements_started = False
-            context.design_started = False
-            context.design_review_started = False
-            context.design_review_interactive = False
-            context.stage_started = set()
+            context.reset_project(
+                workflow_id=context.workflow_id,
+                project_mode="none",
+                activation_root=None,
+                active_project_root=None,
+            )
         return {
             **project_payload(self.root, context, None),
             "status": "deactivated",
@@ -1551,10 +1481,10 @@ class ServiceState:
         context_id = context_id.strip()
         if not context_id:
             raise StateError("missing browser context; refresh the page")
-        context = self.contexts.get(context_id)
-        if context is None:
+        try:
+            return self.context_store.require(context_id)
+        except KeyError:
             raise StateError("unknown browser context; refresh the page")
-        return context
 
     def _session_by_id_locked(
         self,
@@ -1873,6 +1803,7 @@ def project_payload(
     )
     return {
         "context_id": context.context_id,
+        "workflow_id": context.workflow_id,
         "service_root": str(service_root),
         "activation_root": str(activation_root) if activation_root else None,
         "project_mode": context.project_mode,
