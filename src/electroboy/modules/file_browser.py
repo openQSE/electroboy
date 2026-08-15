@@ -19,7 +19,7 @@ def _window(request: RouteRequest) -> None:
     initial_path = (request.params.get("path") or [str(request.state.root)])[0]
     mode = (request.params.get("mode") or ["project"])[0]
     request.send_text(
-        request.operation("file_browser_window_html", initial_path, mode),
+        request.operations.file_browser_window_html(initial_path, mode),
         "text/html; charset=utf-8",
     )
 

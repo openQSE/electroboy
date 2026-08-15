@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from .routes import RouteRequest
+    from .services import ServiceServices
 
 MODULE_ENTRY_POINT_GROUP = "electroboy.modules"
 WORKFLOW_ENTRY_POINT_GROUP = "electroboy.workflows"
@@ -41,7 +42,7 @@ class WorkflowController(Protocol):
     workflow_id: str
 
 
-WorkflowControllerFactory = Callable[[object], WorkflowController]
+WorkflowControllerFactory = Callable[["ServiceServices"], WorkflowController]
 RouteHandler = Callable[["RouteRequest"], None]
 
 
@@ -252,14 +253,14 @@ class WorkflowRegistry:
 
     def create_controllers(
         self,
-        runtime: object,
+        services: "ServiceServices",
     ) -> dict[str, WorkflowController]:
         """Bind every executable workflow to a service runtime."""
         controllers: dict[str, WorkflowController] = {}
         for workflow in self.values():
             if workflow.controller_factory is None:
                 continue
-            controller = workflow.controller_factory(runtime)
+            controller = workflow.controller_factory(services)
             if controller.workflow_id != workflow.id:
                 raise ValueError(
                     "workflow controller id does not match its definition: "

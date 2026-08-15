@@ -41,12 +41,12 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
 
     def open_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _existing_creative_project_root(path)
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
         _ensure_creative_workspace(project_root)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.reset_project(
                 workflow_id=self.workflow_id,
                 project_mode="creative",
@@ -54,21 +54,21 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage="project",
             )
-        _remember_recent_project(self.root, project_root, "creative")
+        _remember_recent_project(self.services.files.service_root, project_root, "creative")
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "opened",
         }
 
     def create_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _resolve_project_path(path)
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
         project_root.mkdir(parents=True, exist_ok=True)
         _ensure_creative_workspace(project_root)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.reset_project(
                 workflow_id=self.workflow_id,
                 project_mode="creative",
@@ -76,19 +76,19 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage="project",
             )
-        _remember_recent_project(self.root, project_root, "creative")
+        _remember_recent_project(self.services.files.service_root, project_root, "creative")
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "created",
         }
 
     def initialize_creative_workspace(self, context_id: str) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         _ensure_creative_workspace(project_root)
         return self.creative_tree(context_id)
 
     def creative_tree(self, context_id: str) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         return _creative_tree_payload(project_root)
 
     def create_creative_folder(
@@ -96,7 +96,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         relative_path: str,
     ) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         path = _create_creative_folder(project_root, relative_path)
         return {
             "status": "created",
@@ -108,7 +108,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         relative_path: str,
     ) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         path = _create_creative_document(project_root, relative_path)
         return {
             "status": "created",
@@ -120,7 +120,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         relative_path: str,
     ) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         path = _create_creative_corkboard(project_root, relative_path)
         return {
             "status": "created",
@@ -133,7 +133,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         relative_path: str,
         new_name: str,
     ) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         old_path, new_path = _rename_creative_entry(
             project_root,
             relative_path,
@@ -150,7 +150,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         relative_path: str,
     ) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         path = _delete_creative_entry(project_root, relative_path)
         return {
             "status": "deleted",
@@ -158,7 +158,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         }
 
     def creative_scratchpad(self, context_id: str) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         path = _ensure_creative_scratchpad(project_root)
         return {
             "path": path.relative_to(project_root).as_posix(),
@@ -170,7 +170,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         markdown: str,
     ) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         path = _ensure_creative_scratchpad(project_root)
         path.write_text(markdown, encoding="utf-8")
         return {
@@ -183,7 +183,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         payload: dict[str, object],
     ) -> dict[str, object]:
-        project_root = self.active_project_root(context_id)
+        project_root = self.services.contexts.active_project_root(context_id)
         board_type = str(payload.get("board_type") or "folder")
         if board_type == "folder" and "order" in payload:
             order = payload.get("order")
@@ -242,8 +242,8 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         active_document: str | None = None,
         active_target: dict[str, object] | None = None,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -268,14 +268,14 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 kind="creative-writing",
                 interactive=True,
             )
-            session = self._prepare_session_locked(context, session)
+            session = self.services.sessions.prepare(context, session)
             context.creative_session = session
             context.selected_session_id = session.session_id
         try:
             session.start()
         except Exception:
-            with self.lock:
-                context = self._context_locked(context_id)
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
                 if context.creative_session is session:
                     context.creative_session = None
                     context.selected_session_id = None

@@ -30,13 +30,13 @@ def _conflict(request: RouteRequest, error: Exception) -> None:
 
 def _index(request: RouteRequest) -> None:
     request.send_text(
-        request.operation("service_index"),
+        request.operations.service_index(),
         "text/html; charset=utf-8",
     )
 
 
 def _health(request: RouteRequest) -> None:
-    request.send_json(request.operation("health_payload"))
+    request.send_json(request.operations.health_payload())
 
 
 def _create_context(request: RouteRequest) -> None:
@@ -129,7 +129,7 @@ def _registry(request: RouteRequest) -> None:
     request.send_json(
         {
             **registry_payload(modules, workflows),
-            "frontend_bundles": request.operation("frontend_asset_payload"),
+            "frontend_bundles": request.operations.frontend_asset_payload(),
             "workflow_config": workflow_config_payload(request.config.root),
         }
     )

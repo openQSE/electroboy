@@ -68,6 +68,7 @@ from electroboy.service.frontend import (  # noqa: E402
     read_service_text_asset,
     render_service_index,
 )
+from electroboy.service.services import ServiceServices  # noqa: E402
 from electroboy.service.registry import (  # noqa: E402
     MODULE_ENTRY_POINT_GROUP,
     WORKFLOW_ENTRY_POINT_GROUP,
@@ -369,10 +370,16 @@ class ServiceTests(unittest.TestCase):
         class SampleController:
             workflow_id = "sample"
 
-            def __init__(self, runtime: object) -> None:
-                self.runtime = runtime
+            def __init__(self, services: ServiceServices) -> None:
+                self.services = services
 
-        runtime = object()
+        dependency = object()
+        services = ServiceServices(
+            contexts=dependency,
+            sessions=dependency,
+            files=dependency,
+            workflows=dependency,
+        )
         definition = WorkflowDefinition(
             id="sample",
             label="Sample",
@@ -388,17 +395,17 @@ class ServiceTests(unittest.TestCase):
             (definition,),
         )
 
-        controllers = registry.create_controllers(runtime)
+        controllers = registry.create_controllers(services)
 
         self.assertEqual(set(controllers), {"sample"})
-        self.assertIs(controllers["sample"].runtime, runtime)
+        self.assertIs(controllers["sample"].services, services)
 
     def test_workflow_registry_rejects_mismatched_controller(self) -> None:
         class WrongController:
             workflow_id = "wrong"
 
-            def __init__(self, runtime: object) -> None:
-                self.runtime = runtime
+            def __init__(self, services: ServiceServices) -> None:
+                self.services = services
 
         definition = WorkflowDefinition(
             id="sample",
@@ -416,7 +423,14 @@ class ServiceTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "controller id"):
-            registry.create_controllers(object())
+            registry.create_controllers(
+                ServiceServices(
+                    contexts=object(),
+                    sessions=object(),
+                    files=object(),
+                    workflows=object(),
+                )
+            )
 
     def test_configured_workflow_endpoint_persists_extra_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

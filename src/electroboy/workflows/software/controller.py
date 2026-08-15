@@ -69,21 +69,21 @@ class SoftwareWorkflowController(BoundWorkflowController):
         collection_name = name.strip()
         if not collection_name:
             raise StateError("feature collection name is required")
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise StateError("activate a project first")
-            self._require_no_active_agent_locked(context)
+            self.services.contexts.require_no_active_agent(context)
         registry = _load_work_item_registry(project_root)
         collection = _upsert_feature_collection(registry, collection_name)
         registry["active_collection_id"] = collection["id"]
         _save_work_item_registry(project_root, registry)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "created collection",
             "label": collection["name"],
         }
@@ -94,23 +94,23 @@ class SoftwareWorkflowController(BoundWorkflowController):
         collection_id: str,
     ) -> dict[str, object]:
         collection_id = collection_id.strip()
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise StateError("activate a project first")
-            self._require_no_active_agent_locked(context)
+            self.services.contexts.require_no_active_agent(context)
         registry = _load_work_item_registry(project_root)
         collection = _feature_collection_by_id(registry, collection_id)
         if collection is None:
             raise StateError("unknown feature collection")
         registry["active_collection_id"] = collection["id"]
         _save_work_item_registry(project_root, registry)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "switched collection",
             "label": collection["name"],
         }
@@ -129,12 +129,12 @@ class SoftwareWorkflowController(BoundWorkflowController):
         title = title.strip()
         if not title:
             raise AgentSessionError("feature title is required")
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-        terminated_agent = self._terminate_workflow_sessions(context_id)
+        terminated_agent = self.services.sessions.terminate_workflow(context_id)
         output = _run_feature_start_context(
             project_root,
             title=title,
@@ -164,12 +164,12 @@ class SoftwareWorkflowController(BoundWorkflowController):
             registry["active_feature_slug"] = feature_record.get("slug")
             registry["active_bug_slug"] = None
             _save_work_item_registry(project_root, registry)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.workflow_stage = _active_workflow_stage(project_root)
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "started feature",
             "label": _feature_record_label(feature_record) if feature_record else title,
             "output": output,
@@ -182,8 +182,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         slug: str,
     ) -> dict[str, object]:
         slug = slug.strip()
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -191,7 +191,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         feature = _feature_by_slug(registry, slug)
         if feature is None:
             raise AgentSessionError("unknown feature")
-        terminated_agent = self._terminate_workflow_sessions(context_id)
+        terminated_agent = self.services.sessions.terminate_workflow(context_id)
         output = _run_feature_start_context(
             project_root,
             title=str(feature.get("input") or feature.get("title") or slug),
@@ -222,12 +222,12 @@ class SoftwareWorkflowController(BoundWorkflowController):
         if feature.get("collection_id"):
             registry["active_collection_id"] = feature.get("collection_id")
         _save_work_item_registry(project_root, registry)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.workflow_stage = _active_workflow_stage(project_root)
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "switched feature",
             "label": _feature_record_label(feature),
             "output": output,
@@ -245,12 +245,12 @@ class SoftwareWorkflowController(BoundWorkflowController):
         issue_reference = issue_reference.strip()
         if not issue_reference:
             raise AgentSessionError("bug issue reference is required")
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-        terminated_agent = self._terminate_workflow_sessions(context_id)
+        terminated_agent = self.services.sessions.terminate_workflow(context_id)
         output = _run_bug_start_context(
             project_root,
             issue_reference=issue_reference,
@@ -264,11 +264,11 @@ class SoftwareWorkflowController(BoundWorkflowController):
             registry["active_bug_slug"] = bug_record.get("slug")
             registry["active_feature_slug"] = None
             _save_work_item_registry(project_root, registry)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "started bug resolution",
             "label": _bug_record_label(bug_record) if bug_record else issue_reference,
             "output": output,
@@ -281,8 +281,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         slug: str,
     ) -> dict[str, object]:
         slug = slug.strip()
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -290,16 +290,16 @@ class SoftwareWorkflowController(BoundWorkflowController):
         bug = _bug_by_slug(registry, slug)
         if bug is None:
             raise AgentSessionError("unknown bug")
-        terminated_agent = self._terminate_workflow_sessions(context_id)
+        terminated_agent = self.services.sessions.terminate_workflow(context_id)
         _write_current_bug_record(project_root, bug)
         registry["active_bug_slug"] = slug
         registry["active_feature_slug"] = None
         _save_work_item_registry(project_root, registry)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "switched bug resolution",
             "label": _bug_record_label(bug),
             "terminated_agent": terminated_agent,
@@ -318,20 +318,20 @@ class SoftwareWorkflowController(BoundWorkflowController):
         target_stage = WORKFLOW_STAGE_RESET_TARGETS.get(stage)
         if target_stage is None:
             raise StateError(f"stage cannot be set directly: {stage}")
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise StateError("activate a project first")
             previous_stage = context.workflow_stage
             sessions = (
-                self._context_sessions_locked(context)
+                self.services.sessions.for_context(context)
                 if previous_stage != stage
                 else []
             )
         terminated_agent = False
         if sessions:
-            terminated_agent = self._terminate_sessions(sessions)
+            terminated_agent = self.services.sessions.terminate(sessions)
         reset_decision = None
         reset_output = ""
         if previous_stage != stage:
@@ -340,13 +340,13 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 stage,
                 target_stage,
             )
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.workflow_stage = stage
-            self._clear_sessions_locked(context, sessions)
+            self.services.sessions.clear(context, sessions)
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "selected",
             "previous_stage": previous_stage,
             "terminated_agent": terminated_agent,
@@ -360,15 +360,15 @@ class SoftwareWorkflowController(BoundWorkflowController):
         *,
         skip_approval: bool = False,
     ) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage not in {"requirements", "requirements-approve"}:
                 raise AgentSessionError("requirements stage is not active")
             requirements_started = context.requirements_started
-        self._terminate_requirements_session(context_id)
+        self.services.sessions.terminate_kind(context_id, "requirements")
         _record_requirements_complete(project_root, skipped=skip_approval)
         from electroboy.cli import _cmd_stage, _stage_args
         from electroboy.gates import GateEngine
@@ -420,14 +420,14 @@ class SoftwareWorkflowController(BoundWorkflowController):
         )
         if code != 0:
             raise AgentSessionError(output or "requirements approval failed")
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.workflow_stage = "design"
             context.requirements_session = None
             context.requirements_started = requirements_started
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
             "next_stage": "design",
             "output": output,
@@ -445,10 +445,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
         *,
         allow_stage_reopen: bool = False,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
-            command_root = self._command_root_locked(context)
+            command_root = self.services.contexts.command_root(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != "requirements" and not allow_stage_reopen:
@@ -459,7 +459,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             ):
                 return context.requirements_session, False
             lock_names = SESSION_ARTIFACT_LOCKS["requirements"]
-            self._require_session_locks_available_locked(context, lock_names)
+            self.services.sessions.require_locks_available(context, lock_names)
             session = AgentSession(
                 command=_requirements_command(command_root),
                 cwd=command_root,
@@ -468,23 +468,23 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 interactive=True,
                 lock_names=lock_names,
             )
-            session = self._prepare_session_locked(context, session)
+            session = self.services.sessions.prepare(context, session)
             context.requirements_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "requirements"
         try:
             session.start()
         except Exception:
-            with self.lock:
-                context = self._context_locked(context_id)
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
                 if context.requirements_session is session:
                     context.requirements_session = None
                     if context.selected_session_id == session.session_id:
                         context.selected_session_id = None
                     context.requirements_started = False
             raise
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             if context.requirements_session is session:
                 context.requirements_started = True
         return session, True
@@ -493,8 +493,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         self,
         context_id: str,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -503,7 +503,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 and not context.requirements_started
             ):
                 raise AgentSessionError("start requirements first")
-        self._terminate_requirements_session(context_id)
+        self.services.sessions.terminate_kind(context_id, "requirements")
         _reopen_requirements_for_restart(project_root)
         return self.start_requirements_agent(context_id, allow_stage_reopen=True)
 
@@ -519,10 +519,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
         *,
         allow_stage_reopen: bool = False,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
-            command_root = self._command_root_locked(context)
+            command_root = self.services.contexts.command_root(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != "design" and not allow_stage_reopen:
@@ -533,7 +533,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             ):
                 return context.design_session, False
             lock_names = SESSION_ARTIFACT_LOCKS["design"]
-            self._require_session_locks_available_locked(context, lock_names)
+            self.services.sessions.require_locks_available(context, lock_names)
             session = AgentSession(
                 command=_stage_command(command_root, "design"),
                 cwd=command_root,
@@ -542,23 +542,23 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 interactive=True,
                 lock_names=lock_names,
             )
-            session = self._prepare_session_locked(context, session)
+            session = self.services.sessions.prepare(context, session)
             context.design_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "design"
         try:
             session.start()
         except Exception:
-            with self.lock:
-                context = self._context_locked(context_id)
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
                 if context.design_session is session:
                     context.design_session = None
                     if context.selected_session_id == session.session_id:
                         context.selected_session_id = None
                     context.design_started = False
             raise
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             if context.design_session is session:
                 context.design_started = True
         return session, True
@@ -567,34 +567,34 @@ class SoftwareWorkflowController(BoundWorkflowController):
         self,
         context_id: str,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage == "design":
                 raise AgentSessionError("design stage is already active")
-        self._terminate_workflow_sessions(context_id)
+        self.services.sessions.terminate_workflow(context_id)
         _reopen_design_for_restart(project_root)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.design_review_started = False
             context.design_review_interactive = False
         return self.start_design_agent(context_id, allow_stage_reopen=True)
 
     def complete_design_agent(self, context_id: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != "design":
                 raise AgentSessionError("design stage is not active")
             design_started = context.design_started
-        self._terminate_design_session(context_id)
+        self.services.sessions.terminate_kind(context_id, "design")
         _record_design_complete(project_root)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.workflow_stage = "design-review"
             context.design_session = None
             context.design_started = design_started
@@ -603,7 +603,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.design_review_interactive = False
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "completed",
             "next_stage": "design-review",
         }
@@ -616,10 +616,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
         allow_stage_reopen: bool = False,
         interactive: bool = False,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
-            command_root = self._command_root_locked(context)
+            command_root = self.services.contexts.command_root(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != "design-review" and not allow_stage_reopen:
@@ -630,7 +630,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             ):
                 return context.design_review_session, False
             lock_names = SESSION_ARTIFACT_LOCKS["design-review"]
-            self._require_session_locks_available_locked(context, lock_names)
+            self.services.sessions.require_locks_available(context, lock_names)
             session = AgentSession(
                 command=_stage_command(
                     command_root,
@@ -656,7 +656,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     )
                 ),
             )
-            session = self._prepare_session_locked(context, session)
+            session = self.services.sessions.prepare(context, session)
             context.design_review_session = session
             context.selected_session_id = session.session_id
             context.design_review_interactive = interactive
@@ -664,8 +664,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         try:
             session.start()
         except Exception:
-            with self.lock:
-                context = self._context_locked(context_id)
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
                 if context.design_review_session is session:
                     context.design_review_session = None
                     if context.selected_session_id == session.session_id:
@@ -673,8 +673,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     context.design_review_started = False
                     context.design_review_interactive = False
             raise
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             if context.design_review_session is session:
                 context.design_review_started = True
         return session, True
@@ -683,8 +683,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         self,
         context_id: str,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -694,7 +694,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 and not context.design_review_started
             ):
                 raise AgentSessionError("start design review first")
-        self._terminate_workflow_sessions(context_id)
+        self.services.sessions.terminate_workflow(context_id)
         return self.start_design_review_agent(
             context_id,
             force=force,
@@ -708,10 +708,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
         interactive: bool = True,
         target: str | None = None,
     ) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
-            command_root = self._command_root_locked(context)
+            command_root = self.services.contexts.command_root(context)
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             target_path = (target or "").strip()
@@ -723,7 +723,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 context.selected_session_id = existing_session.session_id
                 return existing_session, False
             lock_names = frozenset({f"documentation:{session_key}"})
-            self._require_session_locks_available_locked(context, lock_names)
+            self.services.sessions.require_locks_available(context, lock_names)
             label_target = f" ({target_path})" if target_path else ""
             document_label = Path(target_path).name if target_path else "Documentation"
             session = AgentSession(
@@ -746,14 +746,14 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     "document_label": document_label,
                 },
             )
-            session = self._prepare_session_locked(context, session)
+            session = self.services.sessions.prepare(context, session)
             context.documentation_sessions[session_key] = session
             context.selected_session_id = session.session_id
         try:
             session.start()
         except Exception:
-            with self.lock:
-                context = self._context_locked(context_id)
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
                 if context.documentation_sessions.get(session_key) is session:
                     context.documentation_sessions.pop(session_key, None)
                     context.selected_session_id = None
@@ -761,8 +761,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         return session, True
 
     def stop_design_review_agent(self, context_id: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -772,8 +772,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if session is None or not session.is_active():
                 raise AgentSessionError("design review is not running")
         session.terminate()
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             if context.design_review_session is session:
                 context.design_review_session = None
                 context.design_review_interactive = False
@@ -782,7 +782,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 context.selected_session_id = None
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "stopped",
         }
 
@@ -795,8 +795,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         *,
         skip_approval: bool = False,
     ) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -835,8 +835,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     for part in [stderr.getvalue(), stdout.getvalue()]
                     if part.strip()
                 )
-                with self.lock:
-                    context = self._context_locked(context_id)
+                with self.services.contexts.lock:
+                    context = self.services.contexts.require(context_id)
                     if context.design_review_session is session:
                         context.design_review_session = None
                         if (
@@ -883,15 +883,15 @@ class SoftwareWorkflowController(BoundWorkflowController):
         )
         if code != 0:
             raise AgentSessionError(output or "design approval failed")
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             context.workflow_stage = "implementation-plan"
             context.design_review_session = None
             context.design_review_interactive = False
             context.design_review_started = design_review_started
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
             "next_stage": "implementation-plan",
             "output": output,
@@ -913,10 +913,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
         allow_stage_reopen: bool = False,
     ) -> tuple[AgentSession, bool]:
         config = _generic_stage_config(stage)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
-            command_root = self._command_root_locked(context)
+            command_root = self.services.contexts.command_root(context)
             if project_root is None or command_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage != stage and not allow_stage_reopen:
@@ -925,7 +925,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if existing is not None and existing.is_active():
                 return existing, False
             lock_names = SESSION_ARTIFACT_LOCKS.get(stage, frozenset())
-            self._require_session_locks_available_locked(context, lock_names)
+            self.services.sessions.require_locks_available(context, lock_names)
             accepts_input = (
                 bool(config["interactive_default"])
                 if interactive is None
@@ -958,23 +958,23 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     returncode,
                 ),
             )
-            session = self._prepare_session_locked(context, session)
+            session = self.services.sessions.prepare(context, session)
             context.stage_sessions[stage] = session
             context.selected_session_id = session.session_id
             context.workflow_stage = stage
         try:
             session.start()
         except Exception:
-            with self.lock:
-                context = self._context_locked(context_id)
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
                 if context.stage_sessions.get(stage) is session:
                     context.stage_sessions.pop(stage, None)
                     if context.selected_session_id == session.session_id:
                         context.selected_session_id = None
                     context.stage_started.discard(stage)
             raise
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             if context.stage_sessions.get(stage) is session:
                 context.stage_started.add(stage)
         return session, True
@@ -987,14 +987,14 @@ class SoftwareWorkflowController(BoundWorkflowController):
         interactive: bool | None = None,
     ) -> tuple[AgentSession, bool]:
         _generic_stage_config(stage)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
             if context.workflow_stage == stage and stage not in context.stage_started:
                 raise AgentSessionError(f"start {stage} first")
-        self._terminate_workflow_sessions(context_id)
+        self.services.sessions.terminate_workflow(context_id)
         return self.start_workflow_stage_agent(
             context_id,
             stage,
@@ -1009,8 +1009,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         stage: str,
     ) -> dict[str, object]:
         _generic_stage_config(stage)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -1020,15 +1020,15 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if session is None or not session.is_active():
                 raise AgentSessionError(f"{stage} agent is not running")
         session.terminate()
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             if context.stage_sessions.get(stage) is session:
                 context.stage_sessions.pop(stage, None)
             if context.selected_session_id == session.session_id:
                 context.selected_session_id = None
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "stopped",
         }
 
@@ -1040,8 +1040,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         skip_approval: bool = False,
     ) -> dict[str, object]:
         config = _generic_stage_config(stage)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
@@ -1070,8 +1070,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 "advancing with forced approval records."
             )
         output = _run_electroboy_cli_command(project_root, command)
-        with self.lock:
-            context = self._context_locked(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
             if context.stage_sessions.get(stage) is session:
                 context.stage_sessions.pop(stage, None)
             context.stage_started.add(stage)
@@ -1083,7 +1083,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 context.selected_session_id = None
             project_root = context.active_project_root
         return {
-            **self.project_payload(context_id),
+            **self.services.contexts.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
             "next_stage": context.workflow_stage,
             "output": output,
@@ -1098,12 +1098,27 @@ class SoftwareWorkflowController(BoundWorkflowController):
     ) -> None:
         if returncode != 0:
             return
-        with self.lock:
+        with self.services.contexts.lock:
             try:
-                context = self._context_locked(context_id)
+                context = self.services.contexts.require(context_id)
             except StateError:
                 return
             context.stage_started.add(stage)
             project_root = context.active_project_root
             if project_root is not None:
                 context.workflow_stage = _active_workflow_stage(project_root)
+
+    def _mark_design_review_completed(
+        self,
+        context_id: str,
+        returncode: int,
+    ) -> None:
+        if returncode != 0:
+            return
+        with self.services.contexts.lock:
+            try:
+                context = self.services.contexts.require(context_id)
+            except StateError:
+                return
+            if context.workflow_stage == "design-review":
+                context.design_review_started = True

@@ -53,7 +53,7 @@ from .registry import (
     build_workflow_registry,
     installed_workflow_factories,
 )
-from .routes import RouteRequest, build_route_dispatcher
+from .routes import RouteOperations, RouteRequest, build_route_dispatcher
 from .sessions import (
     SESSION_BACKEND_PTY,
     SESSION_BACKEND_TMUX,
@@ -66,6 +66,7 @@ from .sessions import (
     _subprocess_output_text,
     _tmux_has_session,
 )
+from .services import build_service_services
 from .workflow_config import (
     configured_workflows,
     workflow_config_payload,
@@ -204,7 +205,9 @@ class ServiceState:
 
     def bind_workflow_registry(self, registry: WorkflowRegistry) -> None:
         """Replace workflow definitions and their bound controllers together."""
-        controllers = registry.create_controllers(self)
+        controllers = registry.create_controllers(
+            build_service_services(self, registry)
+        )
         with self.lock:
             self.workflow_registry = registry
             self.workflow_controllers = controllers
@@ -2373,28 +2376,71 @@ def _handler_for(
         config.module_registry or build_module_registry(),
         config.workflow_registry,
     )
-    route_operations: dict[str, Callable[..., Any]] = {
-        "service_index": lambda: _apply_service_asset_replacements(
+    route_operations = RouteOperations(
+        service_index_factory=lambda: _apply_service_asset_replacements(
             render_service_index(
                 INDEX_HTML_TEMPLATE,
                 config.module_registry,
                 config.workflow_registry,
             )
         ),
-        "health_payload": lambda: health_payload(
+        health_payload_factory=lambda: health_payload(
             config.root,
             config.module_registry,
             config.workflow_registry,
         ),
-        "frontend_asset_payload": lambda: frontend_asset_payload(
+        frontend_asset_payload_factory=lambda: frontend_asset_payload(
             config.module_registry,
             config.workflow_registry,
         ),
-        "file_browser_window_html": file_browser_window_html,
-    }
+        file_browser_factory=file_browser_window_html,
+    )
 
     class ElectroBoyRequestHandler(BaseHTTPRequestHandler):
         server_version = "ElectroBoyService/0.1"
+
+        def read_json_body(self) -> dict[str, object]:
+            return self._read_json_body()
+
+        def send_json(
+            self,
+            payload: dict[str, object],
+            status: HTTPStatus = HTTPStatus.OK,
+        ) -> None:
+            self._send_json(payload, status=status)
+
+        def send_text(
+            self,
+            text: str,
+            content_type: str,
+            status: HTTPStatus = HTTPStatus.OK,
+        ) -> None:
+            self._send_text(text, content_type, status=status)
+
+        def send_download(self, text: str, filename: str) -> None:
+            self._send_download(text, filename)
+
+        def send_binary_download(
+            self,
+            data: bytes,
+            filename: str,
+            content_type: str,
+        ) -> None:
+            self._send_binary_download(data, filename, content_type)
+
+        def stream_session_events(self, session: AgentSession) -> None:
+            self._stream_session_events(session)
+
+        def stream_artifact_events(self, artifact: str, path: Path) -> None:
+            self._stream_artifact_events(artifact, path)
+
+        def stream_progress_events(
+            self,
+            context_id: str,
+            root: Path,
+            snapshot: Callable[[Path], tuple[str, bool]],
+        ) -> None:
+            self._stream_progress_events(context_id, root, snapshot)
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from typing import Any
+from pathlib import Path
+from typing import Protocol
 from urllib.parse import parse_qs
 
 from .registry import (
@@ -14,6 +15,94 @@ from .registry import (
     RouteHandler,
     WorkflowRegistry,
 )
+from .sessions import AgentSession
+
+
+class RouteServiceState(Protocol):
+    """Service operations available to registered route handlers."""
+
+    root: Path
+
+    def active_project_root(self, context_id: str) -> Path: ...
+    def command_root(self, context_id: str) -> Path: ...
+    def project_mode(self, context_id: str) -> str: ...
+    def requirements_document_root(self, context_id: str) -> Path: ...
+    def project_payload(self, context_id: str) -> dict[str, object]: ...
+    def project_status_payload(self, context_id: str) -> dict[str, object]: ...
+    def workflow_payload(self, context_id: str) -> dict[str, object]: ...
+    def session_payload(self, context_id: str) -> dict[str, object]: ...
+    def session_registry_payload(self) -> dict[str, object]: ...
+    def selected_session(self, context_id: str) -> AgentSession: ...
+    def session_by_id(self, context_id: str, session_id: str) -> AgentSession: ...
+
+
+class RouteServiceConfig(Protocol):
+    """Immutable server configuration visible to route handlers."""
+
+    root: Path
+    module_registry: ModuleRegistry | None
+    workflow_registry: WorkflowRegistry | None
+
+
+class RouteTransport(Protocol):
+    """Public transport adapter used by transport-neutral routes."""
+
+    def read_json_body(self) -> dict[str, object]: ...
+
+    def send_json(
+        self,
+        payload: dict[str, object],
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None: ...
+
+    def send_text(
+        self,
+        text: str,
+        content_type: str,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None: ...
+
+    def send_download(self, text: str, filename: str) -> None: ...
+
+    def send_binary_download(
+        self,
+        data: bytes,
+        filename: str,
+        content_type: str,
+    ) -> None: ...
+
+    def stream_session_events(self, session: AgentSession) -> None: ...
+
+    def stream_artifact_events(self, artifact: str, path: Path) -> None: ...
+
+    def stream_progress_events(
+        self,
+        context_id: str,
+        root: Path,
+        snapshot: Callable[[Path], tuple[str, bool]],
+    ) -> None: ...
+
+
+@dataclass(frozen=True)
+class RouteOperations:
+    """Typed core operations needed by registered route handlers."""
+
+    service_index_factory: Callable[[], str]
+    health_payload_factory: Callable[[], dict[str, object]]
+    frontend_asset_payload_factory: Callable[[], list[dict[str, object]]]
+    file_browser_factory: Callable[[str, str], str]
+
+    def service_index(self) -> str:
+        return self.service_index_factory()
+
+    def health_payload(self) -> dict[str, object]:
+        return self.health_payload_factory()
+
+    def frontend_asset_payload(self) -> list[dict[str, object]]:
+        return self.frontend_asset_payload_factory()
+
+    def file_browser_window_html(self, path: str, mode: str) -> str:
+        return self.file_browser_factory(path, mode)
 
 
 @dataclass
@@ -23,13 +112,10 @@ class RouteRequest:
     method: str
     path: str
     query: str
-    state: Any
-    config: Any
-    transport: Any = field(repr=False)
-    operations: Mapping[str, Callable[..., Any]] = field(
-        default_factory=dict,
-        repr=False,
-    )
+    state: RouteServiceState
+    config: RouteServiceConfig
+    transport: RouteTransport = field(repr=False)
+    operations: RouteOperations = field(repr=False)
 
     @property
     def params(self) -> dict[str, list[str]]:
@@ -40,21 +126,14 @@ class RouteRequest:
         return str((self.params.get("context_id") or [""])[0])
 
     def body(self) -> dict[str, object]:
-        return self.transport._read_json_body()
-
-    def operation(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        try:
-            operation = self.operations[name]
-        except KeyError as error:
-            raise RuntimeError(f"route operation is not configured: {name}") from error
-        return operation(*args, **kwargs)
+        return self.transport.read_json_body()
 
     def send_json(
         self,
         payload: dict[str, object],
         status: HTTPStatus = HTTPStatus.OK,
     ) -> None:
-        self.transport._send_json(payload, status=status)
+        self.transport.send_json(payload, status=status)
 
     def send_text(
         self,
@@ -62,10 +141,10 @@ class RouteRequest:
         content_type: str = "text/plain; charset=utf-8",
         status: HTTPStatus = HTTPStatus.OK,
     ) -> None:
-        self.transport._send_text(text, content_type, status=status)
+        self.transport.send_text(text, content_type, status=status)
 
     def send_download(self, text: str, filename: str) -> None:
-        self.transport._send_download(text, filename)
+        self.transport.send_download(text, filename)
 
     def send_binary_download(
         self,
@@ -73,21 +152,21 @@ class RouteRequest:
         filename: str,
         content_type: str,
     ) -> None:
-        self.transport._send_binary_download(data, filename, content_type)
+        self.transport.send_binary_download(data, filename, content_type)
 
-    def stream_session_events(self, session: Any) -> None:
-        self.transport._stream_session_events(session)
+    def stream_session_events(self, session: AgentSession) -> None:
+        self.transport.stream_session_events(session)
 
-    def stream_artifact_events(self, artifact: str, path: Any) -> None:
-        self.transport._stream_artifact_events(artifact, path)
+    def stream_artifact_events(self, artifact: str, path: Path) -> None:
+        self.transport.stream_artifact_events(artifact, path)
 
     def stream_progress_events(
         self,
         context_id: str,
-        root: Any,
-        snapshot: Callable[[Any], tuple[str, bool]],
+        root: Path,
+        snapshot: Callable[[Path], tuple[str, bool]],
     ) -> None:
-        self.transport._stream_progress_events(context_id, root, snapshot)
+        self.transport.stream_progress_events(context_id, root, snapshot)
 
 
 @dataclass(frozen=True)
