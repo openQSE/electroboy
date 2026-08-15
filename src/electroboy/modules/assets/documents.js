@@ -265,9 +265,14 @@
       exportMenu.className = "pane-document-export-menu";
       const exportSummary = document.createElement("summary");
       exportSummary.className = "pane-document-menu-item pane-document-submenu-trigger";
-      exportSummary.textContent = "Export";
       exportSummary.title = `Export ${item.title}`;
       exportSummary.setAttribute("aria-label", `Export ${item.title}`);
+      const exportCheck = document.createElement("span");
+      exportCheck.className = "pane-document-menu-check";
+      exportCheck.setAttribute("aria-hidden", "true");
+      const exportLabel = document.createElement("span");
+      exportLabel.textContent = "Export";
+      exportSummary.append(exportCheck, exportLabel);
       const exportPanel = document.createElement("div");
       exportPanel.className = "pane-document-export-panel";
       for (const format of documentExportFormats()) {

@@ -347,7 +347,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"Preview",', documents)
         self.assertIn('"Edit",', documents)
         self.assertIn('"Refresh",', documents)
-        self.assertIn('exportSummary.textContent = "Export"', documents)
+        self.assertIn('exportLabel.textContent = "Export"', documents)
         self.assertNotIn('exportFormat.className = "document-export-format"', documents)
         self.assertIn("function openDocumentTarget(target)", documents)
         self.assertIn("function popOutArtifactPreview(item)", documents)

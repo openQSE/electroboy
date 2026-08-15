@@ -1591,7 +1591,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: space-between;
-      min-width: 88px;
+      gap: 12px;
+      min-width: 112px;
       height: 26px;
       border: 1px solid #364156;
       border-radius: 6px;
@@ -1601,6 +1602,7 @@
       font: inherit;
       font-size: var(--ui-small-font-size);
       padding: 0 8px 0 10px;
+      white-space: nowrap;
     }
 
     .pane-document-menu-trigger::after,
@@ -1610,13 +1612,23 @@
       height: 6px;
       border-right: 1.5px solid currentColor;
       border-bottom: 1.5px solid currentColor;
-      transform: rotate(45deg);
       transition: transform 120ms ease;
     }
 
-    .pane-document-menu[open] > .pane-document-menu-trigger::after,
-    .pane-document-export-menu[open] > .pane-document-submenu-trigger::after {
+    .pane-document-menu-trigger::after {
+      transform: rotate(45deg);
+    }
+
+    .pane-document-menu[open] > .pane-document-menu-trigger::after {
       transform: rotate(225deg);
+    }
+
+    .pane-document-submenu-trigger::after {
+      transform: rotate(-45deg);
+    }
+
+    .pane-document-export-menu[open] > .pane-document-submenu-trigger::after {
+      transform: rotate(45deg);
     }
 
     .pane-document-menu-trigger:hover,
@@ -1676,7 +1688,7 @@
     }
 
     .pane-document-submenu-trigger {
-      grid-template-columns: minmax(0, 1fr) 12px;
+      grid-template-columns: 18px minmax(0, 1fr) 12px;
     }
 
     .pane-document-export-panel {
