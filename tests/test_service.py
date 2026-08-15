@@ -338,6 +338,16 @@ class ServiceTests(unittest.TestCase):
             documents,
         )
         self.assertIn("function openDocumentTarget(target)", documents)
+        self.assertIn("function popOutArtifactPreview(item)", documents)
+        self.assertNotIn('popOutPane("artifact", item)', documents)
+        self.assertIn(
+            'parameters.set("corkboard_path", item.corkboard.path)',
+            documents,
+        )
+        self.assertIn(
+            "`electroboy-artifact-${item.id}-${runtimeState.contextId}`",
+            documents,
+        )
         self.assertIn('agentButton.textContent = "Start agent"', documents)
         self.assertNotIn("launchDocumentTarget", documents)
         self.assertIn(

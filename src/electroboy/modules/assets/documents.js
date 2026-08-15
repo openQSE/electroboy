@@ -810,10 +810,6 @@
     }
 
     function popOutArtifactPreview(item) {
-      if (item.kind === "creative-corkboard") {
-        popOutPane("artifact", item);
-        return;
-      }
       if (!runtimeState.contextId) {
         appendOutput("create a browser context first\n", "error");
         return;
