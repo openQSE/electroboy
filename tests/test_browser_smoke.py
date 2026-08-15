@@ -76,6 +76,8 @@ def test_browser_shell_loads_creative_workflow_navigation(tmp_path: Path) -> Non
     assert completed.returncode == 0, completed.stdout
     assert 'class="creative-binder"' in completed.stdout
     assert 'data-creative-control="project-menu"' in completed.stdout
+    assert 'data-creative-control="recent-projects-menu"' in completed.stdout
+    assert ">Recent projects</span>" in completed.stdout
     assert 'data-stage="requirements"' not in completed.stdout
 
 

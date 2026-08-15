@@ -485,7 +485,7 @@
       },
       {
         subgroup: "project-recent",
-        label: "Recently opened",
+        label: "Recent projects",
         title: "Open a recently used project.",
         actions: action.recentProjectActions(),
       },

@@ -178,6 +178,7 @@
   let creativeProjectActions = null;
   let creativeOpenProject = null;
   let creativeNewProject = null;
+  let creativeRecentProjectsButton = null;
   let creativeRecentProjects = null;
   let creativeCloseProject = null;
   let creativeActiveProjectSection = null;
@@ -185,6 +186,7 @@
   let creativeAgentMenuButton = null;
   let creativeAgentActions = null;
   let creativeStartAgent = null;
+  let creativeRecentProjectsExpanded = false;
 
   function renderNavigation(container, runtime) {
     bindRuntime(runtime);
@@ -202,8 +204,17 @@
                     data-creative-control="open-project">Open</button>
             <button class="stage-action-button" type="button"
                     data-creative-control="new-project">New</button>
-            <div class="recent-project-list" role="group" hidden
-                 data-creative-control="recent-projects"></div>
+            <div class="stage-action-subgroup">
+              <button class="stage-action-subgroup-trigger" type="button"
+                      aria-expanded="false"
+                      title="Open a recently used project."
+                      data-creative-control="recent-projects-menu">
+                <span class="stage-action-label">Recent projects</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="stage-action-subgroup-list" role="group" hidden
+                   data-creative-control="recent-projects"></div>
+            </div>
             <button class="stage-action-button" type="button" disabled
                     data-creative-control="close-project">Close</button>
           </div>
@@ -233,6 +244,7 @@
     creativeProjectActions = find("project-actions");
     creativeOpenProject = find("open-project");
     creativeNewProject = find("new-project");
+    creativeRecentProjectsButton = find("recent-projects-menu");
     creativeRecentProjects = find("recent-projects");
     creativeCloseProject = find("close-project");
     creativeActiveProjectSection = find("active-project");
@@ -247,6 +259,9 @@
     });
     creativeAgentMenuButton.addEventListener("click", () => {
       toggleCreativeActionGroup("agent");
+    });
+    creativeRecentProjectsButton.addEventListener("click", () => {
+      toggleCreativeActionGroup("recent-projects");
     });
     creativeOpenProject.addEventListener("click", () => {
       runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);
@@ -285,6 +300,7 @@
     creativeProjectActions = null;
     creativeOpenProject = null;
     creativeNewProject = null;
+    creativeRecentProjectsButton = null;
     creativeRecentProjects = null;
     creativeCloseProject = null;
     creativeActiveProjectSection = null;
@@ -292,6 +308,7 @@
     creativeAgentMenuButton = null;
     creativeAgentActions = null;
     creativeStartAgent = null;
+    creativeRecentProjectsExpanded = false;
   }
 
   async function startAgent(runtime) {
@@ -446,14 +463,20 @@
     function renderCreativeRecentProjects() {
       creativeRecentProjects.replaceChildren();
       const entries = recentProjectsForWorkflow();
-      creativeRecentProjects.hidden = entries.length === 0;
+      updateCreativeActionGroup(
+        creativeRecentProjects,
+        creativeRecentProjectsButton,
+        creativeRecentProjectsExpanded,
+      );
       if (entries.length === 0) {
+        const empty = document.createElement("button");
+        empty.type = "button";
+        empty.className = "stage-action-button";
+        empty.textContent = "No recent projects";
+        empty.disabled = true;
+        creativeRecentProjects.append(empty);
         return;
       }
-      const heading = document.createElement("div");
-      heading.className = "stage-action-heading";
-      heading.textContent = "Recent";
-      creativeRecentProjects.append(heading);
       for (const recent of entries) {
         const button = document.createElement("button");
         button.type = "button";
@@ -481,6 +504,8 @@
         creativeProjectActionsExpanded = !creativeProjectActionsExpanded;
       } else if (group === "agent") {
         creativeAgentActionsExpanded = !creativeAgentActionsExpanded;
+      } else if (group === "recent-projects") {
+        creativeRecentProjectsExpanded = !creativeRecentProjectsExpanded;
       }
       updateCreativeBinderActions();
     }

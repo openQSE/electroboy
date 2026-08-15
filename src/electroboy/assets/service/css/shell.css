@@ -662,16 +662,6 @@
       padding: 4px 0 8px 18px;
     }
 
-    .recent-project-list {
-      display: grid;
-      gap: 4px;
-      min-width: 0;
-    }
-
-    .recent-project-list[hidden] {
-      display: none;
-    }
-
     .stage-action-list[hidden] {
       display: none;
     }
