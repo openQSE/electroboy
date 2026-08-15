@@ -10,6 +10,7 @@ from electroboy.service.registry import (
     WorkflowStage,
 )
 from electroboy.workflows.software.controller import SoftwareWorkflowController
+from electroboy.workflows.software.domain import _stage_operations
 from electroboy.workflows.software.routes import HANDLERS, ROUTES
 
 
@@ -98,6 +99,7 @@ def workflow() -> WorkflowDefinition:
         frontend_bundle="workflows/software.js",
         asset_package="electroboy.workflows.software",
         controller_factory=SoftwareWorkflowController,
+        stage_operations_factory=_stage_operations,
         routes=ROUTES,
         handlers=HANDLERS,
         commands=tuple(

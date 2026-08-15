@@ -51,39 +51,11 @@ class ContextServices(Protocol):
 
     def workflow_payload(self, context_id: str) -> dict[str, object]: ...
 
-    def open_project(self, context_id: str, path: str) -> dict[str, object]: ...
-
-    def create_project(self, context_id: str, path: str) -> dict[str, object]: ...
-
     def deactivate_project(self, context_id: str) -> dict[str, object]: ...
 
     def requirements_document_root(self, context_id: str) -> Path: ...
 
     def command_root_for(self, context_id: str) -> Path: ...
-
-    def create_meta_project(
-        self,
-        context_id: str,
-        path: str,
-    ) -> dict[str, object]: ...
-
-    def add_meta_repository(
-        self,
-        context_id: str,
-        path: str,
-    ) -> dict[str, object]: ...
-
-    def start_meta_repository(
-        self,
-        context_id: str,
-        repository: str,
-    ) -> dict[str, object]: ...
-
-    def remove_meta_repository(
-        self,
-        context_id: str,
-        repository: str,
-    ) -> dict[str, object]: ...
 
 
 class SessionServices(Protocol):
@@ -243,39 +215,11 @@ class ServiceRuntimeBackend(Protocol):
 
     def workflow_payload(self, context_id: str) -> dict[str, object]: ...
 
-    def open_project(self, context_id: str, path: str) -> dict[str, object]: ...
-
-    def create_project(self, context_id: str, path: str) -> dict[str, object]: ...
-
     def deactivate_project(self, context_id: str) -> dict[str, object]: ...
 
     def requirements_document_root(self, context_id: str) -> Path: ...
 
     def command_root(self, context_id: str) -> Path: ...
-
-    def create_meta_project(
-        self,
-        context_id: str,
-        path: str,
-    ) -> dict[str, object]: ...
-
-    def add_meta_repository(
-        self,
-        context_id: str,
-        path: str,
-    ) -> dict[str, object]: ...
-
-    def start_meta_repository(
-        self,
-        context_id: str,
-        repository: str,
-    ) -> dict[str, object]: ...
-
-    def remove_meta_repository(
-        self,
-        context_id: str,
-        repository: str,
-    ) -> dict[str, object]: ...
 
     def _prepare_session_locked(
         self,
@@ -472,12 +416,6 @@ class RuntimeContextServices:
     def workflow_payload(self, context_id: str) -> dict[str, object]:
         return self.runtime.workflow_payload(context_id)
 
-    def open_project(self, context_id: str, path: str) -> dict[str, object]:
-        return self.runtime.open_project(context_id, path)
-
-    def create_project(self, context_id: str, path: str) -> dict[str, object]:
-        return self.runtime.create_project(context_id, path)
-
     def deactivate_project(self, context_id: str) -> dict[str, object]:
         return self.runtime.deactivate_project(context_id)
 
@@ -486,34 +424,6 @@ class RuntimeContextServices:
 
     def command_root_for(self, context_id: str) -> Path:
         return self.runtime.command_root(context_id)
-
-    def create_meta_project(
-        self,
-        context_id: str,
-        path: str,
-    ) -> dict[str, object]:
-        return self.runtime.create_meta_project(context_id, path)
-
-    def add_meta_repository(
-        self,
-        context_id: str,
-        path: str,
-    ) -> dict[str, object]:
-        return self.runtime.add_meta_repository(context_id, path)
-
-    def start_meta_repository(
-        self,
-        context_id: str,
-        repository: str,
-    ) -> dict[str, object]:
-        return self.runtime.start_meta_repository(context_id, repository)
-
-    def remove_meta_repository(
-        self,
-        context_id: str,
-        repository: str,
-    ) -> dict[str, object]:
-        return self.runtime.remove_meta_repository(context_id, repository)
 
 
 @dataclass(frozen=True)

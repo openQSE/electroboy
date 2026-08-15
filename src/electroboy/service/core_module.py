@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from http import HTTPStatus
 
 from .http import HtmlResponse, JsonResponse, ServiceResponse
@@ -58,29 +57,6 @@ def _project_status(request: RouteRequest) -> ServiceResponse:
     except Exception as error:
         return _conflict(error)
     return JsonResponse(payload)
-
-
-def _project_action(
-    request: RouteRequest,
-    action: Callable[[str, str], dict[str, object]],
-) -> ServiceResponse:
-    try:
-        payload = request.body()
-        result = action(
-            request.context_id,
-            str(payload.get("path") or ""),
-        )
-    except Exception as error:
-        return _conflict(error)
-    return JsonResponse(result)
-
-
-def _open_project(request: RouteRequest) -> ServiceResponse:
-    return _project_action(request, request.services.contexts.open_project)
-
-
-def _create_project(request: RouteRequest) -> ServiceResponse:
-    return _project_action(request, request.services.contexts.create_project)
 
 
 def _deactivate_project(request: RouteRequest) -> ServiceResponse:
@@ -171,8 +147,6 @@ _HANDLERS = {
     "create_context": _create_context,
     "project_payload": _project_payload,
     "project_status": _project_status,
-    "open_project": _open_project,
-    "create_project": _create_project,
     "deactivate_project": _deactivate_project,
     "workflow_payload": _workflow_payload,
     "set_workflow_stage": _set_workflow_stage,
@@ -195,8 +169,6 @@ def module() -> ServiceModule:
             _route("POST", "/api/contexts", "create_context"),
             _route("GET", "/api/project", "project_payload"),
             _route("GET", "/api/project/status", "project_status"),
-            _route("POST", "/api/project/open", "open_project"),
-            _route("POST", "/api/project/new", "create_project"),
             _route("POST", "/api/project/deactivate", "deactivate_project"),
             _route("GET", "/api/workflow", "workflow_payload"),
             _route("POST", "/api/workflow/stage", "set_workflow_stage"),

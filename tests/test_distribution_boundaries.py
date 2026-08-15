@@ -164,6 +164,84 @@ finally:
     )
 
 
+def test_creative_only_wheels_create_a_creative_project(
+    production_wheels: dict[str, Path],
+    tmp_path: Path,
+) -> None:
+    site_dir = tmp_path / "creative-site"
+    install_packages(
+        site_dir,
+        production_wheels,
+        (
+            "electroboy-core",
+            "electroboy-modules",
+            "electroboy-workflow-creative-writing",
+        ),
+    )
+    script = r"""
+import json
+import sys
+import threading
+import urllib.request
+from pathlib import Path
+from electroboy.service.app import create_server
+
+root = Path(sys.argv[1])
+project = Path(sys.argv[2])
+server = create_server(root, port=0)
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+base = f"http://127.0.0.1:{server.server_address[1]}"
+
+def post(path, payload=None):
+    request = urllib.request.Request(
+        base + path,
+        data=json.dumps(payload or {}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read())
+
+try:
+    context = post("/api/contexts")
+    created = post(
+        f"/api/creative/project/new?context_id={context['context_id']}",
+        {"path": str(project)},
+    )
+    print(json.dumps({"context": context, "created": created}))
+finally:
+    server.shutdown()
+    thread.join(timeout=2)
+    server.server_close()
+"""
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(site_dir)
+    environment["PYTHONNOUSERSITE"] = "1"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            script,
+            str(tmp_path / "creative-service-root"),
+            str(tmp_path / "creative-project"),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout
+    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert payload["context"]["workflow_id"] == "creative-writing"
+    assert payload["created"]["status"] == "created"
+    assert payload["created"]["project_mode"] == "creative"
+
+
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 @pytest.mark.parametrize(
     ("packages", "present", "absent", "workflow_asset"),

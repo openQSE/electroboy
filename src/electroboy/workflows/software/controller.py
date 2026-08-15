@@ -13,6 +13,7 @@ from electroboy.models import (
     STAGE_REQUIREMENTS,
 )
 from electroboy.modules.document_service import _ensure_document_target
+from electroboy.service.recent_projects import remember_recent_project
 from electroboy.service.sessions import AgentSession, AgentSessionError
 from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError, StateStore
@@ -35,7 +36,13 @@ from .domain import (
     _force_reset_workflow_stage,
     _generic_stage_command,
     _generic_stage_config,
+    _add_meta_repository,
+    _existing_meta_context,
+    _existing_project_root,
+    _is_meta_project_path,
     _load_work_item_registry,
+    _meta_repository_payloads,
+    _remove_meta_repository,
     _record_design_complete,
     _record_requirements_complete,
     _reopen_design_for_restart,
@@ -46,13 +53,19 @@ from .domain import (
     _run_feature_start_context,
     _save_work_item_registry,
     _should_force_completed_requirements_approval,
+    _start_meta_repository,
     _stage_command,
     _stage_display_label,
     _stage_has_approvals,
     _upsert_bug_record,
     _upsert_feature_collection,
     _upsert_feature_record,
+    _visible_workflow_stage,
     _write_current_bug_record,
+    initialize_meta_project,
+    initialize_project,
+    project_payload_extension,
+    workflow_payload,
 )
 
 
@@ -60,6 +73,178 @@ class SoftwareWorkflowController(BoundWorkflowController):
     """Own software-workflow actions and agent sequencing."""
 
     workflow_id = "software"
+
+    def project_payload_extension(self, context_id: str) -> dict[str, object]:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            active_root = context.active_project_root
+            return project_payload_extension(context, active_root)
+
+    def workflow_payload(self, context_id: str) -> dict[str, object]:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            active_root = context.active_project_root
+        return workflow_payload(active_root)
+
+    def open_project(self, context_id: str, path: str) -> dict[str, object]:
+        if _is_meta_project_path(path):
+            return self.open_meta_project(context_id, path)
+        project_root = _existing_project_root(path)
+        workflow_stage = _active_workflow_stage(project_root)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
+            context.reset_project(
+                workflow_id=self.workflow_id,
+                project_mode="project",
+                activation_root=project_root,
+                active_project_root=project_root,
+                workflow_stage=workflow_stage,
+            )
+        remember_recent_project(
+            self.services.files.service_root,
+            project_root,
+            "project",
+        )
+        return {
+            **self.services.contexts.project_payload(context_id),
+            "status": "opened",
+        }
+
+    def create_project(self, context_id: str, path: str) -> dict[str, object]:
+        project_root = Path(path).expanduser().resolve()
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
+        manifest = initialize_project(project_root)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            context.reset_project(
+                workflow_id=self.workflow_id,
+                project_mode="project",
+                activation_root=project_root,
+                active_project_root=project_root,
+                workflow_stage=_visible_workflow_stage(manifest.active_stage),
+            )
+        remember_recent_project(
+            self.services.files.service_root,
+            project_root,
+            "project",
+        )
+        return {
+            **self.services.contexts.project_payload(context_id),
+            "status": "created",
+            "run_id": manifest.run_id,
+        }
+
+    def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
+        meta_context = _existing_meta_context(path)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
+            context.reset_project(
+                workflow_id=self.workflow_id,
+                project_mode="meta",
+                activation_root=meta_context["meta_root"],
+                active_project_root=meta_context["active_project_root"],
+                active_repository_name=meta_context["active_repository_name"],
+                registered_repositories=meta_context["registered_repositories"],
+                workflow_stage=meta_context["workflow_stage"],
+            )
+        remember_recent_project(
+            self.services.files.service_root,
+            Path(str(meta_context["meta_root"])),
+            "meta",
+        )
+        return {
+            **self.services.contexts.project_payload(context_id),
+            "status": "opened",
+        }
+
+    def create_meta_project(self, context_id: str, path: str) -> dict[str, object]:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
+        meta_root, registry = initialize_meta_project(path)
+        repositories = _meta_repository_payloads(registry)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            context.reset_project(
+                workflow_id=self.workflow_id,
+                project_mode="meta",
+                activation_root=meta_root,
+                active_project_root=None,
+                registered_repositories=repositories,
+            )
+        remember_recent_project(self.services.files.service_root, meta_root, "meta")
+        return {
+            **self.services.contexts.project_payload(context_id),
+            "status": "created",
+        }
+
+    def add_meta_repository(
+        self,
+        context_id: str,
+        path: str,
+    ) -> dict[str, object]:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
+            meta_root = context.activation_root
+            if meta_root is None or context.project_mode != "meta":
+                raise StateError("activate a meta-project first")
+        meta_context = _add_meta_repository(meta_root, path)
+        return self._apply_meta_context(context_id, meta_context, "registered")
+
+    def start_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
+            meta_root = context.activation_root
+            if meta_root is None or context.project_mode != "meta":
+                raise StateError("activate a meta-project first")
+        meta_context = _start_meta_repository(meta_root, repository)
+        return self._apply_meta_context(context_id, meta_context, "started")
+
+    def remove_meta_repository(
+        self,
+        context_id: str,
+        repository: str,
+    ) -> dict[str, object]:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(context)
+            meta_root = context.activation_root
+            if meta_root is None or context.project_mode != "meta":
+                raise StateError("activate a meta-project first")
+        meta_context = _remove_meta_repository(meta_root, repository)
+        return self._apply_meta_context(context_id, meta_context, "removed")
+
+    def _apply_meta_context(
+        self,
+        context_id: str,
+        meta_context: dict[str, object],
+        status: str,
+    ) -> dict[str, object]:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            context.reset_project(
+                workflow_id=self.workflow_id,
+                project_mode="meta",
+                activation_root=Path(str(meta_context["meta_root"])),
+                active_project_root=meta_context["active_project_root"],
+                active_repository_name=meta_context["active_repository_name"],
+                registered_repositories=meta_context["registered_repositories"],
+                workflow_stage=meta_context["workflow_stage"],
+            )
+        return {
+            **self.services.contexts.project_payload(context_id),
+            "status": status,
+        }
 
     def create_feature_collection(
         self,

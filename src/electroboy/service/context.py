@@ -19,7 +19,7 @@ class BrowserContext:
     """State for one browser tab or GUI client session."""
 
     context_id: str
-    workflow_id: str = "software"
+    workflow_id: str = ""
     activation_root: Path | None = None
     project_mode: str = "none"
     active_project_root: Path | None = None
@@ -217,8 +217,15 @@ class ContextStore:
     lock: threading.RLock = field(default_factory=threading.RLock)
     contexts: dict[str, BrowserContext] = field(default_factory=dict)
 
-    def create(self, context_id: str | None = None) -> BrowserContext:
-        context = BrowserContext(context_id=context_id or uuid4().hex)
+    def create(
+        self,
+        context_id: str | None = None,
+        workflow_id: str = "",
+    ) -> BrowserContext:
+        context = BrowserContext(
+            context_id=context_id or uuid4().hex,
+            workflow_id=workflow_id,
+        )
         with self.lock:
             self.contexts[context.context_id] = context
         return context
@@ -233,9 +240,13 @@ class ContextStore:
             raise KeyError(context_id)
         return context
 
-    def get_or_create(self, context_id: str) -> BrowserContext:
+    def get_or_create(
+        self,
+        context_id: str,
+        workflow_id: str = "",
+    ) -> BrowserContext:
         with self.lock:
             return self.contexts.setdefault(
                 context_id,
-                BrowserContext(context_id=context_id),
+                BrowserContext(context_id=context_id, workflow_id=workflow_id),
             )

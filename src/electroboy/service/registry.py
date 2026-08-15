@@ -7,6 +7,7 @@ import importlib.util
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from importlib import metadata
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -45,6 +46,7 @@ class WorkflowController(Protocol):
 
 WorkflowControllerFactory = Callable[["ServiceServices"], WorkflowController]
 RouteHandler = Callable[["RouteRequest"], "ServiceResponse"]
+StageOperationsFactory = Callable[[str, Path | str | None], list[str]]
 
 
 @dataclass(frozen=True)
@@ -197,6 +199,11 @@ class WorkflowDefinition:
         compare=False,
     )
     controller_factory: WorkflowControllerFactory | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    stage_operations_factory: StageOperationsFactory | None = field(
         default=None,
         repr=False,
         compare=False,

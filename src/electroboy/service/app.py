@@ -16,20 +16,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from importlib import import_module
 from importlib import resources
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from ..artifacts import ArtifactManager
-from ..models import (
-    STAGE_DESIGN_ACCEPTANCE,
-    STAGE_REQUIREMENTS,
-    utc_now,
-)
-from ..state_store import StateError, StateStore
+from ..models import utc_now
+from ..state_store import StateError
 from .context import BrowserContext, ContextStore
 from .file_watch import file_signature as _file_signature
 from .frontend import (
@@ -52,11 +46,9 @@ from .progress_events import progress_issue_events
 from .recent_projects import (
     recent_project_entries as _recent_project_entries,
 )
-from .recent_projects import (
-    remember_recent_project as _remember_recent_project,
-)
 from .registry import (
     ModuleRegistry,
+    WorkflowDefinition,
     WorkflowRegistry,
     build_module_registry,
     build_workflow_registry,
@@ -88,19 +80,12 @@ CREATIVE_SPLASH_IMAGE_ROUTE = "/assets/electroboy-splash-creative-writing-16x9.p
 SPLASH_IMAGE_PACKAGE = "electroboy"
 SPLASH_IMAGE_RESOURCE = "electroboy-splash-16x9.png"
 CREATIVE_SPLASH_IMAGE_RESOURCE = "electroboy-splash-creative-writing-16x9.png"
-META_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "repositories.json"
 SERVICE_SESSION_RECORDS_RELATIVE_PATH = (
     Path(".electroboy") / "service" / "sessions.json"
 )
 SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR = (
     Path(".electroboy") / "service" / "session-transcripts"
 )
-
-
-def _software_domain() -> Any:
-    """Load the optional software workflow only when its behavior is needed."""
-
-    return import_module("electroboy.workflows.software.domain")
 
 
 INDEX_HTML_TEMPLATE = read_service_text_asset("index.html")
@@ -323,9 +308,16 @@ class ServiceState:
             session.attach_existing()
 
     def create_context(self) -> dict[str, object]:
-        context = self.context_store.create()
+        workflows = self.workflow_registry.values() if self.workflow_registry else ()
+        workflow_ids = {workflow.id for workflow in workflows}
+        workflow_id = (
+            "software"
+            if "software" in workflow_ids
+            else (workflows[0].id if workflows else "")
+        )
+        context = self.context_store.create(workflow_id=workflow_id)
         return {
-            **project_payload(self.root, context),
+            **self.project_payload(context.context_id),
             "status": "created",
         }
 
@@ -333,7 +325,13 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             active_project_root = context.active_project_root
-        return project_payload(self.root, context, active_project_root)
+            workflow_id = context.workflow_id
+        payload = project_payload(self.root, context, active_project_root)
+        controller = self.workflow_controllers.get(workflow_id)
+        extension = getattr(controller, "project_payload_extension", None)
+        if callable(extension):
+            payload.update(extension(context_id))
+        return payload
 
     def project_mode(self, context_id: str) -> str:
         with self.lock:
@@ -344,7 +342,17 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             active_project_root = context.active_project_root
-        return workflow_payload(active_project_root)
+            workflow_id = context.workflow_id
+        controller = self.workflow_controllers.get(workflow_id)
+        payload_factory = getattr(controller, "workflow_payload", None)
+        if callable(payload_factory):
+            return payload_factory(context_id)
+        workflow = (
+            self.workflow_registry.get(workflow_id)
+            if self.workflow_registry is not None and workflow_id
+            else None
+        )
+        return workflow_payload(active_project_root, workflow)
 
     def workflow_context_state(
         self,
@@ -466,10 +474,15 @@ class ServiceState:
         context_id: str,
         stage: str,
     ) -> dict[str, object]:
-        return self.workflow_controller("software").select_workflow_stage(
-            context_id,
-            stage,
-        )
+        with self.lock:
+            workflow_id = self._context_locked(context_id).workflow_id
+        controller = self.workflow_controller(workflow_id)
+        select_stage = getattr(controller, "select_workflow_stage", None)
+        if not callable(select_stage):
+            raise StateError(
+                f"workflow does not support stage selection: {workflow_id}"
+            )
+        return select_stage(context_id, stage)
 
     def approve_requirements(
         self,
@@ -483,49 +496,10 @@ class ServiceState:
         )
 
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
-        if _is_meta_project_path(path):
-            return self.open_meta_project(context_id, path)
-        project_root = _existing_project_root(path)
-        workflow_stage = _software_domain()._active_workflow_stage(project_root)
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
-            context.reset_project(
-                workflow_id="software",
-                project_mode="project",
-                activation_root=project_root,
-                active_project_root=project_root,
-                workflow_stage=workflow_stage,
-            )
-        _remember_recent_project(self.root, project_root, "project")
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "opened",
-        }
+        return self.workflow_controller("software").open_project(context_id, path)
 
     def create_project(self, context_id: str, path: str) -> dict[str, object]:
-        project_root = _resolve_project_path(path)
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
-        manifest = initialize_project(project_root)
-        with self.lock:
-            context = self._context_locked(context_id)
-            context.reset_project(
-                workflow_id="software",
-                project_mode="project",
-                activation_root=project_root,
-                active_project_root=project_root,
-                workflow_stage=_software_domain()._visible_workflow_stage(
-                    manifest.active_stage
-                ),
-            )
-        _remember_recent_project(self.root, project_root, "project")
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "created",
-            "run_id": manifest.run_id,
-        }
+        return self.workflow_controller("software").create_project(context_id, path)
 
     def open_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         return self.workflow_controller("creative-writing").open_creative_project(
@@ -540,114 +514,34 @@ class ServiceState:
         )
 
     def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
-        meta_context = _existing_meta_context(path)
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
-            context.reset_project(
-                workflow_id="software",
-                project_mode="meta",
-                activation_root=meta_context["meta_root"],
-                active_project_root=meta_context["active_project_root"],
-                active_repository_name=meta_context["active_repository_name"],
-                registered_repositories=meta_context["registered_repositories"],
-                workflow_stage=meta_context["workflow_stage"],
-            )
-            project_root = context.active_project_root
-        _remember_recent_project(self.root, meta_context["meta_root"], "meta")
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "opened",
-        }
+        return self.workflow_controller("software").open_meta_project(
+            context_id,
+            path,
+        )
 
     def create_meta_project(self, context_id: str, path: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
-        meta_root, registry = initialize_meta_project(path)
-        repositories = _meta_repository_payloads(registry)
-        with self.lock:
-            context = self._context_locked(context_id)
-            context.reset_project(
-                workflow_id="software",
-                project_mode="meta",
-                activation_root=meta_root,
-                active_project_root=None,
-                registered_repositories=repositories,
-            )
-        _remember_recent_project(self.root, meta_root, "meta")
-        return {
-            **project_payload(self.root, context, None),
-            "status": "created",
-        }
+        return self.workflow_controller("software").create_meta_project(
+            context_id,
+            path,
+        )
 
     def add_meta_repository(self, context_id: str, path: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
-            meta_root = context.activation_root
-            if meta_root is None or context.project_mode != "meta":
-                raise StateError("activate a meta-project first")
-        meta_context = _add_meta_repository(meta_root, path)
-        with self.lock:
-            context = self._context_locked(context_id)
-            context.registered_repositories = meta_context["registered_repositories"]
-            context.active_repository_name = meta_context["active_repository_name"]
-            project_root = context.active_project_root
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "registered",
-        }
+        return self.workflow_controller("software").add_meta_repository(
+            context_id,
+            path,
+        )
 
     def start_meta_repository(self, context_id: str, repository: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
-            meta_root = context.activation_root
-            if meta_root is None or context.project_mode != "meta":
-                raise StateError("activate a meta-project first")
-        meta_context = _start_meta_repository(meta_root, repository)
-        with self.lock:
-            context = self._context_locked(context_id)
-            context.reset_project(
-                workflow_id="software",
-                project_mode="meta",
-                activation_root=meta_root,
-                active_project_root=meta_context["active_project_root"],
-                active_repository_name=meta_context["active_repository_name"],
-                registered_repositories=meta_context["registered_repositories"],
-                workflow_stage=meta_context["workflow_stage"],
-            )
-            project_root = context.active_project_root
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "started",
-        }
+        return self.workflow_controller("software").start_meta_repository(
+            context_id,
+            repository,
+        )
 
     def remove_meta_repository(self, context_id: str, repository: str) -> dict[str, object]:
-        with self.lock:
-            context = self._context_locked(context_id)
-            self._require_no_active_agent_locked(context)
-            meta_root = context.activation_root
-            if meta_root is None or context.project_mode != "meta":
-                raise StateError("activate a meta-project first")
-        meta_context = _remove_meta_repository(meta_root, repository)
-        with self.lock:
-            context = self._context_locked(context_id)
-            context.reset_project(
-                workflow_id="software",
-                project_mode="meta",
-                activation_root=meta_root,
-                active_project_root=meta_context["active_project_root"],
-                active_repository_name=meta_context["active_repository_name"],
-                registered_repositories=meta_context["registered_repositories"],
-                workflow_stage=meta_context["workflow_stage"],
-            )
-            project_root = context.active_project_root
-        return {
-            **project_payload(self.root, context, project_root),
-            "status": "removed",
-        }
+        return self.workflow_controller("software").remove_meta_repository(
+            context_id,
+            repository,
+        )
 
     def deactivate_project(self, context_id: str) -> dict[str, object]:
         with self.lock:
@@ -1538,10 +1432,19 @@ class ServiceState:
             context.ad_hoc_session = session
         elif session.kind == "project-shell":
             context.project_shell_session = session
-        elif session.kind in _software_domain().GENERIC_STAGE_CONFIG:
-            context.stage_sessions[session.kind] = session
         else:
-            context.ad_hoc_session = session
+            workflow = (
+                self.workflow_registry.get(context.workflow_id)
+                if self.workflow_registry is not None and context.workflow_id
+                else None
+            )
+            stage_ids = {
+                stage.id for stage in workflow.stages
+            } if workflow is not None else set()
+            if session.kind in stage_ids:
+                context.stage_sessions[session.kind] = session
+            else:
+                context.ad_hoc_session = session
 
     def _selected_session_locked(
         self,
@@ -1788,24 +1691,6 @@ def project_payload(
         if context.activation_root
         else active_root
     )
-    requirements_session = context.requirements_session
-    requirements_running = bool(
-        active_root
-        and requirements_session is not None
-        and requirements_session.is_active()
-    )
-    design_session = context.design_session
-    design_running = bool(
-        active_root
-        and design_session is not None
-        and design_session.is_active()
-    )
-    design_review_session = context.design_review_session
-    design_review_running = bool(
-        active_root
-        and design_review_session is not None
-        and design_review_session.is_active()
-    )
     documentation_running = bool(
         active_root
         and any(session.is_active() for session in context.documentation_sessions.values())
@@ -1828,11 +1713,7 @@ def project_payload(
         and project_shell_session is not None
         and project_shell_session.is_active()
     )
-    workflow_stage = (
-        _software_domain()._visible_workflow_stage(context.workflow_stage)
-        if active_root and context.workflow_stage
-        else ("requirements" if active_root else "project")
-    )
+    workflow_stage = context.workflow_stage or "project"
     return {
         "context_id": context.context_id,
         "workflow_id": context.workflow_id,
@@ -1843,40 +1724,10 @@ def project_payload(
         "active_repository_name": context.active_repository_name,
         "registered_repositories": context.registered_repositories,
         "workflow_stage": workflow_stage,
-        "requirements_started": bool(active_root and context.requirements_started),
-        "requirements_running": requirements_running,
-        "requirements_approved": bool(
-            active_root
-            and _software_domain()._stage_has_approvals(
-                active_root,
-                STAGE_REQUIREMENTS,
-                ["human-approval", "author-confirmation"],
-            )
-        ),
-        "design_started": bool(active_root and context.design_started),
-        "design_running": design_running,
-        "design_review_started": bool(active_root and context.design_review_started),
-        "design_review_running": design_review_running,
-        "design_review_interactive": bool(
-            active_root and design_review_running and context.design_review_interactive
-        ),
-        "stage_runs": (
-            _software_domain()._generic_stage_run_payload(context, active_root)
-            if active_root
-            else {}
-        ),
         "documentation_running": documentation_running,
         "creative_writing_running": creative_running,
         "ad_hoc_running": ad_hoc_running,
         "project_shell_running": project_shell_running,
-        "design_approved": bool(
-            active_root
-            and _software_domain()._stage_has_approvals(
-                active_root,
-                STAGE_DESIGN_ACCEPTANCE,
-                ["human-approval"],
-            )
-        ),
         "activate_command": (
             f"source {activation_root / '.electroboy' / 'bin' / 'activate'}"
             if activation_root and context.project_mode != "creative"
@@ -1884,19 +1735,6 @@ def project_payload(
         ),
         "selected_session_id": context.selected_session_id,
         "sessions": _session_payloads(context),
-        "work_items": (
-            _software_domain()._work_item_payload(active_root)
-            if active_root
-            else {
-                "schema_version": 1,
-                "active_collection_id": None,
-                "active_feature_slug": None,
-                "active_bug_slug": None,
-                "collections": [],
-                "features": [],
-                "bugs": [],
-            }
-        ),
         "recent_projects": _recent_project_entries(service_root),
     }
 
@@ -2029,281 +1867,39 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
     return payloads
 
 
-def workflow_payload(active_project_root: Path | str | None = None) -> dict[str, object]:
+def workflow_payload(
+    active_project_root: Path | str | None = None,
+    workflow: WorkflowDefinition | None = None,
+) -> dict[str, object]:
+    if workflow is None:
+        factories = installed_workflow_factories()
+        factory = factories.get("software") or next(iter(factories.values()), None)
+        workflow = factory() if factory is not None else None
+    if workflow is None:
+        return {"stages": []}
+    operations_factory = workflow.stage_operations_factory
     return {
         "stages": [
             {
-                "id": stage,
-                "label": stage,
-                "operations": _stage_operations(stage, active_project_root),
+                "id": stage.id,
+                "label": stage.label,
+                "operations": (
+                    operations_factory(stage.id, active_project_root)
+                    if operations_factory is not None
+                    else (
+                        ["Open", "Create"]
+                        if stage.id == "project" and not active_project_root
+                        else (
+                            ["Open", "Create", "Deactivate"]
+                            if stage.id == "project"
+                            else []
+                        )
+                    )
+                ),
             }
-            for stage in _software_domain().WORKFLOW_STAGES
+            for stage in workflow.stages
         ]
     }
-
-
-def initialize_project(project_root: Path | str):
-    from ..cli import (
-        _init_git_repository,
-        _write_project_bin,
-        _write_project_config,
-        _write_project_gitignore,
-        _write_project_runtime,
-    )
-
-    project_root = Path(project_root).expanduser().resolve()
-    project_root.mkdir(parents=True, exist_ok=True)
-    _init_git_repository(project_root)
-    ArtifactManager(project_root).init_templates()
-    _write_project_config(project_root)
-    _write_project_gitignore(project_root)
-    _write_project_runtime(project_root)
-    _write_project_bin(project_root)
-
-    store = StateStore(project_root)
-    return store.init_run()
-
-
-def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:
-    from ..cli import (
-        _meta_registry_file,
-        _read_meta_registry,
-        _write_meta_environment,
-        _write_meta_registry,
-    )
-
-    meta_root = _resolve_project_path(str(path))
-    meta_root.mkdir(parents=True, exist_ok=True)
-    _write_meta_environment(meta_root)
-    registry_exists = _meta_registry_file(meta_root).exists()
-    registry = _read_meta_registry(meta_root)
-    if not registry_exists:
-        _write_meta_registry(meta_root, registry)
-    return meta_root, registry
-
-
-def _resolve_project_path(path: str) -> Path:
-    path = path.strip()
-    if not path:
-        raise StateError("project path is required")
-    return Path(path).expanduser().resolve()
-
-
-def _is_meta_project_path(path: str | Path) -> bool:
-    try:
-        project_root = Path(path).expanduser().resolve()
-    except OSError:
-        return False
-    return (project_root / META_REGISTRY_RELATIVE_PATH).exists()
-
-
-def _existing_meta_context(path: str | Path) -> dict[str, object]:
-    meta_root = _resolve_project_path(str(path))
-    if not meta_root.exists():
-        raise StateError(f"meta-project directory does not exist: {meta_root}")
-    if not meta_root.is_dir():
-        raise StateError(f"meta-project path is not a directory: {meta_root}")
-    if not _is_meta_project_path(meta_root):
-        raise StateError(
-            "no ElectroBoy meta-project exists at this path; create it first"
-        )
-    return _meta_context(meta_root)
-
-
-def _meta_context(meta_root: Path) -> dict[str, object]:
-    from ..cli import _meta_repository_by_name, _read_meta_registry
-
-    registry = _read_meta_registry(meta_root)
-    repositories = _meta_repository_payloads(registry)
-    active_name = str(registry.get("active") or "")
-    active_project_root: Path | None = None
-    workflow_stage: str | None = None
-    if active_name:
-        record = _meta_repository_by_name(registry, active_name)
-        if record is not None:
-            candidate = Path(str(record.get("path", ""))).expanduser().resolve()
-            if (
-                candidate.exists()
-                and candidate.is_dir()
-                and StateStore(candidate).current_run_id()
-            ):
-                active_project_root = candidate
-                workflow_stage = _software_domain()._active_workflow_stage(candidate)
-    return {
-        "meta_root": meta_root,
-        "active_project_root": active_project_root,
-        "active_repository_name": active_name or None,
-        "registered_repositories": repositories,
-        "workflow_stage": workflow_stage,
-    }
-
-
-def _meta_repository_payloads(registry: dict[str, object]) -> list[dict[str, object]]:
-    from ..cli import _meta_repositories
-
-    return [
-        {
-            "name": str(repo.get("name") or ""),
-            "path": str(repo.get("path") or ""),
-        }
-        for repo in _meta_repositories(registry)
-    ]
-
-
-def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
-    from ..cli import (
-        _read_meta_registry,
-        _register_meta_repository,
-        _resolve_existing_repo_path,
-    )
-
-    registry = _read_meta_registry(meta_root)
-    repo_path = _resolve_existing_repo_path(meta_root, path)
-    _register_meta_repository(meta_root, repo_path, registry)
-    return _meta_context(meta_root)
-
-
-def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
-    from ..cli import (
-        _ensure_target_pipeline_project,
-        _read_meta_registry,
-        _register_meta_repository,
-        _resolve_meta_repository,
-        _write_meta_registry,
-    )
-
-    repository = repository.strip()
-    if not repository:
-        raise StateError("repository is required")
-    registry = _read_meta_registry(meta_root)
-    repo_path, record = _resolve_meta_repository(meta_root, registry, repository)
-    registry, record = _register_meta_repository(meta_root, repo_path, registry)
-    registry["active"] = record["name"]
-    _write_meta_registry(meta_root, registry)
-    _ensure_target_pipeline_project(repo_path)
-    return _meta_context(meta_root)
-
-
-def _remove_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
-    from ..cli import (
-        _candidate_repo_path,
-        _meta_repositories,
-        _meta_repository_by_name,
-        _read_meta_registry,
-        _write_meta_registry,
-    )
-
-    repository = repository.strip()
-    if not repository:
-        raise StateError("repository is required")
-    registry = _read_meta_registry(meta_root)
-    record = _meta_repository_by_name(registry, repository)
-    if record is None:
-        candidate_path = _candidate_repo_path(meta_root, repository)
-        for repo in _meta_repositories(registry):
-            repo_path = Path(str(repo.get("path", ""))).expanduser().resolve()
-            if repo_path == candidate_path:
-                record = repo
-                break
-    if record is None:
-        raise StateError(f"repository is not registered: {repository}")
-    name = str(record.get("name") or "")
-    path = Path(str(record.get("path", ""))).expanduser().resolve()
-    remaining = [
-        repo
-        for repo in _meta_repositories(registry)
-        if str(repo.get("name") or "") != name
-        and Path(str(repo.get("path", ""))).expanduser().resolve() != path
-    ]
-    registry["repositories"] = remaining
-    if registry.get("active") == name:
-        registry["active"] = None
-    _write_meta_registry(meta_root, registry)
-    return _meta_context(meta_root)
-
-
-def _existing_project_root(path: str) -> Path:
-    project_root = _resolve_project_path(path)
-    if not project_root.exists():
-        raise StateError(f"project directory does not exist: {project_root}")
-    if not project_root.is_dir():
-        raise StateError(f"project path is not a directory: {project_root}")
-    try:
-        current_run_id = StateStore(project_root).current_run_id()
-    except OSError as error:
-        raise StateError(f"could not read ElectroBoy project: {error}") from error
-    if not current_run_id:
-        raise StateError(
-            "no ElectroBoy project exists at this path; create it first"
-        )
-    return project_root
-
-
-def _stage_operations(
-    stage: str,
-    active_project_root: Path | str | None,
-) -> list[str]:
-    if stage == "project":
-        operations = ["Open", "Create"]
-        if active_project_root:
-            operations.append("Deactivate")
-        return operations
-    if stage == "requirements" and active_project_root:
-        return [
-            "Set stage",
-            "Start",
-            "Approve",
-            "Skip approval",
-            "Open requirements",
-        ]
-    if stage == "design" and active_project_root:
-        return ["Set stage", "Start", "Complete", "Open design"]
-    if stage == "design-review" and active_project_root:
-        return [
-            "Set stage",
-            "Run automatic review",
-            "Run interactive review",
-            "Stop review",
-            "Approve",
-            "Skip approval",
-        ]
-    if stage == "implementation-plan" and active_project_root:
-        return [
-            "Set stage",
-            "Start",
-            "Approve",
-            "Skip approval",
-            "Open implementation plan",
-        ]
-    if stage == "code" and active_project_root:
-        return [
-            "Set stage",
-            "Start automatic",
-            "Start interactive",
-            "Stop",
-            "Approve",
-            "Skip approval",
-            "Open implementation report",
-        ]
-    if stage == "test-plan" and active_project_root:
-        return [
-            "Set stage",
-            "Start",
-            "Approve",
-            "Skip approval",
-            "Open test plan",
-        ]
-    if stage == "validate" and active_project_root:
-        return [
-            "Set stage",
-            "Start automatic",
-            "Start interactive",
-            "Stop",
-            "Approve",
-            "Skip approval",
-            "Open validation report",
-        ]
-    return []
 
 
 def _status_command(root: Path) -> list[str]:
@@ -2517,11 +2113,6 @@ def _handler_for(
             path = parsed.path
             if self._dispatch_registered_route("POST", path, parsed.query):
                 return
-            generic_route = _software_domain()._generic_agent_route(path)
-            if generic_route is not None:
-                stage, action = generic_route
-                self._handle_generic_stage_agent(parsed.query, stage, action)
-                return
             self._send_json(
                 {"error": "not found"},
                 status=HTTPStatus.NOT_FOUND,
@@ -2660,128 +2251,6 @@ def _handler_for(
                 pane_window_html(kind),
                 "text/html; charset=utf-8",
             )
-
-        def _handle_generic_stage_agent(
-            self,
-            query: str,
-            stage: str,
-            action: str,
-        ) -> None:
-            if action == "start":
-                self._start_generic_stage_agent(query, stage, interactive=None)
-                return
-            if action == "start-interactive":
-                self._start_generic_stage_agent(query, stage, interactive=True)
-                return
-            if action == "restart":
-                self._restart_generic_stage_agent(query, stage)
-                return
-            if action == "stop":
-                self._stop_generic_stage_agent(query, stage)
-                return
-            if action == "approve":
-                self._approve_generic_stage(query, stage, skip_approval=False)
-                return
-            if action == "skip-approval":
-                self._approve_generic_stage(query, stage, skip_approval=True)
-                return
-            self._send_json(
-                {"error": "not found"},
-                status=HTTPStatus.NOT_FOUND,
-            )
-
-        def _start_generic_stage_agent(
-            self,
-            query: str,
-            stage: str,
-            *,
-            interactive: bool | None,
-        ) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, started = state.start_workflow_stage_agent(
-                    context_id,
-                    stage,
-                    interactive=interactive,
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start {stage}: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                }
-            )
-
-        def _restart_generic_stage_agent(self, query: str, stage: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, _started = state.restart_workflow_stage_agent(
-                    context_id,
-                    stage,
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not restart {stage}: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "restarted",
-                    "command": session.command,
-                }
-            )
-
-        def _stop_generic_stage_agent(self, query: str, stage: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.stop_workflow_stage_agent(context_id, stage))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _approve_generic_stage(
-            self,
-            query: str,
-            stage: str,
-            *,
-            skip_approval: bool,
-        ) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(
-                    state.approve_workflow_stage(
-                        context_id,
-                        stage,
-                        skip_approval=skip_approval,
-                    )
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
 
         def _stream_session_events(self, session: AgentSession) -> None:
             self.send_response(HTTPStatus.OK)

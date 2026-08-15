@@ -10,7 +10,7 @@ from electroboy.service.registry import RouteDefinition, RouteHandler
 from electroboy.service.routes import RouteRequest
 from electroboy.service.sessions import AgentSession
 
-from .domain import _work_item_error_payload
+from .domain import GENERIC_STAGE_CONFIG, _work_item_error_payload
 from .controller import SoftwareWorkflowController
 
 
@@ -58,17 +58,17 @@ def _meta_action(
 
 
 def _meta_init(request: RouteRequest) -> ServiceResponse:
-    return _meta_action(request, request.services.contexts.create_meta_project)
+    return _meta_action(request, _controller(request).create_meta_project)
 
 
 def _meta_add(request: RouteRequest) -> ServiceResponse:
-    return _meta_action(request, request.services.contexts.add_meta_repository)
+    return _meta_action(request, _controller(request).add_meta_repository)
 
 
 def _meta_start(request: RouteRequest) -> ServiceResponse:
     return _meta_action(
         request,
-        request.services.contexts.start_meta_repository,
+        _controller(request).start_meta_repository,
         repository=True,
     )
 
@@ -76,9 +76,29 @@ def _meta_start(request: RouteRequest) -> ServiceResponse:
 def _meta_remove(request: RouteRequest) -> ServiceResponse:
     return _meta_action(
         request,
-        request.services.contexts.remove_meta_repository,
+        _controller(request).remove_meta_repository,
         repository=True,
     )
+
+
+def _project_action(
+    request: RouteRequest,
+    action: Callable[[str, str], dict[str, object]],
+) -> ServiceResponse:
+    try:
+        payload = request.body()
+        result = action(request.context_id, str(payload.get("path") or ""))
+    except Exception as error:
+        return _error(error)
+    return JsonResponse(result)
+
+
+def _open_project(request: RouteRequest) -> ServiceResponse:
+    return _project_action(request, _controller(request).open_project)
+
+
+def _create_project(request: RouteRequest) -> ServiceResponse:
+    return _project_action(request, _controller(request).create_project)
 
 
 def _create_collection(request: RouteRequest) -> ServiceResponse:
@@ -475,7 +495,89 @@ def _design_review_skip(request: RouteRequest) -> ServiceResponse:
     )
 
 
+def _generic_stage_handler(stage: str, action: str) -> RouteHandler:
+    def handler(request: RouteRequest) -> ServiceResponse:
+        controller = _controller(request)
+        try:
+            if action in {"start", "start-interactive", "restart"}:
+                if action == "restart":
+                    session, _started = controller.restart_workflow_stage_agent(
+                        request.context_id,
+                        stage,
+                    )
+                    status = "restarted"
+                else:
+                    session, started = controller.start_workflow_stage_agent(
+                        request.context_id,
+                        stage,
+                        interactive=(True if action == "start-interactive" else None),
+                    )
+                    status = "started" if started else "running"
+                return JsonResponse(
+                    {
+                        **request.services.contexts.project_payload(
+                            request.context_id
+                        ),
+                        "status": status,
+                        "command": session.command,
+                    }
+                )
+            if action == "stop":
+                return JsonResponse(
+                    controller.stop_workflow_stage_agent(
+                        request.context_id,
+                        stage,
+                    )
+                )
+            if action in {"approve", "skip-approval"}:
+                return JsonResponse(
+                    controller.approve_workflow_stage(
+                        request.context_id,
+                        stage,
+                        skip_approval=action == "skip-approval",
+                    )
+                )
+        except OSError as error:
+            return _error(
+                RuntimeError(f"could not start {stage}: {error}"),
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+        except Exception as error:
+            return _error(error)
+        return JsonResponse({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+
+    return handler
+
+
+_GENERIC_STAGE_ACTIONS = (
+    "start",
+    "start-interactive",
+    "restart",
+    "stop",
+    "approve",
+    "skip-approval",
+)
+_GENERIC_ROUTES = tuple(
+    _route(
+        "POST",
+        f"/api/agents/{stage}/{action}",
+        f"generic_{stage.replace('-', '_')}_{action.replace('-', '_')}",
+    )
+    for stage in GENERIC_STAGE_CONFIG
+    for action in _GENERIC_STAGE_ACTIONS
+)
+_GENERIC_HANDLERS = {
+    f"generic_{stage.replace('-', '_')}_{action.replace('-', '_')}": (
+        _generic_stage_handler(stage, action)
+    )
+    for stage in GENERIC_STAGE_CONFIG
+    for action in _GENERIC_STAGE_ACTIONS
+}
+
+
 ROUTES = (
+    _route("POST", "/api/project/open", "open_project"),
+    _route("POST", "/api/project/new", "create_project"),
     _route("POST", "/api/meta/init", "meta_init"),
     _route("POST", "/api/meta/add", "meta_add"),
     _route("POST", "/api/meta/start", "meta_start"),
@@ -536,10 +638,12 @@ ROUTES = (
     _route("GET", "/api/agents/design-review/events", "design_review_events"),
     _route("POST", "/api/agents/documentation/start", "documentation_start"),
     _route("POST", "/api/agents/design-approve/approve", "design_review_approve"),
-)
+) + _GENERIC_ROUTES
 
 
 HANDLERS: dict[str, RouteHandler] = {
+    "open_project": _open_project,
+    "create_project": _create_project,
     "meta_init": _meta_init,
     "meta_add": _meta_add,
     "meta_start": _meta_start,
@@ -578,4 +682,5 @@ HANDLERS: dict[str, RouteHandler] = {
     "design_review_resize": _design_review_resize,
     "design_review_events": _design_review_events,
     "documentation_start": _documentation_start,
+    **_GENERIC_HANDLERS,
 }

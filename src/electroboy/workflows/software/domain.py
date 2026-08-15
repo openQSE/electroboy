@@ -8,8 +8,9 @@ from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from electroboy.artifacts import ArtifactManager
 from electroboy.feature_artifacts import read_feature_record
 from electroboy.models import (
     STAGE_COMPLETE,
@@ -28,6 +29,9 @@ from electroboy.models import (
 from electroboy.service.commands import electroboy_command
 from electroboy.service.sessions import AgentSessionError
 from electroboy.state_store import StateError, StateStore
+
+if TYPE_CHECKING:
+    from electroboy.service.context import BrowserContext
 
 _electroboy_command = electroboy_command
 
@@ -54,6 +58,7 @@ def _force_reset_workflow_stage(
 
 
 WORK_ITEM_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "work-items.json"
+META_REGISTRY_RELATIVE_PATH = Path(".electroboy") / "shared" / "repositories.json"
 
 WORKFLOW_STAGES = [
     "project",
@@ -186,6 +191,345 @@ WORKFLOW_STAGE_RESET_TARGETS = {
 }
 
 
+def initialize_project(project_root: Path | str):
+    from electroboy.cli import (
+        _init_git_repository,
+        _write_project_bin,
+        _write_project_config,
+        _write_project_gitignore,
+        _write_project_runtime,
+    )
+
+    project_root = Path(project_root).expanduser().resolve()
+    project_root.mkdir(parents=True, exist_ok=True)
+    _init_git_repository(project_root)
+    ArtifactManager(project_root).init_templates()
+    _write_project_config(project_root)
+    _write_project_gitignore(project_root)
+    _write_project_runtime(project_root)
+    _write_project_bin(project_root)
+
+    store = StateStore(project_root)
+    return store.init_run()
+
+
+def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:
+    from electroboy.cli import (
+        _meta_registry_file,
+        _read_meta_registry,
+        _write_meta_environment,
+        _write_meta_registry,
+    )
+
+    meta_root = _resolve_project_path(str(path))
+    meta_root.mkdir(parents=True, exist_ok=True)
+    _write_meta_environment(meta_root)
+    registry_exists = _meta_registry_file(meta_root).exists()
+    registry = _read_meta_registry(meta_root)
+    if not registry_exists:
+        _write_meta_registry(meta_root, registry)
+    return meta_root, registry
+
+
+def _resolve_project_path(path: str) -> Path:
+    path = path.strip()
+    if not path:
+        raise StateError("project path is required")
+    return Path(path).expanduser().resolve()
+
+
+def _is_meta_project_path(path: str | Path) -> bool:
+    try:
+        project_root = Path(path).expanduser().resolve()
+    except OSError:
+        return False
+    return (project_root / META_REGISTRY_RELATIVE_PATH).exists()
+
+
+def _existing_meta_context(path: str | Path) -> dict[str, object]:
+    meta_root = _resolve_project_path(str(path))
+    if not meta_root.exists():
+        raise StateError(f"meta-project directory does not exist: {meta_root}")
+    if not meta_root.is_dir():
+        raise StateError(f"meta-project path is not a directory: {meta_root}")
+    if not _is_meta_project_path(meta_root):
+        raise StateError(
+            "no ElectroBoy meta-project exists at this path; create it first"
+        )
+    return _meta_context(meta_root)
+
+
+def _meta_context(meta_root: Path) -> dict[str, object]:
+    from electroboy.cli import _meta_repository_by_name, _read_meta_registry
+
+    registry = _read_meta_registry(meta_root)
+    repositories = _meta_repository_payloads(registry)
+    active_name = str(registry.get("active") or "")
+    active_project_root: Path | None = None
+    workflow_stage: str | None = None
+    if active_name:
+        record = _meta_repository_by_name(registry, active_name)
+        if record is not None:
+            candidate = Path(str(record.get("path", ""))).expanduser().resolve()
+            if (
+                candidate.exists()
+                and candidate.is_dir()
+                and StateStore(candidate).current_run_id()
+            ):
+                active_project_root = candidate
+                workflow_stage = _active_workflow_stage(candidate)
+    return {
+        "meta_root": meta_root,
+        "active_project_root": active_project_root,
+        "active_repository_name": active_name or None,
+        "registered_repositories": repositories,
+        "workflow_stage": workflow_stage,
+    }
+
+
+def _meta_repository_payloads(
+    registry: dict[str, object],
+) -> list[dict[str, object]]:
+    from electroboy.cli import _meta_repositories
+
+    return [
+        {
+            "name": str(repo.get("name") or ""),
+            "path": str(repo.get("path") or ""),
+        }
+        for repo in _meta_repositories(registry)
+    ]
+
+
+def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
+    from electroboy.cli import (
+        _read_meta_registry,
+        _register_meta_repository,
+        _resolve_existing_repo_path,
+    )
+
+    registry = _read_meta_registry(meta_root)
+    repo_path = _resolve_existing_repo_path(meta_root, path)
+    _register_meta_repository(meta_root, repo_path, registry)
+    return _meta_context(meta_root)
+
+
+def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
+    from electroboy.cli import (
+        _ensure_target_pipeline_project,
+        _read_meta_registry,
+        _register_meta_repository,
+        _resolve_meta_repository,
+        _write_meta_registry,
+    )
+
+    repository = repository.strip()
+    if not repository:
+        raise StateError("repository is required")
+    registry = _read_meta_registry(meta_root)
+    repo_path, record = _resolve_meta_repository(meta_root, registry, repository)
+    registry, record = _register_meta_repository(meta_root, repo_path, registry)
+    registry["active"] = record["name"]
+    _write_meta_registry(meta_root, registry)
+    _ensure_target_pipeline_project(repo_path)
+    return _meta_context(meta_root)
+
+
+def _remove_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
+    from electroboy.cli import (
+        _candidate_repo_path,
+        _meta_repositories,
+        _meta_repository_by_name,
+        _read_meta_registry,
+        _write_meta_registry,
+    )
+
+    repository = repository.strip()
+    if not repository:
+        raise StateError("repository is required")
+    registry = _read_meta_registry(meta_root)
+    record = _meta_repository_by_name(registry, repository)
+    if record is None:
+        candidate_path = _candidate_repo_path(meta_root, repository)
+        for repo in _meta_repositories(registry):
+            repo_path = Path(str(repo.get("path", ""))).expanduser().resolve()
+            if repo_path == candidate_path:
+                record = repo
+                break
+    if record is None:
+        raise StateError(f"repository is not registered: {repository}")
+    name = str(record.get("name") or "")
+    path = Path(str(record.get("path") or "")).expanduser().resolve()
+    registry["repositories"] = [
+        repo
+        for repo in _meta_repositories(registry)
+        if str(repo.get("name") or "") != name
+        and Path(str(repo.get("path", ""))).expanduser().resolve() != path
+    ]
+    if registry.get("active") == name:
+        registry["active"] = None
+    _write_meta_registry(meta_root, registry)
+    return _meta_context(meta_root)
+
+
+def _existing_project_root(path: str) -> Path:
+    project_root = _resolve_project_path(path)
+    if not project_root.exists():
+        raise StateError(f"project directory does not exist: {project_root}")
+    if not project_root.is_dir():
+        raise StateError(f"project path is not a directory: {project_root}")
+    try:
+        current_run_id = StateStore(project_root).current_run_id()
+    except OSError as error:
+        raise StateError(f"could not read ElectroBoy project: {error}") from error
+    if not current_run_id:
+        raise StateError(
+            "no ElectroBoy project exists at this path; create it first"
+        )
+    return project_root
+
+
+def _stage_operations(
+    stage: str,
+    active_project_root: Path | str | None,
+) -> list[str]:
+    if stage == "project":
+        operations = ["Open", "Create"]
+        if active_project_root:
+            operations.append("Deactivate")
+        return operations
+    if stage == "requirements" and active_project_root:
+        return [
+            "Set stage",
+            "Start",
+            "Approve",
+            "Skip approval",
+            "Open requirements",
+        ]
+    if stage == "design" and active_project_root:
+        return ["Set stage", "Start", "Complete", "Open design"]
+    if stage == "design-review" and active_project_root:
+        return [
+            "Set stage",
+            "Run automatic review",
+            "Run interactive review",
+            "Stop review",
+            "Approve",
+            "Skip approval",
+        ]
+    if stage == "implementation-plan" and active_project_root:
+        return [
+            "Set stage",
+            "Start",
+            "Approve",
+            "Skip approval",
+            "Open implementation plan",
+        ]
+    if stage == "code" and active_project_root:
+        return [
+            "Set stage",
+            "Start automatic",
+            "Start interactive",
+            "Stop",
+            "Approve",
+            "Skip approval",
+            "Open implementation report",
+        ]
+    if stage == "test-plan" and active_project_root:
+        return [
+            "Set stage",
+            "Start",
+            "Approve",
+            "Skip approval",
+            "Open test plan",
+        ]
+    if stage == "validate" and active_project_root:
+        return [
+            "Set stage",
+            "Start automatic",
+            "Start interactive",
+            "Stop",
+            "Approve",
+            "Skip approval",
+            "Open validation report",
+        ]
+    return []
+
+
+def workflow_payload(
+    active_project_root: Path | str | None = None,
+) -> dict[str, object]:
+    return {
+        "stages": [
+            {
+                "id": stage,
+                "label": stage,
+                "operations": _stage_operations(stage, active_project_root),
+            }
+            for stage in WORKFLOW_STAGES
+        ]
+    }
+
+
+def project_payload_extension(
+    context: "BrowserContext",
+    active_root: Path | None,
+) -> dict[str, object]:
+    requirements_session = context.requirements_session
+    design_session = context.design_session
+    design_review_session = context.design_review_session
+    return {
+        "requirements_started": bool(active_root and context.requirements_started),
+        "requirements_running": bool(
+            active_root
+            and requirements_session is not None
+            and requirements_session.is_active()
+        ),
+        "requirements_approved": bool(
+            active_root
+            and _stage_has_approvals(
+                active_root,
+                STAGE_REQUIREMENTS,
+                ["human-approval", "author-confirmation"],
+            )
+        ),
+        "design_started": bool(active_root and context.design_started),
+        "design_running": bool(
+            active_root and design_session is not None and design_session.is_active()
+        ),
+        "design_review_started": bool(
+            active_root and context.design_review_started
+        ),
+        "design_review_running": bool(
+            active_root
+            and design_review_session is not None
+            and design_review_session.is_active()
+        ),
+        "design_review_interactive": bool(
+            active_root
+            and design_review_session is not None
+            and design_review_session.is_active()
+            and context.design_review_interactive
+        ),
+        "stage_runs": (
+            _generic_stage_run_payload(context, active_root) if active_root else {}
+        ),
+        "design_approved": bool(
+            active_root
+            and _stage_has_approvals(
+                active_root,
+                STAGE_DESIGN_ACCEPTANCE,
+                ["human-approval"],
+            )
+        ),
+        "work_items": (
+            _work_item_payload(active_root)
+            if active_root
+            else _empty_work_item_payload()
+        ),
+    }
+
+
 def _generic_stage_run_payload(
     context: Any,
     active_root: Path | None,
@@ -197,7 +541,9 @@ def _generic_stage_run_payload(
         payload[stage] = {
             "started": bool(active_root and stage in context.stage_started),
             "running": running,
-            "interactive": bool(running and session is not None and session.interactive),
+            "interactive": bool(
+                running and session is not None and session.interactive
+            ),
         }
     return payload
 
