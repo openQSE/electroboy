@@ -922,7 +922,17 @@ creative_writing = "electroboy.workflows.creative:workflow"
 
 [project.entry-points."electroboy.modules"]
 corkboard = "electroboy.modules.corkboard:module"
+
+[project.entry-points."electroboy.cli"]
+software = "electroboy.workflows.software.cli:command_provider"
 ```
+
+The core command entry point owns browser service startup and service
+installation. Workflow command providers are discovered without importing
+their packages into a core-only process. Each provider declares the commands
+it handles, builds its parser, and executes matching requests. Installing the
+software workflow therefore adds the software pipeline commands, while a
+core-only installation exposes only `serve` and `service`.
 
 The plugin contract should include:
 

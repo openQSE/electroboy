@@ -38,6 +38,15 @@ def test_production_distributions_have_independent_manifests() -> None:
         assert f'name = "{distribution}"' in text
         assert entry_point in text
 
+    software_manifest = (
+        ROOT / "packages/electroboy-workflow-software/pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert '[project.entry-points."electroboy.cli"]' in software_manifest
+    assert (
+        'software = "electroboy.workflows.software.cli:command_provider"'
+        in software_manifest
+    )
+
 
 def test_optional_frontend_assets_follow_package_ownership() -> None:
     core_runtime = ROOT / "src/electroboy/assets/service/js/core/runtime.js"

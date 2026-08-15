@@ -3346,7 +3346,10 @@ class ServiceTests(unittest.TestCase):
             with state.lock:
                 state.contexts[context_id].workflow_stage = "requirements-approve"
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0):
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ):
                 payload = state.approve_requirements(context_id)
 
         self.assertEqual(payload["status"], "approved")
@@ -3542,7 +3545,10 @@ class ServiceTests(unittest.TestCase):
                 context.design_review_started = True
                 context.design_review_session = session  # type: ignore[assignment]
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0) as cmd_stage:
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ) as cmd_stage:
                 payload = state.approve_design(context_id)
 
             stage_args = [call.args[2] for call in cmd_stage.call_args_list]
@@ -3571,7 +3577,10 @@ class ServiceTests(unittest.TestCase):
             with state.lock:
                 state.contexts[context_id].workflow_stage = "design-approve"
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0):
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ):
                 payload = state.approve_design(context_id)
 
         self.assertEqual(payload["status"], "approved")
@@ -3594,7 +3603,10 @@ class ServiceTests(unittest.TestCase):
                 context.workflow_stage = "design-review"
                 context.design_review_started = True
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0) as cmd_stage:
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ) as cmd_stage:
                 payload = state.approve_design(context_id, skip_approval=True)
 
             stage_args = [call.args[2] for call in cmd_stage.call_args_list]

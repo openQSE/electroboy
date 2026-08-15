@@ -81,12 +81,16 @@ class ProjectEnvironmentTests(unittest.TestCase):
             )
 
             refreshed_cli = stale_cli.read_text(encoding="utf-8")
+            software_cli = (
+                stale_package / "workflows" / "software" / "cli.py"
+            ).read_text(encoding="utf-8")
             wrapper = root / ".electroboy" / "bin" / "electroboy"
             wrapper_exists = wrapper.exists()
 
         self.assertEqual(code, 0, stderr)
         self.assertIn("runtime refreshed:", stdout)
-        self.assertIn("_documentation_sidecar_prompt", refreshed_cli)
+        self.assertIn("Plugin-aware command-line entry point", refreshed_cli)
+        self.assertIn("_documentation_sidecar_prompt", software_cli)
         self.assertNotIn("OLD_RUNTIME", refreshed_cli)
         self.assertTrue(wrapper_exists)
 

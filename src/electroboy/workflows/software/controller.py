@@ -555,7 +555,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             requirements_started = context.requirements_started
         self.services.sessions.terminate_kind(context_id, "requirements")
         _record_requirements_complete(project_root, skipped=skip_approval)
-        from electroboy.cli import _cmd_stage, _stage_args
+        from .cli import _cmd_stage, _stage_args
         from electroboy.gates import GateEngine
 
         stdout = io.StringIO()
@@ -992,7 +992,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             needs_design_review_completion = context.workflow_stage == "design-review"
         if session is not None and session.is_active():
             session.terminate()
-        from electroboy.cli import _cmd_stage, _stage_args
+        from .cli import _cmd_stage, _stage_args
         from electroboy.gates import GateEngine
 
         stdout = io.StringIO()

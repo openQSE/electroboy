@@ -16,6 +16,9 @@ dependencies = [
 [project.entry-points."electroboy.workflows"]
 software = "electroboy.workflows.software.plugin:workflow"
 
+[project.entry-points."electroboy.cli"]
+software = "electroboy.workflows.software.cli:command_provider"
+
 [tool.setuptools]
 package-dir = { "" = "../../src" }
 packages = ["electroboy.workflows.software"]

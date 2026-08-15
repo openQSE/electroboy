@@ -164,6 +164,68 @@ finally:
     )
 
 
+@pytest.mark.parametrize(
+    ("packages", "expected_commands", "software_cli_installed"),
+    [
+        (("electroboy-core",), ["serve", "service"], False),
+        (
+            (
+                "electroboy-core",
+                "electroboy-modules",
+                "electroboy-workflow-software",
+            ),
+            None,
+            True,
+        ),
+    ],
+)
+def test_selected_wheels_expose_only_installed_cli_commands(
+    production_wheels: dict[str, Path],
+    tmp_path: Path,
+    packages: tuple[str, ...],
+    expected_commands: list[str] | None,
+    software_cli_installed: bool,
+) -> None:
+    site_dir = tmp_path / "cli-site"
+    install_packages(site_dir, production_wheels, packages)
+    script = r"""
+import importlib.util
+import json
+from electroboy.cli import build_parser
+
+parser = build_parser()
+commands = sorted(parser._subparsers._group_actions[0].choices)
+print(json.dumps({
+    "commands": commands,
+    "software_cli": (
+        importlib.util.find_spec("electroboy.workflows.software") is not None
+    ),
+}))
+"""
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(site_dir)
+    environment["PYTHONNOUSERSITE"] = "1"
+    completed = subprocess.run(
+        [sys.executable, "-S", "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout
+    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert payload["software_cli"] is software_cli_installed
+    if expected_commands is None:
+        assert "code" in payload["commands"]
+        assert "requirements" in payload["commands"]
+        assert "serve" in payload["commands"]
+    else:
+        assert payload["commands"] == expected_commands
+
+
 def test_creative_only_wheels_create_a_creative_project(
     production_wheels: dict[str, Path],
     tmp_path: Path,

@@ -41,7 +41,7 @@ def _force_reset_workflow_stage(
     workflow_stage: str,
     target_stage: str,
 ) -> tuple[str, str]:
-    from electroboy.cli import _force_reset_to_stage
+    from .cli import _force_reset_to_stage
 
     stdout = io.StringIO()
     stderr = io.StringIO()
@@ -192,7 +192,7 @@ WORKFLOW_STAGE_RESET_TARGETS = {
 
 
 def initialize_project(project_root: Path | str):
-    from electroboy.cli import (
+    from .cli import (
         _init_git_repository,
         _write_project_bin,
         _write_project_config,
@@ -214,7 +214,7 @@ def initialize_project(project_root: Path | str):
 
 
 def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:
-    from electroboy.cli import (
+    from .cli import (
         _meta_registry_file,
         _read_meta_registry,
         _write_meta_environment,
@@ -260,7 +260,7 @@ def _existing_meta_context(path: str | Path) -> dict[str, object]:
 
 
 def _meta_context(meta_root: Path) -> dict[str, object]:
-    from electroboy.cli import _meta_repository_by_name, _read_meta_registry
+    from .cli import _meta_repository_by_name, _read_meta_registry
 
     registry = _read_meta_registry(meta_root)
     repositories = _meta_repository_payloads(registry)
@@ -290,7 +290,7 @@ def _meta_context(meta_root: Path) -> dict[str, object]:
 def _meta_repository_payloads(
     registry: dict[str, object],
 ) -> list[dict[str, object]]:
-    from electroboy.cli import _meta_repositories
+    from .cli import _meta_repositories
 
     return [
         {
@@ -302,7 +302,7 @@ def _meta_repository_payloads(
 
 
 def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
-    from electroboy.cli import (
+    from .cli import (
         _read_meta_registry,
         _register_meta_repository,
         _resolve_existing_repo_path,
@@ -315,7 +315,7 @@ def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
 
 
 def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
-    from electroboy.cli import (
+    from .cli import (
         _ensure_target_pipeline_project,
         _read_meta_registry,
         _register_meta_repository,
@@ -336,7 +336,7 @@ def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object
 
 
 def _remove_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
-    from electroboy.cli import (
+    from .cli import (
         _candidate_repo_path,
         _meta_repositories,
         _meta_repository_by_name,
@@ -870,7 +870,7 @@ def _run_feature_start_context(
     stash_subrepo_changes: bool = False,
     branch_name: str | None = None,
 ) -> str:
-    from electroboy.cli import _cmd_feature_start
+    from .cli import _cmd_feature_start
 
     args = SimpleNamespace(
         title_or_issue_url=title,
@@ -889,7 +889,7 @@ def _run_bug_start_context(
     branch: bool,
     stash_subrepo_changes: bool = False,
 ) -> str:
-    from electroboy.cli import _cmd_bug_start
+    from .cli import _cmd_bug_start
 
     args = SimpleNamespace(
         issue_reference=issue_reference,
@@ -920,7 +920,7 @@ def _run_orchestrator_command(
 
 
 def _run_electroboy_cli_command(project_root: Path, args: list[str]) -> str:
-    from electroboy.cli import main
+    from .cli import main
 
     stdout = io.StringIO()
     stderr = io.StringIO()
@@ -1038,7 +1038,7 @@ def _stage_has_approvals(
 def _reopen_requirements_for_restart(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
-    from electroboy.cli import _is_backward_stage_request, _record_stage_reopen
+    from .cli import _is_backward_stage_request, _record_stage_reopen
 
     if _is_backward_stage_request(manifest.active_stage, STAGE_REQUIREMENTS):
         _record_stage_reopen(
@@ -1064,7 +1064,7 @@ def _reopen_requirements_for_restart(project_root: Path) -> None:
 def _reopen_design_for_restart(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
-    from electroboy.cli import _is_backward_stage_request, _record_stage_reopen
+    from .cli import _is_backward_stage_request, _record_stage_reopen
 
     if _is_backward_stage_request(manifest.active_stage, STAGE_DESIGN):
         _record_stage_reopen(
@@ -1127,7 +1127,7 @@ def _record_design_complete(project_root: Path) -> None:
 
 
 def _should_force_completed_requirements_approval(store: StateStore) -> bool:
-    from electroboy.cli import _has_successful_agent_event
+    from .cli import _has_successful_agent_event
 
     if _has_successful_agent_event(store, "design_author", STAGE_REQUIREMENTS):
         return False

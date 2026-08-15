@@ -39,6 +39,9 @@ structured_documents = "electroboy.modules.structured_documents:module"
 software = "electroboy.workflows.software.plugin:workflow"
 creative-writing = "electroboy.workflows.creative_writing.plugin:workflow"
 
+[project.entry-points."electroboy.cli"]
+software = "electroboy.workflows.software.cli:command_provider"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
