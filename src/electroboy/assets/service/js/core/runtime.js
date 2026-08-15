@@ -6,120 +6,11 @@
     const toggleWorkflowSideSheet = document.getElementById("toggleWorkflowSideSheet");
     const workflowModeSelect = document.getElementById("workflowModeSelect");
     const stageScroll = document.querySelector(".stage-scroll");
-    const stageNodes = Array.from(document.querySelectorAll(".stage-node[data-stage]"));
-    const STAGE_DESCRIPTIONS = {
-      project: "Open an existing ElectroBoy project or create a new one.",
-      requirements: "Author or resume docs/requirements.md with the requirements agent.",
-      design: "Author docs/detailed-design.md from the approved requirements.",
-      "design-review": "Review the detailed design and capture blocking design issues.",
-      "implementation-plan": "Author docs/implementation-plan.md with the implementation phases.",
-      code: "Implement and commit the planned code changes.",
-      "test-plan": "Author docs/test-plan.md with validation commands and acceptance checks.",
-      validate: "Run validation commands and tests, then write the validation report.",
-      document: "Update final project documentation after validation passes.",
-    };
-    const projectStage = document.querySelector("[data-stage='project']");
-    const requirementsStage = document.querySelector("[data-stage='requirements']");
-    const designStage = document.querySelector("[data-stage='design']");
-    const designReviewStage = document.querySelector("[data-stage='design-review']");
-    const implementationPlanStage =
-      document.querySelector("[data-stage='implementation-plan']");
-    const codeStage = document.querySelector("[data-stage='code']");
-    const testPlanStage = document.querySelector("[data-stage='test-plan']");
-    const validateStage = document.querySelector("[data-stage='validate']");
-    const documentStage = document.querySelector("[data-stage='document']");
+    const workflowStageGraph = document.getElementById("workflowStageGraph");
+    let stageNodes = [];
+    let activeWorkflowDefinitions = [];
     const stageActionPanel = document.getElementById("stageActionPanel");
     const stageActionBody = document.getElementById("stageActionBody");
-    const creativeBinder = document.getElementById("creativeBinder");
-    const creativeProjectMenuButton = document.getElementById("creativeProjectMenuButton");
-    const creativeProjectActions = document.getElementById("creativeProjectActions");
-    const creativeOpenProject = document.getElementById("creativeOpenProject");
-    const creativeNewProject = document.getElementById("creativeNewProject");
-    const creativeRecentProjects = document.getElementById("creativeRecentProjects");
-    const creativeCloseProject = document.getElementById("creativeCloseProject");
-    const creativeActiveProjectSection =
-      document.getElementById("creativeActiveProjectSection");
-    const creativeProjectName = document.getElementById("creativeProjectName");
-    const creativeAgentMenuButton = document.getElementById("creativeAgentMenuButton");
-    const creativeAgentActions = document.getElementById("creativeAgentActions");
-    const creativeStartAgent = document.getElementById("creativeStartAgent");
-    const creativeTree = document.getElementById("creativeTree");
-    const projectMenu = document.getElementById("projectMenu");
-    const requirementsMenu = document.getElementById("requirementsMenu");
-    const designMenu = document.getElementById("designMenu");
-    const designReviewMenu = document.getElementById("designReviewMenu");
-    const implementationPlanMenu = document.getElementById("implementationPlanMenu");
-    const codeMenu = document.getElementById("codeMenu");
-    const testPlanMenu = document.getElementById("testPlanMenu");
-    const validateMenu = document.getElementById("validateMenu");
-    const documentMenu = document.getElementById("documentMenu");
-    const openProject = document.getElementById("openProject");
-    const newProject = document.getElementById("newProject");
-    const metaProjectBranch = document.getElementById("metaProjectBranch");
-    const metaProjectMenuButton = document.getElementById("metaProjectMenuButton");
-    const metaProjectSubmenu = document.getElementById("metaProjectSubmenu");
-    const openMetaProject = document.getElementById("openMetaProject");
-    const newMetaProject = document.getElementById("newMetaProject");
-    const addMetaRepository = document.getElementById("addMetaRepository");
-    const startMetaRepositoryBranch = document.getElementById("startMetaRepositoryBranch");
-    const startMetaRepository = document.getElementById("startMetaRepository");
-    const startMetaRepositorySubmenu = document.getElementById("startMetaRepositorySubmenu");
-    const removeMetaRepositoryBranch = document.getElementById("removeMetaRepositoryBranch");
-    const removeMetaRepository = document.getElementById("removeMetaRepository");
-    const removeMetaRepositorySubmenu = document.getElementById("removeMetaRepositorySubmenu");
-    const workItemBranch = document.getElementById("workItemBranch");
-    const workItemMenuButton = document.getElementById("workItemMenuButton");
-    const workItemSubmenu = document.getElementById("workItemSubmenu");
-    const newFeatureWorkItem = document.getElementById("newFeatureWorkItem");
-    const switchFeatureWorkItemBranch = document.getElementById("switchFeatureWorkItemBranch");
-    const switchFeatureWorkItem = document.getElementById("switchFeatureWorkItem");
-    const switchFeatureWorkItemSubmenu =
-      document.getElementById("switchFeatureWorkItemSubmenu");
-    const newBugWorkItem = document.getElementById("newBugWorkItem");
-    const switchBugWorkItemBranch = document.getElementById("switchBugWorkItemBranch");
-    const switchBugWorkItem = document.getElementById("switchBugWorkItem");
-    const switchBugWorkItemSubmenu = document.getElementById("switchBugWorkItemSubmenu");
-    const deactivateProject = document.getElementById("deactivateProject");
-    const setRequirementsStage = document.getElementById("setRequirementsStage");
-    const startRequirements = document.getElementById("startRequirements");
-    const approveRequirements = document.getElementById("approveRequirements");
-    const skipRequirementsApproval = document.getElementById("skipRequirementsApproval");
-    const setDesignStage = document.getElementById("setDesignStage");
-    const startDesign = document.getElementById("startDesign");
-    const completeDesign = document.getElementById("completeDesign");
-    const setDesignReviewStage = document.getElementById("setDesignReviewStage");
-    const startAutomaticDesignReview = document.getElementById("startAutomaticDesignReview");
-    const startInteractiveDesignReview = document.getElementById("startInteractiveDesignReview");
-    const stopDesignReview = document.getElementById("stopDesignReview");
-    const approveDesignReview = document.getElementById("approveDesignReview");
-    const skipDesignReviewApproval = document.getElementById("skipDesignReviewApproval");
-    const setImplementationPlanStage = document.getElementById("setImplementationPlanStage");
-    const startImplementationPlan = document.getElementById("startImplementationPlan");
-    const approveImplementationPlan = document.getElementById("approveImplementationPlan");
-    const skipImplementationPlanApproval =
-      document.getElementById("skipImplementationPlanApproval");
-    const setCodeStage = document.getElementById("setCodeStage");
-    const startAutomaticCode = document.getElementById("startAutomaticCode");
-    const startInteractiveCode = document.getElementById("startInteractiveCode");
-    const startCodeAdHocAgentButton = document.getElementById("startCodeAdHocAgent");
-    const stopCode = document.getElementById("stopCode");
-    const approveCode = document.getElementById("approveCode");
-    const skipCodeApproval = document.getElementById("skipCodeApproval");
-    const setTestPlanStage = document.getElementById("setTestPlanStage");
-    const startTestPlan = document.getElementById("startTestPlan");
-    const approveTestPlan = document.getElementById("approveTestPlan");
-    const skipTestPlanApproval = document.getElementById("skipTestPlanApproval");
-    const setValidateStage = document.getElementById("setValidateStage");
-    const startAutomaticValidate = document.getElementById("startAutomaticValidate");
-    const startInteractiveValidate = document.getElementById("startInteractiveValidate");
-    const stopValidate = document.getElementById("stopValidate");
-    const approveValidate = document.getElementById("approveValidate");
-    const skipValidateApproval = document.getElementById("skipValidateApproval");
-    const documentTargets = document.getElementById("documentTargets");
-    const createDocumentTarget = document.getElementById("createDocumentTarget");
-    const customDocumentForm = document.getElementById("customDocumentForm");
-    const customDocumentName = document.getElementById("customDocumentName");
-    const addDocumentTarget = document.getElementById("addDocumentTarget");
     const projectPanel = document.getElementById("projectPanel");
     const projectPath = document.getElementById("projectPath");
     const browseProject = document.getElementById("browseProject");
@@ -194,8 +85,6 @@
     const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
     const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
     const SPLASH_DISMISSED_STORAGE_KEY = "electroboy.splash.dismissed.v1";
-    const SOFTWARE_SPLASH_IMAGE_ROUTE = "__SPLASH_IMAGE_ROUTE__";
-    const CREATIVE_SPLASH_IMAGE_ROUTE = "__CREATIVE_SPLASH_IMAGE_ROUTE__";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
@@ -225,73 +114,12 @@
     const PANE_LAYOUT_STORAGE_KEY = "electroboy.paneLayout.v1";
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
-    const CREATIVE_WORKFLOW_MODE = "creative";
-    const SOFTWARE_WORKFLOW_MODE = "software";
     const PANE_POPUP_FEATURES =
       "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
     const DEFAULT_DOCUMENT_TARGETS = [
       { label: "README", path: "README.md" },
       { label: "API", path: "docs/api.md" },
     ];
-    const STAGE_ARTIFACT_PREVIEWS = {
-      requirements: [
-        { id: "requirements", kind: "requirements", title: "Requirements" },
-      ],
-      design: [
-        {
-          id: "design",
-          kind: "route",
-          title: "Detailed Design",
-          path: "/artifacts/design",
-        },
-      ],
-      "design-review": [
-        {
-          id: "design",
-          kind: "route",
-          title: "Detailed Design",
-          path: "/artifacts/design",
-        },
-        {
-          id: "design-review",
-          kind: "route",
-          title: "Design Review",
-          path: "/artifacts/design-review",
-        },
-      ],
-      "implementation-plan": [
-        {
-          id: "implementation-plan",
-          kind: "route",
-          title: "Implementation Plan",
-          path: "/artifacts/implementation-plan",
-        },
-      ],
-      code: [
-        {
-          id: "implementation-report",
-          kind: "route",
-          title: "Implementation Report",
-          path: "/artifacts/implementation-report",
-        },
-      ],
-      "test-plan": [
-        {
-          id: "test-plan",
-          kind: "route",
-          title: "Test Plan",
-          path: "/artifacts/test-plan",
-        },
-      ],
-      validate: [
-        {
-          id: "validation-report",
-          kind: "route",
-          title: "Validation Report",
-          path: "/artifacts/validation-report",
-        },
-      ],
-    };
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
     const MIN_TERMINAL_FONT_SIZE = 11;
     const MAX_TERMINAL_FONT_SIZE = 24;
@@ -1392,46 +1220,82 @@
 
     function storedWorkflowMode() {
       try {
-        const stored = window.localStorage.getItem(WORKFLOW_MODE_STORAGE_KEY);
-        return stored === CREATIVE_WORKFLOW_MODE
-          ? CREATIVE_WORKFLOW_MODE
-          : SOFTWARE_WORKFLOW_MODE;
+        return window.localStorage.getItem(WORKFLOW_MODE_STORAGE_KEY) || "";
       } catch (error) {
-        return SOFTWARE_WORKFLOW_MODE;
+        return "";
       }
     }
 
     function registeredWorkflows() {
       const frontend = window.ElectroBoyFrontend;
-      if (frontend && typeof frontend.listWorkflows === "function") {
-        const workflows = frontend.listWorkflows();
-        if (workflows.length) {
-          return workflows;
-        }
+      if (!frontend || typeof frontend.workflow !== "function") {
+        return [];
       }
-      return [
-        {
-          id: "software",
-          mode: SOFTWARE_WORKFLOW_MODE,
-          label: "Software engineering",
-        },
-        {
-          id: "creative-writing",
-          mode: CREATIVE_WORKFLOW_MODE,
-          label: "Creative writing",
-        },
-      ];
+      return activeWorkflowDefinitions
+        .filter((definition) => frontend.workflow(definition.id))
+        .map((definition) => ({
+          ...frontend.workflow(definition.id),
+          definition,
+          id: definition.id,
+          label: definition.label,
+        }));
+    }
+
+    async function loadWorkflowRegistry() {
+      const response = await fetch("/api/registry", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`workflow registry failed: ${response.status}`);
+      }
+      const payload = await response.json();
+      activeWorkflowDefinitions = Array.isArray(payload.workflows)
+        ? payload.workflows
+        : [];
+    }
+
+    function workflowDefinition(workflowId = workflowMode) {
+      return activeWorkflowDefinitions.find(
+        (definition) => definition.id === workflowId,
+      ) || null;
+    }
+
+    function activeWorkflowContribution() {
+      return window.ElectroBoyFrontend.workflowForSelection(workflowMode);
+    }
+
+    function workflowHasCapability(capability) {
+      const contribution = activeWorkflowContribution();
+      return Boolean(
+        contribution &&
+        Array.isArray(contribution.capabilities) &&
+        contribution.capabilities.includes(capability),
+      );
     }
 
     function renderWorkflowModeOptions() {
       const workflows = registeredWorkflows();
       workflowModeSelect.replaceChildren();
+      if (workflows.length === 0) {
+        const option = document.createElement("option");
+        option.textContent = "No workflows installed";
+        option.value = "";
+        workflowModeSelect.append(option);
+        workflowModeSelect.disabled = true;
+        workflowMode = "";
+        return;
+      }
       workflows.forEach((workflow) => {
         const option = document.createElement("option");
-        option.value = workflow.mode;
+        option.value = workflow.id;
         option.textContent = workflow.label;
         workflowModeSelect.append(option);
       });
+      const stored = workflowMode;
+      const selected = workflows.find(
+        (workflow) => workflow.id === stored || workflow.mode === stored,
+      ) || workflows[0];
+      workflowMode = selected.id;
+      workflowModeSelect.value = workflowMode;
+      workflowModeSelect.disabled = workflows.length < 2;
     }
 
     function saveWorkflowMode() {
@@ -1443,42 +1307,123 @@
     }
 
     function creativeModeActive() {
-      return workflowMode === CREATIVE_WORKFLOW_MODE;
+      return workflowHasCapability("creative-workspace");
+    }
+
+    function stageConnector() {
+      const connector = document.createElement("span");
+      connector.className = "stage-connector";
+      connector.setAttribute("aria-hidden", "true");
+      connector.innerHTML = [
+        '<svg class="stage-connector-icon" viewBox="0 0 58 58" focusable="false">',
+        '<use href="#stageDoubleArrowIcon"></use>',
+        "</svg>",
+      ].join("");
+      return connector;
+    }
+
+    function renderStageGraph(definition, contribution) {
+      workflowStageGraph.replaceChildren();
+      const stages = Array.isArray(definition.stages) ? definition.stages : [];
+      const sidecars = new Set(contribution.sidecarStages || []);
+      stages.forEach((stage, index) => {
+        if (index > 0 && !sidecars.has(stage.id)) {
+          workflowStageGraph.append(stageConnector());
+        } else if (sidecars.has(stage.id)) {
+          const spacer = document.createElement("span");
+          spacer.className = "stage-spacer";
+          spacer.setAttribute("aria-hidden", "true");
+          workflowStageGraph.append(spacer);
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "stage-node disabled";
+        button.dataset.stage = stage.id;
+        button.textContent = stage.id;
+        button.disabled = true;
+        if (sidecars.has(stage.id)) {
+          button.classList.add("sidecar");
+        }
+        button.addEventListener("click", () => {
+          handleWorkflowStageClick(button).catch((error) => {
+            appendOutput(`stage update failed: ${error}\n`, "error");
+          });
+        });
+        workflowStageGraph.append(button);
+      });
+      stageNodes = Array.from(
+        workflowStageGraph.querySelectorAll(".stage-node[data-stage]"),
+      );
+      applyStageDescriptions();
+    }
+
+    function renderWorkflowNavigation() {
+      stageActionBody.replaceChildren();
+      workflowStageGraph.replaceChildren();
+      stageNodes = [];
+      const contribution = activeWorkflowContribution();
+      const definition = workflowDefinition();
+      if (!contribution || !definition) {
+        stageScroll.hidden = true;
+        const empty = document.createElement("div");
+        empty.className = "workflow-empty-state";
+        empty.textContent = activeWorkflowDefinitions.length
+          ? "An enabled workflow frontend failed to load."
+          : "No workflows are installed or enabled.";
+        stageActionBody.append(empty);
+        return;
+      }
+      stageScroll.hidden = contribution.navigation !== "stages";
+      if (contribution.navigation === "stages") {
+        renderStageGraph(definition, contribution);
+        renderStageActionPanel();
+      } else if (typeof contribution.renderNavigation === "function") {
+        contribution.renderNavigation(stageActionBody, frontendRuntime, definition);
+      }
     }
 
     function applyWorkflowMode(options = {}) {
       workflowModeSelect.value = workflowMode;
-      shell.classList.toggle("creative-workflow", creativeModeActive());
+      for (const workflow of registeredWorkflows()) {
+        if (workflow.layoutClass) {
+          shell.classList.toggle(
+            workflow.layoutClass,
+            workflow.id === workflowMode,
+          );
+        }
+      }
+      renderWorkflowNavigation();
       updateSplashImage();
       applyStoredWorkbenchPaneSize();
-      creativeBinder.hidden = !creativeModeActive();
-      stageActionBody.hidden = creativeModeActive();
       if (options.deferWorkspace) {
         refreshStageActionPanel();
-        updateCreativeBinderActions();
         window.requestAnimationFrame(fitTerminal);
         return;
       }
-      if (creativeModeActive()) {
-        setWorkflowSideSheetCollapsed(false);
-        applyCreativeWorkspace();
-        restoreScratchPad();
-        refreshCreativeBinder();
-      } else {
-        restoreSoftwareWorkspace();
+      const contribution = activeWorkflowContribution();
+      if (contribution && typeof contribution.activate === "function") {
+        contribution.activate(frontendRuntime);
       }
       refreshStageActionPanel();
-      updateCreativeBinderActions();
       window.requestAnimationFrame(fitTerminal);
     }
 
     async function setWorkflowMode(mode) {
-      const nextMode = mode === CREATIVE_WORKFLOW_MODE
-        ? CREATIVE_WORKFLOW_MODE
-        : SOFTWARE_WORKFLOW_MODE;
+      const available = registeredWorkflows();
+      const selected = available.find(
+        (workflow) => workflow.id === mode || workflow.mode === mode,
+      );
+      if (!selected) {
+        throw new Error(`workflow is not installed or enabled: ${mode}`);
+      }
+      const nextMode = selected.id;
       if (nextMode === workflowMode) {
         applyWorkflowMode();
         return;
+      }
+      const previous = activeWorkflowContribution();
+      if (previous && typeof previous.deactivate === "function") {
+        previous.deactivate(frontendRuntime);
       }
       releaseContextOwner();
       contextId = "";
@@ -2545,9 +2490,13 @@
     }
 
     function applyStageDescriptions() {
+      const contribution = activeWorkflowContribution();
+      const descriptions = contribution && contribution.stageDescriptions
+        ? contribution.stageDescriptions
+        : {};
       for (const stageNode of stageNodes) {
         const stageId = stageNode.dataset.stage || "";
-        const description = STAGE_DESCRIPTIONS[stageId] || "";
+        const description = descriptions[stageId] || "";
         if (!description) {
           continue;
         }
@@ -2764,10 +2713,7 @@
     });
 
     function contextWorkflowStorageKey(mode = workflowMode) {
-      const suffix = mode === CREATIVE_WORKFLOW_MODE
-        ? CREATIVE_WORKFLOW_MODE
-        : SOFTWARE_WORKFLOW_MODE;
-      return `${CONTEXT_STORAGE_KEY}.${suffix}`;
+      return `${CONTEXT_STORAGE_KEY}.${mode || "none"}`;
     }
 
     function splashDismissed() {
@@ -2783,6 +2729,9 @@
         return;
       }
       updateSplashImage();
+      if (!splashImage || !splashImage.getAttribute("src")) {
+        return;
+      }
       splashOverlay.hidden = false;
     }
 
@@ -2790,9 +2739,16 @@
       if (!splashImage) {
         return;
       }
-      splashImage.src = creativeModeActive()
-        ? CREATIVE_SPLASH_IMAGE_ROUTE
-        : SOFTWARE_SPLASH_IMAGE_ROUTE;
+      const contribution = activeWorkflowContribution();
+      const route = contribution && contribution.splashImage
+        ? contribution.splashImage
+        : "";
+      if (route) {
+        splashImage.setAttribute("src", route);
+      } else {
+        splashImage.removeAttribute("src");
+      }
+      showSplashButton.disabled = !route;
     }
 
     function showSplashIfNeeded() {
@@ -3152,37 +3108,21 @@
       updateAgentControls();
       const hasProjectContext = Boolean(activationRoot);
       const hasStageTarget = Boolean(activeProjectRoot);
-      const workflowStage = payload.workflow_stage || (hasStageTarget ? "requirements" : "project");
+      const definition = workflowDefinition();
+      const stages = definition && Array.isArray(definition.stages)
+        ? definition.stages
+        : [];
+      const firstProjectStage = stages.find((stage) => stage.id !== "project");
+      const workflowStage = payload.workflow_stage || (
+        hasStageTarget && firstProjectStage ? firstProjectStage.id : "project"
+      );
       currentWorkflowStage = workflowStage;
       if (!projectPath.value) {
         projectPath.value = activeProjectRoot || activationRoot || serviceRoot;
       }
       setConnected();
       updateStageNodes(hasProjectContext, hasStageTarget, workflowStage);
-      openProject.disabled = hasProjectContext;
-      newProject.disabled = hasProjectContext;
-      openMetaProject.disabled = hasProjectContext;
-      newMetaProject.disabled = hasProjectContext;
-      addMetaRepository.disabled = activeProjectMode !== "meta";
-      startMetaRepository.disabled =
-        activeProjectMode !== "meta" || registeredRepositories.length === 0;
-      removeMetaRepository.disabled =
-        activeProjectMode !== "meta" || registeredRepositories.length === 0;
-      workItemMenuButton.disabled = !hasStageTarget;
-      workItemMenuButton.textContent = activeProjectMenuLabel();
-      newFeatureWorkItem.disabled = !hasStageTarget;
-      switchFeatureWorkItem.disabled = !hasStageTarget;
-      newBugWorkItem.disabled = !hasStageTarget;
-      switchBugWorkItem.disabled = !hasStageTarget;
-      deactivateProject.disabled = !hasProjectContext;
-      renderMetaRepositoryMenus();
-      renderWorkItemMenus();
-      updateRequirementsMenuState();
-      updateDesignMenuState();
-      updateDesignReviewMenuState();
-      updateGenericStageMenuStates();
-      updateDocumentMenuState();
-      updateCreativeBinderActions();
+      refreshStageActionPanel();
       if (restoredScratchContextId !== contextId) {
         restoreScratchPad();
       }
@@ -3315,107 +3255,6 @@
       return name || path || "repo";
     }
 
-    function renderMetaRepositoryMenus() {
-      renderMetaRepositoryMenu(startMetaRepositorySubmenu, startMetaRepositoryFromMenu);
-      renderMetaRepositoryMenu(removeMetaRepositorySubmenu, removeMetaRepositoryFromMenu);
-      if (startMetaRepository.disabled) {
-        hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
-      }
-      if (removeMetaRepository.disabled) {
-        hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-      }
-    }
-
-    function renderWorkItemMenus() {
-      renderFeatureMenu();
-      renderBugMenu();
-      if (workItemMenuButton.disabled) {
-        hideSubmenu(workItemSubmenu, workItemMenuButton);
-      }
-      if (switchFeatureWorkItem.disabled) {
-        hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
-      }
-      if (switchBugWorkItem.disabled) {
-        hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
-      }
-    }
-
-    function renderFeatureMenu() {
-      switchFeatureWorkItemSubmenu.replaceChildren();
-      const features = workItemFeatures();
-      if (features.length === 0) {
-        appendDisabledMenuItem(switchFeatureWorkItemSubmenu, "No features");
-        return;
-      }
-      for (const feature of features) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = featureLabel(feature);
-        button.title = feature.title || feature.slug || "";
-        button.classList.toggle(
-          "active-repo",
-          feature.slug === workItemState.active_feature_slug,
-        );
-        button.addEventListener("click", () => switchFeatureWorkItemContext(feature.slug));
-        switchFeatureWorkItemSubmenu.append(button);
-      }
-    }
-
-    function renderBugMenu() {
-      switchBugWorkItemSubmenu.replaceChildren();
-      const bugs = workItemBugs();
-      if (bugs.length === 0) {
-        appendDisabledMenuItem(switchBugWorkItemSubmenu, "No bug resolutions");
-        return;
-      }
-      for (const bug of bugs) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = bug.title || bug.slug || "Bug";
-        button.title = bug.reference || bug.slug || "";
-        button.classList.toggle("active-repo", bug.slug === workItemState.active_bug_slug);
-        button.addEventListener("click", () => switchBugWorkItemContext(bug.slug));
-        switchBugWorkItemSubmenu.append(button);
-      }
-    }
-
-    function appendDisabledMenuItem(menu, label) {
-      const emptyButton = document.createElement("button");
-      emptyButton.type = "button";
-      emptyButton.disabled = true;
-      emptyButton.textContent = label;
-      menu.append(emptyButton);
-    }
-
-    function featureLabel(feature) {
-      const label = feature.name || feature.slug || "Feature";
-      return feature.parent_slug ? `${label} (subfeature)` : label;
-    }
-
-    function renderMetaRepositoryMenu(submenu, handler) {
-      submenu.replaceChildren();
-      if (registeredRepositories.length === 0) {
-        const emptyButton = document.createElement("button");
-        emptyButton.type = "button";
-        emptyButton.disabled = true;
-        emptyButton.textContent = "No repos";
-        submenu.append(emptyButton);
-        return;
-      }
-      for (const repository of registeredRepositories) {
-        const button = document.createElement("button");
-        const label = repositoryLabel(repository);
-        const path = String(repository.path || "");
-        button.type = "button";
-        button.className = "repo-menu-item";
-        button.textContent = label;
-        button.title = path || label;
-        button.classList.toggle("active-repo", label === activeRepositoryName);
-        button.addEventListener("click", () => handler(repository));
-        submenu.append(button);
-      }
-    }
-
     function selectedSession(...args) {
       return window.ElectroBoyFrontend.invokeModule("agent-sessions", "selectedSession", ...args);
     }
@@ -3496,32 +3335,17 @@
       return window.ElectroBoyFrontend.invokeModule("agent-sessions", "attachAgentSession", ...args);
     }
 
-    function showSubmenu(submenu, button) {
-      if (button.disabled) {
-        return;
-      }
-      submenu.hidden = false;
-      button.setAttribute("aria-expanded", "true");
-    }
-
-    function hideSubmenu(submenu, button) {
-      submenu.hidden = true;
-      button.setAttribute("aria-expanded", "false");
-    }
-
-    function toggleSubmenu(submenu, button) {
-      if (submenu.hidden) {
-        showSubmenu(submenu, button);
-      } else {
-        hideSubmenu(submenu, button);
-      }
-    }
-
     function updateStageNodes(hasProjectContext, hasStageTarget, workflowStage) {
+      const contribution = activeWorkflowContribution();
+      const sidecars = new Set(
+        contribution && Array.isArray(contribution.sidecarStages)
+          ? contribution.sidecarStages
+          : [],
+      );
       for (const stageNode of stageNodes) {
         const stageId = stageNode.dataset.stage || "";
         const isProject = stageId === "project";
-        const isSidecar = stageId === "document";
+        const isSidecar = sidecars.has(stageId);
         const isActive = isProject
           ? !hasProjectContext
           : hasStageTarget && !isSidecar && stageId === workflowStage;
@@ -3537,135 +3361,24 @@
       }
     }
 
-    function updateRequirementsMenuState() {
-      const hasActiveProject = Boolean(activeProjectRoot);
-      const inRequirementsStage = currentWorkflowStage === "requirements";
-      setRequirementsStage.disabled = !hasActiveProject || inRequirementsStage;
-      startRequirements.disabled =
-        !hasActiveProject || !inRequirementsStage || requirementsRunning;
-      approveRequirements.disabled = !hasActiveProject || !inRequirementsStage;
-      skipRequirementsApproval.disabled = !hasActiveProject || !inRequirementsStage;
-    }
-
-    function updateDesignMenuState() {
-      const hasActiveProject = Boolean(activeProjectRoot);
-      const inDesignStage = currentWorkflowStage === "design";
-      setDesignStage.disabled = !hasActiveProject || inDesignStage;
-      startDesign.disabled = !hasActiveProject || !inDesignStage || designRunning;
-      completeDesign.disabled = !hasActiveProject || !inDesignStage;
-    }
-
-    function updateDesignReviewMenuState() {
-      const hasActiveProject = Boolean(activeProjectRoot);
-      const inDesignReviewStage = currentWorkflowStage === "design-review";
-      setDesignReviewStage.disabled = !hasActiveProject || inDesignReviewStage;
-      startAutomaticDesignReview.disabled =
-        !hasActiveProject || !inDesignReviewStage || designReviewRunning;
-      startInteractiveDesignReview.disabled =
-        !hasActiveProject || !inDesignReviewStage || designReviewRunning;
-      stopDesignReview.disabled =
-        !hasActiveProject || !inDesignReviewStage || !designReviewRunning;
-      approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage;
-      skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage;
-    }
-
-    function updateGenericStageMenuStates() {
-      updateAuthoringStageMenuState(
-        "implementation-plan",
-        setImplementationPlanStage,
-        startImplementationPlan,
-        approveImplementationPlan,
-        skipImplementationPlanApproval,
-      );
-      updateAutomaticStageMenuState(
-        "code",
-        setCodeStage,
-        startAutomaticCode,
-        startInteractiveCode,
-        stopCode,
-        approveCode,
-        skipCodeApproval,
-      );
-      startCodeAdHocAgentButton.disabled = !Boolean(activeProjectRoot);
-      startCodeAdHocAgentButton.textContent = adHocRunning
-        ? "Focus ad-hoc"
-        : "Start ad-hoc";
-      updateAuthoringStageMenuState(
-        "test-plan",
-        setTestPlanStage,
-        startTestPlan,
-        approveTestPlan,
-        skipTestPlanApproval,
-      );
-      updateAutomaticStageMenuState(
-        "validate",
-        setValidateStage,
-        startAutomaticValidate,
-        startInteractiveValidate,
-        stopValidate,
-        approveValidate,
-        skipValidateApproval,
-      );
-    }
-
-    function updateAuthoringStageMenuState(
-      stage,
-      setStageButton,
-      startButton,
-      approveButton,
-      skipButton,
-    ) {
-      const hasActiveProject = Boolean(activeProjectRoot);
-      const inStage = currentWorkflowStage === stage;
-      const runState = genericStageRun(stage);
-      setStageButton.disabled = !hasActiveProject || inStage;
-      startButton.disabled = !hasActiveProject || !inStage || runState.running;
-      approveButton.disabled = !hasActiveProject || !inStage;
-      skipButton.disabled = !hasActiveProject || !inStage;
-    }
-
-    function updateAutomaticStageMenuState(
-      stage,
-      setStageButton,
-      startAutomaticButton,
-      startInteractiveButton,
-      stopButton,
-      approveButton,
-      skipButton,
-    ) {
-      const hasActiveProject = Boolean(activeProjectRoot);
-      const inStage = currentWorkflowStage === stage;
-      const runState = genericStageRun(stage);
-      setStageButton.disabled = !hasActiveProject || inStage;
-      startAutomaticButton.disabled =
-        !hasActiveProject || !inStage || runState.running;
-      startInteractiveButton.disabled =
-        !hasActiveProject || !inStage || runState.running;
-      stopButton.disabled = !hasActiveProject || !inStage || !runState.running;
-      approveButton.disabled = !hasActiveProject || !inStage;
-      skipButton.disabled = !hasActiveProject || !inStage;
-    }
-
     function genericStageRun(stage) {
       return stageRunState[stage] || { started: false, running: false, interactive: false };
     }
 
-    function updateDocumentMenuState() {
-      const hasActiveProject = Boolean(activeProjectRoot);
-      createDocumentTarget.disabled = !hasActiveProject;
-      addDocumentTarget.disabled = !hasActiveProject;
-      customDocumentName.disabled = !hasActiveProject;
-      renderDocumentTargets();
-      refreshStageActionPanel();
-    }
-
     function refreshStageActionPanel() {
-      renderStageActionPanel();
+      const contribution = activeWorkflowContribution();
+      if (!contribution) {
+        return;
+      }
+      if (contribution.navigation === "stages") {
+        renderStageActionPanel();
+      } else if (typeof contribution.refreshNavigation === "function") {
+        contribution.refreshNavigation(frontendRuntime);
+      }
     }
 
     function showStageActionPanel(stageId) {
       expandedWorkflowStages.add(stageId);
-      hideStageMenus();
       setWorkflowSideSheetCollapsed(false);
       renderStageActionPanel();
     }
@@ -3677,10 +3390,11 @@
     }
 
     function stageActionName(stageId) {
-      if (stageId === "project") {
-        return "Project";
-      }
-      return stageId;
+      const definition = workflowDefinition();
+      const stage = definition && Array.isArray(definition.stages)
+        ? definition.stages.find((entry) => entry.id === stageId)
+        : null;
+      return stage ? stage.label : stageId;
     }
 
     function renderStageActionPanel() {
@@ -3706,7 +3420,11 @@
       trigger.classList.toggle("complete", stageNode.classList.contains("complete"));
       trigger.classList.toggle("expanded", isExpanded);
       trigger.disabled = stageNode.disabled;
-      trigger.title = STAGE_DESCRIPTIONS[stageId] || stageId;
+      const contribution = activeWorkflowContribution();
+      const descriptions = contribution && contribution.stageDescriptions
+        ? contribution.stageDescriptions
+        : {};
+      trigger.title = descriptions[stageId] || stageId;
       trigger.setAttribute("aria-expanded", isExpanded ? "true" : "false");
 
       const label = document.createElement("span");
@@ -3848,14 +3566,6 @@
       return window.ElectroBoyFrontend.invokeModule("documents", "renderDocumentActionPanel", ...args);
     }
 
-    function allDocumentTargets(...args) {
-      return window.ElectroBoyFrontend.invokeModule("documents", "allDocumentTargets", ...args);
-    }
-
-    function renderDocumentTargets(...args) {
-      return window.ElectroBoyFrontend.invokeModule("documents", "renderDocumentTargets", ...args);
-    }
-
     function documentTargetFromInput(...args) {
       return window.ElectroBoyFrontend.invokeModule("documents", "documentTargetFromInput", ...args);
     }
@@ -3874,14 +3584,6 @@
 
     function selectOpenDocumentTarget(...args) {
       return window.ElectroBoyFrontend.invokeModule("documents", "selectOpenDocumentTarget", ...args);
-    }
-
-    function startCustomDocumentTargetFromValue(...args) {
-      return window.ElectroBoyFrontend.invokeModule("documents", "startCustomDocumentTargetFromValue", ...args);
-    }
-
-    function addCustomDocumentTarget(...args) {
-      return window.ElectroBoyFrontend.invokeModule("documents", "addCustomDocumentTarget", ...args);
     }
 
     function artifactKindForPane(...args) {
@@ -4782,15 +4484,9 @@
       registeredRepositories = [];
       workItemState = { collections: [], features: [], bugs: [] };
       projectPath.value = serviceRoot;
-      projectMenu.hidden = true;
-      requirementsMenu.hidden = true;
       hideStageActionPanel();
-      hideStageMenus();
-      hideStageMenus();
-      documentMenu.hidden = true;
       agentInput.disabled = true;
       interruptAgent.disabled = true;
-      startRequirements.disabled = false;
       requirementsRunning = false;
       designRunning = false;
       designReviewRunning = false;
@@ -4973,91 +4669,7 @@
       return window.ElectroBoyFrontend.invokeModule("agent-sessions", "interruptActiveAgent", ...args);
     }
 
-    function positionStageMenu(menu, stage) {
-      const paneRect = workflowPane.getBoundingClientRect();
-      const stageRect = stage.getBoundingClientRect();
-      const menuWidth = menu.offsetWidth || 192;
-      const inset = 8;
-      const left = Math.max(
-        inset,
-        Math.min(stageRect.left - paneRect.left, workflowPane.clientWidth - menuWidth - inset),
-      );
-      menu.style.left = `${left}px`;
-      menu.style.top = `${stageRect.bottom - paneRect.top + inset}px`;
-    }
-
-    function hideStageMenus(exceptMenu = null) {
-      const menus = [
-        projectMenu,
-        requirementsMenu,
-        designMenu,
-        designReviewMenu,
-        implementationPlanMenu,
-        codeMenu,
-        testPlanMenu,
-        validateMenu,
-        documentMenu,
-      ];
-      for (const menu of menus) {
-        if (menu !== exceptMenu) {
-          menu.hidden = true;
-        }
-      }
-      if (exceptMenu !== projectMenu) {
-        hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
-        hideSubmenu(workItemSubmenu, workItemMenuButton);
-      }
-      hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
-      hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-      hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
-      hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
-    }
-
-    function toggleStageMenu(menu, stage) {
-      const shouldOpen = menu.hidden;
-      hideStageMenus(menu);
-      menu.hidden = !shouldOpen;
-      if (shouldOpen) {
-        positionStageMenu(menu, stage);
-      } else if (menu === projectMenu) {
-        hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
-        hideSubmenu(workItemSubmenu, workItemMenuButton);
-        hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
-        hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-        hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
-        hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
-      }
-    }
-
-    function repositionOpenStageMenu() {
-      if (!projectMenu.hidden) {
-        positionStageMenu(projectMenu, projectStage);
-      }
-      if (!requirementsMenu.hidden) {
-        positionStageMenu(requirementsMenu, requirementsStage);
-      }
-      if (!designMenu.hidden) {
-        positionStageMenu(designMenu, designStage);
-      }
-      if (!designReviewMenu.hidden) {
-        positionStageMenu(designReviewMenu, designReviewStage);
-      }
-      if (!implementationPlanMenu.hidden) {
-        positionStageMenu(implementationPlanMenu, implementationPlanStage);
-      }
-      if (!codeMenu.hidden) {
-        positionStageMenu(codeMenu, codeStage);
-      }
-      if (!testPlanMenu.hidden) {
-        positionStageMenu(testPlanMenu, testPlanStage);
-      }
-      if (!validateMenu.hidden) {
-        positionStageMenu(validateMenu, validateStage);
-      }
-      if (!documentMenu.hidden) {
-        positionStageMenu(documentMenu, documentStage);
-      }
-    }
+    function hideStageMenus() {}
 
     async function handleWorkflowStageClick(stageNode) {
       const stageId = stageNode.dataset.stage || "";
@@ -5067,67 +4679,6 @@
       showStageActionPanel(stageId);
     }
 
-    openProject.addEventListener("click", () => openProjectBrowser("open", true));
-    newProject.addEventListener("click", () => openProjectBrowser("new", true));
-    openMetaProject.addEventListener("click", () => openProjectBrowser("open", true));
-    newMetaProject.addEventListener("click", () => openProjectBrowser("meta-new", true));
-    addMetaRepository.addEventListener("click", () => showProjectPanel("meta-add"));
-    metaProjectMenuButton.addEventListener("click", () => {
-      toggleSubmenu(metaProjectSubmenu, metaProjectMenuButton);
-    });
-    metaProjectBranch.addEventListener("mouseenter", () => {
-      showSubmenu(metaProjectSubmenu, metaProjectMenuButton);
-    });
-    metaProjectBranch.addEventListener("mouseleave", () => {
-      hideSubmenu(metaProjectSubmenu, metaProjectMenuButton);
-    });
-    startMetaRepository.addEventListener("click", () => {
-      toggleSubmenu(startMetaRepositorySubmenu, startMetaRepository);
-    });
-    startMetaRepositoryBranch.addEventListener("mouseenter", () => {
-      showSubmenu(startMetaRepositorySubmenu, startMetaRepository);
-    });
-    startMetaRepositoryBranch.addEventListener("mouseleave", () => {
-      hideSubmenu(startMetaRepositorySubmenu, startMetaRepository);
-    });
-    removeMetaRepository.addEventListener("click", () => {
-      toggleSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-    });
-    removeMetaRepositoryBranch.addEventListener("mouseenter", () => {
-      showSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-    });
-    removeMetaRepositoryBranch.addEventListener("mouseleave", () => {
-      hideSubmenu(removeMetaRepositorySubmenu, removeMetaRepository);
-    });
-    workItemMenuButton.addEventListener("click", () => {
-      toggleSubmenu(workItemSubmenu, workItemMenuButton);
-    });
-    workItemBranch.addEventListener("mouseenter", () => {
-      showSubmenu(workItemSubmenu, workItemMenuButton);
-    });
-    workItemBranch.addEventListener("mouseleave", () => {
-      hideSubmenu(workItemSubmenu, workItemMenuButton);
-    });
-    switchFeatureWorkItem.addEventListener("click", () => {
-      toggleSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
-    });
-    switchFeatureWorkItemBranch.addEventListener("mouseenter", () => {
-      showSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
-    });
-    switchFeatureWorkItemBranch.addEventListener("mouseleave", () => {
-      hideSubmenu(switchFeatureWorkItemSubmenu, switchFeatureWorkItem);
-    });
-    switchBugWorkItem.addEventListener("click", () => {
-      toggleSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
-    });
-    switchBugWorkItemBranch.addEventListener("mouseenter", () => {
-      showSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
-    });
-    switchBugWorkItemBranch.addEventListener("mouseleave", () => {
-      hideSubmenu(switchBugWorkItemSubmenu, switchBugWorkItem);
-    });
-    newFeatureWorkItem.addEventListener("click", () => showWorkItemPanel("feature-new"));
-    newBugWorkItem.addEventListener("click", () => showWorkItemPanel("bug-new"));
     applyWorkItem.addEventListener("click", applyWorkItemSelection);
     cancelWorkItem.addEventListener("click", hideWorkItemPanel);
     retryWorkItem.addEventListener("click", applyWorkItemSelection);
@@ -5137,7 +4688,6 @@
         applyWorkItemSelection();
       }
     });
-    deactivateProject.addEventListener("click", deactivateActiveProject);
     browseProject.addEventListener("click", () => {
       openProjectBrowser();
     });
@@ -5228,8 +4778,6 @@
       openLinkFileBrowser();
     });
     toggleWorkflowSideSheet.addEventListener("click", toggleWorkflowSideSheetCollapsed);
-    stageScroll.addEventListener("scroll", repositionOpenStageMenu);
-    window.addEventListener("resize", repositionOpenStageMenu);
     closeSplash.addEventListener("click", dismissSplash);
     showSplashButton.addEventListener("click", openSplash);
     splashOverlay.addEventListener("click", (event) => {
@@ -5253,53 +4801,7 @@
 
     const frontendRuntime = {
       elements: {
-        projectStage,
-        stageNodes,
-        creativeTree,
-        creativeProjectMenuButton,
-        creativeAgentMenuButton,
-        creativeOpenProject,
-        creativeNewProject,
-        creativeCloseProject,
-        creativeStartAgent,
-        setRequirementsStage,
-        startRequirements,
-        approveRequirements,
-        skipRequirementsApproval,
-        setDesignStage,
-        startDesign,
-        completeDesign,
-        setDesignReviewStage,
-        startAutomaticDesignReview,
-        startInteractiveDesignReview,
-        stopDesignReview,
-        approveDesignReview,
-        skipDesignReviewApproval,
-        setImplementationPlanStage,
-        startImplementationPlan,
-        approveImplementationPlan,
-        skipImplementationPlanApproval,
-        setCodeStage,
-        startAutomaticCode,
-        startInteractiveCode,
-        startCodeAdHocAgent: startCodeAdHocAgentButton,
-        stopCode,
-        approveCode,
-        skipCodeApproval,
-        setTestPlanStage,
-        startTestPlan,
-        approveTestPlan,
-        skipTestPlanApproval,
-        setValidateStage,
-        startAutomaticValidate,
-        startInteractiveValidate,
-        stopValidate,
-        approveValidate,
-        skipValidateApproval,
-        createDocumentTarget,
-        customDocumentForm,
-        customDocumentName,
-        addDocumentTarget,
+        creativeTree: null,
         exportProgressOutput,
         openProjectShell,
         toggleProjectShellPane,
@@ -5354,6 +4856,8 @@
         handleWorkflowStageClick,
         setAgentInputVisible,
         clearAgentOutput,
+        setWorkflowSideSheetCollapsed,
+        restoreScratchPad,
         contextUrl,
         updateProjectState,
         connectSessionEvents,
@@ -5405,7 +4909,6 @@
         showWorkItemPanel,
         workItemFeatures,
         workItemBugs,
-        featureLabel,
         switchFeature: switchFeatureWorkItemContext,
         switchBug: switchBugWorkItemContext,
         storedDocumentTargets,
@@ -5461,15 +4964,11 @@
         refreshServiceSessions,
         attachAgentSession,
         renderDocumentActionPanel,
-        allDocumentTargets,
-        renderDocumentTargets,
         documentTargetFromInput,
         documentTargetFromSelectedPath,
         registerDocumentTarget,
         launchDocumentTarget,
         selectOpenDocumentTarget,
-        startCustomDocumentTargetFromValue,
-        addCustomDocumentTarget,
         artifactKindForPane,
         artifactRouteUrl,
         artifactPreviewUrl,
@@ -5555,11 +5054,11 @@
 
     async function initialize() {
       window.ElectroBoyFrontend.bindRuntime(frontendRuntime);
+      await checkConnection();
+      await loadWorkflowRegistry();
       renderWorkflowModeOptions();
-      applyStageDescriptions();
       applyWorkflowSideSheetState();
       applyWorkflowMode();
-      renderStageActionPanel();
       initializePaneLayout();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();
@@ -5572,7 +5071,9 @@
       initializeTerminal();
       observeTerminalPaneResizes();
       showSplashIfNeeded();
-      await checkConnection();
+      if (!workflowMode) {
+        return;
+      }
       await restoreContext();
       await refreshServiceSessions();
       window.setInterval(refreshServiceSessions, 10000);

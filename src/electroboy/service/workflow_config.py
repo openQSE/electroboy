@@ -172,8 +172,7 @@ def workflow_config_payload(service_root: Path | str) -> dict[str, object]:
 def _string_tuple(value: object, default: tuple[str, ...]) -> tuple[str, ...]:
     if not isinstance(value, list):
         return default
-    values = tuple(str(entry).strip() for entry in value if str(entry).strip())
-    return values or default
+    return tuple(str(entry).strip() for entry in value if str(entry).strip())
 
 
 def _load_workflow_factory(

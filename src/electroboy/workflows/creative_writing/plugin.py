@@ -41,6 +41,7 @@ def workflow() -> WorkflowDefinition:
         project_kinds=("creative-writing",),
         backend_package="electroboy.workflows.creative_writing",
         frontend_bundle="workflows/creative-writing.js",
+        frontend_stylesheets=("css/workflows/creative-writing.css",),
         asset_package="electroboy.workflows.creative_writing",
         controller_factory=CreativeWritingWorkflowController,
         routes=ROUTES,

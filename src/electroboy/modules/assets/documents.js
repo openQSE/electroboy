@@ -225,30 +225,6 @@
       );
     }
 
-    function allDocumentTargets() {
-      const byPath = new Map();
-      for (const target of [...DEFAULT_DOCUMENT_TARGETS, ...customDocumentTargets]) {
-        byPath.set(target.path, target);
-      }
-      return Array.from(byPath.values());
-    }
-
-    function renderDocumentTargets() {
-      documentTargets.replaceChildren();
-      const disabled = !activeProjectRoot;
-      for (const target of allDocumentTargets()) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = target.label;
-        button.title = target.path;
-        button.disabled = disabled;
-        button.addEventListener("click", () => {
-          launchDocumentTarget(target);
-        });
-        documentTargets.append(button);
-      }
-    }
-
     function documentTargetFromInput(value) {
       const raw = value.trim();
       if (!raw) {
@@ -292,7 +268,6 @@
       );
       customDocumentTargets.push(target);
       saveDocumentTargets();
-      renderDocumentTargets();
       refreshStageActionPanel();
     }
 
@@ -323,25 +298,6 @@
         return;
       }
       launchDocumentTarget(target);
-    }
-
-    function startCustomDocumentTargetFromValue(value) {
-      if (!activeProjectRoot) {
-        return;
-      }
-      const target = documentTargetFromInput(value);
-      if (!target) {
-        return;
-      }
-      if (customDocumentName) {
-        customDocumentName.value = "";
-        customDocumentForm.hidden = true;
-      }
-      launchDocumentTarget(target);
-    }
-
-    function addCustomDocumentTarget() {
-      startCustomDocumentTargetFromValue(customDocumentName.value);
     }
 
     function artifactKindForPane(item) {
@@ -429,7 +385,14 @@
     }
 
     function artifactPreviewsForStage(stage) {
-      return (STAGE_ARTIFACT_PREVIEWS[stage] || []).map((item) => ({ ...item }));
+      const frontend = window.ElectroBoyFrontend;
+      const workflow = frontend && typeof frontend.workflowForSelection === "function"
+        ? frontend.workflowForSelection(workflowMode)
+        : null;
+      const previews = workflow && workflow.artifactPreviews
+        ? workflow.artifactPreviews[stage]
+        : [];
+      return (previews || []).map((item) => ({ ...item }));
     }
 
     function setArtifactCompatibilityState(items) {
@@ -920,28 +883,6 @@
       sendTerminalResize();
     }
 
-
-  function mount(runtime) {
-    const element = runtime.elements;
-    const action = runtime.actions;
-    element.createDocumentTarget.addEventListener("click", () => {
-      element.customDocumentForm.hidden = !element.customDocumentForm.hidden;
-      if (!element.customDocumentForm.hidden) {
-        element.customDocumentName.focus();
-      }
-    });
-    element.addDocumentTarget.addEventListener(
-      "click",
-      () => action.addCustomDocumentTarget(),
-    );
-    element.customDocumentName.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        action.addCustomDocumentTarget();
-      }
-    });
-  }
-
   window.ElectroBoyFrontend.registerModule({
     id: "documents",
     label: "Documents",
@@ -965,15 +906,11 @@
       renderDocumentTargetSwitcher: (_runtime, ...args) => renderDocumentTargetSwitcher(...args),
       refreshDocumentTargetSwitchers: (_runtime, ...args) => refreshDocumentTargetSwitchers(...args),
       renderDocumentActionPanel: (_runtime, ...args) => renderDocumentActionPanel(...args),
-      allDocumentTargets: (_runtime, ...args) => allDocumentTargets(...args),
-      renderDocumentTargets: (_runtime, ...args) => renderDocumentTargets(...args),
       documentTargetFromInput: (_runtime, ...args) => documentTargetFromInput(...args),
       documentTargetFromSelectedPath: (_runtime, ...args) => documentTargetFromSelectedPath(...args),
       registerDocumentTarget: (_runtime, ...args) => registerDocumentTarget(...args),
       launchDocumentTarget: (_runtime, ...args) => launchDocumentTarget(...args),
       selectOpenDocumentTarget: (_runtime, ...args) => selectOpenDocumentTarget(...args),
-      startCustomDocumentTargetFromValue: (_runtime, ...args) => startCustomDocumentTargetFromValue(...args),
-      addCustomDocumentTarget: (_runtime, ...args) => addCustomDocumentTarget(...args),
       artifactKindForPane: (_runtime, ...args) => artifactKindForPane(...args),
       artifactRouteUrl: (_runtime, ...args) => artifactRouteUrl(...args),
       artifactPreviewUrl: (_runtime, ...args) => artifactPreviewUrl(...args),
@@ -1002,6 +939,5 @@
       syncArtifactPreviewWithProject: (_runtime, ...args) => syncArtifactPreviewWithProject(...args),
       startDocumentationAgent: (_runtime, ...args) => startDocumentationAgent(...args),
     },
-    mount,
   });
 })();

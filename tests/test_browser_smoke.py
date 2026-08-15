@@ -8,20 +8,18 @@ from pathlib import Path
 import pytest
 
 from electroboy.service import create_server
+from electroboy.service.workflow_config import WorkflowConfig, save_workflow_config
 
 
 CHROME = shutil.which("google-chrome") or shutil.which("chromium")
 
 
-@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
-def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
-    server = create_server(tmp_path / "service", port=0)
+def browser_dom(server: object, profile: Path) -> subprocess.CompletedProcess[str]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     port = server.server_address[1]
-    profile = tmp_path / "chrome-profile"
     try:
-        completed = subprocess.run(
+        return subprocess.run(
             [
                 str(CHROME),
                 "--headless=new",
@@ -44,7 +42,46 @@ def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
         thread.join(timeout=2)
         server.server_close()
 
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
+    server = create_server(tmp_path / "service", port=0)
+    completed = browser_dom(server, tmp_path / "chrome-profile")
+
     assert completed.returncode == 0, completed.stdout
     assert 'id="connection" class="connection">connected' in completed.stdout
     assert 'data-stage="requirements"' in completed.stdout
     assert 'id="sessionSwitcher"' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_shell_loads_creative_workflow_navigation(tmp_path: Path) -> None:
+    root = tmp_path / "creative-service"
+    save_workflow_config(
+        root,
+        WorkflowConfig(enabled_builtins=("creative-writing",)),
+    )
+    completed = browser_dom(
+        create_server(root, port=0),
+        tmp_path / "creative-chrome-profile",
+    )
+
+    assert completed.returncode == 0, completed.stdout
+    assert 'class="creative-binder"' in completed.stdout
+    assert 'data-creative-control="project-menu"' in completed.stdout
+    assert 'data-stage="requirements"' not in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_shell_has_clean_empty_workflow_state(tmp_path: Path) -> None:
+    root = tmp_path / "core-service"
+    save_workflow_config(root, WorkflowConfig(enabled_builtins=()))
+    completed = browser_dom(
+        create_server(root, port=0),
+        tmp_path / "core-chrome-profile",
+    )
+
+    assert completed.returncode == 0, completed.stdout
+    assert "No workflows are installed or enabled." in completed.stdout
+    assert 'data-stage="requirements"' not in completed.stdout
+    assert 'class="creative-binder"' not in completed.stdout

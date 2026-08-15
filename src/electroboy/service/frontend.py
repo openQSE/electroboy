@@ -14,6 +14,7 @@ SERVICE_ASSET_PACKAGE = "electroboy"
 SERVICE_ASSET_DIRECTORY = ("assets", "service")
 SERVICE_STATIC_ROUTE_PREFIX = "/assets/service/"
 CONTRIBUTION_SCRIPT_MARKER = "<!-- __ELECTROBOY_CONTRIBUTION_SCRIPTS__ -->"
+CONTRIBUTION_STYLE_MARKER = "<!-- __ELECTROBOY_CONTRIBUTION_STYLES__ -->"
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,19 @@ def render_service_index(
         f'<script src="{SERVICE_STATIC_ROUTE_PREFIX}{path}"></script>'
         for path in dict.fromkeys(paths)
     )
-    return template.replace(CONTRIBUTION_SCRIPT_MARKER, scripts)
+    stylesheets = [] if workflow_registry is None else [
+        stylesheet
+        for workflow in workflow_registry.values()
+        for stylesheet in workflow.frontend_stylesheets
+    ]
+    links = "\n  ".join(
+        f'<link rel="stylesheet" href="{SERVICE_STATIC_ROUTE_PREFIX}{path}">'
+        for path in dict.fromkeys(stylesheets)
+    )
+    return (
+        template.replace(CONTRIBUTION_STYLE_MARKER, links)
+        .replace(CONTRIBUTION_SCRIPT_MARKER, scripts)
+    )
 
 
 def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
@@ -150,18 +163,6 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             assets=("js/modules/project-shell.js",),
         ),
         FrontendBundle(
-            id="software-workflow",
-            label="Software Engineering Workflow",
-            owner="software",
-            assets=("js/workflows/software.js",),
-        ),
-        FrontendBundle(
-            id="creative-writing-workflow",
-            label="Creative Writing Workflow",
-            owner="creative-writing",
-            assets=("js/workflows/creative-writing.js",),
-        ),
-        FrontendBundle(
             id="pane-window",
             label="Pane Window",
             owner="core",
@@ -209,7 +210,10 @@ def frontend_asset_payload(
                 id=f"{workflow.id}-workflow",
                 label=f"{workflow.label} Workflow",
                 owner=workflow.id,
-                assets=(f"js/{workflow.frontend_bundle}",),
+                assets=(
+                    f"js/{workflow.frontend_bundle}",
+                    *workflow.frontend_stylesheets,
+                ),
             )
             for workflow in workflow_registry.values()
             if workflow.frontend_bundle
@@ -283,6 +287,15 @@ def _contributed_assets(
                     workflow.asset_resource,
                 )
             )
+            assets.extend(
+                (
+                    stylesheet,
+                    workflow.asset_package,
+                    workflow.asset_root,
+                    stylesheet.rsplit("/", 1)[-1],
+                )
+                for stylesheet in workflow.frontend_stylesheets
+            )
     # Compatibility for direct asset reads in source checkouts and tests.
     return tuple(assets) + (
         (
@@ -321,17 +334,5 @@ def _contributed_assets(
             "electroboy.modules",
             "assets",
             "project-shell.js",
-        ),
-        (
-            "js/workflows/software.js",
-            "electroboy.workflows.software",
-            "assets",
-            "frontend.js",
-        ),
-        (
-            "js/workflows/creative-writing.js",
-            "electroboy.workflows.creative_writing",
-            "assets",
-            "frontend.js",
         ),
     )

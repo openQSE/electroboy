@@ -135,6 +135,7 @@ class WorkflowDefinition:
     asset_package: str | None = None
     asset_root: str = "assets"
     asset_resource: str = "frontend.js"
+    frontend_stylesheets: tuple[str, ...] = ()
     routes: tuple[RouteDefinition, ...] = ()
     handlers: dict[str, RouteHandler] = field(
         default_factory=dict,
@@ -160,6 +161,7 @@ class WorkflowDefinition:
             "frontend_bundle": self.frontend_bundle,
             "asset_package": self.asset_package,
             "asset_resource": self.asset_resource,
+            "frontend_stylesheets": list(self.frontend_stylesheets),
             "routes": [route.payload() for route in self.routes],
             "provider": self.provider,
             "entry_point": self.entry_point,
@@ -275,7 +277,8 @@ def build_module_registry(
     modules: Iterable[ServiceModule] | None = None,
 ) -> ModuleRegistry:
     registry = ModuleRegistry()
-    for module in modules or built_in_service_modules():
+    selected_modules = built_in_service_modules() if modules is None else modules
+    for module in selected_modules:
         registry.register(module)
     return registry
 
@@ -285,7 +288,8 @@ def build_workflow_registry(
     workflows: Iterable[WorkflowDefinition] | None = None,
 ) -> WorkflowRegistry:
     registry = WorkflowRegistry(module_registry)
-    for workflow in workflows or built_in_workflows():
+    selected_workflows = built_in_workflows() if workflows is None else workflows
+    for workflow in selected_workflows:
         registry.register(workflow)
     return registry
 

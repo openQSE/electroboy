@@ -1,6 +1,68 @@
 (function () {
   "use strict";
 
+  const STAGE_DESCRIPTIONS = {
+    project: "Open an existing ElectroBoy project or create a new one.",
+    requirements: "Author or resume the requirements document with the requirements agent.",
+    design: "Author the detailed design from the approved requirements.",
+    "design-review": "Review the detailed design and capture blocking design issues.",
+    "implementation-plan": "Author the implementation plan and implementation units.",
+    code: "Implement and commit the planned code changes.",
+    "test-plan": "Author the test plan with validation commands and acceptance checks.",
+    validate: "Run validation commands and tests, then write the validation report.",
+    document: "Update final project documentation after validation passes.",
+  };
+
+  const ARTIFACT_PREVIEWS = {
+    requirements: [
+      { id: "requirements", kind: "requirements", title: "Requirements" },
+    ],
+    design: [
+      { id: "design", kind: "route", title: "Detailed Design", path: "/artifacts/design" },
+    ],
+    "design-review": [
+      { id: "design", kind: "route", title: "Detailed Design", path: "/artifacts/design" },
+      {
+        id: "design-review",
+        kind: "route",
+        title: "Design Review",
+        path: "/artifacts/design-review",
+      },
+    ],
+    "implementation-plan": [
+      {
+        id: "implementation-plan",
+        kind: "route",
+        title: "Implementation Plan",
+        path: "/artifacts/implementation-plan",
+      },
+    ],
+    code: [
+      {
+        id: "implementation-report",
+        kind: "route",
+        title: "Implementation Report",
+        path: "/artifacts/implementation-report",
+      },
+    ],
+    "test-plan": [
+      { id: "test-plan", kind: "route", title: "Test Plan", path: "/artifacts/test-plan" },
+    ],
+    validate: [
+      {
+        id: "validation-report",
+        kind: "route",
+        title: "Validation Report",
+        path: "/artifacts/validation-report",
+      },
+    ],
+  };
+
+  function featureLabel(feature) {
+    const label = feature.name || feature.slug || "Feature";
+    return feature.parent_slug ? `${label} (subfeature)` : label;
+  }
+
   function stageActions(stageId, runtime) {
     const state = runtime.getState();
     const action = runtime.actions;
@@ -233,7 +295,7 @@
     ];
     for (const feature of action.workItemFeatures()) {
       workItemActions.push({
-        label: `Switch feature: ${action.featureLabel(feature)}`,
+        label: `Switch feature: ${featureLabel(feature)}`,
         title: feature.title || feature.slug || "",
         disabled: !hasProject ||
           feature.slug === state.workItemState.active_feature_slug,
@@ -800,167 +862,20 @@
       await approveGenericStage(stage, label, true);
     }
 
-
-  function mount(runtime) {
-    const element = runtime.elements;
-    const action = runtime.actions;
-    element.projectStage.addEventListener("click", () => {
-      action.showStageActionPanel("project");
-    });
-    for (const stageNode of element.stageNodes) {
-      if (stageNode.dataset.stage === "project") {
-        continue;
-      }
-      stageNode.addEventListener("click", () => {
-        action.handleWorkflowStageClick(stageNode).catch((error) => {
-          action.appendOutput(`stage update failed: ${error}\n`, "error");
-        });
-      });
-    }
-    element.setRequirementsStage.addEventListener(
-      "click",
-      () => action.setWorkflowStage("requirements"),
-    );
-    element.startRequirements.addEventListener(
-      "click",
-      () => action.startRequirementsAgent(),
-    );
-    element.approveRequirements.addEventListener(
-      "click",
-      () => action.approveRequirementsStage(),
-    );
-    element.skipRequirementsApproval.addEventListener(
-      "click",
-      () => action.skipRequirementsApprovalStage(),
-    );
-    element.setDesignStage.addEventListener(
-      "click",
-      () => action.setWorkflowStage("design"),
-    );
-    element.startDesign.addEventListener("click", () => action.startDesignAgent());
-    element.completeDesign.addEventListener("click", () => action.completeDesignAgent());
-    element.setDesignReviewStage.addEventListener(
-      "click",
-      () => action.setWorkflowStage("design-review"),
-    );
-    element.startAutomaticDesignReview.addEventListener(
-      "click",
-      () => action.startAutomaticDesignReviewAgent(),
-    );
-    element.startInteractiveDesignReview.addEventListener(
-      "click",
-      () => action.startInteractiveDesignReviewAgent(),
-    );
-    element.stopDesignReview.addEventListener(
-      "click",
-      () => action.stopDesignReviewAgent(),
-    );
-    element.approveDesignReview.addEventListener(
-      "click",
-      () => action.approveDesignReviewStage(),
-    );
-    element.skipDesignReviewApproval.addEventListener(
-      "click",
-      () => action.skipDesignReviewApprovalStage(),
-    );
-    bindGenericStageControls(runtime);
-  }
-
-  function bindGenericStageControls(runtime) {
-    const element = runtime.elements;
-    const action = runtime.actions;
-    element.setImplementationPlanStage.addEventListener(
-      "click",
-      () => action.setWorkflowStage("implementation-plan"),
-    );
-    element.startImplementationPlan.addEventListener("click", () => {
-      action.startGenericStageAgent(
-        "implementation-plan",
-        "$ electroboy implementation-plan",
-        true,
-      );
-    });
-    element.approveImplementationPlan.addEventListener("click", () => {
-      action.approveGenericStage("implementation-plan", "implementation plan");
-    });
-    element.skipImplementationPlanApproval.addEventListener("click", () => {
-      action.skipGenericStageApproval("implementation-plan", "Implementation plan");
-    });
-    element.setCodeStage.addEventListener(
-      "click",
-      () => action.setWorkflowStage("code"),
-    );
-    element.startAutomaticCode.addEventListener("click", () => {
-      action.startGenericStageAgent("code", "$ electroboy code", false);
-    });
-    element.startInteractiveCode.addEventListener("click", () => {
-      action.startGenericStageAgent("code", "$ electroboy code --interactive", true);
-    });
-    element.startCodeAdHocAgent.addEventListener(
-      "click",
-      () => action.startAdHocAgent(),
-    );
-    element.stopCode.addEventListener(
-      "click",
-      () => action.stopGenericStageAgent("code", "code"),
-    );
-    element.approveCode.addEventListener(
-      "click",
-      () => action.approveGenericStage("code", "code"),
-    );
-    element.skipCodeApproval.addEventListener(
-      "click",
-      () => action.skipGenericStageApproval("code", "Code"),
-    );
-    element.setTestPlanStage.addEventListener(
-      "click",
-      () => action.setWorkflowStage("test-plan"),
-    );
-    element.startTestPlan.addEventListener("click", () => {
-      action.startGenericStageAgent("test-plan", "$ electroboy test-plan", true);
-    });
-    element.approveTestPlan.addEventListener(
-      "click",
-      () => action.approveGenericStage("test-plan", "test plan"),
-    );
-    element.skipTestPlanApproval.addEventListener(
-      "click",
-      () => action.skipGenericStageApproval("test-plan", "Test plan"),
-    );
-    element.setValidateStage.addEventListener(
-      "click",
-      () => action.setWorkflowStage("validate"),
-    );
-    element.startAutomaticValidate.addEventListener("click", () => {
-      action.startGenericStageAgent("validate", "$ electroboy validate", false);
-    });
-    element.startInteractiveValidate.addEventListener("click", () => {
-      action.startGenericStageAgent(
-        "validate",
-        "$ electroboy validate --interactive",
-        true,
-      );
-    });
-    element.stopValidate.addEventListener(
-      "click",
-      () => action.stopGenericStageAgent("validate", "validation"),
-    );
-    element.approveValidate.addEventListener(
-      "click",
-      () => action.approveGenericStage("validate", "validation"),
-    );
-    element.skipValidateApproval.addEventListener(
-      "click",
-      () => action.skipGenericStageApproval("validate", "Validation"),
-    );
-  }
-
   window.ElectroBoyFrontend.registerWorkflow({
     id: "software",
     mode: "software",
     label: "Software engineering",
     order: 10,
     backendPackage: "electroboy.workflows.software",
+    navigation: "stages",
+    sidecarStages: ["document"],
+    stageDescriptions: STAGE_DESCRIPTIONS,
+    artifactPreviews: ARTIFACT_PREVIEWS,
+    splashImage: "__SPLASH_IMAGE_ROUTE__",
+    activate(runtime) {
+      runtime.actions.restoreSoftwareWorkspace();
+    },
     stageActions,
     actions: {
       restoreSoftwareWorkspace: (_runtime, ...args) => restoreSoftwareWorkspace(...args),
@@ -987,6 +902,5 @@
       approveGenericStage: (_runtime, ...args) => approveGenericStage(...args),
       skipGenericStageApproval: (_runtime, ...args) => skipGenericStageApproval(...args),
     },
-    mount,
   });
 })();

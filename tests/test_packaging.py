@@ -55,6 +55,10 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
     assert (
         ROOT / "src/electroboy/workflows/creative_writing/assets/frontend.js"
     ).is_file()
+    assert (
+        ROOT
+        / "src/electroboy/workflows/creative_writing/assets/creative-writing.css"
+    ).is_file()
     legacy_asset = ROOT / "src/electroboy/assets/service/js/workflows/software.js"
     assert not legacy_asset.exists()
 
@@ -63,6 +67,11 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
     ).read_text(encoding="utf-8")
     assert '"assets/service/js/core/*.js"' in core_manifest
     assert '"assets/service/js/*.js"' not in core_manifest
+
+    creative_manifest = (
+        ROOT / "packages/electroboy-workflow-creative-writing/pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert '"assets/*.css"' in creative_manifest
 
 
 def test_workflow_controllers_do_not_import_service_app() -> None:

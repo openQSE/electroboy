@@ -36,8 +36,8 @@
     workflows,
     modules,
     registerWorkflow(workflow) {
-      if (!workflow || !workflow.id || !workflow.label || !workflow.mode) {
-        throw new Error("workflow registration requires id, label, and mode");
+      if (!workflow || !workflow.id || !workflow.label) {
+        throw new Error("workflow registration requires id and label");
       }
       upsert(workflows, { ...workflow });
       mountContribution("workflow", workflow);
@@ -65,14 +65,19 @@
     workflow(id) {
       return contributionById(workflows, id);
     },
+    workflowForSelection(selection) {
+      return workflows.find(
+        (entry) => entry.id === selection || entry.mode === selection,
+      ) || null;
+    },
     workflowForMode(mode) {
       return workflows.find((entry) => entry.mode === mode) || null;
     },
     module(id) {
       return contributionById(modules, id);
     },
-    stageActions(mode, stageId) {
-      const workflow = this.workflowForMode(mode);
+    stageActions(workflowId, stageId) {
+      const workflow = this.workflowForSelection(workflowId);
       if (!workflow || typeof workflow.stageActions !== "function") {
         return [];
       }

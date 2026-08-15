@@ -1,6 +1,122 @@
 (function () {
   "use strict";
 
+  let creativeProjectMenuButton = null;
+  let creativeProjectActions = null;
+  let creativeOpenProject = null;
+  let creativeNewProject = null;
+  let creativeRecentProjects = null;
+  let creativeCloseProject = null;
+  let creativeActiveProjectSection = null;
+  let creativeProjectName = null;
+  let creativeAgentMenuButton = null;
+  let creativeAgentActions = null;
+  let creativeStartAgent = null;
+
+  function renderNavigation(container, runtime) {
+    container.innerHTML = `
+      <section class="creative-binder" aria-label="Creative writing binder">
+        <div class="creative-section">
+          <button class="stage-action-stage" type="button" aria-expanded="false"
+                  data-creative-control="project-menu">
+            <span class="stage-action-label">Project</span>
+            <span class="stage-action-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="stage-action-list" role="group" hidden
+               data-creative-control="project-actions">
+            <button class="stage-action-button" type="button"
+                    data-creative-control="open-project">Open</button>
+            <button class="stage-action-button" type="button"
+                    data-creative-control="new-project">New</button>
+            <div class="recent-project-list" role="group" hidden
+                 data-creative-control="recent-projects"></div>
+            <button class="stage-action-button" type="button" disabled
+                    data-creative-control="close-project">Close</button>
+          </div>
+        </div>
+        <div class="creative-active-project" hidden
+             data-creative-control="active-project">
+          <div class="creative-divider" aria-hidden="true"></div>
+          <div class="creative-project-name" data-creative-control="project-name"></div>
+          <div class="creative-section">
+            <button class="stage-action-stage" type="button" aria-expanded="false"
+                    data-creative-control="agent-menu">
+              <span class="stage-action-label">Agent</span>
+              <span class="stage-action-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="stage-action-list" role="group" hidden
+                 data-creative-control="agent-actions">
+              <button class="stage-action-button primary" type="button" disabled
+                      data-creative-control="start-agent">Start</button>
+            </div>
+          </div>
+          <div class="creative-tree" role="tree" data-creative-control="tree"></div>
+        </div>
+      </section>
+    `;
+    const find = (name) => container.querySelector(`[data-creative-control="${name}"]`);
+    creativeProjectMenuButton = find("project-menu");
+    creativeProjectActions = find("project-actions");
+    creativeOpenProject = find("open-project");
+    creativeNewProject = find("new-project");
+    creativeRecentProjects = find("recent-projects");
+    creativeCloseProject = find("close-project");
+    creativeActiveProjectSection = find("active-project");
+    creativeProjectName = find("project-name");
+    creativeAgentMenuButton = find("agent-menu");
+    creativeAgentActions = find("agent-actions");
+    creativeStartAgent = find("start-agent");
+    runtime.elements.creativeTree = find("tree");
+
+    creativeProjectMenuButton.addEventListener("click", () => {
+      runtime.actions.toggleCreativeActionGroup("project");
+    });
+    creativeAgentMenuButton.addEventListener("click", () => {
+      runtime.actions.toggleCreativeActionGroup("agent");
+    });
+    creativeOpenProject.addEventListener("click", () => {
+      runtime.actions.openProjectBrowser("open", true);
+    });
+    creativeNewProject.addEventListener("click", () => {
+      runtime.actions.openProjectBrowser("new", true);
+    });
+    creativeCloseProject.addEventListener("click", () => {
+      runtime.actions.deactivateProject();
+    });
+    creativeStartAgent.addEventListener("click", () => {
+      startAgent(runtime);
+    });
+    updateCreativeBinderActions();
+  }
+
+  function refreshNavigation() {
+    if (creativeProjectMenuButton) {
+      updateCreativeBinderActions();
+    }
+  }
+
+  function activate(runtime) {
+    runtime.actions.setWorkflowSideSheetCollapsed(false);
+    runtime.actions.applyCreativeWorkspace();
+    runtime.actions.restoreScratchPad();
+    runtime.actions.refreshCreativeBinder();
+  }
+
+  function deactivate(runtime) {
+    runtime.elements.creativeTree = null;
+    creativeProjectMenuButton = null;
+    creativeProjectActions = null;
+    creativeOpenProject = null;
+    creativeNewProject = null;
+    creativeRecentProjects = null;
+    creativeCloseProject = null;
+    creativeActiveProjectSection = null;
+    creativeProjectName = null;
+    creativeAgentMenuButton = null;
+    creativeAgentActions = null;
+    creativeStartAgent = null;
+  }
+
   async function startAgent(runtime) {
     const state = runtime.getState();
     const action = runtime.actions;
@@ -705,37 +821,20 @@
       );
     }
 
-
-  function mount(runtime) {
-    const element = runtime.elements;
-    const action = runtime.actions;
-    element.creativeProjectMenuButton.addEventListener("click", () => {
-      action.toggleCreativeActionGroup("project");
-    });
-    element.creativeAgentMenuButton.addEventListener("click", () => {
-      action.toggleCreativeActionGroup("agent");
-    });
-    element.creativeOpenProject.addEventListener("click", () => {
-      action.openProjectBrowser("open", true);
-    });
-    element.creativeNewProject.addEventListener("click", () => {
-      action.openProjectBrowser("new", true);
-    });
-    element.creativeCloseProject.addEventListener(
-      "click",
-      () => action.deactivateProject(),
-    );
-    element.creativeStartAgent.addEventListener("click", () => {
-      startAgent(runtime);
-    });
-  }
-
   window.ElectroBoyFrontend.registerWorkflow({
     id: "creative-writing",
     mode: "creative",
     label: "Creative writing",
     order: 20,
     backendPackage: "electroboy.workflows.creative_writing",
+    navigation: "sidebar",
+    capabilities: ["creative-workspace"],
+    layoutClass: "creative-workflow",
+    splashImage: "__CREATIVE_SPLASH_IMAGE_ROUTE__",
+    renderNavigation,
+    refreshNavigation,
+    activate,
+    deactivate,
     actions: {
       startAgent,
       selectFolder,
@@ -785,6 +884,5 @@
       deleteCreativeEntry: (_runtime, ...args) => deleteCreativeEntry(...args),
       startCreativeWritingAgent: (_runtime, ...args) => startCreativeWritingAgent(...args),
     },
-    mount,
   });
 })();

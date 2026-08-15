@@ -119,7 +119,7 @@ def _apply_service_asset_replacements(text: str) -> str:
 
 def _optional_service_text_asset(name: str) -> str:
     try:
-        return read_service_text_asset(name)
+        return _apply_service_asset_replacements(read_service_text_asset(name))
     except FileNotFoundError:
         return ""
 
@@ -139,8 +139,6 @@ INDEX_HTML = "\n".join(
         _optional_service_text_asset("js/modules/file-browser.js"),
         _optional_service_text_asset("js/modules/progress.js"),
         _optional_service_text_asset("js/modules/project-shell.js"),
-        _optional_service_text_asset("js/workflows/software.js"),
-        _optional_service_text_asset("js/workflows/creative-writing.js"),
         _render_service_text_asset("js/core/runtime.js"),
     ]
 )
@@ -2625,7 +2623,7 @@ def _handler_for(
                     status=HTTPStatus.NOT_FOUND,
                 )
                 return
-            if relative_path in {"index.html", "js/core/runtime.js"}:
+            if relative_path.endswith((".html", ".js", ".css")):
                 text = data.decode("utf-8")
                 data = _apply_service_asset_replacements(text).encode("utf-8")
             self._send_headers(
