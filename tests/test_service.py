@@ -227,6 +227,22 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("agent_sessions", payload["modules"])
         self.assertIn("software", payload["workflows"])
         self.assertIn("core-shell", payload["frontend_bundles"])
+        module_plugins = {
+            entry["id"]: entry for entry in payload["plugins"]["modules"]
+        }
+        workflow_plugins = {
+            entry["id"]: entry for entry in payload["plugins"]["workflows"]
+        }
+        self.assertTrue(module_plugins["core"]["provider"])
+        self.assertEqual(
+            module_plugins["core"]["entry_point"],
+            "electroboy.service.core_module:module",
+        )
+        self.assertTrue(workflow_plugins["software"]["provider"])
+        self.assertEqual(
+            workflow_plugins["software"]["entry_point"],
+            "electroboy.workflows.software.plugin:workflow",
+        )
 
     def test_registry_endpoint_reports_backend_modules_and_workflows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

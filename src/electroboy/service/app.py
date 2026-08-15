@@ -1731,11 +1731,33 @@ def health_payload(
         "root": str(Path(root).expanduser().resolve()),
     }
     if module_registry is not None:
-        payload["modules"] = [module.id for module in module_registry.values()]
+        modules = module_registry.values()
+        payload["modules"] = [module.id for module in modules]
+    else:
+        modules = ()
     if workflow_registry is not None:
-        payload["workflows"] = [
-            workflow.id for workflow in workflow_registry.values()
-        ]
+        workflows = workflow_registry.values()
+        payload["workflows"] = [workflow.id for workflow in workflows]
+    else:
+        workflows = ()
+    payload["plugins"] = {
+        "modules": [
+            {
+                "id": module.id,
+                "provider": module.provider,
+                "entry_point": module.entry_point,
+            }
+            for module in modules
+        ],
+        "workflows": [
+            {
+                "id": workflow.id,
+                "provider": workflow.provider,
+                "entry_point": workflow.entry_point,
+            }
+            for workflow in workflows
+        ],
+    }
     payload["workflow_config"] = workflow_config_payload(root)
     payload["frontend_bundles"] = [
         bundle["id"]
