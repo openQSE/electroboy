@@ -95,9 +95,20 @@
     },
     invokeModule(id, action, ...args) {
       const module = this.module(id);
+      if (!module) {
+        return undefined;
+      }
       const handler = module && module.actions ? module.actions[action] : null;
       if (typeof handler !== "function") {
         throw new Error(`module action is not registered: ${id}.${action}`);
+      }
+      return handler(runtime, ...args);
+    },
+    invokeModuleOptional(id, action, ...args) {
+      const module = this.module(id);
+      const handler = module && module.actions ? module.actions[action] : null;
+      if (typeof handler !== "function") {
+        return undefined;
       }
       return handler(runtime, ...args);
     },

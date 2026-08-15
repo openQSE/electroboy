@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from electroboy.service.registry import WorkflowDefinition, WorkflowStage
+from electroboy.service.registry import (
+    CliCommandDefinition,
+    DocumentSchemaDefinition,
+    RuntimeRoleDefinition,
+    WorkflowDefinition,
+    WorkflowStage,
+)
 from electroboy.workflows.creative_writing.controller import (
     CreativeWritingWorkflowController,
 )
@@ -46,4 +52,23 @@ def workflow() -> WorkflowDefinition:
         controller_factory=CreativeWritingWorkflowController,
         routes=ROUTES,
         handlers=HANDLERS,
+        commands=(
+            CliCommandDefinition("creative-open", "Open writing project"),
+            CliCommandDefinition("creative-new", "Create writing project"),
+        ),
+        document_schemas=(
+            DocumentSchemaDefinition(
+                "creative-markdown",
+                "Creative Markdown",
+                source_format="markdown",
+            ),
+        ),
+        runtime_roles=(
+            RuntimeRoleDefinition(
+                "writing-partner",
+                "Writing Partner",
+                interactive=True,
+                mutating=True,
+            ),
+        ),
     )

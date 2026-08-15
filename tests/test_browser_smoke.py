@@ -52,6 +52,7 @@ def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
     assert 'id="connection" class="connection">connected' in completed.stdout
     assert 'data-stage="requirements"' in completed.stdout
     assert 'id="sessionSwitcher"' in completed.stdout
+    assert 'data-provider="electroboy' in completed.stdout
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")

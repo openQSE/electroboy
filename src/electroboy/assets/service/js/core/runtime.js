@@ -9,6 +9,7 @@
     const workflowStageGraph = document.getElementById("workflowStageGraph");
     let stageNodes = [];
     let activeWorkflowDefinitions = [];
+    let activeModuleDefinitions = [];
     const stageActionPanel = document.getElementById("stageActionPanel");
     const stageActionBody = document.getElementById("stageActionBody");
     const projectPanel = document.getElementById("projectPanel");
@@ -142,15 +143,9 @@
     const MIN_INPUT_ACTIONS_WIDTH = 160;
     const MIN_AGENT_INPUT_WIDTH = 260;
     let eventSource = null;
-    let progressEventSource = null;
-    let projectShellEventSource = null;
     let artifactEventSources = [];
     let terminal = null;
     let terminalFit = null;
-    let progressTerminal = null;
-    let progressTerminalFit = null;
-    let projectShellTerminal = null;
-    let projectShellTerminalFit = null;
     let terminalFontSize = storedTerminalFontSize();
     let paneFontOffsets = storedPaneFontOffsets();
     let documentZoom = storedDocumentZoom();
@@ -170,7 +165,6 @@
     let terminalResizeObserver = null;
     let resizeTimer = null;
     let pendingTerminalResize = null;
-    let shellResizeTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
     let workflowSideSheetCollapsed = storedWorkflowSideSheetCollapsed();
@@ -224,7 +218,7 @@
     let workItemState = { collections: [], features: [], bugs: [] };
     let stageRunState = {};
     let workItemMode = "";
-    let customDocumentTargets = storedDocumentTargets();
+    let customDocumentTargets = [];
     let currentBrowsePath = "";
     let currentBrowseParent = "";
     let currentBrowserMode = "project";
@@ -968,8 +962,12 @@
 
     function terminalForPane(pane) {
       if (pane === "agent") return terminal;
-      if (pane === "progress") return progressTerminal;
-      if (pane === "shell") return projectShellTerminal;
+      if (pane === "progress") {
+        return window.ElectroBoyFrontend.invokeModule("progress", "terminal");
+      }
+      if (pane === "shell") {
+        return window.ElectroBoyFrontend.invokeModule("project-shell", "terminal");
+      }
       return null;
     }
 
@@ -1247,6 +1245,9 @@
         throw new Error(`workflow registry failed: ${response.status}`);
       }
       const payload = await response.json();
+      activeModuleDefinitions = Array.isArray(payload.modules)
+        ? payload.modules
+        : [];
       activeWorkflowDefinitions = Array.isArray(payload.workflows)
         ? payload.workflows
         : [];
@@ -1285,8 +1286,17 @@
       }
       workflows.forEach((workflow) => {
         const option = document.createElement("option");
+        const provider = String(workflow.definition.provider || "").trim();
+        const entryPoint = String(workflow.definition.entry_point || "").trim();
         option.value = workflow.id;
-        option.textContent = workflow.label;
+        option.textContent = provider
+          ? `${workflow.label} (${provider})`
+          : workflow.label;
+        option.title = entryPoint
+          ? `Provided by ${provider || "installed plugin"}: ${entryPoint}`
+          : `Provided by ${provider || "the service"}`;
+        option.dataset.provider = provider;
+        option.dataset.entryPoint = entryPoint;
         workflowModeSelect.append(option);
       });
       const stored = workflowMode;
@@ -1296,6 +1306,14 @@
       workflowMode = selected.id;
       workflowModeSelect.value = workflowMode;
       workflowModeSelect.disabled = workflows.length < 2;
+      const workflowProvider = String(selected.definition.provider || "the service");
+      const moduleProviders = activeModuleDefinitions
+        .filter((module) => selected.definition.modules.includes(module.id))
+        .map((module) => `${module.label}: ${module.provider || "the service"}`);
+      workflowModeSelect.title = [
+        `${selected.label} provided by ${workflowProvider}`,
+        ...moduleProviders,
+      ].join("\n");
     }
 
     function saveWorkflowMode() {
@@ -1776,19 +1794,11 @@
           return;
         }
       }
-      if (progressTerminalFit && !progressOutputPane.hidden) {
-        try {
-          progressTerminalFit.fit();
-        } catch (error) {
-          return;
-        }
+      if (!progressOutputPane.hidden) {
+        window.ElectroBoyFrontend.invokeModule("progress", "fit");
       }
-      if (projectShellTerminalFit && !projectShellPane.hidden) {
-        try {
-          projectShellTerminalFit.fit();
-        } catch (error) {
-          return;
-        }
+      if (!projectShellPane.hidden) {
+        window.ElectroBoyFrontend.invokeModule("project-shell", "fit");
       }
       queueTerminalResize();
       queueProjectShellResize();
@@ -2634,11 +2644,15 @@
           disposeProjectShellTerminal();
         }
         applyProjectShellPaneVisibility();
+        const shellStatus = window.ElectroBoyFrontend.invokeModule(
+          "project-shell",
+          "status",
+        );
         if (
           !poppedOut &&
           projectShellRunning &&
           projectShellPaneRequested &&
-          !projectShellEventSource
+          !shellStatus.connected
         ) {
           window.setTimeout(connectProjectShellEvents, 0);
         }
@@ -4803,11 +4817,23 @@
       elements: {
         creativeTree: null,
         exportProgressOutput,
+        progressOutput,
+        progressOutputPane,
+        artifactPreviewStack,
+        projectPanel,
+        projectPath,
+        projectStatus,
         openProjectShell,
         toggleProjectShellPane,
         closeProjectShellPane,
         stopProjectShell,
+        projectShellOutput,
+        projectShellPane,
+        shellPaneDivider,
+        leftOutputPane,
         sessionSwitcher,
+        agentSessionIndicator,
+        insertFileLink,
         exportAgentOutput,
         interruptAgent,
         agentInput,
@@ -4827,6 +4853,9 @@
           designRunning,
           designReviewRunning,
           adHocRunning,
+          projectShellRunning,
+          projectShellPaneRequested,
+          projectShellPaneDismissed,
           selectedSessionId,
           creativeTreePayload,
           creativeActiveDocument,
@@ -4849,6 +4878,163 @@
         if (Object.hasOwn(patch, "creativeLastNotifiedTarget")) {
           creativeLastNotifiedTarget = patch.creativeLastNotifiedTarget;
         }
+        if (Object.hasOwn(patch, "projectShellRunning")) {
+          projectShellRunning = Boolean(patch.projectShellRunning);
+        }
+        if (Object.hasOwn(patch, "projectShellPaneRequested")) {
+          projectShellPaneRequested = Boolean(patch.projectShellPaneRequested);
+        }
+        if (Object.hasOwn(patch, "projectShellPaneDismissed")) {
+          projectShellPaneDismissed = Boolean(patch.projectShellPaneDismissed);
+        }
+      },
+      state: {
+        get activationRoot() { return activationRoot; },
+        set activationRoot(value) { activationRoot = value; },
+        get activeProjectMode() { return activeProjectMode; },
+        set activeProjectMode(value) { activeProjectMode = value; },
+        get activeProjectRoot() { return activeProjectRoot; },
+        set activeProjectRoot(value) { activeProjectRoot = value; },
+        get agentSessions() { return agentSessions; },
+        set agentSessions(value) { agentSessions = value; },
+        get selectedSessionId() { return selectedSessionId; },
+        set selectedSessionId(value) { selectedSessionId = value; },
+        get contextId() { return contextId; },
+        set contextId(value) { contextId = value; },
+        get currentWorkflowStage() { return currentWorkflowStage; },
+        set currentWorkflowStage(value) { currentWorkflowStage = value; },
+        get workflowMode() { return workflowMode; },
+        set workflowMode(value) { workflowMode = value; },
+        get requirementsRunning() { return requirementsRunning; },
+        set requirementsRunning(value) { requirementsRunning = value; },
+        get designRunning() { return designRunning; },
+        set designRunning(value) { designRunning = value; },
+        get designReviewRunning() { return designReviewRunning; },
+        set designReviewRunning(value) { designReviewRunning = value; },
+        get artifactPaneRequested() { return artifactPaneRequested; },
+        set artifactPaneRequested(value) { artifactPaneRequested = value; },
+        get artifactPreviewKind() { return artifactPreviewKind; },
+        set artifactPreviewKind(value) { artifactPreviewKind = value; },
+        get artifactPreviewDocumentTarget() { return artifactPreviewDocumentTarget; },
+        set artifactPreviewDocumentTarget(value) { artifactPreviewDocumentTarget = value; },
+        get artifactPreviewItems() { return artifactPreviewItems; },
+        set artifactPreviewItems(value) { artifactPreviewItems = value; },
+        get openDocumentTargets() { return openDocumentTargets; },
+        set openDocumentTargets(value) { openDocumentTargets = value; },
+        get manualArtifactPreview() { return manualArtifactPreview; },
+        set manualArtifactPreview(value) { manualArtifactPreview = value; },
+        get manualArtifactPreviewStage() { return manualArtifactPreviewStage; },
+        set manualArtifactPreviewStage(value) { manualArtifactPreviewStage = value; },
+        get artifactPreviewStage() { return artifactPreviewStage; },
+        set artifactPreviewStage(value) { artifactPreviewStage = value; },
+        get artifactPreviewVersion() { return artifactPreviewVersion; },
+        set artifactPreviewVersion(value) { artifactPreviewVersion = value; },
+        get artifactSaveTokenSequence() { return artifactSaveTokenSequence; },
+        set artifactSaveTokenSequence(value) { artifactSaveTokenSequence = value; },
+        get artifactEventSources() { return artifactEventSources; },
+        set artifactEventSources(value) { artifactEventSources = value; },
+        get pendingArtifactSaves() { return pendingArtifactSaves; },
+        get customDocumentTargets() { return customDocumentTargets; },
+        set customDocumentTargets(value) { customDocumentTargets = value; },
+        get documentZoom() { return documentZoom; },
+        set documentZoom(value) { documentZoom = value; },
+        get terminalFontSize() { return terminalFontSize; },
+        set terminalFontSize(value) { terminalFontSize = value; },
+        get projectMode() { return projectMode; },
+        set projectMode(value) { projectMode = value; },
+        get projectBrowserActivatesSelection() { return projectBrowserActivatesSelection; },
+        set projectBrowserActivatesSelection(value) { projectBrowserActivatesSelection = value; },
+        get serviceRoot() { return serviceRoot; },
+        set serviceRoot(value) { serviceRoot = value; },
+        get activeAgentKind() { return activeAgentKind; },
+        set activeAgentKind(value) { activeAgentKind = value; },
+        get designReviewInteractive() { return designReviewInteractive; },
+        set designReviewInteractive(value) { designReviewInteractive = value; },
+        get documentationRunning() { return documentationRunning; },
+        set documentationRunning(value) { documentationRunning = value; },
+        get eventSource() { return eventSource; },
+        set eventSource(value) { eventSource = value; },
+        get serviceSessions() { return serviceSessions; },
+        set serviceSessions(value) { serviceSessions = value; },
+        get slashCommandMode() { return slashCommandMode; },
+        set slashCommandMode(value) { slashCommandMode = value; },
+        get stageRunState() { return stageRunState; },
+        set stageRunState(value) { stageRunState = value; },
+        get terminal() { return terminal; },
+        set terminal(value) { terminal = value; },
+        get terminalInputQueue() { return terminalInputQueue; },
+        set terminalInputQueue(value) { terminalInputQueue = value; },
+      },
+      http: {
+        contextUrl,
+        fetch: (...args) => window.fetch(...args),
+        eventSource: (path) => new EventSource(contextUrl(path)),
+      },
+      terminals: {
+        options: terminalOptions,
+        formatMessage: formatTerminalMessage,
+        applyFontSize: applyTerminalFontSize,
+        fitAll: fitTerminal,
+      },
+      downloads: {
+        exportMarkdown,
+        exportBlob,
+        safeName: exportSafeName,
+        timestamp: timestampForDownload,
+      },
+      layout: {
+        ensurePane: ensurePaneInLayout,
+        isPopped: (kind) => poppedPanes.has(kind),
+        dockPane: dockPoppedPane,
+        showProgressPane,
+        applyStoredShellHeight: applyStoredProjectShellPaneHeight,
+      },
+      notifications: {
+        appendOutput,
+      },
+      project: {
+        update: updateProjectState,
+        refresh: refreshProject,
+      },
+      modules: {
+        invoke: (moduleId, action, ...args) =>
+          window.ElectroBoyFrontend.invokeModule(moduleId, action, ...args),
+      },
+      ui: {
+        stageActionButton,
+        refreshStageActionPanel,
+        hideStageMenus,
+        setAgentInputVisible,
+        applyOutputPaneVisibility,
+        popOutPane,
+        hideWorkItemPanel,
+        applyProjectSelection,
+        insertTextAtCursor,
+      },
+      artifacts: {
+        applyStoredPaneSize: applyStoredArtifactPaneSize,
+        editorFontSize: artifactEditorFontSize,
+        postEditorFontSize: postArtifactEditorFontSize,
+        applyDocumentZoom,
+        changeDocumentZoom,
+      },
+      workflows: {
+        stageRun: genericStageRun,
+        creativePromptMessage,
+        updateMenus: () => {
+          updateRequirementsMenuState();
+          updateDesignMenuState();
+          updateDesignReviewMenuState();
+          updateGenericStageMenuStates();
+          updateDocumentMenuState();
+        },
+      },
+      agent: {
+        appendOutput: appendAgentOutput,
+        clearOutput: clearAgentOutput,
+        prepareTerminal: prepareTerminalStream,
+        sendResize: sendTerminalResize,
+        insertFileLink,
       },
       actions: {
         appendOutput,
@@ -4911,73 +5097,6 @@
         workItemBugs,
         switchFeature: switchFeatureWorkItemContext,
         switchBug: switchBugWorkItemContext,
-        storedDocumentTargets,
-        saveDocumentTargets,
-        initializeProgressTerminal,
-        initializeProjectShellTerminal,
-        documentExportFormats,
-        documentExportFormat,
-        documentExportPickerTypes,
-        sessionExportName,
-        exportAgentSession,
-        exportProgressLog,
-        artifactDocumentBaseName,
-        artifactDocumentExportName,
-        artifactDocumentExportUrl,
-        exportArtifactDocument,
-        queueProjectShellResize,
-        sendProjectShellResize,
-        appendProgressOutput,
-        clearProgressOutput,
-        appendProjectShellOutput,
-        clearProjectShellOutput,
-        applyProjectShellPaneVisibility,
-        showProjectShellPane,
-        hideProjectShellPane,
-        syncProjectShellPane,
-        toggleProjectShellFromToolbar,
-        updateProjectShellToggle,
-        startProjectShell,
-        connectProjectShellEvents,
-        closeProjectShellEventStream,
-        disposeProjectShellTerminal,
-        sendProjectShellInput,
-        stopProjectShellProcess,
-        selectedSession,
-        sessionIsRunning,
-        selectedSessionAcceptsInput,
-        updateSessionIndicator,
-        sessionMetadata,
-        documentTargetKey,
-        documentTargetLabel,
-        documentTargetForSession,
-        documentationSessionForTarget,
-        agentSessionDisplayLabel,
-        attachableServiceSessions,
-        serviceSessionDisplayLabel,
-        rememberOpenDocumentTarget,
-        syncOpenDocumentTargetsFromSessions,
-        renderDocumentTargetSwitcher,
-        refreshDocumentTargetSwitchers,
-        renderSessionSwitcher,
-        selectAgentSession,
-        refreshServiceSessions,
-        attachAgentSession,
-        renderDocumentActionPanel,
-        documentTargetFromInput,
-        documentTargetFromSelectedPath,
-        registerDocumentTarget,
-        launchDocumentTarget,
-        selectOpenDocumentTarget,
-        artifactKindForPane,
-        artifactRouteUrl,
-        artifactPreviewUrl,
-        artifactEditUrl,
-        artifactPaneSupportsModeSwitch,
-        artifactPaneSupportsDocumentExport,
-        artifactPaneSupportsDocumentZoom,
-        artifactPreviewsForStage,
-        setArtifactCompatibilityState,
         showStageArtifactPreview,
         showArtifactPreview,
         showDocumentPreview,
@@ -5010,45 +5129,13 @@
         createCreativeDocumentInline,
         createCreativeCorkboardInline,
         startCreativeWritingAgent,
-        markArtifactFrameLoading,
-        renderArtifactPreviewItems,
-        artifactFrameForItem,
-        requestArtifactEditorSave,
-        setArtifactPreviewEditing,
-        popOutArtifactPreview,
-        hideArtifactPreview,
-        refreshArtifactPreview,
-        artifactEventUrl,
-        connectArtifactEvents,
-        closeArtifactEventStream,
-        stageIsRunning,
-        syncArtifactPreviewWithProject,
         selectWorkflowStage,
         setWorkflowStageFromMenu,
-        connectAgentEvents,
-        connectProgressEvents,
-        closeAgentEventStream,
-        closeProgressEventStream,
-        agentProcessRunning,
-        updateAgentControls,
-        setAgentRunning,
         setRequirementsRunning,
         runStageAgent,
         runRequirementsAgent,
         completeRequirementsAgent,
         completeDesignReviewAgent,
-        startDocumentationAgent,
-        sendMessage,
-        queueTerminalInput,
-        sendTerminalKey,
-        sendTerminalRaw,
-        printableInputEvent,
-        slashCommandTerminalKeyForInputEvent,
-        refreshSlashCommandModeAfterEdit,
-        finishSlashCommandMode,
-        handleSlashCommandInput,
-        terminalKeyForInputEvent,
-        interruptActiveAgent,
       },
     };
 

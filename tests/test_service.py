@@ -328,11 +328,18 @@ class ServiceTests(unittest.TestCase):
             documents,
         )
         self.assertIn(
-            "function openProjectBrowser(mode = projectMode",
+            "function openProjectBrowser(mode = state().projectMode",
             file_browser,
         )
-        self.assertIn("function connectProgressEvents()", progress)
-        self.assertIn("async function startProjectShell()", project_shell)
+        self.assertNotIn("_runtime", sessions)
+        self.assertNotIn("_runtime", documents)
+        self.assertNotIn("_runtime", file_browser)
+        self.assertIn("function connectProgressEvents(runtime)", progress)
+        self.assertIn("async function startProjectShell(runtime)", project_shell)
+        self.assertNotIn("_runtime", progress)
+        self.assertNotIn("_runtime", project_shell)
+        self.assertIn("runtime.http.eventSource", progress)
+        self.assertIn("runtime.http.eventSource", project_shell)
         self.assertIn("async function startRequirementsAgent()", software)
         self.assertIn("async function startGenericStageAgent(", software)
         self.assertIn(
@@ -352,6 +359,29 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("async function startGenericStageAgent(", app)
         self.assertNotIn("const SOFTWARE_WORKFLOW_MODE", app)
         self.assertNotIn("const CREATIVE_WORKFLOW_MODE", app)
+
+    def test_workflow_payload_exposes_plugin_contract_metadata(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+        software = workflows.get("software").payload()
+        creative = workflows.get("creative-writing").payload()
+
+        self.assertIn(
+            "implementation-plan",
+            {command["id"] for command in software["commands"]},
+        )
+        self.assertIn(
+            "requirements",
+            {schema["id"] for schema in software["document_schemas"]},
+        )
+        self.assertIn(
+            "reviewer",
+            {role["id"] for role in software["runtime_roles"]},
+        )
+        self.assertEqual(
+            creative["document_schemas"][0]["source_format"],
+            "markdown",
+        )
 
         page = render_service_index(
             read_service_text_asset("index.html"),

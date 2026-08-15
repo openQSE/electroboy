@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from electroboy.service.registry import WorkflowDefinition, WorkflowStage
+from electroboy.service.registry import (
+    CliCommandDefinition,
+    DocumentSchemaDefinition,
+    RuntimeRoleDefinition,
+    WorkflowDefinition,
+    WorkflowStage,
+)
 from electroboy.workflows.software.controller import SoftwareWorkflowController
 from electroboy.workflows.software.routes import HANDLERS, ROUTES
 
@@ -94,4 +100,47 @@ def workflow() -> WorkflowDefinition:
         controller_factory=SoftwareWorkflowController,
         routes=ROUTES,
         handlers=HANDLERS,
+        commands=tuple(
+            CliCommandDefinition(command, f"electroboy {command}")
+            for command in (
+                "requirements",
+                "requirements-approve",
+                "design",
+                "design-review",
+                "design-approve",
+                "implementation-plan",
+                "plan-approve",
+                "code",
+                "code-review",
+                "code-approve",
+                "test-plan",
+                "test-plan-approve",
+                "validate",
+                "validation-approve",
+                "document",
+            )
+        ),
+        document_schemas=tuple(
+            DocumentSchemaDefinition(schema_id, label)
+            for schema_id, label in (
+                ("requirements", "Requirements"),
+                ("detailed-design", "Detailed Design"),
+                ("implementation-plan", "Implementation Plan"),
+                ("test-plan", "Test Plan"),
+                ("implementation-log", "Implementation Log"),
+                ("implementation-report", "Implementation Report"),
+                ("validation-report", "Validation Report"),
+            )
+        ),
+        runtime_roles=(
+            RuntimeRoleDefinition(
+                "artifact-author",
+                "Artifact Author",
+                interactive=True,
+                mutating=True,
+            ),
+            RuntimeRoleDefinition("reviewer", "Reviewer"),
+            RuntimeRoleDefinition("implementation", "Implementation", mutating=True),
+            RuntimeRoleDefinition("validator", "Validator", mutating=True),
+        ),
     )

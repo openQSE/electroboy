@@ -1,6 +1,77 @@
 (function () {
   "use strict";
 
+  const DOCUMENT_TARGETS_STORAGE_KEY = "electroboy.documentTargets";
+  const DOCUMENT_ZOOM_STEP = 10;
+  const DEFAULT_DOCUMENT_TARGETS = [
+    { label: "README", path: "README.md" },
+    { label: "API", path: "docs/api.md" },
+  ];
+  const PANE_POPUP_FEATURES =
+    "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
+  let runtimeApi = null;
+  let runtimeState = null;
+
+  function bindRuntime(runtime) {
+    runtimeApi = runtime;
+    runtimeState = runtime.state;
+    if (runtimeState.customDocumentTargets.length === 0) {
+      runtimeState.customDocumentTargets = storedDocumentTargets();
+    }
+  }
+
+  function invoke(runtime, handler, args) {
+    bindRuntime(runtime);
+    return handler(...args);
+  }
+
+  const exportSafeName = (...args) => runtimeApi.downloads.safeName(...args);
+  const contextUrl = (...args) => runtimeApi.http.contextUrl(...args);
+  const exportBlob = (...args) => runtimeApi.downloads.exportBlob(...args);
+  const sessionMetadata = (...args) =>
+    runtimeApi.modules.invoke("agent-sessions", "sessionMetadata", ...args);
+  const stageActionButton = (...args) => runtimeApi.ui.stageActionButton(...args);
+  const openDocumentFileBrowser = (...args) =>
+    runtimeApi.modules.invoke("file-browser", "openDocumentFileBrowser", ...args);
+  const openNewDocumentFileBrowser = (...args) =>
+    runtimeApi.modules.invoke("file-browser", "openNewDocumentFileBrowser", ...args);
+  const appendOutput = (...args) => runtimeApi.notifications.appendOutput(...args);
+  const refreshStageActionPanel = (...args) =>
+    runtimeApi.ui.refreshStageActionPanel(...args);
+  const selectAgentSession = (...args) =>
+    runtimeApi.modules.invoke("agent-sessions", "selectAgentSession", ...args);
+  const changeDocumentZoom = (...args) =>
+    runtimeApi.artifacts.changeDocumentZoom(...args);
+  const artifactEditorFontSize = (...args) =>
+    runtimeApi.artifacts.editorFontSize(...args);
+  const applyStoredArtifactPaneSize = (...args) =>
+    runtimeApi.artifacts.applyStoredPaneSize(...args);
+  const applyOutputPaneVisibility = (...args) =>
+    runtimeApi.ui.applyOutputPaneVisibility(...args);
+  const postArtifactEditorFontSize = (...args) =>
+    runtimeApi.artifacts.postEditorFontSize(...args);
+  const applyDocumentZoom = (...args) =>
+    runtimeApi.artifacts.applyDocumentZoom(...args);
+  const popOutPane = (...args) => runtimeApi.ui.popOutPane(...args);
+  const genericStageRun = (...args) => runtimeApi.workflows.stageRun(...args);
+  const hideStageMenus = (...args) => runtimeApi.ui.hideStageMenus(...args);
+  const closeAgentEventStream = (...args) =>
+    runtimeApi.modules.invoke("agent-sessions", "closeAgentEventStream", ...args);
+  const showProgressPane = (...args) => runtimeApi.layout.showProgressPane(...args);
+  const setAgentInputVisible = (...args) =>
+    runtimeApi.ui.setAgentInputVisible(...args);
+  const clearAgentOutput = (...args) =>
+    runtimeApi.actions.clearAgentOutput(...args);
+  const setAgentRunning = (...args) =>
+    runtimeApi.modules.invoke("agent-sessions", "setAgentRunning", ...args);
+  const updateProjectState = (...args) => runtimeApi.project.update(...args);
+  const renderSessionSwitcher = (...args) =>
+    runtimeApi.modules.invoke("agent-sessions", "renderSessionSwitcher", ...args);
+  const connectSessionEvents = (...args) =>
+    runtimeApi.modules.invoke("agent-sessions", "connectSessionEvents", ...args);
+  const sendTerminalResize = (...args) =>
+    runtimeApi.actions.sendTerminalResize(...args);
+
     function storedDocumentTargets() {
       try {
         const parsed = JSON.parse(
@@ -24,7 +95,7 @@
       try {
         window.localStorage.setItem(
           DOCUMENT_TARGETS_STORAGE_KEY,
-          JSON.stringify(customDocumentTargets),
+          JSON.stringify(runtimeState.customDocumentTargets),
         );
       } catch (error) {
         return;
@@ -144,7 +215,7 @@
         return null;
       }
       return (
-        agentSessions.find((session) => {
+        runtimeState.agentSessions.find((session) => {
           const sessionTarget = documentTargetForSession(session);
           return sessionTarget && sessionTarget.path === path;
         }) || null
@@ -160,18 +231,18 @@
         label: documentTargetLabel(target),
         path,
       };
-      const existingIndex = openDocumentTargets.findIndex(
+      const existingIndex = runtimeState.openDocumentTargets.findIndex(
         (candidate) => documentTargetKey(candidate) === path,
       );
       if (existingIndex >= 0) {
-        openDocumentTargets.splice(existingIndex, 1, storedTarget);
+        runtimeState.openDocumentTargets.splice(existingIndex, 1, storedTarget);
       } else {
-        openDocumentTargets.push(storedTarget);
+        runtimeState.openDocumentTargets.push(storedTarget);
       }
     }
 
     function syncOpenDocumentTargetsFromSessions() {
-      for (const session of agentSessions) {
+      for (const session of runtimeState.agentSessions) {
         const target = documentTargetForSession(session);
         if (target) {
           rememberOpenDocumentTarget(target);
@@ -182,10 +253,10 @@
 
     function renderDocumentTargetSwitcher(select) {
       select.replaceChildren();
-      const targets = openDocumentTargets.length > 0
-        ? openDocumentTargets
-        : artifactPreviewDocumentTarget
-          ? [artifactPreviewDocumentTarget]
+      const targets = runtimeState.openDocumentTargets.length > 0
+        ? runtimeState.openDocumentTargets
+        : runtimeState.artifactPreviewDocumentTarget
+          ? [runtimeState.artifactPreviewDocumentTarget]
           : [];
       for (const target of targets) {
         const option = document.createElement("option");
@@ -193,12 +264,12 @@
         option.textContent = documentTargetLabel(target);
         select.append(option);
       }
-      select.value = documentTargetKey(artifactPreviewDocumentTarget);
+      select.value = documentTargetKey(runtimeState.artifactPreviewDocumentTarget);
       select.disabled = targets.length <= 1;
     }
 
     function refreshDocumentTargetSwitchers() {
-      for (const select of artifactPreviewStack.querySelectorAll(
+      for (const select of runtimeApi.elements.artifactPreviewStack.querySelectorAll(
         ".document-target-switcher",
       )) {
         renderDocumentTargetSwitcher(select);
@@ -211,7 +282,7 @@
           label: "Open",
           title: "Choose an existing Markdown file and start the documentation agent.",
           primary: true,
-          disabled: !activeProjectRoot,
+          disabled: !runtimeState.activeProjectRoot,
           run: openDocumentFileBrowser,
         }),
       );
@@ -219,7 +290,7 @@
         stageActionButton({
           label: "New",
           title: "Choose where to create a Markdown document and start the agent.",
-          disabled: !activeProjectRoot,
+          disabled: !runtimeState.activeProjectRoot,
           run: openNewDocumentFileBrowser,
         }),
       );
@@ -241,7 +312,7 @@
 
     function documentTargetFromSelectedPath(path) {
       const selected = String(path || "").trim();
-      const root = String(activeProjectRoot || "").replace(/\/+$/, "");
+      const root = String(runtimeState.activeProjectRoot || "").replace(/\/+$/, "");
       if (!selected) {
         return null;
       }
@@ -263,10 +334,10 @@
       if (!target) {
         return;
       }
-      customDocumentTargets = customDocumentTargets.filter(
+      runtimeState.customDocumentTargets = runtimeState.customDocumentTargets.filter(
         (existing) => existing.path !== target.path,
       );
-      customDocumentTargets.push(target);
+      runtimeState.customDocumentTargets.push(target);
       saveDocumentTargets();
       refreshStageActionPanel();
     }
@@ -280,7 +351,7 @@
     }
 
     function selectOpenDocumentTarget(path) {
-      const target = openDocumentTargets.find(
+      const target = runtimeState.openDocumentTargets.find(
         (candidate) => documentTargetKey(candidate) === path,
       );
       if (!target) {
@@ -288,7 +359,7 @@
       }
       const session = documentationSessionForTarget(target);
       if (session) {
-        if (session.session_id === selectedSessionId) {
+        if (session.session_id === runtimeState.selectedSessionId) {
           showDocumentPreview(target);
           return;
         }
@@ -310,8 +381,8 @@
       return item.kind || "";
     }
 
-    function artifactRouteUrl(path, version = artifactPreviewVersion) {
-      return `${contextUrl(`${path}?embed=1`)}&zoom=${documentZoom}&version=${version}`;
+    function artifactRouteUrl(path, version = runtimeState.artifactPreviewVersion) {
+      return `${contextUrl(`${path}?embed=1`)}&zoom=${runtimeState.documentZoom}&version=${version}`;
     }
 
     function artifactPreviewUrl(item) {
@@ -330,7 +401,7 @@
         parameters.set("path", board.path);
         parameters.set("title", board.label || item.title);
         parameters.set("embed", "1");
-        parameters.set("version", String(artifactPreviewVersion));
+        parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
       }
       if (item.kind === "route" && item.path) {
@@ -342,8 +413,8 @@
         parameters.set("title", item.target.label);
         parameters.set("embed", "1");
         parameters.set("create", "1");
-        parameters.set("zoom", String(documentZoom));
-        parameters.set("version", String(artifactPreviewVersion));
+        parameters.set("zoom", String(runtimeState.documentZoom));
+        parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/document?${parameters.toString()}`);
       }
       return "";
@@ -358,7 +429,7 @@
       }
       const parameters = new URLSearchParams();
       parameters.set("artifact", artifactKindForPane(item));
-      parameters.set("document_zoom", String(documentZoom));
+      parameters.set("document_zoom", String(runtimeState.documentZoom));
       parameters.set("font_size", String(artifactEditorFontSize()));
       if (item.kind === "document" && item.target) {
         parameters.set("path", item.target.path);
@@ -387,7 +458,7 @@
     function artifactPreviewsForStage(stage) {
       const frontend = window.ElectroBoyFrontend;
       const workflow = frontend && typeof frontend.workflowForSelection === "function"
-        ? frontend.workflowForSelection(workflowMode)
+        ? frontend.workflowForSelection(runtimeState.workflowMode)
         : null;
       const previews = workflow && workflow.artifactPreviews
         ? workflow.artifactPreviews[stage]
@@ -397,13 +468,13 @@
 
     function setArtifactCompatibilityState(items) {
       const first = items[0] || null;
-      artifactPreviewKind = first ? artifactKindForPane(first) : "";
-      artifactPreviewDocumentTarget =
+      runtimeState.artifactPreviewKind = first ? artifactKindForPane(first) : "";
+      runtimeState.artifactPreviewDocumentTarget =
         first && first.kind === "document" && first.target ? first.target : null;
     }
 
     function showArtifactPreviews(items, options = {}) {
-      if (!activeProjectRoot) {
+      if (!runtimeState.activeProjectRoot) {
         hideArtifactPreview();
         return;
       }
@@ -412,12 +483,12 @@
         hideArtifactPreview();
         return;
       }
-      artifactPreviewItems = nextItems;
-      manualArtifactPreview = Boolean(options.manual);
-      manualArtifactPreviewStage = manualArtifactPreview ? currentWorkflowStage : "";
-      artifactPreviewStage = options.stage || currentWorkflowStage;
+      runtimeState.artifactPreviewItems = nextItems;
+      runtimeState.manualArtifactPreview = Boolean(options.manual);
+      runtimeState.manualArtifactPreviewStage = runtimeState.manualArtifactPreview ? runtimeState.currentWorkflowStage : "";
+      runtimeState.artifactPreviewStage = options.stage || runtimeState.currentWorkflowStage;
       setArtifactCompatibilityState(nextItems);
-      artifactPaneRequested = true;
+      runtimeState.artifactPaneRequested = true;
       applyStoredArtifactPaneSize();
       renderArtifactPreviewItems();
       applyOutputPaneVisibility();
@@ -435,7 +506,7 @@
 
     function showArtifactPreview(kind, options = {}) {
       if (kind === "document") {
-        const target = options.target || artifactPreviewDocumentTarget;
+        const target = options.target || runtimeState.artifactPreviewDocumentTarget;
         if (!target) {
           return;
         }
@@ -481,17 +552,17 @@
     }
 
     function renderArtifactPreviewItems() {
-      artifactPreviewStack.replaceChildren();
-      if (poppedPanes.has("artifact")) {
-        artifactPreviewStack.classList.remove("split");
+      runtimeApi.elements.artifactPreviewStack.replaceChildren();
+      if (runtimeApi.layout.isPopped("artifact")) {
+        runtimeApi.elements.artifactPreviewStack.classList.remove("split");
         return;
       }
-      artifactPreviewStack.classList.toggle("split", artifactPreviewItems.length > 1);
-      for (const [index, item] of artifactPreviewItems.entries()) {
+      runtimeApi.elements.artifactPreviewStack.classList.toggle("split", runtimeState.artifactPreviewItems.length > 1);
+      for (const [index, item] of runtimeState.artifactPreviewItems.entries()) {
         if (index > 0) {
           const divider = document.createElement("div");
           divider.className = "artifact-preview-divider";
-          artifactPreviewStack.append(divider);
+          runtimeApi.elements.artifactPreviewStack.append(divider);
         }
         const section = document.createElement("section");
         section.className = "artifact-preview-item";
@@ -527,7 +598,7 @@
 
         const zoomLevel = document.createElement("span");
         zoomLevel.className = "document-zoom-level";
-        zoomLevel.textContent = `${documentZoom}%`;
+        zoomLevel.textContent = `${runtimeState.documentZoom}%`;
 
         const zoomIn = document.createElement("button");
         zoomIn.className = "document-zoom-button";
@@ -644,7 +715,7 @@
         frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
 
         section.append(header, frame);
-        artifactPreviewStack.append(section);
+        runtimeApi.elements.artifactPreviewStack.append(section);
       }
       applyDocumentZoom();
     }
@@ -654,7 +725,7 @@
         return null;
       }
       const escapedId = CSS.escape(item.id || "");
-      return artifactPreviewStack.querySelector(
+      return runtimeApi.elements.artifactPreviewStack.querySelector(
         `.artifact-preview-frame[data-artifact-id="${escapedId}"]`,
       );
     }
@@ -664,13 +735,13 @@
       if (!frame || !frame.contentWindow) {
         return Promise.resolve(true);
       }
-      const token = `artifact-save-${++artifactSaveTokenSequence}`;
+      const token = `artifact-save-${++runtimeState.artifactSaveTokenSequence}`;
       return new Promise((resolve) => {
         const timeout = window.setTimeout(() => {
-          pendingArtifactSaves.delete(token);
+          runtimeState.pendingArtifactSaves.delete(token);
           resolve(false);
         }, 15000);
-        pendingArtifactSaves.set(token, { resolve, timeout });
+        runtimeState.pendingArtifactSaves.set(token, { resolve, timeout });
         frame.contentWindow.postMessage(
           { type: "electroboy-save-request", token },
           window.location.origin,
@@ -695,16 +766,16 @@
         popOutPane("artifact", item);
         return;
       }
-      if (!contextId) {
+      if (!runtimeState.contextId) {
         appendOutput("create a browser context first\n", "error");
         return;
       }
       const parameters = new URLSearchParams();
-      parameters.set("context_id", contextId);
+      parameters.set("context_id", runtimeState.contextId);
       parameters.set("artifact", artifactKindForPane(item));
-      parameters.set("font_size", String(terminalFontSize));
-      parameters.set("base_font_size", String(terminalFontSize));
-      parameters.set("document_zoom", String(documentZoom));
+      parameters.set("font_size", String(runtimeState.terminalFontSize));
+      parameters.set("base_font_size", String(runtimeState.terminalFontSize));
+      parameters.set("document_zoom", String(runtimeState.documentZoom));
       if (item.kind === "document" && item.target) {
         parameters.set("document_path", item.target.path);
         parameters.set("document_title", item.target.label);
@@ -723,7 +794,7 @@
       }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,
-        `electroboy-artifact-${item.id}-${contextId}`,
+        `electroboy-artifact-${item.id}-${runtimeState.contextId}`,
         PANE_POPUP_FEATURES,
       );
       if (!popup) {
@@ -732,24 +803,24 @@
     }
 
     function hideArtifactPreview() {
-      artifactPreviewKind = "";
-      artifactPreviewDocumentTarget = null;
-      artifactPreviewItems = [];
-      manualArtifactPreview = false;
-      manualArtifactPreviewStage = "";
-      artifactPreviewStage = "";
-      artifactPaneRequested = false;
+      runtimeState.artifactPreviewKind = "";
+      runtimeState.artifactPreviewDocumentTarget = null;
+      runtimeState.artifactPreviewItems = [];
+      runtimeState.manualArtifactPreview = false;
+      runtimeState.manualArtifactPreviewStage = "";
+      runtimeState.artifactPreviewStage = "";
+      runtimeState.artifactPaneRequested = false;
       closeArtifactEventStream();
-      artifactPreviewStack.replaceChildren();
-      artifactPreviewStack.classList.remove("split");
+      runtimeApi.elements.artifactPreviewStack.replaceChildren();
+      runtimeApi.elements.artifactPreviewStack.classList.remove("split");
       applyOutputPaneVisibility();
     }
 
     function refreshArtifactPreview(options = {}) {
       const includeEditing = options.includeEditing !== false;
-      artifactPreviewVersion += 1;
-      for (const frame of artifactPreviewStack.querySelectorAll(".artifact-preview-frame")) {
-        const item = artifactPreviewItems.find(
+      runtimeState.artifactPreviewVersion += 1;
+      for (const frame of runtimeApi.elements.artifactPreviewStack.querySelectorAll(".artifact-preview-frame")) {
+        const item = runtimeState.artifactPreviewItems.find(
           (candidate) => candidate.id === frame.dataset.artifactId,
         );
         if (item && item.editing && !includeEditing) {
@@ -786,66 +857,66 @@
 
     function connectArtifactEvents() {
       closeArtifactEventStream();
-      if (!contextId) {
+      if (!runtimeState.contextId) {
         return;
       }
-      const urls = new Set(artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
+      const urls = new Set(runtimeState.artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
       for (const url of urls) {
         const source = new EventSource(url);
         source.addEventListener("artifact-event", () => {
           refreshArtifactPreview({ includeEditing: false });
         });
         source.onerror = () => {};
-        artifactEventSources.push(source);
+        runtimeState.artifactEventSources.push(source);
       }
     }
 
     function closeArtifactEventStream() {
-      for (const source of artifactEventSources) {
+      for (const source of runtimeState.artifactEventSources) {
         source.close();
       }
-      artifactEventSources = [];
+      runtimeState.artifactEventSources = [];
     }
 
     function stageIsRunning(stage) {
       if (stage === "requirements") {
-        return requirementsRunning;
+        return runtimeState.requirementsRunning;
       }
       if (stage === "design") {
-        return designRunning;
+        return runtimeState.designRunning;
       }
       if (stage === "design-review") {
-        return designReviewRunning;
+        return runtimeState.designReviewRunning;
       }
       return Boolean(genericStageRun(stage).running);
     }
 
     function syncArtifactPreviewWithProject() {
-      if (!activeProjectRoot) {
+      if (!runtimeState.activeProjectRoot) {
         hideArtifactPreview();
         return;
       }
-      if (manualArtifactPreview && manualArtifactPreviewStage === currentWorkflowStage) {
+      if (runtimeState.manualArtifactPreview && runtimeState.manualArtifactPreviewStage === runtimeState.currentWorkflowStage) {
         connectArtifactEvents();
         return;
       }
-      manualArtifactPreview = false;
-      manualArtifactPreviewStage = "";
-      if (artifactPreviewStage === currentWorkflowStage && artifactPreviewItems.length > 0) {
+      runtimeState.manualArtifactPreview = false;
+      runtimeState.manualArtifactPreviewStage = "";
+      if (runtimeState.artifactPreviewStage === runtimeState.currentWorkflowStage && runtimeState.artifactPreviewItems.length > 0) {
         connectArtifactEvents();
         return;
       }
-      if (stageIsRunning(currentWorkflowStage)) {
-        showStageArtifactPreview(currentWorkflowStage);
+      if (stageIsRunning(runtimeState.currentWorkflowStage)) {
+        showStageArtifactPreview(runtimeState.currentWorkflowStage);
         return;
       }
-      if (artifactPreviewStage && artifactPreviewStage !== currentWorkflowStage) {
+      if (runtimeState.artifactPreviewStage && runtimeState.artifactPreviewStage !== runtimeState.currentWorkflowStage) {
         hideArtifactPreview();
       }
     }
 
     async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {
-      if (!activeProjectRoot) {
+      if (!runtimeState.activeProjectRoot) {
         appendOutput("activate a project first\n", "error");
         return;
       }
@@ -857,8 +928,8 @@
       setAgentInputVisible(true);
       clearAgentOutput();
       setAgentRunning("documentation", true);
-      agentInput.disabled = false;
-      agentInput.focus();
+      runtimeApi.elements.agentInput.disabled = false;
+      runtimeApi.elements.agentInput.focus();
       appendOutput(
         `$ electroboy document --sidecar --interactive --target ${documentTarget.path}\n`,
         "system",
@@ -876,8 +947,8 @@
       }
       updateProjectState(payload);
       setAgentRunning("documentation", true);
-      const sessionId = payload.session_id || selectedSessionId;
-      selectedSessionId = sessionId;
+      const sessionId = payload.session_id || runtimeState.selectedSessionId;
+      runtimeState.selectedSessionId = sessionId;
       renderSessionSwitcher();
       connectSessionEvents(sessionId);
       sendTerminalResize();
@@ -888,56 +959,57 @@
     label: "Documents",
     capabilities: ["markdown-preview", "structured-edit", "export"],
     actions: {
-      storedDocumentTargets: (_runtime, ...args) => storedDocumentTargets(...args),
-      saveDocumentTargets: (_runtime, ...args) => saveDocumentTargets(...args),
-      documentExportFormats: (_runtime, ...args) => documentExportFormats(...args),
-      documentExportFormat: (_runtime, ...args) => documentExportFormat(...args),
-      documentExportPickerTypes: (_runtime, ...args) => documentExportPickerTypes(...args),
-      artifactDocumentBaseName: (_runtime, ...args) => artifactDocumentBaseName(...args),
-      artifactDocumentExportName: (_runtime, ...args) => artifactDocumentExportName(...args),
-      artifactDocumentExportUrl: (_runtime, ...args) => artifactDocumentExportUrl(...args),
-      exportArtifactDocument: (_runtime, ...args) => exportArtifactDocument(...args),
-      documentTargetKey: (_runtime, ...args) => documentTargetKey(...args),
-      documentTargetLabel: (_runtime, ...args) => documentTargetLabel(...args),
-      documentTargetForSession: (_runtime, ...args) => documentTargetForSession(...args),
-      documentationSessionForTarget: (_runtime, ...args) => documentationSessionForTarget(...args),
-      rememberOpenDocumentTarget: (_runtime, ...args) => rememberOpenDocumentTarget(...args),
-      syncOpenDocumentTargetsFromSessions: (_runtime, ...args) => syncOpenDocumentTargetsFromSessions(...args),
-      renderDocumentTargetSwitcher: (_runtime, ...args) => renderDocumentTargetSwitcher(...args),
-      refreshDocumentTargetSwitchers: (_runtime, ...args) => refreshDocumentTargetSwitchers(...args),
-      renderDocumentActionPanel: (_runtime, ...args) => renderDocumentActionPanel(...args),
-      documentTargetFromInput: (_runtime, ...args) => documentTargetFromInput(...args),
-      documentTargetFromSelectedPath: (_runtime, ...args) => documentTargetFromSelectedPath(...args),
-      registerDocumentTarget: (_runtime, ...args) => registerDocumentTarget(...args),
-      launchDocumentTarget: (_runtime, ...args) => launchDocumentTarget(...args),
-      selectOpenDocumentTarget: (_runtime, ...args) => selectOpenDocumentTarget(...args),
-      artifactKindForPane: (_runtime, ...args) => artifactKindForPane(...args),
-      artifactRouteUrl: (_runtime, ...args) => artifactRouteUrl(...args),
-      artifactPreviewUrl: (_runtime, ...args) => artifactPreviewUrl(...args),
-      artifactEditUrl: (_runtime, ...args) => artifactEditUrl(...args),
-      artifactPaneSupportsModeSwitch: (_runtime, ...args) => artifactPaneSupportsModeSwitch(...args),
-      artifactPaneSupportsDocumentExport: (_runtime, ...args) => artifactPaneSupportsDocumentExport(...args),
-      artifactPaneSupportsDocumentZoom: (_runtime, ...args) => artifactPaneSupportsDocumentZoom(...args),
-      artifactPreviewsForStage: (_runtime, ...args) => artifactPreviewsForStage(...args),
-      setArtifactCompatibilityState: (_runtime, ...args) => setArtifactCompatibilityState(...args),
-      showArtifactPreviews: (_runtime, ...args) => showArtifactPreviews(...args),
-      showStageArtifactPreview: (_runtime, ...args) => showStageArtifactPreview(...args),
-      showArtifactPreview: (_runtime, ...args) => showArtifactPreview(...args),
-      showDocumentPreview: (_runtime, ...args) => showDocumentPreview(...args),
-      markArtifactFrameLoading: (_runtime, ...args) => markArtifactFrameLoading(...args),
-      renderArtifactPreviewItems: (_runtime, ...args) => renderArtifactPreviewItems(...args),
-      artifactFrameForItem: (_runtime, ...args) => artifactFrameForItem(...args),
-      requestArtifactEditorSave: (_runtime, ...args) => requestArtifactEditorSave(...args),
-      setArtifactPreviewEditing: (_runtime, ...args) => setArtifactPreviewEditing(...args),
-      popOutArtifactPreview: (_runtime, ...args) => popOutArtifactPreview(...args),
-      hideArtifactPreview: (_runtime, ...args) => hideArtifactPreview(...args),
-      refreshArtifactPreview: (_runtime, ...args) => refreshArtifactPreview(...args),
-      artifactEventUrl: (_runtime, ...args) => artifactEventUrl(...args),
-      connectArtifactEvents: (_runtime, ...args) => connectArtifactEvents(...args),
-      closeArtifactEventStream: (_runtime, ...args) => closeArtifactEventStream(...args),
-      stageIsRunning: (_runtime, ...args) => stageIsRunning(...args),
-      syncArtifactPreviewWithProject: (_runtime, ...args) => syncArtifactPreviewWithProject(...args),
-      startDocumentationAgent: (_runtime, ...args) => startDocumentationAgent(...args),
+      storedDocumentTargets: (runtime, ...args) => invoke(runtime, storedDocumentTargets, args),
+      saveDocumentTargets: (runtime, ...args) => invoke(runtime, saveDocumentTargets, args),
+      documentExportFormats: (runtime, ...args) => invoke(runtime, documentExportFormats, args),
+      documentExportFormat: (runtime, ...args) => invoke(runtime, documentExportFormat, args),
+      documentExportPickerTypes: (runtime, ...args) => invoke(runtime, documentExportPickerTypes, args),
+      artifactDocumentBaseName: (runtime, ...args) => invoke(runtime, artifactDocumentBaseName, args),
+      artifactDocumentExportName: (runtime, ...args) => invoke(runtime, artifactDocumentExportName, args),
+      artifactDocumentExportUrl: (runtime, ...args) => invoke(runtime, artifactDocumentExportUrl, args),
+      exportArtifactDocument: (runtime, ...args) => invoke(runtime, exportArtifactDocument, args),
+      documentTargetKey: (runtime, ...args) => invoke(runtime, documentTargetKey, args),
+      documentTargetLabel: (runtime, ...args) => invoke(runtime, documentTargetLabel, args),
+      documentTargetForSession: (runtime, ...args) => invoke(runtime, documentTargetForSession, args),
+      documentationSessionForTarget: (runtime, ...args) => invoke(runtime, documentationSessionForTarget, args),
+      rememberOpenDocumentTarget: (runtime, ...args) => invoke(runtime, rememberOpenDocumentTarget, args),
+      syncOpenDocumentTargetsFromSessions: (runtime, ...args) => invoke(runtime, syncOpenDocumentTargetsFromSessions, args),
+      renderDocumentTargetSwitcher: (runtime, ...args) => invoke(runtime, renderDocumentTargetSwitcher, args),
+      refreshDocumentTargetSwitchers: (runtime, ...args) => invoke(runtime, refreshDocumentTargetSwitchers, args),
+      renderDocumentActionPanel: (runtime, ...args) => invoke(runtime, renderDocumentActionPanel, args),
+      documentTargetFromInput: (runtime, ...args) => invoke(runtime, documentTargetFromInput, args),
+      documentTargetFromSelectedPath: (runtime, ...args) => invoke(runtime, documentTargetFromSelectedPath, args),
+      registerDocumentTarget: (runtime, ...args) => invoke(runtime, registerDocumentTarget, args),
+      launchDocumentTarget: (runtime, ...args) => invoke(runtime, launchDocumentTarget, args),
+      selectOpenDocumentTarget: (runtime, ...args) => invoke(runtime, selectOpenDocumentTarget, args),
+      artifactKindForPane: (runtime, ...args) => invoke(runtime, artifactKindForPane, args),
+      artifactRouteUrl: (runtime, ...args) => invoke(runtime, artifactRouteUrl, args),
+      artifactPreviewUrl: (runtime, ...args) => invoke(runtime, artifactPreviewUrl, args),
+      artifactEditUrl: (runtime, ...args) => invoke(runtime, artifactEditUrl, args),
+      artifactPaneSupportsModeSwitch: (runtime, ...args) => invoke(runtime, artifactPaneSupportsModeSwitch, args),
+      artifactPaneSupportsDocumentExport: (runtime, ...args) => invoke(runtime, artifactPaneSupportsDocumentExport, args),
+      artifactPaneSupportsDocumentZoom: (runtime, ...args) => invoke(runtime, artifactPaneSupportsDocumentZoom, args),
+      artifactPreviewsForStage: (runtime, ...args) => invoke(runtime, artifactPreviewsForStage, args),
+      setArtifactCompatibilityState: (runtime, ...args) => invoke(runtime, setArtifactCompatibilityState, args),
+      showArtifactPreviews: (runtime, ...args) => invoke(runtime, showArtifactPreviews, args),
+      showStageArtifactPreview: (runtime, ...args) => invoke(runtime, showStageArtifactPreview, args),
+      showArtifactPreview: (runtime, ...args) => invoke(runtime, showArtifactPreview, args),
+      showDocumentPreview: (runtime, ...args) => invoke(runtime, showDocumentPreview, args),
+      markArtifactFrameLoading: (runtime, ...args) => invoke(runtime, markArtifactFrameLoading, args),
+      renderArtifactPreviewItems: (runtime, ...args) => invoke(runtime, renderArtifactPreviewItems, args),
+      artifactFrameForItem: (runtime, ...args) => invoke(runtime, artifactFrameForItem, args),
+      requestArtifactEditorSave: (runtime, ...args) => invoke(runtime, requestArtifactEditorSave, args),
+      setArtifactPreviewEditing: (runtime, ...args) => invoke(runtime, setArtifactPreviewEditing, args),
+      popOutArtifactPreview: (runtime, ...args) => invoke(runtime, popOutArtifactPreview, args),
+      hideArtifactPreview: (runtime, ...args) => invoke(runtime, hideArtifactPreview, args),
+      refreshArtifactPreview: (runtime, ...args) => invoke(runtime, refreshArtifactPreview, args),
+      artifactEventUrl: (runtime, ...args) => invoke(runtime, artifactEventUrl, args),
+      connectArtifactEvents: (runtime, ...args) => invoke(runtime, connectArtifactEvents, args),
+      closeArtifactEventStream: (runtime, ...args) => invoke(runtime, closeArtifactEventStream, args),
+      stageIsRunning: (runtime, ...args) => invoke(runtime, stageIsRunning, args),
+      syncArtifactPreviewWithProject: (runtime, ...args) => invoke(runtime, syncArtifactPreviewWithProject, args),
+      startDocumentationAgent: (runtime, ...args) => invoke(runtime, startDocumentationAgent, args),
     },
+    mount: bindRuntime,
   });
 })();

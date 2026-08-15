@@ -1,11 +1,25 @@
 (function () {
   "use strict";
 
+  const PANE_POPUP_FEATURES =
+    "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
+  let runtimeApi = null;
+
+  function bindRuntime(runtime) {
+    runtimeApi = runtime;
+  }
+
+  function state() {
+    return runtimeApi.state;
+  }
+
   function fileBrowserUrl(path, mode = "project", projectAction = "") {
+    const current = state();
     const parameters = new URLSearchParams();
     parameters.set(
       "path",
-      path || activeProjectRoot || activationRoot || serviceRoot || ".",
+      path || current.activeProjectRoot || current.activationRoot
+        || current.serviceRoot || ".",
     );
     parameters.set("mode", mode);
     if (projectAction) {
@@ -14,22 +28,24 @@
     return `/file-browser?${parameters.toString()}`;
   }
 
-  function openProjectBrowser(mode = projectMode, activateSelection = false) {
-    if (activationRoot && mode !== "meta-add" && mode !== "meta-start") {
+  function openProjectBrowser(mode = state().projectMode, activateSelection = false) {
+    const current = state();
+    if (current.activationRoot && mode !== "meta-add" && mode !== "meta-start") {
       return;
     }
     if (
       (mode === "meta-add" || mode === "meta-start") &&
-      activeProjectMode !== "meta"
+      current.activeProjectMode !== "meta"
     ) {
       return;
     }
-    projectMode = mode;
-    projectBrowserActivatesSelection = Boolean(activateSelection);
-    hideStageMenus();
-    hideWorkItemPanel();
-    projectPanel.hidden = true;
-    const path = projectPath.value || activeProjectRoot || activationRoot || serviceRoot || ".";
+    current.projectMode = mode;
+    current.projectBrowserActivatesSelection = Boolean(activateSelection);
+    runtimeApi.ui.hideStageMenus();
+    runtimeApi.ui.hideWorkItemPanel();
+    runtimeApi.elements.projectPanel.hidden = true;
+    const path = runtimeApi.elements.projectPath.value || current.activeProjectRoot
+      || current.activationRoot || current.serviceRoot || ".";
     const browserMode = mode === "new" || mode === "meta-new"
       ? "project-new"
       : "project";
@@ -39,54 +55,58 @@
       PANE_POPUP_FEATURES,
     );
     if (!popup) {
-      projectBrowserActivatesSelection = false;
-      projectStatus.textContent = "popup was blocked by the browser";
-      appendOutput("popup was blocked by the browser\n", "error");
+      current.projectBrowserActivatesSelection = false;
+      runtimeApi.elements.projectStatus.textContent = "popup was blocked by the browser";
+      runtimeApi.notifications.appendOutput("popup was blocked by the browser\n", "error");
     }
   }
 
   function openLinkFileBrowser() {
-    projectBrowserActivatesSelection = false;
-    const path = activeProjectRoot || activationRoot || serviceRoot || projectPath.value || ".";
+    const current = state();
+    current.projectBrowserActivatesSelection = false;
+    const path = current.activeProjectRoot || current.activationRoot
+      || current.serviceRoot || runtimeApi.elements.projectPath.value || ".";
     const popup = window.open(
       fileBrowserUrl(path, "link"),
       "electroboy-file-link-browser",
       PANE_POPUP_FEATURES,
     );
     if (!popup) {
-      appendOutput("popup was blocked by the browser\n", "error");
+      runtimeApi.notifications.appendOutput("popup was blocked by the browser\n", "error");
     }
   }
 
   function openDocumentFileBrowser() {
-    projectBrowserActivatesSelection = false;
-    if (!activeProjectRoot) {
-      appendOutput("activate a project first\n", "error");
+    const current = state();
+    current.projectBrowserActivatesSelection = false;
+    if (!current.activeProjectRoot) {
+      runtimeApi.notifications.appendOutput("activate a project first\n", "error");
       return;
     }
     const popup = window.open(
-      fileBrowserUrl(activeProjectRoot, "document"),
+      fileBrowserUrl(current.activeProjectRoot, "document"),
       "electroboy-document-browser",
       PANE_POPUP_FEATURES,
     );
     if (!popup) {
-      appendOutput("popup was blocked by the browser\n", "error");
+      runtimeApi.notifications.appendOutput("popup was blocked by the browser\n", "error");
     }
   }
 
   function openNewDocumentFileBrowser() {
-    projectBrowserActivatesSelection = false;
-    if (!activeProjectRoot) {
-      appendOutput("activate a project first\n", "error");
+    const current = state();
+    current.projectBrowserActivatesSelection = false;
+    if (!current.activeProjectRoot) {
+      runtimeApi.notifications.appendOutput("activate a project first\n", "error");
       return;
     }
     const popup = window.open(
-      fileBrowserUrl(activeProjectRoot, "document-new"),
+      fileBrowserUrl(current.activeProjectRoot, "document-new"),
       "electroboy-new-document-browser",
       PANE_POPUP_FEATURES,
     );
     if (!popup) {
-      appendOutput("popup was blocked by the browser\n", "error");
+      runtimeApi.notifications.appendOutput("popup was blocked by the browser\n", "error");
     }
   }
 
@@ -94,35 +114,48 @@
     if (data.type !== "electroboy-file-browser-select" || !data.path) {
       return false;
     }
+    const current = state();
     if (data.mode === "link") {
-      insertTextAtCursor(data.path);
-      agentInput.focus();
+      runtimeApi.ui.insertTextAtCursor(data.path);
+      runtimeApi.elements.agentInput.focus();
       return true;
     }
     if (data.mode === "document" || data.mode === "document-new") {
-      const target = documentTargetFromSelectedPath(data.path);
+      const target = runtimeApi.modules.invoke(
+        "documents",
+        "documentTargetFromSelectedPath",
+        data.path,
+      );
       if (target) {
-        launchDocumentTarget(target);
+        runtimeApi.modules.invoke("documents", "launchDocumentTarget", target);
       }
       return true;
     }
     if (
       (data.mode === "project" || data.mode === "project-new") &&
-      (projectBrowserActivatesSelection || data.project_action)
+      (current.projectBrowserActivatesSelection || data.project_action)
     ) {
       if (data.project_action) {
-        projectMode = data.project_action;
+        current.projectMode = data.project_action;
       }
-      projectBrowserActivatesSelection = false;
-      applyProjectSelection(data.path).catch((error) => {
-        appendOutput(`project update failed: ${error}\n`, "error");
+      current.projectBrowserActivatesSelection = false;
+      runtimeApi.ui.applyProjectSelection(data.path).catch((error) => {
+        runtimeApi.notifications.appendOutput(
+          `project update failed: ${error}\n`,
+          "error",
+        );
       });
       return true;
     }
-    projectPath.value = data.path;
-    projectStatus.textContent = `selected: ${data.path}`;
-    projectPath.focus();
+    runtimeApi.elements.projectPath.value = data.path;
+    runtimeApi.elements.projectStatus.textContent = `selected: ${data.path}`;
+    runtimeApi.elements.projectPath.focus();
     return true;
+  }
+
+  function invoke(runtime, handler, args) {
+    bindRuntime(runtime);
+    return handler(...args);
   }
 
   window.ElectroBoyFrontend.registerModule({
@@ -130,12 +163,13 @@
     label: "File Browser",
     capabilities: ["directory-picker", "file-picker"],
     actions: {
-      fileBrowserUrl: (_runtime, ...args) => fileBrowserUrl(...args),
-      openProjectBrowser: (_runtime, ...args) => openProjectBrowser(...args),
-      openLinkFileBrowser: (_runtime, ...args) => openLinkFileBrowser(...args),
-      openDocumentFileBrowser: (_runtime, ...args) => openDocumentFileBrowser(...args),
-      openNewDocumentFileBrowser: (_runtime, ...args) => openNewDocumentFileBrowser(...args),
-      handleFileBrowserMessage: (_runtime, ...args) => handleFileBrowserMessage(...args),
+      fileBrowserUrl: (runtime, ...args) => invoke(runtime, fileBrowserUrl, args),
+      openProjectBrowser: (runtime, ...args) => invoke(runtime, openProjectBrowser, args),
+      openLinkFileBrowser: (runtime, ...args) => invoke(runtime, openLinkFileBrowser, args),
+      openDocumentFileBrowser: (runtime, ...args) => invoke(runtime, openDocumentFileBrowser, args),
+      openNewDocumentFileBrowser: (runtime, ...args) => invoke(runtime, openNewDocumentFileBrowser, args),
+      handleFileBrowserMessage: (runtime, ...args) => invoke(runtime, handleFileBrowserMessage, args),
     },
+    mount: bindRuntime,
   });
 })();

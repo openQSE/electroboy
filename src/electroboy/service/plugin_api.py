@@ -9,8 +9,11 @@ from .http import (
     TextResponse,
 )
 from .registry import (
+    CliCommandDefinition,
+    DocumentSchemaDefinition,
     RouteDefinition,
     RouteHandler,
+    RuntimeRoleDefinition,
     ServiceModule,
     WorkflowController,
     WorkflowDefinition,
@@ -27,13 +30,16 @@ from .services import (
 
 __all__ = [
     "BinaryResponse",
+    "CliCommandDefinition",
     "ContextServices",
+    "DocumentSchemaDefinition",
     "HtmlResponse",
     "JsonResponse",
     "ProjectFileServices",
     "RouteDefinition",
     "RouteHandler",
     "RouteRequest",
+    "RuntimeRoleDefinition",
     "ServiceModule",
     "ServiceResponse",
     "ServiceServices",

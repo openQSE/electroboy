@@ -48,6 +48,54 @@ RouteHandler = Callable[["RouteRequest"], "ServiceResponse"]
 
 
 @dataclass(frozen=True)
+class CliCommandDefinition:
+    """Serializable command metadata contributed by a plugin."""
+
+    id: str
+    label: str
+    description: str = ""
+
+    def payload(self) -> dict[str, str]:
+        return {"id": self.id, "label": self.label, "description": self.description}
+
+
+@dataclass(frozen=True)
+class DocumentSchemaDefinition:
+    """Structured document schema metadata contributed by a plugin."""
+
+    id: str
+    label: str
+    version: int = 1
+    source_format: str = "jsonl"
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "version": self.version,
+            "source_format": self.source_format,
+        }
+
+
+@dataclass(frozen=True)
+class RuntimeRoleDefinition:
+    """Agent runtime role metadata contributed by a plugin."""
+
+    id: str
+    label: str
+    interactive: bool = False
+    mutating: bool = False
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "interactive": self.interactive,
+            "mutating": self.mutating,
+        }
+
+
+@dataclass(frozen=True)
 class RouteDefinition:
     """HTTP route metadata owned by a core service or capability module."""
 
@@ -81,6 +129,9 @@ class ServiceModule:
     asset_package: str | None = None
     asset_root: str = "assets"
     capabilities: frozenset[str] = frozenset()
+    commands: tuple[CliCommandDefinition, ...] = ()
+    document_schemas: tuple[DocumentSchemaDefinition, ...] = ()
+    runtime_roles: tuple[RuntimeRoleDefinition, ...] = ()
     state_namespace: str | None = None
     provider: str = "electroboy"
     entry_point: str | None = None
@@ -93,6 +144,9 @@ class ServiceModule:
             "assets": list(self.assets),
             "asset_package": self.asset_package,
             "capabilities": sorted(self.capabilities),
+            "commands": [entry.payload() for entry in self.commands],
+            "document_schemas": [entry.payload() for entry in self.document_schemas],
+            "runtime_roles": [entry.payload() for entry in self.runtime_roles],
             "state_namespace": self.state_namespace,
             "provider": self.provider,
             "entry_point": self.entry_point,
@@ -147,6 +201,9 @@ class WorkflowDefinition:
         repr=False,
         compare=False,
     )
+    commands: tuple[CliCommandDefinition, ...] = ()
+    document_schemas: tuple[DocumentSchemaDefinition, ...] = ()
+    runtime_roles: tuple[RuntimeRoleDefinition, ...] = ()
     provider: str = "electroboy"
     entry_point: str | None = None
 
@@ -163,6 +220,9 @@ class WorkflowDefinition:
             "asset_resource": self.asset_resource,
             "frontend_stylesheets": list(self.frontend_stylesheets),
             "routes": [route.payload() for route in self.routes],
+            "commands": [entry.payload() for entry in self.commands],
+            "document_schemas": [entry.payload() for entry in self.document_schemas],
+            "runtime_roles": [entry.payload() for entry in self.runtime_roles],
             "provider": self.provider,
             "entry_point": self.entry_point,
         }
@@ -211,6 +271,7 @@ class ModuleRegistry:
     def register(self, module: ServiceModule) -> None:
         if module.id in self._modules:
             raise ValueError(f"service module is already registered: {module.id}")
+        _validate_contribution_metadata(module)
         self._modules[module.id] = module
 
     def get(self, module_id: str) -> ServiceModule:
@@ -243,6 +304,7 @@ class WorkflowRegistry:
             raise ValueError(
                 f"workflow {workflow.id} requires missing modules: {missing_list}"
             )
+        _validate_contribution_metadata(workflow)
         self._workflows[workflow.id] = workflow
 
     def get(self, workflow_id: str) -> WorkflowDefinition:
@@ -271,6 +333,22 @@ class WorkflowRegistry:
                 )
             controllers[workflow.id] = controller
         return controllers
+
+
+def _validate_contribution_metadata(
+    contribution: ServiceModule | WorkflowDefinition,
+) -> None:
+    for field_name in ("commands", "document_schemas", "runtime_roles"):
+        entries = getattr(contribution, field_name)
+        identifiers = [entry.id.strip() for entry in entries]
+        if any(not identifier for identifier in identifiers):
+            raise ValueError(
+                f"{contribution.id} has an empty {field_name} identifier"
+            )
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError(
+                f"{contribution.id} has duplicate {field_name} identifiers"
+            )
 
 
 def build_module_registry(

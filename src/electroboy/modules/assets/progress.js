@@ -1,88 +1,103 @@
 (function () {
   "use strict";
 
-    function initializeProgressTerminal() {
-      if (progressTerminal || !window.Terminal) {
-        return;
-      }
-      progressTerminal = new window.Terminal(terminalOptions(true, "progress"));
-      if (window.FitAddon && window.FitAddon.FitAddon) {
-        progressTerminalFit = new window.FitAddon.FitAddon();
-        progressTerminal.loadAddon(progressTerminalFit);
-      }
-      progressTerminal.open(progressOutput);
-      applyTerminalFontSize();
-    }
+  let terminal = null;
+  let terminalFit = null;
+  let eventSource = null;
 
-    async function exportProgressLog() {
-      await exportMarkdown(
-        contextUrl("/api/progress/export"),
-        `progress-log-${timestampForDownload()}.md`,
+  function initializeProgressTerminal(runtime) {
+    if (terminal || !window.Terminal) {
+      return;
+    }
+    terminal = new window.Terminal(runtime.terminals.options(true, "progress"));
+    if (window.FitAddon && window.FitAddon.FitAddon) {
+      terminalFit = new window.FitAddon.FitAddon();
+      terminal.loadAddon(terminalFit);
+    }
+    terminal.open(runtime.elements.progressOutput);
+    runtime.terminals.applyFontSize();
+  }
+
+  async function exportProgressLog(runtime) {
+    await runtime.downloads.exportMarkdown(
+      runtime.http.contextUrl("/api/progress/export"),
+      `progress-log-${runtime.downloads.timestamp()}.md`,
+    );
+  }
+
+  function appendProgressOutput(runtime, text, className = "") {
+    if (terminal) {
+      terminal.write(runtime.terminals.formatMessage(text, className));
+      return;
+    }
+    const span = document.createElement("span");
+    span.textContent = text;
+    if (className) {
+      span.className = className;
+    }
+    const output = runtime.elements.progressOutput;
+    output.appendChild(span);
+    output.scrollTop = output.scrollHeight;
+  }
+
+  function clearProgressOutput(runtime) {
+    if (terminal) {
+      terminal.clear();
+      return;
+    }
+    runtime.elements.progressOutput.replaceChildren();
+  }
+
+  function connectProgressEvents(runtime) {
+    closeProgressEventStream();
+    runtime.layout.showProgressPane(true);
+    eventSource = runtime.http.eventSource("/api/progress/events");
+    eventSource.addEventListener("progress-event", (event) => {
+      const payload = JSON.parse(event.data);
+      clearProgressOutput(runtime);
+      appendProgressOutput(
+        runtime,
+        payload.text || "",
+        payload.type === "error" ? "error" : "",
       );
-    }
-
-    function appendProgressOutput(text, className = "") {
-      if (progressTerminal) {
-        progressTerminal.write(formatTerminalMessage(text, className));
-        return;
+      if (payload.running === false) {
+        closeProgressEventStream();
       }
-      const span = document.createElement("span");
-      span.textContent = text;
-      if (className) {
-        span.className = className;
-      }
-      progressOutput.appendChild(span);
-      progressOutput.scrollTop = progressOutput.scrollHeight;
-    }
+    });
+    eventSource.addEventListener("progress-issue", (event) => {
+      const payload = JSON.parse(event.data);
+      const severity = String(payload.severity || "issue").toUpperCase();
+      appendProgressOutput(
+        runtime,
+        `\r\nISSUE FOUND - ${severity} - ${payload.summary || ""}\r\n`,
+        "error",
+      );
+    });
+    eventSource.onerror = () => {};
+  }
 
-    function clearProgressOutput() {
-      if (progressTerminal) {
-        progressTerminal.clear();
-        return;
-      }
-      progressOutput.replaceChildren();
+  function closeProgressEventStream() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
     }
+  }
 
-    function connectProgressEvents() {
-      if (progressEventSource) {
-        progressEventSource.close();
-      }
-      showProgressPane(true);
-      progressEventSource = new EventSource(contextUrl("/api/progress/events"));
-      progressEventSource.addEventListener("progress-event", (event) => {
-        const payload = JSON.parse(event.data);
-        clearProgressOutput();
-        appendProgressOutput(
-          payload.text || "",
-          payload.type === "error" ? "error" : "",
-        );
-        if (payload.running === false) {
-          closeProgressEventStream();
-        }
-      });
-      progressEventSource.addEventListener("progress-issue", (event) => {
-        const payload = JSON.parse(event.data);
-        const severity = String(payload.severity || "issue").toUpperCase();
-        appendProgressOutput(
-          `\r\nISSUE FOUND - ${severity} - ${payload.summary || ""}\r\n`,
-          "error",
-        );
-      });
-      progressEventSource.onerror = () => {};
+  function fit() {
+    if (!terminalFit) {
+      return;
     }
-
-    function closeProgressEventStream() {
-      if (progressEventSource) {
-        progressEventSource.close();
-        progressEventSource = null;
-      }
+    try {
+      terminalFit.fit();
+    } catch (error) {
+      // The pane may be between layout states.
     }
-
+  }
 
   function mount(runtime) {
     runtime.elements.exportProgressOutput.addEventListener("click", () => {
-      runtime.actions.exportProgressLog().catch((error) => {
-        runtime.actions.appendOutput(`export failed: ${error}\n`, "error");
+      exportProgressLog(runtime).catch((error) => {
+        runtime.notifications.appendOutput(`export failed: ${error}\n`, "error");
       });
     });
   }
@@ -92,12 +107,14 @@
     label: "Progress",
     capabilities: ["progress-stream", "issue-announcements"],
     actions: {
-      initializeProgressTerminal: (_runtime, ...args) => initializeProgressTerminal(...args),
-      exportProgressLog: (_runtime, ...args) => exportProgressLog(...args),
-      appendProgressOutput: (_runtime, ...args) => appendProgressOutput(...args),
-      clearProgressOutput: (_runtime, ...args) => clearProgressOutput(...args),
-      connectProgressEvents: (_runtime, ...args) => connectProgressEvents(...args),
-      closeProgressEventStream: (_runtime, ...args) => closeProgressEventStream(...args),
+      initializeProgressTerminal,
+      exportProgressLog,
+      appendProgressOutput,
+      clearProgressOutput,
+      connectProgressEvents,
+      closeProgressEventStream: () => closeProgressEventStream(),
+      terminal: () => terminal,
+      fit: () => fit(),
     },
     mount,
   });
