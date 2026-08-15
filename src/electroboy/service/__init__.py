@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from . import app as _app
+from . import file_browser as _file_browser
 from . import sessions as _sessions
 
-for _module in (_app, _sessions):
+for _module in (_app, _file_browser, _sessions):
     for _name in dir(_module):
         if _name.startswith("__"):
             continue

@@ -8,13 +8,14 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
-import shlex
 import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from http import HTTPStatus
@@ -22,78 +23,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from .frontend import (
-    SERVICE_STATIC_ROUTE_PREFIX,
-    frontend_asset_payload,
-    read_service_binary_asset,
-    read_service_text_asset,
-    render_service_index,
-    service_asset_content_type,
-)
-from .registry import (
-    ModuleRegistry,
-    WorkflowRegistry,
-    build_module_registry,
-    build_workflow_registry,
-    installed_workflow_factories,
-    registry_payload,
-)
-from .routes import build_route_dispatcher
-from .sessions import (
-    MAX_TERMINAL_COLUMNS,
-    MAX_TERMINAL_ROWS,
-    MIN_TERMINAL_COLUMNS,
-    MIN_TERMINAL_ROWS,
-    SESSION_BACKEND_ENV,
-    SESSION_BACKEND_PTY,
-    SESSION_BACKEND_TMUX,
-    AgentSession,
-    AgentSessionError,
-    TmuxAgentSession,
-    _agent_process_env,
-    _normalize_session_backend,
-    _session_backend_from_env,
-    _subprocess_output_text,
-    _terminal_input_chunks_for_message,
-    _terminal_input_for_key,
-    _tmux_has_session,
-)
-from .workflow_config import (
-    add_configured_workflow,
-    configured_workflows,
-    workflow_config_payload,
-)
-from .file_browser import (
-    browse_directories,
-    browse_files,
-    browse_markdown_files,
-)
-from .recent_projects import (
-    RECENT_PROJECT_LIMIT,
-    RECENT_PROJECTS_RELATIVE_PATH,
-    load_recent_projects as _load_recent_projects,
-    recent_project_entries as _recent_project_entries,
-    recent_projects_path as _recent_projects_path,
-    remember_recent_project as _remember_recent_project,
-    save_recent_projects as _save_recent_projects,
-)
 from ..artifacts import ArtifactManager
-from ..document_export import (
-    DocumentExportError,
-    export_markdown_document,
-)
 from ..feature_artifacts import (
     artifact_paths_for_run,
     read_feature_record,
     resolve_artifact_path,
 )
 from ..models import (
-    ActivityEvent,
-    GATE_DESIGN,
     STAGE_COMPLETE,
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
@@ -104,6 +44,7 @@ from ..models import (
     STAGE_REQUIREMENTS,
     STAGE_TEST_PLAN,
     STAGE_VALIDATION,
+    ActivityEvent,
     utc_now,
 )
 from ..state_store import StateError, StateStore
@@ -116,7 +57,44 @@ from ..structured_artifacts import (
     read_artifact_records,
     render_artifact,
 )
-
+from .frontend import (
+    SERVICE_STATIC_ROUTE_PREFIX,
+    frontend_asset_payload,
+    read_service_binary_asset,
+    read_service_text_asset,
+    render_service_index,
+    service_asset_content_type,
+)
+from .recent_projects import (
+    recent_project_entries as _recent_project_entries,
+)
+from .recent_projects import (
+    remember_recent_project as _remember_recent_project,
+)
+from .registry import (
+    ModuleRegistry,
+    WorkflowRegistry,
+    build_module_registry,
+    build_workflow_registry,
+    installed_workflow_factories,
+)
+from .routes import RouteRequest, build_route_dispatcher
+from .sessions import (
+    SESSION_BACKEND_PTY,
+    SESSION_BACKEND_TMUX,
+    AgentSession,
+    AgentSessionError,
+    TmuxAgentSession,
+    _agent_process_env,
+    _normalize_session_backend,
+    _session_backend_from_env,
+    _subprocess_output_text,
+    _tmux_has_session,
+)
+from .workflow_config import (
+    configured_workflows,
+    workflow_config_payload,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -328,13 +306,10 @@ ARTIFACT_EDITOR_LIST_FIELDS = {
 
 ARTIFACT_EDITOR_JSON_FIELDS = {"automation", "schema"}
 
-
 INDEX_HTML_TEMPLATE = read_service_text_asset("index.html")
-
 
 def _render_service_text_asset(name: str) -> str:
     return _apply_service_asset_replacements(read_service_text_asset(name))
-
 
 def _apply_service_asset_replacements(text: str) -> str:
     return (
@@ -342,13 +317,11 @@ def _apply_service_asset_replacements(text: str) -> str:
         .replace("__CREATIVE_SPLASH_IMAGE_ROUTE__", CREATIVE_SPLASH_IMAGE_ROUTE)
     )
 
-
 def _optional_service_text_asset(name: str) -> str:
     try:
         return read_service_text_asset(name)
     except FileNotFoundError:
         return ""
-
 
 INDEX_PAGE_HTML = _apply_service_asset_replacements(
     render_service_index(INDEX_HTML_TEMPLATE)
@@ -370,16 +343,12 @@ INDEX_HTML = "\n".join(
     ]
 )
 
-
 PANE_WINDOW_HTML = read_service_text_asset("pane-window.html")
-
 
 def pane_window_html(kind: str) -> str:
     return PANE_WINDOW_HTML.replace("__PANE_KIND__", json.dumps(kind))
 
-
 FILE_BROWSER_WINDOW_HTML = read_service_text_asset("file-browser.html")
-
 
 def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
     select_mode = (
@@ -394,7 +363,6 @@ def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
         )
         .replace("__SELECT_MODE__", json.dumps(select_mode))
     )
-
 
 @dataclass
 class BrowserContext:
@@ -419,7 +387,6 @@ class BrowserContext:
     design_review_started: bool = False
     design_review_interactive: bool = False
     stage_started: set[str] = field(default_factory=set)
-
 
 @dataclass
 class ServiceState:
@@ -1895,7 +1862,6 @@ class ServiceState:
         if not context.requirements_started:
             raise AgentSessionError("start requirements first")
 
-
 def _force_reset_workflow_stage(
     project_root: Path,
     workflow_stage: str,
@@ -1916,7 +1882,6 @@ def _force_reset_workflow_stage(
     )
     return decision_id, output
 
-
 @dataclass
 class ServiceConfig:
     root: Path
@@ -1925,7 +1890,6 @@ class ServiceConfig:
     session_backend: str = SESSION_BACKEND_PTY
     module_registry: ModuleRegistry | None = None
     workflow_registry: WorkflowRegistry | None = None
-
 
 class ElectroBoyHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
@@ -1948,7 +1912,6 @@ class ElectroBoyHTTPServer(ThreadingHTTPServer):
         ):
             self.service_state.terminate_all_sessions()
         super().server_close()
-
 
 def create_server(
     root: Path | str,
@@ -1985,7 +1948,6 @@ def create_server(
         _handler_for(config, state),
         service_state=state,
     )
-
 
 def run_service(
     root: Path | str,
@@ -2035,7 +1997,6 @@ def run_service(
         server.server_close()
     return 0
 
-
 def health_payload(
     root: Path | str,
     module_registry: ModuleRegistry | None = None,
@@ -2059,14 +2020,12 @@ def health_payload(
     ]
     return payload
 
-
 def splash_image_bytes(resource: str = SPLASH_IMAGE_RESOURCE) -> bytes:
     return (
         resources.files(SPLASH_IMAGE_PACKAGE)
         .joinpath("assets", resource)
         .read_bytes()
     )
-
 
 def project_payload(
     service_root: Path | str,
@@ -2179,13 +2138,11 @@ def project_payload(
         "recent_projects": _recent_project_entries(service_root),
     }
 
-
 def _service_session_records_path(service_root: Path | str) -> Path:
     return (
         Path(service_root).expanduser().resolve()
         / SERVICE_SESSION_RECORDS_RELATIVE_PATH
     )
-
 
 def _service_session_transcript_path(
     service_root: Path | str,
@@ -2197,7 +2154,6 @@ def _service_session_transcript_path(
         / SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR
         / f"{safe_session_id}.jsonl"
     )
-
 
 def _load_service_session_records(service_root: Path | str) -> dict[str, object]:
     path = _service_session_records_path(service_root)
@@ -2214,7 +2170,6 @@ def _load_service_session_records(service_root: Path | str) -> dict[str, object]
     data["schema_version"] = 1
     return data
 
-
 def _save_service_session_records(
     service_root: Path | str,
     data: dict[str, object],
@@ -2222,7 +2177,6 @@ def _save_service_session_records(
     path = _service_session_records_path(service_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
 
 def _upsert_service_session_record(
     service_root: Path | str,
@@ -2239,7 +2193,6 @@ def _upsert_service_session_record(
     ]
     data["sessions"] = [record, *sessions][:200]
     _save_service_session_records(service_root, data)
-
 
 def _service_session_record(
     service_root: Path | str,
@@ -2269,7 +2222,6 @@ def _service_session_record(
         record["tmux_session"] = str(tmux_name)
     return record
 
-
 def _generic_stage_run_payload(
     context: BrowserContext,
     active_root: Path | None,
@@ -2284,7 +2236,6 @@ def _generic_stage_run_payload(
             "interactive": bool(running and session is not None and session.interactive),
         }
     return payload
-
 
 def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
     selected_session_id = context.selected_session_id
@@ -2323,7 +2274,6 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         )
     return payloads
 
-
 def _empty_work_item_payload() -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -2334,7 +2284,6 @@ def _empty_work_item_payload() -> dict[str, object]:
         "features": [],
         "bugs": [],
     }
-
 
 def _work_item_payload(project_root: Path) -> dict[str, object]:
     registry = _load_work_item_registry(project_root)
@@ -2380,7 +2329,6 @@ def _work_item_payload(project_root: Path) -> dict[str, object]:
         "bugs": _registry_list(registry, "bugs"),
     }
 
-
 def _registry_list(
     registry: dict[str, object],
     key: str,
@@ -2389,7 +2337,6 @@ def _registry_list(
     if not isinstance(values, list):
         return []
     return [value for value in values if isinstance(value, dict)]
-
 
 def _load_work_item_registry(project_root: Path) -> dict[str, object]:
     path = project_root / WORK_ITEM_REGISTRY_RELATIVE_PATH
@@ -2421,7 +2368,6 @@ def _load_work_item_registry(project_root: Path) -> dict[str, object]:
         registry["active_collection_id"] = collections[0].get("id")
     return registry
 
-
 def _save_work_item_registry(project_root: Path, registry: dict[str, object]) -> None:
     path = project_root / WORK_ITEM_REGISTRY_RELATIVE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2429,7 +2375,6 @@ def _save_work_item_registry(project_root: Path, registry: dict[str, object]) ->
         json.dumps(registry, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-
 
 def _default_feature_collection() -> dict[str, object]:
     return {
@@ -2439,7 +2384,6 @@ def _default_feature_collection() -> dict[str, object]:
         "created_at": utc_now(),
         "updated_at": utc_now(),
     }
-
 
 def _upsert_feature_collection(
     registry: dict[str, object],
@@ -2463,7 +2407,6 @@ def _upsert_feature_collection(
     registry["collections"] = collections
     return collection
 
-
 def _feature_collection_by_id(
     registry: dict[str, object],
     collection_id: str,
@@ -2472,7 +2415,6 @@ def _feature_collection_by_id(
         if collection.get("id") == collection_id:
             return collection
     return None
-
 
 def _ensure_collection_for_feature(
     registry: dict[str, object],
@@ -2506,7 +2448,6 @@ def _ensure_collection_for_feature(
     registry["active_collection_id"] = collection["id"]
     return collection
 
-
 def _feature_by_slug(
     registry: dict[str, object],
     slug: str,
@@ -2516,7 +2457,6 @@ def _feature_by_slug(
             return feature
     return None
 
-
 def _bug_by_slug(
     registry: dict[str, object],
     slug: str,
@@ -2525,7 +2465,6 @@ def _bug_by_slug(
         if bug.get("slug") == slug:
             return bug
     return None
-
 
 def _upsert_feature_record(
     registry: dict[str, object],
@@ -2561,7 +2500,6 @@ def _upsert_feature_record(
     collection["feature_slugs"] = feature_slugs
     collection["updated_at"] = utc_now()
 
-
 def _upsert_bug_record(
     registry: dict[str, object],
     record: dict[str, object],
@@ -2582,14 +2520,12 @@ def _upsert_bug_record(
         key=lambda item: str(item.get("title") or item.get("slug") or ""),
     )
 
-
 def _current_feature_record(project_root: Path) -> dict[str, object] | None:
     store = StateStore(project_root)
     run_id = store.current_run_id()
     if not run_id:
         return None
     return read_feature_record(project_root, run_id)
-
 
 def _current_bug_record(project_root: Path) -> dict[str, object] | None:
     store = StateStore(project_root)
@@ -2605,7 +2541,6 @@ def _current_bug_record(project_root: Path) -> dict[str, object] | None:
         return None
     return data if isinstance(data, dict) else None
 
-
 def _write_current_bug_record(project_root: Path, record: dict[str, object]) -> None:
     store = StateStore(project_root)
     run_id = store.current_run_id()
@@ -2618,7 +2553,6 @@ def _write_current_bug_record(project_root: Path, record: dict[str, object]) -> 
         encoding="utf-8",
     )
 
-
 def _feature_record_label(record: dict[str, object] | None) -> str:
     if not record:
         return "feature"
@@ -2629,12 +2563,10 @@ def _feature_record_label(record: dict[str, object] | None) -> str:
         or "feature"
     )
 
-
 def _bug_record_label(record: dict[str, object] | None) -> str:
     if not record:
         return "bug"
     return str(record.get("title") or record.get("slug") or "bug")
-
 
 def _run_feature_start_context(
     project_root: Path,
@@ -2657,7 +2589,6 @@ def _run_feature_start_context(
     )
     return _run_orchestrator_command(project_root, _cmd_feature_start, args)
 
-
 def _run_bug_start_context(
     project_root: Path,
     *,
@@ -2674,7 +2605,6 @@ def _run_bug_start_context(
         stash_subrepo_changes=stash_subrepo_changes,
     )
     return _run_orchestrator_command(project_root, _cmd_bug_start, args)
-
 
 def _run_orchestrator_command(
     project_root: Path,
@@ -2694,7 +2624,6 @@ def _run_orchestrator_command(
         raise AgentSessionError(output or "work item command failed")
     return output
 
-
 def _run_electroboy_cli_command(project_root: Path, args: list[str]) -> str:
     from ..cli import main
 
@@ -2711,7 +2640,6 @@ def _run_electroboy_cli_command(project_root: Path, args: list[str]) -> str:
         raise AgentSessionError(output or f"electroboy {' '.join(args)} failed")
     return output
 
-
 def _work_item_error_payload(error: BaseException) -> dict[str, object]:
     message = str(error)
     payload: dict[str, object] = {"error": message}
@@ -2719,20 +2647,17 @@ def _work_item_error_payload(error: BaseException) -> dict[str, object]:
         payload["stash_subrepo_changes_required"] = True
     return payload
 
-
 def _generic_stage_config(stage: str) -> dict[str, object]:
     try:
         return GENERIC_STAGE_CONFIG[stage]
     except KeyError as error:
         raise AgentSessionError(f"unsupported workflow stage: {stage}") from error
 
-
 def _stage_display_label(stage: str) -> str:
     return str(
         _generic_stage_config(stage).get("artifact_title")
         or stage.replace("-", " ")
     ).lower()
-
 
 def _generic_stage_command(
     root: Path,
@@ -2752,7 +2677,6 @@ def _generic_stage_command(
         command_parts.append("--interactive")
     return _electroboy_command(root, command_parts)
 
-
 def _generic_agent_route(path: str) -> tuple[str, str] | None:
     prefix = "/api/agents/"
     if not path.startswith(prefix):
@@ -2763,7 +2687,6 @@ def _generic_agent_route(path: str) -> tuple[str, str] | None:
         if suffix.startswith(stage_prefix):
             return stage, suffix[len(stage_prefix):]
     return None
-
 
 def _slugify_work_item(value: str) -> str:
     chars: list[str] = []
@@ -2779,10 +2702,8 @@ def _slugify_work_item(value: str) -> str:
     slug = "".join(chars).strip("-")
     return slug or "default"
 
-
 def _visible_workflow_stage(stage: str) -> str:
     return DURABLE_STAGE_OWNERS.get(stage, APPROVAL_STAGE_OWNERS.get(stage, stage))
-
 
 def _active_workflow_stage(project_root: Path | str) -> str:
     try:
@@ -2790,7 +2711,6 @@ def _active_workflow_stage(project_root: Path | str) -> str:
     except OSError as error:
         raise StateError(f"could not read ElectroBoy project: {error}") from error
     return _visible_workflow_stage(manifest.active_stage)
-
 
 def _stage_has_approvals(
     project_root: Path | str,
@@ -2810,7 +2730,6 @@ def _stage_has_approvals(
         for approval_type in approval_types
     )
 
-
 def workflow_payload(active_project_root: Path | str | None = None) -> dict[str, object]:
     return {
         "stages": [
@@ -2822,7 +2741,6 @@ def workflow_payload(active_project_root: Path | str | None = None) -> dict[str,
             for stage in WORKFLOW_STAGES
         ]
     }
-
 
 def initialize_project(project_root: Path | str):
     from ..cli import (
@@ -2845,7 +2763,6 @@ def initialize_project(project_root: Path | str):
     store = StateStore(project_root)
     return store.init_run()
 
-
 def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:
     from ..cli import (
         _meta_registry_file,
@@ -2863,13 +2780,11 @@ def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:
         _write_meta_registry(meta_root, registry)
     return meta_root, registry
 
-
 def _resolve_project_path(path: str) -> Path:
     path = path.strip()
     if not path:
         raise StateError("project path is required")
     return Path(path).expanduser().resolve()
-
 
 def _is_meta_project_path(path: str | Path) -> bool:
     try:
@@ -2877,7 +2792,6 @@ def _is_meta_project_path(path: str | Path) -> bool:
     except OSError:
         return False
     return (project_root / META_REGISTRY_RELATIVE_PATH).exists()
-
 
 def _existing_meta_context(path: str | Path) -> dict[str, object]:
     meta_root = _resolve_project_path(str(path))
@@ -2890,7 +2804,6 @@ def _existing_meta_context(path: str | Path) -> dict[str, object]:
             "no ElectroBoy meta-project exists at this path; create it first"
         )
     return _meta_context(meta_root)
-
 
 def _meta_context(meta_root: Path) -> dict[str, object]:
     from ..cli import _meta_repository_by_name, _read_meta_registry
@@ -2919,7 +2832,6 @@ def _meta_context(meta_root: Path) -> dict[str, object]:
         "workflow_stage": workflow_stage,
     }
 
-
 def _meta_repository_payloads(registry: dict[str, object]) -> list[dict[str, object]]:
     from ..cli import _meta_repositories
 
@@ -2930,7 +2842,6 @@ def _meta_repository_payloads(registry: dict[str, object]) -> list[dict[str, obj
         }
         for repo in _meta_repositories(registry)
     ]
-
 
 def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
     from ..cli import (
@@ -2943,7 +2854,6 @@ def _add_meta_repository(meta_root: Path, path: str) -> dict[str, object]:
     repo_path = _resolve_existing_repo_path(meta_root, path)
     _register_meta_repository(meta_root, repo_path, registry)
     return _meta_context(meta_root)
-
 
 def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
     from ..cli import (
@@ -2965,12 +2875,11 @@ def _start_meta_repository(meta_root: Path, repository: str) -> dict[str, object
     _ensure_target_pipeline_project(repo_path)
     return _meta_context(meta_root)
 
-
 def _remove_meta_repository(meta_root: Path, repository: str) -> dict[str, object]:
     from ..cli import (
         _candidate_repo_path,
-        _meta_repository_by_name,
         _meta_repositories,
+        _meta_repository_by_name,
         _read_meta_registry,
         _write_meta_registry,
     )
@@ -3003,7 +2912,6 @@ def _remove_meta_repository(meta_root: Path, repository: str) -> dict[str, objec
     _write_meta_registry(meta_root, registry)
     return _meta_context(meta_root)
 
-
 def _existing_project_root(path: str) -> Path:
     project_root = _resolve_project_path(path)
     if not project_root.exists():
@@ -3020,7 +2928,6 @@ def _existing_project_root(path: str) -> Path:
         )
     return project_root
 
-
 def _existing_creative_project_root(path: str) -> Path:
     project_root = _resolve_project_path(path)
     if not project_root.exists():
@@ -3028,7 +2935,6 @@ def _existing_creative_project_root(path: str) -> Path:
     if not project_root.is_dir():
         raise StateError(f"project path is not a directory: {project_root}")
     return project_root
-
 
 def _stage_operations(
     stage: str,
@@ -3096,7 +3002,6 @@ def _stage_operations(
         ]
     return []
 
-
 def _reopen_requirements_for_restart(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
@@ -3121,7 +3026,6 @@ def _reopen_requirements_for_restart(project_root: Path) -> None:
             summary="Restarted requirements authoring from the GUI.",
         )
     )
-
 
 def _reopen_design_for_restart(project_root: Path) -> None:
     store = StateStore(project_root)
@@ -3148,7 +3052,6 @@ def _reopen_design_for_restart(project_root: Path) -> None:
         )
     )
 
-
 def _record_requirements_complete(project_root: Path, *, skipped: bool = False) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
@@ -3173,7 +3076,6 @@ def _record_requirements_complete(project_root: Path, *, skipped: bool = False) 
         )
     )
 
-
 def _record_design_complete(project_root: Path) -> None:
     store = StateStore(project_root)
     manifest = store.load_current_manifest()
@@ -3186,7 +3088,6 @@ def _record_design_complete(project_root: Path) -> None:
             inputs=[manifest.active_stage],
         )
     )
-
 
 def _should_force_completed_requirements_approval(store: StateStore) -> bool:
     from ..cli import _has_successful_agent_event
@@ -3204,7 +3105,6 @@ def _should_force_completed_requirements_approval(store: StateStore) -> bool:
         and event.get("action") in completion_actions
         for event in store.read_activity()
     )
-
 
 def requirements_document_html(
     project_root: Path | str,
@@ -3225,7 +3125,6 @@ def requirements_document_html(
         zoom_percent=zoom_percent,
     )
 
-
 def design_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
     relative_path = _resolved_artifact_relative_path(
         project_root,
@@ -3238,7 +3137,6 @@ def design_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
         "Design document does not exist yet.",
     )
 
-
 def design_review_document_html(project_root: Path | str) -> tuple[str, HTTPStatus]:
     relative_path = _resolved_artifact_relative_path(
         project_root,
@@ -3250,7 +3148,6 @@ def design_review_document_html(project_root: Path | str) -> tuple[str, HTTPStat
         "Design Review",
         "Design review document does not exist yet.",
     )
-
 
 def stage_document_html(
     project_root: Path | str,
@@ -3268,7 +3165,6 @@ def stage_document_html(
         title,
         f"{title} document does not exist yet.",
     )
-
 
 def document_target_html(
     project_root: Path | str,
@@ -3293,7 +3189,6 @@ def document_target_html(
         embedded=embedded,
         zoom_percent=zoom_percent,
     )
-
 
 def artifact_editor_html(
     project_root: Path | str,
@@ -3321,7 +3216,6 @@ def artifact_editor_html(
     edit_data["context_id"] = context_id
     page = _artifact_editor_page(edit_data)
     return page, HTTPStatus.OK
-
 
 def markdown_document_html(
     project_root: Path | str,
@@ -3488,11 +3382,9 @@ def markdown_document_html(
 """
     return page, status
 
-
 def _clamp_document_zoom(value: int) -> int:
     stepped = int(((value + 5) // 10) * 10)
     return max(70, min(180, stepped))
-
 
 def _document_zoom_from_params(params: dict[str, list[str]]) -> int:
     raw = params.get("zoom", ["100"])[0]
@@ -3501,14 +3393,12 @@ def _document_zoom_from_params(params: dict[str, list[str]]) -> int:
     except (TypeError, ValueError):
         return 100
 
-
 def _clamp_artifact_editor_font_size(value: object) -> int:
     try:
         requested = int(value) if value is not None else 16
     except (TypeError, ValueError):
         requested = 16
     return max(11, min(28, requested))
-
 
 def _artifact_editor_font_size_from_params(params: dict[str, list[str]]) -> int:
     raw_font_size = (params.get("font_size") or [""])[0]
@@ -3520,7 +3410,6 @@ def _artifact_editor_font_size_from_params(params: dict[str, list[str]]) -> int:
     except (TypeError, ValueError):
         zoom = 100
     return _clamp_artifact_editor_font_size(round(16 * (zoom / 100)))
-
 
 def _normalize_document_target_path(relative_path: str) -> str:
     raw = relative_path.strip().replace("\\", "/")
@@ -3534,7 +3423,6 @@ def _normalize_document_target_path(relative_path: str) -> str:
     if path.suffix.lower() != ".md":
         raise StateError("document path must be a markdown file")
     return path.as_posix()
-
 
 def _ensure_document_target(project_root: Path | str, relative_path: str) -> str:
     normalized_path, document_path = _document_target_path(project_root, relative_path)
@@ -3553,11 +3441,9 @@ def _ensure_document_target(project_root: Path | str, relative_path: str) -> str
         )
     return normalized_path
 
-
 def _document_starter_markdown(relative_path: str) -> str:
     title = _document_starter_title(relative_path)
     return f"# {title}\n\n## Overview\n\n## Notes\n"
-
 
 def _document_starter_title(relative_path: str) -> str:
     stem = Path(relative_path).stem.strip()
@@ -3568,7 +3454,6 @@ def _document_starter_title(relative_path: str) -> str:
     if stem.lower() == "api":
         return "API"
     return stem.replace("-", " ").replace("_", " ").title()
-
 
 def _artifact_edit_payload(
     project_root: Path,
@@ -3638,7 +3523,6 @@ def _artifact_edit_payload(
         "editor_font_size": editor_font_size,
     }
 
-
 def _structured_artifact_for_edit_request(
     project_root: Path,
     artifact: str,
@@ -3665,7 +3549,6 @@ def _structured_artifact_for_edit_request(
             if markdown_path == artifact_markdown_path(project_root, structured_artifact):
                 return structured_artifact, markdown_path
     return None, ""
-
 
 def _ensure_structured_edit_records(
     project_root: Path,
@@ -3708,7 +3591,6 @@ def _ensure_structured_edit_records(
     )
     return records, jsonl_path
 
-
 def _artifact_document_record_id(artifact: str) -> str:
     return {
         "requirements": "REQ-DOC",
@@ -3716,7 +3598,6 @@ def _artifact_document_record_id(artifact: str) -> str:
         "implementation-plan": "PLAN-DOC",
         "test-plan": "TEST-DOC",
     }.get(artifact, "DOC")
-
 
 def _safe_project_document_path(project_root: Path, relative_path: str) -> Path:
     path = Path(relative_path)
@@ -3728,7 +3609,6 @@ def _safe_project_document_path(project_root: Path, relative_path: str) -> Path:
     except ValueError as error:
         raise StateError("document path cannot escape the project") from error
     return resolved
-
 
 def _write_artifact_records(
     project_root: Path,
@@ -3754,7 +3634,6 @@ def _write_artifact_records(
         + "\n",
         encoding="utf-8",
     )
-
 
 def save_artifact_edit(
     project_root: Path | str,
@@ -3811,7 +3690,6 @@ def save_artifact_edit(
         "mode": "markdown",
         "markdown_path": document_path.relative_to(project_root).as_posix(),
     }
-
 
 def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     data_json = json.dumps(edit_data).replace("</", "<\\/")
@@ -4975,7 +4853,6 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 </html>
 """
 
-
 def _rich_markdown_editor_script() -> str:
     return """
     function richButton(command, label, title) {
@@ -5201,7 +5078,6 @@ def _rich_markdown_editor_script() -> str:
     }
 """
 
-
 def _document_target_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:
     project_root = Path(project_root).expanduser().resolve()
     normalized_path = _normalize_document_target_path(relative_path)
@@ -5211,7 +5087,6 @@ def _document_target_path(project_root: Path | str, relative_path: str) -> tuple
     except ValueError as error:
         raise StateError("document path cannot escape the project") from error
     return normalized_path, document_path
-
 
 def _normalize_creative_relative_path(relative_path: str) -> str:
     raw = relative_path.strip().replace("\\", "/")
@@ -5224,7 +5099,6 @@ def _normalize_creative_relative_path(relative_path: str) -> str:
         raise StateError("path cannot escape the project")
     return path.as_posix()
 
-
 def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:
     project_root = Path(project_root).expanduser().resolve()
     normalized_path = _normalize_creative_relative_path(relative_path)
@@ -5234,7 +5108,6 @@ def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, P
     except ValueError as error:
         raise StateError("path cannot escape the project") from error
     return normalized_path, resolved
-
 
 def _ensure_creative_workspace(project_root: Path | str) -> None:
     project_root = Path(project_root).expanduser().resolve()
@@ -5254,7 +5127,6 @@ def _ensure_creative_workspace(project_root: Path | str) -> None:
         f"corkboard/ideas{CREATIVE_CORKBOARD_SUFFIX}",
     )
 
-
 def _ensure_creative_scratchpad(project_root: Path | str) -> Path:
     _relative, path = _document_target_path(project_root, CREATIVE_SCRATCHPAD_PATH)
     if not path.exists() or not path.read_text(encoding="utf-8").strip():
@@ -5262,14 +5134,12 @@ def _ensure_creative_scratchpad(project_root: Path | str) -> Path:
         path.write_text("# Scratchpad\n\n", encoding="utf-8")
     return path
 
-
 def _create_creative_folder(project_root: Path | str, relative_path: str) -> str:
     normalized_path, folder_path = _creative_path(project_root, relative_path)
     if folder_path.exists() and not folder_path.is_dir():
         raise StateError("folder path already exists as a file")
     folder_path.mkdir(parents=True, exist_ok=True)
     return normalized_path
-
 
 def _create_creative_document(project_root: Path | str, relative_path: str) -> str:
     normalized_path, document_path = _document_target_path(project_root, relative_path)
@@ -5283,14 +5153,12 @@ def _create_creative_document(project_root: Path | str, relative_path: str) -> s
         )
     return normalized_path
 
-
 def _empty_creative_corkboard_document() -> dict[str, object]:
     return {
         "schema_version": 1,
         "type": "electroboy.creative.corkboard",
         "cards": [],
     }
-
 
 def _create_creative_corkboard(project_root: Path | str, relative_path: str) -> str:
     normalized_path, corkboard_path = _creative_path(project_root, relative_path)
@@ -5306,7 +5174,6 @@ def _create_creative_corkboard(project_root: Path | str, relative_path: str) -> 
         )
     return normalized_path
 
-
 def _normalize_creative_entry_name(name: str) -> str:
     normalized_name = name.strip()
     if not normalized_name:
@@ -5316,7 +5183,6 @@ def _normalize_creative_entry_name(name: str) -> str:
     if "/" in normalized_name or "\\" in normalized_name:
         raise StateError("name cannot contain path separators")
     return normalized_name
-
 
 def _rename_creative_entry(
     project_root: Path | str,
@@ -5340,7 +5206,6 @@ def _rename_creative_entry(
     _remap_creative_corkboard_paths(project_root, old_relative_path, new_relative_path)
     return old_relative_path, new_relative_path
 
-
 def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
     normalized_path, path = _creative_path(project_root, relative_path)
     if not path.exists():
@@ -5352,14 +5217,12 @@ def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
     _remove_creative_corkboard_paths(project_root, normalized_path)
     return normalized_path
 
-
 def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
     project_root = Path(project_root).expanduser().resolve()
     return {
         "root": str(project_root),
         "entries": _creative_tree_entries(project_root, project_root),
     }
-
 
 def _creative_tree_entries(
     project_root: Path,
@@ -5405,7 +5268,6 @@ def _creative_tree_entries(
             }
         )
     return entries
-
 
 def creative_corkboard_html(
     project_root: Path | str,
@@ -6846,7 +6708,6 @@ def creative_corkboard_html(
 """
     return page, HTTPStatus.OK
 
-
 def _creative_corkboard_payload(
     project_root: Path | str,
     board_path: str,
@@ -6879,7 +6740,6 @@ def _creative_corkboard_payload(
     if normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
         raise StateError(f"corkboard does not exist: {normalized_path}")
     raise StateError(f"folder does not exist: {normalized_path}")
-
 
 def _creative_folder_corkboard_payload(
     project_root: Path,
@@ -6930,7 +6790,6 @@ def _creative_folder_corkboard_payload(
         "cards": cards,
     }
 
-
 def _creative_freeform_corkboard_payload(
     project_root: Path,
     normalized_path: str,
@@ -6953,7 +6812,6 @@ def _creative_freeform_corkboard_payload(
         "cards": _freeform_corkboard_cards(data),
     }
 
-
 def _creative_corkboard_children(project_root: Path, folder: Path) -> list[Path]:
     try:
         children = sorted(
@@ -6968,14 +6826,11 @@ def _creative_corkboard_children(project_root: Path, folder: Path) -> list[Path]
         if child.name not in CREATIVE_IGNORED_NAMES and not child.name.startswith(".")
     ]
 
-
 def _creative_card_palette_payload() -> list[dict[str, str]]:
     return [dict(entry) for entry in CREATIVE_CARD_PALETTE]
 
-
 def _creative_card_palette_default(index: int) -> str:
     return CREATIVE_CARD_PALETTE[index % len(CREATIVE_CARD_PALETTE)]["id"]
-
 
 def _normalize_creative_card_color(value: object, default: str) -> str:
     raw = str(value or "").strip()
@@ -6985,10 +6840,8 @@ def _normalize_creative_card_color(value: object, default: str) -> str:
         return raw.lower()
     return default
 
-
 def _creative_freeform_card_type(value: object) -> str:
     return "group" if str(value or "").strip() == "group" else "card"
-
 
 def _normalize_creative_corkboard_reference(value: object) -> str:
     raw = str(value or "").strip().replace("\\", "/")
@@ -7006,7 +6859,6 @@ def _normalize_creative_corkboard_reference(value: object) -> str:
         return ""
     return relative_path.as_posix()
 
-
 def _creative_card_group_default_path(parent_corkboard_path: str, card_id: str) -> str:
     parent_stem = parent_corkboard_path.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
     parent_slug = _slugify_work_item(parent_stem.replace("/", "-"))
@@ -7016,7 +6868,6 @@ def _creative_card_group_default_path(parent_corkboard_path: str, card_id: str) 
         / parent_slug
         / f"{card_slug}{CREATIVE_CORKBOARD_SUFFIX}"
     ).as_posix()
-
 
 def _ensure_creative_card_group_corkboard(
     project_root: Path | str,
@@ -7033,7 +6884,6 @@ def _ensure_creative_card_group_corkboard(
         )
     _create_creative_corkboard(project_root, normalized_board_path)
     return normalized_board_path
-
 
 def _creative_folder_corkboard_card(
     path: Path,
@@ -7053,7 +6903,6 @@ def _creative_folder_corkboard_card(
         "color": color,
     }
 
-
 def _creative_corkboard_card_style(
     relative_path: str,
     index: int,
@@ -7067,7 +6916,6 @@ def _creative_corkboard_card_style(
         ),
     }
 
-
 def _bounded_float(
     value: object,
     default: float,
@@ -7080,10 +6928,8 @@ def _bounded_float(
         number = default
     return max(minimum, min(maximum, number))
 
-
 def _creative_corkboard_state_path(project_root: Path | str) -> Path:
     return Path(project_root).expanduser().resolve() / CREATIVE_CORKBOARD_STATE_RELATIVE_PATH
-
 
 def _load_creative_corkboard_state(project_root: Path | str) -> dict[str, object]:
     path = _creative_corkboard_state_path(project_root)
@@ -7101,7 +6947,6 @@ def _load_creative_corkboard_state(project_root: Path | str) -> dict[str, object
     data["schema_version"] = 1
     return data
 
-
 def _save_creative_corkboard_state(
     project_root: Path | str,
     state: dict[str, object],
@@ -7109,7 +6954,6 @@ def _save_creative_corkboard_state(
     path = _creative_corkboard_state_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
 
 def _creative_corkboard_folder_state(
     state: dict[str, object],
@@ -7123,12 +6967,11 @@ def _creative_corkboard_folder_state(
     if not isinstance(folder_state, dict):
         folder_state = {}
         folders[folder_path] = folder_state
-    cards = _creative_corkboard_folder_cards(folder_state)
+    _creative_corkboard_folder_cards(folder_state)
     order = folder_state.setdefault("order", [])
     if not isinstance(order, list):
         folder_state["order"] = []
     return folder_state
-
 
 def _creative_corkboard_folder_cards(
     folder_state: dict[str, object],
@@ -7138,7 +6981,6 @@ def _creative_corkboard_folder_cards(
         folder_state["cards"] = {}
         cards = folder_state["cards"]
     return cards
-
 
 def _save_creative_folder_corkboard_card(
     project_root: Path | str,
@@ -7178,7 +7020,6 @@ def _save_creative_folder_corkboard_card(
         **card_states[normalized_card],
     }
 
-
 def _save_creative_folder_corkboard_order(
     project_root: Path | str,
     *,
@@ -7213,7 +7054,6 @@ def _save_creative_folder_corkboard_order(
     _save_creative_corkboard_state(project_root, state)
     return saved_order
 
-
 def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -7227,7 +7067,6 @@ def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
     if not isinstance(data.get("cards"), list):
         data["cards"] = []
     return data
-
 
 def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]]:
     cards = data.get("cards")
@@ -7277,7 +7116,6 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
                 card["board_path"] = board_path
         normalized_cards.append(card)
     return normalized_cards
-
 
 def _save_creative_freeform_corkboard_card(
     project_root: Path | str,
@@ -7357,7 +7195,6 @@ def _save_creative_freeform_corkboard_card(
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return card
 
-
 def _delete_creative_freeform_corkboard_card(
     project_root: Path | str,
     *,
@@ -7383,14 +7220,12 @@ def _delete_creative_freeform_corkboard_card(
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return normalized_card_id
 
-
 def _remap_creative_path_reference(path: str, old_path: str, new_path: str) -> str:
     if path == old_path:
         return new_path
     if path.startswith(f"{old_path}/"):
         return f"{new_path}/{path[len(old_path) + 1:]}"
     return path
-
 
 def _remap_creative_corkboard_paths(
     project_root: Path | str,
@@ -7429,7 +7264,6 @@ def _remap_creative_corkboard_paths(
     state["folders"] = remapped_folders
     _save_creative_corkboard_state(project_root, state)
 
-
 def _remove_creative_corkboard_paths(project_root: Path | str, removed_path: str) -> None:
     state_path = _creative_corkboard_state_path(project_root)
     if not state_path.exists():
@@ -7461,10 +7295,8 @@ def _remove_creative_corkboard_paths(project_root: Path | str, removed_path: str
     state["folders"] = kept_folders
     _save_creative_corkboard_state(project_root, state)
 
-
 def _creative_path_is_inside(path: str, container: str) -> bool:
     return path == container or path.startswith(f"{container}/")
-
 
 def _resolved_artifact_relative_path(
     project_root: Path | str,
@@ -7480,7 +7312,6 @@ def _resolved_artifact_relative_path(
         )
     return _document_target_path(project_root, relative_path)[0]
 
-
 def _resolved_artifact_document_path(
     project_root: Path | str,
     default_relative_path: str,
@@ -7491,7 +7322,6 @@ def _resolved_artifact_document_path(
         default_relative_path,
     )
     return _document_target_path(project_root, relative_path)[1]
-
 
 def _artifact_event_document_path(
     project_root: Path | str,
@@ -7510,7 +7340,6 @@ def _artifact_event_document_path(
         return _resolved_artifact_document_path(project_root, relative_path)
     raise StateError(f"unknown artifact: {artifact}")
 
-
 def _file_signature(path: Path) -> dict[str, object]:
     try:
         stat = path.stat()
@@ -7521,7 +7350,6 @@ def _file_signature(path: Path) -> dict[str, object]:
         "mtime_ns": stat.st_mtime_ns,
         "size": stat.st_size,
     }
-
 
 def _render_markdown(text: str) -> str:
     try:
@@ -7536,9 +7364,7 @@ def _render_markdown(text: str) -> str:
     )
     return _promote_mermaid_blocks(rendered)
 
-
 _DETAILS_TAG_RE = re.compile(r"<details(?P<attrs>[^>]*)>", re.IGNORECASE)
-
 
 def _enable_markdown_in_details(text: str) -> str:
     def replace(match: re.Match[str]) -> str:
@@ -7548,7 +7374,6 @@ def _enable_markdown_in_details(text: str) -> str:
         return f'<details{attrs} markdown="1">'
 
     return _DETAILS_TAG_RE.sub(replace, text)
-
 
 def _render_basic_markdown(text: str) -> str:
     blocks: list[str] = []
@@ -7621,19 +7446,16 @@ def _render_basic_markdown(text: str) -> str:
     flush_list()
     return "\n".join(blocks) if blocks else "<p></p>"
 
-
 _MERMAID_BLOCK_RE = re.compile(
     r'<pre><code class="(?:language-)?mermaid">(?P<body>.*?)</code></pre>',
     re.DOTALL,
 )
-
 
 def _promote_mermaid_blocks(rendered: str) -> str:
     return _MERMAID_BLOCK_RE.sub(
         lambda match: f'<div class="mermaid">{match.group("body")}</div>',
         rendered,
     )
-
 
 def _mermaid_script(rendered: str) -> str:
     if 'class="mermaid"' not in rendered:
@@ -8061,10 +7883,8 @@ def _mermaid_script(rendered: str) -> str:
   </script>
 """
 
-
 def _requirements_command(root: Path) -> list[str]:
     return _electroboy_command(root, ["requirements"])
-
 
 def _stage_command(
     root: Path,
@@ -8083,14 +7903,11 @@ def _stage_command(
         command_parts.append("--interactive")
     return _electroboy_command(root, command_parts[1:])
 
-
 def _progress_once_command(root: Path) -> list[str]:
     return _electroboy_command(root, ["progress", "--once"])
 
-
 def _status_command(root: Path) -> list[str]:
     return _electroboy_command(root, ["status"])
-
 
 def _documentation_command(
     root: Path,
@@ -8105,7 +7922,6 @@ def _documentation_command(
         args.extend(["--target", target])
     return _electroboy_command(root, args)
 
-
 def _ad_hoc_agent_command(root: Path) -> list[str]:
     return [
         "codex",
@@ -8116,10 +7932,8 @@ def _ad_hoc_agent_command(root: Path) -> list[str]:
         _ad_hoc_agent_prompt(),
     ]
 
-
 def _ad_hoc_agent_prompt() -> str:
     return "Here is the code base. Follow what the operator says."
-
 
 def _creative_agent_target(
     root: Path,
@@ -8153,7 +7967,6 @@ def _creative_agent_target(
         return {"type": "document", "path": normalized_path}
     return None
 
-
 def _creative_writing_command(
     root: Path,
     active_target: dict[str, str] | None = None,
@@ -8166,7 +7979,6 @@ def _creative_writing_command(
         "workspace-write",
         _creative_writing_prompt(active_target),
     ]
-
 
 def _creative_writing_prompt(active_target: dict[str, str] | None = None) -> str:
     target_lines = _creative_writing_target_prompt_lines(active_target)
@@ -8187,7 +7999,6 @@ def _creative_writing_prompt(active_target: dict[str, str] | None = None) -> str
             *target_lines,
         ]
     )
-
 
 def _creative_writing_target_prompt_lines(
     active_target: dict[str, str] | None,
@@ -8220,7 +8031,6 @@ def _creative_writing_target_prompt_lines(
         ]
     return []
 
-
 def _project_shell_command() -> list[str]:
     candidates = [
         os.environ.get("SHELL", "").strip(),
@@ -8231,7 +8041,6 @@ def _project_shell_command() -> list[str]:
         if candidate and Path(candidate).exists():
             return [candidate]
     return ["/bin/sh"]
-
 
 def _electroboy_command(root: Path, args: list[str]) -> list[str]:
     activate_script = root / ".electroboy" / "bin" / "activate"
@@ -8255,10 +8064,8 @@ def _electroboy_command(root: Path, args: list[str]) -> list[str]:
         ]
     return command_parts
 
-
 def _service_module_search_path() -> Path:
     return Path(__file__).resolve().parents[2]
-
 
 def _progress_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, bool]:
     project_root = Path(root).expanduser().resolve()
@@ -8286,7 +8093,6 @@ def _progress_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, boo
         return output, False
     return output or "progress: none\n", True
 
-
 def _status_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, bool]:
     project_root = Path(root).expanduser().resolve()
     try:
@@ -8313,7 +8119,6 @@ def _status_snapshot(root: Path | str, timeout: float = 5.0) -> tuple[str, bool]
         return output, False
     return output or "status: none\n", True
 
-
 def _markdown_code_block(text: str, language: str = "") -> str:
     body = text.rstrip("\n")
     fence = "```"
@@ -8321,22 +8126,18 @@ def _markdown_code_block(text: str, language: str = "") -> str:
         fence += "`"
     return f"{fence}{language}\n{body}\n{fence}"
 
-
 def _session_export_filename(session: AgentSession) -> str:
     kind = _download_name_part(session.kind or "agent")
     timestamp = _download_name_part(utc_now())
     return f"agent-session-{kind}-{timestamp}.md"
 
-
 def _progress_export_filename() -> str:
     return f"progress-log-{_download_name_part(utc_now())}.md"
-
 
 def _download_name_part(value: object) -> str:
     text = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip())
     text = text.strip(".-")
     return text or "export"
-
 
 def _session_events_markdown(session: AgentSession) -> str:
     events = session.events()
@@ -8417,7 +8218,6 @@ def _session_events_markdown(session: AgentSession) -> str:
     flush_output()
     return "\n".join(lines).rstrip() + "\n"
 
-
 def _progress_snapshot_markdown(project_root: Path, text: str, ok: bool) -> str:
     return "\n".join(
         [
@@ -8436,63 +8236,51 @@ def _progress_snapshot_markdown(project_root: Path, text: str, ok: bool) -> str:
         ]
     )
 
-
-_ROUTE_HANDLER_METHODS = {
-    "index": "_send_index",
-    "health": "_send_health",
-    "create_context": "_create_context",
-    "project_payload": "_send_project_payload",
-    "open_project": "_open_project",
-    "create_project": "_create_project",
-    "deactivate_project": "_deactivate_project",
-    "workflow_payload": "_send_workflow_payload",
-    "set_workflow_stage": "_select_workflow_stage",
-    "workflow_config": "_send_workflow_config",
-    "add_configured_workflow": "_add_configured_workflow",
-    "agent_sessions:list_sessions": "_send_session_payload",
-    "agent_sessions:session_registry": "_send_session_registry",
-    "agent_sessions:attach": "_attach_session",
-    "agent_sessions:message": "_send_selected_session_message",
-    "agent_sessions:key": "_send_selected_session_key",
-    "agent_sessions:raw": "_send_selected_session_raw",
-    "agent_sessions:interrupt": "_interrupt_selected_session",
-    "agent_sessions:resize": "_resize_selected_session",
-    "agent_sessions:events": "_send_selected_session_events",
-    "agent_sessions:export": "_send_session_export",
-    "markdown_documents:preview": "_send_document_target",
-    "markdown_documents:export": "_send_document_export",
-    "markdown_documents:events": "_send_artifact_events",
-    "structured_documents:editor": "_send_artifact_editor",
-    "structured_documents:save": "_save_artifact_editor",
-    "corkboard:view": "_send_creative_corkboard",
-    "corkboard:save": "_save_creative_corkboard",
-    "corkboard:create": "_create_creative_corkboard",
-    "binder:tree": "_send_creative_tree",
-    "binder:create_folder": "_create_creative_folder",
-    "binder:create_document": "_create_creative_document",
-    "binder:rename": "_rename_creative_entry",
-    "binder:delete": "_delete_creative_entry",
-    "file_browser:window": "_send_file_browser_window",
-    "file_browser:browse": "_browse_files",
-    "progress:events": "_send_progress_events",
-    "progress:export": "_send_progress_export",
-    "project_shell:start": "_start_project_shell",
-    "project_shell:input": "_send_project_shell_input",
-    "project_shell:resize": "_resize_project_shell",
-    "project_shell:stop": "_stop_project_shell",
-    "project_shell:events": "_send_project_shell_events",
-    "review_reports:view": "_send_design_review_document",
-}
-
-
 def _handler_for(
     config: ServiceConfig,
     state: ServiceState,
 ) -> type[BaseHTTPRequestHandler]:
     route_dispatcher = build_route_dispatcher(
         config.module_registry or build_module_registry(),
-        _ROUTE_HANDLER_METHODS,
+        config.workflow_registry,
     )
+    route_operations: dict[str, Callable[..., Any]] = {
+        "service_index": lambda: _apply_service_asset_replacements(
+            render_service_index(
+                INDEX_HTML_TEMPLATE,
+                config.module_registry,
+                config.workflow_registry,
+            )
+        ),
+        "health_payload": lambda: health_payload(
+            config.root,
+            config.module_registry,
+            config.workflow_registry,
+        ),
+        "frontend_asset_payload": lambda: frontend_asset_payload(
+            config.module_registry,
+            config.workflow_registry,
+        ),
+        "file_browser_window_html": file_browser_window_html,
+        "requirements_document_html": requirements_document_html,
+        "design_document_html": design_document_html,
+        "design_review_document_html": design_review_document_html,
+        "stage_document_html": stage_document_html,
+        "document_target_html": document_target_html,
+        "artifact_editor_html": artifact_editor_html,
+        "save_artifact_edit": save_artifact_edit,
+        "creative_corkboard_html": creative_corkboard_html,
+        "document_zoom": _document_zoom_from_params,
+        "artifact_editor_font_size": _artifact_editor_font_size_from_params,
+        "ensure_document_target": _ensure_document_target,
+        "artifact_event_document_path": _artifact_event_document_path,
+        "session_events_markdown": _session_events_markdown,
+        "session_export_filename": _session_export_filename,
+        "progress_snapshot": _progress_snapshot,
+        "progress_snapshot_markdown": _progress_snapshot_markdown,
+        "progress_export_filename": _progress_export_filename,
+        "work_item_error_payload": _work_item_error_payload,
+    }
 
     class ElectroBoyRequestHandler(BaseHTTPRequestHandler):
         server_version = "ElectroBoyService/0.1"
@@ -8501,9 +8289,6 @@ def _handler_for(
             parsed = urlparse(self.path)
             path = parsed.path
             if self._dispatch_registered_route("GET", path, parsed.query):
-                return
-            if path == "/index.html":
-                self._send_text(INDEX_PAGE_HTML, "text/html; charset=utf-8")
                 return
             if path == SPLASH_IMAGE_ROUTE:
                 self._send_splash_image(SPLASH_IMAGE_RESOURCE)
@@ -8517,80 +8302,6 @@ def _handler_for(
             if path.startswith("/pane/"):
                 self._send_pane_window(path)
                 return
-            if path == "/api/registry":
-                module_registry = config.module_registry
-                workflow_registry = config.workflow_registry
-                if module_registry is None or workflow_registry is None:
-                    self._send_json(
-                        {"error": "service registry is not configured"},
-                        status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                    )
-                    return
-                self._send_json(
-                    {
-                        **registry_payload(
-                            module_registry,
-                            workflow_registry,
-                        ),
-                        "frontend_bundles": frontend_asset_payload(
-                            module_registry,
-                            workflow_registry,
-                        ),
-                        "workflow_config": workflow_config_payload(config.root),
-                    }
-                )
-                return
-            if path == "/api/workflows/config":
-                self._send_json(workflow_config_payload(config.root))
-                return
-            if path == "/api/project/status":
-                self._send_context_json(
-                    parsed.query,
-                    lambda context_id: state.project_status_payload(context_id),
-                )
-                return
-            if path == "/api/creative/tree":
-                self._send_context_json(
-                    parsed.query,
-                    lambda context_id: state.creative_tree(context_id),
-                )
-                return
-            if path == "/api/creative/scratch":
-                self._send_context_json(
-                    parsed.query,
-                    lambda context_id: state.creative_scratchpad(context_id),
-                )
-                return
-            if path == "/artifacts/requirements":
-                self._send_requirements_document(parsed.query)
-                return
-            if path == "/artifacts/design":
-                self._send_design_document(parsed.query)
-                return
-            if path == "/artifacts/design-review":
-                self._send_design_review_document(parsed.query)
-                return
-            if path == "/artifacts/implementation-plan":
-                self._send_stage_document(parsed.query, "implementation-plan")
-                return
-            if path == "/artifacts/test-plan":
-                self._send_stage_document(parsed.query, "test-plan")
-                return
-            if path == "/artifacts/implementation-report":
-                self._send_stage_document(parsed.query, "code")
-                return
-            if path == "/artifacts/validation-report":
-                self._send_stage_document(parsed.query, "validate")
-                return
-            if path == "/api/agents/requirements/events":
-                self._send_agent_events(parsed.query)
-                return
-            if path == "/api/agents/design/events":
-                self._send_design_agent_events(parsed.query)
-                return
-            if path == "/api/agents/design-review/events":
-                self._send_design_review_agent_events(parsed.query)
-                return
             self._send_json(
                 {"error": "not found"},
                 status=HTTPStatus.NOT_FOUND,
@@ -8601,136 +8312,10 @@ def _handler_for(
             path = parsed.path
             if self._dispatch_registered_route("POST", path, parsed.query):
                 return
-            if path == "/api/meta/init":
-                self._create_meta_project(parsed.query)
-                return
-            if path == "/api/meta/add":
-                self._add_meta_repository(parsed.query)
-                return
-            if path == "/api/meta/start":
-                self._start_meta_repository(parsed.query)
-                return
-            if path == "/api/meta/remove":
-                self._remove_meta_repository(parsed.query)
-                return
-            if path == "/api/work-items/collections":
-                self._create_feature_collection(parsed.query)
-                return
-            if path == "/api/work-items/collections/switch":
-                self._switch_feature_collection(parsed.query)
-                return
-            if path == "/api/work-items/features":
-                self._start_feature_work_item(parsed.query)
-                return
-            if path == "/api/work-items/features/switch":
-                self._switch_feature_work_item(parsed.query)
-                return
-            if path == "/api/work-items/bugs":
-                self._start_bug_work_item(parsed.query)
-                return
-            if path == "/api/work-items/bugs/switch":
-                self._switch_bug_work_item(parsed.query)
-                return
-            if path == "/api/creative/project/open":
-                self._open_creative_project(parsed.query)
-                return
-            if path == "/api/creative/project/new":
-                self._create_creative_project(parsed.query)
-                return
-            if path == "/api/creative/init":
-                self._initialize_creative_workspace(parsed.query)
-                return
-            if path == "/api/creative/scratch":
-                self._save_creative_scratchpad(parsed.query)
-                return
-            if path == "/api/creative/agent/start":
-                self._start_creative_writing_agent(parsed.query)
-                return
-            if path == "/api/agents/ad-hoc/start":
-                self._start_ad_hoc_agent(parsed.query)
-                return
-            if path == "/api/agents/requirements/start":
-                self._start_requirements_agent(parsed.query)
-                return
-            if path == "/api/agents/requirements/restart":
-                self._restart_requirements_agent(parsed.query)
-                return
-            if path == "/api/agents/requirements/complete":
-                self._complete_requirements_agent(parsed.query)
-                return
-            if path == "/api/agents/requirements/skip":
-                self._skip_requirements_approval(parsed.query)
-                return
-            if path == "/api/agents/requirements/skip-approval":
-                self._skip_requirements_approval(parsed.query)
-                return
-            if path == "/api/agents/requirements/approve":
-                self._approve_requirements(parsed.query)
-                return
-            if path == "/api/agents/requirements/message":
-                self._send_requirements_message(parsed.query)
-                return
-            if path == "/api/agents/requirements/interrupt":
-                self._interrupt_requirements_agent(parsed.query)
-                return
-            if path == "/api/agents/requirements/resize":
-                self._resize_requirements_agent(parsed.query)
-                return
-            if path == "/api/agents/design/start":
-                self._start_design_agent(parsed.query)
-                return
-            if path == "/api/agents/design/restart":
-                self._restart_design_agent(parsed.query)
-                return
-            if path == "/api/agents/design/complete":
-                self._complete_design_agent(parsed.query)
-                return
-            if path == "/api/agents/design/message":
-                self._send_design_message(parsed.query)
-                return
-            if path == "/api/agents/design/interrupt":
-                self._interrupt_design_agent(parsed.query)
-                return
-            if path == "/api/agents/design/resize":
-                self._resize_design_agent(parsed.query)
-                return
-            if path == "/api/agents/design-review/start":
-                self._start_design_review_agent(parsed.query)
-                return
-            if path == "/api/agents/design-review/start-interactive":
-                self._start_interactive_design_review_agent(parsed.query)
-                return
-            if path == "/api/agents/design-review/stop":
-                self._stop_design_review_agent(parsed.query)
-                return
-            if path == "/api/agents/design-review/complete":
-                self._complete_design_review_agent(parsed.query)
-                return
-            if path == "/api/agents/design-review/approve":
-                self._approve_design(parsed.query)
-                return
-            if path == "/api/agents/design-review/skip-approval":
-                self._skip_design_approval(parsed.query)
-                return
-            if path == "/api/agents/design-review/restart":
-                self._restart_design_review_agent(parsed.query)
-                return
-            if path == "/api/agents/design-review/interrupt":
-                self._interrupt_design_review_agent(parsed.query)
-                return
-            if path == "/api/agents/design-review/resize":
-                self._resize_design_review_agent(parsed.query)
-                return
             generic_route = _generic_agent_route(path)
             if generic_route is not None:
                 stage, action = generic_route
                 self._handle_generic_stage_agent(parsed.query, stage, action)
-                return
-            if path == "/api/agents/documentation/start":
-                self._start_documentation_agent(parsed.query)
-                return
-            if path == "/api/agents/design-approve/approve":
-                self._approve_design(parsed.query)
                 return
             self._send_json(
                 {"error": "not found"},
@@ -8790,64 +8375,16 @@ def _handler_for(
             path: str,
             query: str,
         ) -> bool:
-            route = route_dispatcher.match(method, path)
-            if route is None:
-                return False
-            handler = getattr(self, route.handler_method)
-            handler(query)
-            return True
-
-        def _send_index(self, query: str) -> None:
-            page = render_service_index(
-                INDEX_HTML_TEMPLATE,
-                config.module_registry,
-                config.workflow_registry,
-            )
-            self._send_text(
-                _apply_service_asset_replacements(page),
-                "text/html; charset=utf-8",
-            )
-
-        def _send_health(self, query: str) -> None:
-            self._send_json(
-                health_payload(
-                    config.root,
-                    config.module_registry,
-                    config.workflow_registry,
+            return route_dispatcher.dispatch(
+                RouteRequest(
+                    method=method,
+                    path=path,
+                    query=query,
+                    state=state,
+                    config=config,
+                    transport=self,
+                    operations=route_operations,
                 )
-            )
-
-        def _create_context(self, query: str) -> None:
-            self._send_json(state.create_context())
-
-        def _send_project_payload(self, query: str) -> None:
-            self._send_context_json(
-                query,
-                lambda context_id: state.project_payload(context_id),
-            )
-
-        def _send_workflow_payload(self, query: str) -> None:
-            self._send_context_json(
-                query,
-                lambda context_id: state.workflow_payload(context_id),
-            )
-
-        def _send_workflow_config(self, query: str) -> None:
-            self._send_json(workflow_config_payload(config.root))
-
-        def _send_session_payload(self, query: str) -> None:
-            self._send_context_json(
-                query,
-                lambda context_id: state.session_payload(context_id),
-            )
-
-        def _send_session_registry(self, query: str) -> None:
-            self._send_json(state.session_registry_payload())
-
-        def _send_creative_tree(self, query: str) -> None:
-            self._send_context_json(
-                query,
-                lambda context_id: state.creative_tree(context_id),
             )
 
         def _send_splash_image(
@@ -8898,602 +8435,6 @@ def _handler_for(
             if not headers_only:
                 self.wfile.write(data)
 
-        def _browse_files(self, query: str) -> None:
-            params = parse_qs(query)
-            path = (params.get("path") or [str(state.root)])[0]
-            mode = (params.get("mode") or ["directory"])[0]
-            show_hidden = (params.get("hidden") or ["0"])[0] == "1"
-            try:
-                if mode == "file":
-                    payload = browse_files(path, show_hidden=show_hidden)
-                elif mode == "markdown":
-                    payload = browse_markdown_files(path, show_hidden=show_hidden)
-                else:
-                    payload = browse_directories(path, show_hidden=show_hidden)
-            except StateError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            self._send_json(payload)
-
-        def _open_project(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.open_project(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _create_project(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.create_project(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _open_creative_project(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.open_creative_project(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _create_creative_project(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.create_creative_project(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _create_meta_project(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.create_meta_project(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _add_meta_repository(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.add_meta_repository(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _start_meta_repository(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                repository = payload.get("repository") or payload.get("path") or ""
-                self._send_json(
-                    state.start_meta_repository(
-                        context_id,
-                        str(repository),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _remove_meta_repository(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                repository = payload.get("repository") or payload.get("path") or ""
-                self._send_json(
-                    state.remove_meta_repository(
-                        context_id,
-                        str(repository),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _create_feature_collection(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.create_feature_collection(
-                        context_id,
-                        str(payload.get("name") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _switch_feature_collection(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.switch_feature_collection(
-                        context_id,
-                        str(payload.get("collection_id") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _start_feature_work_item(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.start_feature_work_item(
-                        context_id,
-                        title=str(payload.get("title") or ""),
-                        feature_name=str(payload.get("name") or "") or None,
-                        collection_id=str(payload.get("collection_id") or "") or None,
-                        parent_slug=str(payload.get("parent_slug") or "") or None,
-                        branch=bool(payload.get("branch")),
-                        stash_subrepo_changes=bool(
-                            payload.get("stash_subrepo_changes")
-                        ),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    _work_item_error_payload(error),
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _switch_feature_work_item(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.switch_feature_work_item(
-                        context_id,
-                        str(payload.get("slug") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _start_bug_work_item(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.start_bug_work_item(
-                        context_id,
-                        issue_reference=str(payload.get("issue_reference") or ""),
-                        branch=bool(payload.get("branch")),
-                        stash_subrepo_changes=bool(
-                            payload.get("stash_subrepo_changes")
-                        ),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    _work_item_error_payload(error),
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _switch_bug_work_item(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.switch_bug_work_item(
-                        context_id,
-                        str(payload.get("slug") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _deactivate_project(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.deactivate_project(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _select_workflow_stage(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.select_workflow_stage(
-                        context_id,
-                        str(payload.get("stage") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _add_configured_workflow(self, query: str) -> None:
-            try:
-                payload = self._read_json_body()
-                workflow_id = str(payload.get("id") or "")
-                factory = str(payload.get("factory") or "")
-                workflow_config = add_configured_workflow(
-                    config.root,
-                    workflow_id,
-                    factory,
-                )
-                module_registry = config.module_registry or build_module_registry()
-                config.workflow_registry = build_workflow_registry(
-                    module_registry,
-                    configured_workflows(
-                        config.root,
-                        installed_workflow_factories(),
-                    ),
-                )
-                state.bind_workflow_registry(config.workflow_registry)
-                self._send_json(
-                    {
-                        "status": "added",
-                        "workflow_config": workflow_config.payload(),
-                        "registry": registry_payload(
-                            module_registry,
-                            config.workflow_registry,
-                        ),
-                    }
-                )
-            except (ImportError, AttributeError, TypeError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _select_session(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.select_session(
-                        context_id,
-                        str(payload.get("session_id") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _attach_session(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.attach_session(
-                        context_id,
-                        str(payload.get("session_id") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _send_selected_session_events(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                params = parse_qs(query)
-                session_id = str((params.get("session_id") or [""])[0])
-                session = (
-                    state.session_by_id(context_id, session_id)
-                    if session_id
-                    else state.selected_session(context_id)
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            if session is None:
-                self._send_json(
-                    {"error": "no agent session is selected"},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._stream_session_events(session)
-
-        def _send_session_export(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                params = parse_qs(query)
-                session_id = str((params.get("session_id") or [""])[0])
-                session = (
-                    state.session_by_id(context_id, session_id)
-                    if session_id
-                    else state.selected_session(context_id)
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_text(
-                    str(error),
-                    "text/plain; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            if session is None:
-                self._send_text(
-                    "no agent session is selected",
-                    "text/plain; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_download(
-                _session_events_markdown(session),
-                _session_export_filename(session),
-            )
-
-        def _send_selected_session_message(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                message = str(payload.get("message") or "")
-                if not message.strip():
-                    self._send_json(
-                        {"error": "message is empty"},
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                session_id = str(payload.get("session_id") or "")
-                if session_id:
-                    state.send_session_message(context_id, session_id, message)
-                else:
-                    state.send_selected_session_message(context_id, message)
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "sent"})
-
-        def _send_selected_session_key(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                key = str(payload.get("key") or "")
-                if not key:
-                    self._send_json(
-                        {"error": "key is required"},
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                state.send_selected_session_key(context_id, key)
-            except AgentSessionError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except (StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            self._send_json({"status": "sent"})
-
-        def _send_selected_session_raw(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                data = str(payload.get("data") or "")
-                if not data:
-                    self._send_json(
-                        {"error": "data is required"},
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                state.send_selected_session_raw(context_id, data)
-            except AgentSessionError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except (StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            self._send_json({"status": "sent"})
-
-        def _interrupt_selected_session(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                state.interrupt_selected_session(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "interrupted"})
-
-        def _resize_selected_session(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                columns = int(payload.get("columns") or 120)
-                rows = int(payload.get("rows") or 32)
-                session_id = str(payload.get("session_id") or "").strip()
-                if session_id:
-                    state.resize_session(context_id, session_id, columns, rows)
-                else:
-                    state.resize_selected_session(context_id, columns, rows)
-            except (AgentSessionError, StateError, TypeError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "resized"})
-
-        def _start_project_shell(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, started = state.start_project_shell(context_id)
-                self._send_json(
-                    {
-                        **state.project_payload(context_id),
-                        "status": "started" if started else "already running",
-                        "shell_session": session.payload(selected=False),
-                    }
-                )
-            except (AgentSessionError, OSError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _send_project_shell_events(self, query: str) -> None:
-            self._send_session_events(
-                query,
-                state.current_project_shell_session,
-                "project shell has not been started",
-            )
-
-        def _send_project_shell_input(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                state.send_project_shell_input(
-                    context_id,
-                    str(payload.get("data") or ""),
-                )
-            except (AgentSessionError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "sent"})
-
-        def _resize_project_shell(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                columns = int(payload.get("columns") or 120)
-                rows = int(payload.get("rows") or 32)
-                state.resize_project_shell(context_id, columns, rows)
-            except (AgentSessionError, StateError, TypeError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "resized"})
-
-        def _stop_project_shell(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.stop_project_shell(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _send_requirements_document(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                project_root = state.requirements_document_root(context_id)
-                params = parse_qs(query)
-                embedded = str((params.get("embed") or [""])[0]) == "1"
-                zoom_percent = _document_zoom_from_params(params)
-                page, status = requirements_document_html(
-                    project_root,
-                    embedded=embedded,
-                    zoom_percent=zoom_percent,
-                )
-            except (AgentSessionError, OSError, StateError) as error:
-                self._send_text(
-                    f"<p>{html.escape(str(error))}</p>",
-                    "text/html; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_text(page, "text/html; charset=utf-8", status=status)
-
         def _send_pane_window(self, path: str) -> None:
             kind = path.rsplit("/", 1)[-1].strip()
             if kind not in {
@@ -9514,173 +8455,6 @@ def _handler_for(
                 pane_window_html(kind),
                 "text/html; charset=utf-8",
             )
-
-        def _send_file_browser_window(self, query: str) -> None:
-            params = parse_qs(query)
-            initial_path = (params.get("path") or [str(state.root)])[0]
-            mode = (params.get("mode") or ["project"])[0]
-            self._send_text(
-                file_browser_window_html(initial_path, mode),
-                "text/html; charset=utf-8",
-            )
-
-        def _send_design_document(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                page, status = design_document_html(project_root)
-            except (OSError, StateError) as error:
-                self._send_text(
-                    f"<p>{html.escape(str(error))}</p>",
-                    "text/html; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_text(page, "text/html; charset=utf-8", status=status)
-
-        def _send_design_review_document(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                page, status = design_review_document_html(project_root)
-            except (OSError, StateError) as error:
-                self._send_text(
-                    f"<p>{html.escape(str(error))}</p>",
-                    "text/html; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_text(page, "text/html; charset=utf-8", status=status)
-
-        def _send_stage_document(self, query: str, stage: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                page, status = stage_document_html(project_root, stage)
-            except (AgentSessionError, OSError, StateError) as error:
-                self._send_text(
-                    f"<p>{html.escape(str(error))}</p>",
-                    "text/html; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_text(page, "text/html; charset=utf-8", status=status)
-
-        def _send_document_target(self, query: str) -> None:
-            try:
-                params = parse_qs(query)
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                path = params.get("path", [""])[0]
-                title = params.get("title", [""])[0].strip() or None
-                embedded = params.get("embed", ["0"])[0] == "1"
-                create_missing = params.get("create", ["0"])[0] == "1"
-                zoom_percent = _document_zoom_from_params(params)
-                page, status = document_target_html(
-                    project_root,
-                    path,
-                    title=title,
-                    embedded=embedded,
-                    create_missing=create_missing,
-                    zoom_percent=zoom_percent,
-                )
-            except (AgentSessionError, OSError, StateError) as error:
-                self._send_text(
-                    f"<p>{html.escape(str(error))}</p>",
-                    "text/html; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_text(page, "text/html; charset=utf-8", status=status)
-
-        def _send_creative_corkboard(self, query: str) -> None:
-            try:
-                params = parse_qs(query)
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                folder_path = str((params.get("path") or [""])[0])
-                title = str((params.get("title") or [""])[0]).strip() or None
-                page, status = creative_corkboard_html(
-                    project_root,
-                    folder_path,
-                    title=title,
-                    context_id=context_id,
-                )
-            except (AgentSessionError, OSError, StateError) as error:
-                self._send_text(
-                    f"<p>{html.escape(str(error))}</p>",
-                    "text/html; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_text(page, "text/html; charset=utf-8", status=status)
-
-        def _send_artifact_editor(self, query: str) -> None:
-            try:
-                params = parse_qs(query)
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                artifact = str((params.get("artifact") or [""])[0]).strip()
-                requested_path = str((params.get("path") or [""])[0])
-                title = str((params.get("title") or [""])[0]).strip() or None
-                create_missing = str((params.get("create") or [""])[0]) == "1"
-                rich_editor = (
-                    state.project_mode(context_id) == "creative"
-                    and artifact == "document"
-                )
-                editor_font_size = _artifact_editor_font_size_from_params(params)
-                page, status = artifact_editor_html(
-                    project_root,
-                    artifact,
-                    requested_path,
-                    title=title,
-                    create_missing=create_missing,
-                    context_id=context_id,
-                    rich_editor=rich_editor,
-                    editor_font_size=editor_font_size,
-                )
-            except (AgentSessionError, OSError, StateError) as error:
-                self._send_text(
-                    f"<p>{html.escape(str(error))}</p>",
-                    "text/html; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_text(page, "text/html; charset=utf-8", status=status)
-
-        def _save_artifact_editor(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                payload = self._read_json_body()
-                artifact = str(payload.get("artifact") or "")
-                requested_path = str(payload.get("path") or "")
-                self._send_json(
-                    save_artifact_edit(
-                        project_root,
-                        artifact,
-                        requested_path,
-                        payload,
-                    )
-                )
-            except (AgentSessionError, OSError, StateError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-
-        def _save_creative_corkboard(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.save_creative_corkboard(context_id, payload)
-                )
-            except (AgentSessionError, OSError, StateError, TypeError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
 
         def _handle_generic_stage_agent(
             self,
@@ -9804,794 +8578,6 @@ def _handler_for(
                     status=HTTPStatus.CONFLICT,
                 )
 
-        def _start_requirements_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, started = state.start_requirements_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start requirements agent: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                }
-            )
-
-        def _restart_requirements_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, _started = state.restart_requirements_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not restart requirements agent: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "restarted",
-                    "command": session.command,
-                }
-            )
-
-        def _complete_requirements_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.complete_requirements_agent(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _approve_requirements(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.approve_requirements(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _skip_requirements_approval(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(
-                    state.approve_requirements(context_id, skip_approval=True)
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _send_requirements_message(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session = state.current_requirements_session(context_id)
-            except StateError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            if session is None:
-                self._send_json(
-                    {"error": "requirements agent has not been started"},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            try:
-                payload = self._read_json_body()
-            except ValueError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            message = str(payload.get("message") or "")
-            if not message.strip():
-                self._send_json(
-                    {"error": "message is empty"},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            try:
-                session.send(message)
-            except AgentSessionError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "sent"})
-
-        def _interrupt_requirements_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                state.interrupt_requirements_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "interrupted"})
-
-        def _send_agent_events(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session = state.current_requirements_session(context_id)
-            except StateError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            if session is None:
-                self._send_json(
-                    {"error": "requirements agent has not been started"},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            last_event_id = self._last_event_id()
-            try:
-                while True:
-                    events = session.wait_for_events_after(last_event_id, timeout=15)
-                    if not events and session.is_active():
-                        self.wfile.write(b": keep-alive\n\n")
-                        self.wfile.flush()
-                        continue
-                    for event in events:
-                        event_id = int(event["id"])
-                        self.wfile.write(f"id: {event_id}\n".encode("utf-8"))
-                        self.wfile.write(b"event: agent-event\n")
-                        self.wfile.write(
-                            f"data: {json.dumps(event, sort_keys=True)}\n\n".encode(
-                                "utf-8"
-                            )
-                        )
-                        self.wfile.flush()
-                        last_event_id = event_id
-                    if not session.is_active():
-                        break
-            except (BrokenPipeError, ConnectionError, OSError):
-                return
-
-        def _resize_requirements_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                columns = int(payload.get("columns") or 120)
-                rows = int(payload.get("rows") or 32)
-                state.resize_requirements_agent(context_id, columns, rows)
-            except (AgentSessionError, StateError, TypeError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "resized"})
-
-        def _start_design_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, started = state.start_design_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start design agent: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                }
-            )
-
-        def _restart_design_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, _started = state.restart_design_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not restart design agent: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "restarted",
-                    "command": session.command,
-                }
-            )
-
-        def _complete_design_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.complete_design_agent(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _start_design_review_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, started = state.start_design_review_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start design review: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                }
-            )
-
-        def _start_interactive_design_review_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, started = state.start_design_review_agent(
-                    context_id,
-                    interactive=True,
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start interactive design review: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                }
-            )
-
-        def _start_documentation_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                session, started = state.start_documentation_agent(
-                    context_id,
-                    interactive=True,
-                    target=str(payload.get("target") or ""),
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except ValueError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start documentation agent: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                    "session_id": session.session_id,
-                }
-            )
-
-        def _initialize_creative_workspace(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.initialize_creative_workspace(context_id))
-            except (AgentSessionError, StateError, OSError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _create_creative_folder(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.create_creative_folder(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, OSError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _create_creative_document(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.create_creative_document(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, OSError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _create_creative_corkboard(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.create_creative_corkboard(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, OSError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _rename_creative_entry(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.rename_creative_entry(
-                        context_id,
-                        str(payload.get("path") or ""),
-                        str(payload.get("new_name") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, OSError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _delete_creative_entry(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.delete_creative_entry(
-                        context_id,
-                        str(payload.get("path") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, OSError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _save_creative_scratchpad(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                self._send_json(
-                    state.save_creative_scratchpad(
-                        context_id,
-                        str(payload.get("markdown") or ""),
-                    )
-                )
-            except (AgentSessionError, StateError, OSError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _start_creative_writing_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                active_target = payload.get("active_target")
-                session, started = state.start_creative_writing_agent(
-                    context_id,
-                    active_document=str(payload.get("active_document") or ""),
-                    active_target=(
-                        active_target if isinstance(active_target, dict) else None
-                    ),
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start creative writing agent: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                    "session_id": session.session_id,
-                }
-            )
-
-        def _start_ad_hoc_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, started = state.start_ad_hoc_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not start ad-hoc agent: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "started" if started else "running",
-                    "command": session.command,
-                    "session_id": session.session_id,
-                }
-            )
-
-        def _restart_design_review_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                session, _started = state.restart_design_review_agent(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            except OSError as error:
-                self._send_json(
-                    {"error": f"could not restart design review: {error}"},
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            self._send_json(
-                {
-                    **state.project_payload(context_id),
-                    "status": "restarted",
-                    "command": session.command,
-                }
-            )
-
-        def _stop_design_review_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.stop_design_review_agent(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _complete_design_review_agent(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.complete_design_review_agent(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _approve_design(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.approve_design(context_id))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _skip_design_approval(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                self._send_json(state.approve_design(context_id, skip_approval=True))
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-
-        def _send_design_message(self, query: str) -> None:
-            self._send_agent_message(
-                query,
-                state.current_design_session,
-                "design agent has not been started",
-            )
-
-        def _interrupt_design_agent(self, query: str) -> None:
-            self._send_interrupt(query, state.interrupt_design_agent)
-
-        def _interrupt_design_review_agent(self, query: str) -> None:
-            self._send_interrupt(query, state.interrupt_design_review_agent)
-
-        def _send_design_agent_events(self, query: str) -> None:
-            self._send_session_events(
-                query,
-                state.current_design_session,
-                "design agent has not been started",
-            )
-
-        def _send_design_review_agent_events(self, query: str) -> None:
-            self._send_session_events(
-                query,
-                state.current_design_review_session,
-                "design review has not been started",
-            )
-
-        def _send_progress_events(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                command_root = state.command_root(context_id)
-            except StateError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._stream_progress_events(context_id, command_root)
-
-        def _send_progress_export(self, query: str) -> None:
-            try:
-                context_id = self._context_id(query)
-                command_root = state.command_root(context_id)
-                text, ok = _progress_snapshot(command_root)
-            except StateError as error:
-                self._send_text(
-                    str(error),
-                    "text/plain; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_download(
-                _progress_snapshot_markdown(command_root, text, ok),
-                _progress_export_filename(),
-            )
-
-        def _send_document_export(self, query: str) -> None:
-            params = parse_qs(query)
-            artifact = str((params.get("artifact") or [""])[0]).strip()
-            requested_path = str((params.get("path") or [""])[0])
-            export_format = str((params.get("format") or ["markdown"])[0])
-            try:
-                context_id = self._context_id(query)
-                project_root = Path(state.active_project_root(context_id)).resolve()
-                if artifact == "document" and requested_path:
-                    _ensure_document_target(project_root, requested_path)
-                document_path = _artifact_event_document_path(
-                    project_root,
-                    artifact,
-                    requested_path,
-                )
-                relative_path = document_path.relative_to(project_root).as_posix()
-                exported = export_markdown_document(
-                    document_path,
-                    relative_path,
-                    export_format,
-                )
-            except (
-                AgentSessionError,
-                DocumentExportError,
-                OSError,
-                StateError,
-                ValueError,
-            ) as error:
-                self._send_text(
-                    str(error),
-                    "text/plain; charset=utf-8",
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_binary_download(
-                exported.data,
-                exported.filename,
-                exported.content_type,
-            )
-
-        def _send_artifact_events(self, query: str) -> None:
-            params = parse_qs(query)
-            artifact = str((params.get("artifact") or [""])[0]).strip()
-            try:
-                context_id = self._context_id(query)
-                project_root = state.active_project_root(context_id)
-                document_path = _artifact_event_document_path(
-                    project_root,
-                    artifact,
-                    str((params.get("path") or [""])[0]),
-                )
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._stream_artifact_events(artifact, document_path)
-
-        def _resize_design_agent(self, query: str) -> None:
-            self._send_resize(query, state.resize_design_agent)
-
-        def _resize_design_review_agent(self, query: str) -> None:
-            self._send_resize(query, state.resize_design_review_agent)
-
-        def _send_interrupt(
-            self,
-            query: str,
-            interrupt: Callable[[str], None],
-        ) -> None:
-            try:
-                context_id = self._context_id(query)
-                interrupt(context_id)
-            except (AgentSessionError, StateError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "interrupted"})
-
-        def _send_agent_message(
-            self,
-            query: str,
-            session_for_context: Callable[[str], AgentSession | None],
-            missing_message: str,
-        ) -> None:
-            try:
-                context_id = self._context_id(query)
-                session = session_for_context(context_id)
-            except StateError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            if session is None:
-                self._send_json(
-                    {"error": missing_message},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            try:
-                payload = self._read_json_body()
-            except ValueError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            message = str(payload.get("message") or "")
-            if not message.strip():
-                self._send_json(
-                    {"error": "message is empty"},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            try:
-                session.send(message)
-            except AgentSessionError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "sent"})
-
-        def _send_session_events(
-            self,
-            query: str,
-            session_for_context: Callable[[str], AgentSession | None],
-            missing_message: str,
-        ) -> None:
-            try:
-                context_id = self._context_id(query)
-                session = session_for_context(context_id)
-            except StateError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            if session is None:
-                self._send_json(
-                    {"error": missing_message},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._stream_session_events(session)
-
         def _stream_session_events(self, session: AgentSession) -> None:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/event-stream")
@@ -10689,40 +8675,6 @@ def _handler_for(
                     time.sleep(1)
             except (BrokenPipeError, ConnectionError, OSError, StateError):
                 return
-
-        def _send_resize(
-            self,
-            query: str,
-            resize: Callable[[str, int, int], None],
-        ) -> None:
-            try:
-                context_id = self._context_id(query)
-                payload = self._read_json_body()
-                columns = int(payload.get("columns") or 120)
-                rows = int(payload.get("rows") or 32)
-                resize(context_id, columns, rows)
-            except (AgentSessionError, StateError, TypeError, ValueError) as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json({"status": "resized"})
-
-        def _send_context_json(
-            self,
-            query: str,
-            build_payload: Callable[[str], dict[str, object]],
-        ) -> None:
-            try:
-                payload = build_payload(self._context_id(query))
-            except StateError as error:
-                self._send_json(
-                    {"error": str(error)},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-            self._send_json(payload)
 
         def _context_id(self, query: str) -> str:
             params = parse_qs(query)

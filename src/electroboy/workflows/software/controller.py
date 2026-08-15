@@ -6,13 +6,13 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from electroboy.models import GATE_DESIGN
 from electroboy.service import app as service_app
 from electroboy.service.workflow_controller import BoundWorkflowController
 
 APPROVAL_WORKFLOW_STAGES = service_app.APPROVAL_WORKFLOW_STAGES
 AgentSession = service_app.AgentSession
 AgentSessionError = service_app.AgentSessionError
-GATE_DESIGN = service_app.GATE_DESIGN
 SESSION_ARTIFACT_LOCKS = service_app.SESSION_ARTIFACT_LOCKS
 STAGE_DESIGN_ACCEPTANCE = service_app.STAGE_DESIGN_ACCEPTANCE
 STAGE_DESIGN_REVIEW = service_app.STAGE_DESIGN_REVIEW

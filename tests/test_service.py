@@ -294,17 +294,31 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("function appendCreativeTreeEntry", app)
 
     def test_route_dispatcher_uses_registered_module_routes(self) -> None:
-        dispatcher = build_route_dispatcher(
-            build_module_registry(),
-            {"core:health": "_send_health"},
-        )
+        dispatcher = build_route_dispatcher(build_module_registry())
 
         match = dispatcher.match("GET", "/api/health")
 
         self.assertIsNotNone(match)
         self.assertEqual(match.owner, "core")
         self.assertEqual(match.handler_name, "health")
-        self.assertEqual(match.handler_method, "_send_health")
+        self.assertTrue(callable(match.handler))
+
+    def test_all_registered_routes_have_executable_handlers(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+
+        dispatcher = build_route_dispatcher(modules, workflows)
+
+        for module in modules.values():
+            for route in module.routes:
+                match = dispatcher.match(route.method, route.path)
+                self.assertIsNotNone(match)
+                self.assertTrue(callable(match.handler))
+        for workflow in workflows.values():
+            for route in workflow.routes:
+                match = dispatcher.match(route.method, route.path)
+                self.assertIsNotNone(match)
+                self.assertTrue(callable(match.handler))
 
     def test_workflow_registry_binds_executable_controller(self) -> None:
         class SampleController:

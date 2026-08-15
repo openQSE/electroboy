@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from electroboy.service.registry import WorkflowDefinition, WorkflowStage
 from electroboy.workflows.software.controller import SoftwareWorkflowController
+from electroboy.workflows.software.routes import HANDLERS, ROUTES
 
 
 def workflow() -> WorkflowDefinition:
@@ -91,4 +92,6 @@ def workflow() -> WorkflowDefinition:
         frontend_bundle="workflows/software.js",
         asset_package="electroboy.workflows.software",
         controller_factory=SoftwareWorkflowController,
+        routes=ROUTES,
+        handlers=HANDLERS,
     )

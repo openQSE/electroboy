@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from importlib import metadata
-from typing import Callable, Iterable, Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from .routes import RouteRequest
 
 MODULE_ENTRY_POINT_GROUP = "electroboy.modules"
 WORKFLOW_ENTRY_POINT_GROUP = "electroboy.workflows"
@@ -38,6 +42,7 @@ class WorkflowController(Protocol):
 
 
 WorkflowControllerFactory = Callable[[object], WorkflowController]
+RouteHandler = Callable[["RouteRequest"], None]
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,11 @@ class ServiceModule:
     id: str
     label: str
     routes: tuple[RouteDefinition, ...] = ()
+    handlers: dict[str, RouteHandler] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
     assets: tuple[str, ...] = ()
     asset_package: str | None = None
     asset_root: str = "assets"
@@ -123,6 +133,12 @@ class WorkflowDefinition:
     asset_package: str | None = None
     asset_root: str = "assets"
     asset_resource: str = "frontend.js"
+    routes: tuple[RouteDefinition, ...] = ()
+    handlers: dict[str, RouteHandler] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
     controller_factory: WorkflowControllerFactory | None = field(
         default=None,
         repr=False,
@@ -142,6 +158,7 @@ class WorkflowDefinition:
             "frontend_bundle": self.frontend_bundle,
             "asset_package": self.asset_package,
             "asset_resource": self.asset_resource,
+            "routes": [route.payload() for route in self.routes],
             "provider": self.provider,
             "entry_point": self.entry_point,
         }

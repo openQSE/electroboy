@@ -6,6 +6,7 @@ from electroboy.service.registry import WorkflowDefinition, WorkflowStage
 from electroboy.workflows.creative_writing.controller import (
     CreativeWritingWorkflowController,
 )
+from electroboy.workflows.creative_writing.routes import HANDLERS, ROUTES
 
 
 def workflow() -> WorkflowDefinition:
@@ -42,4 +43,6 @@ def workflow() -> WorkflowDefinition:
         frontend_bundle="workflows/creative-writing.js",
         asset_package="electroboy.workflows.creative_writing",
         controller_factory=CreativeWritingWorkflowController,
+        routes=ROUTES,
+        handlers=HANDLERS,
     )
