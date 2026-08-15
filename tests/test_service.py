@@ -1590,6 +1590,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("const CREATIVE_WORKFLOW_MODE", runtime)
         self.assertNotIn("const STAGE_DESCRIPTIONS", runtime)
         self.assertNotIn(".creative-binder", core_styles)
+        self.assertIn(".stage-action-subgroup-list[hidden]", core_styles)
 
         self.assertIn('navigation: "stages"', software)
         self.assertIn("stageDescriptions: STAGE_DESCRIPTIONS", software)

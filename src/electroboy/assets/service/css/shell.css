@@ -705,6 +705,10 @@
       padding: 3px 0 6px 14px;
     }
 
+    .stage-action-subgroup-list[hidden] {
+      display: none;
+    }
+
     .stage-action-button {
       min-height: 40px;
       border: 0;
