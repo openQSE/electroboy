@@ -337,6 +337,11 @@ class ServiceTests(unittest.TestCase):
             "function showArtifactPreviews(items, options = {})",
             documents,
         )
+        self.assertIn(
+            'if (item.kind === "document" && item.target)',
+            documents,
+        )
+        self.assertIn("rememberOpenDocumentTarget(item.target);", documents)
         self.assertIn("function openDocumentTarget(target)", documents)
         self.assertIn("function popOutArtifactPreview(item)", documents)
         self.assertNotIn('popOutPane("artifact", item)', documents)

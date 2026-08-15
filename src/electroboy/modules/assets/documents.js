@@ -483,6 +483,11 @@
         hideArtifactPreview();
         return;
       }
+      for (const item of nextItems) {
+        if (item.kind === "document" && item.target) {
+          rememberOpenDocumentTarget(item.target);
+        }
+      }
       runtimeState.artifactPreviewItems = nextItems;
       runtimeState.manualArtifactPreview = Boolean(options.manual);
       runtimeState.manualArtifactPreviewStage = runtimeState.manualArtifactPreview ? runtimeState.currentWorkflowStage : "";
