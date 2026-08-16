@@ -412,31 +412,55 @@
         run: () => action.openProjectBrowser("meta-new", true),
       },
       {
-        label: "Add repo",
-        title: "Register another repository with the active meta-project.",
+        label: "Add",
+        title: "Choose and register another repository with the active meta-project.",
         disabled: state.activeProjectMode !== "meta",
-        run: () => action.showProjectPanel("meta-add"),
+        run: () => action.openProjectBrowser("meta-add", true),
       },
     ];
+    const startRepositoryActions = [];
+    const removeRepositoryActions = [];
     for (const repository of state.registeredRepositories) {
       const label = action.repositoryLabel(repository);
-      metaActions.push({
-        label: `Start repo: ${label}`,
+      const isActive = label === state.activeRepositoryName;
+      startRepositoryActions.push({
+        label: isActive ? `Active: ${label}` : label,
         title: String(repository.path || label),
-        disabled: state.activeProjectMode !== "meta" ||
-          label === state.activeRepositoryName,
+        disabled: state.activeProjectMode !== "meta" || isActive,
         run: () => action.startMetaRepository(repository),
       });
-    }
-    for (const repository of state.registeredRepositories) {
-      const label = action.repositoryLabel(repository);
-      metaActions.push({
-        label: `Remove repo: ${label}`,
+      removeRepositoryActions.push({
+        label,
         title: String(repository.path || label),
         disabled: state.activeProjectMode !== "meta",
         run: () => action.removeMetaRepository(repository),
       });
     }
+    if (startRepositoryActions.length === 0) {
+      const emptyAction = {
+        label: "No repositories added",
+        title: "Use Add to register a repository first.",
+        disabled: true,
+      };
+      startRepositoryActions.push(emptyAction);
+      removeRepositoryActions.push({ ...emptyAction });
+    }
+    metaActions.push(
+      {
+        subgroup: "project-meta-remove",
+        label: "Remove",
+        title: "Remove a repository from this meta-project.",
+        disabled: state.activeProjectMode !== "meta",
+        actions: removeRepositoryActions,
+      },
+      {
+        subgroup: "project-meta-start",
+        label: "Start",
+        title: "Start or switch to a registered repository.",
+        disabled: state.activeProjectMode !== "meta",
+        actions: startRepositoryActions,
+      },
+    );
 
     const workItemActions = [
       {

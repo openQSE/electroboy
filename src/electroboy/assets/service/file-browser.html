@@ -298,7 +298,9 @@
     const selectPath = document.getElementById("selectPath");
     const cancelBrowser = document.getElementById("cancelBrowser");
     selectPath.textContent =
-      SELECT_MODE === "link"
+      PROJECT_ACTION === "meta-add"
+        ? "Add repository"
+      : SELECT_MODE === "link"
         ? "Insert selected file"
       : SELECT_MODE === "document-new"
         ? "Create or open document"
