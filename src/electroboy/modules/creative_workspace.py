@@ -475,6 +475,8 @@ def render_corkboard_html(
       min-width: 100%;
       min-height: calc(100vh - 90px);
       overflow: visible;
+      transform-origin: 0 0;
+      will-change: transform;
     }}
 
     body.freeform-canvas .canvas-viewport {{
@@ -902,13 +904,13 @@ def render_corkboard_html(
       overflow-wrap: anywhere;
     }}
 
-    .card-size-control {{
+    .board-controls {{
       position: fixed;
       right: 12px;
       bottom: 12px;
       z-index: 1100;
       display: grid;
-      gap: 6px;
+      gap: 10px;
       width: 220px;
       border: 1px solid rgba(255, 249, 232, 0.34);
       border-radius: 8px;
@@ -916,6 +918,12 @@ def render_corkboard_html(
       color: #d8e3f4;
       box-shadow: 0 10px 24px rgba(15, 20, 32, 0.26);
       padding: 8px 10px;
+    }}
+
+    .card-size-control,
+    .board-zoom-control {{
+      display: grid;
+      gap: 6px;
     }}
 
     .card-size-label {{
@@ -928,9 +936,32 @@ def render_corkboard_html(
       text-transform: uppercase;
     }}
 
-    .card-size-control input {{
+    .card-size-control input,
+    .board-zoom-control input {{
       width: 100%;
       accent-color: var(--insert);
+    }}
+
+    .board-zoom-inputs {{
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) 28px;
+      gap: 6px;
+      align-items: center;
+    }}
+
+    .board-zoom-button {{
+      width: 28px;
+      height: 28px;
+      border: 1px solid rgba(216, 227, 244, 0.34);
+      border-radius: 5px;
+      background: rgba(216, 227, 244, 0.10);
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1;
+      padding: 0;
     }}
 
   </style>
@@ -952,21 +983,44 @@ def render_corkboard_html(
       <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
     </section>
   </main>
-  <label class="card-size-control">
-    <span class="card-size-label">
-      <span>Card size</span>
-      <output id="cardSizeValue">100%</output>
-    </span>
-    <input
-      id="cardSizeSlider"
-      type="range"
-      min="70"
-      max="300"
-      step="5"
-      value="100"
-      aria-label="Resize corkboard cards"
-    >
-  </label>
+  <aside class="board-controls" aria-label="Corkboard display controls">
+    <div class="board-zoom-control">
+      <span class="card-size-label">
+        <span>Board zoom</span>
+        <output id="boardZoomValue">100%</output>
+      </span>
+      <div class="board-zoom-inputs">
+        <button id="zoomOut" class="board-zoom-button" type="button"
+                title="Zoom out" aria-label="Zoom corkboard out">−</button>
+        <input
+          id="boardZoomSlider"
+          type="range"
+          min="0"
+          max="1000"
+          step="1"
+          value="500"
+          aria-label="Zoom corkboard"
+        >
+        <button id="zoomIn" class="board-zoom-button" type="button"
+                title="Zoom in" aria-label="Zoom corkboard in">+</button>
+      </div>
+    </div>
+    <label class="card-size-control">
+      <span class="card-size-label">
+        <span>Card size</span>
+        <output id="cardSizeValue">100%</output>
+      </span>
+      <input
+        id="cardSizeSlider"
+        type="range"
+        min="100"
+        max="400"
+        step="5"
+        value="100"
+        aria-label="Resize corkboard cards"
+      >
+    </label>
+  </aside>
   <script>
     const CORKBOARD_DATA = {data_json};
     const CORKBOARD_OPERATION_URL = {operation_url_json};
@@ -976,6 +1030,10 @@ def render_corkboard_html(
     const boardEyebrow = document.getElementById("boardEyebrow");
     const boardTitle = document.getElementById("boardTitle");
     const addCard = document.getElementById("addCard");
+    const boardZoomSlider = document.getElementById("boardZoomSlider");
+    const boardZoomValue = document.getElementById("boardZoomValue");
+    const zoomOut = document.getElementById("zoomOut");
+    const zoomIn = document.getElementById("zoomIn");
     const cardSizeSlider = document.getElementById("cardSizeSlider");
     const cardSizeValue = document.getElementById("cardSizeValue");
     const boardType = CORKBOARD_DATA.board_type || "folder";
@@ -999,15 +1057,21 @@ def render_corkboard_html(
       ? `electroboy.corkboard.${{CORKBOARD_DATA.provider}}`
       : "electroboy.creative.corkboard";
     const CARD_SCALE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardScale.`;
+    const BOARD_ZOOM_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.boardZoom.`;
     const CANVAS_PAN_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.canvasPan.`;
-    const MIN_CARD_SCALE = 70;
-    const MAX_CARD_SCALE = 300;
+    const MIN_BOARD_ZOOM = 1;
+    const MAX_BOARD_ZOOM = 10000;
+    const BOARD_ZOOM_FACTOR = 1.1;
+    const BOARD_ZOOM_SLIDER_STEPS = 1000;
+    const MIN_CARD_SCALE = 100;
+    const MAX_CARD_SCALE = 400;
     let dragState = null;
     let canvasPanState = null;
     let draggedPath = "";
     let folderInsertionMarker = null;
     let folderDropTarget = "";
     let folderDropPlacement = "before";
+    let boardZoom = storedBoardZoom();
     let cardScale = storedCardScale();
     let canvasPan = storedCanvasPan();
     let selectedCardKey = "";
@@ -1043,6 +1107,10 @@ def render_corkboard_html(
 
     function cardScaleStorageKey() {{
       return `${{CARD_SCALE_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
+    }}
+
+    function boardZoomStorageKey() {{
+      return `${{BOARD_ZOOM_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
     }}
 
     function canvasPanStorageKey() {{
@@ -1122,12 +1190,131 @@ def render_corkboard_html(
       }}
     }}
 
-    function applyCanvasPan() {{
-      if (boardType !== "freeform") {{
-        board.style.transform = "";
+    function clampBoardZoom(value) {{
+      const zoom = Number(value);
+      if (!Number.isFinite(zoom)) {{
+        return 100;
+      }}
+      const clamped = Math.max(MIN_BOARD_ZOOM, Math.min(MAX_BOARD_ZOOM, zoom));
+      return Math.round(clamped * 100) / 100;
+    }}
+
+    function storedBoardZoom() {{
+      try {{
+        const stored = Number(window.localStorage.getItem(boardZoomStorageKey()));
+        if (Number.isFinite(stored)) {{
+          return clampBoardZoom(stored);
+        }}
+      }} catch (error) {{
+        return 100;
+      }}
+      return 100;
+    }}
+
+    function saveBoardZoom() {{
+      try {{
+        window.localStorage.setItem(boardZoomStorageKey(), String(boardZoom));
+      }} catch (error) {{
         return;
       }}
-      board.style.transform = `translate(${{canvasPan.x}}px, ${{canvasPan.y}}px)`;
+    }}
+
+    function boardZoomFactor() {{
+      return boardZoom / 100;
+    }}
+
+    function boardZoomFromSlider(value) {{
+      const ratio = Math.max(
+        0,
+        Math.min(1, Number(value) / BOARD_ZOOM_SLIDER_STEPS),
+      );
+      const minimum = Math.log(MIN_BOARD_ZOOM);
+      const maximum = Math.log(MAX_BOARD_ZOOM);
+      return Math.exp(minimum + ratio * (maximum - minimum));
+    }}
+
+    function boardZoomSliderValue() {{
+      const minimum = Math.log(MIN_BOARD_ZOOM);
+      const maximum = Math.log(MAX_BOARD_ZOOM);
+      return Math.round(
+        BOARD_ZOOM_SLIDER_STEPS
+          * (Math.log(boardZoom) - minimum)
+          / (maximum - minimum),
+      );
+    }}
+
+    function boardZoomLabel() {{
+      if (boardZoom < 10) {{
+        return `${{boardZoom.toFixed(1)}}%`;
+      }}
+      return `${{Math.round(boardZoom)}}%`;
+    }}
+
+    function applyCanvasPan() {{
+      const scale = boardZoomFactor();
+      if (boardType === "freeform") {{
+        board.style.width = "";
+        board.style.transform = `translate(${{canvasPan.x}}px, ${{canvasPan.y}}px) scale(${{scale}})`;
+        return;
+      }}
+      board.style.width = `${{100 / scale}}%`;
+      board.style.transform = `scale(${{scale}})`;
+    }}
+
+    function applyBoardZoom() {{
+      const label = boardZoomLabel();
+      boardZoomSlider.value = String(boardZoomSliderValue());
+      boardZoomValue.value = label;
+      boardZoomValue.textContent = label;
+      zoomOut.disabled = boardZoom <= MIN_BOARD_ZOOM;
+      zoomIn.disabled = boardZoom >= MAX_BOARD_ZOOM;
+      sizeBoard();
+    }}
+
+    function updateBoardZoom(value, clientX = null, clientY = null) {{
+      const nextZoom = clampBoardZoom(value);
+      if (nextZoom === boardZoom) {{
+        return;
+      }}
+      if (
+        boardType === "freeform"
+        && Number.isFinite(clientX)
+        && Number.isFinite(clientY)
+      ) {{
+        const rect = canvasViewport.getBoundingClientRect();
+        const pointerX = clientX - rect.left;
+        const pointerY = clientY - rect.top;
+        const previousScale = boardZoomFactor();
+        const worldX = (pointerX - canvasPan.x) / previousScale;
+        const worldY = (pointerY - canvasPan.y) / previousScale;
+        const nextScale = nextZoom / 100;
+        canvasPan = {{
+          x: pointerX - worldX * nextScale,
+          y: pointerY - worldY * nextScale,
+        }};
+        saveCanvasPan();
+      }}
+      boardZoom = nextZoom;
+      saveBoardZoom();
+      applyBoardZoom();
+    }}
+
+    function handleBoardWheel(event) {{
+      if (event.target.closest(".board-controls")) {{
+        return;
+      }}
+      event.preventDefault();
+      if (event.deltaY === 0) {{
+        return;
+      }}
+      const factor = event.deltaY < 0
+        ? BOARD_ZOOM_FACTOR
+        : 1 / BOARD_ZOOM_FACTOR;
+      updateBoardZoom(
+        boardZoom * factor,
+        event.clientX,
+        event.clientY,
+      );
     }}
 
     function clampCardScale(value) {{
@@ -1587,13 +1774,20 @@ def render_corkboard_html(
       if (!dragState) {{
         return;
       }}
+      const scale = boardZoomFactor();
       dragState.card.x = Math.max(
         -1000000,
-        Math.min(1000000, dragState.originalX + event.clientX - dragState.startX),
+        Math.min(
+          1000000,
+          dragState.originalX + (event.clientX - dragState.startX) / scale,
+        ),
       );
       dragState.card.y = Math.max(
         -1000000,
-        Math.min(1000000, dragState.originalY + event.clientY - dragState.startY),
+        Math.min(
+          1000000,
+          dragState.originalY + (event.clientY - dragState.startY) / scale,
+        ),
       );
       applyCardPosition(dragState.cardElement, dragState.card);
       sizeBoard();
@@ -1663,12 +1857,13 @@ def render_corkboard_html(
       const marker = ensureFolderInsertionMarker();
       const cardRect = cardElement.getBoundingClientRect();
       const boardRect = board.getBoundingClientRect();
+      const scale = boardZoomFactor();
       const x = placement === "before"
-        ? cardRect.left - boardRect.left
-        : cardRect.right - boardRect.left;
+        ? (cardRect.left - boardRect.left) / scale
+        : (cardRect.right - boardRect.left) / scale;
       marker.style.left = `${{Math.max(0, x)}}px`;
-      marker.style.top = `${{Math.max(0, cardRect.top - boardRect.top)}}px`;
-      marker.style.height = `${{Math.max(64, cardRect.height)}}px`;
+      marker.style.top = `${{Math.max(0, (cardRect.top - boardRect.top) / scale)}}px`;
+      marker.style.height = `${{Math.max(64, cardRect.height / scale)}}px`;
       marker.hidden = false;
       folderDropTarget = card.path || "";
       folderDropPlacement = placement;
@@ -1709,12 +1904,14 @@ def render_corkboard_html(
         return;
       }}
       const index = cards.length;
+      const scale = boardZoomFactor();
       const card = {{
         id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
         title: "Untitled card",
         note: "",
-        x: -canvasPan.x + 36 + (index % 4) * scaledCardValue(236),
-        y: -canvasPan.y + 36 + Math.floor(index / 4) * scaledCardValue(206),
+        x: (36 - canvasPan.x) / scale + (index % 4) * scaledCardValue(236),
+        y: (36 - canvasPan.y) / scale
+          + Math.floor(index / 4) * scaledCardValue(206),
         rotation: (index % 5) - 2,
         color: CARD_PALETTE.length
           ? CARD_PALETTE[index % CARD_PALETTE.length].id
@@ -1962,7 +2159,17 @@ def render_corkboard_html(
       }});
     }}
     document.addEventListener("click", () => closePalettes());
+    boardZoomSlider.addEventListener("input", () =>
+      updateBoardZoom(boardZoomFromSlider(boardZoomSlider.value)),
+    );
+    zoomOut.addEventListener("click", () =>
+      updateBoardZoom(boardZoom / BOARD_ZOOM_FACTOR),
+    );
+    zoomIn.addEventListener("click", () =>
+      updateBoardZoom(boardZoom * BOARD_ZOOM_FACTOR),
+    );
     cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
+    canvasViewport.addEventListener("wheel", handleBoardWheel, {{ passive: false }});
     canvasViewport.addEventListener("pointerdown", startCanvasPan);
     canvasViewport.addEventListener("pointermove", updateCanvasPan);
     canvasViewport.addEventListener("pointerup", finishCanvasPan);
@@ -1974,6 +2181,7 @@ def render_corkboard_html(
     }});
     window.addEventListener("resize", sizeBoard);
     applyCardScale();
+    applyBoardZoom();
     renderCards();
   </script>
 </body>

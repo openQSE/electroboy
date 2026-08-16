@@ -2236,8 +2236,27 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("index-card", page)
             self.assertIn("card-size-control", page)
             self.assertIn('id="cardSizeSlider"', page)
-            self.assertIn('max="300"', page)
-            self.assertIn("const MAX_CARD_SCALE = 300;", page)
+            self.assertIn('id="boardZoomSlider"', page)
+            self.assertIn('aria-label="Zoom corkboard out"', page)
+            self.assertIn('aria-label="Zoom corkboard in"', page)
+            self.assertIn("function updateBoardZoom", page)
+            self.assertIn("function handleBoardWheel(event)", page)
+            self.assertIn(
+                'canvasViewport.addEventListener("wheel", handleBoardWheel',
+                page,
+            )
+            self.assertIn("board.style.width = `${100 / scale}%`;", page)
+            self.assertIn(
+                'id="cardSizeSlider"\n        type="range"\n        min="100"',
+                page,
+            )
+            self.assertIn('max="400"', page)
+            self.assertIn("const MIN_CARD_SCALE = 100;", page)
+            self.assertIn("const MAX_CARD_SCALE = 400;", page)
+            self.assertIn("const MIN_BOARD_ZOOM = 1;", page)
+            self.assertIn("const MAX_BOARD_ZOOM = 10000;", page)
+            self.assertIn("function boardZoomFromSlider(value)", page)
+            self.assertIn("const BOARD_ZOOM_FACTOR = 1.1;", page)
             self.assertIn("function updateCardScale", page)
             self.assertIn('"electroboy.creative.corkboard"', page)
             self.assertIn("CORKBOARD_STORAGE_NAMESPACE", page)
@@ -2350,7 +2369,17 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function startCanvasPan(event)", page)
             self.assertIn("event.button !== 1", page)
             self.assertIn("function applyCanvasPan()", page)
+            self.assertIn(
+                "`translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${scale})`",
+                page,
+            )
+            self.assertIn("const worldX = (pointerX - canvasPan.x) / previousScale;", page)
+            self.assertIn(
+                "dragState.originalX + (event.clientX - dragState.startX) / scale",
+                page,
+            )
             self.assertIn("CANVAS_PAN_STORAGE_PREFIX", page)
+            self.assertIn("BOARD_ZOOM_STORAGE_PREFIX", page)
             self.assertIn('document.body.classList.add("canvas-panning")', page)
             self.assertIn("card-delete-icon", page)
             self.assertIn('remove.title = "Delete card";', page)
