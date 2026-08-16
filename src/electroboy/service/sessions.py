@@ -35,9 +35,24 @@ _CONTROL_CHARS_TO_DROP = frozenset(
     chr(code)
     for code in [*range(0x00, 0x08), *range(0x0B, 0x0D), *range(0x0E, 0x20), 0x7F]
 )
+_CONTROLLING_TERMINAL_LAUNCHER = (
+    "import fcntl, os, sys, termios\n"
+    "fcntl.ioctl(0, termios.TIOCSCTTY, 0)\n"
+    "os.execvp(sys.argv[1], sys.argv[1:])\n"
+)
+
 
 class AgentSessionError(RuntimeError):
     """Raised when an agent session cannot accept an operation."""
+
+
+def _controlling_terminal_command(command: list[str]) -> list[str]:
+    return [
+        sys.executable,
+        "-c",
+        _CONTROLLING_TERMINAL_LAUNCHER,
+        *command,
+    ]
 
 
 class AgentSession:
@@ -61,6 +76,7 @@ class AgentSession:
         backend: str = "pty",
         on_status_changed: Callable[["AgentSession"], None] | None = None,
         session_id: str | None = None,
+        controlling_terminal: bool = False,
     ) -> None:
         self.session_id = session_id or uuid4().hex
         self.command = command
@@ -71,6 +87,7 @@ class AgentSession:
         self.kind = kind
         self.interactive = interactive
         self.echo_input = echo_input
+        self.controlling_terminal = controlling_terminal
         self.lock_names = frozenset(lock_names or ())
         self.created_at = utc_now()
         self.on_completed = on_completed
@@ -135,7 +152,11 @@ class AgentSession:
             _disable_terminal_echo(slave_fd)
         _set_terminal_size(slave_fd, self.columns, self.rows)
         popen_kwargs: dict[str, Any] = {
-            "args": self.command,
+            "args": (
+                _controlling_terminal_command(self.command)
+                if self.controlling_terminal
+                else self.command
+            ),
             "cwd": self.cwd,
             "stdin": slave_fd,
             "stdout": slave_fd,
@@ -143,7 +164,9 @@ class AgentSession:
             "env": env,
             "close_fds": True,
         }
-        if sys.version_info >= (3, 11):
+        if self.controlling_terminal:
+            popen_kwargs["start_new_session"] = True
+        elif sys.version_info >= (3, 11):
             popen_kwargs["process_group"] = 0
         else:
             popen_kwargs["start_new_session"] = True
@@ -424,6 +447,7 @@ class TmuxAgentSession(AgentSession):
         on_status_changed: Callable[["AgentSession"], None] | None = None,
         session_id: str | None = None,
         tmux_name: str | None = None,
+        controlling_terminal: bool = False,
     ) -> None:
         super().__init__(
             command,
@@ -436,6 +460,7 @@ class TmuxAgentSession(AgentSession):
             lock_names=lock_names,
             on_completed=on_completed,
             echo_input=echo_input,
+            controlling_terminal=controlling_terminal,
             metadata=metadata,
             context_id=context_id,
             transcript_path=transcript_path,
@@ -459,6 +484,7 @@ class TmuxAgentSession(AgentSession):
             lock_names=session.lock_names,
             on_completed=session.on_completed,
             echo_input=session.echo_input,
+            controlling_terminal=session.controlling_terminal,
             metadata=session.metadata,
             context_id=session.context_id,
             transcript_path=session.transcript_path,
@@ -1020,4 +1046,3 @@ def _consume_string_control(text: str, index: int) -> tuple[int, bool]:
 def _normalize_terminal_text(text: str) -> str:
     text = re.sub(r"\n{4,}", "\n\n\n", text)
     return text
-

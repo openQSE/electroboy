@@ -3252,6 +3252,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(session.label, "project shell")
         self.assertEqual(session.cwd, project_root.resolve())
         self.assertTrue(session.echo_input)
+        self.assertTrue(session.controlling_terminal)
         self.assertIsNone(payload["selected_session_id"])
         self.assertEqual(payload["sessions"], [])
 
@@ -4462,6 +4463,35 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(session.columns, MIN_TERMINAL_COLUMNS)
         self.assertEqual(session.rows, MIN_TERMINAL_ROWS)
+
+    def test_agent_session_can_claim_pty_as_controlling_terminal(self) -> None:
+        script = (
+            "import os\n"
+            "descriptor = os.open('/dev/tty', os.O_RDWR)\n"
+            "os.close(descriptor)\n"
+            "assert os.tcgetpgrp(0) == os.getpgrp()\n"
+            "print('controlling-terminal-ready', flush=True)\n"
+        )
+        session = AgentSession(
+            [sys.executable, "-c", script],
+            ROOT,
+            controlling_terminal=True,
+        )
+        try:
+            try:
+                session.start()
+            except PermissionError as error:
+                self.skipTest(f"pseudo-terminal creation is not permitted: {error}")
+            output = wait_for_output(
+                self,
+                session,
+                "controlling-terminal-ready",
+            )
+            self.assertIn("controlling-terminal-ready", output)
+            wait_for_exit(self, session)
+        finally:
+            if session.is_active():
+                session.terminate()
 
     def test_agent_session_writes_transcript_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

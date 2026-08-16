@@ -938,6 +938,7 @@ class ServiceState:
                 kind="project-shell",
                 interactive=True,
                 echo_input=True,
+                controlling_terminal=True,
             )
             session = self._prepare_session_locked(context, session)
             context.project_shell_sessions[session.session_id] = session
