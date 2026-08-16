@@ -75,6 +75,7 @@
     const handleSelector = options.handleSelector || DEFAULT_HANDLE_SELECTOR;
     const interactiveSelector =
       options.interactiveSelector || DEFAULT_INTERACTIVE_SELECTOR;
+    const canDetach = options.canDetach !== false;
     const detachTarget = createOverlay(
       "pane-drag-detach-target",
       options.detachLabel || "Open in window",
@@ -121,12 +122,14 @@
     }
 
     function targetCandidate(event) {
-      const detachRect = detachTarget.getBoundingClientRect();
-      if (pointInside(detachRect, event.clientX, event.clientY)) {
-        return { type: "detach" };
-      }
-      if (outsideViewport(event)) {
-        return { type: "detach", outside: true };
+      if (canDetach) {
+        const detachRect = detachTarget.getBoundingClientRect();
+        if (pointInside(detachRect, event.clientX, event.clientY)) {
+          return { type: "detach" };
+        }
+        if (outsideViewport(event)) {
+          return { type: "detach", outside: true };
+        }
       }
       for (const element of root.querySelectorAll(sourceSelector)) {
         if (element === state.element || element.hidden) {
@@ -182,7 +185,7 @@
       state.dragging = true;
       state.element.classList.add("pane-drag-source");
       document.body.classList.add("pane-dragging");
-      detachTarget.hidden = false;
+      detachTarget.hidden = !canDetach;
       ghost.textContent = options.label
         ? options.label(state.source)
         : String(state.source.label || state.source.kind || "Pane");

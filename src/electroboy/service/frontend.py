@@ -168,7 +168,12 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             id="pane-window",
             label="Pane Window",
             owner="core",
-            assets=("pane-window.html",),
+            assets=(
+                "pane-window.html",
+                "js/core/pane-layout-drag.js",
+                "js/core/pane-workspace.js",
+                "js/core/input-shortcut.js",
+            ),
         ),
         FrontendBundle(
             id="file-browser",

@@ -53,9 +53,13 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
     pane_drag = (
         ROOT / "src/electroboy/assets/service/js/core/pane-layout-drag.js"
     )
+    pane_workspace = (
+        ROOT / "src/electroboy/assets/service/js/core/pane-workspace.js"
+    )
     legacy_runtime = ROOT / "src/electroboy/assets/service/js/app.js"
     assert core_runtime.is_file()
     assert pane_drag.is_file()
+    assert pane_workspace.is_file()
     assert not legacy_runtime.exists()
     assert (ROOT / "src/electroboy/modules/assets/agent-sessions.js").is_file()
     assert (ROOT / "src/electroboy/modules/assets/documents.js").is_file()

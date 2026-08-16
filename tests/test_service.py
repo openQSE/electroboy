@@ -293,6 +293,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("documents", frontend_bundles)
         self.assertIn("binder", frontend_bundles)
         self.assertIn("pane-window", frontend_bundles)
+        self.assertIn(
+            "js/core/pane-workspace.js",
+            frontend_bundles["pane-window"]["assets"],
+        )
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
             ["software", "creative-writing"],
@@ -702,6 +706,10 @@ class ServiceTests(unittest.TestCase):
                     server,
                     "/assets/service/js/core/pane-layout-drag.js",
                 )
+                workspace_status, workspace_body, workspace_type, _ = request_bytes(
+                    server,
+                    "/assets/service/js/core/pane-workspace.js",
+                )
                 shortcut_status, shortcut_body, shortcut_type, _shortcut_headers = (
                     request_bytes(
                         server,
@@ -747,6 +755,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(b"function createController(options)", drag_body)
         self.assertIn(b"event.shiftKey", drag_body)
         self.assertIn(b"options.onDetach", drag_body)
+        self.assertIn(b"options.canDetach !== false", drag_body)
+        self.assertEqual(workspace_status, 200)
+        self.assertEqual(workspace_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"function createWorkspace(options)", workspace_body)
+        self.assertIn(b"function startCornerSplit(", workspace_body)
         self.assertEqual(shortcut_status, 200)
         self.assertEqual(shortcut_type, "application/javascript; charset=utf-8")
         self.assertIn(b"function bindRecorder(button)", shortcut_body)
@@ -813,6 +826,27 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Dock", body)
         self.assertIn("xterm@5.3.0", body)
         self.assertNotIn("__PANE_KIND__", body)
+
+    def test_pane_window_supports_persistent_split_workspaces(self) -> None:
+        page = pane_window_html("agent")
+        workspace = read_service_text_asset("js/core/pane-workspace.js")
+
+        self.assertIn('id="workspaceWindow"', page)
+        self.assertIn('id="workspaceLayout"', page)
+        self.assertIn('id="resetWorkspace"', page)
+        self.assertIn('id="dockWorkspace"', page)
+        self.assertIn('params.get("embedded") === "1"', page)
+        self.assertIn("ElectroBoyPaneWorkspace.create", page)
+        self.assertIn("electroboy.paneWorkspaceLayout.v1.${PANE_KIND}", page)
+        self.assertIn('/assets/service/js/core/pane-workspace.js', page)
+        self.assertIn('paneParameters.set("embedded", "1")', page)
+        self.assertIn('function splitLeaf(', workspace)
+        self.assertIn('function startCornerSplit(', workspace)
+        self.assertIn('function startResize(', workspace)
+        self.assertIn('function moveLeaf(', workspace)
+        self.assertIn('const paneFrames = new Map();', workspace)
+        self.assertIn('const existing = { ...item };', workspace)
+        self.assertIn('canDetach: false', workspace)
 
     def test_pane_window_html_includes_reconnect_streams(self) -> None:
         page = pane_window_html("artifact")

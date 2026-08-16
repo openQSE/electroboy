@@ -235,13 +235,326 @@
       min-width: 0;
     }
 
+    .workspace-window {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      width: 100%;
+      height: 100vh;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .workspace-layout,
+    .workspace-pane-root,
+    .workspace-pane-split,
+    .workspace-pane-leaf {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .workspace-layout {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .workspace-pane-split {
+      display: grid;
+      overflow: hidden;
+    }
+
+    .workspace-pane-leaf {
+      position: relative;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--terminal);
+      container-type: inline-size;
+    }
+
+    .workspace-pane-toolbar {
+      display: grid;
+      grid-template-columns: minmax(76px, 1fr) 28px 28px 28px 28px;
+      gap: 4px;
+      align-items: center;
+      min-width: 0;
+      height: 32px;
+      border-bottom: 1px solid var(--border);
+      background: #151d2b;
+      padding: 3px 5px;
+    }
+
+    .workspace-pane-kind {
+      width: 100%;
+      min-width: 0;
+      height: 24px;
+      border: 1px solid #364156;
+      border-radius: 4px;
+      background: #1d2638;
+      color: var(--terminal-text);
+      font: inherit;
+      font-size: calc(var(--font-size) - 2px);
+      padding: 0 5px;
+    }
+
+    .workspace-pane-command {
+      position: relative;
+      width: 28px;
+      height: 24px;
+      border: 1px solid #364156;
+      border-radius: 4px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .workspace-pane-command:hover:not(:disabled) {
+      border-color: #4e7f9d;
+      background: #22314a;
+    }
+
+    .workspace-pane-command:disabled {
+      cursor: default;
+      opacity: 0.35;
+    }
+
+    .workspace-pane-command.split-right::before,
+    .workspace-pane-command.split-down::before {
+      position: absolute;
+      inset: 5px 6px;
+      border: 1px solid currentcolor;
+      border-radius: 1px;
+      content: "";
+    }
+
+    .workspace-pane-command.split-right::after,
+    .workspace-pane-command.split-down::after {
+      position: absolute;
+      background: currentcolor;
+      content: "";
+    }
+
+    .workspace-pane-command.split-right::after {
+      top: 5px;
+      bottom: 5px;
+      left: 13px;
+      width: 1px;
+    }
+
+    .workspace-pane-command.split-down::after {
+      right: 6px;
+      bottom: 11px;
+      left: 6px;
+      height: 1px;
+    }
+
+    .workspace-pane-empty {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 0;
+      color: #77849a;
+      font-size: calc(var(--font-size) - 2px);
+    }
+
+    .workspace-pane-frame {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      border: 0;
+      background: var(--terminal);
+    }
+
+    .workspace-pane-divider {
+      min-width: 0;
+      min-height: 0;
+      background: #253044;
+      touch-action: none;
+    }
+
+    .workspace-pane-divider.row {
+      cursor: col-resize;
+    }
+
+    .workspace-pane-divider.column {
+      cursor: row-resize;
+    }
+
+    .workspace-pane-divider:hover,
+    .workspace-pane-divider.resizing {
+      background: #3a78a0;
+    }
+
+    .workspace-pane-corner {
+      position: absolute;
+      z-index: 9;
+      width: 14px;
+      height: 14px;
+      border: 0;
+      background: transparent;
+      color: #60758d;
+      cursor: nesw-resize;
+      touch-action: none;
+    }
+
+    .workspace-pane-corner.top-right {
+      top: 32px;
+      right: 0;
+    }
+
+    .workspace-pane-corner.bottom-left {
+      bottom: 0;
+      left: 0;
+    }
+
+    .workspace-pane-corner::before {
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      content: "";
+    }
+
+    .workspace-pane-corner.top-right::before {
+      top: 2px;
+      right: 2px;
+      border-top: 2px solid currentcolor;
+      border-right: 2px solid currentcolor;
+    }
+
+    .workspace-pane-corner.bottom-left::before {
+      bottom: 2px;
+      left: 2px;
+      border-bottom: 2px solid currentcolor;
+      border-left: 2px solid currentcolor;
+    }
+
+    .workspace-pane-corner:hover,
+    .workspace-pane-leaf.splitting .workspace-pane-corner {
+      color: #66d9e8;
+    }
+
+    .workspace-pane-split-preview {
+      position: absolute;
+      z-index: 8;
+      border: 2px solid #66d9e8;
+      background: rgb(31 111 139 / 24%);
+      pointer-events: none;
+    }
+
+    .workspace-layout.pane-layout-shift-ready .workspace-pane-leaf::after {
+      position: absolute;
+      z-index: 30;
+      inset: 32px 0 0;
+      background: transparent;
+      content: "";
+      cursor: grab;
+      pointer-events: auto;
+    }
+
+    .workspace-pane-leaf.pane-drag-source {
+      outline: 2px solid #f0a43c;
+      outline-offset: -2px;
+    }
+
+    .workspace-pane-toolbar[data-pane-drag-handle] {
+      cursor: grab;
+    }
+
+    .workspace-pane-toolbar button,
+    .workspace-pane-toolbar select {
+      cursor: pointer;
+    }
+
+    .pane-drag-detach-target,
+    .pane-drag-preview,
+    .pane-drag-ghost {
+      position: fixed;
+      z-index: 4000;
+      pointer-events: none;
+    }
+
+    .pane-drag-detach-target {
+      top: 14px;
+      left: 50%;
+      min-width: 180px;
+      border: 2px dashed #66d9e8;
+      border-radius: 6px;
+      background: rgb(18 30 49 / 96%);
+      color: #d8f7fb;
+      padding: 10px 18px;
+      text-align: center;
+      transform: translateX(-50%);
+    }
+
+    .pane-drag-preview {
+      border: 2px solid #66d9e8;
+      background: rgb(31 111 139 / 30%);
+    }
+
+    .pane-drag-preview[data-position="center"] {
+      border-color: #f0a43c;
+      background: rgb(240 164 60 / 22%);
+    }
+
+    .pane-drag-ghost {
+      z-index: 4003;
+      max-width: 220px;
+      overflow: hidden;
+      border: 1px solid #52647e;
+      border-radius: 4px;
+      background: rgb(21 29 43 / 94%);
+      color: #eef5ff;
+      padding: 6px 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.pane-dragging iframe {
+      pointer-events: none;
+    }
+
+    body.workspace-splitting,
+    body.pane-dragging {
+      user-select: none;
+    }
+
+    @container (max-width: 180px) {
+      .workspace-pane-toolbar {
+        grid-template-columns: minmax(42px, 1fr) 24px 24px 24px;
+        gap: 2px;
+      }
+
+      .workspace-pane-command {
+        width: 24px;
+      }
+
+      .workspace-pane-command.reset-layout {
+        display: none;
+      }
+    }
+
     [hidden] {
       display: none;
     }
   </style>
 </head>
 <body>
-  <main class="pane-window">
+  <main id="workspaceWindow" class="workspace-window" hidden>
+    <header class="pane-toolbar">
+      <span id="workspaceTitle">ElectroBoy workspace</span>
+      <div class="pane-actions">
+        <button id="resetWorkspace" type="button">Reset layout</button>
+        <button id="dockWorkspace" type="button">Dock window</button>
+      </div>
+    </header>
+    <section id="workspaceLayout" class="workspace-layout"></section>
+  </main>
+  <main id="directPaneWindow" class="pane-window">
     <header class="pane-toolbar">
       <span id="paneTitle">Pane</span>
       <div class="pane-actions">
@@ -361,10 +674,13 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="/assets/service/js/core/pane-layout-drag.js"></script>
+  <script src="/assets/service/js/core/pane-workspace.js"></script>
   <script src="/assets/service/js/core/input-shortcut.js"></script>
   <script>
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
+    const EMBEDDED_PANE = params.get("embedded") === "1";
     const contextId = params.get("context_id") || "";
     let selectedSessionId = params.get("session_id") || "";
     const artifactKind = params.get("artifact") || "requirements";
@@ -394,6 +710,12 @@
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
     const dockPane = document.getElementById("dockPane");
+    const workspaceWindow = document.getElementById("workspaceWindow");
+    const directPaneWindow = document.getElementById("directPaneWindow");
+    const workspaceTitle = document.getElementById("workspaceTitle");
+    const workspaceLayout = document.getElementById("workspaceLayout");
+    const resetWorkspace = document.getElementById("resetWorkspace");
+    const dockWorkspace = document.getElementById("dockWorkspace");
     const paneFontControls = document.getElementById("paneFontControls");
     const decreasePaneFont = document.getElementById("decreasePaneFont");
     const paneFontLevel = document.getElementById("paneFontLevel");
@@ -431,9 +753,9 @@
     let artifactVersion = 0;
     let artifactEditing = false;
     let statusTimer = null;
-    const shortcutController = window.ElectroBoyInputShortcut.bindRecorder(
-      agentSendShortcut,
-    );
+    const shortcutController = EMBEDDED_PANE
+      ? window.ElectroBoyInputShortcut.bindRecorder(agentSendShortcut)
+      : { matches: () => false };
 
     applyFontSize();
 
@@ -1452,7 +1774,7 @@
       agentInput.focus();
     }
 
-    dockPane.addEventListener("click", () => {
+    function restorePoppedPane() {
       if (window.opener) {
         window.opener.postMessage(
           { type: "electroboy-pane-restore", pane: PANE_KIND },
@@ -1460,7 +1782,46 @@
         );
       }
       window.close();
-    });
+    }
+
+    function workspacePaneUrl(kind) {
+      const paneParameters = new URLSearchParams(params);
+      paneParameters.set("embedded", "1");
+      return `/pane/${encodeURIComponent(kind)}?${paneParameters.toString()}`;
+    }
+
+    function initializePaneWorkspace() {
+      directPaneWindow.hidden = true;
+      workspaceWindow.hidden = false;
+      document.title = `ElectroBoy ${titleForPane(PANE_KIND)} workspace`;
+      dockWorkspace.addEventListener("click", restorePoppedPane);
+      window.ElectroBoyPaneWorkspace.create({
+        root: workspaceLayout,
+        resetButton: resetWorkspace,
+        initialKind: PANE_KIND,
+        storageKey: `electroboy.paneWorkspaceLayout.v1.${PANE_KIND}`,
+        kinds: [
+          { id: "agent", label: "Agent" },
+          { id: "progress", label: "Progress" },
+          { id: "artifact", label: "Artifact" },
+          { id: "shell", label: "Shell" },
+          { id: "scratch", label: "Scratch" },
+          { id: "status", label: "Status" },
+          { id: "input", label: "Agent input" },
+        ],
+        paneUrl: workspacePaneUrl,
+        onChange(layout, paneLeaves) {
+          const count = paneLeaves.length;
+          workspaceTitle.textContent = count === 1
+            ? `${titleForPane(PANE_KIND)} workspace`
+            : `${titleForPane(PANE_KIND)} workspace · ${count} panes`;
+        },
+      });
+    }
+
+    function initializeDirectPane() {
+      dockPane.hidden = true;
+      dockPane.addEventListener("click", restorePoppedPane);
     decreaseArtifactZoom.addEventListener(
       "click",
       () => changeArtifactZoom(-ARTIFACT_ZOOM_STEP),
@@ -1555,6 +1916,13 @@
       if (artifactEventSource) artifactEventSource.close();
       if (statusTimer) window.clearInterval(statusTimer);
     });
+    }
+
+    if (EMBEDDED_PANE) {
+      initializeDirectPane();
+    } else {
+      initializePaneWorkspace();
+    }
   </script>
 </body>
 </html>
