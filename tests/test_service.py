@@ -2099,7 +2099,7 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue((project_root / "characters").is_dir())
             self.assertTrue((project_root / "chapters" / "chapter-01.md").is_file())
             self.assertFalse((project_root / "docs" / "requirements.md").exists())
-            self.assertFalse((project_root / ".electroboy").exists())
+            self.assertTrue((project_root / ".electroboy").is_dir())
             self.assertEqual(created["project_mode"], "creative")
             self.assertIsNone(created["activate_command"])
             self.assertEqual(document["path"], "chapters/act-1/scene-01.md")
@@ -2115,7 +2115,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
             self.assertIn("Keep this.", scratch["markdown"])
 
-    def test_service_state_opens_creative_project_without_electroboy_state(self) -> None:
+    def test_service_state_opens_creative_project_with_electroboy_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "story"
@@ -2130,7 +2130,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(payload["project_mode"], "creative")
             self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
             self.assertTrue((project_root / "chapters").is_dir())
-            self.assertFalse((project_root / ".electroboy").exists())
+            self.assertTrue((project_root / ".electroboy").is_dir())
 
     def test_creative_folder_board_renders_and_saves_ordered_cards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -109,6 +109,7 @@ def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, P
 
 def _ensure_creative_workspace(project_root: Path | str) -> None:
     project_root = Path(project_root).expanduser().resolve()
+    (project_root / ".electroboy").mkdir(parents=True, exist_ok=True)
     for folder in CREATIVE_DEFAULT_FOLDERS:
         (project_root / folder).mkdir(parents=True, exist_ok=True)
     _ensure_creative_scratchpad(project_root)
