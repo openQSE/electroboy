@@ -101,7 +101,7 @@
       if (!source || (options.canDrag && !options.canDrag(source, element))) {
         return false;
       }
-      if (event.shiftKey) {
+      if (event.ctrlKey) {
         return !event.target.closest("[data-pane-drag-ignore]");
       }
       const handle = event.target.closest(handleSelector);
@@ -298,8 +298,8 @@
     }
 
     function keyDown(event) {
-      if (event.key === "Shift") {
-        root.classList.add("pane-layout-shift-ready");
+      if (event.key === "Control") {
+        root.classList.add("pane-layout-ctrl-ready");
       }
       if (event.key === "Escape" && state) {
         event.preventDefault();
@@ -308,13 +308,13 @@
     }
 
     function keyUp(event) {
-      if (event.key === "Shift") {
-        root.classList.remove("pane-layout-shift-ready");
+      if (event.key === "Control") {
+        root.classList.remove("pane-layout-ctrl-ready");
       }
     }
 
     function windowBlur() {
-      root.classList.remove("pane-layout-shift-ready");
+      root.classList.remove("pane-layout-ctrl-ready");
       if (state) {
         clearState(state.dragging);
       }
@@ -344,7 +344,7 @@
       },
       destroy() {
         clearState(Boolean(state && state.dragging));
-        root.classList.remove("pane-layout-shift-ready");
+        root.classList.remove("pane-layout-ctrl-ready");
         root.removeEventListener("pointerdown", pointerDown, true);
         root.removeEventListener("pointermove", pointerMove, true);
         root.removeEventListener("pointerup", pointerUp, true);

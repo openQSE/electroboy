@@ -141,7 +141,7 @@
       const element = document.createElement("div");
       element.className = "workspace-pane-toolbar";
       element.dataset.paneDragHandle = "true";
-      element.title = "Drag title or Shift-drag pane to move";
+      element.title = "Drag title or Ctrl-drag pane to move";
 
       const select = document.createElement("select");
       select.className = "workspace-pane-kind";

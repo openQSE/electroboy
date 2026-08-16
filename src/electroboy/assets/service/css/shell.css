@@ -1056,7 +1056,7 @@
       cursor: pointer;
     }
 
-    .output-workbench.pane-layout-shift-ready .pane-layout-leaf::after {
+    .output-workbench.pane-layout-ctrl-ready .pane-layout-leaf::after {
       position: absolute;
       z-index: 30;
       inset: 32px 0 0;

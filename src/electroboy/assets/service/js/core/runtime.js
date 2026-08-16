@@ -398,7 +398,7 @@
       const toolbar = document.createElement("div");
       toolbar.className = "pane-layout-toolbar";
       toolbar.dataset.paneDragHandle = "true";
-      toolbar.title = "Drag title or Shift-drag pane to move";
+      toolbar.title = "Drag title or Ctrl-drag pane to move";
 
       const select = document.createElement("select");
       select.className = "pane-layout-kind";
@@ -661,7 +661,7 @@
             ".pane-header, .side-pane-header",
           )) {
             header.dataset.paneDragHandle = "true";
-            header.title = "Drag title or Shift-drag pane to move";
+            header.title = "Drag title or Ctrl-drag pane to move";
           }
           leaf.append(paneElement);
         }
