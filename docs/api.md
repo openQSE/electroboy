@@ -28,13 +28,13 @@ Operator workflow commands:
   as `plan-approve` are shown when approval is the next step.
 - `progress [--once|--follow] [--interval <seconds>]` prints or follows hidden
   progress files for the active run. `monitor` is an alias.
-- `serve [--root <path>] [--host <host>] [--port <port>]` starts the local
-  browser service. The web interface fetches `/api/health`, shows a workflow
-  stage graphic beginning with `project`, lets the operator open or create and
-  activate a project for the service through a service-backed directory browser,
-  exposes `Start` on the requirements stage after activation, and opens a bottom
-  requirements-agent pane with
-  streamed output and a multi-line input.
+- `serve [--root <path>] [--host <host>] [--port <port>]
+  [--session-backend pty|tmux]` starts the local browser service. The web
+  interface fetches `/api/health`, shows a workflow stage graphic beginning
+  with `project`, lets the operator open or create and activate a project for
+  the service through a service-backed directory browser, exposes `Start` on
+  the requirements stage after activation, and opens a bottom requirements-agent
+  pane with streamed output and a multi-line input.
 - `requirements [--reason <text>] [--session-id <id>]` starts or resumes
   requirements authoring.
 - `requirements-approve` records human and Design Author approval.

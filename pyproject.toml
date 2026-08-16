@@ -22,11 +22,40 @@ dependencies = [
 ai-pipeline = "electroboy.cli:main"
 electroboy = "electroboy.cli:main"
 
+[project.entry-points."electroboy.modules"]
+core = "electroboy.service.core_module:module"
+agent_sessions = "electroboy.modules.agent_sessions:module"
+binder = "electroboy.modules.binder:module"
+corkboard = "electroboy.modules.corkboard:module"
+file_browser = "electroboy.modules.file_browser:module"
+markdown_documents = "electroboy.modules.markdown_documents:module"
+progress = "electroboy.modules.progress:module"
+project_shell = "electroboy.modules.project_shell:module"
+recent_projects = "electroboy.modules.recent_projects:module"
+review_reports = "electroboy.modules.review_reports:module"
+structured_documents = "electroboy.modules.structured_documents:module"
+
+[project.entry-points."electroboy.workflows"]
+software = "electroboy.workflows.software.plugin:workflow"
+creative-writing = "electroboy.workflows.creative_writing.plugin:workflow"
+
+[project.entry-points."electroboy.cli"]
+software = "electroboy.workflows.software.cli:command_provider"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-electroboy = ["assets/*.png"]
+electroboy = [
+  "assets/*.png",
+  "assets/service/*.html",
+  "assets/service/css/*.css",
+  "assets/service/js/*.js",
+  "assets/service/js/core/*.js",
+]
+"electroboy.modules" = ["assets/*.js"]
+"electroboy.workflows.software" = ["assets/*.js"]
+"electroboy.workflows.creative_writing" = ["assets/*.js", "assets/*.css"]
 
 [tool.black]
 line-length = 88

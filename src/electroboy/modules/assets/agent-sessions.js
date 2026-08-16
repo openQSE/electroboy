@@ -1,0 +1,697 @@
+(function () {
+  "use strict";
+
+  let runtimeApi = null;
+  let runtimeState = null;
+
+  function bindRuntime(runtime) {
+    runtimeApi = runtime;
+    runtimeState = runtime.state;
+  }
+
+  function invoke(runtime, handler, args) {
+    bindRuntime(runtime);
+    return handler(...args);
+  }
+
+  const exportSafeName = (...args) => runtimeApi.downloads.safeName(...args);
+  const timestampForDownload = (...args) => runtimeApi.downloads.timestamp(...args);
+  const appendOutput = (...args) => runtimeApi.notifications.appendOutput(...args);
+  const contextUrl = (...args) => runtimeApi.http.contextUrl(...args);
+  const exportMarkdown = (...args) => runtimeApi.downloads.exportMarkdown(...args);
+  const documentTargetForSession = (...args) =>
+    runtimeApi.modules.invoke("documents", "documentTargetForSession", ...args);
+  const documentTargetLabel = (...args) =>
+    runtimeApi.modules.invoke("documents", "documentTargetLabel", ...args);
+  const syncOpenDocumentTargetsFromSessions = (...args) =>
+    runtimeApi.modules.invoke(
+      "documents",
+      "syncOpenDocumentTargetsFromSessions",
+      ...args,
+    );
+  const showDocumentPreview = (...args) =>
+    runtimeApi.modules.invoke("documents", "showDocumentPreview", ...args);
+  const refreshArtifactPreview = (...args) =>
+    runtimeApi.modules.invoke("documents", "refreshArtifactPreview", ...args);
+  const showArtifactPreview = (...args) =>
+    runtimeApi.modules.invoke("documents", "showArtifactPreview", ...args);
+  const closeArtifactEventStream = (...args) =>
+    runtimeApi.modules.invoke("documents", "closeArtifactEventStream", ...args);
+  const clearAgentOutput = (...args) => runtimeApi.agent.clearOutput(...args);
+  const sendTerminalResize = (...args) => runtimeApi.agent.sendResize(...args);
+  const updateProjectState = (...args) => runtimeApi.project.update(...args);
+  const showProgressPane = (...args) => runtimeApi.layout.showProgressPane(...args);
+  const setAgentInputVisible = (...args) =>
+    runtimeApi.ui.setAgentInputVisible(...args);
+  const clearProgressOutput = (...args) =>
+    runtimeApi.modules.invoke("progress", "clearProgressOutput", ...args);
+  const connectProgressEvents = (...args) =>
+    runtimeApi.modules.invoke("progress", "connectProgressEvents", ...args);
+  const closeProgressEventStream = (...args) =>
+    runtimeApi.modules.invoke("progress", "closeProgressEventStream", ...args);
+  const prepareTerminalStream = (...args) =>
+    runtimeApi.agent.prepareTerminal(...args);
+  const appendAgentOutput = (...args) => runtimeApi.agent.appendOutput(...args);
+  const refreshProject = (...args) => runtimeApi.project.refresh(...args);
+  const creativePromptMessage = (...args) =>
+    runtimeApi.workflows.preparePrompt(...args);
+
+    function sessionExportName(session) {
+      const kind = exportSafeName(session && session.kind, "agent");
+      return `agent-session-${kind}-${timestampForDownload()}.md`;
+    }
+
+    async function exportAgentSession() {
+      const session = selectedSession();
+      if (!session) {
+        appendOutput("select an agent session first\n", "error");
+        return;
+      }
+      const url = contextUrl(
+        `/api/sessions/export?session_id=${encodeURIComponent(session.session_id)}`,
+      );
+      await exportMarkdown(url, sessionExportName(session));
+    }
+
+    function selectedSession() {
+      return runtimeState.agentSessions.find((session) => session.session_id === runtimeState.selectedSessionId) || null;
+    }
+
+    function sessionIsRunning(session) {
+      return session && session.status === "running";
+    }
+
+    function selectedSessionAcceptsInput() {
+      const session = selectedSession();
+      return Boolean(session && session.interactive && sessionIsRunning(session));
+    }
+
+    function updateSessionIndicator(session) {
+      const status = session ? session.status || "done" : "idle";
+      let className = "agent-session-indicator";
+      if (status === "running") {
+        className += " running";
+      } else if (status === "error" || status === "failed") {
+        className += " error";
+      } else if (session) {
+        className += " done";
+      }
+      runtimeApi.elements.agentSessionIndicator.className = className;
+      runtimeApi.elements.agentSessionIndicator.title = session
+        ? agentSessionDisplayLabel(session)
+        : "No selected agent";
+    }
+
+    function sessionMetadata(session) {
+      return session && session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : {};
+    }
+
+    function agentSessionDisplayLabel(session) {
+      const status = session.status === "running" ? "running" : session.status || "done";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        return `Document: ${documentTargetLabel(documentTarget)} · ${status}`;
+      }
+      return `${session.kind || "agent"} · ${status}`;
+    }
+
+    function attachableServiceSessions() {
+      const localIds = new Set(runtimeState.agentSessions.map((session) => session.session_id));
+      return runtimeState.serviceSessions.filter((session) => {
+        if (!session || !session.attachable || !session.session_id) {
+          return false;
+        }
+        if (localIds.has(session.session_id)) {
+          return false;
+        }
+        return session.kind !== "project-shell";
+      });
+    }
+
+    function serviceSessionDisplayLabel(session) {
+      const baseLabel = agentSessionDisplayLabel(session);
+      const project = String(session.active_project_root || "").split("/").filter(Boolean).pop();
+      return project ? `${project}: ${baseLabel}` : baseLabel;
+    }
+
+    function renderSessionSwitcher() {
+      runtimeApi.elements.sessionSwitcher.replaceChildren();
+      const remoteSessions = attachableServiceSessions();
+      if (runtimeState.agentSessions.length === 0 && remoteSessions.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No streams";
+        runtimeApi.elements.sessionSwitcher.append(option);
+        runtimeApi.elements.sessionSwitcher.disabled = true;
+        updateSessionIndicator(null);
+        return;
+      }
+      if (runtimeState.agentSessions.length === 0 && remoteSessions.length > 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Attach service stream...";
+        runtimeApi.elements.sessionSwitcher.append(option);
+      }
+      const localParent = runtimeState.agentSessions.length > 0
+        ? document.createElement("optgroup")
+        : runtimeApi.elements.sessionSwitcher;
+      if (runtimeState.agentSessions.length > 0) {
+        localParent.label = "Current context";
+        runtimeApi.elements.sessionSwitcher.append(localParent);
+      }
+      for (const session of runtimeState.agentSessions) {
+        const option = document.createElement("option");
+        option.value = session.session_id;
+        option.textContent = agentSessionDisplayLabel(session);
+        localParent.append(option);
+      }
+      if (remoteSessions.length > 0) {
+        const remoteParent = document.createElement("optgroup");
+        remoteParent.label = "Service sessions";
+        for (const session of remoteSessions) {
+          const option = document.createElement("option");
+          option.value = `attach:${session.session_id}`;
+          option.textContent = serviceSessionDisplayLabel(session);
+          remoteParent.append(option);
+        }
+        runtimeApi.elements.sessionSwitcher.append(remoteParent);
+      }
+      runtimeApi.elements.sessionSwitcher.disabled = false;
+      if (!runtimeState.agentSessions.some((session) => session.session_id === runtimeState.selectedSessionId)) {
+        const selected = runtimeState.agentSessions.find((session) => session.selected) || runtimeState.agentSessions[0];
+        runtimeState.selectedSessionId = selected ? selected.session_id : "";
+      }
+      runtimeApi.elements.sessionSwitcher.value = runtimeState.selectedSessionId;
+      updateSessionIndicator(selectedSession());
+    }
+
+    async function selectAgentSession(sessionId) {
+      if (sessionId && sessionId.startsWith("attach:")) {
+        await attachAgentSession(sessionId.slice("attach:".length));
+        return;
+      }
+      if (!sessionId || sessionId === runtimeState.selectedSessionId) {
+        return;
+      }
+      const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/select"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "session switch failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "session switch failed"}\n`, "error");
+        renderSessionSwitcher();
+        return;
+      }
+      runtimeState.agentSessions = Array.isArray(payload.sessions) ? payload.sessions : runtimeState.agentSessions;
+      runtimeState.selectedSessionId = payload.selected_session_id || sessionId;
+      syncOpenDocumentTargetsFromSessions();
+      renderSessionSwitcher();
+      const session = selectedSession();
+      runtimeState.activeAgentKind = session ? session.kind || "" : "";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        showDocumentPreview(documentTarget);
+      }
+      clearAgentOutput();
+      connectSessionEvents(runtimeState.selectedSessionId);
+      updateAgentControls();
+      sendTerminalResize();
+    }
+
+    async function refreshServiceSessions() {
+      const response = await runtimeApi.http.fetch("/api/session-registry", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json().catch(() => ({ sessions: [] }));
+      runtimeState.serviceSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      renderSessionSwitcher();
+    }
+
+    async function attachAgentSession(sessionId) {
+      if (!runtimeState.contextId || !sessionId) {
+        return;
+      }
+      const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/attach"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "session attach failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "session attach failed"}\n`, "error");
+        renderSessionSwitcher();
+        return;
+      }
+      updateProjectState(payload);
+      await refreshServiceSessions();
+      const session = selectedSession();
+      if (!session) {
+        return;
+      }
+      clearAgentOutput();
+      if (session.interactive) {
+        showProgressPane(false);
+        setAgentInputVisible(true);
+      } else {
+        clearProgressOutput();
+        showProgressPane(true);
+        setAgentInputVisible(false);
+      }
+      runtimeState.activeAgentKind = session.kind || "";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        showDocumentPreview(documentTarget);
+      }
+      connectSessionEvents(session.session_id);
+      if (!session.interactive && session.status === "running") {
+        connectProgressEvents();
+      }
+      updateAgentControls();
+      sendTerminalResize();
+    }
+
+    function connectAgentEvents(kind) {
+      const session = runtimeState.agentSessions.find((candidate) => candidate.kind === kind);
+      if (session) {
+        connectSessionEvents(session.session_id);
+        return;
+      }
+      if (runtimeState.eventSource) {
+        runtimeState.eventSource.close();
+      }
+      runtimeState.activeAgentKind = kind;
+      prepareTerminalStream();
+      runtimeState.eventSource = new EventSource(contextUrl(`/api/agents/${kind}/events`));
+      runtimeState.eventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          const outputText = runtimeState.terminal
+            ? payload.terminal || payload.text || ""
+            : payload.text || "";
+          appendAgentOutput(outputText);
+        } else if (payload.type === "system") {
+          appendOutput(`${payload.text}\n`, "system");
+        } else if (payload.type === "error") {
+          appendOutput(`${payload.text}\n`, "error");
+        } else if (payload.type === "completed") {
+          appendOutput(`\nprocess exited with code ${payload.returncode}\n`, "system");
+          if (kind === "requirements") {
+            refreshArtifactPreview();
+          }
+          if (kind === "design-review") {
+            closeProgressEventStream();
+          }
+          setAgentRunning(kind, false);
+          refreshProject();
+        }
+      });
+      runtimeState.eventSource.onerror = () => {};
+    }
+
+    function connectSessionEvents(sessionId) {
+      if (!sessionId) {
+        return;
+      }
+      if (runtimeState.eventSource) {
+        runtimeState.eventSource.close();
+      }
+      runtimeState.selectedSessionId = sessionId;
+      const session = selectedSession();
+      runtimeState.activeAgentKind = session ? session.kind || "" : runtimeState.activeAgentKind;
+      prepareTerminalStream();
+      runtimeState.eventSource = new EventSource(
+        contextUrl(`/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`),
+      );
+      runtimeState.eventSource.addEventListener("agent-event", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "output") {
+          const outputText = runtimeState.terminal
+            ? payload.terminal || payload.text || ""
+            : payload.text || "";
+          appendAgentOutput(outputText);
+        } else if (payload.type === "system") {
+          appendOutput(`${payload.text}\n`, "system");
+        } else if (payload.type === "error") {
+          appendOutput(`${payload.text}\n`, "error");
+        } else if (payload.type === "completed") {
+          appendOutput(`\nprocess exited with code ${payload.returncode}\n`, "system");
+          if (session && session.kind === "requirements") {
+            refreshArtifactPreview();
+          }
+          if (session && !session.interactive) {
+            closeProgressEventStream();
+          }
+          refreshProject();
+        }
+      });
+      runtimeState.eventSource.onerror = () => {};
+    }
+
+    function closeAgentEventStream() {
+      if (runtimeState.eventSource) {
+        runtimeState.eventSource.close();
+        runtimeState.eventSource = null;
+      }
+    }
+
+    function agentProcessRunning() {
+      return runtimeState.agentSessions.some((session) => session.status === "running");
+    }
+
+    function updateAgentControls() {
+      const acceptsInput = selectedSessionAcceptsInput();
+      const session = selectedSession();
+      runtimeApi.elements.agentInput.disabled = !acceptsInput;
+      runtimeApi.elements.insertFileLink.disabled = !acceptsInput;
+      runtimeApi.elements.interruptAgent.disabled = !sessionIsRunning(session);
+      runtimeApi.elements.exportAgentOutput.disabled = !session;
+      runtimeApi.elements.exportProgressOutput.disabled = !runtimeState.activationRoot;
+    }
+
+    function setAgentRunning(kind, isRunning) {
+      if (kind === "requirements") {
+        runtimeState.requirementsRunning = isRunning;
+      } else if (kind === "design") {
+        runtimeState.designRunning = isRunning;
+      } else if (kind === "design-review") {
+        runtimeState.designReviewRunning = isRunning;
+        if (!isRunning) {
+          runtimeState.designReviewInteractive = false;
+        }
+      } else if (kind === "documentation") {
+        runtimeState.documentationRunning = isRunning;
+      } else if (runtimeState.stageRunState[kind]) {
+        runtimeState.stageRunState = {
+          ...runtimeState.stageRunState,
+          [kind]: {
+            ...runtimeState.stageRunState[kind],
+            running: isRunning,
+            started: runtimeState.stageRunState[kind].started || isRunning,
+          },
+        };
+      }
+      if (kind === "requirements") {
+        if (isRunning) {
+          if (!runtimeState.manualArtifactPreview) {
+            showArtifactPreview("requirements");
+          }
+        } else {
+          closeArtifactEventStream();
+          refreshArtifactPreview();
+        }
+      }
+      if (isRunning) {
+        runtimeState.activeAgentKind = kind;
+      } else if (runtimeState.activeAgentKind === kind) {
+        runtimeState.activeAgentKind = "";
+      }
+      updateAgentControls();
+      runtimeApi.workflows.updateMenus();
+    }
+
+    async function sendMessage() {
+      if (!selectedSessionAcceptsInput()) {
+        return;
+      }
+      if (runtimeState.slashCommandMode) {
+        sendTerminalKey("enter");
+        finishSlashCommandMode();
+        return;
+      }
+      const message = runtimeApi.elements.agentInput.value;
+      if (!message.trim()) {
+        return;
+      }
+      runtimeApi.elements.agentInput.value = "";
+      const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/message"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: creativePromptMessage(message) }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: "send failed" }));
+        appendOutput(`${payload.error || "send failed"}\n`, "error");
+      }
+    }
+
+    function queueTerminalInput(task) {
+      const next = runtimeState.terminalInputQueue.catch(() => {}).then(task);
+      runtimeState.terminalInputQueue = next.catch(() => {});
+      return next;
+    }
+
+    function sendTerminalKey(key) {
+      if (!selectedSessionAcceptsInput()) {
+        return Promise.resolve();
+      }
+      return queueTerminalInput(async () => {
+        const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/key"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({ error: "send failed" }));
+          appendOutput(`${payload.error || "send failed"}\n`, "error");
+        }
+      });
+    }
+
+    function sendTerminalRaw(data) {
+      if (!selectedSessionAcceptsInput() || !data) {
+        return Promise.resolve();
+      }
+      return queueTerminalInput(async () => {
+        const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/raw"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({ error: "send failed" }));
+          appendOutput(`${payload.error || "send failed"}\n`, "error");
+        }
+      });
+    }
+
+    function printableInputEvent(event) {
+      return (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        event.key &&
+        event.key.length === 1
+      );
+    }
+
+    function slashCommandTerminalKeyForInputEvent(event) {
+      if (event.altKey || event.ctrlKey || event.metaKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "Escape") return "escape";
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Backspace") return "backspace";
+      if (event.key === "Delete") return "delete";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    function refreshSlashCommandModeAfterEdit() {
+      window.setTimeout(() => {
+        if (!runtimeApi.elements.agentInput.value.trimStart().startsWith("/")) {
+          runtimeState.slashCommandMode = false;
+        }
+      }, 0);
+    }
+
+    function finishSlashCommandMode() {
+      runtimeState.slashCommandMode = false;
+      runtimeApi.elements.agentInput.value = "";
+    }
+
+    function handleSlashCommandInput(event) {
+      if (
+        !runtimeState.slashCommandMode &&
+        printableInputEvent(event) &&
+        event.key === "/" &&
+        runtimeApi.elements.agentInput.value.trim().length === 0
+      ) {
+        runtimeState.slashCommandMode = true;
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      if (!runtimeState.slashCommandMode) {
+        return false;
+      }
+      const slashKey = slashCommandTerminalKeyForInputEvent(event);
+      if (slashKey) {
+        sendTerminalKey(slashKey);
+        if (slashKey === "enter" || slashKey === "escape") {
+          event.preventDefault();
+          finishSlashCommandMode();
+        } else if (slashKey === "backspace" || slashKey === "delete") {
+          refreshSlashCommandModeAfterEdit();
+        } else {
+          event.preventDefault();
+        }
+        return true;
+      }
+      if (printableInputEvent(event)) {
+        sendTerminalRaw(event.key);
+        return true;
+      }
+      return false;
+    }
+
+    function terminalKeyForInputEvent(event) {
+      if (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.key === "Escape"
+      ) {
+        return "escape";
+      }
+      if (runtimeApi.elements.agentInput.value.length > 0) {
+        return "";
+      }
+      if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        /^[0-9]$/.test(event.key)
+      ) {
+        return event.key;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return "";
+      }
+      if (
+        event.key === "Enter" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter"
+      ) {
+        return "enter";
+      }
+      if (event.key === "ArrowUp") return "up";
+      if (event.key === "ArrowDown") return "down";
+      if (event.key === "ArrowLeft") return "left";
+      if (event.key === "ArrowRight") return "right";
+      if (event.key === "Tab") return "tab";
+      return "";
+    }
+
+    async function interruptActiveAgent() {
+      if (!sessionIsRunning(selectedSession())) {
+        return;
+      }
+      const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/interrupt"), {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: "interrupt failed" }));
+        appendOutput(`${payload.error || "interrupt failed"}\n`, "error");
+      }
+    }
+
+
+  function mount(runtime) {
+    bindRuntime(runtime);
+    const element = runtime.elements;
+    element.sessionSwitcher.addEventListener("change", () => {
+      selectAgentSession(element.sessionSwitcher.value).catch((error) => {
+        runtime.notifications.appendOutput(
+          `session switch failed: ${error}\n`,
+          "error",
+        );
+      });
+    });
+    element.exportAgentOutput.addEventListener("click", () => {
+      exportAgentSession().catch((error) => {
+        runtime.notifications.appendOutput(`export failed: ${error}\n`, "error");
+      });
+    });
+    element.interruptAgent.addEventListener(
+      "click",
+      () => interruptActiveAgent(),
+    );
+    element.agentInput.addEventListener("keydown", (event) => {
+      if (handleSlashCommandInput(event)) {
+        return;
+      }
+      const terminalKey = terminalKeyForInputEvent(event);
+      if (terminalKey) {
+        event.preventDefault();
+        sendTerminalKey(terminalKey);
+        return;
+      }
+      const isEnter = event.key === "Enter" || event.code === "Enter" ||
+        event.code === "NumpadEnter";
+      if (isEnter && event.shiftKey) {
+        event.preventDefault();
+        if (element.agentInput.value.trim()) {
+          sendMessage();
+        } else {
+          sendTerminalKey("enter");
+        }
+      }
+    });
+  }
+
+  window.ElectroBoyFrontend.registerModule({
+    id: "agent-sessions",
+    label: "Agent Sessions",
+    capabilities: ["session-switching", "terminal-input", "session-export"],
+    actions: {
+      sessionExportName: (runtime, ...args) => invoke(runtime, sessionExportName, args),
+      exportAgentSession: (runtime, ...args) => invoke(runtime, exportAgentSession, args),
+      selectedSession: (runtime, ...args) => invoke(runtime, selectedSession, args),
+      sessionIsRunning: (runtime, ...args) => invoke(runtime, sessionIsRunning, args),
+      selectedSessionAcceptsInput: (runtime, ...args) => invoke(runtime, selectedSessionAcceptsInput, args),
+      updateSessionIndicator: (runtime, ...args) => invoke(runtime, updateSessionIndicator, args),
+      sessionMetadata: (runtime, ...args) => invoke(runtime, sessionMetadata, args),
+      agentSessionDisplayLabel: (runtime, ...args) => invoke(runtime, agentSessionDisplayLabel, args),
+      attachableServiceSessions: (runtime, ...args) => invoke(runtime, attachableServiceSessions, args),
+      serviceSessionDisplayLabel: (runtime, ...args) => invoke(runtime, serviceSessionDisplayLabel, args),
+      renderSessionSwitcher: (runtime, ...args) => invoke(runtime, renderSessionSwitcher, args),
+      selectAgentSession: (runtime, ...args) => invoke(runtime, selectAgentSession, args),
+      refreshServiceSessions: (runtime, ...args) => invoke(runtime, refreshServiceSessions, args),
+      attachAgentSession: (runtime, ...args) => invoke(runtime, attachAgentSession, args),
+      connectAgentEvents: (runtime, ...args) => invoke(runtime, connectAgentEvents, args),
+      connectSessionEvents: (runtime, ...args) => invoke(runtime, connectSessionEvents, args),
+      closeAgentEventStream: (runtime, ...args) => invoke(runtime, closeAgentEventStream, args),
+      agentProcessRunning: (runtime, ...args) => invoke(runtime, agentProcessRunning, args),
+      updateAgentControls: (runtime, ...args) => invoke(runtime, updateAgentControls, args),
+      setAgentRunning: (runtime, ...args) => invoke(runtime, setAgentRunning, args),
+      sendMessage: (runtime, ...args) => invoke(runtime, sendMessage, args),
+      queueTerminalInput: (runtime, ...args) => invoke(runtime, queueTerminalInput, args),
+      sendTerminalKey: (runtime, ...args) => invoke(runtime, sendTerminalKey, args),
+      sendTerminalRaw: (runtime, ...args) => invoke(runtime, sendTerminalRaw, args),
+      printableInputEvent: (runtime, ...args) => invoke(runtime, printableInputEvent, args),
+      slashCommandTerminalKeyForInputEvent: (runtime, ...args) => invoke(runtime, slashCommandTerminalKeyForInputEvent, args),
+      refreshSlashCommandModeAfterEdit: (runtime, ...args) => invoke(runtime, refreshSlashCommandModeAfterEdit, args),
+      finishSlashCommandMode: (runtime, ...args) => invoke(runtime, finishSlashCommandMode, args),
+      handleSlashCommandInput: (runtime, ...args) => invoke(runtime, handleSlashCommandInput, args),
+      terminalKeyForInputEvent: (runtime, ...args) => invoke(runtime, terminalKeyForInputEvent, args),
+      interruptActiveAgent: (runtime, ...args) => invoke(runtime, interruptActiveAgent, args),
+    },
+    mount,
+  });
+})();

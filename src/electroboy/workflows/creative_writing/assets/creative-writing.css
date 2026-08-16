@@ -1,0 +1,305 @@
+.creative-binder {
+  display: grid;
+  align-content: start;
+  align-self: start;
+  gap: 4px;
+  min-width: 0;
+  color: #1d3348;
+}
+
+.creative-binder[hidden] {
+  display: none;
+}
+
+.creative-section {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.creative-active-project {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+}
+
+.creative-active-project[hidden] {
+  display: none;
+}
+
+.creative-divider {
+  height: 1px;
+  margin: 4px 4px 6px;
+  background: #b8c8d7;
+}
+
+.creative-project-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d3348;
+  font-size: var(--ui-small-font-size);
+  font-weight: 650;
+  line-height: 1.35;
+  padding: 0 8px 2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creative-binder-status {
+  min-height: 18px;
+  color: #48627a;
+  font-size: var(--ui-small-font-size);
+  line-height: 1.35;
+  padding: 0 8px;
+}
+
+.creative-tree {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.creative-tree-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 26px 26px;
+  align-items: center;
+  width: calc(100% - var(--creative-depth-indent, 0px));
+  margin-left: var(--creative-depth-indent, 0px);
+  min-height: 32px;
+  border: 1px solid #c0d0df;
+  border-radius: 6px;
+  background: #f8fbff;
+  color: #243f53;
+  font: inherit;
+  font-size: var(--ui-small-font-size);
+  text-align: left;
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.creative-tree-row.directory {
+  grid-template-columns: 18px minmax(0, 1fr) 26px 26px 18px;
+  min-height: 34px;
+  border-color: #18324d;
+  border-radius: 999px;
+  background: #1f3f5f;
+  color: #ffffff;
+  font-weight: 400;
+  padding: 0 10px;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 16%) inset,
+    0 8px 18px rgb(18 48 78 / 14%);
+}
+
+.creative-tree-row.directory:hover,
+.creative-tree-row.directory.expanded {
+  background: #254b70;
+}
+
+.creative-tree-row.file {
+  background: #ffffff;
+}
+
+.creative-tree-row.active {
+  border-color: #005f66;
+  background: #006b73;
+  color: #ffffff;
+}
+
+.creative-tree-row.directory.active {
+  border-color: #00a1ad;
+  background: #006b73;
+  color: #ffffff;
+}
+
+.creative-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: #42617a;
+  text-align: center;
+}
+
+.creative-tree-icon.folder {
+  color: #8bd3dd;
+}
+
+.creative-tree-icon.markdown {
+  color: #1c7ed6;
+}
+
+.creative-tree-icon.corkboard {
+  color: #9f7aea;
+}
+
+.creative-tree-row.active .creative-tree-icon {
+  color: currentColor;
+}
+
+.creative-tree-icon svg,
+.creative-tree-disclosure svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+.creative-tree-disclosure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+}
+
+.creative-tree-row.directory .creative-tree-disclosure {
+  position: relative;
+  justify-self: end;
+}
+
+.creative-tree-row.directory .creative-tree-disclosure::before {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transform-origin: center;
+  content: "";
+}
+
+.creative-tree-row.directory.expanded .creative-tree-disclosure::before {
+  top: 4px;
+  transform: rotate(45deg);
+}
+
+.creative-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creative-tree-name-input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #66d9e8;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #16283a;
+  font: inherit;
+  font-size: var(--ui-small-font-size);
+  padding: 3px 6px;
+}
+
+.creative-tree-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  opacity: 0.78;
+  padding: 0;
+}
+
+.creative-tree-icon-button:hover {
+  border-color: rgb(102 217 232 / 50%);
+  background: rgb(255 255 255 / 18%);
+  opacity: 1;
+}
+
+.creative-tree-icon-button.danger:hover {
+  border-color: #ffb3b3;
+  background: rgb(255 235 235 / 28%);
+  color: #fff0f0;
+}
+
+.creative-tree-icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.creative-tree-actions {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  width: calc(100% - var(--creative-depth-indent, 0px));
+  margin-left: var(--creative-depth-indent, 0px);
+  padding: 0 0 4px;
+}
+
+.creative-tree-action {
+  min-height: 28px;
+  border: 1px solid #b8c8d7;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #243f53;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-small-font-size);
+  padding: 0 10px;
+}
+
+.creative-tree-action:hover {
+  border-color: #1f3f5f;
+  background: #eef6fb;
+}
+
+
+.shell.creative-workflow .creative-section > .stage-action-stage {
+  border-color: #18324d;
+  background: #1f3f5f;
+  color: #ffffff;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 16%) inset,
+    0 8px 18px rgb(18 48 78 / 18%);
+}
+
+.shell.creative-workflow .creative-section > .stage-action-stage:hover:not(:disabled),
+.shell.creative-workflow .creative-section > .stage-action-stage.expanded {
+  background: #254b70;
+  color: #ffffff;
+}
+
+
+.shell.creative-workflow .output-workbench {
+  grid-template-columns:
+    minmax(0, 1fr) 7px
+    minmax(220px, var(--right-pane-width, 320px));
+}
+
+.shell.creative-workflow .output-split.artifact-visible {
+  grid-template-columns:
+    minmax(260px, 1fr) 7px
+    minmax(360px, var(--artifact-pane-width, 54%));
+}
+
+.shell.creative-workflow .artifact-preview-pane {
+  min-width: 0;
+}
+
+.shell.creative-workflow .side-pane {
+  grid-template-rows:
+    minmax(120px, var(--scratch-pane-height, 1fr)) 7px
+    minmax(96px, 140px);
+}
+
+.shell.creative-workflow .project-status-pane {
+  min-height: 96px;
+}

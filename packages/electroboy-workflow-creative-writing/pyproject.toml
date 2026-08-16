@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "electroboy-workflow-creative-writing"
+version = "0.1.0"
+description = "Creative-writing workflow for ElectroBoy."
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = [
+  "electroboy-core==0.1.0",
+  "electroboy-modules==0.1.0",
+]
+
+[project.entry-points."electroboy.workflows"]
+creative-writing = "electroboy.workflows.creative_writing.plugin:workflow"
+
+[tool.setuptools]
+package-dir = { "" = "../../src" }
+packages = ["electroboy.workflows.creative_writing"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+"electroboy.workflows.creative_writing" = ["assets/*.js", "assets/*.css"]

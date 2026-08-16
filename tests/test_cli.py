@@ -127,6 +127,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         run_service.assert_called_once_with(str(cli_root), host="127.0.0.2", port=0)
 
+    def test_serve_accepts_session_backend_override(self) -> None:
+        with temp_project() as root:
+            with mock.patch(
+                "electroboy.service.run_service",
+                return_value=0,
+            ) as run_service:
+                code, stdout, stderr = self.run_cli(
+                    [
+                        "serve",
+                        "--root",
+                        str(root),
+                        "--session-backend",
+                        "tmux",
+                    ]
+                )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(stdout, "")
+        run_service.assert_called_once_with(
+            str(root),
+            host="127.0.0.1",
+            port=8765,
+            session_backend="tmux",
+        )
+
     def test_serve_rejects_invalid_environment_port(self) -> None:
         with mock.patch.dict(os.environ, {"ELECTROBOY_SERVICE_PORT": "bad"}):
             code, stdout, stderr = self.run_cli(["serve"])
@@ -182,7 +207,30 @@ class CliTests(unittest.TestCase):
             )
             self.assertIn('ELECTROBOY_SERVICE_HOST="0.0.0.0"', env_text)
             self.assertIn('ELECTROBOY_SERVICE_PORT="9001"', env_text)
+            self.assertIn('ELECTROBOY_SESSION_BACKEND="pty"', env_text)
             self.assertIn('PATH="/custom/bin:/usr/bin"', env_text)
+
+    def test_service_install_writes_tmux_session_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                code, _stdout, stderr = self.run_cli(
+                    [
+                        "service",
+                        "install",
+                        "--session-backend",
+                        "tmux",
+                        "--no-reload",
+                    ]
+                )
+
+            env_path = home / ".config" / "electroboy" / "service.env"
+            env_text = env_path.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn('ELECTROBOY_SESSION_BACKEND="tmux"', env_text)
 
     def test_service_install_refuses_to_overwrite_without_force(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -295,6 +343,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(update[0], 0, update[2])
         self.assertEqual(show_code, 0, show_stderr)
         self.assertEqual(data["board_type"], "freeform")
+        self.assertIn(
+            {"id": "butter", "label": "Butter", "value": "#fff6cf"},
+            data["palette"],
+        )
         self.assertEqual(card["id"], "opening-beat")
         self.assertEqual(card["title"], "Opening image")
         self.assertEqual(card["note"], "Make the contradiction visible.")
@@ -302,6 +354,53 @@ class CliTests(unittest.TestCase):
         self.assertEqual(card["y"], 220.0)
         self.assertEqual(card["rotation"], -2.0)
         self.assertEqual(card["color"], "#fff6cf")
+
+    def test_corkboard_cli_converts_card_to_group(self) -> None:
+        with temp_project() as root:
+            self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "add",
+                    "corkboard/ideas.corkboard.json",
+                    "--id",
+                    "scene-one",
+                    "--title",
+                    "Scene one",
+                ]
+            )
+            group = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "group",
+                    "corkboard/ideas.corkboard.json",
+                    "scene-one",
+                ]
+            )
+            show_code, show_stdout, show_stderr = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "show",
+                    "corkboard/ideas.corkboard.json",
+                ]
+            )
+
+            data = json.loads(show_stdout)
+            card = data["cards"][0]
+            board_path = card["board_path"]
+            self.assertEqual(group[0], 0, group[2])
+            self.assertIn("grouped card: scene-one", group[1])
+            self.assertEqual(show_code, 0, show_stderr)
+            self.assertEqual(card["card_type"], "group")
+            self.assertTrue(board_path.endswith(".corkboard.json"))
+            self.assertTrue((root / board_path).is_file())
 
     def test_corkboard_cli_manages_folder_board_notes_and_order(self) -> None:
         with temp_project() as root:
@@ -319,6 +418,8 @@ class CliTests(unittest.TestCase):
                     "chapter-01.md",
                     "--note",
                     "Needs a stronger hook.",
+                    "--color",
+                    "peach",
                 ]
             )
             reorder = self.run_cli(
@@ -343,11 +444,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(reorder[0], 0, reorder[2])
         self.assertEqual(show_code, 0, show_stderr)
         self.assertEqual(data["board_type"], "folder")
+        self.assertIn(
+            {"id": "peach", "label": "Peach", "value": "#ffe8cc"},
+            data["palette"],
+        )
         self.assertEqual(
             [card["path"] for card in data["cards"]],
             ["chapters/chapter-02.md", "chapters/chapter-01.md"],
         )
         self.assertEqual(data["cards"][1]["note"], "Needs a stronger hook.")
+        self.assertEqual(data["cards"][1]["color"], "peach")
 
     def test_progress_once_prints_run_progress_files(self) -> None:
         with temp_project() as root:

@@ -33,6 +33,7 @@ from electroboy.service import (  # noqa: E402
     AgentSessionError,
     SESSION_ARTIFACT_LOCKS,
     ServiceState,
+    TmuxAgentSession,
     _agent_process_env,
     _artifact_event_document_path,
     _clean_terminal_output,
@@ -43,6 +44,7 @@ from electroboy.service import (  # noqa: E402
     _reopen_requirements_for_restart,
     _requirements_command,
     _session_events_markdown,
+    _service_session_records_path,
     _status_command,
     _status_snapshot,
     _terminal_input_chunks_for_message,
@@ -62,6 +64,28 @@ from electroboy.service import (  # noqa: E402
     splash_image_bytes,
     workflow_payload,
 )
+from electroboy.service.frontend import (  # noqa: E402
+    read_service_text_asset,
+    render_service_index,
+)
+from electroboy.service.services import ServiceServices  # noqa: E402
+from electroboy.service.registry import (  # noqa: E402
+    MODULE_ENTRY_POINT_GROUP,
+    WORKFLOW_ENTRY_POINT_GROUP,
+    InstalledFactory,
+    ServiceModule,
+    WorkflowDefinition,
+    WorkflowStage,
+    build_module_registry,
+    build_workflow_registry,
+    installed_module_factories,
+)
+from electroboy.service.routes import build_route_dispatcher  # noqa: E402
+from electroboy.service.workflow_config import (  # noqa: E402
+    add_configured_workflow,
+    configured_workflows,
+    load_workflow_config,
+)
 from electroboy.models import (  # noqa: E402
     STAGE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
@@ -72,6 +96,111 @@ from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 
 class ServiceTests(unittest.TestCase):
+    def test_installed_entry_points_register_provider_metadata(self) -> None:
+        class Distribution:
+            metadata = {"Name": "sample-capabilities"}
+
+        class EntryPoint:
+            name = "sample"
+            value = "sample_package:module"
+            dist = Distribution()
+
+            @staticmethod
+            def load():
+                return lambda: ServiceModule(id="sample", label="Sample")
+
+        factories = installed_module_factories((EntryPoint(),))
+        contribution = factories["sample"]()
+
+        self.assertEqual(factories["sample"].provider, "sample-capabilities")
+        self.assertEqual(contribution.provider, "sample-capabilities")
+        self.assertEqual(contribution.entry_point, "sample_package:module")
+
+    def test_installed_workflow_can_be_enabled_by_entry_point_id(self) -> None:
+        definition = WorkflowDefinition(
+            id="sample-workflow",
+            label="Sample Workflow",
+            modules=("core",),
+            stages=(WorkflowStage("project", "Project", None),),
+            project_kinds=("sample",),
+            backend_package="sample_workflow",
+            frontend_bundle="workflows/sample.js",
+        )
+        factory = InstalledFactory(
+            id="sample-workflow",
+            group=WORKFLOW_ENTRY_POINT_GROUP,
+            provider="sample-workflow-package",
+            reference="sample_workflow:workflow",
+            factory=lambda: definition,
+        )
+        installed = {"sample-workflow": factory}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch(
+                "electroboy.service.workflow_config.installed_workflow_factories",
+                return_value=installed,
+            ):
+                add_configured_workflow(tmp, "sample-workflow", "")
+                config = load_workflow_config(tmp)
+                workflows = configured_workflows(tmp, installed)
+
+        self.assertEqual(
+            config.extra_workflows[0].factory,
+            "entry-point:sample-workflow",
+        )
+        self.assertEqual(
+            [workflow.id for workflow in workflows],
+            ["sample-workflow"],
+        )
+        self.assertEqual(workflows[0].provider, "sample-workflow-package")
+
+    def test_installed_factory_rejects_mismatched_definition_id(self) -> None:
+        factory = InstalledFactory(
+            id="declared",
+            group=MODULE_ENTRY_POINT_GROUP,
+            provider="sample-package",
+            reference="sample_package:module",
+            factory=lambda: ServiceModule(id="returned", label="Returned"),
+        )
+
+        with self.assertRaisesRegex(ValueError, "entry point name"):
+            factory()
+
+    def test_index_includes_only_registered_contribution_scripts(self) -> None:
+        modules = build_module_registry(
+            (
+                ServiceModule(
+                    id="sample-module",
+                    label="Sample Module",
+                    assets=("js/modules/sample.js",),
+                ),
+            )
+        )
+        workflows = build_workflow_registry(
+            modules,
+            (
+                WorkflowDefinition(
+                    id="sample-workflow",
+                    label="Sample Workflow",
+                    modules=("sample-module",),
+                    stages=(WorkflowStage("project", "Project", None),),
+                    project_kinds=("sample",),
+                    backend_package="sample_workflow",
+                    frontend_bundle="workflows/sample.js",
+                ),
+            ),
+        )
+        template = (
+            "<!-- __ELECTROBOY_CONTRIBUTION_SCRIPTS__ -->\n"
+            '<script src="/assets/service/js/core/runtime.js"></script>'
+        )
+
+        page = render_service_index(template, modules, workflows)
+
+        self.assertIn("/assets/service/js/modules/sample.js", page)
+        self.assertIn("/assets/service/js/workflows/sample.js", page)
+        self.assertNotIn("creative-writing.js", page)
+
     def test_health_endpoint_reports_connected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -95,6 +224,413 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["status"], "connected")
         self.assertEqual(payload["service"], "electroboy")
         self.assertEqual(payload["root"], str(root.resolve()))
+        self.assertIn("agent_sessions", payload["modules"])
+        self.assertIn("software", payload["workflows"])
+        self.assertIn("core-shell", payload["frontend_bundles"])
+        module_plugins = {
+            entry["id"]: entry for entry in payload["plugins"]["modules"]
+        }
+        workflow_plugins = {
+            entry["id"]: entry for entry in payload["plugins"]["workflows"]
+        }
+        self.assertTrue(module_plugins["core"]["provider"])
+        self.assertEqual(
+            module_plugins["core"]["entry_point"],
+            "electroboy.service.core_module:module",
+        )
+        self.assertTrue(workflow_plugins["software"]["provider"])
+        self.assertEqual(
+            workflow_plugins["software"]["entry_point"],
+            "electroboy.workflows.software.plugin:workflow",
+        )
+
+    def test_registry_endpoint_reports_backend_modules_and_workflows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(server, "/api/registry")
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        payload = json.loads(body)
+        modules = {entry["id"]: entry for entry in payload["modules"]}
+        workflows = {entry["id"]: entry for entry in payload["workflows"]}
+        frontend_bundles = {
+            entry["id"]: entry for entry in payload["frontend_bundles"]
+        }
+        self.assertIn("agent_sessions", modules)
+        self.assertIn("structured_documents", modules)
+        self.assertIn("corkboard", modules)
+        core_handlers = {route["handler"] for route in modules["core"]["routes"]}
+        self.assertIn("workflow_config", core_handlers)
+        self.assertIn("add_configured_workflow", core_handlers)
+        self.assertIn("software", workflows)
+        self.assertIn("creative-writing", workflows)
+        self.assertIn("agent_sessions", workflows["software"]["modules"])
+        self.assertIn("core-shell", frontend_bundles)
+        self.assertIn("index.html", frontend_bundles["core-shell"]["assets"])
+        self.assertIn(
+            "js/core/pane-layout-drag.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
+        self.assertIn("software-workflow", frontend_bundles)
+        self.assertIn("creative-writing-workflow", frontend_bundles)
+        self.assertIn("documents", frontend_bundles)
+        self.assertIn("binder", frontend_bundles)
+        self.assertIn("pane-window", frontend_bundles)
+        self.assertEqual(
+            payload["workflow_config"]["enabled_builtins"],
+            ["software", "creative-writing"],
+        )
+
+    def test_frontend_contributions_own_workflow_and_module_behavior(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+        registry = read_service_text_asset("js/core/registry.js")
+        software = read_service_text_asset(
+            "js/workflows/software.js", modules, workflows
+        )
+        creative = read_service_text_asset(
+            "js/workflows/creative-writing.js", modules, workflows
+        )
+        sessions = read_service_text_asset("js/modules/agent-sessions.js")
+        documents = read_service_text_asset("js/modules/documents.js")
+        binder = read_service_text_asset("js/modules/binder.js")
+        corkboard = read_service_text_asset("js/modules/corkboard.js")
+        file_browser = read_service_text_asset("js/modules/file-browser.js")
+        progress = read_service_text_asset("js/modules/progress.js")
+        project_shell = read_service_text_asset("js/modules/project-shell.js")
+        app = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn("bindRuntime(nextRuntime)", registry)
+        self.assertIn("invokeWorkflow(id, action, ...args)", registry)
+        self.assertIn("invokeModule(id, action, ...args)", registry)
+        self.assertIn("function stageActions(stageId, runtime)", software)
+        self.assertIn('navigation: "stages"', software)
+        self.assertIn("stageDescriptions: STAGE_DESCRIPTIONS", software)
+        self.assertNotIn("function mount(runtime)", software)
+        self.assertIn("async function startAgent(runtime)", creative)
+        self.assertIn("function selectFolder(runtime, path)", creative)
+        self.assertIn("function renderNavigation(container, runtime)", creative)
+        self.assertIn('const WORKFLOW_ID = "creative-writing"', creative)
+        self.assertIn("runtimeApi.getState().workflowMode === WORKFLOW_ID", creative)
+        self.assertNotIn('workflowMode === "creative"', creative)
+        self.assertIn("Recent projects", software)
+        self.assertIn('data-creative-control="recent-projects-menu"', creative)
+        self.assertIn("creativeRecentProjectsExpanded = false", creative)
+        self.assertIn('navigation: "sidebar"', creative)
+        self.assertIn("function renderTree(runtime)", binder)
+        self.assertIn("function show(runtime, path, options = {})", corkboard)
+        self.assertIn("async function refreshServiceSessions()", sessions)
+        self.assertIn(
+            "function showArtifactPreviews(items, options = {})",
+            documents,
+        )
+        self.assertIn(
+            'if (item.kind === "document" && item.target)',
+            documents,
+        )
+        self.assertIn("rememberOpenDocumentTarget(item.target);", documents)
+        self.assertIn("function buildDocumentMenu(item)", documents)
+        self.assertIn('summary.textContent = "Document"', documents)
+        self.assertIn('"Preview",', documents)
+        self.assertIn('"Edit",', documents)
+        self.assertIn('"Refresh",', documents)
+        self.assertIn('exportLabel.textContent = "Export"', documents)
+        self.assertNotIn('exportFormat.className = "document-export-format"', documents)
+        self.assertIn("function openDocumentTarget(target)", documents)
+        self.assertIn("function popOutArtifactPreview(item)", documents)
+        self.assertNotIn('popOutPane("artifact", item)', documents)
+        self.assertIn(
+            'parameters.set("corkboard_path", item.corkboard.path)',
+            documents,
+        )
+        self.assertIn(
+            "`electroboy-artifact-${item.id}-${runtimeState.contextId}`",
+            documents,
+        )
+        self.assertIn('agentButton.textContent = "Start agent"', documents)
+        self.assertNotIn("launchDocumentTarget", documents)
+        self.assertIn(
+            "function openProjectBrowser(mode = state().projectMode",
+            file_browser,
+        )
+        self.assertIn('"documents", "openDocumentTarget"', file_browser)
+        self.assertNotIn("_runtime", sessions)
+        self.assertNotIn("_runtime", documents)
+        self.assertNotIn("_runtime", file_browser)
+        self.assertIn("function connectProgressEvents(runtime)", progress)
+        self.assertIn("async function startProjectShell(runtime)", project_shell)
+        self.assertNotIn("_runtime", progress)
+        self.assertNotIn("_runtime", project_shell)
+        self.assertIn("runtime.http.eventSource", progress)
+        self.assertIn("runtime.http.eventSource", project_shell)
+        self.assertIn("async function startRequirementsAgent()", software)
+        self.assertIn("async function startGenericStageAgent(", software)
+        self.assertIn("function bindRuntime(runtime)", software)
+        self.assertIn("function bindRuntime(runtime)", creative)
+        self.assertNotIn("runtime.actions", software)
+        self.assertNotIn("runtime.actions", creative)
+        self.assertNotIn("runtime.actions", binder)
+        self.assertNotIn("runtime.actions", corkboard)
+        self.assertNotIn("runtimeApi.actions", documents)
+        self.assertNotIn('invokeWorkflow("software"', app)
+        self.assertNotIn('invokeWorkflow("creative-writing"', app)
+        self.assertIn('invokeActiveWorkflowHook("projectChanged"', app)
+        self.assertIn(
+            "async function notifyCreativeAgentTargetSwitch()",
+            creative,
+        )
+        self.assertNotIn("function projectStageActions()", app)
+        self.assertNotIn("function appendCreativeTreeEntry", app)
+        self.assertNotIn("async function refreshServiceSessions()", app)
+        self.assertNotIn(
+            "function showArtifactPreviews(items, options = {})",
+            app,
+        )
+        self.assertNotIn("function connectProgressEvents()", app)
+        self.assertNotIn("async function startProjectShell()", app)
+        self.assertNotIn("async function startRequirementsAgent()", app)
+        self.assertNotIn("async function startGenericStageAgent(", app)
+        self.assertNotIn("const SOFTWARE_WORKFLOW_MODE", app)
+        self.assertNotIn("const CREATIVE_WORKFLOW_MODE", app)
+
+    def test_workflow_payload_exposes_plugin_contract_metadata(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+        software = workflows.get("software").payload()
+        creative = workflows.get("creative-writing").payload()
+
+        self.assertIn(
+            "implementation-plan",
+            {command["id"] for command in software["commands"]},
+        )
+        self.assertIn(
+            "requirements",
+            {schema["id"] for schema in software["document_schemas"]},
+        )
+        self.assertIn(
+            "reviewer",
+            {role["id"] for role in software["runtime_roles"]},
+        )
+        self.assertEqual(
+            creative["document_schemas"][0]["source_format"],
+            "markdown",
+        )
+
+        page = render_service_index(
+            read_service_text_asset("index.html"),
+            modules,
+            workflows,
+        )
+        self.assertLess(
+            page.index("js/modules/documents.js"),
+            page.index("js/core/runtime.js"),
+        )
+        self.assertLess(
+            page.index("js/workflows/software.js"),
+            page.index("js/core/runtime.js"),
+        )
+        self.assertLess(
+            page.index("js/core/pane-layout-drag.js"),
+            page.index("js/core/runtime.js"),
+        )
+        self.assertIn("css/workflows/creative-writing.css", page)
+
+        empty_modules = build_module_registry(())
+        empty_workflows = build_workflow_registry(empty_modules, ())
+        core_page = render_service_index(
+            read_service_text_asset("index.html"),
+            empty_modules,
+            empty_workflows,
+        )
+        self.assertNotIn("js/workflows/software.js", core_page)
+        self.assertNotIn("js/workflows/creative-writing.js", core_page)
+        self.assertNotIn("css/workflows/creative-writing.css", core_page)
+        self.assertNotIn('data-stage="requirements"', core_page)
+        self.assertNotIn("Creative writing", core_page)
+
+    def test_route_dispatcher_uses_registered_module_routes(self) -> None:
+        dispatcher = build_route_dispatcher(build_module_registry())
+
+        match = dispatcher.match("GET", "/api/health")
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match.owner, "core")
+        self.assertEqual(match.handler_name, "health")
+        self.assertTrue(callable(match.handler))
+
+    def test_all_registered_routes_have_executable_handlers(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+
+        dispatcher = build_route_dispatcher(modules, workflows)
+
+        for module in modules.values():
+            for route in module.routes:
+                match = dispatcher.match(route.method, route.path)
+                self.assertIsNotNone(match)
+                self.assertTrue(callable(match.handler))
+        for workflow in workflows.values():
+            for route in workflow.routes:
+                match = dispatcher.match(route.method, route.path)
+                self.assertIsNotNone(match)
+                self.assertTrue(callable(match.handler))
+
+    def test_workflow_registry_binds_executable_controller(self) -> None:
+        class SampleController:
+            workflow_id = "sample"
+
+            def __init__(self, services: ServiceServices) -> None:
+                self.services = services
+
+        dependency = object()
+        services = ServiceServices(
+            contexts=dependency,
+            sessions=dependency,
+            files=dependency,
+            workflows=dependency,
+        )
+        definition = WorkflowDefinition(
+            id="sample",
+            label="Sample",
+            modules=("core",),
+            stages=(WorkflowStage("project", "Project", None),),
+            project_kinds=("sample",),
+            backend_package="sample",
+            frontend_bundle="workflows/sample.js",
+            controller_factory=SampleController,
+        )
+        registry = build_workflow_registry(
+            build_module_registry(),
+            (definition,),
+        )
+
+        controllers = registry.create_controllers(services)
+
+        self.assertEqual(set(controllers), {"sample"})
+        self.assertIs(controllers["sample"].services, services)
+
+    def test_workflow_registry_rejects_mismatched_controller(self) -> None:
+        class WrongController:
+            workflow_id = "wrong"
+
+            def __init__(self, services: ServiceServices) -> None:
+                self.services = services
+
+        definition = WorkflowDefinition(
+            id="sample",
+            label="Sample",
+            modules=("core",),
+            stages=(WorkflowStage("project", "Project", None),),
+            project_kinds=("sample",),
+            backend_package="sample",
+            frontend_bundle="workflows/sample.js",
+            controller_factory=WrongController,
+        )
+        registry = build_workflow_registry(
+            build_module_registry(),
+            (definition,),
+        )
+
+        with self.assertRaisesRegex(ValueError, "controller id"):
+            registry.create_controllers(
+                ServiceServices(
+                    contexts=object(),
+                    sessions=object(),
+                    files=object(),
+                    workflows=object(),
+                )
+            )
+
+    def test_configured_workflow_endpoint_persists_extra_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "service"
+            plugin_dir = Path(tmp) / "plugins"
+            root.mkdir()
+            plugin_dir.mkdir()
+            (plugin_dir / "sample_workflow.py").write_text(
+                "\n".join(
+                    [
+                        "from electroboy.service.registry import WorkflowDefinition",
+                        "from electroboy.service.registry import WorkflowStage",
+                        "",
+                        "class SampleController:",
+                        "    workflow_id = 'sample-workflow'",
+                        "",
+                        "    def __init__(self, runtime):",
+                        "        self.runtime = runtime",
+                        "",
+                        "def workflow():",
+                        "    return WorkflowDefinition(",
+                        "        id='sample-workflow',",
+                        "        label='Sample Workflow',",
+                        "        modules=('core',),",
+                        "        stages=(WorkflowStage('project', 'Project', None),),",
+                        "        project_kinds=('sample',),",
+                        "        backend_package='sample_workflow',",
+                        "        frontend_bundle='workflows/sample.js',",
+                        "        controller_factory=SampleController,",
+                        "    )",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            sys.path.insert(0, str(plugin_dir))
+            try:
+                try:
+                    server = create_server(root, port=0)
+                except PermissionError as error:
+                    self.skipTest(f"local socket creation is not permitted: {error}")
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    status, body, content_type = post_json(
+                        server,
+                        "/api/workflows/config/workflows",
+                        {
+                            "id": "sample-workflow",
+                            "factory": "sample_workflow:workflow",
+                        },
+                    )
+                    registry_status, registry_body, _registry_type = request(
+                        server,
+                        "/api/registry",
+                    )
+                    config_path = root / ".electroboy" / "service" / "workflows.json"
+                    config_exists = config_path.exists()
+                    controller_ids = set(server.service_state.workflow_controllers)
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+            finally:
+                sys.path.remove(str(plugin_dir))
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "added")
+        self.assertEqual(registry_status, 200)
+        registry = json.loads(registry_body)
+        workflows = {entry["id"]: entry for entry in registry["workflows"]}
+        self.assertIn("software", workflows)
+        self.assertIn("creative-writing", workflows)
+        self.assertIn("sample-workflow", workflows)
+        self.assertIn("sample-workflow", controller_ids)
+        self.assertTrue(config_exists)
 
     def test_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,6 +656,89 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(content_type, "image/png")
         self.assertEqual(body, splash_image_bytes())
         self.assertEqual(headers["Content-Length"], str(len(body)))
+
+    def test_service_asset_endpoint_serves_extracted_frontend_files(self) -> None:
+        self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/pane-layout-drag.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                css_status, css_body, css_type, _css_headers = request_bytes(
+                    server,
+                    "/assets/service/css/shell.css",
+                )
+                js_status, js_body, js_type, _js_headers = request_bytes(
+                    server,
+                    "/assets/service/js/core/runtime.js",
+                )
+                registry_status, registry_body, registry_type, _registry_headers = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/core/registry.js",
+                    )
+                )
+                drag_status, drag_body, drag_type, _drag_headers = request_bytes(
+                    server,
+                    "/assets/service/js/core/pane-layout-drag.js",
+                )
+                software_status, software_body, software_type, _software_headers = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/workflows/software.js",
+                    )
+                )
+                creative_status, creative_body, creative_type, _creative_headers = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/workflows/creative-writing.js",
+                    )
+                )
+                creative_css_status, creative_css_body, creative_css_type, _ = (
+                    request_bytes(
+                        server,
+                        "/assets/service/css/workflows/creative-writing.css",
+                    )
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(css_status, 200)
+        self.assertEqual(css_type, "text/css; charset=utf-8")
+        self.assertIn(b":root", css_body)
+        self.assertEqual(js_status, 200)
+        self.assertEqual(js_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"async function initialize()", js_body)
+        self.assertNotIn(CREATIVE_SPLASH_IMAGE_ROUTE.encode("utf-8"), js_body)
+        self.assertNotIn(b"__CREATIVE_SPLASH_IMAGE_ROUTE__", js_body)
+        self.assertEqual(registry_status, 200)
+        self.assertEqual(registry_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"registerWorkflow", registry_body)
+        self.assertEqual(drag_status, 200)
+        self.assertEqual(drag_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"function createController(options)", drag_body)
+        self.assertIn(b"event.shiftKey", drag_body)
+        self.assertIn(b"options.onDetach", drag_body)
+        self.assertEqual(software_status, 200)
+        self.assertEqual(software_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"Software engineering", software_body)
+        self.assertEqual(creative_status, 200)
+        self.assertEqual(creative_type, "application/javascript; charset=utf-8")
+        self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE.encode("utf-8"), creative_body)
+        self.assertNotIn(b"__CREATIVE_SPLASH_IMAGE_ROUTE__", creative_body)
+        self.assertEqual(creative_css_status, 200)
+        self.assertEqual(creative_css_type, "text/css; charset=utf-8")
+        self.assertIn(b".creative-binder", creative_css_body)
 
     def test_creative_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -195,10 +814,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function setArtifactEditMode(editing)", page)
         self.assertIn('artifactFrame.classList.add("loading");', page)
         self.assertIn('artifactFrame.addEventListener("load"', page)
+        self.assertIn("function artifactEditorFontSize()", page)
+        self.assertIn("function postArtifactEditorFontSize()", page)
+        self.assertIn('type: "electroboy-editor-font-size"', page)
         self.assertIn('artifactKind === "creative-corkboard"', page)
         self.assertIn("/artifacts/creative-corkboard", page)
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
+        self.assertIn('parameters.set("font_size", String(artifactEditorFontSize()))', page)
         self.assertIn('parameters.set("artifact", "route")', page)
         self.assertIn("function changeArtifactZoom(delta)", page)
         self.assertIn("function exportBlob(url, suggestedName, format = \"markdown\")", page)
@@ -686,9 +1309,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"jsonl_path": "docs/requirements.jsonl"', page)
         self.assertIn("Markdown body", page)
         self.assertIn("/api/artifacts/edit", page)
-        self.assertIn("function queueSave()", page)
-        self.assertIn('input.addEventListener("input", queueSave);', page)
-        self.assertNotIn('id="saveArtifact"', page)
+        self.assertIn('id="recordType"', page)
+        self.assertIn('id="saveArtifact"', page)
+        self.assertIn("function markDirty()", page)
+        self.assertIn('input.addEventListener("input", markDirty);', page)
+        self.assertIn('className = "generated-fields"', page)
+        self.assertNotIn("function queueSave()", page)
 
     def test_artifact_editor_markdown_mode_uses_direct_pane_editor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -707,9 +1333,43 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('document.body.classList.add("markdown-mode");', page)
         self.assertIn('textarea.setAttribute("aria-label"', page)
+        self.assertIn('id="saveArtifact"', page)
         self.assertIn("body.markdown-mode .editor-header", page)
         self.assertIn("body.markdown-mode .markdown-editor", page)
+        self.assertIn('textarea.addEventListener("input", markDirty);', page)
         self.assertNotIn('label.textContent = "Markdown";', page)
+        self.assertNotIn("@tiptap/core", page)
+
+    def test_artifact_editor_creative_markdown_mode_uses_tiptap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chapters = root / "chapters"
+            chapters.mkdir()
+            (chapters / "chapter-01.md").write_text(
+                "# Chapter 1\n\nOpening paragraph.\n",
+                encoding="utf-8",
+            )
+
+            page, status = artifact_editor_html(
+                root,
+                "document",
+                "chapters/chapter-01.md",
+                title="Chapter 1",
+                rich_editor=True,
+                editor_font_size=20,
+            )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('"rich_editor": true', page)
+        self.assertIn('"editor_font_size": 20', page)
+        self.assertIn("--editor-font-size: 20px;", page)
+        self.assertIn("RICH_EDITOR_ENABLED", page)
+        self.assertIn("function applyEditorFontSize(value = editorFontSize)", page)
+        self.assertIn('data.type === "electroboy-editor-font-size"', page)
+        self.assertIn('className = "rich-editor-surface"', page)
+        self.assertIn('import("https://esm.sh/@tiptap/core")', page)
+        self.assertIn('import("https://esm.sh/@tiptap/markdown")', page)
+        self.assertIn("function collectMarkdownDocument()", page)
 
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -803,6 +1463,43 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Requirements Editor", body)
         self.assertIn('"mode": "structured"', body)
 
+    def test_artifact_editor_endpoint_enables_rich_editor_for_creative(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            payload = server.service_state.create_context()
+            context_id = str(payload["context_id"])
+            server.service_state.create_creative_project(context_id, str(project_root))
+            server.service_state.initialize_creative_workspace(context_id)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    (
+                        f"/artifacts/edit?context_id={context_id}"
+                        "&artifact=document&path=chapters/chapter-01.md"
+                        "&font_size=22"
+                    ),
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('"mode": "markdown"', body)
+        self.assertIn('"rich_editor": true', body)
+        self.assertIn('"editor_font_size": 22', body)
+        self.assertIn("@tiptap/core", body)
+
     def test_document_export_endpoint_serves_active_project_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -883,754 +1580,61 @@ class ServiceTests(unittest.TestCase):
 
         self.assertTrue(session.terminated)
 
-    def test_index_page_fetches_health_and_prints_connected(self) -> None:
-        self.assertIn('fetch("/api/health"', INDEX_HTML)
-        self.assertIn("connection.textContent = connectionBadgeLabel();", INDEX_HTML)
-        self.assertIn("function connectionBadgeLabel()", INDEX_HTML)
-        self.assertIn('parts.push(`feature: ${feature.name || feature.slug}`);', INDEX_HTML)
-        self.assertIn('class="stage-scroll"', INDEX_HTML)
-        self.assertIn('const workflowPane = document.querySelector(".workflow-pane");', INDEX_HTML)
-        self.assertIn('const stageScroll = document.querySelector(".stage-scroll");', INDEX_HTML)
-        self.assertIn("overflow: visible;", INDEX_HTML)
-        self.assertIn('className = "document-export-format"', INDEX_HTML)
-        self.assertIn("function exportArtifactDocument(item, format)", INDEX_HTML)
-        self.assertIn("/api/documents/export", INDEX_HTML)
-        self.assertIn("z-index: 30;", INDEX_HTML)
-        self.assertIn("z-index: 60;", INDEX_HTML)
-        self.assertIn("z-index: 0;", INDEX_HTML)
-        self.assertIn(".stage-node.available", INDEX_HTML)
-        self.assertIn("button.stage-node.available:hover", INDEX_HTML)
-        self.assertIn('data-stage="project"', INDEX_HTML)
-        self.assertIn('data-stage="requirements"', INDEX_HTML)
-        self.assertIn('data-stage="design"', INDEX_HTML)
-        self.assertIn('data-stage="design-review"', INDEX_HTML)
-        self.assertIn('data-stage="implementation-plan"', INDEX_HTML)
-        self.assertIn('data-stage="code"', INDEX_HTML)
-        self.assertIn('data-stage="test-plan"', INDEX_HTML)
-        self.assertIn('data-stage="validate"', INDEX_HTML)
-        self.assertIn('data-stage="document"', INDEX_HTML)
-        self.assertIn('class="stage-node disabled sidecar"', INDEX_HTML)
-        self.assertIn(".stage-node.sidecar", INDEX_HTML)
-        self.assertIn('class="stage-connector"', INDEX_HTML)
-        self.assertEqual(INDEX_HTML.count('class="stage-connector"'), 7)
-        self.assertIn('id="stageDoubleArrowIcon"', INDEX_HTML)
-        self.assertIn('class="stage-connector-icon"', INDEX_HTML)
-        self.assertEqual(INDEX_HTML.count('href="#stageDoubleArrowIcon"'), 7)
-        self.assertIn("grid-template-columns:", INDEX_HTML)
-        self.assertIn("repeat(7, minmax(96px, 1fr) minmax(34px, 0.35fr))", INDEX_HTML)
-        self.assertIn('class="stage-spacer"', INDEX_HTML)
-        self.assertNotIn("&lt;-&gt;", INDEX_HTML)
-        self.assertLess(
-            INDEX_HTML.index('data-stage="validate"'),
-            INDEX_HTML.index('data-stage="document"'),
+
+    def test_index_page_is_a_workflow_agnostic_shell(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+        template = read_service_text_asset("index.html")
+        runtime = read_service_text_asset("js/core/runtime.js")
+        software = read_service_text_asset(
+            "js/workflows/software.js", modules, workflows
         )
-        self.assertNotIn('data-stage="requirements-approve"', INDEX_HTML)
-        self.assertNotIn('data-stage="design-approve"', INDEX_HTML)
-        self.assertNotIn('data-stage="plan-approve"', INDEX_HTML)
-        self.assertNotIn('data-stage="code-approve"', INDEX_HTML)
-        self.assertNotIn('data-stage="test-plan-approve"', INDEX_HTML)
-        self.assertNotIn('data-stage="validation-approve"', INDEX_HTML)
-        self.assertIn('const stageNodes = Array.from', INDEX_HTML)
-        self.assertIn("const STAGE_DESCRIPTIONS = {", INDEX_HTML)
-        self.assertNotIn("const APPROVAL_STAGES = new Set", INDEX_HTML)
-        self.assertIn("function applyStageDescriptions()", INDEX_HTML)
-        self.assertIn("stageNode.title = description", INDEX_HTML)
-        self.assertIn('stageNode.setAttribute("aria-label"', INDEX_HTML)
-        self.assertIn("applyStageDescriptions();", INDEX_HTML)
-        self.assertIn("Open an existing ElectroBoy project", INDEX_HTML)
-        self.assertIn("Author or resume docs/requirements.md", INDEX_HTML)
-        self.assertIn("Run validation commands and tests", INDEX_HTML)
-        self.assertIn("function updateStageNodes(hasProjectContext, hasStageTarget, workflowStage)", INDEX_HTML)
-        self.assertIn("stageNode.disabled = !isEnabled", INDEX_HTML)
-        self.assertIn('stageNode.classList.toggle("available"', INDEX_HTML)
-        self.assertIn('stageNode.classList.toggle("active", isActive)', INDEX_HTML)
-        self.assertIn('stageNode.classList.toggle("complete", isComplete)', INDEX_HTML)
-        self.assertIn("function selectWorkflowStage(stageId)", INDEX_HTML)
-        self.assertIn('contextUrl("/api/workflow/stage")', INDEX_HTML)
-        self.assertIn("function handleWorkflowStageClick(stageNode)", INDEX_HTML)
-        self.assertIn('id="projectMenu"', INDEX_HTML)
-        self.assertIn("openProject.disabled = hasProjectContext", INDEX_HTML)
-        self.assertIn("newProject.disabled = hasProjectContext", INDEX_HTML)
-        self.assertIn('id="metaProjectSubmenu"', INDEX_HTML)
-        self.assertIn('id="openMetaProject"', INDEX_HTML)
-        self.assertIn('id="newMetaProject"', INDEX_HTML)
-        self.assertIn('id="addMetaRepository"', INDEX_HTML)
-        self.assertIn('id="startMetaRepository"', INDEX_HTML)
-        self.assertIn('id="startMetaRepositorySubmenu"', INDEX_HTML)
-        self.assertIn('id="removeMetaRepository"', INDEX_HTML)
-        self.assertIn('id="removeMetaRepositorySubmenu"', INDEX_HTML)
-        self.assertIn('id="workItemMenuButton"', INDEX_HTML)
-        self.assertIn('id="workItemSubmenu"', INDEX_HTML)
-        self.assertIn('id="newFeatureWorkItem"', INDEX_HTML)
-        self.assertIn('id="switchFeatureWorkItem"', INDEX_HTML)
-        self.assertIn('id="switchFeatureWorkItemSubmenu"', INDEX_HTML)
-        self.assertIn('id="newBugWorkItem"', INDEX_HTML)
-        self.assertIn('id="switchBugWorkItem"', INDEX_HTML)
-        self.assertIn('id="switchBugWorkItemSubmenu"', INDEX_HTML)
-        self.assertIn("function activeProjectMenuLabel()", INDEX_HTML)
-        self.assertIn("workItemMenuButton.textContent = activeProjectMenuLabel();", INDEX_HTML)
-        self.assertIn("Features", INDEX_HTML)
-        self.assertIn("Add feature", INDEX_HTML)
-        self.assertIn("Add bug resolution", INDEX_HTML)
-        self.assertIn("Bug resolutions", INDEX_HTML)
-        self.assertNotIn("New feature collection", INDEX_HTML)
-        self.assertNotIn("Switch collection", INDEX_HTML)
-        self.assertNotIn('id="workItemCollection"', INDEX_HTML)
-        self.assertIn("function renderMetaRepositoryMenus()", INDEX_HTML)
-        self.assertIn("function renderWorkItemMenus()", INDEX_HTML)
-        self.assertIn("function showWorkItemPanel(mode)", INDEX_HTML)
-        self.assertIn("function applyWorkItemSelection()", INDEX_HTML)
-        self.assertIn("function confirmWorkItemAgentStop()", INDEX_HTML)
-        self.assertIn('id="workItemRecovery"', INDEX_HTML)
-        self.assertIn('id="openProjectShell"', INDEX_HTML)
-        self.assertIn('id="retryWorkItem"', INDEX_HTML)
-        self.assertIn('id="toggleProjectShellPane"', INDEX_HTML)
-        self.assertIn('id="showSplash"', INDEX_HTML)
-        self.assertIn("function recoverableWorkItemError(message", INDEX_HTML)
-        self.assertIn("function startProjectShell()", INDEX_HTML)
-        self.assertIn("function toggleProjectShellFromToolbar()", INDEX_HTML)
-        self.assertIn("function updateProjectShellToggle()", INDEX_HTML)
-        self.assertIn("let projectShellPaneDismissed = false;", INDEX_HTML)
-        self.assertIn('contextUrl("/api/shell/start")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/shell/input")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/shell/events")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/shell/stop")', INDEX_HTML)
-        self.assertIn('id="projectShellPane"', INDEX_HTML)
-        self.assertIn('id="closeProjectShellPane"', INDEX_HTML)
-        self.assertIn('id="popoutProjectShellPane"', INDEX_HTML)
-        self.assertIn("Starting or switching work items will stop that agent", INDEX_HTML)
-        self.assertIn("stopped running agent for work-item context", INDEX_HTML)
-        self.assertIn("function shouldRetryWithSubrepoStash(payload, body)", INDEX_HTML)
-        self.assertIn("stash_subrepo_changes_required", INDEX_HTML)
-        self.assertIn("stash_subrepo_changes: true", INDEX_HTML)
-        self.assertIn("Nested repositories have tracked changes", INDEX_HTML)
-        self.assertIn("function startMetaRepositoryFromMenu(repository)", INDEX_HTML)
-        self.assertIn("function removeMetaRepositoryFromMenu(repository)", INDEX_HTML)
-        self.assertIn("function applyMetaRepositoryAction(endpoint, repository, pendingLabel)", INDEX_HTML)
-        self.assertIn("openMetaProject.disabled = hasProjectContext", INDEX_HTML)
-        self.assertIn("newMetaProject.disabled = hasProjectContext", INDEX_HTML)
-        self.assertIn('addMetaRepository.disabled = activeProjectMode !== "meta"', INDEX_HTML)
-        self.assertIn('activeProjectMode !== "meta" || registeredRepositories.length === 0', INDEX_HTML)
-        self.assertIn("workItemMenuButton.disabled = !hasStageTarget", INDEX_HTML)
-        self.assertIn('"/api/meta/remove"', INDEX_HTML)
-        self.assertIn('"/api/work-items/features"', INDEX_HTML)
-        self.assertIn('"/api/work-items/features/switch"', INDEX_HTML)
-        self.assertIn('"/api/work-items/bugs"', INDEX_HTML)
-        self.assertIn('"/api/work-items/bugs/switch"', INDEX_HTML)
-        self.assertIn("deactivateProject.disabled = !hasProjectContext", INDEX_HTML)
-        self.assertIn("if (activeProjectRoot)", INDEX_HTML)
-        self.assertIn('id="projectPanel"', INDEX_HTML)
-        self.assertIn('id="projectPath"', INDEX_HTML)
-        self.assertIn('id="fileBrowser"', INDEX_HTML)
-        self.assertIn('id="browserPath"', INDEX_HTML)
-        self.assertIn('id="selectDirectory"', INDEX_HTML)
-        self.assertIn('id="closeBrowser"', INDEX_HTML)
-        self.assertIn('id="deactivateProject"', INDEX_HTML)
-        self.assertIn('id="requirementsMenu"', INDEX_HTML)
-        self.assertNotIn('id="requirementsApproveMenu"', INDEX_HTML)
-        self.assertIn('id="designMenu"', INDEX_HTML)
-        self.assertIn('id="designReviewMenu"', INDEX_HTML)
-        self.assertIn('id="implementationPlanMenu"', INDEX_HTML)
-        self.assertIn('id="codeMenu"', INDEX_HTML)
-        self.assertIn('id="testPlanMenu"', INDEX_HTML)
-        self.assertIn('id="validateMenu"', INDEX_HTML)
-        self.assertIn('id="documentMenu"', INDEX_HTML)
-        self.assertNotIn('id="designApproveMenu"', INDEX_HTML)
-        self.assertIn('id="approveRequirements"', INDEX_HTML)
-        self.assertIn('id="skipRequirementsApproval"', INDEX_HTML)
-        self.assertNotIn('id="openApprovedRequirements"', INDEX_HTML)
-        self.assertIn('id="setRequirementsStage"', INDEX_HTML)
-        self.assertIn("Move the workflow to requirements", INDEX_HTML)
-        self.assertNotIn('id="completeRequirements"', INDEX_HTML)
-        self.assertNotIn('id="openRequirements"', INDEX_HTML)
-        self.assertIn('id="startDesign"', INDEX_HTML)
-        self.assertIn('id="setDesignStage"', INDEX_HTML)
-        self.assertIn('id="completeDesign"', INDEX_HTML)
-        self.assertNotIn('id="openDesign"', INDEX_HTML)
-        self.assertIn('id="setDesignReviewStage"', INDEX_HTML)
-        self.assertIn('id="startAutomaticDesignReview"', INDEX_HTML)
-        self.assertIn('id="startInteractiveDesignReview"', INDEX_HTML)
-        self.assertIn('id="stopDesignReview"', INDEX_HTML)
-        self.assertIn('id="approveDesignReview"', INDEX_HTML)
-        self.assertIn('id="skipDesignReviewApproval"', INDEX_HTML)
-        self.assertNotIn('id="completeDesignReview"', INDEX_HTML)
-        self.assertNotIn('id="restartDesignReview"', INDEX_HTML)
-        self.assertNotIn('id="openDesignReview"', INDEX_HTML)
-        self.assertNotIn('id="openDesignFromReview"', INDEX_HTML)
-        self.assertIn('id="setImplementationPlanStage"', INDEX_HTML)
-        self.assertIn('id="startImplementationPlan"', INDEX_HTML)
-        self.assertIn('id="approveImplementationPlan"', INDEX_HTML)
-        self.assertIn('id="skipImplementationPlanApproval"', INDEX_HTML)
-        self.assertNotIn('id="openImplementationPlan"', INDEX_HTML)
-        self.assertIn('id="setCodeStage"', INDEX_HTML)
-        self.assertIn('id="startAutomaticCode"', INDEX_HTML)
-        self.assertIn('id="startInteractiveCode"', INDEX_HTML)
-        self.assertIn('id="startCodeAdHocAgent"', INDEX_HTML)
-        self.assertIn('id="stopCode"', INDEX_HTML)
-        self.assertIn('id="approveCode"', INDEX_HTML)
-        self.assertIn('id="skipCodeApproval"', INDEX_HTML)
-        self.assertNotIn('id="openImplementationReport"', INDEX_HTML)
-        self.assertIn('id="setTestPlanStage"', INDEX_HTML)
-        self.assertIn('id="startTestPlan"', INDEX_HTML)
-        self.assertIn('id="approveTestPlan"', INDEX_HTML)
-        self.assertIn('id="skipTestPlanApproval"', INDEX_HTML)
-        self.assertNotIn('id="openTestPlan"', INDEX_HTML)
-        self.assertIn('id="setValidateStage"', INDEX_HTML)
-        self.assertIn('id="startAutomaticValidate"', INDEX_HTML)
-        self.assertIn('id="startInteractiveValidate"', INDEX_HTML)
-        self.assertIn('id="stopValidate"', INDEX_HTML)
-        self.assertIn('id="approveValidate"', INDEX_HTML)
-        self.assertIn('id="skipValidateApproval"', INDEX_HTML)
-        self.assertNotIn('id="openValidationReport"', INDEX_HTML)
-        self.assertIn('id="workflowSideSheet"', INDEX_HTML)
-        self.assertIn('id="workflowModeSelect"', INDEX_HTML)
-        self.assertIn('id="panelLeftCloseIcon"', INDEX_HTML)
-        self.assertIn('id="panelLeftOpenIcon"', INDEX_HTML)
-        self.assertIn(".side-sheet-toggle-icon-close", INDEX_HTML)
-        self.assertIn(".side-sheet-toggle-icon-open", INDEX_HTML)
-        self.assertNotIn('<div class="side-sheet-title">Workflow</div>', INDEX_HTML)
-        self.assertIn('value="creative"', INDEX_HTML)
-        self.assertIn('id="creativeBinder"', INDEX_HTML)
-        self.assertIn('id="creativeProjectMenuButton"', INDEX_HTML)
-        self.assertIn('id="creativeProjectActions"', INDEX_HTML)
-        self.assertIn('id="creativeCloseProject"', INDEX_HTML)
-        self.assertIn("creativeCloseProject.disabled = !Boolean(activationRoot)", INDEX_HTML)
+        creative = read_service_text_asset(
+            "js/workflows/creative-writing.js", modules, workflows
+        )
+        core_styles = read_service_text_asset("css/shell.css")
+
+        self.assertIn('fetch("/api/health"', runtime)
+        self.assertIn('fetch("/api/registry"', runtime)
+        self.assertIn('id="workflowModeSelect"', template)
+        self.assertIn('id="workflowStageGraph"', template)
+        self.assertNotIn('data-stage="requirements"', template)
+        self.assertNotIn('id="creativeBinder"', template)
+        self.assertNotIn("Software engineering", template)
+        self.assertNotIn("Creative writing", template)
+
+        self.assertIn("function renderStageGraph(definition, contribution)", runtime)
+        self.assertIn("function renderWorkflowNavigation()", runtime)
         self.assertIn(
-            'creativeCloseProject.addEventListener("click", deactivateActiveProject)',
-            INDEX_HTML,
+            'else if (typeof contribution.refreshNavigation === "function")',
+            runtime,
         )
-        self.assertIn("let creativeProjectActionsExpanded = false;", INDEX_HTML)
-        self.assertIn("function ensureCreativeWorkspaceLoaded()", INDEX_HTML)
-        self.assertIn("deferCreativeWorkspaceInit", INDEX_HTML)
-        self.assertIn(".stage-action-list[hidden]", INDEX_HTML)
+        self.assertIn("No workflows are installed or enabled.", runtime)
+        self.assertIn("activeWorkflowDefinitions", runtime)
+        self.assertNotIn("const SOFTWARE_WORKFLOW_MODE", runtime)
+        self.assertNotIn("const CREATIVE_WORKFLOW_MODE", runtime)
+        self.assertNotIn("const STAGE_DESCRIPTIONS", runtime)
+        self.assertNotIn(".creative-binder", core_styles)
+        self.assertIn(".stage-action-subgroup-list[hidden]", core_styles)
         self.assertIn(
-            ".shell.creative-workflow .creative-section > .stage-action-stage",
-            INDEX_HTML,
+            ".stage-action-subgroup-trigger.expanded .stage-action-chevron::before",
+            core_styles,
         )
-        self.assertIn('id="creativeActiveProjectSection"', INDEX_HTML)
-        self.assertIn('id="creativeProjectName"', INDEX_HTML)
-        self.assertNotIn('id="creativeBinderMenuButton"', INDEX_HTML)
-        self.assertNotIn('id="creativeBinderActions"', INDEX_HTML)
-        self.assertNotIn('id="creativeBinderStatus"', INDEX_HTML)
-        self.assertIn('id="creativeTree"', INDEX_HTML)
-        self.assertIn('"/api/creative/project/open"', INDEX_HTML)
-        self.assertIn('"/api/creative/project/new"', INDEX_HTML)
-        self.assertIn("let creativeActiveFolder = \"\";", INDEX_HTML)
-        self.assertIn("let creativeLastNotifiedTarget = \"\";", INDEX_HTML)
-        self.assertIn("let expandedCreativeFolders = new Set();", INDEX_HTML)
-        self.assertIn("function toggleCreativeFolder(path)", INDEX_HTML)
-        self.assertIn("function showCreativeCorkboard(path, options = {})", INDEX_HTML)
-        self.assertIn("function selectCreativeCorkboard(path)", INDEX_HTML)
-        self.assertIn("function selectCreativeFolder(path)", INDEX_HTML)
-        self.assertIn("function activeCreativeTarget()", INDEX_HTML)
-        self.assertIn("function notifyCreativeAgentTargetSwitch()", INDEX_HTML)
-        self.assertIn("Active target: freeform corkboard", INDEX_HTML)
-        self.assertIn("Active target: folder corkboard", INDEX_HTML)
-        self.assertIn("docs/corkboard-api.md", INDEX_HTML)
-        self.assertIn("active_target: activeCreativeTarget()", INDEX_HTML)
-        self.assertIn("session_id: session.session_id", INDEX_HTML)
-        self.assertIn("function appendCreativeFolderActions(path, depth)", INDEX_HTML)
-        self.assertIn("function showCreativeTreeMessage(message)", INDEX_HTML)
-        self.assertIn("function creativeTreeActionIconSvg(name)", INDEX_HTML)
-        self.assertIn("function createCreativeFolderInline(basePath = \"\")", INDEX_HTML)
-        self.assertIn("function createCreativeDocumentInline(basePath = \"\")", INDEX_HTML)
-        self.assertIn("function createCreativeCorkboardInline(basePath = \"\")", INDEX_HTML)
-        self.assertIn("function finishCreativeRename(path, type, rawName)", INDEX_HTML)
-        self.assertIn("function deleteCreativeEntry(path, type)", INDEX_HTML)
-        self.assertIn("function renderCreativeProjectStatus()", INDEX_HTML)
-        self.assertIn('data.type === "electroboy-creative-open"', INDEX_HTML)
-        self.assertIn("/artifacts/creative-corkboard", INDEX_HTML)
-        self.assertIn("function artifactPaneSupportsModeSwitch(item)", INDEX_HTML)
-        self.assertIn("electroboy.creativeRightPaneWidth", INDEX_HTML)
-        self.assertIn('"/api/creative/rename"', INDEX_HTML)
-        self.assertIn('"/api/creative/delete"', INDEX_HTML)
-        self.assertIn('"/api/creative/corkboards"', INDEX_HTML)
-        self.assertNotIn("window.prompt(\"Folder path\"", INDEX_HTML)
-        self.assertNotIn("window.prompt(\"Markdown document path\"", INDEX_HTML)
-        self.assertIn("--creative-depth-indent", INDEX_HTML)
-        self.assertIn(".creative-tree-name-input", INDEX_HTML)
-        self.assertIn(".creative-tree-icon-button", INDEX_HTML)
-        self.assertIn("function creativeTreeIconSvg(name)", INDEX_HTML)
-        self.assertIn("function creativeTreeIconName(entry, expanded)", INDEX_HTML)
-        self.assertIn("function creativeTreeIconClass(entry)", INDEX_HTML)
-        self.assertIn('row.setAttribute("role", "treeitem")', INDEX_HTML)
-        self.assertIn('row.setAttribute("aria-expanded"', INDEX_HTML)
-        self.assertIn("if (isDirectory && expanded)", INDEX_HTML)
-        self.assertLess(
-            INDEX_HTML.index("appendCreativeTreeEntry(child, depth + 1);"),
-            INDEX_HTML.index("appendCreativeFolderActions(path, depth + 1);"),
-        )
-        self.assertIn(".creative-tree-row.directory.expanded", INDEX_HTML)
-        self.assertIn(".creative-tree-row.directory.active", INDEX_HTML)
-        self.assertIn(".creative-tree-actions", INDEX_HTML)
-        self.assertIn(".creative-tree-icon.markdown", INDEX_HTML)
-        self.assertIn(".creative-tree-icon.corkboard", INDEX_HTML)
-        self.assertIn(".creative-tree-disclosure", INDEX_HTML)
-        self.assertIn('id="toggleWorkflowSideSheet"', INDEX_HTML)
-        self.assertIn('id="stageActionPanel"', INDEX_HTML)
-        self.assertIn('id="stageActionBody"', INDEX_HTML)
-        self.assertNotIn('id="startAdHocAgent"', INDEX_HTML)
-        self.assertIn("function renderStageActionPanel()", INDEX_HTML)
-        self.assertIn("function refreshCreativeBinder()", INDEX_HTML)
-        self.assertIn("function toggleCreativeActionGroup(group)", INDEX_HTML)
-        self.assertIn("function startAdHocAgent()", INDEX_HTML)
-        self.assertIn("function startCreativeWritingAgent()", INDEX_HTML)
-        self.assertIn("function toggleStageActionGroup(stageId)", INDEX_HTML)
-        self.assertIn("let expandedWorkflowStages = new Set();", INDEX_HTML)
-        self.assertIn("let expandedProjectActionGroups = new Set();", INDEX_HTML)
-        self.assertIn("function stageActionSubgroup(action)", INDEX_HTML)
-        self.assertIn("function toggleProjectActionGroup(groupId)", INDEX_HTML)
-        self.assertIn('id="documentTargets"', INDEX_HTML)
-        self.assertIn('id="createDocumentTarget"', INDEX_HTML)
-        self.assertIn('id="customDocumentName"', INDEX_HTML)
-        self.assertIn('id="addDocumentTarget"', INDEX_HTML)
-        self.assertNotIn('id="approveDesign"', INDEX_HTML)
-        self.assertNotIn('id="openApprovedDesign"', INDEX_HTML)
-        self.assertNotIn('id="openApprovedDesignReview"', INDEX_HTML)
-        self.assertIn('id="agentPane"', INDEX_HTML)
-        self.assertIn('id="shellResizeHandle"', INDEX_HTML)
-        self.assertIn('id="outputWorkbench"', INDEX_HTML)
-        self.assertIn(".output-workbench.pane-layout-enabled", INDEX_HTML)
-        self.assertIn(".pane-layout-toolbar", INDEX_HTML)
-        self.assertIn(".pane-layout-divider", INDEX_HTML)
-        self.assertIn(".pane-layout-corner", INDEX_HTML)
-        self.assertIn(".pane-layout-split-preview", INDEX_HTML)
-        self.assertIn(
-            'const PANE_LAYOUT_STORAGE_KEY = "electroboy.paneLayout.v1";',
-            INDEX_HTML,
-        )
-        self.assertIn("function defaultPaneLayout()", INDEX_HTML)
-        self.assertIn("function initializePaneLayout()", INDEX_HTML)
-        self.assertIn("function splitPaneLayoutLeaf(id, direction, ratio", INDEX_HTML)
-        self.assertIn("function paneCornerSplitCandidate(event, state)", INDEX_HTML)
-        self.assertIn(
-            "function showPaneCornerSplitPreview(preview, candidate)",
-            INDEX_HTML,
-        )
-        self.assertIn("function startPaneCornerSplit(event, leaf", INDEX_HTML)
-        self.assertIn("function buildPaneLayoutCorner(leaf", INDEX_HTML)
-        self.assertIn('handle.title = "Drag inward to split pane";', INDEX_HTML)
-        self.assertIn("let paneCornerSplitCancel = null;", INDEX_HTML)
-        self.assertIn("function changePaneLayoutKind(id, kind)", INDEX_HTML)
-        self.assertIn("function closePaneLayoutLeaf(id)", INDEX_HTML)
-        self.assertIn("function ensurePaneInLayout(kind", INDEX_HTML)
-        self.assertIn("function resetPaneLayout()", INDEX_HTML)
-        self.assertIn('title = "Split pane right";', INDEX_HTML)
-        self.assertIn('title = "Split pane down";', INDEX_HTML)
-        self.assertIn('title = "Close pane and join area";', INDEX_HTML)
-        self.assertIn('title = "Reset pane layout";', INDEX_HTML)
-        self.assertIn("initializePaneLayout();", INDEX_HTML)
-        self.assertIn('id="workbenchResizeHandle"', INDEX_HTML)
-        self.assertIn('id="outputSplit"', INDEX_HTML)
-        self.assertIn('id="agentOutputPane"', INDEX_HTML)
-        self.assertIn('id="agentOutput"', INDEX_HTML)
-        self.assertIn('id="exportAgentOutput"', INDEX_HTML)
-        self.assertIn('id="outputResizeHandle"', INDEX_HTML)
-        self.assertIn('id="progressOutputPane"', INDEX_HTML)
-        self.assertIn('id="progressOutput"', INDEX_HTML)
-        self.assertIn('id="exportProgressOutput"', INDEX_HTML)
-        self.assertIn('id="shellPaneDivider"', INDEX_HTML)
-        self.assertIn('id="sidePane"', INDEX_HTML)
-        self.assertIn('id="sidePaneResizeHandle"', INDEX_HTML)
-        self.assertIn('id="scratchPad"', INDEX_HTML)
-        self.assertIn('id="artifactPreviewPane"', INDEX_HTML)
-        self.assertIn('id="artifactPreviewStack"', INDEX_HTML)
-        self.assertIn('class="artifact-preview-stack"', INDEX_HTML)
-        self.assertIn('className = "artifact-preview-item"', INDEX_HTML)
-        self.assertIn('className = "artifact-preview-divider"', INDEX_HTML)
-        self.assertIn('className = "document-zoom-button"', INDEX_HTML)
-        self.assertIn('className = "document-zoom-level"', INDEX_HTML)
-        self.assertIn(
-            '"allow-scripts allow-popups allow-modals allow-same-origin"',
-            INDEX_HTML,
-        )
-        self.assertIn("function artifactEditUrl(item)", INDEX_HTML)
-        self.assertIn("function setArtifactPreviewEditing(item, editing)", INDEX_HTML)
-        self.assertIn('preview.textContent = "Preview";', INDEX_HTML)
-        self.assertIn('edit.textContent = "Edit";', INDEX_HTML)
-        self.assertIn(
-            "item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item)",
-            INDEX_HTML,
-        )
-        self.assertIn(
-            "item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item)",
-            INDEX_HTML,
-        )
-        self.assertIn('id="artifactPaneResizeHandle"', INDEX_HTML)
-        self.assertIn('id="projectStatusOutput"', INDEX_HTML)
-        self.assertIn('id="inputResizeHandle"', INDEX_HTML)
-        self.assertIn('id="inputPane"', INDEX_HTML)
-        self.assertIn('id="splashOverlay"', INDEX_HTML)
-        self.assertIn('id="splashImage"', INDEX_HTML)
-        self.assertIn('id="closeSplash"', INDEX_HTML)
-        self.assertIn(SPLASH_IMAGE_ROUTE, INDEX_HTML)
-        self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE, INDEX_HTML)
-        self.assertIn("electroboy.splash.dismissed.v1", INDEX_HTML)
-        self.assertIn("window.sessionStorage.getItem(SPLASH_DISMISSED_STORAGE_KEY)", INDEX_HTML)
-        self.assertIn("window.sessionStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY", INDEX_HTML)
-        self.assertIn("function openSplash()", INDEX_HTML)
-        self.assertIn("function updateSplashImage()", INDEX_HTML)
-        self.assertIn("? CREATIVE_SPLASH_IMAGE_ROUTE", INDEX_HTML)
-        self.assertIn("function showSplashIfNeeded()", INDEX_HTML)
-        self.assertIn("function dismissSplash()", INDEX_HTML)
-        self.assertIn('showSplashButton.addEventListener("click", openSplash);', INDEX_HTML)
-        self.assertIn("showSplashIfNeeded();", INDEX_HTML)
-        self.assertIn('class="workflow-toolbar"', INDEX_HTML)
-        self.assertIn("var(--workflow-pane-height, 86px) 7px", INDEX_HTML)
-        self.assertIn("padding: 8px 18px 4px;", INDEX_HTML)
-        self.assertIn("height: calc(var(--ui-font-size) + 23px);", INDEX_HTML)
-        self.assertIn("padding-top: 36px;", INDEX_HTML)
-        self.assertIn('class="input-pane-header pane-header"', INDEX_HTML)
-        self.assertIn("padding: 0 12px 12px;", INDEX_HTML)
-        self.assertIn("margin: 0 -12px;", INDEX_HTML)
-        self.assertIn("AI agent input", INDEX_HTML)
-        self.assertIn('id="agentInput"', INDEX_HTML)
-        self.assertIn('id="agentInput"\n          class="agent-input"\n          spellcheck="true"', INDEX_HTML)
-        self.assertIn('id="scratchPad"\n              class="scratch-pad"\n              spellcheck="true"', INDEX_HTML)
-        self.assertIn("function restoreSoftwareWorkspace()", INDEX_HTML)
-        self.assertIn("scratchPad.spellcheck = true;", INDEX_HTML)
-        self.assertIn('id="inputActionResizeHandle"', INDEX_HTML)
-        self.assertIn('id="sessionSwitcher"', INDEX_HTML)
-        self.assertIn('for="sessionSwitcher">Agent</label>', INDEX_HTML)
-        self.assertIn('class="shell-control toolbar-control-group"', INDEX_HTML)
-        self.assertIn(".toolbar-command-button.active", INDEX_HTML)
-        self.assertIn('data-pane-font-controls="agent"', INDEX_HTML)
-        self.assertIn('data-pane-font-controls="progress"', INDEX_HTML)
-        self.assertIn('data-pane-font-controls="shell"', INDEX_HTML)
-        self.assertIn('data-pane-font-controls="input"', INDEX_HTML)
-        self.assertIn('data-pane-font-controls="scratch"', INDEX_HTML)
-        self.assertIn('data-pane-font-controls="status"', INDEX_HTML)
-        self.assertIn('id="decreaseTerminalFont"', INDEX_HTML)
-        self.assertIn('id="terminalFontValue"', INDEX_HTML)
-        self.assertIn('id="increaseTerminalFont"', INDEX_HTML)
-        self.assertIn('id="agentSessionIndicator"', INDEX_HTML)
-        self.assertIn("function updateSessionIndicator(session)", INDEX_HTML)
-        self.assertLess(
-            INDEX_HTML.index('id="decreaseTerminalFont"'),
-            INDEX_HTML.index('id="terminalFontValue"'),
-        )
-        self.assertLess(
-            INDEX_HTML.index('id="terminalFontValue"'),
-            INDEX_HTML.index('id="increaseTerminalFont"'),
-        )
-        self.assertLess(
-            INDEX_HTML.index('id="agentSessionIndicator"'),
-            INDEX_HTML.index('id="sessionSwitcher"'),
-        )
-        self.assertLess(
-            INDEX_HTML.index('class="workflow-toolbar"'),
-            INDEX_HTML.index('data-stage="project"'),
-        )
-        self.assertIn('id="interruptAgent"', INDEX_HTML)
-        self.assertIn('id="insertFileLink"', INDEX_HTML)
-        self.assertIn('id="popoutAgentPane"', INDEX_HTML)
-        self.assertIn("function popOutArtifactPreview(item)", INDEX_HTML)
-        self.assertIn('popOutPane("artifact", item);', INDEX_HTML)
-        self.assertIn("paneUrl(kind, requestedArtifactItem", INDEX_HTML)
-        self.assertIn("artifactPreviewStack.replaceChildren();", INDEX_HTML)
-        self.assertIn('if (poppedPanes.has("artifact"))', INDEX_HTML)
-        self.assertIn('id="popoutProgressPane"', INDEX_HTML)
-        self.assertIn('id="popoutScratchPane"', INDEX_HTML)
-        self.assertIn('id="popoutStatusPane"', INDEX_HTML)
-        self.assertIn('id="popoutInputPane"', INDEX_HTML)
-        self.assertIn('aria-label="Pop out AI agent input"', INDEX_HTML)
-        self.assertIn('class="agent-actions"', INDEX_HTML)
-        self.assertIn(".output-split.artifact-visible", INDEX_HTML)
-        self.assertIn(".output-split.split", INDEX_HTML)
-        self.assertIn(".output-split.split.artifact-visible", INDEX_HTML)
-        self.assertIn(".output-workbench", INDEX_HTML)
-        self.assertIn(".output-workbench.side-popped", INDEX_HTML)
-        self.assertIn(".workbench-resize-handle", INDEX_HTML)
-        self.assertIn(".side-pane-resize-handle", INDEX_HTML)
-        self.assertIn(".artifact-pane-resize-handle", INDEX_HTML)
-        self.assertIn(
-            "minmax(360px, var(--artifact-pane-width, 54%));",
-            INDEX_HTML,
-        )
-        self.assertNotIn(".side-pane.preview-visible", INDEX_HTML)
-        self.assertIn(".pane-popout-button", INDEX_HTML)
-        self.assertIn(".artifact-preview-frame", INDEX_HTML)
-        self.assertIn(".artifact-preview-frame.loading", INDEX_HTML)
-        self.assertIn("function markArtifactFrameLoading(frame)", INDEX_HTML)
-        self.assertIn('frame.className = "artifact-preview-frame loading"', INDEX_HTML)
-        self.assertIn("markArtifactFrameLoading(frame);", INDEX_HTML)
-        self.assertIn(".scratch-pad", INDEX_HTML)
-        self.assertIn(".project-status-output", INDEX_HTML)
-        self.assertIn(".shell-resize-handle", INDEX_HTML)
-        self.assertIn(".input-resize-handle", INDEX_HTML)
-        self.assertIn(".input-action-resize-handle", INDEX_HTML)
-        self.assertIn(".output-resize-handle", INDEX_HTML)
-        self.assertIn(".agent-pane.noninteractive", INDEX_HTML)
-        self.assertIn(".terminal-font-controls", INDEX_HTML)
-        self.assertIn(".directory-entry.file", INDEX_HTML)
-        self.assertIn(".directory-entry.selected", INDEX_HTML)
-        self.assertIn("xterm@5.3.0", INDEX_HTML)
-        self.assertIn("xterm-addon-fit@0.8.0", INDEX_HTML)
-        self.assertIn("new window.Terminal", INDEX_HTML)
-        self.assertIn('const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";', INDEX_HTML)
-        self.assertIn("function terminalOptions(disableStdin = true, pane = \"agent\")", INDEX_HTML)
-        self.assertIn("let terminalResizeObserver = null;", INDEX_HTML)
-        self.assertIn("function observeTerminalPaneResizes()", INDEX_HTML)
-        self.assertIn("terminalResizeObserver.observe(agentOutput);", INDEX_HTML)
-        self.assertIn("terminalResizeObserver.observe(progressOutput);", INDEX_HTML)
-        self.assertIn("terminalResizeObserver.observe(projectShellOutput);", INDEX_HTML)
-        self.assertIn("terminalFit.fit();", INDEX_HTML)
-        self.assertIn("terminal.onResize(({ cols, rows }) => {", INDEX_HTML)
-        self.assertIn("queueTerminalResize(cols, rows);", INDEX_HTML)
-        self.assertIn(
-            "function terminalResizePayload(columns = null, rows = null)",
-            INDEX_HTML,
-        )
-        self.assertIn("session_id: session.session_id,", INDEX_HTML)
-        self.assertIn(".agent-output .xterm,\n    .progress-output .xterm,", INDEX_HTML)
-        self.assertIn("      width: 100%;\n      height: 100%;", INDEX_HTML)
-        self.assertIn("disableStdin,", INDEX_HTML)
-        self.assertIn('terminalOptions(false, "shell")', INDEX_HTML)
-        self.assertIn('termName: "xterm-256color"', INDEX_HTML)
-        self.assertIn("scrollback: 10000,", INDEX_HTML)
-        self.assertIn("function writeBlobWithPicker(", INDEX_HTML)
-        self.assertIn("window.showSaveFilePicker", INDEX_HTML)
-        self.assertIn("function exportAgentSession()", INDEX_HTML)
-        self.assertIn("function exportProgressLog()", INDEX_HTML)
-        self.assertIn("/api/sessions/export?session_id=", INDEX_HTML)
-        self.assertIn('contextUrl("/api/progress/export")', INDEX_HTML)
-        self.assertIn('exportAgentOutput.addEventListener("click"', INDEX_HTML)
-        self.assertIn('exportProgressOutput.addEventListener("click"', INDEX_HTML)
-        self.assertIn('const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";', INDEX_HTML)
-        self.assertIn('const DOCUMENT_ZOOM_STORAGE_KEY = "electroboy.documentZoom";', INDEX_HTML)
-        self.assertIn(
-            'const INPUT_ACTIONS_WIDTH_STORAGE_KEY = "electroboy.inputActionsWidth";',
-            INDEX_HTML,
-        )
-        self.assertIn("function changeDocumentZoom(delta)", INDEX_HTML)
-        self.assertIn('parameters.set("zoom", String(documentZoom));', INDEX_HTML)
-        self.assertIn(
-            'const WORKFLOW_PANE_HEIGHT_STORAGE_KEY = "electroboy.workflowPaneHeight";',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'const WORKFLOW_PANE_HEIGHT_STORAGE_VERSION_KEY =',
-            INDEX_HTML,
-        )
-        self.assertIn('const DEFAULT_WORKFLOW_PANE_HEIGHT = 86;', INDEX_HTML)
-        self.assertIn('const MIN_WORKFLOW_PANE_HEIGHT = 86;', INDEX_HTML)
-        self.assertIn(
-            'const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";',
-            INDEX_HTML,
-        )
-        self.assertIn('const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";', INDEX_HTML)
-        self.assertIn(
-            'const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'const PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY =',
-            INDEX_HTML,
-        )
-        self.assertIn('const RIGHT_PANE_WIDTH_STORAGE_KEY = "electroboy.rightPaneWidth";', INDEX_HTML)
-        self.assertIn(
-            'const RIGHT_PANE_HEIGHT_STORAGE_KEY = "electroboy.rightPaneHeight";',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'const SCRATCH_PANE_HEIGHT_STORAGE_KEY = "electroboy.scratchPaneHeight";',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'const ARTIFACT_PANE_WIDTH_STORAGE_KEY = "electroboy.artifactPaneWidth";',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'const ARTIFACT_PANE_HEIGHT_STORAGE_KEY = "electroboy.artifactPaneHeight";',
-            INDEX_HTML,
-        )
-        self.assertIn('const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";', INDEX_HTML)
-        self.assertIn("function scratchPadStorageKey()", INDEX_HTML)
-        self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", INDEX_HTML)
-        self.assertIn("let restoredScratchContextId = \"\";", INDEX_HTML)
-        self.assertIn("if (restoredScratchContextId !== contextId)", INDEX_HTML)
-        self.assertIn("window.localStorage.getItem(storageKey)", INDEX_HTML)
-        self.assertIn("window.localStorage.setItem(storageKey", INDEX_HTML)
-        self.assertIn("const PANE_POPUP_FEATURES =", INDEX_HTML)
-        self.assertIn("const DEFAULT_TERMINAL_FONT_SIZE = 15;", INDEX_HTML)
-        self.assertIn("const MIN_INPUT_PANE_HEIGHT = 56;", INDEX_HTML)
-        self.assertIn("function changeTerminalFontSize(delta)", INDEX_HTML)
-        self.assertIn("function changePaneFontOffset(pane, delta)", INDEX_HTML)
-        self.assertIn("function resetPaneFontOffset(pane)", INDEX_HTML)
-        self.assertIn("function effectivePaneFontSize(pane)", INDEX_HTML)
-        self.assertIn("paneTerminal.options.fontSize = fontSize", INDEX_HTML)
-        self.assertIn("function prepareTerminalStream()", INDEX_HTML)
-        self.assertGreaterEqual(INDEX_HTML.count("prepareTerminalStream();"), 3)
-        self.assertIn('font-size: var(--ui-font-size);', INDEX_HTML)
-        self.assertIn("var(--agent-output-font-size, var(--terminal-font-size))", INDEX_HTML)
-        self.assertIn("var(--progress-output-font-size, var(--terminal-font-size))", INDEX_HTML)
-        self.assertIn("var(--project-shell-font-size, var(--terminal-font-size))", INDEX_HTML)
-        self.assertIn("var(--agent-input-font-size, var(--terminal-font-size))", INDEX_HTML)
-        self.assertIn("var(--scratch-pad-font-size, var(--terminal-font-size))", INDEX_HTML)
-        self.assertIn("var(--project-status-font-size, var(--terminal-font-size))", INDEX_HTML)
-        self.assertIn('"--ui-font-size"', INDEX_HTML)
-        self.assertIn('"--terminal-font-size"', INDEX_HTML)
-        self.assertIn("function startShellResize(event)", INDEX_HTML)
-        self.assertIn("function updateShellResize(event)", INDEX_HTML)
-        self.assertIn("function finishShellResize(event)", INDEX_HTML)
-        self.assertIn("function storedWorkflowPaneHeight()", INDEX_HTML)
-        self.assertIn("function saveWorkflowPaneHeight(height)", INDEX_HTML)
-        self.assertIn("saveWorkflowPaneHeight(DEFAULT_WORKFLOW_PANE_HEIGHT)", INDEX_HTML)
-        self.assertIn("saveWorkflowPaneHeight(nextHeight);", INDEX_HTML)
-        self.assertIn("function startInputResize(event)", INDEX_HTML)
-        self.assertIn("function updateInputResize(event)", INDEX_HTML)
-        self.assertIn("Math.max(MIN_INPUT_PANE_HEIGHT, agentRect.height - 160)", INDEX_HTML)
-        self.assertIn("MIN_INPUT_PANE_HEIGHT,\n        resizeInputState.maxHeight", INDEX_HTML)
-        self.assertIn("function finishInputResize(event)", INDEX_HTML)
-        self.assertIn("function startInputActionsResize(event)", INDEX_HTML)
-        self.assertIn("function updateInputActionsResize(event)", INDEX_HTML)
-        self.assertIn("function finishInputActionsResize(event)", INDEX_HTML)
-        self.assertIn("function startOutputResize(event)", INDEX_HTML)
-        self.assertIn("function updateOutputResize(event)", INDEX_HTML)
-        self.assertIn("function finishOutputResize(event)", INDEX_HTML)
-        self.assertIn("function startWorkbenchResize(event)", INDEX_HTML)
-        self.assertIn("function updateWorkbenchResize(event)", INDEX_HTML)
-        self.assertIn("function finishWorkbenchResize(event)", INDEX_HTML)
-        self.assertIn("function startSidePaneResize(event)", INDEX_HTML)
-        self.assertIn("function updateSidePaneResize(event)", INDEX_HTML)
-        self.assertIn("function finishSidePaneResize(event)", INDEX_HTML)
-        self.assertIn("function applyOutputPaneVisibility()", INDEX_HTML)
-        self.assertIn("function startArtifactPaneResize(event)", INDEX_HTML)
-        self.assertIn("function updateArtifactPaneResize(event)", INDEX_HTML)
-        self.assertIn("function finishArtifactPaneResize(event)", INDEX_HTML)
-        self.assertIn("function startProjectShellPaneResize(event)", INDEX_HTML)
-        self.assertIn("function updateProjectShellPaneResize(event)", INDEX_HTML)
-        self.assertIn("function finishProjectShellPaneResize(event)", INDEX_HTML)
-        self.assertIn("function popOutPane(kind, artifactItem = null)", INDEX_HTML)
-        self.assertIn("function dockPoppedPane(kind)", INDEX_HTML)
-        self.assertIn("function setPanePoppedOut(kind, poppedOut)", INDEX_HTML)
-        self.assertIn("function applySidePaneVisibility()", INDEX_HTML)
-        self.assertIn("applyStoredPaneSizes();", INDEX_HTML)
-        self.assertIn("applyStoredProgressPaneSize();", INDEX_HTML)
-        self.assertIn("applyStoredArtifactPaneSize();", INDEX_HTML)
-        self.assertIn("applyStoredWorkbenchPaneSize();", INDEX_HTML)
-        self.assertIn("applySidePaneVisibility();", INDEX_HTML)
-        self.assertIn("restoreScratchPad();", INDEX_HTML)
-        self.assertIn("saveNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
-        self.assertIn("saveNumber(INPUT_PANE_HEIGHT_STORAGE_KEY", INDEX_HTML)
-        self.assertIn("saveProgressPaneHeight(nextHeight);", INDEX_HTML)
-        self.assertIn("saveRightPaneWidth(nextWidth);", INDEX_HTML)
-        self.assertIn("saveScratchPaneHeight(nextHeight);", INDEX_HTML)
-        self.assertIn("saveArtifactPaneWidth(nextWidth);", INDEX_HTML)
-        self.assertIn("saveArtifactPaneHeight(nextHeight);", INDEX_HTML)
-        self.assertIn("saveProjectShellPaneHeight(nextHeight);", INDEX_HTML)
-        self.assertIn("changePaneFontOffset(", INDEX_HTML)
-        self.assertIn("resetPaneFontOffset(button.dataset.paneFont", INDEX_HTML)
-        self.assertIn("shellResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("inputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("inputActionResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("outputResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("workbenchResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("sidePaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("artifactPaneResizeHandle.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("shellPaneDivider.addEventListener(\"pointerdown\"", INDEX_HTML)
-        self.assertIn("toggleProjectShellPane.addEventListener(\"click\"", INDEX_HTML)
-        self.assertIn(
-            'closeProjectShellPane.addEventListener("click", hideProjectShellPane);',
-            INDEX_HTML,
-        )
-        self.assertIn('scratchPad.addEventListener("input", saveScratchPad);', INDEX_HTML)
-        self.assertIn('artifactRouteUrl("/artifacts/requirements")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', INDEX_HTML)
-        self.assertIn("let artifactEventSources = [];", INDEX_HTML)
-        self.assertIn("function artifactEventUrl(item)", INDEX_HTML)
-        self.assertIn('parameters.set("artifact", "document")', INDEX_HTML)
-        self.assertIn('parameters.set("artifact", "route")', INDEX_HTML)
-        self.assertIn("artifactPreviewItems.map(artifactEventUrl)", INDEX_HTML)
-        self.assertIn('data.type === "electroboy-artifact-saved"', INDEX_HTML)
-        self.assertIn("refreshArtifactPreview({ includeEditing: false });", INDEX_HTML)
-        self.assertIn('refresh.textContent = "Refresh";', INDEX_HTML)
-        self.assertIn('"artifact-event"', INDEX_HTML)
-        self.assertNotIn("ARTIFACT_PREVIEW_REFRESH_MS", INDEX_HTML)
-        self.assertIn("function showArtifactPreview(kind, options = {})", INDEX_HTML)
-        self.assertIn("function showArtifactPreviews(items, options = {})", INDEX_HTML)
-        self.assertIn("function showStageArtifactPreview(stage)", INDEX_HTML)
-        self.assertIn("function showDocumentPreview(target)", INDEX_HTML)
-        self.assertIn("function artifactPreviewsForStage(stage)", INDEX_HTML)
-        self.assertIn("const STAGE_ARTIFACT_PREVIEWS = {", INDEX_HTML)
-        self.assertIn('"design-review": [', INDEX_HTML)
-        self.assertIn('title: "Detailed Design"', INDEX_HTML)
-        self.assertIn('title: "Design Review"', INDEX_HTML)
-        self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', INDEX_HTML)
-        self.assertIn("artifactPreviewDocumentTarget", INDEX_HTML)
-        self.assertIn("function connectArtifactEvents()", INDEX_HTML)
-        self.assertIn("function closeArtifactEventStream()", INDEX_HTML)
-        self.assertIn("function stageIsRunning(stage)", INDEX_HTML)
-        self.assertIn("function syncArtifactPreviewWithProject()", INDEX_HTML)
-        self.assertIn(
-            "manualArtifactPreview && manualArtifactPreviewStage === currentWorkflowStage",
-            INDEX_HTML,
-        )
-        self.assertIn("artifactPreviewStage === currentWorkflowStage", INDEX_HTML)
-        self.assertIn("stageIsRunning(currentWorkflowStage)", INDEX_HTML)
-        self.assertIn("showStageArtifactPreview(kind);", INDEX_HTML)
-        self.assertIn("showStageArtifactPreview(currentWorkflowStage);", INDEX_HTML)
-        self.assertIn("if (!manualArtifactPreview)", INDEX_HTML)
-        self.assertIn("showArtifactPreview(\"requirements\")", INDEX_HTML)
-        self.assertIn('contextUrl("/api/project/status")', INDEX_HTML)
-        self.assertIn("function queueProjectStatusRefresh", INDEX_HTML)
-        self.assertIn(
-            "async function refreshProjectStatus(sequence = ++statusRefreshSequence)",
-            INDEX_HTML,
-        )
-        self.assertIn('projectStatusOutput.textContent = "refreshing status...', INDEX_HTML)
-        self.assertIn("black: \"#151923\"", INDEX_HTML)
-        self.assertIn("brightCyan: \"#99e9f2\"", INDEX_HTML)
-        self.assertIn("let progressEventSource = null;", INDEX_HTML)
-        self.assertIn("let progressTerminal = null;", INDEX_HTML)
-        self.assertIn("function initializeProgressTerminal()", INDEX_HTML)
-        self.assertIn("function showProgressPane(show)", INDEX_HTML)
-        self.assertIn("function connectProgressEvents()", INDEX_HTML)
-        self.assertIn("function closeProgressEventStream()", INDEX_HTML)
-        self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
-        self.assertIn('"progress-event"', INDEX_HTML)
-        self.assertIn("payload.running === false", INDEX_HTML)
-        self.assertIn('const CONTEXT_STORAGE_KEY = "electroboy.contextId";', INDEX_HTML)
-        self.assertIn('const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";', INDEX_HTML)
-        self.assertIn('const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";', INDEX_HTML)
-        self.assertIn("window.sessionStorage.getItem", INDEX_HTML)
-        self.assertIn("window.sessionStorage.setItem", INDEX_HTML)
-        self.assertIn("window.localStorage.setItem", INDEX_HTML)
-        self.assertIn("function contextWorkflowStorageKey(mode = workflowMode)", INDEX_HTML)
-        self.assertIn("function clearLegacyContextId()", INDEX_HTML)
-        self.assertIn("function storedContextId(mode = workflowMode)", INDEX_HTML)
-        self.assertIn("function saveContextId(value, mode = workflowMode)", INDEX_HTML)
-        self.assertIn("`${CONTEXT_STORAGE_KEY}.${suffix}`", INDEX_HTML)
-        self.assertIn("window.sessionStorage.removeItem(CONTEXT_STORAGE_KEY)", INDEX_HTML)
-        self.assertIn("function claimContextOwner(value)", INDEX_HTML)
-        self.assertIn("function hasConflictingContextOwner(value)", INDEX_HTML)
-        self.assertIn("function resetWorkflowContextView()", INDEX_HTML)
-        self.assertIn('projectPath.value = serviceRoot || "";', INDEX_HTML)
-        self.assertIn('window.addEventListener("pagehide", releaseContextOwner);', INDEX_HTML)
-        self.assertIn('window.addEventListener("pageshow"', INDEX_HTML)
-        self.assertIn("async function restoreContext()", INDEX_HTML)
-        self.assertIn('fetch("/api/contexts"', INDEX_HTML)
-        self.assertIn('let contextId = "";', INDEX_HTML)
-        self.assertIn('let activationRoot = "";', INDEX_HTML)
-        self.assertIn('let activeProjectMode = "none";', INDEX_HTML)
-        self.assertIn('let activeRepositoryName = "";', INDEX_HTML)
-        self.assertIn("let registeredRepositories = [];", INDEX_HTML)
-        self.assertIn('let currentWorkflowStage = "project";', INDEX_HTML)
-        self.assertIn("requirementsRunning = Boolean(payload.requirements_running)", INDEX_HTML)
-        self.assertIn("requirementsApproved = Boolean(payload.requirements_approved)", INDEX_HTML)
-        self.assertIn("designRunning = Boolean(payload.design_running)", INDEX_HTML)
-        self.assertIn("designReviewRunning = Boolean(payload.design_review_running)", INDEX_HTML)
-        self.assertIn("designReviewInteractive = Boolean(payload.design_review_interactive)", INDEX_HTML)
-        self.assertIn("designApproved = Boolean(payload.design_approved)", INDEX_HTML)
-        self.assertIn("documentationRunning = Boolean(payload.documentation_running)", INDEX_HTML)
-        self.assertIn("adHocRunning = Boolean(payload.ad_hoc_running)", INDEX_HTML)
-        self.assertIn("function renderSessionSwitcher()", INDEX_HTML)
-        self.assertIn("function selectAgentSession(sessionId)", INDEX_HTML)
-        self.assertIn("function connectSessionEvents(sessionId)", INDEX_HTML)
-        self.assertIn("const DEFAULT_DOCUMENT_TARGETS = [", INDEX_HTML)
-        self.assertIn('label: "README", path: "README.md"', INDEX_HTML)
-        self.assertIn('label: "API", path: "docs/api.md"', INDEX_HTML)
-        self.assertIn('raw.toLowerCase() === "readme"', INDEX_HTML)
+
+        self.assertIn('navigation: "stages"', software)
+        self.assertIn("stageDescriptions: STAGE_DESCRIPTIONS", software)
+        self.assertIn('data-creative-control="project-menu"', creative)
+        self.assertIn("function renderNavigation(container, runtime)", creative)
+        self.assertIn('navigation: "sidebar"', creative)
+
+        self.assertIn('id="projectPanel"', template)
+        self.assertIn('id="fileBrowser"', template)
+        self.assertIn('id="sessionSwitcher"', template)
+        self.assertIn('id="agentOutput"', template)
+        self.assertIn('id="artifactPreviewPane"', template)
+        self.assertIn('id="progressOutputPane"', template)
+        self.assertIn('id="projectShellPane"', template)
+        self.assertIn('id="scratchPad"', template)
 
     def test_artifact_event_document_path_resolves_visible_documents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1672,9 +1676,7 @@ class ServiceTests(unittest.TestCase):
                         "artifacts": {
                             "requirements": "docs/requirements-munge.md",
                             "design": "docs/detailed-design-munge.md",
-                            "implementation_plan": (
-                                "docs/implementation-plan-munge.md"
-                            ),
+                            "implementation_plan": "docs/implementation-plan-munge.md",
                         },
                     }
                 ),
@@ -1697,257 +1699,6 @@ class ServiceTests(unittest.TestCase):
                 ),
                 root.resolve() / "docs" / "implementation-plan-munge.md",
             )
-        self.assertIn("function renderDocumentTargets()", INDEX_HTML)
-        self.assertIn("function addCustomDocumentTarget()", INDEX_HTML)
-        self.assertIn("async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0])", INDEX_HTML)
-        self.assertIn("const session = selectedSession();", INDEX_HTML)
-        self.assertIn("connectSessionEvents(session.session_id)", INDEX_HTML)
-        self.assertIn('if (!isInteractive && session.status === "running")', INDEX_HTML)
-        self.assertIn("connectProgressEvents();", INDEX_HTML)
-        self.assertIn("await restoreContext();", INDEX_HTML)
-        self.assertIn("async function setWorkflowMode(mode)", INDEX_HTML)
-        self.assertIn("applyWorkflowMode({ deferWorkspace: true })", INDEX_HTML)
-        self.assertIn("setWorkflowMode(workflowModeSelect.value).catch", INDEX_HTML)
-        self.assertIn("currentWorkflowStage = workflowStage;", INDEX_HTML)
-        self.assertIn("function updateRequirementsMenuState()", INDEX_HTML)
-        self.assertNotIn("function updateRequirementsApproveMenuState()", INDEX_HTML)
-        self.assertIn("function updateDesignMenuState()", INDEX_HTML)
-        self.assertIn("function updateDesignReviewMenuState()", INDEX_HTML)
-        self.assertIn("function updateGenericStageMenuStates()", INDEX_HTML)
-        self.assertIn("function updateAuthoringStageMenuState(", INDEX_HTML)
-        self.assertIn("function updateAutomaticStageMenuState(", INDEX_HTML)
-        self.assertIn("function genericStageRun(stage)", INDEX_HTML)
-        self.assertIn("function updateDocumentMenuState()", INDEX_HTML)
-        self.assertNotIn("function updateDesignApproveMenuState()", INDEX_HTML)
-        self.assertIn('const inRequirementsStage = currentWorkflowStage === "requirements";', INDEX_HTML)
-        self.assertIn(
-            "setRequirementsStage.disabled = !hasActiveProject || inRequirementsStage",
-            INDEX_HTML,
-        )
-        self.assertIn("!hasActiveProject || !inRequirementsStage || requirementsRunning", INDEX_HTML)
-        self.assertIn("approveRequirements.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
-        self.assertIn("skipRequirementsApproval.disabled = !hasActiveProject || !inRequirementsStage", INDEX_HTML)
-        self.assertNotIn("openRequirements.disabled =", INDEX_HTML)
-        self.assertIn("setDesignStage.disabled = !hasActiveProject || inDesignStage", INDEX_HTML)
-        self.assertIn("completeDesign.disabled = !hasActiveProject || !inDesignStage", INDEX_HTML)
-        self.assertIn(
-            "setDesignReviewStage.disabled = !hasActiveProject || inDesignReviewStage",
-            INDEX_HTML,
-        )
-        self.assertIn(
-            "startAutomaticDesignReview.disabled =\n"
-            "        !hasActiveProject || !inDesignReviewStage || designReviewRunning",
-            INDEX_HTML,
-        )
-        self.assertIn("startInteractiveDesignReview.disabled =", INDEX_HTML)
-        self.assertIn("stopDesignReview.disabled =", INDEX_HTML)
-        self.assertIn("!hasActiveProject || !inDesignReviewStage || !designReviewRunning", INDEX_HTML)
-        self.assertIn("approveDesignReview.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
-        self.assertIn("skipDesignReviewApproval.disabled = !hasActiveProject || !inDesignReviewStage", INDEX_HTML)
-        self.assertNotIn("openDesignFromReview.disabled =", INDEX_HTML)
-        self.assertIn("showStageActionPanel(stageId)", INDEX_HTML)
-        self.assertIn("setWorkflowSideSheetCollapsed(false)", INDEX_HTML)
-        self.assertIn('"aria-expanded", isExpanded ? "true" : "false"', INDEX_HTML)
-        self.assertIn('updateAuthoringStageMenuState(\n        "implementation-plan"', INDEX_HTML)
-        self.assertIn('updateAutomaticStageMenuState(\n        "code"', INDEX_HTML)
-        self.assertIn('updateAuthoringStageMenuState(\n        "test-plan"', INDEX_HTML)
-        self.assertIn('updateAutomaticStageMenuState(\n        "validate"', INDEX_HTML)
-        self.assertIn("customDocumentName.disabled = !hasActiveProject", INDEX_HTML)
-        self.assertIn("const disabled = !activeProjectRoot;", INDEX_HTML)
-        self.assertNotIn("const disabled = !activeProjectRoot || documentationRunning", INDEX_HTML)
-        self.assertIn("function openDocumentFileBrowser()", INDEX_HTML)
-        self.assertIn("function openNewDocumentFileBrowser()", INDEX_HTML)
-        self.assertIn('fileBrowserUrl(activeProjectRoot, "document")', INDEX_HTML)
-        self.assertIn('fileBrowserUrl(activeProjectRoot, "document-new")', INDEX_HTML)
-        self.assertIn('if (data.mode === "document" || data.mode === "document-new")', INDEX_HTML)
-        self.assertIn('label: "Meta project"', INDEX_HTML)
-        self.assertIn('label: "Work items"', INDEX_HTML)
-        self.assertIn('label: "Open"', INDEX_HTML)
-        self.assertIn('label: "New"', INDEX_HTML)
-        self.assertIn("function launchDocumentTarget(target)", INDEX_HTML)
-        self.assertIn("function documentationSessionForTarget(target)", INDEX_HTML)
-        self.assertIn("function selectOpenDocumentTarget(path)", INDEX_HTML)
-        self.assertIn("function agentSessionDisplayLabel(session)", INDEX_HTML)
-        self.assertIn('className = "document-target-switcher"', INDEX_HTML)
-        self.assertNotIn("if (documentationRunning) {\n        hideStageMenus();", INDEX_HTML)
-        self.assertIn("showDocumentPreview(target);", INDEX_HTML)
-        self.assertIn("startDocumentationAgent(target);", INDEX_HTML)
-        self.assertIn("window.confirm", INDEX_HTML)
-        self.assertIn("Requirements have not been explicitly approved", INDEX_HTML)
-        self.assertIn("Design has not been explicitly approved", INDEX_HTML)
-        self.assertIn("function contextUrl(path)", INDEX_HTML)
-        self.assertIn('contextUrl("/api/project")', INDEX_HTML)
-        self.assertIn('"/api/project/open"', INDEX_HTML)
-        self.assertIn('"/api/project/new"', INDEX_HTML)
-        self.assertIn('"/api/meta/init"', INDEX_HTML)
-        self.assertIn('"/api/meta/add"', INDEX_HTML)
-        self.assertIn('"/api/meta/start"', INDEX_HTML)
-        self.assertIn('"/api/meta/remove"', INDEX_HTML)
-        self.assertIn('"/api/sessions/select"', INDEX_HTML)
-        self.assertIn('"/api/sessions/message"', INDEX_HTML)
-        self.assertIn('"/api/sessions/interrupt"', INDEX_HTML)
-        self.assertIn('"/api/sessions/resize"', INDEX_HTML)
-        self.assertIn('"/api/agents/documentation/start"', INDEX_HTML)
-        self.assertIn('contextUrl("/api/project/deactivate")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/workflow/stage")', INDEX_HTML)
-        self.assertIn('artifactRouteUrl("/artifacts/requirements")', INDEX_HTML)
-        self.assertIn('path: "/artifacts/design"', INDEX_HTML)
-        self.assertIn('path: "/artifacts/design-review"', INDEX_HTML)
-        self.assertIn('"/artifacts/implementation-plan"', INDEX_HTML)
-        self.assertIn('"/artifacts/implementation-report"', INDEX_HTML)
-        self.assertIn('"/artifacts/test-plan"', INDEX_HTML)
-        self.assertIn('"/artifacts/validation-report"', INDEX_HTML)
-        self.assertIn("/artifacts/document", INDEX_HTML)
-        self.assertIn('contextUrl("/api/progress/events")', INDEX_HTML)
-        self.assertIn("`/pane/${encodeURIComponent(kind)}?", INDEX_HTML)
-        self.assertIn(
-            'function fileBrowserUrl(path, mode = "project", projectAction = "")',
-            INDEX_HTML,
-        )
-        self.assertIn('return `/file-browser?${parameters.toString()}`;', INDEX_HTML)
-        self.assertIn(
-            "function openProjectBrowser(mode = projectMode, activateSelection = false)",
-            INDEX_HTML,
-        )
-        self.assertIn('mode === "new" || mode === "meta-new"', INDEX_HTML)
-        self.assertIn(
-            'fileBrowserUrl(path, browserMode, activateSelection ? mode : "")',
-            INDEX_HTML,
-        )
-        self.assertIn("let projectBrowserActivatesSelection = false;", INDEX_HTML)
-        self.assertIn(
-            "projectBrowserActivatesSelection || data.project_action",
-            INDEX_HTML,
-        )
-        self.assertIn("projectMode = data.project_action;", INDEX_HTML)
-        self.assertIn('openProjectBrowser("open", true)', INDEX_HTML)
-        self.assertIn(
-            'newProject.addEventListener("click", () => openProjectBrowser("new", true))',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'newMetaProject.addEventListener("click", () => openProjectBrowser("meta-new", true))',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'data.mode === "project" || data.mode === "project-new"',
-            INDEX_HTML,
-        )
-        self.assertIn(
-            'fileBrowserUrl(path, browserMode, activateSelection ? mode : "")',
-            INDEX_HTML,
-        )
-        self.assertIn("applyProjectSelection(data.path)", INDEX_HTML)
-        self.assertIn("function openLinkFileBrowser()", INDEX_HTML)
-        self.assertIn('appendOutput("popup was blocked by the browser\\n"', INDEX_HTML)
-        self.assertIn("electroboy-file-browser-select", INDEX_HTML)
-        self.assertIn('if (data.mode === "link")', INDEX_HTML)
-        self.assertIn("projectPath.value = data.path;", INDEX_HTML)
-        self.assertIn("/api/files/browse?path=", INDEX_HTML)
-        self.assertIn("&mode=file", INDEX_HTML)
-        self.assertIn("function selectCurrentDirectory()", INDEX_HTML)
-        self.assertIn("function insertSelectedFilePath()", INDEX_HTML)
-        self.assertIn("function insertTextAtCursor(text)", INDEX_HTML)
-        self.assertIn("function selectFileForInput(path, button)", INDEX_HTML)
-        self.assertIn("activating:", INDEX_HTML)
-        self.assertIn("activation request failed:", INDEX_HTML)
-        self.assertIn("choose a project directory first", INDEX_HTML)
-        self.assertIn("projectPanel.hidden = true;", INDEX_HTML)
-        self.assertIn("EventSource(contextUrl(`/api/agents/${kind}/events`))", INDEX_HTML)
-        self.assertIn('"/api/agents/requirements/start"', INDEX_HTML)
-        self.assertNotIn('"/api/agents/requirements/restart"', INDEX_HTML)
-        self.assertIn('"/api/agents/requirements/approve"', INDEX_HTML)
-        self.assertIn('"/api/agents/requirements/skip-approval"', INDEX_HTML)
-        self.assertIn('"/api/agents/design/start"', INDEX_HTML)
-        self.assertNotIn('"/api/agents/design/restart"', INDEX_HTML)
-        self.assertIn('"/api/agents/design/complete"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-review/start"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-review/start-interactive"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-review/stop"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-review/approve"', INDEX_HTML)
-        self.assertIn('"/api/agents/design-review/skip-approval"', INDEX_HTML)
-        self.assertIn('"/api/agents/ad-hoc/start"', INDEX_HTML)
-        self.assertIn("startCodeAdHocAgentButton.addEventListener", INDEX_HTML)
-        self.assertIn("actions.splice(3, 0", INDEX_HTML)
-        self.assertNotIn('"/api/agents/design-review/restart"', INDEX_HTML)
-        self.assertNotIn('"/api/agents/design-approve/approve"', INDEX_HTML)
-        self.assertIn("body: JSON.stringify({ target: documentTarget.path })", INDEX_HTML)
-        self.assertIn("function approveRequirementsStage(skipApproval = false)", INDEX_HTML)
-        self.assertIn("function skipRequirementsApprovalStage()", INDEX_HTML)
-        self.assertIn("function approveDesignReviewStage(skipApproval = false)", INDEX_HTML)
-        self.assertIn("function skipDesignReviewApprovalStage()", INDEX_HTML)
-        self.assertIn("async function startGenericStageAgent(", INDEX_HTML)
-        self.assertIn("async function setWorkflowStageFromMenu(stageId)", INDEX_HTML)
-        self.assertNotIn("async function restartGenericStageAgent(", INDEX_HTML)
-        self.assertIn("async function stopGenericStageAgent(", INDEX_HTML)
-        self.assertIn("async function approveGenericStage(", INDEX_HTML)
-        self.assertIn("async function skipGenericStageApproval(", INDEX_HTML)
-        self.assertNotIn("function openStageDocument(stage, path)", INDEX_HTML)
-        self.assertIn('startGenericStageAgent(\n        "implementation-plan"', INDEX_HTML)
-        self.assertIn('startGenericStageAgent("code", "$ electroboy code", false)', INDEX_HTML)
-        self.assertIn('startGenericStageAgent("test-plan", "$ electroboy test-plan", true)', INDEX_HTML)
-        self.assertIn('startGenericStageAgent("validate", "$ electroboy validate", false)', INDEX_HTML)
-        self.assertIn(
-            'agentInput.value = "";\n'
-            "      clearAgentOutput();\n"
-            "      updateProjectState(payload);",
-            INDEX_HTML,
-        )
-        self.assertIn('contextUrl("/api/sessions/message")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/sessions/key")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/sessions/raw")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/sessions/interrupt")', INDEX_HTML)
-        self.assertIn('contextUrl("/api/sessions/resize")', INDEX_HTML)
-        self.assertIn('"/api/sessions/raw"', INDEX_HTML)
-        self.assertIn("let slashCommandMode = false;", INDEX_HTML)
-        self.assertIn("let terminalInputQueue = Promise.resolve();", INDEX_HTML)
-        self.assertIn("function queueTerminalInput(task)", INDEX_HTML)
-        self.assertIn("function handleSlashCommandInput(event)", INDEX_HTML)
-        self.assertIn("if (slashCommandMode) {\n        sendTerminalKey(\"enter\");", INDEX_HTML)
-        self.assertIn('event.key === "/"', INDEX_HTML)
-        self.assertIn("sendTerminalRaw(event.key);", INDEX_HTML)
-        self.assertIn('if (slashKey === "enter" || slashKey === "escape")', INDEX_HTML)
-        self.assertIn('if (event.key === "Backspace") return "backspace";', INDEX_HTML)
-        self.assertIn('if (event.key === "Delete") return "delete";', INDEX_HTML)
-        self.assertIn("function terminalKeyForInputEvent(event)", INDEX_HTML)
-        self.assertLess(
-            INDEX_HTML.index('event.key === "Escape"'),
-            INDEX_HTML.index("if (agentInput.value.length > 0)"),
-        )
-        self.assertIn('if (event.key === "ArrowUp") return "up";', INDEX_HTML)
-        self.assertIn("event.ctrlKey &&", INDEX_HTML)
-        self.assertIn("/^[0-9]$/.test(event.key)", INDEX_HTML)
-        self.assertIn("payload.terminal || payload.text", INDEX_HTML)
-        self.assertIn("function clearAgentOutput()", INDEX_HTML)
-        self.assertIn("terminal.clear();", INDEX_HTML)
-        self.assertIn("agentInput.value = \"\";", INDEX_HTML)
-        self.assertNotIn("function restartRequirementsAgent()", INDEX_HTML)
-        self.assertIn("function completeRequirementsAgent()", INDEX_HTML)
-        self.assertNotIn("function restartDesignAgent()", INDEX_HTML)
-        self.assertIn("function completeDesignAgent()", INDEX_HTML)
-        self.assertIn("function startAutomaticDesignReviewAgent()", INDEX_HTML)
-        self.assertIn("function startInteractiveDesignReviewAgent()", INDEX_HTML)
-        self.assertIn("function stopDesignReviewAgent()", INDEX_HTML)
-        self.assertIn("function completeDesignReviewAgent()", INDEX_HTML)
-        self.assertNotIn("function restartDesignReviewAgent()", INDEX_HTML)
-        self.assertNotIn("function openRequirementsDocument()", INDEX_HTML)
-        self.assertNotIn("function openDesignDocument()", INDEX_HTML)
-        self.assertNotIn("function openDesignReviewDocument()", INDEX_HTML)
-        self.assertNotIn("window.open(contextUrl(\"/artifacts/requirements\")", INDEX_HTML)
-        self.assertIn("function positionStageMenu(menu, stage)", INDEX_HTML)
-        self.assertIn("function hideStageMenus(exceptMenu = null)", INDEX_HTML)
-        self.assertNotIn("positionStageMenu(requirementsApproveMenu, requirementsApproveStage)", INDEX_HTML)
-        self.assertIn("positionStageMenu(designMenu, designStage)", INDEX_HTML)
-        self.assertIn("positionStageMenu(designReviewMenu, designReviewStage)", INDEX_HTML)
-        self.assertIn("positionStageMenu(implementationPlanMenu, implementationPlanStage)", INDEX_HTML)
-        self.assertIn("positionStageMenu(codeMenu, codeStage)", INDEX_HTML)
-        self.assertIn("positionStageMenu(testPlanMenu, testPlanStage)", INDEX_HTML)
-        self.assertIn("positionStageMenu(validateMenu, validateStage)", INDEX_HTML)
-        self.assertNotIn("positionStageMenu(designApproveMenu, designApproveStage)", INDEX_HTML)
-        self.assertIn("stageScroll.addEventListener(\"scroll\", repositionOpenStageMenu)", INDEX_HTML)
-        self.assertIn('event.code === "NumpadEnter"', INDEX_HTML)
-        self.assertIn("isEnter && event.shiftKey", INDEX_HTML)
-
     def test_workflow_payload_exposes_project_operations_before_activation(
         self,
     ) -> None:
@@ -2167,6 +1918,45 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
         self.assertIsNone(payload["active_project_root"])
 
+    def test_service_state_tracks_recent_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            creative_root = Path(tmp) / "story"
+            meta_root = Path(tmp) / "openQSE"
+            service_root.mkdir()
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            created_project = state.create_project(context_id, str(project_root))
+            created_creative = state.create_creative_project(
+                context_id,
+                str(creative_root),
+            )
+            created_meta = state.create_meta_project(context_id, str(meta_root))
+            reopened_project = state.open_project(context_id, str(project_root))
+            recent = reopened_project["recent_projects"]
+            recent_paths = [entry["path"] for entry in recent]
+            registry_path = (
+                service_root / ".electroboy" / "service" / "recent-projects.json"
+            )
+            registry_exists = registry_path.is_file()
+            registry_data = json.loads(registry_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(created_project["recent_projects"][0]["kind"], "project")
+        self.assertEqual(created_creative["recent_projects"][0]["kind"], "creative")
+        self.assertEqual(created_meta["recent_projects"][0]["kind"], "meta")
+        self.assertEqual(
+            [entry["kind"] for entry in recent[:3]],
+            ["project", "meta", "creative"],
+        )
+        self.assertEqual(recent_paths.count(str(project_root.resolve())), 1)
+        self.assertTrue(registry_exists)
+        self.assertEqual(
+            registry_data["projects"][0]["path"],
+            str(project_root.resolve()),
+        )
+
     def test_service_state_initializes_creative_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -2259,6 +2049,7 @@ class ServiceTests(unittest.TestCase):
                     "folder": "chapters",
                     "path": "chapters/chapter-01.md",
                     "note": "Escalate this beat.",
+                    "color": "sky",
                 },
             )
             ordered = state.save_creative_corkboard(
@@ -2306,12 +2097,16 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function showFolderInsertionMarker", page)
             self.assertIn("function folderInsertionPlacement", page)
             self.assertIn("repeating-linear-gradient(27deg", page)
+            self.assertIn("CARD_PALETTE", page)
+            self.assertIn("card-palette", page)
+            self.assertIn("function buildColorButton(card, cardElement)", page)
             self.assertIn("chapter-01.md", page)
             self.assertIn("/api/creative/corkboard", page)
             self.assertIn("electroboy-creative-open", page)
             self.assertNotIn("drop-target", page)
             self.assertEqual(saved["status"], "saved")
             self.assertEqual(saved["card"]["path"], "chapters/chapter-01.md")
+            self.assertEqual(saved["card"]["color"], "sky")
             self.assertEqual(
                 ordered["order"][:2],
                 ["chapters/chapter-02.md", "chapters/chapter-01.md"],
@@ -2355,6 +2150,7 @@ class ServiceTests(unittest.TestCase):
                         "note": "Start with a quiet contradiction.",
                         "x": -188,
                         "y": 8144,
+                        "color": "mint",
                     },
                 },
             )
@@ -2397,6 +2193,9 @@ class ServiceTests(unittest.TestCase):
             self.assertIn('remove.title = "Delete card";', page)
             self.assertIn("function deleteFreeformCard(card, button)", page)
             self.assertIn("await cardSaveRequests.get(key);", page)
+            self.assertIn("function cardColorName(card)", page)
+            self.assertIn("function buildColorButton(card, cardElement)", page)
+            self.assertIn("card-color-icon", page)
             self.assertIn('action: "delete"', page)
             self.assertNotIn('"Idea"', page)
             self.assertIn("selectedCardKey = card.id;", page)
@@ -2406,9 +2205,136 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(document["cards"][0]["id"], "opening-beat")
             self.assertEqual(document["cards"][0]["x"], -188)
             self.assertEqual(document["cards"][0]["y"], 8144)
+            self.assertEqual(document["cards"][0]["color"], "mint")
+            self.assertEqual(document["cards"][0]["card_type"], "card")
             self.assertEqual(deleted["status"], "deleted")
             self.assertEqual(deleted["card_id"], "opening-beat")
             self.assertEqual(deleted_document["cards"], [])
+
+    def test_creative_freeform_corkboard_converts_card_to_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.create_creative_corkboard(
+                context_id,
+                "corkboard/plot.corkboard.json",
+            )
+
+            saved = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card": {
+                        "id": "scene-one",
+                        "title": "Scene one",
+                        "note": "Break this scene down.",
+                        "card_type": "group",
+                    },
+                },
+            )
+            page, status = creative_corkboard_html(
+                project_root,
+                "corkboard/plot.corkboard.json",
+                context_id=context_id,
+            )
+            document = json.loads(
+                (project_root / "corkboard" / "plot.corkboard.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+
+            board_path = str(saved["card"]["board_path"])
+            child_document = json.loads(
+                (project_root / board_path).read_text(encoding="utf-8")
+            )
+            child_page, child_status = creative_corkboard_html(
+                project_root,
+                board_path,
+                context_id=context_id,
+            )
+            duplicate = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card": {
+                        "id": "scene-two",
+                        "title": "Scene one",
+                        "card_type": "group",
+                    },
+                },
+            )
+            duplicate_path = str(duplicate["card"]["board_path"])
+            duplicate_document = json.loads(
+                (project_root / duplicate_path).read_text(encoding="utf-8")
+            )
+            renamed = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "action": "title",
+                    "corkboard": board_path,
+                    "title": "Scene outline",
+                },
+            )
+            renamed_document = json.loads(
+                (project_root / board_path).read_text(encoding="utf-8")
+            )
+            renamed_parent_document = json.loads(
+                (project_root / "corkboard" / "plot.corkboard.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+            tree = state.creative_tree(context_id)
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertEqual(child_status, HTTPStatus.OK)
+            self.assertEqual(saved["card"]["card_type"], "group")
+            self.assertTrue(board_path.endswith(".corkboard.json"))
+            self.assertTrue((project_root / board_path).is_file())
+            self.assertEqual(document["cards"][0]["card_type"], "group")
+            self.assertEqual(document["cards"][0]["board_path"], board_path)
+            self.assertEqual(child_document["title"], "Scene one")
+            self.assertIn('id="boardTitle"', child_page)
+            self.assertIn('value="Scene one"', child_page)
+            self.assertNotEqual(duplicate_path, board_path)
+            self.assertEqual(duplicate_document["title"], "Scene one")
+            self.assertEqual(renamed["title"], "Scene outline")
+            self.assertEqual(renamed_document["title"], "Scene outline")
+            self.assertEqual(
+                renamed_parent_document["cards"][0]["title"],
+                "Scene outline",
+            )
+            self.assertEqual(
+                renamed["group_cards"],
+                [
+                    {
+                        "corkboard": "corkboard/plot.corkboard.json",
+                        "card_id": "scene-one",
+                    }
+                ],
+            )
+            self.assertTrue((project_root / board_path).is_file())
+            self.assertNotIn("corkboard/groups", json.dumps(tree))
+            self.assertIn(
+                "function convertCardToGroup(card, cardElement, button)",
+                page,
+            )
+            self.assertIn("function openGroupCard(card)", page)
+            self.assertIn("card-group-action", page)
+            self.assertIn("card-group-icon", page)
+            self.assertIn("Double-click to open card group", page)
+            self.assertIn("currentPress - previousTitlePress <= 500", page)
+            self.assertIn('action: "title"', child_page)
+            self.assertIn('type: "corkboard-title-changed"', child_page)
+            self.assertIn("new window.BroadcastChannel", child_page)
+            self.assertIn('"card_type": "group"', page)
+            self.assertIn(board_path, page)
 
     def test_service_state_starts_creative_writing_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2738,7 +2664,7 @@ class ServiceTests(unittest.TestCase):
             state.create_meta_project(context_id, str(meta_root))
 
             with mock.patch(
-                "electroboy.service._status_snapshot",
+                "electroboy.service.app._status_snapshot",
                 return_value=("meta-project status\n", True),
             ) as status_snapshot:
                 payload = state.project_status_payload(context_id)
@@ -2805,6 +2731,126 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("detailed-design", session.command[-1])
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "ad-hoc")
+
+    def test_service_session_registry_records_and_attaches_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            first_context = str(state.create_context()["context_id"])
+            second_context = str(state.create_context()["context_id"])
+            state.open_project(first_context, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, _started = state.start_ad_hoc_agent(first_context)
+
+            registry = state.session_registry_payload()
+            attach_payload = state.attach_session(second_context, session.session_id)
+            records = json.loads(
+                _service_session_records_path(service_root).read_text(
+                    encoding="utf-8",
+                )
+            )
+
+        self.assertEqual(registry["sessions"][0]["session_id"], session.session_id)
+        self.assertTrue(registry["sessions"][0]["attachable"])
+        self.assertEqual(
+            registry["sessions"][0]["active_project_root"],
+            str(project_root.resolve()),
+        )
+        self.assertEqual(records["sessions"][0]["session_id"], session.session_id)
+        self.assertEqual(attach_payload["status"], "attached")
+        self.assertEqual(
+            attach_payload["active_project_root"],
+            str(project_root.resolve()),
+        )
+        self.assertEqual(attach_payload["selected_session_id"], session.session_id)
+        self.assertEqual(attach_payload["sessions"][0]["session_id"], session.session_id)
+
+    def test_service_state_tmux_backend_wraps_new_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root, session_backend="tmux")
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.TmuxAgentSession.start"):
+                session, started = state.start_ad_hoc_agent(context_id)
+
+            registry = state.session_registry_payload()
+
+        self.assertTrue(started)
+        self.assertIsInstance(session, TmuxAgentSession)
+        self.assertEqual(session.backend, "tmux")
+        self.assertTrue(session.tmux_name.startswith("electroboy-"))
+        self.assertEqual(registry["sessions"][0]["backend"], "tmux")
+        self.assertEqual(registry["sessions"][0]["tmux_session"], session.tmux_name)
+
+    def test_service_state_restores_running_tmux_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            record_path = _service_session_records_path(service_root)
+            record_path.parent.mkdir(parents=True, exist_ok=True)
+            record_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sessions": [
+                            {
+                                "active_project_root": str(project_root),
+                                "activation_root": str(project_root),
+                                "backend": "tmux",
+                                "command": [sys.executable, "-c", "print('ready')"],
+                                "context_id": "ctx-restored",
+                                "cwd": str(project_root),
+                                "interactive": True,
+                                "kind": "ad-hoc",
+                                "label": "ad-hoc agent",
+                                "metadata": {},
+                                "project_mode": "project",
+                                "session_id": "session-restored",
+                                "status": "running",
+                                "tmux_session": "electroboy-session-restored",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch(
+                    "electroboy.service.app.shutil.which",
+                    return_value="/usr/bin/tmux",
+                ),
+                mock.patch("electroboy.service.app._tmux_has_session", return_value=True),
+                mock.patch(
+                    "electroboy.service.TmuxAgentSession.attach_existing"
+                ) as attach_existing,
+            ):
+                state = ServiceState(service_root, session_backend="tmux")
+                registry = state.session_registry_payload()
+
+        attach_existing.assert_called_once()
+        self.assertEqual(registry["sessions"][0]["session_id"], "session-restored")
+        self.assertEqual(registry["sessions"][0]["backend"], "tmux")
+        self.assertTrue(registry["sessions"][0]["attachable"])
+        self.assertEqual(
+            registry["sessions"][0]["active_project_root"],
+            str(project_root),
+        )
 
     def test_documentation_sidecar_session_does_not_change_workflow_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3043,7 +3089,7 @@ class ServiceTests(unittest.TestCase):
             state.open_project(context_id, str(project_root))
 
             with mock.patch(
-                "electroboy.service._status_snapshot",
+                "electroboy.service.app._status_snapshot",
                 return_value=("active stage: requirements\n", True),
             ) as status_snapshot:
                 payload = state.project_status_payload(context_id)
@@ -3434,7 +3480,10 @@ class ServiceTests(unittest.TestCase):
             with state.lock:
                 state.contexts[context_id].workflow_stage = "requirements-approve"
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0):
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ):
                 payload = state.approve_requirements(context_id)
 
         self.assertEqual(payload["status"], "approved")
@@ -3630,7 +3679,10 @@ class ServiceTests(unittest.TestCase):
                 context.design_review_started = True
                 context.design_review_session = session  # type: ignore[assignment]
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0) as cmd_stage:
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ) as cmd_stage:
                 payload = state.approve_design(context_id)
 
             stage_args = [call.args[2] for call in cmd_stage.call_args_list]
@@ -3659,7 +3711,10 @@ class ServiceTests(unittest.TestCase):
             with state.lock:
                 state.contexts[context_id].workflow_stage = "design-approve"
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0):
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ):
                 payload = state.approve_design(context_id)
 
         self.assertEqual(payload["status"], "approved")
@@ -3682,7 +3737,10 @@ class ServiceTests(unittest.TestCase):
                 context.workflow_stage = "design-review"
                 context.design_review_started = True
 
-            with mock.patch("electroboy.cli._cmd_stage", return_value=0) as cmd_stage:
+            with mock.patch(
+                "electroboy.workflows.software.cli._cmd_stage",
+                return_value=0,
+            ) as cmd_stage:
                 payload = state.approve_design(context_id, skip_approval=True)
 
             stage_args = [call.args[2] for call in cmd_stage.call_args_list]
@@ -4020,6 +4078,30 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(session.columns, MIN_TERMINAL_COLUMNS)
         self.assertEqual(session.rows, MIN_TERMINAL_ROWS)
 
+    def test_agent_session_writes_transcript_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript_path = Path(tmp) / "session.jsonl"
+            session = AgentSession([sys.executable, "-c", "pass"], ROOT)
+            session.persist_to(
+                context_id="ctx-1",
+                transcript_path=transcript_path,
+            )
+
+            session._append_event(  # pylint: disable=protected-access
+                {
+                    "type": "output",
+                    "text": "hello\n",
+                    "terminal": "hello\r\n",
+                }
+            )
+
+            events = session.events()
+            markdown = _session_events_markdown(session)
+
+        self.assertEqual(events[0]["text"], "hello\n")
+        self.assertEqual(events[0]["terminal"], "hello\r\n")
+        self.assertIn("hello", markdown)
+
     def test_agent_session_resize_signals_process_group(self) -> None:
         session = AgentSession([sys.executable, "-c", "pass"], ROOT)
         session._master_fd = 123
@@ -4028,8 +4110,8 @@ class ServiceTests(unittest.TestCase):
         session.process.poll.return_value = None
 
         with (
-            mock.patch("electroboy.service._set_terminal_size") as set_size,
-            mock.patch("electroboy.service.os.killpg") as killpg,
+            mock.patch("electroboy.service.sessions._set_terminal_size") as set_size,
+            mock.patch("electroboy.service.sessions.os.killpg") as killpg,
         ):
             session.resize(100, 40)
 
@@ -4425,7 +4507,7 @@ class ServiceTests(unittest.TestCase):
             )
 
             with mock.patch(
-                "electroboy.service.subprocess.run",
+                "electroboy.service.app.subprocess.run",
                 return_value=completed,
             ) as run:
                 output, ok = _status_snapshot(root)
@@ -4465,6 +4547,28 @@ def request(
     connection = http.client.HTTPConnection(host, port, timeout=2)
     try:
         connection.request("GET", path)
+        response = connection.getresponse()
+        body = response.read().decode("utf-8")
+        content_type = response.getheader("Content-Type", "")
+    finally:
+        connection.close()
+    return response.status, body, content_type
+
+
+def post_json(
+    server: object,
+    path: str,
+    payload: dict[str, object],
+) -> tuple[int, str, str]:
+    host, port = server.server_address[:2]
+    connection = http.client.HTTPConnection(host, port, timeout=2)
+    try:
+        connection.request(
+            "POST",
+            path,
+            body=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
         response = connection.getresponse()
         body = response.read().decode("utf-8")
         content_type = response.getheader("Content-Type", "")
