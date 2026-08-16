@@ -63,6 +63,7 @@
     const inputResizeHandle = document.getElementById("inputResizeHandle");
     const inputPane = document.getElementById("inputPane");
     const agentInput = document.getElementById("agentInput");
+    const agentSendShortcut = document.getElementById("agentSendShortcut");
     const inputActionResizeHandle = document.getElementById("inputActionResizeHandle");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
     const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
@@ -4772,6 +4773,9 @@
         set terminal(value) { terminal = value; },
         get terminalInputQueue() { return terminalInputQueue; },
         set terminalInputQueue(value) { terminalInputQueue = value; },
+      },
+      input: {
+        sendShortcut: agentSendShortcut,
       },
       http: {
         contextUrl,

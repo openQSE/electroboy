@@ -615,6 +615,9 @@
   function mount(runtime) {
     bindRuntime(runtime);
     const element = runtime.elements;
+    const shortcutController = window.ElectroBoyInputShortcut.bindRecorder(
+      runtime.input.sendShortcut,
+    );
     element.sessionSwitcher.addEventListener("change", () => {
       selectAgentSession(element.sessionSwitcher.value).catch((error) => {
         runtime.notifications.appendOutput(
@@ -636,21 +639,20 @@
       if (handleSlashCommandInput(event)) {
         return;
       }
-      const terminalKey = terminalKeyForInputEvent(event);
-      if (terminalKey) {
-        event.preventDefault();
-        sendTerminalKey(terminalKey);
-        return;
-      }
-      const isEnter = event.key === "Enter" || event.code === "Enter" ||
-        event.code === "NumpadEnter";
-      if (isEnter && event.shiftKey) {
+      if (shortcutController.matches(event)) {
         event.preventDefault();
         if (element.agentInput.value.trim()) {
           sendMessage();
         } else {
           sendTerminalKey("enter");
         }
+        return;
+      }
+      const terminalKey = terminalKeyForInputEvent(event);
+      if (terminalKey) {
+        event.preventDefault();
+        sendTerminalKey(terminalKey);
+        return;
       }
     });
   }
@@ -658,7 +660,12 @@
   window.ElectroBoyFrontend.registerModule({
     id: "agent-sessions",
     label: "Agent Sessions",
-    capabilities: ["session-switching", "terminal-input", "session-export"],
+    capabilities: [
+      "session-switching",
+      "terminal-input",
+      "session-export",
+      "configurable-send-shortcut",
+    ],
     actions: {
       sessionExportName: (runtime, ...args) => invoke(runtime, sessionExportName, args),
       exportAgentSession: (runtime, ...args) => invoke(runtime, exportAgentSession, args),
