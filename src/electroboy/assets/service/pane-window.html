@@ -1790,6 +1790,19 @@
       return `/pane/${encodeURIComponent(kind)}?${paneParameters.toString()}`;
     }
 
+    function initialPaneWorkspaceLayout() {
+      if (PANE_KIND !== "agent") {
+        return null;
+      }
+      return {
+        type: "split",
+        direction: "column",
+        ratio: 0.72,
+        first: { type: "leaf", kind: "agent" },
+        second: { type: "leaf", kind: "input" },
+      };
+    }
+
     function initializePaneWorkspace() {
       directPaneWindow.hidden = true;
       workspaceWindow.hidden = false;
@@ -1799,7 +1812,8 @@
         root: workspaceLayout,
         resetButton: resetWorkspace,
         initialKind: PANE_KIND,
-        storageKey: `electroboy.paneWorkspaceLayout.v1.${PANE_KIND}`,
+        initialLayout: initialPaneWorkspaceLayout(),
+        storageKey: `electroboy.paneWorkspaceLayout.v2.${PANE_KIND}`,
         kinds: [
           { id: "agent", label: "Agent" },
           { id: "progress", label: "Progress" },

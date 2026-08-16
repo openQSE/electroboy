@@ -4,6 +4,7 @@
   function createWorkspace(options) {
     const root = options && options.root;
     const initialKind = String(options && options.initialKind || "agent");
+    const initialLayout = options && options.initialLayout;
     const kinds = Array.isArray(options && options.kinds) ? options.kinds : [];
     const kindMap = new Map(kinds.map((kind) => [kind.id, kind]));
     const storageKey = String(options && options.storageKey || "");
@@ -38,6 +39,10 @@
     }
 
     function defaultLayout() {
+      const configured = normalize(initialLayout);
+      if (configured) {
+        return configured;
+      }
       return leaf(kindMap.has(initialKind) ? initialKind : "empty");
     }
 
