@@ -1952,7 +1952,7 @@
 
     .agent-input-composer {
       display: grid;
-      grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       min-width: 0;
       min-height: 0;
       gap: 8px;
@@ -2021,13 +2021,23 @@
 
     .agent-actions {
       display: grid;
-      grid-template-rows: auto auto;
+      grid-template-rows: repeat(3, minmax(30px, auto));
       min-height: 0;
       min-width: 0;
-      gap: 8px;
+      gap: 4px;
       align-self: stretch;
       overflow: auto;
       scrollbar-width: thin;
+    }
+
+    .agent-actions .agent-action-button,
+    .agent-actions .agent-send-shortcut {
+      min-height: 30px;
+      height: 30px;
+    }
+
+    .agent-actions .agent-send-shortcut {
+      padding: 4px 8px;
     }
 
     .session-control {
