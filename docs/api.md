@@ -66,6 +66,8 @@ Operator workflow commands:
   corkboards. Freeform corkboards support card add, update, move, style, and
   delete operations. Folder corkboards support card notes and display order.
   See `docs/corkboard-api.md` for the command-level guide used by agents.
+- Browser workflows can supply file- or database-backed boards through the
+  shared provider contract described in `docs/corkboard-provider-api.md`.
 - `phase commit <n> --sha <commit-sha>` records a reviewed phase commit after
   `code --phased`.
 - `validate [--blockers-only] [--interactive]` runs validation test review,

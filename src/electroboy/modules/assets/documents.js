@@ -523,6 +523,12 @@
       return item.kind || "";
     }
 
+    function artifactPaneIsCorkboard(item) {
+      return Boolean(
+        item && (item.kind === "corkboard" || item.kind === "creative-corkboard"),
+      );
+    }
+
     function artifactRouteUrl(path, version = runtimeState.artifactPreviewVersion) {
       return `${contextUrl(`${path}?embed=1`)}&zoom=${runtimeState.documentZoom}&version=${version}`;
     }
@@ -534,17 +540,20 @@
       if (item.kind === "requirements") {
         return artifactRouteUrl("/artifacts/requirements");
       }
-      if (item.kind === "creative-corkboard") {
-        const board = item.folder || item.corkboard;
+      if (artifactPaneIsCorkboard(item)) {
+        const board = item.board || item.folder || item.corkboard;
         if (!board) {
           return "";
         }
         const parameters = new URLSearchParams();
-        parameters.set("path", board.path);
+        parameters.set("board_id", board.id || board.path);
+        if (board.provider) {
+          parameters.set("provider", board.provider);
+        }
         parameters.set("title", board.label || item.title);
         parameters.set("embed", "1");
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
-        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
+        return contextUrl(`/artifacts/corkboard?${parameters.toString()}`);
       }
       if (item.kind === "route" && item.path) {
         return artifactRouteUrl(item.path);
@@ -566,7 +575,7 @@
       if (!item) {
         return "";
       }
-      if (item.kind === "creative-corkboard") {
+      if (artifactPaneIsCorkboard(item)) {
         return artifactPreviewUrl(item);
       }
       const parameters = new URLSearchParams();
@@ -586,15 +595,15 @@
     }
 
     function artifactPaneSupportsModeSwitch(item) {
-      return item && item.kind !== "creative-corkboard";
+      return item && !artifactPaneIsCorkboard(item);
     }
 
     function artifactPaneSupportsDocumentExport(item) {
-      return item && item.kind !== "creative-corkboard";
+      return item && !artifactPaneIsCorkboard(item);
     }
 
     function artifactPaneSupportsDocumentZoom(item) {
-      return item && item.kind !== "creative-corkboard";
+      return item && !artifactPaneIsCorkboard(item);
     }
 
     function artifactPreviewsForStage(stage) {
@@ -616,7 +625,8 @@
     }
 
     function showArtifactPreviews(items, options = {}) {
-      if (!runtimeState.activeProjectRoot) {
+      const hasProviderBoard = items.some(artifactPaneIsCorkboard);
+      if (!runtimeState.activeProjectRoot && !hasProviderBoard) {
         hideArtifactPreview();
         return;
       }
@@ -928,13 +938,15 @@
         parameters.set("artifact_path", item.path);
         parameters.set("artifact_title", item.title);
       }
-      if (item.kind === "creative-corkboard" && item.folder) {
-        parameters.set("folder_path", item.folder.path);
-        parameters.set("folder_title", item.folder.label || item.title);
-      }
-      if (item.kind === "creative-corkboard" && item.corkboard) {
-        parameters.set("corkboard_path", item.corkboard.path);
-        parameters.set("corkboard_title", item.corkboard.label || item.title);
+      if (artifactPaneIsCorkboard(item)) {
+        const board = item.board || item.folder || item.corkboard;
+        if (board) {
+          parameters.set("corkboard_id", board.id || board.path);
+          parameters.set("corkboard_title", board.label || item.title);
+          if (board.provider) {
+            parameters.set("corkboard_provider", board.provider);
+          }
+        }
       }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,
@@ -1036,6 +1048,12 @@
 
     function syncArtifactPreviewWithProject() {
       if (!runtimeState.activeProjectRoot) {
+        if (runtimeState.artifactPreviewItems.some(artifactPaneIsCorkboard)) {
+          runtimeState.artifactPaneRequested = true;
+          applyOutputPaneVisibility();
+          connectArtifactEvents();
+          return;
+        }
         hideArtifactPreview();
         return;
       }

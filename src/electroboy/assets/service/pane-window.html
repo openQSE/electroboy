@@ -723,6 +723,9 @@
     const artifactFolderPath = params.get("folder_path") || "";
     const artifactFolderTitle = params.get("folder_title") || "";
     const artifactCorkboardPath = params.get("corkboard_path") || "";
+    const artifactCorkboardId = params.get("corkboard_id") ||
+      artifactCorkboardPath || artifactFolderPath;
+    const artifactCorkboardProvider = params.get("corkboard_provider") || "";
     const artifactCorkboardTitle = params.get("corkboard_title") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
@@ -920,7 +923,7 @@
         if (artifactKind === "route" && artifactRouteTitle) {
           return artifactRouteTitle;
         }
-        if (artifactKind === "creative-corkboard") {
+        if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
           return artifactCorkboardTitle || artifactFolderTitle || "Corkboard";
         }
         return "Artifact preview";
@@ -1487,26 +1490,28 @@
         const routeUrl = contextUrl(`${artifactRoutePath}?embed=1`);
         return `${routeUrl}&zoom=${artifactZoom}&version=${artifactVersion}`;
       }
-      if (artifactKind === "creative-corkboard") {
-        const corkboardPath = artifactCorkboardPath || artifactFolderPath;
-        if (!corkboardPath) {
+      if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
+        if (!artifactCorkboardId) {
           return "";
         }
         const parameters = new URLSearchParams();
-        parameters.set("path", corkboardPath);
+        parameters.set("board_id", artifactCorkboardId);
+        if (artifactCorkboardProvider) {
+          parameters.set("provider", artifactCorkboardProvider);
+        }
         parameters.set(
           "title",
-          artifactCorkboardTitle || artifactFolderTitle || corkboardPath,
+          artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId,
         );
         parameters.set("embed", "1");
         parameters.set("version", String(artifactVersion));
-        return contextUrl(`/artifacts/creative-corkboard?${parameters.toString()}`);
+        return contextUrl(`/artifacts/corkboard?${parameters.toString()}`);
       }
       return "";
     }
 
     function artifactEditUrl() {
-      if (artifactKind === "creative-corkboard") {
+      if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
         return artifactUrl();
       }
       const parameters = new URLSearchParams();
@@ -1557,7 +1562,8 @@
     }
 
     function connectArtifactStream() {
-      const isCorkboard = artifactKind === "creative-corkboard";
+      const isCorkboard = artifactKind === "corkboard" ||
+        artifactKind === "creative-corkboard";
       artifactFrame.hidden = false;
       artifactZoomControls.hidden = isCorkboard;
       refreshArtifactButton.hidden = false;

@@ -1,5 +1,10 @@
 """Stable route and service interfaces for ElectroBoy plugins."""
 
+from .corkboard import (
+    CorkboardProvider,
+    CorkboardWorkflowController,
+    normalize_board_snapshot,
+)
 from .http import (
     BinaryResponse,
     HtmlResponse,
@@ -32,6 +37,8 @@ __all__ = [
     "BinaryResponse",
     "CliCommandDefinition",
     "ContextServices",
+    "CorkboardProvider",
+    "CorkboardWorkflowController",
     "DocumentSchemaDefinition",
     "HtmlResponse",
     "JsonResponse",
@@ -50,4 +57,5 @@ __all__ = [
     "WorkflowDefinition",
     "WorkflowServices",
     "WorkflowStage",
+    "normalize_board_snapshot",
 ]

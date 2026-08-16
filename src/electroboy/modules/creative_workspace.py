@@ -316,15 +316,31 @@ def creative_corkboard_html(
     title: str | None = None,
     context_id: str = "",
 ) -> tuple[str, HTTPStatus]:
-    """Return an interactive corkboard for a folder or corkboard file."""
-
+    """Compatibility wrapper for creative file-backed corkboards."""
     payload = _creative_corkboard_payload(
         project_root,
         board_path,
         title=title,
         context_id=context_id,
     )
+    return render_corkboard_html(
+        payload,
+        operation_url="/api/creative/corkboard",
+        open_event_type="electroboy-creative-open",
+    )
+
+
+def render_corkboard_html(
+    payload: dict[str, object],
+    *,
+    operation_url: str = "/api/corkboard",
+    open_event_type: str = "electroboy-corkboard-open",
+) -> tuple[str, HTTPStatus]:
+    """Render a provider-neutral corkboard snapshot."""
+
     data_json = json.dumps(payload).replace("</", "<\\/")
+    operation_url_json = json.dumps(operation_url)
+    open_event_type_json = json.dumps(open_event_type)
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -865,6 +881,27 @@ def creative_corkboard_html(
       resize: none;
     }}
 
+    .card-metadata {{
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 3px 8px;
+      margin: -2px 12px 12px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }}
+
+    .card-metadata-key {{
+      font-weight: 800;
+      text-transform: capitalize;
+    }}
+
+    .card-metadata-value {{
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+    }}
+
     .card-size-control {{
       position: fixed;
       right: 12px;
@@ -932,6 +969,8 @@ def creative_corkboard_html(
   </label>
   <script>
     const CORKBOARD_DATA = {data_json};
+    const CORKBOARD_OPERATION_URL = {operation_url_json};
+    const CORKBOARD_OPEN_EVENT_TYPE = {open_event_type_json};
     const canvasViewport = document.getElementById("canvasViewport");
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
@@ -941,6 +980,10 @@ def creative_corkboard_html(
     const cardSizeValue = document.getElementById("cardSizeValue");
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
+    const BOARD_CAPABILITIES = new Set(
+      Array.isArray(CORKBOARD_DATA.capabilities) ? CORKBOARD_DATA.capabilities : [],
+    );
+    const HAS_CAPABILITY_POLICY = BOARD_CAPABILITIES.size > 0;
     const CARD_PALETTE = Array.isArray(CORKBOARD_DATA.palette)
       ? CORKBOARD_DATA.palette
       : [];
@@ -952,8 +995,11 @@ def creative_corkboard_html(
           `electroboy.corkboard.${{CORKBOARD_DATA.context_id || "local"}}`,
         )
       : null;
-    const CARD_SCALE_STORAGE_PREFIX = "electroboy.creative.corkboard.cardScale.";
-    const CANVAS_PAN_STORAGE_PREFIX = "electroboy.creative.corkboard.canvasPan.";
+    const CORKBOARD_STORAGE_NAMESPACE = CORKBOARD_DATA.provider
+      ? `electroboy.corkboard.${{CORKBOARD_DATA.provider}}`
+      : "electroboy.creative.corkboard";
+    const CARD_SCALE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardScale.`;
+    const CANVAS_PAN_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.canvasPan.`;
     const MIN_CARD_SCALE = 70;
     const MAX_CARD_SCALE = 300;
     let dragState = null;
@@ -967,6 +1013,11 @@ def creative_corkboard_html(
     let selectedCardKey = "";
 
     document.body.classList.toggle("freeform-canvas", boardType === "freeform");
+    boardTitle.readOnly = boardType !== "freeform" || !supports("rename-board");
+
+    function supports(capability) {{
+      return !HAS_CAPABILITY_POLICY || BOARD_CAPABILITIES.has(capability);
+    }}
 
     function contextUrl(path) {{
       const contextId = CORKBOARD_DATA.context_id || "";
@@ -978,6 +1029,9 @@ def creative_corkboard_html(
     }}
 
     function boardStoragePath() {{
+      if (CORKBOARD_DATA.board_id) {{
+        return CORKBOARD_DATA.board_id;
+      }}
       if (CORKBOARD_DATA.corkboard && CORKBOARD_DATA.corkboard.path) {{
         return CORKBOARD_DATA.corkboard.path;
       }}
@@ -998,7 +1052,11 @@ def creative_corkboard_html(
     async function saveBoardTitle() {{
       window.clearTimeout(boardTitleSaveTimer);
       boardTitleSaveTimer = null;
-      if (boardType !== "freeform" || !CORKBOARD_DATA.context_id) {{
+      if (
+        boardType !== "freeform" ||
+        !supports("rename-board") ||
+        !CORKBOARD_DATA.context_id
+      ) {{
         return;
       }}
       const title = boardTitle.value.trim();
@@ -1006,13 +1064,13 @@ def creative_corkboard_html(
         boardTitle.value = CORKBOARD_DATA.title || "Untitled corkboard";
         return;
       }}
-      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+      const response = await fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify({{
-          board_type: "freeform",
-          action: "title",
-          corkboard: CORKBOARD_DATA.corkboard.path,
+          provider: CORKBOARD_DATA.provider || "",
+          board_id: boardStoragePath(),
+          action: "rename-board",
           title,
         }}),
       }}).catch(() => null);
@@ -1309,36 +1367,31 @@ def creative_corkboard_html(
     }}
 
     async function saveCard(card) {{
-      if (!CORKBOARD_DATA.context_id) {{
+      if (
+        !CORKBOARD_DATA.context_id ||
+        (!supports("edit-card") && !supports("move-card"))
+      ) {{
         return null;
       }}
-      let payload = null;
-      if (boardType === "folder") {{
-        payload = {{
-          board_type: "folder",
-          folder: CORKBOARD_DATA.folder.path,
-          path: card.path,
+      const payload = {{
+        provider: CORKBOARD_DATA.provider || "",
+        board_id: boardStoragePath(),
+        board_type: boardType,
+        action: "update-card",
+        card: {{
+          ...card,
+          id: cardKey(card),
+          title: card.title || card.name || "",
           note: card.note || "",
+          x: Number(card.x) || 0,
+          y: Number(card.y) || 0,
+          rotation: Number(card.rotation) || 0,
           color: cardColorName(card),
-        }};
-      }} else {{
-        payload = {{
-          board_type: "freeform",
-          corkboard: CORKBOARD_DATA.corkboard.path,
-          card: {{
-            id: card.id,
-            title: card.title || "",
-            note: card.note || "",
-            x: Number(card.x) || 0,
-            y: Number(card.y) || 0,
-            rotation: Number(card.rotation) || 0,
-            color: cardColorName(card),
-            card_type: cardKind(card),
-            board_path: card.board_path || "",
-          }},
-        }};
-      }}
-      const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+          card_type: cardKind(card),
+          board_path: card.board_path || "",
+        }},
+      }};
+      const response = await fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify(payload),
@@ -1350,7 +1403,7 @@ def creative_corkboard_html(
     }}
 
     async function deleteFreeformCard(card, button) {{
-      if (boardType !== "freeform") {{
+      if (boardType !== "freeform" || !supports("delete-card")) {{
         return;
       }}
       const title = card.title || "Untitled card";
@@ -1363,13 +1416,13 @@ def creative_corkboard_html(
       button.disabled = true;
       await cardSaveRequests.get(key);
       if (CORKBOARD_DATA.context_id) {{
-        const response = await fetch(contextUrl("/api/creative/corkboard"), {{
+        const response = await fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
           method: "POST",
           headers: {{ "Content-Type": "application/json" }},
           body: JSON.stringify({{
-            board_type: "freeform",
-            action: "delete",
-            corkboard: CORKBOARD_DATA.corkboard.path,
+            provider: CORKBOARD_DATA.provider || "",
+            board_id: boardStoragePath(),
+            action: "delete-card",
             card_id: card.id,
           }}),
         }}).catch(() => null);
@@ -1393,16 +1446,21 @@ def creative_corkboard_html(
     }}
 
     async function saveOrder() {{
-      if (!CORKBOARD_DATA.context_id || boardType !== "folder") {{
+      if (
+        !CORKBOARD_DATA.context_id ||
+        boardType !== "folder" ||
+        !supports("reorder-card")
+      ) {{
         return;
       }}
-      await fetch(contextUrl("/api/creative/corkboard"), {{
+      await fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify({{
-          board_type: "folder",
-          folder: CORKBOARD_DATA.folder.path,
-          order: cards.map((card) => card.path),
+          provider: CORKBOARD_DATA.provider || "",
+          board_id: boardStoragePath(),
+          action: "reorder-cards",
+          order: cards.map((card) => cardKey(card)),
         }}),
       }}).catch(() => null);
     }}
@@ -1415,7 +1473,10 @@ def creative_corkboard_html(
       }}
       targetWindow.postMessage(
         {{
-          type: "electroboy-creative-open",
+          type: CORKBOARD_OPEN_EVENT_TYPE,
+          provider: CORKBOARD_DATA.provider || "creative-files",
+          board_id: CORKBOARD_DATA.board_id || "",
+          target: card.target || null,
           path: card.path,
           entry_type: card.corkboard ? "corkboard" : card.type,
         }},
@@ -1431,7 +1492,10 @@ def creative_corkboard_html(
       }}
       targetWindow.postMessage(
         {{
-          type: "electroboy-creative-open",
+          type: CORKBOARD_OPEN_EVENT_TYPE,
+          provider: CORKBOARD_DATA.provider || "creative-files",
+          board_id: CORKBOARD_DATA.board_id || "",
+          target: card.target || null,
           path: card.board_path,
           title: card.title || "Untitled card group",
           entry_type: "corkboard",
@@ -1441,7 +1505,7 @@ def creative_corkboard_html(
     }}
 
     async function convertCardToGroup(card, cardElement, button) {{
-      if (boardType !== "freeform") {{
+      if (boardType !== "freeform" || !supports("group-card")) {{
         return;
       }}
       if (cardKind(card) === "group") {{
@@ -1495,7 +1559,11 @@ def creative_corkboard_html(
     }}
 
     function startDrag(event) {{
-      if (event.button !== 0 || event.target.closest("textarea, button")) {{
+      if (
+        !supports("move-card") ||
+        event.button !== 0 ||
+        event.target.closest("textarea, button")
+      ) {{
         return;
       }}
       const cardElement = event.currentTarget;
@@ -1546,6 +1614,10 @@ def creative_corkboard_html(
     }}
 
     function startFolderDrag(event, card, cardElement) {{
+      if (!supports("reorder-card")) {{
+        event.preventDefault();
+        return;
+      }}
       draggedPath = card.path || "";
       cardElement.classList.add("dragging");
       event.dataTransfer.effectAllowed = "move";
@@ -1633,6 +1705,9 @@ def creative_corkboard_html(
     }}
 
     function makeFreeformCard() {{
+      if (!supports("create-card")) {{
+        return;
+      }}
       const index = cards.length;
       const card = {{
         id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
@@ -1652,6 +1727,35 @@ def creative_corkboard_html(
       persistCard(card);
     }}
 
+    function buildCardMetadata(card) {{
+      const metadata = card && card.metadata;
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {{
+        return null;
+      }}
+      const entries = Object.entries(metadata).filter(([, value]) =>
+        value !== null && value !== undefined && String(value).trim() !== "",
+      );
+      if (entries.length === 0) {{
+        return null;
+      }}
+      const container = document.createElement("dl");
+      container.className = "card-metadata";
+      for (const [key, value] of entries) {{
+        const term = document.createElement("dt");
+        term.className = "card-metadata-key";
+        term.textContent = key.replace(/[_-]+/g, " ");
+        const detail = document.createElement("dd");
+        detail.className = "card-metadata-value";
+        detail.textContent = Array.isArray(value)
+          ? value.join(", ")
+          : typeof value === "object"
+            ? JSON.stringify(value)
+            : String(value);
+        container.append(term, detail);
+      }}
+      return container;
+    }}
+
     function renderCards() {{
       board.replaceChildren();
       folderInsertionMarker = null;
@@ -1660,7 +1764,7 @@ def creative_corkboard_html(
       boardEyebrow.textContent = boardType === "freeform"
         ? "Freeform corkboard"
         : "Folder board";
-      addCard.hidden = boardType !== "freeform";
+      addCard.hidden = boardType !== "freeform" || !supports("create-card");
       if (cards.length === 0) {{
         const empty = document.createElement("section");
         empty.className = "empty-board";
@@ -1696,7 +1800,7 @@ def creative_corkboard_html(
           cardElement.addEventListener("pointercancel", finishDrag);
         }} else {{
           ensureFolderInsertionMarker();
-          cardElement.draggable = true;
+          cardElement.draggable = supports("reorder-card");
           cardElement.addEventListener("dragstart", (event) =>
             startFolderDrag(event, card, cardElement),
           );
@@ -1719,10 +1823,13 @@ def creative_corkboard_html(
           title.className = "card-title-input";
           title.type = "text";
           title.value = card.title || "Untitled card";
-          title.addEventListener("input", () => {{
-            card.title = title.value;
-            queueSave(card);
-          }});
+          title.readOnly = !supports("edit-card");
+          if (supports("edit-card")) {{
+            title.addEventListener("input", () => {{
+              card.title = title.value;
+              queueSave(card);
+            }});
+          }}
           const isGroupTitle = cardKind(card) === "group";
           let previousTitlePress = 0;
           title.addEventListener("pointerdown", (event) => {{
@@ -1756,7 +1863,9 @@ def creative_corkboard_html(
           titleBox.append(title, type);
           const tools = document.createElement("div");
           tools.className = "card-tools";
-          tools.append(buildColorButton(card, cardElement));
+          if (supports("change-color")) {{
+            tools.append(buildColorButton(card, cardElement));
+          }}
           const open = document.createElement("button");
           open.className = "card-open";
           open.type = "button";
@@ -1768,8 +1877,20 @@ def creative_corkboard_html(
           titleBox.append(title);
           const tools = document.createElement("div");
           tools.className = "card-tools";
-          tools.append(buildColorButton(card, cardElement));
-          tools.append(buildGroupButton(card, cardElement));
+          if (supports("change-color")) {{
+            tools.append(buildColorButton(card, cardElement));
+          }}
+          if (supports("group-card")) {{
+            tools.append(buildGroupButton(card, cardElement));
+          }}
+          if (card.target && supports("open-card")) {{
+            const open = document.createElement("button");
+            open.className = "card-open";
+            open.type = "button";
+            open.textContent = "Open";
+            open.addEventListener("click", () => openCard(card));
+            tools.append(open);
+          }}
           const remove = document.createElement("button");
           remove.className = "card-delete";
           remove.type = "button";
@@ -1781,7 +1902,9 @@ def creative_corkboard_html(
           icon.className = "card-delete-icon";
           icon.setAttribute("aria-hidden", "true");
           remove.append(icon);
-          tools.append(remove);
+          if (supports("delete-card")) {{
+            tools.append(remove);
+          }}
           head.append(titleBox, tools);
         }}
 
@@ -1789,12 +1912,19 @@ def creative_corkboard_html(
         note.className = "card-note";
         note.spellcheck = true;
         note.value = card.note || "";
-        note.addEventListener("input", () => {{
-          card.note = note.value;
-          queueSave(card);
-        }});
+        note.readOnly = !supports("edit-card");
+        if (supports("edit-card")) {{
+          note.addEventListener("input", () => {{
+            card.note = note.value;
+            queueSave(card);
+          }});
+        }}
 
         cardElement.append(head, note);
+        const metadata = buildCardMetadata(card);
+        if (metadata) {{
+          cardElement.append(metadata);
+        }}
         board.append(cardElement);
       }}
       sizeBoard();

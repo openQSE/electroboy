@@ -56,6 +56,8 @@ class ServiceInterfaceTests(unittest.TestCase):
         self.assertIs(plugin_api.RouteRequest, RouteRequest)
         self.assertIs(plugin_api.ServiceServices, ServiceServices)
         self.assertIn("ContextServices", plugin_api.__all__)
+        self.assertIn("CorkboardProvider", plugin_api.__all__)
+        self.assertIn("CorkboardWorkflowController", plugin_api.__all__)
         self.assertIn("SessionServices", plugin_api.__all__)
         self.assertIn("WorkflowServices", plugin_api.__all__)
 

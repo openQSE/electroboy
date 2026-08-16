@@ -1,43 +1,48 @@
 (function () {
   "use strict";
 
-  function show(runtime, path, options = {}) {
-    if (!path) {
+  function show(runtime, source, options = {}) {
+    const descriptor = typeof source === "string"
+      ? {
+          id: source,
+          provider: options.provider || "creative-files",
+          title: options.title || "",
+        }
+      : { ...(source || {}) };
+    const boardId = String(descriptor.id || descriptor.board_id || "").trim();
+    if (!boardId) {
       return;
     }
-    const freeform = Boolean(options.freeform) ||
-      window.ElectroBoyFrontend.invokeWorkflow(
-        "creative-writing",
-        "creativePathIsCorkboard",
-        path,
-      );
-    const label = String(options.title || "").trim() || (freeform
-      ? runtime.paths.basename(path).replace(/\.corkboard\.json$/i, "")
-      : runtime.paths.basename(path));
-    const board = { label, path };
+    const provider = String(descriptor.provider || options.provider || "").trim();
+    const freeform = Boolean(options.freeform || descriptor.freeform) ||
+      /\.corkboard\.json$/i.test(boardId);
+    const label = String(descriptor.title || options.title || "").trim() || (freeform
+      ? runtime.paths.basename(boardId).replace(/\.corkboard\.json$/i, "")
+      : runtime.paths.basename(boardId));
+    const board = {
+      id: boardId,
+      label,
+      provider,
+    };
     const item = {
-      id: `creative-corkboard-${path}`,
-      kind: "creative-corkboard",
+      id: `corkboard-${provider || "active"}-${boardId}`,
+      kind: "corkboard",
       title: `${freeform ? "Corkboard" : "Folder board"}: ${label}`,
       editing: false,
+      board,
     };
-    if (freeform) {
-      item.corkboard = board;
-    } else {
-      item.folder = board;
-    }
     runtime.modules.invoke(
       "documents",
       "showArtifactPreviews",
       [item],
-      { manual: true, stage: "creative-writing" },
+      { manual: true, stage: options.stage || runtime.getState().workflowMode },
     );
   }
 
   window.ElectroBoyFrontend.registerModule({
     id: "corkboard",
     label: "Corkboard",
-    capabilities: ["folder-corkboard", "freeform-corkboard"],
+    capabilities: ["corkboard-provider", "folder-corkboard", "freeform-corkboard"],
     actions: { show },
   });
 })();

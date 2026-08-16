@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from electroboy.modules.creative_workspace import (
-    _create_creative_corkboard,
     _create_creative_document,
     _create_creative_folder,
     _creative_agent_target,
@@ -17,14 +16,16 @@ from electroboy.modules.creative_workspace import (
     _ensure_creative_workspace,
     _existing_creative_project_root,
     _rename_creative_entry,
-    save_creative_corkboard,
 )
 from electroboy.service.recent_projects import (
     remember_recent_project as _remember_recent_project,
 )
 from electroboy.service.sessions import AgentSession, AgentSessionError
+from electroboy.service.services import ServiceServices
 from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError
+
+from .corkboard_provider import CreativeWritingCorkboardProvider
 
 
 def _resolve_project_path(path: str) -> Path:
@@ -35,6 +36,13 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
     """Own creative project, binder, corkboard, and agent behavior."""
 
     workflow_id = "creative-writing"
+
+    def __init__(self, services: ServiceServices) -> None:
+        super().__init__(services)
+        self.corkboard_provider = CreativeWritingCorkboardProvider(self.services)
+
+    def get_corkboard_provider(self) -> CreativeWritingCorkboardProvider:
+        return self.corkboard_provider
 
     def open_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _existing_creative_project_root(path)
@@ -117,12 +125,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         relative_path: str,
     ) -> dict[str, object]:
-        project_root = self.services.contexts.active_project_root(context_id)
-        path = _create_creative_corkboard(project_root, relative_path)
-        return {
-            "status": "created",
-            "path": path,
-        }
+        return self.corkboard_provider.create_board(context_id, relative_path)
 
     def rename_creative_entry(
         self,
@@ -180,8 +183,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         context_id: str,
         payload: dict[str, object],
     ) -> dict[str, object]:
-        project_root = self.services.contexts.active_project_root(context_id)
-        return save_creative_corkboard(project_root, payload)
+        return self.corkboard_provider.apply_operation(context_id, payload)
 
     def start_creative_writing_agent(
         self,

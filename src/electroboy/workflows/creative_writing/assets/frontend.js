@@ -148,7 +148,11 @@
 
   function handleWindowMessage(runtime, data) {
     bindRuntime(runtime);
-    if (data.type !== "electroboy-creative-open" || !data.path) {
+    if (
+      !["electroboy-corkboard-open", "electroboy-creative-open"].includes(data.type) ||
+      !data.path ||
+      (data.provider && data.provider !== "creative-files")
+    ) {
       return false;
     }
     if (data.entry_type === "directory") {
@@ -971,7 +975,7 @@
         "ideas",
         CREATIVE_CORKBOARD_SUFFIX,
       );
-      const response = await fetch(contextUrl("/api/creative/corkboards"), {
+      const response = await fetch(contextUrl("/api/corkboards"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path }),

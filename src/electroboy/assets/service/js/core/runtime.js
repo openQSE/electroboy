@@ -2729,22 +2729,17 @@
       }
       if (
         artifactItem &&
-        artifactItem.kind === "creative-corkboard" &&
-        artifactItem.folder
+        (artifactItem.kind === "corkboard" ||
+          artifactItem.kind === "creative-corkboard")
       ) {
-        parameters.set("folder_path", artifactItem.folder.path);
-        parameters.set("folder_title", artifactItem.folder.label || artifactItem.title);
-      }
-      if (
-        artifactItem &&
-        artifactItem.kind === "creative-corkboard" &&
-        artifactItem.corkboard
-      ) {
-        parameters.set("corkboard_path", artifactItem.corkboard.path);
-        parameters.set(
-          "corkboard_title",
-          artifactItem.corkboard.label || artifactItem.title,
-        );
+        const board = artifactItem.board || artifactItem.folder || artifactItem.corkboard;
+        if (board) {
+          parameters.set("corkboard_id", board.id || board.path);
+          parameters.set("corkboard_title", board.label || artifactItem.title);
+          if (board.provider) {
+            parameters.set("corkboard_provider", board.provider);
+          }
+        }
       }
       const fontPane = paneFontKeyForKind(kind);
       parameters.set("base_font_size", String(terminalFontSize));

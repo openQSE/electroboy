@@ -18,6 +18,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.cli import build_parser  # noqa: E402
+from electroboy.service.corkboard import (  # noqa: E402
+    CorkboardWorkflowController,
+    normalize_board_snapshot,
+)
+from electroboy.modules.creative_workspace import (  # noqa: E402
+    render_corkboard_html,
+)
 from electroboy.service import (  # noqa: E402
     CREATIVE_SPLASH_IMAGE_ROUTE,
     FILE_BROWSER_WINDOW_HTML,
@@ -272,6 +279,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("agent_sessions", modules)
         self.assertIn("structured_documents", modules)
         self.assertIn("corkboard", modules)
+        corkboard_routes = {
+            (route["method"], route["path"])
+            for route in modules["corkboard"]["routes"]
+        }
+        self.assertIn(("GET", "/artifacts/corkboard"), corkboard_routes)
+        self.assertIn(("GET", "/api/corkboard"), corkboard_routes)
+        self.assertIn(("POST", "/api/corkboard"), corkboard_routes)
+        self.assertIn("corkboard-provider", modules["corkboard"]["capabilities"])
         core_handlers = {route["handler"] for route in modules["core"]["routes"]}
         self.assertIn("workflow_config", core_handlers)
         self.assertIn("add_configured_workflow", core_handlers)
@@ -345,7 +360,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("creativeRecentProjectsExpanded = false", creative)
         self.assertIn('navigation: "sidebar"', creative)
         self.assertIn("function renderTree(runtime)", binder)
-        self.assertIn("function show(runtime, path, options = {})", corkboard)
+        self.assertIn("function show(runtime, source, options = {})", corkboard)
+        self.assertIn('kind: "corkboard"', corkboard)
+        self.assertNotIn('invokeWorkflow(\n        "creative-writing"', corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
         self.assertIn("ElectroBoyInputShortcut.bindRecorder", sessions)
         self.assertIn("shortcutController.matches(event)", sessions)
@@ -373,9 +390,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function popOutArtifactPreview(item)", documents)
         self.assertNotIn('popOutPane("artifact", item)', documents)
         self.assertIn(
-            'parameters.set("corkboard_path", item.corkboard.path)',
+            'parameters.set("corkboard_id", board.id || board.path)',
             documents,
         )
+        self.assertIn("/artifacts/corkboard", documents)
         self.assertIn(
             "`electroboy-artifact-${item.id}-${runtimeState.contextId}`",
             documents,
@@ -400,6 +418,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function startGenericStageAgent(", software)
         self.assertIn("function bindRuntime(runtime)", software)
         self.assertIn("function bindRuntime(runtime)", creative)
+        self.assertIn('contextUrl("/api/corkboards")', creative)
+        self.assertNotIn('contextUrl("/api/creative/corkboards")', creative)
         self.assertNotIn("runtime.actions", software)
         self.assertNotIn("runtime.actions", creative)
         self.assertNotIn("runtime.actions", binder)
@@ -886,6 +906,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("document_zoom")', page)
         self.assertIn('params.get("folder_path")', page)
         self.assertIn('params.get("corkboard_path")', page)
+        self.assertIn('params.get("corkboard_id")', page)
+        self.assertIn('params.get("corkboard_provider")', page)
         self.assertIn('id="artifactZoomControls"', page)
         self.assertIn('id="refreshArtifact"', page)
         self.assertIn('id="previewArtifact"', page)
@@ -902,7 +924,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function postArtifactEditorFontSize()", page)
         self.assertIn('type: "electroboy-editor-font-size"', page)
         self.assertIn('artifactKind === "creative-corkboard"', page)
-        self.assertIn("/artifacts/creative-corkboard", page)
+        self.assertIn("/artifacts/corkboard", page)
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("font_size", String(artifactEditorFontSize()))', page)
@@ -2189,7 +2211,8 @@ class ServiceTests(unittest.TestCase):
             self.assertIn('max="300"', page)
             self.assertIn("const MAX_CARD_SCALE = 300;", page)
             self.assertIn("function updateCardScale", page)
-            self.assertIn("electroboy.creative.corkboard.cardScale.", page)
+            self.assertIn('"electroboy.creative.corkboard"', page)
+            self.assertIn("CORKBOARD_STORAGE_NAMESPACE", page)
             self.assertIn(
                 "repeat(auto-fill, var(--card-width, 218px))",
                 page,
@@ -2308,7 +2331,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function cardColorName(card)", page)
             self.assertIn("function buildColorButton(card, cardElement)", page)
             self.assertIn("card-color-icon", page)
-            self.assertIn('action: "delete"', page)
+            self.assertIn('action: "delete-card"', page)
             self.assertNotIn('"Idea"', page)
             self.assertIn("selectedCardKey = card.id;", page)
             self.assertIn("Opening beat", page)
@@ -2322,6 +2345,136 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(deleted["status"], "deleted")
             self.assertEqual(deleted["card_id"], "opening-beat")
             self.assertEqual(deleted_document["cards"], [])
+
+    def test_creative_corkboard_provider_renders_through_generic_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            controller = state.workflow_controller("creative-writing")
+
+            self.assertIsInstance(controller, CorkboardWorkflowController)
+            provider = controller.get_corkboard_provider()
+            snapshot = provider.get_board(context_id, "chapters")
+            saved = provider.apply_operation(
+                context_id,
+                {
+                    "provider": "creative-files",
+                    "board_id": "chapters",
+                    "board_type": "folder",
+                    "action": "update-card",
+                    "card": {
+                        "id": "chapters/chapter-01.md",
+                        "note": "Provider-backed note.",
+                        "color": "mint",
+                    },
+                },
+            )
+            page, status = render_corkboard_html(snapshot)
+
+        self.assertEqual(provider.provider_id, "creative-files")
+        self.assertEqual(snapshot["provider"], "creative-files")
+        self.assertEqual(snapshot["board_id"], "chapters")
+        self.assertEqual(snapshot["board_type"], "folder")
+        self.assertIn("open-card", snapshot["capabilities"])
+        self.assertEqual(saved["card"]["note"], "Provider-backed note.")
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("/api/corkboard", page)
+        self.assertIn("electroboy-corkboard-open", page)
+        self.assertNotIn("/api/creative/corkboard", page)
+
+    def test_corkboard_provider_contract_rejects_invalid_snapshots(self) -> None:
+        with self.assertRaisesRegex(StateError, "unknown corkboard type"):
+            normalize_board_snapshot(
+                {"title": "Backlog", "cards": []},
+                provider_id="better-planned",
+                board_id="backlog",
+            )
+
+    def test_generic_corkboard_renders_database_record_cards(self) -> None:
+        snapshot = normalize_board_snapshot(
+            {
+                "board_type": "freeform",
+                "title": "Family board",
+                "context_id": "context-1",
+                "capabilities": ["open-card"],
+                "cards": [
+                    {
+                        "id": "activity-184",
+                        "title": "Soccer practice",
+                        "note": "Bring the blue uniform.",
+                        "x": 120,
+                        "y": 80,
+                        "color": "sky",
+                        "target": {
+                            "type": "better-planned-entry",
+                            "id": "184",
+                        },
+                        "metadata": {
+                            "people": ["Ari", "Amir"],
+                            "deadline": "2026-08-20",
+                            "status": "needs-review",
+                        },
+                    }
+                ],
+            },
+            provider_id="better-planned",
+            board_id="family-1",
+        )
+
+        page, status = render_corkboard_html(snapshot)
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('"provider": "better-planned"', page)
+        self.assertIn('"type": "better-planned-entry"', page)
+        self.assertIn('"deadline": "2026-08-20"', page)
+        self.assertIn("function buildCardMetadata(card)", page)
+        self.assertIn('card.target && supports("open-card")', page)
+        self.assertIn('boardTitle.readOnly =', page)
+
+    def test_generic_corkboard_routes_use_active_creative_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            context_id = str(server.service_state.create_context()["context_id"])
+            server.service_state.create_creative_project(
+                context_id,
+                str(project_root),
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    f"/artifacts/corkboard?context_id={context_id}"
+                    "&provider=creative-files&board_id=chapters",
+                )
+                api_status, api_body, _api_content_type = request(
+                    server,
+                    f"/api/corkboard?context_id={context_id}"
+                    "&provider=creative-files&board_id=chapters",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn("electroboy-corkboard-open", body)
+        self.assertEqual(api_status, HTTPStatus.OK)
+        api_payload = json.loads(api_body)
+        self.assertEqual(api_payload["provider"], "creative-files")
+        self.assertEqual(api_payload["board_id"], "chapters")
 
     def test_creative_freeform_corkboard_converts_card_to_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2442,7 +2595,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("card-group-icon", page)
             self.assertIn("Double-click to open card group", page)
             self.assertIn("currentPress - previousTitlePress <= 500", page)
-            self.assertIn('action: "title"', child_page)
+            self.assertIn('action: "rename-board"', child_page)
             self.assertIn('type: "corkboard-title-changed"', child_page)
             self.assertIn("new window.BroadcastChannel", child_page)
             self.assertIn('"card_type": "group"', page)
