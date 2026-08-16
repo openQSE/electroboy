@@ -11,6 +11,17 @@ from electroboy.service.routes import RouteRequest
 from .common import conflict, route
 
 
+def _session_id(
+    request: RouteRequest,
+    payload: dict[str, object] | None = None,
+) -> str:
+    if payload is not None:
+        body_session_id = str(payload.get("session_id") or "").strip()
+        if body_session_id:
+            return body_session_id
+    return str((request.params.get("session_id") or [""])[0]).strip()
+
+
 def _start(request: RouteRequest) -> ServiceResponse:
     try:
         session, started = request.services.sessions.start_project_shell(
@@ -31,6 +42,7 @@ def _events(request: RouteRequest) -> ServiceResponse:
         session = request.services.sessions.current(
             request.context_id,
             "project-shell",
+            _session_id(request),
         )
     except Exception as error:
         return conflict(error)
@@ -48,6 +60,7 @@ def _input(request: RouteRequest) -> ServiceResponse:
         request.services.sessions.send_project_shell_input(
             request.context_id,
             str(payload.get("data") or ""),
+            _session_id(request, payload),
         )
     except Exception as error:
         return conflict(error)
@@ -61,6 +74,7 @@ def _resize(request: RouteRequest) -> ServiceResponse:
             request.context_id,
             int(payload.get("columns") or 120),
             int(payload.get("rows") or 32),
+            _session_id(request, payload),
         )
     except Exception as error:
         return conflict(error)
@@ -69,7 +83,11 @@ def _resize(request: RouteRequest) -> ServiceResponse:
 
 def _stop(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.services.sessions.stop_project_shell(request.context_id)
+        body = request.body()
+        payload = request.services.sessions.stop_project_shell(
+            request.context_id,
+            _session_id(request, body),
+        )
     except Exception as error:
         return conflict(error)
     return JsonResponse(payload)

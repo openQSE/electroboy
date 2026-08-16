@@ -150,14 +150,24 @@ class BrowserContext:
 
     @property
     def project_shell_session(self) -> AgentSession | None:
-        return cast(
-            AgentSession | None,
-            self.module("project_shell").get("session"),
-        )
+        sessions = self.project_shell_sessions
+        return next(reversed(sessions.values()), None)
 
     @project_shell_session.setter
     def project_shell_session(self, value: AgentSession | None) -> None:
-        self.module("project_shell")["session"] = value
+        sessions = self.project_shell_sessions
+        sessions.clear()
+        if value is not None:
+            session_id = str(getattr(value, "session_id", "__legacy__"))
+            sessions[session_id] = value
+
+    @property
+    def project_shell_sessions(self) -> dict[str, AgentSession]:
+        return self._value(self.module("project_shell"), "sessions", dict)
+
+    @project_shell_sessions.setter
+    def project_shell_sessions(self, value: dict[str, AgentSession]) -> None:
+        self.module("project_shell")["sessions"] = value
 
     @property
     def stage_sessions(self) -> dict[str, AgentSession]:

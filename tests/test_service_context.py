@@ -22,7 +22,7 @@ def test_context_compatibility_properties_use_namespaced_state() -> None:
         }
     }
     assert context.module_state == {
-        "project_shell": {"session": shell_session}
+        "project_shell": {"sessions": {"__legacy__": shell_session}}
     }
 
 

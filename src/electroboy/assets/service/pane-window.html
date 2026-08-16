@@ -715,6 +715,8 @@
     const EMBEDDED_PANE = params.get("embedded") === "1";
     const contextId = params.get("context_id") || "";
     let selectedSessionId = params.get("session_id") || "";
+    const shellSessionId = params.get("shell_session_id") || "";
+    const disposableShell = params.get("disposable") === "1";
     const artifactKind = params.get("artifact") || "requirements";
     const artifactDocumentPath = params.get("document_path") || "";
     const artifactDocumentTitle = params.get("document_title") || "";
@@ -790,6 +792,7 @@
     let artifactVersion = 0;
     let artifactEditing = false;
     let statusTimer = null;
+    let disposableShellStopped = false;
     const shortcutController = EMBEDDED_PANE
       ? window.ElectroBoyInputShortcut.bindRecorder(agentSendShortcut)
       : { matches: () => false };
@@ -939,6 +942,14 @@
     function contextUrl(path) {
       const separator = path.includes("?") ? "&" : "?";
       return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
+    }
+
+    function shellContextUrl(path) {
+      const url = new URL(contextUrl(path), window.location.origin);
+      if (shellSessionId) {
+        url.searchParams.set("session_id", shellSessionId);
+      }
+      return `${url.pathname}${url.search}`;
     }
 
     function renderSessionSwitcher() {
@@ -1328,7 +1339,7 @@
       if (!contextId || !data) {
         return;
       }
-      await fetch(contextUrl("/api/shell/input"), {
+      await fetch(shellContextUrl("/api/shell/input"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data }),
@@ -1339,7 +1350,7 @@
       if (!contextId || !terminal) {
         return;
       }
-      await fetch(contextUrl("/api/shell/resize"), {
+      await fetch(shellContextUrl("/api/shell/resize"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1454,7 +1465,7 @@
         terminal.write("\x1b[31mno active context\x1b[0m\r\n");
         return;
       }
-      eventSource = new EventSource(contextUrl("/api/shell/events"));
+      eventSource = new EventSource(shellContextUrl("/api/shell/events"));
       eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
@@ -1839,6 +1850,10 @@
     }
 
     function restorePoppedPane() {
+      if (PANE_KIND === "shell" && disposableShell) {
+        window.close();
+        return;
+      }
       if (window.opener) {
         window.opener.postMessage(
           { type: "electroboy-pane-restore", pane: PANE_KIND },
@@ -1846,6 +1861,23 @@
         );
       }
       window.close();
+    }
+
+    function stopDisposableShell() {
+      if (
+        PANE_KIND !== "shell"
+        || !disposableShell
+        || !contextId
+        || !shellSessionId
+        || disposableShellStopped
+      ) {
+        return;
+      }
+      disposableShellStopped = true;
+      const url = shellContextUrl("/api/shell/stop");
+      if (!navigator.sendBeacon(url)) {
+        fetch(url, { method: "POST", keepalive: true }).catch(() => {});
+      }
     }
 
     function workspacePaneUrl(kind) {
@@ -1871,7 +1903,11 @@
       directPaneWindow.hidden = true;
       workspaceWindow.hidden = false;
       document.title = `ElectroBoy ${titleForPane(PANE_KIND)} workspace`;
-      dockWorkspace.addEventListener("click", restorePoppedPane);
+      if (PANE_KIND === "shell" && disposableShell) {
+        dockWorkspace.hidden = true;
+      } else {
+        dockWorkspace.addEventListener("click", restorePoppedPane);
+      }
       window.ElectroBoyPaneWorkspace.create({
         root: workspaceLayout,
         resetButton: resetWorkspace,
@@ -2001,6 +2037,7 @@
     else if (PANE_KIND === "shell") connectShellStream();
 
     window.addEventListener("beforeunload", () => {
+      stopDisposableShell();
       if (eventSource) eventSource.close();
       if (artifactEventSource) artifactEventSource.close();
       if (statusTimer) window.clearInterval(statusTimer);

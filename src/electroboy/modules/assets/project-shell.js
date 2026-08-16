@@ -5,6 +5,8 @@
   let terminalFit = null;
   let eventSource = null;
   let resizeTimer = null;
+  const SHELL_POPUP_FEATURES =
+    "popup=yes,width=1100,height=760,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
 
   function shellState(runtime) {
     return runtime.getState();
@@ -120,13 +122,6 @@
   function syncProjectShellPane(runtime) {
     const state = shellState(runtime);
     const patch = {};
-    if (
-      state.projectShellRunning &&
-      !state.projectShellPaneRequested &&
-      !state.projectShellPaneDismissed
-    ) {
-      patch.projectShellPaneRequested = true;
-    }
     if (!state.projectShellRunning) {
       patch.projectShellPaneDismissed = false;
       closeProjectShellEventStream();
@@ -143,19 +138,6 @@
     if (!state.activeProjectRoot || !state.contextId) {
       return;
     }
-    const visible = state.projectShellPaneRequested && !runtime.layout.isPopped("shell");
-    if (visible) {
-      hideProjectShellPane(runtime);
-      return;
-    }
-    if (runtime.layout.isPopped("shell")) {
-      runtime.layout.dockPane("shell");
-    }
-    if (state.projectShellRunning) {
-      showProjectShellPane(runtime, true);
-      terminal?.focus();
-      return;
-    }
     await startProjectShell(runtime);
   }
 
@@ -166,21 +148,13 @@
     }
     const state = shellState(runtime);
     const hasActiveProject = Boolean(state.activeProjectRoot);
-    const visible = state.projectShellPaneRequested && !runtime.layout.isPopped("shell");
     toggle.disabled = !hasActiveProject;
-    toggle.classList.toggle("active", visible);
+    toggle.classList.remove("active");
+    toggle.textContent = "Shell";
     if (!hasActiveProject) {
-      toggle.textContent = "Shell";
       toggle.title = "Activate a project to open a shell";
-    } else if (visible) {
-      toggle.textContent = "Hide";
-      toggle.title = "Hide the project shell pane";
-    } else if (state.projectShellRunning) {
-      toggle.textContent = runtime.layout.isPopped("shell") ? "Dock" : "Show";
-      toggle.title = "Show the running project shell";
     } else {
-      toggle.textContent = "Open";
-      toggle.title = "Open a shell in the active project";
+      toggle.title = "Open a new shell window in the active project";
     }
   }
 
@@ -190,27 +164,58 @@
       runtime.notifications.appendOutput("activate a project first\n", "error");
       return;
     }
-    showProjectShellPane(runtime, true);
-    initializeProjectShellTerminal(runtime);
-    appendProjectShellOutput(runtime, "starting project shell...\r\n", "system");
+    const popupName = `electroboy-shell-${state.contextId}-${Date.now()}-${Math.random()}`;
+    const popup = window.open("", popupName, SHELL_POPUP_FEATURES);
+    if (!popup) {
+      runtime.notifications.appendOutput(
+        "shell popup was blocked by the browser\n",
+        "error",
+      );
+      return;
+    }
+    popup.document.title = "Starting ElectroBoy shell";
+    popup.document.body.textContent = "Starting project shell...";
     const response = await runtime.http.fetch(
       runtime.http.contextUrl("/api/shell/start"),
       { method: "POST" },
     );
     const payload = await response.json().catch(() => ({ error: "shell start failed" }));
     if (!response.ok) {
-      appendProjectShellOutput(
-        runtime,
-        `${payload.error || "shell start failed"}\r\n`,
+      popup.close();
+      runtime.notifications.appendOutput(
+        `${payload.error || "shell start failed"}\n`,
         "error",
       );
+      return;
+    }
+    const sessionId = String(payload.shell_session?.session_id || "").trim();
+    if (!sessionId) {
+      popup.close();
+      runtime.notifications.appendOutput("shell session was not created\n", "error");
+      return;
+    }
+    if (popup.closed) {
+      const stopUrl = runtime.http.contextUrl(
+        `/api/shell/stop?session_id=${encodeURIComponent(sessionId)}`,
+      );
+      const stopResponse = await runtime.http.fetch(stopUrl, { method: "POST" });
+      const stopPayload = await stopResponse.json().catch(() => null);
+      if (stopResponse.ok && stopPayload) {
+        runtime.project.update(stopPayload);
+      }
       return;
     }
     updateShellState(runtime, {
       projectShellRunning: Boolean(payload.project_shell_running),
     });
     runtime.project.update(payload);
-    terminal?.focus();
+    const parameters = new URLSearchParams();
+    parameters.set("context_id", state.contextId);
+    parameters.set("shell_session_id", sessionId);
+    parameters.set("disposable", "1");
+    parameters.set("font_size", String(state.terminalFontSize || 15));
+    popup.location.replace(`/pane/shell?${parameters.toString()}`);
+    popup.focus();
   }
 
   function connectProjectShellEvents(runtime) {

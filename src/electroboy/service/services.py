@@ -95,7 +95,12 @@ class SessionServices(Protocol):
 
     def by_id(self, context_id: str, session_id: str) -> AgentSession: ...
 
-    def current(self, context_id: str, kind: str) -> AgentSession | None: ...
+    def current(
+        self,
+        context_id: str,
+        kind: str,
+        session_id: str = "",
+    ) -> AgentSession | None: ...
 
     def attach(self, context_id: str, session_id: str) -> dict[str, object]: ...
 
@@ -139,16 +144,26 @@ class SessionServices(Protocol):
         context_id: str,
     ) -> tuple[AgentSession, bool]: ...
 
-    def send_project_shell_input(self, context_id: str, data: str) -> None: ...
+    def send_project_shell_input(
+        self,
+        context_id: str,
+        data: str,
+        session_id: str = "",
+    ) -> None: ...
 
     def resize_project_shell(
         self,
         context_id: str,
         columns: int,
         rows: int,
+        session_id: str = "",
     ) -> None: ...
 
-    def stop_project_shell(self, context_id: str) -> dict[str, object]: ...
+    def stop_project_shell(
+        self,
+        context_id: str,
+        session_id: str = "",
+    ) -> dict[str, object]: ...
 
     def start_ad_hoc(self, context_id: str) -> tuple[AgentSession, bool]: ...
 
@@ -320,6 +335,7 @@ class ServiceRuntimeBackend(Protocol):
     def current_project_shell_session(
         self,
         context_id: str,
+        session_id: str = "",
     ) -> AgentSession | None: ...
 
     def interrupt_requirements_agent(self, context_id: str) -> None: ...
@@ -354,16 +370,26 @@ class ServiceRuntimeBackend(Protocol):
         context_id: str,
     ) -> tuple[AgentSession, bool]: ...
 
-    def send_project_shell_input(self, context_id: str, data: str) -> None: ...
+    def send_project_shell_input(
+        self,
+        context_id: str,
+        data: str,
+        session_id: str = "",
+    ) -> None: ...
 
     def resize_project_shell(
         self,
         context_id: str,
         columns: int,
         rows: int,
+        session_id: str = "",
     ) -> None: ...
 
-    def stop_project_shell(self, context_id: str) -> dict[str, object]: ...
+    def stop_project_shell(
+        self,
+        context_id: str,
+        session_id: str = "",
+    ) -> dict[str, object]: ...
 
     def start_ad_hoc_agent(
         self,
@@ -484,13 +510,22 @@ class RuntimeSessionServices:
     def by_id(self, context_id: str, session_id: str) -> AgentSession:
         return self.runtime.session_by_id(context_id, session_id)
 
-    def current(self, context_id: str, kind: str) -> AgentSession | None:
+    def current(
+        self,
+        context_id: str,
+        kind: str,
+        session_id: str = "",
+    ) -> AgentSession | None:
+        if kind == "project-shell":
+            return self.runtime.current_project_shell_session(
+                context_id,
+                session_id,
+            )
         methods = {
             "requirements": self.runtime.current_requirements_session,
             "design": self.runtime.current_design_session,
             "design-review": self.runtime.current_design_review_session,
             "documentation": self.runtime.current_documentation_session,
-            "project-shell": self.runtime.current_project_shell_session,
         }
         try:
             method = methods[kind]
@@ -570,19 +605,34 @@ class RuntimeSessionServices:
     def start_project_shell(self, context_id: str) -> tuple[AgentSession, bool]:
         return self.runtime.start_project_shell(context_id)
 
-    def send_project_shell_input(self, context_id: str, data: str) -> None:
-        self.runtime.send_project_shell_input(context_id, data)
+    def send_project_shell_input(
+        self,
+        context_id: str,
+        data: str,
+        session_id: str = "",
+    ) -> None:
+        self.runtime.send_project_shell_input(context_id, data, session_id)
 
     def resize_project_shell(
         self,
         context_id: str,
         columns: int,
         rows: int,
+        session_id: str = "",
     ) -> None:
-        self.runtime.resize_project_shell(context_id, columns, rows)
+        self.runtime.resize_project_shell(
+            context_id,
+            columns,
+            rows,
+            session_id,
+        )
 
-    def stop_project_shell(self, context_id: str) -> dict[str, object]:
-        return self.runtime.stop_project_shell(context_id)
+    def stop_project_shell(
+        self,
+        context_id: str,
+        session_id: str = "",
+    ) -> dict[str, object]:
+        return self.runtime.stop_project_shell(context_id, session_id)
 
     def start_ad_hoc(self, context_id: str) -> tuple[AgentSession, bool]:
         return self.runtime.start_ad_hoc_agent(context_id)

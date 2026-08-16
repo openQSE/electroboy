@@ -415,6 +415,17 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("_runtime", file_browser)
         self.assertIn("function connectProgressEvents(runtime)", progress)
         self.assertIn("async function startProjectShell(runtime)", project_shell)
+        self.assertIn(
+            'window.open("", popupName, SHELL_POPUP_FEATURES)',
+            project_shell,
+        )
+        self.assertIn('parameters.set("shell_session_id", sessionId)', project_shell)
+        self.assertNotIn(
+            "showProjectShellPane(runtime, true);\n"
+            "    initializeProjectShellTerminal(runtime);\n"
+            "    appendProjectShellOutput",
+            project_shell,
+        )
         self.assertNotIn("_runtime", progress)
         self.assertNotIn("_runtime", project_shell)
         self.assertIn("runtime.http.eventSource", progress)
@@ -1029,9 +1040,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/sessions/select")', PANE_WINDOW_HTML)
         self.assertIn('if (kind === "shell") return "Project shell";', PANE_WINDOW_HTML)
         self.assertIn("function connectShellStream()", PANE_WINDOW_HTML)
-        self.assertIn('contextUrl("/api/shell/events")', PANE_WINDOW_HTML)
-        self.assertIn('contextUrl("/api/shell/input")', PANE_WINDOW_HTML)
-        self.assertIn('contextUrl("/api/shell/resize")', PANE_WINDOW_HTML)
+        self.assertIn('shellContextUrl("/api/shell/events")', PANE_WINDOW_HTML)
+        self.assertIn('shellContextUrl("/api/shell/input")', PANE_WINDOW_HTML)
+        self.assertIn('shellContextUrl("/api/shell/resize")', PANE_WINDOW_HTML)
+        self.assertIn('params.get("shell_session_id")', PANE_WINDOW_HTML)
+        self.assertIn("function stopDisposableShell()", PANE_WINDOW_HTML)
+        self.assertIn('shellContextUrl("/api/shell/stop")', PANE_WINDOW_HTML)
+        self.assertIn("dockWorkspace.hidden = true", PANE_WINDOW_HTML)
         self.assertIn('if (kind === "input") return "AI agent input";', PANE_WINDOW_HTML)
         self.assertIn(
             'sandbox="allow-scripts allow-popups allow-modals allow-same-origin"',
@@ -3222,9 +3237,17 @@ class ServiceTests(unittest.TestCase):
 
             with mock.patch("electroboy.service.AgentSession.start"):
                 session, started = state.start_project_shell(context_id)
+                second_session, second_started = state.start_project_shell(context_id)
             payload = state.project_payload(context_id)
+            shell_sessions = state.contexts[context_id].project_shell_sessions
 
         self.assertTrue(started)
+        self.assertTrue(second_started)
+        self.assertNotEqual(session.session_id, second_session.session_id)
+        self.assertEqual(
+            set(shell_sessions),
+            {session.session_id, second_session.session_id},
+        )
         self.assertEqual(session.kind, "project-shell")
         self.assertEqual(session.label, "project shell")
         self.assertEqual(session.cwd, project_root.resolve())
@@ -3257,6 +3280,90 @@ class ServiceTests(unittest.TestCase):
 
         self.assertTrue(payload["project_shell_running"])
         self.assertEqual(payload["sessions"], [])
+
+    def test_project_shell_stop_removes_only_the_requested_shell(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            with mock.patch("electroboy.service.AgentSession.start"):
+                first, _ = state.start_project_shell(context_id)
+                second, _ = state.start_project_shell(context_id)
+
+            stopped = state.stop_project_shell(context_id, first.session_id)
+
+            self.assertEqual(stopped["status"], "stopped project shell")
+            self.assertIsNone(
+                state.current_project_shell_session(context_id, first.session_id)
+            )
+            self.assertIs(
+                state.current_project_shell_session(context_id, second.session_id),
+                second,
+            )
+
+    def test_project_shell_http_routes_address_independent_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            state = server.service_state
+            self.assertIsNotNone(state)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                first_status, first_body, _ = post_json(
+                    server,
+                    f"/api/shell/start?context_id={context_id}",
+                    {},
+                )
+                second_status, second_body, _ = post_json(
+                    server,
+                    f"/api/shell/start?context_id={context_id}",
+                    {},
+                )
+                if first_status == HTTPStatus.CONFLICT:
+                    self.skipTest(json.loads(first_body).get("error", "shell unavailable"))
+                first_id = json.loads(first_body)["shell_session"]["session_id"]
+                second_id = json.loads(second_body)["shell_session"]["session_id"]
+
+                stop_status, _, _ = post_json(
+                    server,
+                    (
+                        f"/api/shell/stop?context_id={context_id}"
+                        f"&session_id={first_id}"
+                    ),
+                    {},
+                )
+
+                self.assertEqual(first_status, HTTPStatus.OK)
+                self.assertEqual(second_status, HTTPStatus.OK)
+                self.assertNotEqual(first_id, second_id)
+                self.assertEqual(stop_status, HTTPStatus.OK)
+                self.assertIsNone(
+                    state.current_project_shell_session(context_id, first_id)
+                )
+                self.assertIsNotNone(
+                    state.current_project_shell_session(context_id, second_id)
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
 
     def test_documentation_sidecar_can_run_while_design_lock_is_active(self) -> None:
         class FakeActiveSession:

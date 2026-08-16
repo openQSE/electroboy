@@ -914,9 +914,15 @@ class ServiceState:
             raise
         return session, True
 
-    def current_project_shell_session(self, context_id: str) -> AgentSession | None:
+    def current_project_shell_session(
+        self,
+        context_id: str,
+        session_id: str = "",
+    ) -> AgentSession | None:
         with self.lock:
             context = self._context_locked(context_id)
+            if session_id:
+                return context.project_shell_sessions.get(session_id)
             return context.project_shell_session
 
     def start_project_shell(self, context_id: str) -> tuple[AgentSession, bool]:
@@ -925,11 +931,6 @@ class ServiceState:
             project_root = context.active_project_root
             if project_root is None:
                 raise AgentSessionError("activate a project first")
-            if (
-                context.project_shell_session is not None
-                and context.project_shell_session.is_active()
-            ):
-                return context.project_shell_session, False
             session = AgentSession(
                 command=_project_shell_command(),
                 cwd=project_root,
@@ -939,19 +940,23 @@ class ServiceState:
                 echo_input=True,
             )
             session = self._prepare_session_locked(context, session)
-            context.project_shell_session = session
+            context.project_shell_sessions[session.session_id] = session
         try:
             session.start()
         except Exception:
             with self.lock:
                 context = self._context_locked(context_id)
-                if context.project_shell_session is session:
-                    context.project_shell_session = None
+                context.project_shell_sessions.pop(session.session_id, None)
             raise
         return session, True
 
-    def send_project_shell_input(self, context_id: str, data: str) -> None:
-        session = self.current_project_shell_session(context_id)
+    def send_project_shell_input(
+        self,
+        context_id: str,
+        data: str,
+        session_id: str = "",
+    ) -> None:
+        session = self.current_project_shell_session(context_id, session_id)
         if session is None:
             raise AgentSessionError("project shell has not been started")
         session.send_raw(data)
@@ -961,24 +966,32 @@ class ServiceState:
         context_id: str,
         columns: int,
         rows: int,
+        session_id: str = "",
     ) -> None:
-        session = self.current_project_shell_session(context_id)
+        session = self.current_project_shell_session(context_id, session_id)
         if session is None:
             raise AgentSessionError("project shell has not been started")
         session.resize(columns, rows)
 
-    def stop_project_shell(self, context_id: str) -> dict[str, object]:
+    def stop_project_shell(
+        self,
+        context_id: str,
+        session_id: str = "",
+    ) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
-            session = context.project_shell_session
-        if session is None or not session.is_active():
-            raise AgentSessionError("project shell is not running")
-        session.terminate()
-        with self.lock:
-            context = self._context_locked(context_id)
-            if context.project_shell_session is session:
-                context.project_shell_session = None
+            session = (
+                context.project_shell_sessions.get(session_id)
+                if session_id
+                else context.project_shell_session
+            )
+            if session is not None:
+                context.project_shell_sessions.pop(session.session_id, None)
             project_root = context.active_project_root
+        if session is None:
+            raise AgentSessionError("project shell is not running")
+        if session.is_active():
+            session.terminate(timeout=0.5)
         return {
             **project_payload(self.root, context, project_root),
             "status": "stopped project shell",
@@ -1327,10 +1340,10 @@ class ServiceState:
         self,
         context: BrowserContext,
     ) -> list[AgentSession]:
-        sessions = self._context_sessions_locked(context)
-        if context.project_shell_session is not None:
-            sessions.append(context.project_shell_session)
-        return sessions
+        return [
+            *self._context_sessions_locked(context),
+            *context.project_shell_sessions.values(),
+        ]
 
     def _all_sessions_locked(self) -> list[AgentSession]:
         sessions: list[AgentSession] = []
@@ -1367,8 +1380,11 @@ class ServiceState:
                 context.creative_session = None
             if context.ad_hoc_session is session:
                 context.ad_hoc_session = None
-            if context.project_shell_session is session:
-                context.project_shell_session = None
+            for shell_id, shell_session in list(
+                context.project_shell_sessions.items()
+            ):
+                if shell_session is session:
+                    context.project_shell_sessions.pop(shell_id, None)
             session_id = getattr(session, "session_id", None)
             if session_id is not None and context.selected_session_id == session_id:
                 context.selected_session_id = None
@@ -1431,7 +1447,7 @@ class ServiceState:
         elif session.kind == "ad-hoc":
             context.ad_hoc_session = session
         elif session.kind == "project-shell":
-            context.project_shell_session = session
+            context.project_shell_sessions[session.session_id] = session
         else:
             workflow = (
                 self.workflow_registry.get(context.workflow_id)
@@ -1707,11 +1723,12 @@ def project_payload(
         and ad_hoc_session is not None
         and ad_hoc_session.is_active()
     )
-    project_shell_session = context.project_shell_session
     project_shell_running = bool(
         active_root
-        and project_shell_session is not None
-        and project_shell_session.is_active()
+        and any(
+            session.is_active()
+            for session in context.project_shell_sessions.values()
+        )
     )
     workflow_stage = context.workflow_stage or "project"
     return {
