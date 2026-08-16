@@ -8,3 +8,7 @@ dist/
 .venv/
 venv/
 .agent-pipeline/
+
+# ElectroBoy local runtime state
+.electroboy/local/
+.electroboy/shared/runs/*/progress/
