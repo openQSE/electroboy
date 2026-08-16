@@ -284,6 +284,10 @@ class ServiceTests(unittest.TestCase):
             "js/core/pane-layout-drag.js",
             frontend_bundles["core-shell"]["assets"],
         )
+        self.assertIn(
+            "js/core/input-shortcut.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
@@ -305,6 +309,7 @@ class ServiceTests(unittest.TestCase):
             "js/workflows/creative-writing.js", modules, workflows
         )
         sessions = read_service_text_asset("js/modules/agent-sessions.js")
+        input_shortcut = read_service_text_asset("js/core/input-shortcut.js")
         documents = read_service_text_asset("js/modules/documents.js")
         binder = read_service_text_asset("js/modules/binder.js")
         corkboard = read_service_text_asset("js/modules/corkboard.js")
@@ -333,6 +338,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function renderTree(runtime)", binder)
         self.assertIn("function show(runtime, path, options = {})", corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
+        self.assertIn("ElectroBoyInputShortcut.bindRecorder", sessions)
+        self.assertIn("shortcutController.matches(event)", sessions)
+        self.assertNotIn("isEnter && event.shiftKey", sessions)
+        self.assertIn("function bindRecorder(button)", input_shortcut)
+        self.assertIn("electroboy.agentSendShortcut.v1", input_shortcut)
+        self.assertIn("Hover to record a new shortcut", input_shortcut)
         self.assertIn(
             "function showArtifactPreviews(items, options = {})",
             documents,
@@ -660,6 +671,7 @@ class ServiceTests(unittest.TestCase):
     def test_service_asset_endpoint_serves_extracted_frontend_files(self) -> None:
         self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-layout-drag.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/input-shortcut.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -689,6 +701,12 @@ class ServiceTests(unittest.TestCase):
                 drag_status, drag_body, drag_type, _drag_headers = request_bytes(
                     server,
                     "/assets/service/js/core/pane-layout-drag.js",
+                )
+                shortcut_status, shortcut_body, shortcut_type, _shortcut_headers = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/core/input-shortcut.js",
+                    )
                 )
                 software_status, software_body, software_type, _software_headers = (
                     request_bytes(
@@ -729,6 +747,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(b"function createController(options)", drag_body)
         self.assertIn(b"event.shiftKey", drag_body)
         self.assertIn(b"options.onDetach", drag_body)
+        self.assertEqual(shortcut_status, 200)
+        self.assertEqual(shortcut_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"function bindRecorder(button)", shortcut_body)
+        self.assertIn(b"Shift", shortcut_body)
         self.assertEqual(software_status, 200)
         self.assertEqual(software_type, "application/javascript; charset=utf-8")
         self.assertIn(b"Software engineering", software_body)
@@ -833,6 +855,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("editArtifactButton.hidden = isCorkboard;", page)
         self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
+        self.assertIn('id="agentSendShortcut"', PANE_WINDOW_HTML)
+        self.assertIn("ElectroBoyInputShortcut.bindRecorder", PANE_WINDOW_HTML)
+        self.assertIn("shortcutController.matches(event)", PANE_WINDOW_HTML)
+        self.assertNotIn("isEnter && event.shiftKey", PANE_WINDOW_HTML)
         self.assertLess(
             PANE_WINDOW_HTML.index('event.key === "Escape"'),
             PANE_WINDOW_HTML.index("if (agentInput.value.length > 0)"),

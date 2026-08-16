@@ -54,6 +54,7 @@ def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
     assert 'id="sessionSwitcher"' in completed.stdout
     assert 'data-provider="electroboy' in completed.stdout
     assert 'data-pane-drag-handle="true"' in completed.stdout
+    assert 'id="agentSendShortcut"' in completed.stdout
     assert 'class="pane-drag-detach-target"' in completed.stdout
     assert ">Software Engineering</option>" in completed.stdout
     assert ">Creative Writing</option>" in completed.stdout

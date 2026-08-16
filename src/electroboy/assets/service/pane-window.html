@@ -174,6 +174,40 @@
       min-height: 0;
     }
 
+    .input-compose {
+      display: grid;
+      grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+      min-width: 0;
+      min-height: 0;
+      gap: 8px;
+    }
+
+    .send-shortcut {
+      min-width: 92px;
+      min-height: 0;
+      border: 1px solid #364156;
+      border-radius: 8px;
+      background: #1d2638;
+      color: var(--terminal-text);
+      cursor: crosshair;
+      font: inherit;
+      font-size: calc(var(--font-size) - 2px);
+      padding: 8px;
+      white-space: normal;
+    }
+
+    .send-shortcut:hover,
+    .send-shortcut.recording {
+      border-color: #66d9e8;
+      background: #183a50;
+      color: #ffffff;
+    }
+
+    .send-shortcut.invalid {
+      border-color: #ffb4a9;
+      background: #4a242b;
+    }
+
     .input-actions {
       display: grid;
       grid-template-columns: minmax(160px, 1fr) auto auto;
@@ -300,7 +334,16 @@
       <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>
       <pre id="statusOutput" class="status-output" hidden></pre>
       <div id="inputLayout" class="input-layout" hidden>
-        <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
+        <div class="input-compose">
+          <button
+            id="agentSendShortcut"
+            class="send-shortcut"
+            type="button"
+            title="Hover to record the send-message shortcut"
+            aria-label="Hover to record the send-message shortcut"
+          >Shift+Enter</button>
+          <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
+        </div>
         <div class="input-actions">
           <div class="input-session-control">
             <label for="sessionSwitcher">Select Agent</label>
@@ -318,6 +361,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="/assets/service/js/core/input-shortcut.js"></script>
   <script>
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
@@ -370,6 +414,7 @@
     const statusOutput = document.getElementById("statusOutput");
     const inputLayout = document.getElementById("inputLayout");
     const agentInput = document.getElementById("agentInput");
+    const agentSendShortcut = document.getElementById("agentSendShortcut");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
     const sendAgentInput = document.getElementById("sendAgentInput");
     const interruptAgent = document.getElementById("interruptAgent");
@@ -386,6 +431,9 @@
     let artifactVersion = 0;
     let artifactEditing = false;
     let statusTimer = null;
+    const shortcutController = window.ElectroBoyInputShortcut.bindRecorder(
+      agentSendShortcut,
+    );
 
     applyFontSize();
 
@@ -1474,23 +1522,20 @@
       if (handleSlashCommandInput(event)) {
         return;
       }
-      const terminalKey = terminalKeyForInputEvent(event);
-      if (terminalKey) {
-        event.preventDefault();
-        sendTerminalKey(terminalKey);
-        return;
-      }
-      const isEnter =
-        event.key === "Enter" ||
-        event.code === "Enter" ||
-        event.code === "NumpadEnter";
-      if (isEnter && event.shiftKey) {
+      if (shortcutController.matches(event)) {
         event.preventDefault();
         if (agentInput.value.trim()) {
           sendMessage();
         } else {
           sendTerminalKey("enter");
         }
+        return;
+      }
+      const terminalKey = terminalKeyForInputEvent(event);
+      if (terminalKey) {
+        event.preventDefault();
+        sendTerminalKey(terminalKey);
+        return;
       }
     });
 
