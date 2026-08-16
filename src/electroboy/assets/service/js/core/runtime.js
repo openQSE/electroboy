@@ -3,6 +3,9 @@
     const workflowPane = document.querySelector(".workflow-pane");
     const shellResizeHandle = document.getElementById("shellResizeHandle");
     const workflowSideSheet = document.getElementById("workflowSideSheet");
+    const workflowSideSheetResizeHandle = document.getElementById(
+      "workflowSideSheetResizeHandle",
+    );
     const toggleWorkflowSideSheet = document.getElementById("toggleWorkflowSideSheet");
     const workflowModeSelect = document.getElementById("workflowModeSelect");
     const stageScroll = document.querySelector(".stage-scroll");
@@ -90,6 +93,7 @@
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
+    const WORKFLOW_SIDE_SHEET_WIDTH_STORAGE_KEY = "electroboy.workflowSideSheetWidth";
     const WORKFLOW_MODE_STORAGE_KEY = "electroboy.workflowMode";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
@@ -100,6 +104,8 @@
     const WORKFLOW_PANE_HEIGHT_STORAGE_VERSION = "compact-v2";
     const DEFAULT_WORKFLOW_PANE_HEIGHT = 86;
     const MIN_WORKFLOW_PANE_HEIGHT = 86;
+    const MIN_WORKFLOW_SIDE_SHEET_WIDTH = 260;
+    const MIN_WORKFLOW_CONTENT_WIDTH = 360;
     const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
     const INPUT_ACTIONS_WIDTH_STORAGE_KEY = "electroboy.inputActionsWidth";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
@@ -150,6 +156,7 @@
     let documentZoom = storedDocumentZoom();
     let serviceSessions = [];
     let resizeShellState = null;
+    let resizeWorkflowSideSheetState = null;
     let resizeInputState = null;
     let resizeInputActionsState = null;
     let resizeOutputState = null;
@@ -157,6 +164,8 @@
     let resizeSidePaneState = null;
     let resizeArtifactPaneState = null;
     let resizeProjectShellState = null;
+    let workflowSideSheetMutationObserver = null;
+    let workflowSideSheetTextCanvas = null;
     let paneLayout = null;
     let paneLayoutObserver = null;
     let paneDragController = null;
@@ -1114,7 +1123,77 @@
       }
     }
 
+    function workflowSideSheetTextWidth(element, text = element.textContent || "") {
+      const value = String(text).trim();
+      if (!value) {
+        return 0;
+      }
+      workflowSideSheetTextCanvas ||= document.createElement("canvas");
+      const context = workflowSideSheetTextCanvas.getContext("2d");
+      if (!context) {
+        return 0;
+      }
+      const style = window.getComputedStyle(element);
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      return context.measureText(value).width;
+    }
+
+    function measuredWorkflowSideSheetMinimumWidth() {
+      let widestText = 0;
+      const textElements = stageActionBody.querySelectorAll(
+        ".stage-action-label, .stage-action-heading, .stage-action-button",
+      );
+      for (const element of textElements) {
+        widestText = Math.max(widestText, workflowSideSheetTextWidth(element));
+      }
+      for (const option of workflowModeSelect.options) {
+        widestText = Math.max(
+          widestText,
+          workflowSideSheetTextWidth(workflowModeSelect, option.textContent),
+        );
+      }
+      return Math.max(
+        MIN_WORKFLOW_SIDE_SHEET_WIDTH,
+        Math.ceil(widestText + 96),
+      );
+    }
+
+    function updateWorkflowSideSheetMinimumWidth() {
+      if (workflowSideSheetCollapsed) {
+        return MIN_WORKFLOW_SIDE_SHEET_WIDTH;
+      }
+      const minimum = measuredWorkflowSideSheetMinimumWidth();
+      shell.style.setProperty("--workflow-side-sheet-min-width", `${minimum}px`);
+      return minimum;
+    }
+
+    function applyStoredWorkflowSideSheetWidth() {
+      const stored = storedNumber(WORKFLOW_SIDE_SHEET_WIDTH_STORAGE_KEY);
+      if (!stored) {
+        return;
+      }
+      const minimum = updateWorkflowSideSheetMinimumWidth();
+      const maximum = Math.max(minimum, shell.clientWidth - MIN_WORKFLOW_CONTENT_WIDTH);
+      shell.style.setProperty(
+        "--workflow-side-sheet-width",
+        `${clampValue(stored, minimum, maximum)}px`,
+      );
+    }
+
+    function initializeWorkflowSideSheetResize() {
+      workflowSideSheetMutationObserver = new MutationObserver(() => {
+        window.requestAnimationFrame(updateWorkflowSideSheetMinimumWidth);
+      });
+      workflowSideSheetMutationObserver.observe(stageActionBody, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+      updateWorkflowSideSheetMinimumWidth();
+    }
+
     function applyStoredPaneSizes() {
+      applyStoredWorkflowSideSheetWidth();
       const workflowHeight = storedWorkflowPaneHeight();
       if (workflowHeight) {
         shell.style.setProperty("--workflow-pane-height", `${workflowHeight}px`);
@@ -1546,7 +1625,10 @@
       toggleWorkflowSideSheet.title = workflowSideSheetCollapsed
         ? "Expand workflow side sheet"
         : "Collapse workflow side sheet";
-      window.requestAnimationFrame(fitTerminal);
+      window.requestAnimationFrame(() => {
+        updateWorkflowSideSheetMinimumWidth();
+        fitTerminal();
+      });
     }
 
     function setWorkflowSideSheetCollapsed(collapsed) {
@@ -2076,6 +2158,53 @@
         insertFileLink.disabled = true;
       }
       window.requestAnimationFrame(fitTerminal);
+    }
+
+    function startWorkflowSideSheetResize(event) {
+      if (workflowSideSheetCollapsed) {
+        return;
+      }
+      event.preventDefault();
+      const shellRect = shell.getBoundingClientRect();
+      const sideSheetRect = workflowSideSheet.getBoundingClientRect();
+      const minimum = updateWorkflowSideSheetMinimumWidth();
+      resizeWorkflowSideSheetState = {
+        startX: event.clientX,
+        startWidth: sideSheetRect.width,
+        minimum,
+        maximum: Math.max(minimum, shellRect.width - MIN_WORKFLOW_CONTENT_WIDTH),
+      };
+      workflowSideSheetResizeHandle.setPointerCapture(event.pointerId);
+      shell.classList.add("resizing-side-sheet");
+    }
+
+    function updateWorkflowSideSheetResize(event) {
+      if (!resizeWorkflowSideSheetState) {
+        return;
+      }
+      const nextWidth = clampValue(
+        resizeWorkflowSideSheetState.startWidth +
+          (event.clientX - resizeWorkflowSideSheetState.startX),
+        resizeWorkflowSideSheetState.minimum,
+        resizeWorkflowSideSheetState.maximum,
+      );
+      shell.style.setProperty("--workflow-side-sheet-width", `${nextWidth}px`);
+      saveNumber(WORKFLOW_SIDE_SHEET_WIDTH_STORAGE_KEY, nextWidth);
+      fitTerminal();
+    }
+
+    function finishWorkflowSideSheetResize(event) {
+      if (!resizeWorkflowSideSheetState) {
+        return;
+      }
+      resizeWorkflowSideSheetState = null;
+      shell.classList.remove("resizing-side-sheet");
+      try {
+        workflowSideSheetResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+      fitTerminal();
     }
 
     function startShellResize(event) {
@@ -4536,6 +4665,22 @@
     popoutScratchPane.addEventListener("click", () => popOutPane("scratch"));
     popoutStatusPane.addEventListener("click", () => popOutPane("status"));
     popoutInputPane.addEventListener("click", () => popOutPane("input"));
+    workflowSideSheetResizeHandle.addEventListener(
+      "pointerdown",
+      startWorkflowSideSheetResize,
+    );
+    workflowSideSheetResizeHandle.addEventListener(
+      "pointermove",
+      updateWorkflowSideSheetResize,
+    );
+    workflowSideSheetResizeHandle.addEventListener(
+      "pointerup",
+      finishWorkflowSideSheetResize,
+    );
+    workflowSideSheetResizeHandle.addEventListener(
+      "pointercancel",
+      finishWorkflowSideSheetResize,
+    );
     shellResizeHandle.addEventListener("pointerdown", startShellResize);
     shellResizeHandle.addEventListener("pointermove", updateShellResize);
     shellResizeHandle.addEventListener("pointerup", finishShellResize);
@@ -4895,6 +5040,7 @@
       renderWorkflowModeOptions();
       applyWorkflowSideSheetState();
       applyWorkflowMode();
+      initializeWorkflowSideSheetResize();
       initializePaneLayout();
       applyStoredPaneSizes();
       applyStoredProgressPaneSize();

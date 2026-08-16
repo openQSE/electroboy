@@ -111,7 +111,12 @@
     .shell {
       position: relative;
       display: grid;
-      grid-template-columns: var(--workflow-side-sheet-width, 320px) minmax(0, 1fr);
+      grid-template-columns:
+        max(
+          var(--workflow-side-sheet-min-width, 260px),
+          var(--workflow-side-sheet-width, 320px)
+        )
+        minmax(0, 1fr);
       grid-template-rows:
         var(--workflow-pane-height, 86px) 7px
         minmax(0, 1fr);
@@ -120,7 +125,7 @@
     }
 
     .shell.side-sheet-collapsed {
-      --workflow-side-sheet-width: 64px;
+      grid-template-columns: 64px minmax(0, 1fr);
     }
 
     .workflow-pane {
@@ -145,6 +150,33 @@
       border-right: 1px solid var(--border);
       background: var(--side-surface);
       box-shadow: 3px 0 16px rgb(15 43 70 / 9%);
+    }
+
+    .workflow-side-sheet-resize-handle {
+      position: absolute;
+      z-index: 19;
+      top: 0;
+      bottom: 0;
+      left: calc(
+        max(
+          var(--workflow-side-sheet-min-width, 260px),
+          var(--workflow-side-sheet-width, 320px)
+        ) - 3px
+      );
+      width: 7px;
+      background: transparent;
+      cursor: col-resize;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .workflow-side-sheet-resize-handle:hover,
+    .shell.resizing-side-sheet .workflow-side-sheet-resize-handle {
+      background: #7398b4;
+    }
+
+    .shell.side-sheet-collapsed .workflow-side-sheet-resize-handle {
+      display: none;
     }
 
     .side-sheet-header {

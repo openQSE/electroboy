@@ -476,6 +476,23 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('data-stage="requirements"', core_page)
         self.assertNotIn("Creative writing", core_page)
 
+    def test_workflow_side_sheet_is_resizable_with_a_text_aware_minimum(self) -> None:
+        page = read_service_text_asset("index.html")
+        css = read_service_text_asset("css/shell.css")
+        runtime = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn('id="workflowSideSheetResizeHandle"', page)
+        self.assertIn('aria-label="Resize workflow menu"', page)
+        self.assertIn(".workflow-side-sheet-resize-handle", css)
+        self.assertIn("--workflow-side-sheet-min-width", css)
+        self.assertIn("WORKFLOW_SIDE_SHEET_WIDTH_STORAGE_KEY", runtime)
+        self.assertIn("function measuredWorkflowSideSheetMinimumWidth()", runtime)
+        self.assertIn("context.measureText(value).width", runtime)
+        self.assertIn("function startWorkflowSideSheetResize(event)", runtime)
+        self.assertIn("function updateWorkflowSideSheetResize(event)", runtime)
+        self.assertIn("function finishWorkflowSideSheetResize(event)", runtime)
+        self.assertIn("initializeWorkflowSideSheetResize();", runtime)
+
     def test_route_dispatcher_uses_registered_module_routes(self) -> None:
         dispatcher = build_route_dispatcher(build_module_registry())
 
