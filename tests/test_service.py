@@ -375,6 +375,11 @@ class ServiceTests(unittest.TestCase):
             documents,
         )
         self.assertIn(
+            "runtimeState.manualArtifactPreview\n"
+            "        && runtimeState.artifactPreviewItems.length > 0",
+            documents,
+        )
+        self.assertIn(
             'if (item.kind === "document" && item.target)',
             documents,
         )
@@ -415,6 +420,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("runtime.http.eventSource", progress)
         self.assertIn("runtime.http.eventSource", project_shell)
         self.assertIn("async function startRequirementsAgent()", software)
+        ad_hoc_start_offset = software.index("async function startAdHocAgent()")
+        ad_hoc_start = software[
+            ad_hoc_start_offset : software.index(
+                "async function runRequirementsAgent",
+                ad_hoc_start_offset,
+            )
+        ]
+        self.assertNotIn("hideArtifactPreview()", ad_hoc_start)
         self.assertIn("async function startGenericStageAgent(", software)
         self.assertIn("function bindRuntime(runtime)", software)
         self.assertIn("function bindRuntime(runtime)", creative)

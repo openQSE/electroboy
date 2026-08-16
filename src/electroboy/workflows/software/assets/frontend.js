@@ -776,7 +776,6 @@
       closeAgentEventStream();
       closeProgressEventStream();
       showProgressPane(false);
-      hideArtifactPreview();
       setAgentInputVisible(true);
       clearAgentOutput();
       agentInput.disabled = false;

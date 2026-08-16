@@ -1059,7 +1059,11 @@
       }
       runtimeState.artifactPaneRequested = true;
       applyOutputPaneVisibility();
-      if (runtimeState.manualArtifactPreview && runtimeState.manualArtifactPreviewStage === runtimeState.currentWorkflowStage) {
+      if (
+        runtimeState.manualArtifactPreview
+        && runtimeState.artifactPreviewItems.length > 0
+      ) {
+        runtimeState.manualArtifactPreviewStage = runtimeState.currentWorkflowStage;
         connectArtifactEvents();
         return;
       }
