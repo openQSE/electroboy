@@ -928,8 +928,30 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="decreasePaneFont"', PANE_WINDOW_HTML)
         self.assertIn('id="resetPaneFont"', PANE_WINDOW_HTML)
         self.assertIn('id="increasePaneFont"', PANE_WINDOW_HTML)
+        self.assertIn('id="paneSessionControl" class="pane-session-control" hidden', PANE_WINDOW_HTML)
         self.assertIn('for="sessionSwitcher">Select Agent</label>', PANE_WINDOW_HTML)
         self.assertIn('id="sessionSwitcher"', PANE_WINDOW_HTML)
+        self.assertLess(
+            PANE_WINDOW_HTML.index('id="sessionSwitcher"'),
+            PANE_WINDOW_HTML.index('id="terminalHost"'),
+        )
+        self.assertIn('id="interruptAgent" class="input-interrupt"', PANE_WINDOW_HTML)
+        self.assertIn('id="linkAgentFile" class="input-link"', PANE_WINDOW_HTML)
+        self.assertIn("background: #3a1d1a;", PANE_WINDOW_HTML)
+        self.assertIn("background: #12303b;", PANE_WINDOW_HTML)
+        self.assertIn("grid-template-rows: repeat(3, 30px);", PANE_WINDOW_HTML)
+        self.assertIn(".input-actions button {\n      height: 30px;", PANE_WINDOW_HTML)
+        self.assertNotIn('id="sendAgentInput"', PANE_WINDOW_HTML)
+        self.assertLess(
+            PANE_WINDOW_HTML.index('id="agentInput"'),
+            PANE_WINDOW_HTML.index('id="interruptAgent"'),
+        )
+        self.assertLess(
+            PANE_WINDOW_HTML.index('id="linkAgentFile"'),
+            PANE_WINDOW_HTML.index('id="agentSendShortcut"'),
+        )
+        self.assertIn("function openLinkFileBrowser()", PANE_WINDOW_HTML)
+        self.assertIn('data.mode === "link"', PANE_WINDOW_HTML)
         self.assertIn("function refreshSessions()", PANE_WINDOW_HTML)
         self.assertIn("function selectAgentSession(sessionId)", PANE_WINDOW_HTML)
         self.assertIn("function scratchPadStorageKey()", PANE_WINDOW_HTML)

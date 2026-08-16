@@ -169,14 +169,17 @@
 
     .input-layout {
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(132px, 190px);
       height: 100%;
       min-height: 0;
+      gap: 8px;
+      padding: 8px;
     }
 
     .input-compose {
       display: grid;
-      grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       min-width: 0;
       min-height: 0;
       gap: 8px;
@@ -210,29 +213,54 @@
 
     .input-actions {
       display: grid;
-      grid-template-columns: minmax(160px, 1fr) auto auto;
-      align-items: end;
-      gap: 8px;
-      border-top: 1px solid var(--border);
+      grid-template-rows: repeat(3, 30px);
+      align-items: stretch;
+      align-content: start;
+      gap: 4px;
+      border-left: 1px solid var(--border);
       background: #151b29;
-      padding: 8px;
+      padding-left: 8px;
     }
 
-    .input-session-control {
-      display: grid;
-      gap: 4px;
+    .input-actions button {
+      height: 30px;
+    }
+
+    .input-actions .input-interrupt {
+      border-color: #73342f;
+      background: #3a1d1a;
+      color: #ffb4a9;
+    }
+
+    .input-actions .input-link {
+      border-color: #305e6f;
+      background: #12303b;
+      color: #d5f4ff;
+    }
+
+    .pane-session-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       min-width: 0;
     }
 
-    .input-session-control label {
+    .pane-session-control label {
       color: #aab8cf;
       font-size: calc(var(--font-size) - 3px);
       font-weight: 750;
     }
 
-    .input-session-control select {
-      width: 100%;
-      min-width: 0;
+    .pane-session-control select {
+      width: clamp(130px, 22vw, 240px);
+      min-width: 100px;
+      min-height: 30px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #1d2638;
+      color: var(--terminal-text);
+      font: inherit;
+      font-size: calc(var(--font-size) - 2px);
     }
 
     .workspace-window {
@@ -558,6 +586,14 @@
     <header class="pane-toolbar">
       <span id="paneTitle">Pane</span>
       <div class="pane-actions">
+        <div id="paneSessionControl" class="pane-session-control" hidden>
+          <label for="sessionSwitcher">Select Agent</label>
+          <select
+            id="sessionSwitcher"
+            aria-label="Select Agent"
+            disabled
+          ></select>
+        </div>
         <div id="paneFontControls" class="pane-font-controls" aria-label="Pane font size">
           <button
             id="decreasePaneFont"
@@ -648,6 +684,15 @@
       <pre id="statusOutput" class="status-output" hidden></pre>
       <div id="inputLayout" class="input-layout" hidden>
         <div class="input-compose">
+          <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
+        </div>
+        <div class="input-actions">
+          <button id="interruptAgent" class="input-interrupt" type="button">
+            Interrupt
+          </button>
+          <button id="linkAgentFile" class="input-link" type="button">
+            Link file
+          </button>
           <button
             id="agentSendShortcut"
             class="send-shortcut"
@@ -655,19 +700,6 @@
             title="Hover to record the send-message shortcut"
             aria-label="Hover to record the send-message shortcut"
           >Shift+Enter</button>
-          <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
-        </div>
-        <div class="input-actions">
-          <div class="input-session-control">
-            <label for="sessionSwitcher">Select Agent</label>
-            <select
-              id="sessionSwitcher"
-              aria-label="Select Agent"
-              disabled
-            ></select>
-          </div>
-          <button id="interruptAgent" type="button">Interrupt</button>
-          <button id="sendAgentInput" type="button">Send</button>
         </div>
       </div>
     </section>
@@ -737,10 +769,12 @@
     const inputLayout = document.getElementById("inputLayout");
     const agentInput = document.getElementById("agentInput");
     const agentSendShortcut = document.getElementById("agentSendShortcut");
+    const paneSessionControl = document.getElementById("paneSessionControl");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
-    const sendAgentInput = document.getElementById("sendAgentInput");
     const interruptAgent = document.getElementById("interruptAgent");
+    const linkAgentFile = document.getElementById("linkAgentFile");
     let agentSessions = [];
+    let activeProjectRoot = "";
     let terminal = null;
     let terminalFit = null;
     let terminalResizeObserver = null;
@@ -941,6 +975,8 @@
         return;
       }
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      activeProjectRoot = payload.active_project_root || payload.activation_root
+        || payload.service_root || "";
       selectedSessionId = payload.selected_session_id || selectedSessionId || "";
       renderSessionSwitcher();
     }
@@ -1767,6 +1803,28 @@
       await fetch(contextUrl("/api/sessions/interrupt"), { method: "POST" });
     }
 
+    function insertTextAtCursor(text) {
+      const start = agentInput.selectionStart ?? agentInput.value.length;
+      const end = agentInput.selectionEnd ?? start;
+      const prefix = start > 0 && !/\s$/.test(agentInput.value.slice(0, start)) ? " " : "";
+      const suffix = end < agentInput.value.length && !/^\s/.test(agentInput.value.slice(end))
+        ? " "
+        : "";
+      agentInput.setRangeText(`${prefix}${text}${suffix}`, start, end, "end");
+      agentInput.focus();
+    }
+
+    function openLinkFileBrowser() {
+      const parameters = new URLSearchParams();
+      parameters.set("path", activeProjectRoot || ".");
+      parameters.set("mode", "link");
+      window.open(
+        `/file-browser?${parameters.toString()}`,
+        "electroboy-pane-file-link-browser",
+        "popup=yes,width=980,height=720,scrollbars=yes,resizable=yes",
+      );
+    }
+
     function showInput() {
       inputLayout.hidden = false;
       refreshSessions();
@@ -1881,6 +1939,14 @@
         return;
       }
       const data = event.data || {};
+      if (
+        data.type === "electroboy-file-browser-select" &&
+        data.mode === "link" &&
+        data.path
+      ) {
+        insertTextAtCursor(String(data.path));
+        return;
+      }
       if (data.type === "electroboy-artifact-saved") {
         artifactVersion += 1;
         if (!artifactEditing) {
@@ -1891,8 +1957,8 @@
     sessionSwitcher.addEventListener("change", () => {
       selectAgentSession(sessionSwitcher.value);
     });
-    sendAgentInput.addEventListener("click", sendMessage);
     interruptAgent.addEventListener("click", interruptAgentSession);
+    linkAgentFile.addEventListener("click", openLinkFileBrowser);
     agentInput.addEventListener("keydown", (event) => {
       if (handleSlashCommandInput(event)) {
         return;
@@ -1917,7 +1983,10 @@
     paneTitle.textContent = titleForPane(PANE_KIND);
     exportPaneFormat.hidden = PANE_KIND !== "artifact";
     exportPaneOutput.hidden = !canExportPaneOutput();
-    if (PANE_KIND === "agent") connectAgentStream();
+    if (PANE_KIND === "agent") {
+      paneSessionControl.hidden = false;
+      refreshSessions().catch(() => {}).then(connectAgentStream);
+    }
     else if (PANE_KIND === "progress") connectProgressStream();
     else if (PANE_KIND === "artifact") connectArtifactStream();
     else if (PANE_KIND === "scratch") showScratchPad();
