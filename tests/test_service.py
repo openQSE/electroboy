@@ -470,6 +470,8 @@ class ServiceTests(unittest.TestCase):
             project_shell,
         )
         self.assertIn('parameters.set("shell_session_id", sessionId)', project_shell)
+        self.assertIn("nextState.projectShellPaneRequested", project_shell)
+        self.assertIn("projectShellPaneRequested: false", project_shell)
         self.assertIn('runtime.sharedPanes.connect("file-catalog"', documents)
         self.assertIn("function openFileCatalogState()", documents)
         self.assertNotIn(

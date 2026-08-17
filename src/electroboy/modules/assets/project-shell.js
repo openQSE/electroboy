@@ -125,10 +125,17 @@
     if (!state.projectShellRunning) {
       patch.projectShellPaneDismissed = false;
       closeProjectShellEventStream();
+    } else if (!state.projectShellPaneRequested) {
+      closeProjectShellEventStream();
     }
     updateShellState(runtime, patch);
     applyProjectShellPaneVisibility(runtime);
-    if (shellState(runtime).projectShellRunning && !eventSource) {
+    const nextState = shellState(runtime);
+    if (
+      nextState.projectShellRunning
+      && nextState.projectShellPaneRequested
+      && !eventSource
+    ) {
       window.setTimeout(() => connectProjectShellEvents(runtime), 0);
     }
   }
@@ -207,6 +214,8 @@
     }
     updateShellState(runtime, {
       projectShellRunning: Boolean(payload.project_shell_running),
+      projectShellPaneDismissed: true,
+      projectShellPaneRequested: false,
     });
     runtime.project.update(payload);
     const parameters = new URLSearchParams();
