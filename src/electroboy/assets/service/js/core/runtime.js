@@ -4954,6 +4954,7 @@
       },
       layout: {
         ensurePane: ensurePaneInLayout,
+        hasPane: (kind) => Boolean(paneLayoutLeafByKind(kind)),
         isPopped: (kind) => poppedPanes.has(kind),
         dockPane: dockPoppedPane,
         showProgressPane,

@@ -525,6 +525,44 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("event.key === scratchPadStorageKey()", app)
         self.assertIn('scratchPad.value = event.newValue || "";', app)
 
+    def test_project_activation_preserves_explicit_pane_layout(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+        runtime = read_service_text_asset("js/core/runtime.js")
+        documents = read_service_text_asset("js/modules/documents.js")
+        creative = read_service_text_asset(
+            "js/workflows/creative-writing.js",
+            modules,
+            workflows,
+        )
+
+        self.assertIn(
+            'hasPane: (kind) => Boolean(paneLayoutLeafByKind(kind))',
+            runtime,
+        )
+        self.assertIn(
+            'runtimeState.artifactPaneRequested = runtimeApi.layout.hasPane("artifact")',
+            documents,
+        )
+        self.assertNotIn(
+            "runtimeState.artifactPaneRequested = "
+            "Boolean(runtimeState.activeProjectRoot)",
+            documents,
+        )
+        sync_start = documents.index("function syncArtifactPreviewWithProject()")
+        sync_end = documents.index("async function startDocumentationAgent", sync_start)
+        sync_source = documents[sync_start:sync_end]
+        self.assertIn('if (runtimeApi.layout.hasPane("artifact"))', sync_source)
+        self.assertNotIn(
+            "\n      runtimeState.artifactPaneRequested = true;\n"
+            "      applyOutputPaneVisibility();",
+            sync_source,
+        )
+        self.assertIn(
+            'artifactPaneRequested = runtimeApi.layout.hasPane("artifact")',
+            creative,
+        )
+
     def test_workflow_payload_exposes_plugin_contract_metadata(self) -> None:
         modules = build_module_registry()
         workflows = build_workflow_registry(modules)

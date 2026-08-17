@@ -984,7 +984,7 @@
       runtimeState.manualArtifactPreview = false;
       runtimeState.manualArtifactPreviewStage = "";
       runtimeState.artifactPreviewStage = "";
-      runtimeState.artifactPaneRequested = Boolean(runtimeState.activeProjectRoot);
+      runtimeState.artifactPaneRequested = runtimeApi.layout.hasPane("artifact");
       closeArtifactEventStream();
       renderArtifactPreviewItems();
       applyOutputPaneVisibility();
@@ -1076,8 +1076,10 @@
         hideArtifactPreview();
         return;
       }
-      runtimeState.artifactPaneRequested = true;
-      applyOutputPaneVisibility();
+      if (runtimeApi.layout.hasPane("artifact")) {
+        runtimeState.artifactPaneRequested = true;
+        applyOutputPaneVisibility();
+      }
       if (
         runtimeState.manualArtifactPreview
         && runtimeState.artifactPreviewItems.length > 0

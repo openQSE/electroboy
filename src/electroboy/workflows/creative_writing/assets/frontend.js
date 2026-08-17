@@ -440,7 +440,8 @@
       } else if (creativeActiveFolder) {
         showCreativeCorkboard(creativeActiveFolder);
       } else {
-        artifactPaneRequested = true;
+        artifactPaneRequested = runtimeApi.layout.hasPane("artifact");
+        runtimeApi.updateState({ artifactPaneRequested });
         applyOutputPaneVisibility();
       }
     }
