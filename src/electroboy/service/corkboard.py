@@ -71,6 +71,15 @@ def normalize_board_snapshot(
     capabilities = payload.get("capabilities")
     if not isinstance(capabilities, list):
         capabilities = []
+    normalized_ratio: float | None = None
+    requested_ratio = payload.get("card_aspect_ratio")
+    if requested_ratio is not None:
+        try:
+            normalized_ratio = float(requested_ratio)
+        except (TypeError, ValueError) as error:
+            raise StateError("corkboard card aspect ratio must be numeric") from error
+        if not 0.25 <= normalized_ratio <= 4:
+            raise StateError("corkboard card aspect ratio is out of range")
     return {
         **payload,
         "schema_version": 1,
@@ -80,4 +89,9 @@ def normalize_board_snapshot(
         "board_type": board_type,
         "cards": normalized_cards,
         "capabilities": [str(item) for item in capabilities],
+        **(
+            {"card_aspect_ratio": normalized_ratio}
+            if normalized_ratio is not None
+            else {}
+        ),
     }

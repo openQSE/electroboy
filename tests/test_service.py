@@ -2588,6 +2588,7 @@ class ServiceTests(unittest.TestCase):
                 "title": "Family board",
                 "context_id": "context-1",
                 "capabilities": ["open-card"],
+                "card_aspect_ratio": 0.75,
                 "cards": [
                     {
                         "id": "activity-184",
@@ -2615,12 +2616,17 @@ class ServiceTests(unittest.TestCase):
         page, status = render_corkboard_html(snapshot)
 
         self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(snapshot["card_aspect_ratio"], 0.75)
         self.assertIn('"provider": "better-planned"', page)
         self.assertIn('"type": "better-planned-entry"', page)
         self.assertIn('"deadline": "2026-08-20"', page)
         self.assertIn("function buildCardMetadata(card)", page)
         self.assertIn('card.target && supports("open-card")', page)
         self.assertIn('boardTitle.readOnly =', page)
+        self.assertIn('"card_aspect_ratio": 0.75', page)
+        self.assertIn('"fixed-card-ratio"', page)
+        self.assertIn('"--card-height"', page)
+        self.assertIn("const CARD_ASPECT_RATIO", page)
 
     def test_generic_corkboard_routes_use_active_creative_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

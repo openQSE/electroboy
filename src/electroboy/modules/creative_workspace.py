@@ -612,6 +612,12 @@ def render_corkboard_html(
       width: var(--card-width, 218px);
     }}
 
+    body.fixed-card-ratio .board.freeform .index-card {{
+      height: var(--card-height, 291px);
+      min-height: var(--card-height, 291px);
+      overflow: auto;
+    }}
+
     .index-card.dragging {{
       cursor: grabbing;
       box-shadow:
@@ -1067,6 +1073,12 @@ def render_corkboard_html(
       && window.CSS.supports("zoom", "1");
     const MIN_CARD_SCALE = 100;
     const MAX_CARD_SCALE = 400;
+    const requestedCardAspectRatio = Number(CORKBOARD_DATA.card_aspect_ratio);
+    const CARD_ASPECT_RATIO = Number.isFinite(requestedCardAspectRatio)
+      && requestedCardAspectRatio >= 0.25
+      && requestedCardAspectRatio <= 4
+      ? requestedCardAspectRatio
+      : 0;
     let dragState = null;
     let canvasPanState = null;
     let draggedPath = "";
@@ -1079,6 +1091,10 @@ def render_corkboard_html(
     let selectedCardKey = "";
 
     document.body.classList.toggle("freeform-canvas", boardType === "freeform");
+    document.body.classList.toggle(
+      "fixed-card-ratio",
+      boardType === "freeform" && CARD_ASPECT_RATIO > 0,
+    );
     boardTitle.readOnly = boardType !== "freeform" || !supports("rename-board");
 
     function supports(capability) {{
@@ -1372,6 +1388,14 @@ def render_corkboard_html(
     function applyCardScale() {{
       const root = document.documentElement;
       root.style.setProperty("--card-width", `${{scaledCardValue(218)}}px`);
+      if (CARD_ASPECT_RATIO > 0) {{
+        root.style.setProperty(
+          "--card-height",
+          `${{Math.round(scaledCardValue(218) / CARD_ASPECT_RATIO)}}px`,
+        );
+      }} else {{
+        root.style.removeProperty("--card-height");
+      }}
       root.style.setProperty("--card-min-height", `${{scaledCardValue(158)}}px`);
       root.style.setProperty("--card-note-min-height", `${{scaledCardValue(82)}}px`);
       root.style.setProperty("--card-gap", `${{Math.max(14, scaledCardValue(24))}}px`);
