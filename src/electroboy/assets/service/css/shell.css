@@ -1024,7 +1024,7 @@
       display: grid;
       grid-template-rows:
         minmax(0, 1fr) 7px
-        var(--input-pane-height, 148px);
+        var(--input-pane-height, 220px);
       min-height: 0;
       background: var(--terminal);
     }
@@ -2053,10 +2053,11 @@
 
     .agent-actions {
       display: grid;
-      grid-template-rows: repeat(3, minmax(30px, auto));
+      grid-template-rows: repeat(3, 42px);
       min-height: 0;
       min-width: 0;
-      gap: 4px;
+      gap: 10px;
+      align-content: start;
       align-self: stretch;
       overflow: auto;
       scrollbar-width: thin;
@@ -2064,8 +2065,8 @@
 
     .agent-actions .agent-action-button,
     .agent-actions .agent-send-shortcut {
-      min-height: 30px;
-      height: 30px;
+      min-height: 42px;
+      height: 42px;
     }
 
     .agent-actions .agent-send-shortcut {

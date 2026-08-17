@@ -563,6 +563,15 @@ class ServiceTests(unittest.TestCase):
             creative,
         )
 
+    def test_agent_input_actions_are_fixed_height_and_top_aligned(self) -> None:
+        styles = read_service_text_asset("css/shell.css")
+
+        self.assertIn("var(--input-pane-height, 220px)", styles)
+        self.assertIn("grid-template-rows: repeat(3, 42px);", styles)
+        self.assertIn("gap: 10px;\n      align-content: start;", styles)
+        self.assertIn("min-height: 42px;\n      height: 42px;", styles)
+        self.assertNotIn("repeat(3, minmax(30px, auto))", styles)
+
     def test_workflow_payload_exposes_plugin_contract_metadata(self) -> None:
         modules = build_module_registry()
         workflows = build_workflow_registry(modules)
@@ -1155,8 +1164,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="linkAgentFile" class="input-link"', PANE_WINDOW_HTML)
         self.assertIn("background: #3a1d1a;", PANE_WINDOW_HTML)
         self.assertIn("background: #12303b;", PANE_WINDOW_HTML)
-        self.assertIn("grid-template-rows: repeat(3, 30px);", PANE_WINDOW_HTML)
-        self.assertIn(".input-actions button {\n      height: 30px;", PANE_WINDOW_HTML)
+        self.assertIn("grid-template-rows: repeat(3, 42px);", PANE_WINDOW_HTML)
+        self.assertIn(".input-actions button {\n      height: 42px;", PANE_WINDOW_HTML)
+        self.assertIn("align-content: start;\n      gap: 10px;", PANE_WINDOW_HTML)
         self.assertNotIn('id="sendAgentInput"', PANE_WINDOW_HTML)
         self.assertLess(
             PANE_WINDOW_HTML.index('id="agentInput"'),
