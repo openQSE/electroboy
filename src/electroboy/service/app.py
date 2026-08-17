@@ -1944,7 +1944,19 @@ def _ad_hoc_agent_command(root: Path) -> list[str]:
 
 
 def _ad_hoc_agent_prompt() -> str:
-    return "Here is the code base. Follow what the operator says."
+    return "\n".join(
+        [
+            "You are an ad-hoc agent for this code base.",
+            "The active ElectroBoy workflow stage is irrelevant to this session.",
+            "Do not inspect files, read .electroboy state, run commands, or launch",
+            "another agent until the operator gives you a task.",
+            "Do not infer a task from workflow state, project artifacts, or",
+            "repository contents.",
+            "Do not run any electroboy workflow command unless the operator",
+            "explicitly asks for that exact command.",
+            "Wait for and then follow the operator's next instruction directly.",
+        ]
+    )
 
 
 def _project_shell_command() -> list[str]:

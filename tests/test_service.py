@@ -3230,9 +3230,14 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(session.command[:2], ["codex", "--cd"])
         self.assertEqual(str(project_root.resolve()), session.command[2])
         self.assertIn("--sandbox", session.command)
-        self.assertEqual(
-            session.command[-1],
-            "Here is the code base. Follow what the operator says.",
+        prompt = session.command[-1]
+        self.assertIn("ad-hoc agent for this code base", prompt)
+        self.assertIn("workflow stage is irrelevant", prompt)
+        self.assertIn("until the operator gives you a task", prompt)
+        self.assertIn("Do not run any electroboy workflow command", prompt)
+        self.assertIn(
+            "Wait for and then follow the operator's next instruction",
+            prompt,
         )
         self.assertNotIn("requirements", session.command[-1])
         self.assertNotIn("detailed-design", session.command[-1])
