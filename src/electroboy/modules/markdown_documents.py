@@ -108,7 +108,7 @@ def module() -> ServiceModule:
             route("GET", "/api/artifacts/events", "markdown_documents", "events"),
         ),
         handlers=_HANDLERS,
-        assets=("js/modules/documents.js",),
+        assets=("js/modules/documents.js", "js/modules/file-pane-tools.js"),
         asset_package="electroboy.modules",
         capabilities=frozenset({"markdown-preview", "markdown-edit", "export"}),
         state_namespace="markdown_documents",

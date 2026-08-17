@@ -114,8 +114,175 @@
     }
 
     .pane-body {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       min-height: 0;
       overflow: hidden;
+    }
+
+    .pane-content-surface {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .pane-tools-toggle {
+      position: absolute;
+      z-index: 20;
+      top: 10px;
+      right: 0;
+      min-width: 24px;
+      height: 68px;
+      border: 1px solid #364156;
+      border-right: 0;
+      border-radius: 6px 0 0 6px;
+      background: #1d2638;
+      color: #c9d5e8;
+      cursor: pointer;
+      font: inherit;
+      font-size: calc(var(--font-size) - 3px);
+      font-weight: 750;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      writing-mode: vertical-rl;
+    }
+
+    .pane-tools-open .pane-tools-toggle {
+      display: none;
+    }
+
+    .pane-tools-shelf {
+      position: relative;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 210px;
+      max-width: min(520px, 70vw);
+      min-height: 0;
+      border-left: 1px solid #364156;
+      background: #151b29;
+      color: var(--terminal-text);
+    }
+
+    .pane-tools-resize-handle {
+      position: absolute;
+      z-index: 3;
+      top: 0;
+      bottom: 0;
+      left: -4px;
+      width: 8px;
+      cursor: col-resize;
+      touch-action: none;
+    }
+
+    .pane-tools-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 36px;
+      border-bottom: 1px solid #2a3142;
+      padding: 0 8px 0 12px;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .pane-tools-header button {
+      width: 26px;
+      height: 26px;
+      border: 0;
+      background: transparent;
+      color: #c9d5e8;
+      cursor: pointer;
+      font: inherit;
+      font-size: 18px;
+    }
+
+    .pane-tools-content {
+      min-height: 0;
+      overflow: auto;
+      padding: 6px;
+    }
+
+    .pane-tool-section {
+      border-bottom: 1px solid #2a3142;
+    }
+
+    .pane-tool-section summary {
+      cursor: pointer;
+      padding: 8px 6px;
+      color: #c9d5e8;
+      font-size: calc(var(--font-size) - 2px);
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .pane-tool-section-body {
+      display: grid;
+      gap: 7px;
+      padding: 0 6px 10px;
+    }
+
+    .pane-tool-section-body button,
+    .pane-tool-section-body select,
+    .pane-tool-section-body input[type="search"] {
+      min-width: 0;
+      min-height: 30px;
+      border: 1px solid #364156;
+      border-radius: 5px;
+      background: #1d2638;
+      color: var(--terminal-text);
+      font: inherit;
+      font-size: calc(var(--font-size) - 2px);
+    }
+
+    .pane-tool-section-body button {
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+
+    .pane-tool-section-body button.primary {
+      border-color: #305e6f;
+      background: #12303b;
+      color: #d5f4ff;
+    }
+
+    .pane-tool-find-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 34px 34px;
+      gap: 4px;
+    }
+
+    .pane-tool-find-row input {
+      padding: 4px 7px;
+    }
+
+    .pane-tool-find-options,
+    .pane-tool-button-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pane-tool-find-options {
+      justify-content: space-between;
+      color: #aab8cf;
+      font-size: calc(var(--font-size) - 3px);
+    }
+
+    .pane-tool-button-row > * {
+      flex: 1 1 0;
+    }
+
+    .pane-tool-status {
+      min-height: 18px;
+      color: #9fb0c8;
+      font-size: calc(var(--font-size) - 3px);
+    }
+
+    .pane-tool-status.error,
+    .pane-tool-find-options .error {
+      color: #ffb4a9;
     }
 
     .terminal-host,
@@ -671,8 +838,9 @@
         <button id="dockPane" type="button">Dock</button>
       </div>
     </header>
-    <section class="pane-body">
-      <div id="terminalHost" class="terminal-host" hidden></div>
+    <section id="paneBody" class="pane-body">
+      <div id="paneContentSurface" class="pane-content-surface">
+        <div id="terminalHost" class="terminal-host" hidden></div>
       <iframe
         id="artifactFrame"
         class="artifact-frame"
@@ -682,26 +850,43 @@
       ></iframe>
       <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>
       <pre id="statusOutput" class="status-output" hidden></pre>
-      <div id="inputLayout" class="input-layout" hidden>
-        <div class="input-compose">
-          <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
-        </div>
-        <div class="input-actions">
-          <button id="interruptAgent" class="input-interrupt" type="button">
-            Interrupt
-          </button>
-          <button id="linkAgentFile" class="input-link" type="button">
-            Link file
-          </button>
-          <button
-            id="agentSendShortcut"
-            class="send-shortcut"
-            type="button"
-            title="Hover to record the send-message shortcut"
-            aria-label="Hover to record the send-message shortcut"
-          >Shift+Enter</button>
+        <div id="inputLayout" class="input-layout" hidden>
+          <div class="input-compose">
+            <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
+          </div>
+          <div class="input-actions">
+            <button id="interruptAgent" class="input-interrupt" type="button">
+              Interrupt
+            </button>
+            <button id="linkAgentFile" class="input-link" type="button">
+              Link file
+            </button>
+            <button
+              id="agentSendShortcut"
+              class="send-shortcut"
+              type="button"
+              title="Hover to record the send-message shortcut"
+              aria-label="Hover to record the send-message shortcut"
+            >Shift+Enter</button>
+          </div>
         </div>
       </div>
+      <button
+        id="paneToolsToggle"
+        class="pane-tools-toggle"
+        type="button"
+        aria-controls="paneToolsShelf"
+        aria-expanded="false"
+        hidden
+      >Tools</button>
+      <aside id="paneToolsShelf" class="pane-tools-shelf" aria-label="Pane tools" hidden>
+        <div id="paneToolsResizeHandle" class="pane-tools-resize-handle"></div>
+        <header class="pane-tools-header">
+          <span>Tools</span>
+          <button id="closePaneTools" type="button" aria-label="Close pane tools">×</button>
+        </header>
+        <div id="paneToolsContent" class="pane-tools-content"></div>
+      </aside>
     </section>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
@@ -710,6 +895,8 @@
   <script src="/assets/service/js/core/pane-workspace.js"></script>
   <script src="/assets/service/js/core/input-shortcut.js"></script>
   <script src="/assets/service/js/core/pane-sync.js"></script>
+  <script src="/assets/service/js/core/pane-tools.js"></script>
+  <script src="/assets/service/js/modules/file-pane-tools.js"></script>
   <script>
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
@@ -751,6 +938,13 @@
     const dockPane = document.getElementById("dockPane");
     const workspaceWindow = document.getElementById("workspaceWindow");
     const directPaneWindow = document.getElementById("directPaneWindow");
+    const paneBody = document.getElementById("paneBody");
+    const paneContentSurface = document.getElementById("paneContentSurface");
+    const paneToolsToggle = document.getElementById("paneToolsToggle");
+    const paneToolsShelf = document.getElementById("paneToolsShelf");
+    const paneToolsResizeHandle = document.getElementById("paneToolsResizeHandle");
+    const closePaneTools = document.getElementById("closePaneTools");
+    const paneToolsContent = document.getElementById("paneToolsContent");
     const workspaceTitle = document.getElementById("workspaceTitle");
     const workspaceLayout = document.getElementById("workspaceLayout");
     const resetWorkspace = document.getElementById("resetWorkspace");
@@ -801,6 +995,8 @@
     let disposableShellStopped = false;
     let sharedPaneSync = null;
     let contentCatalogSync = null;
+    let paneToolsController = null;
+    let filePaneTools = null;
     let inputSyncQueue = Promise.resolve();
     let latestProgressState = { entries: [] };
     let lastSharedStatusText = "";
@@ -1040,6 +1236,7 @@
         artifactEventSource = null;
       }
       connectArtifactStream();
+      if (filePaneTools) filePaneTools.refresh();
     }
 
     function shellSessionLabel(session) {
@@ -1904,6 +2101,7 @@
       artifactEventSource = new EventSource(eventUrl);
       artifactEventSource.addEventListener("artifact-event", refreshArtifact);
       artifactEventSource.onerror = () => {};
+      if (filePaneTools) filePaneTools.refresh();
     }
 
     function showScratchPad() {
@@ -2374,6 +2572,37 @@
       }
       publishAgentInputState();
     });
+
+    paneToolsController = window.ElectroBoyPaneTools.create({
+      host: paneBody,
+      shelf: paneToolsShelf,
+      content: paneToolsContent,
+      toggleButton: paneToolsToggle,
+      closeButton: closePaneTools,
+      resizeHandle: paneToolsResizeHandle,
+      storageKey: `electroboy.paneTools.${contextId}.${PANE_KIND}`,
+      onResize: fitTerminal,
+    });
+    if (PANE_KIND === "artifact" && window.ElectroBoyFilePaneTools) {
+      filePaneTools = window.ElectroBoyFilePaneTools.mount({
+        controller: paneToolsController,
+        frame: artifactFrame,
+        contextUrl,
+        getTarget: () => ({
+          kind: artifactKind,
+          path: artifactDocumentPath || artifactRoutePath,
+          title: artifactDocumentTitle || artifactRouteTitle,
+        }),
+        controls: {
+          zoom: artifactZoomControls,
+          preview: previewArtifactButton,
+          edit: editArtifactButton,
+          refresh: refreshArtifactButton,
+          exportFormat: exportPaneFormat,
+          exportButton: exportPaneOutput,
+        },
+      });
+    }
 
     paneTitle.textContent = titleForPane(PANE_KIND);
     initializeContentSwitcher();

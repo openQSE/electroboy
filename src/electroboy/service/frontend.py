@@ -120,6 +120,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "js/core/pane-layout-drag.js",
                 "js/core/input-shortcut.js",
                 "js/core/pane-sync.js",
+                "js/core/pane-tools.js",
                 "js/core/runtime.js",
             ),
         ),
@@ -133,7 +134,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             id="documents",
             label="Document Panes",
             owner="markdown_documents",
-            assets=("js/modules/documents.js",),
+            assets=("js/modules/documents.js", "js/modules/file-pane-tools.js"),
         ),
         FrontendBundle(
             id="binder",
@@ -175,6 +176,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "js/core/pane-workspace.js",
                 "js/core/input-shortcut.js",
                 "js/core/pane-sync.js",
+                "js/core/pane-tools.js",
             ),
         ),
         FrontendBundle(

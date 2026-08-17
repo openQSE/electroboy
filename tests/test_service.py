@@ -307,6 +307,10 @@ class ServiceTests(unittest.TestCase):
             "js/core/pane-sync.js",
             frontend_bundles["core-shell"]["assets"],
         )
+        self.assertIn(
+            "js/core/pane-tools.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
@@ -319,6 +323,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(
             "js/core/pane-sync.js",
             frontend_bundles["pane-window"]["assets"],
+        )
+        self.assertIn(
+            "js/core/pane-tools.js",
+            frontend_bundles["pane-window"]["assets"],
+        )
+        self.assertIn(
+            "js/modules/file-pane-tools.js",
+            frontend_bundles["documents"]["assets"],
         )
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
@@ -338,7 +350,13 @@ class ServiceTests(unittest.TestCase):
         sessions = read_service_text_asset("js/modules/agent-sessions.js")
         input_shortcut = read_service_text_asset("js/core/input-shortcut.js")
         pane_sync = read_service_text_asset("js/core/pane-sync.js")
+        pane_tools = read_service_text_asset("js/core/pane-tools.js")
         documents = read_service_text_asset("js/modules/documents.js")
+        file_pane_tools = read_service_text_asset(
+            "js/modules/file-pane-tools.js",
+            modules,
+            workflows,
+        )
         binder = read_service_text_asset("js/modules/binder.js")
         corkboard = read_service_text_asset("js/modules/corkboard.js")
         file_browser = read_service_text_asset("js/modules/file-browser.js")
@@ -383,6 +401,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("window.BroadcastChannel", pane_sync)
         self.assertNotIn("creative-writing", pane_sync)
         self.assertNotIn("software", pane_sync)
+        self.assertIn("function create(options)", pane_tools)
+        self.assertIn("function addSection(id, label", pane_tools)
+        self.assertIn("function bindKeyboardTarget(targetWindow)", pane_tools)
+        self.assertIn('String(event.key).toLowerCase() !== "n"', pane_tools)
+        self.assertNotIn("documentation/start", pane_tools)
+        self.assertNotIn("creative-writing", pane_tools)
+        self.assertIn("window.ElectroBoyFilePaneTools", file_pane_tools)
+        self.assertIn('controller.addSection("find", "Find")', file_pane_tools)
+        self.assertIn("frame.contentWindow.find(", file_pane_tools)
+        self.assertIn(
+            'contextUrl("/api/agents/documentation/start")',
+            file_pane_tools,
+        )
         self.assertIn('runtime.sharedPanes.connect("input"', sessions)
         self.assertIn('runtime.sharedPanes.connect("progress"', progress)
         self.assertNotIn('sharedPanes.connect("input"', app)
@@ -767,6 +798,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/assets/service/js/core/pane-layout-drag.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/input-shortcut.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-sync.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/pane-tools.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -810,6 +842,14 @@ class ServiceTests(unittest.TestCase):
                 sync_status, sync_body, sync_type, _sync_headers = request_bytes(
                     server,
                     "/assets/service/js/core/pane-sync.js",
+                )
+                tools_status, tools_body, tools_type, _tools_headers = request_bytes(
+                    server,
+                    "/assets/service/js/core/pane-tools.js",
+                )
+                file_tools_status, file_tools_body, file_tools_type, _ = request_bytes(
+                    server,
+                    "/assets/service/js/modules/file-pane-tools.js",
                 )
                 software_status, software_body, software_type, _software_headers = (
                     request_bytes(
@@ -864,6 +904,12 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(sync_status, 200)
         self.assertEqual(sync_type, "application/javascript; charset=utf-8")
         self.assertIn(b"function connect(options = {})", sync_body)
+        self.assertEqual(tools_status, 200)
+        self.assertEqual(tools_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"function addSection(id, label", tools_body)
+        self.assertEqual(file_tools_status, 200)
+        self.assertEqual(file_tools_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"window.ElectroBoyFilePaneTools", file_tools_body)
         self.assertEqual(software_status, 200)
         self.assertEqual(software_type, "application/javascript; charset=utf-8")
         self.assertIn(b"Software engineering", software_body)
@@ -940,6 +986,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("electroboy.paneWorkspaceLayout.v2.${PANE_KIND}", page)
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
         self.assertIn('/assets/service/js/core/pane-sync.js', page)
+        self.assertIn('/assets/service/js/core/pane-tools.js', page)
+        self.assertIn('/assets/service/js/modules/file-pane-tools.js', page)
         self.assertIn('paneParameters.set("embedded", "1")', page)
         self.assertIn('function initialPaneWorkspaceLayout()', page)
         self.assertIn('first: { type: "leaf", kind: "agent" }', page)
@@ -979,6 +1027,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("corkboard_id")', page)
         self.assertIn('params.get("corkboard_provider")', page)
         self.assertIn('id="artifactZoomControls"', page)
+        self.assertIn('id="paneToolsToggle"', page)
+        self.assertIn('id="paneToolsShelf"', page)
+        self.assertIn('id="paneToolsResizeHandle"', page)
+        self.assertIn('id="paneToolsContent"', page)
+        self.assertIn("ElectroBoyPaneTools.create", page)
+        self.assertIn("ElectroBoyFilePaneTools.mount", page)
+        self.assertIn('id="dockPane"', page)
         self.assertIn('id="refreshArtifact"', page)
         self.assertIn('id="previewArtifact"', page)
         self.assertIn('id="editArtifact"', page)
