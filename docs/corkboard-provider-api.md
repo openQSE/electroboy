@@ -24,10 +24,11 @@ class FamilyWorkflowController:
         return self.family_corkboards
 ```
 
+- `list_boards(context_id)` returns the boards available to the active project.
 - `get_board(context_id, board_id, title=None)` returns a normalized snapshot.
 - `apply_operation(context_id, payload)` applies a card or board mutation.
-- `create_board(context_id, board_id)` creates a board when the provider allows
-  user-created boards.
+- `create_board(context_id, board_id, title=None)` creates a board when the
+  provider allows user-created boards.
 
 Providers should call `normalize_board_snapshot()` before returning. It adds
 the stable provider and board identifiers, validates the board shape, and gives
@@ -103,6 +104,7 @@ The active workflow provider is served through:
 ```text
 GET  /artifacts/corkboard?provider=<id>&board_id=<id>&context_id=<id>
 GET  /api/corkboard?provider=<id>&board_id=<id>&context_id=<id>
+GET  /api/corkboards?context_id=<id>
 POST /api/corkboard?context_id=<id>
 POST /api/corkboards?context_id=<id>
 ```
@@ -120,6 +122,15 @@ Creative Writing provides `creative-files`. It maps folders and
 `.corkboard.json` files into snapshots while keeping its existing files and
 `.electroboy/creative/corkboards.json` metadata authoritative. No creative
 files are copied into the generic module.
+
+## Software Engineering
+
+Software Engineering binds the shared `project-files` provider to the active
+repository. Its freeform boards are stored under
+`.electroboy/shared/corkboards/` and are opened from the Corkboard sidecar menu.
+The workflow supplies only this project storage policy and menu integration;
+rendering, card operations, persistence behavior, and routes remain owned by
+the reusable corkboard capability.
 
 ## Database providers
 

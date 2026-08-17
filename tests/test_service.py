@@ -285,6 +285,7 @@ class ServiceTests(unittest.TestCase):
         }
         self.assertIn(("GET", "/artifacts/corkboard"), corkboard_routes)
         self.assertIn(("GET", "/api/corkboard"), corkboard_routes)
+        self.assertIn(("GET", "/api/corkboards"), corkboard_routes)
         self.assertIn(("POST", "/api/corkboard"), corkboard_routes)
         self.assertIn("corkboard-provider", modules["corkboard"]["capabilities"])
         core_handlers = {route["handler"] for route in modules["core"]["routes"]}
@@ -368,6 +369,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("invokeWorkflow(id, action, ...args)", registry)
         self.assertIn("invokeModule(id, action, ...args)", registry)
         self.assertIn("function stageActions(stageId, runtime)", software)
+        self.assertIn('if (stageId === "corkboard")', software)
+        self.assertIn('sidecarStages: ["document", "corkboard"]', software)
+        self.assertIn('contextUrl("/api/corkboards")', software)
         self.assertIn('navigation: "stages"', software)
         self.assertIn("stageDescriptions: STAGE_DESCRIPTIONS", software)
         self.assertNotIn("function mount(runtime)", software)
@@ -2065,6 +2069,7 @@ class ServiceTests(unittest.TestCase):
                 "test-plan",
                 "validate",
                 "document",
+                "corkboard",
             ],
         )
         for stage, stage_operations in operations.items():
@@ -2637,6 +2642,51 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/api/corkboard", page)
         self.assertIn("electroboy-corkboard-open", page)
         self.assertNotIn("/api/creative/corkboard", page)
+
+    def test_software_workflow_uses_shared_project_corkboard_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_project(context_id, str(project_root))
+            controller = state.workflow_controller("software")
+
+            self.assertIsInstance(controller, CorkboardWorkflowController)
+            provider = controller.get_corkboard_provider()
+            created = provider.create_board(
+                context_id,
+                "Release tasks",
+                title="Release tasks",
+            )
+            saved = provider.apply_operation(
+                context_id,
+                {
+                    "provider": "project-files",
+                    "board_id": created["board_id"],
+                    "action": "update-card",
+                    "card": {
+                        "id": "verify-package",
+                        "title": "Verify package",
+                        "note": "Build and install the release wheel.",
+                        "color": "sky",
+                    },
+                },
+            )
+            boards = provider.list_boards(context_id)
+            snapshot = provider.get_board(context_id, created["board_id"])
+
+        self.assertEqual(provider.provider_id, "project-files")
+        self.assertEqual(
+            created["board_id"],
+            ".electroboy/shared/corkboards/release-tasks.corkboard.json",
+        )
+        self.assertEqual(boards[0]["title"], "Release tasks")
+        self.assertEqual(snapshot["provider"], "project-files")
+        self.assertEqual(snapshot["board_type"], "freeform")
+        self.assertNotIn("group-card", snapshot["capabilities"])
+        self.assertEqual(saved["card"]["id"], "verify-package")
 
     def test_corkboard_provider_contract_rejects_invalid_snapshots(self) -> None:
         with self.assertRaisesRegex(StateError, "unknown corkboard type"):

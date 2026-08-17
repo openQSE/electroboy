@@ -12,6 +12,8 @@ class CorkboardProvider(Protocol):
 
     provider_id: str
 
+    def list_boards(self, context_id: str) -> list[dict[str, object]]: ...
+
     def get_board(
         self,
         context_id: str,
@@ -30,6 +32,8 @@ class CorkboardProvider(Protocol):
         self,
         context_id: str,
         board_id: str,
+        *,
+        title: str | None = None,
     ) -> dict[str, object]: ...
 
 

@@ -14,6 +14,7 @@
   let artifactPreviewStage = "";
   let selectedSessionId = "";
   let adHocSessionDialog = null;
+  let corkboardDialog = null;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -170,6 +171,7 @@
     "test-plan": "Author the test plan with validation commands and acceptance checks.",
     validate: "Run validation commands and tests, then write the validation report.",
     document: "Update final project documentation after validation passes.",
+    corkboard: "Open or create a project corkboard for tasks and working notes.",
   };
 
   const ARTIFACT_PREVIEWS = {
@@ -392,7 +394,207 @@
         interactiveTitle: "Open an interactive validation agent session.",
       });
     }
+    if (stageId === "corkboard") {
+      return [
+        {
+          label: "Open",
+          title: "Open an existing project corkboard.",
+          disabled: !state.activeProjectRoot,
+          run: openProjectCorkboard,
+        },
+        {
+          label: "New",
+          title: "Create and open a new project corkboard.",
+          disabled: !state.activeProjectRoot,
+          run: newProjectCorkboard,
+        },
+      ];
+    }
     return [];
+  }
+
+  function ensureCorkboardDialog() {
+    if (corkboardDialog) {
+      return corkboardDialog;
+    }
+    const dialog = document.createElement("dialog");
+    dialog.className = "ad-hoc-session-dialog corkboard-picker-dialog";
+    dialog.innerHTML = `
+      <form method="dialog" class="ad-hoc-session-form">
+        <header class="ad-hoc-session-header">
+          <div>
+            <h2 class="corkboard-picker-title">Project corkboard</h2>
+            <p class="corkboard-picker-description"></p>
+          </div>
+          <button class="ad-hoc-session-close" type="button" aria-label="Close">&times;</button>
+        </header>
+        <fieldset class="ad-hoc-session-options corkboard-picker-existing">
+          <legend>Corkboards</legend>
+          <div class="ad-hoc-session-list corkboard-picker-list"></div>
+        </fieldset>
+        <label class="ad-hoc-session-custom corkboard-picker-new">
+          Board name
+          <input class="ad-hoc-session-uuid corkboard-picker-name"
+                 type="text" maxlength="200" autocomplete="off">
+        </label>
+        <p class="ad-hoc-session-error corkboard-picker-error" hidden></p>
+        <footer class="ad-hoc-session-footer">
+          <button class="corkboard-picker-cancel" type="button">Cancel</button>
+          <button class="ad-hoc-session-submit corkboard-picker-submit"
+                  type="submit">Open</button>
+        </footer>
+      </form>
+    `;
+    document.body.append(dialog);
+    corkboardDialog = dialog;
+    return dialog;
+  }
+
+  async function projectCorkboards() {
+    const response = await fetch(contextUrl("/api/corkboards"), {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({
+      error: "corkboard list failed",
+    }));
+    if (!response.ok) {
+      throw new Error(payload.error || "corkboard list failed");
+    }
+    return payload;
+  }
+
+  function showProjectCorkboard(board) {
+    runtimeApi.modules.invoke(
+      "corkboard",
+      "show",
+      {
+        id: board.board_id,
+        provider: board.provider,
+        title: board.title,
+        freeform: true,
+      },
+      { stage: "corkboard", freeform: true },
+    );
+  }
+
+  async function chooseProjectCorkboard(mode) {
+    const dialog = ensureCorkboardDialog();
+    const existing = dialog.querySelector(".corkboard-picker-existing");
+    const newBoard = dialog.querySelector(".corkboard-picker-new");
+    const list = dialog.querySelector(".corkboard-picker-list");
+    const name = dialog.querySelector(".corkboard-picker-name");
+    const error = dialog.querySelector(".corkboard-picker-error");
+    const submit = dialog.querySelector(".corkboard-picker-submit");
+    const creating = mode === "new";
+    dialog.querySelector(".corkboard-picker-title").textContent = creating
+      ? "New project corkboard"
+      : "Open project corkboard";
+    dialog.querySelector(".corkboard-picker-description").textContent = creating
+      ? "Create a shared board in this project."
+      : "Choose a board associated with this project.";
+    existing.hidden = creating;
+    newBoard.hidden = !creating;
+    error.hidden = true;
+    name.value = "";
+    submit.textContent = creating ? "Create" : "Open";
+
+    if (!creating) {
+      const payload = await projectCorkboards();
+      const boards = Array.isArray(payload.boards) ? payload.boards : [];
+      if (boards.length === 0) {
+        list.innerHTML = '<span class="ad-hoc-session-details">No corkboards yet.</span>';
+        submit.disabled = true;
+      } else {
+        submit.disabled = false;
+        list.replaceChildren(...boards.map((board, index) => {
+          const option = document.createElement("label");
+          option.className = "ad-hoc-session-option";
+          const input = document.createElement("input");
+          input.type = "radio";
+          input.name = "project-corkboard";
+          input.value = String(index);
+          input.checked = index === 0;
+          const copy = document.createElement("span");
+          copy.className = "ad-hoc-session-option-copy";
+          const title = document.createElement("strong");
+          title.textContent = String(board.title || board.board_id);
+          const details = document.createElement("span");
+          details.className = "ad-hoc-session-details";
+          details.textContent = String(board.board_id || "");
+          copy.append(title, details);
+          option.append(input, copy);
+          option.dataset.board = JSON.stringify(board);
+          return option;
+        }));
+      }
+    } else {
+      submit.disabled = false;
+    }
+
+    return new Promise((resolve) => {
+      const finish = (value) => {
+        dialog.close();
+        resolve(value);
+      };
+      dialog.querySelector(".ad-hoc-session-close").onclick = () => finish(null);
+      dialog.querySelector(".corkboard-picker-cancel").onclick = () => finish(null);
+      dialog.oncancel = (event) => {
+        event.preventDefault();
+        finish(null);
+      };
+      dialog.querySelector("form").onsubmit = (event) => {
+        event.preventDefault();
+        if (creating) {
+          const title = name.value.trim();
+          if (!title) {
+            error.textContent = "Enter a board name.";
+            error.hidden = false;
+            name.focus();
+            return;
+          }
+          finish({ title });
+          return;
+        }
+        const selected = list.querySelector('input[name="project-corkboard"]:checked');
+        const option = selected ? selected.closest(".ad-hoc-session-option") : null;
+        finish(option ? JSON.parse(option.dataset.board) : null);
+      };
+      dialog.showModal();
+      if (creating) {
+        name.focus();
+      }
+    });
+  }
+
+  async function openProjectCorkboard() {
+    try {
+      const board = await chooseProjectCorkboard("open");
+      if (board) {
+        showProjectCorkboard(board);
+      }
+    } catch (error) {
+      appendOutput(`${error.message || "corkboard open failed"}\n`, "error");
+    }
+  }
+
+  async function newProjectCorkboard() {
+    const choice = await chooseProjectCorkboard("new");
+    if (!choice) {
+      return;
+    }
+    const response = await fetch(contextUrl("/api/corkboards"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ board_id: choice.title, title: choice.title }),
+    });
+    const payload = await response.json().catch(() => ({
+      error: "corkboard creation failed",
+    }));
+    if (!response.ok) {
+      appendOutput(`${payload.error || "corkboard creation failed"}\n`, "error");
+      return;
+    }
+    showProjectCorkboard(payload);
   }
 
   function projectStageActions(runtime, state) {
@@ -1236,7 +1438,7 @@
     order: 10,
     backendPackage: "electroboy.workflows.software",
     navigation: "stages",
-    sidecarStages: ["document"],
+    sidecarStages: ["document", "corkboard"],
     stageDescriptions: STAGE_DESCRIPTIONS,
     artifactPreviews: ARTIFACT_PREVIEWS,
     splashImage: "__SPLASH_IMAGE_ROUTE__",

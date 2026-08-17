@@ -13,7 +13,9 @@ from electroboy.models import (
     STAGE_REQUIREMENTS,
 )
 from electroboy.modules.document_service import _ensure_document_target
+from electroboy.modules.project_corkboard import ProjectCorkboardProvider
 from electroboy.service.recent_projects import remember_recent_project
+from electroboy.service.services import ServiceServices
 from electroboy.service.sessions import AgentSession, AgentSessionError
 from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError, StateStore
@@ -79,6 +81,13 @@ class SoftwareWorkflowController(BoundWorkflowController):
     """Own software-workflow actions and agent sequencing."""
 
     workflow_id = "software"
+
+    def __init__(self, services: ServiceServices) -> None:
+        super().__init__(services)
+        self.corkboard_provider = ProjectCorkboardProvider(self.services)
+
+    def get_corkboard_provider(self) -> ProjectCorkboardProvider:
+        return self.corkboard_provider
 
     def project_payload_extension(self, context_id: str) -> dict[str, object]:
         with self.services.contexts.lock:

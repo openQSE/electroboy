@@ -85,6 +85,15 @@ def _board(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _boards(request: RouteRequest) -> ServiceResponse:
+    try:
+        provider = _provider(request)
+        boards = provider.list_boards(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse({"provider": provider.provider_id, "boards": boards})
+
+
 def _save(request: RouteRequest) -> ServiceResponse:
     try:
         provider = _provider(request)
@@ -105,7 +114,11 @@ def _create(request: RouteRequest) -> ServiceResponse:
         provider = _provider(request)
         _require_matching_provider(provider, payload)
         board_id = str(payload.get("board_id") or payload.get("path") or "")
-        result = provider.create_board(request.context_id, board_id)
+        result = provider.create_board(
+            request.context_id,
+            board_id,
+            title=str(payload.get("title") or "").strip() or None,
+        )
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)
@@ -114,6 +127,7 @@ def _create(request: RouteRequest) -> ServiceResponse:
 _HANDLERS = {
     "view": _view,
     "board": _board,
+    "boards": _boards,
     "save": _save,
     "create": _create,
 }
@@ -126,6 +140,7 @@ def module() -> ServiceModule:
         routes=(
             route("GET", "/artifacts/corkboard", "corkboard", "view"),
             route("GET", "/api/corkboard", "corkboard", "board"),
+            route("GET", "/api/corkboards", "corkboard", "boards"),
             route("POST", "/api/corkboard", "corkboard", "save"),
             route("POST", "/api/corkboards", "corkboard", "create"),
             # Compatibility aliases for pre-provider creative clients.

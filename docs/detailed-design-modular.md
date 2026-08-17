@@ -944,6 +944,7 @@ code
 test-plan
 validate
 document
+corkboard
 ```
 
 Approval actions remain stage actions. For example, `plan-approve` is exposed
@@ -952,6 +953,9 @@ workflow node.
 
 The workflow controller maps stage actions to existing CLI commands. The CLI
 continues to enforce gates, forced movement, approvals, and artifact policy.
+Document and corkboard are sidecar capabilities rather than approval gates.
+The software workflow binds the shared project-backed corkboard provider and
+stores its boards under `.electroboy/shared/corkboards/`.
 
 ### Creative Writing
 

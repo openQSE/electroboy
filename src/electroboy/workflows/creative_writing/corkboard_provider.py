@@ -19,6 +19,23 @@ class CreativeWritingCorkboardProvider:
     def __init__(self, services: ServiceServices) -> None:
         self.services = services
 
+    def list_boards(self, context_id: str) -> list[dict[str, object]]:
+        root = self.services.contexts.active_project_root(context_id)
+        boards: list[dict[str, object]] = []
+        for path in sorted(root.rglob("*.corkboard.json")):
+            if ".electroboy" in path.parts or not path.is_file():
+                continue
+            board_id = path.relative_to(root).as_posix()
+            snapshot = self.get_board(context_id, board_id)
+            boards.append(
+                {
+                    "board_id": board_id,
+                    "title": snapshot["title"],
+                    "provider": self.provider_id,
+                }
+            )
+        return boards
+
     def get_board(
         self,
         context_id: str,
@@ -120,7 +137,9 @@ class CreativeWritingCorkboardProvider:
         self,
         context_id: str,
         board_id: str,
+        *,
+        title: str | None = None,
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
-        path = _create_creative_corkboard(root, board_id)
+        path = _create_creative_corkboard(root, board_id, title=title)
         return {"status": "created", "path": path, "board_id": path}
