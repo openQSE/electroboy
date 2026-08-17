@@ -476,7 +476,7 @@ def render_corkboard_html(
       min-height: calc(100vh - 90px);
       overflow: visible;
       transform-origin: 0 0;
-      will-change: transform;
+      text-rendering: optimizeLegibility;
     }}
 
     body.freeform-canvas .canvas-viewport {{
@@ -506,7 +506,6 @@ def render_corkboard_html(
       min-width: 100%;
       min-height: 100%;
       transform-origin: 0 0;
-      will-change: transform;
     }}
 
     body.canvas-panning,
@@ -1063,6 +1062,9 @@ def render_corkboard_html(
     const MAX_BOARD_ZOOM = 10000;
     const BOARD_ZOOM_FACTOR = 1.1;
     const BOARD_ZOOM_SLIDER_STEPS = 1000;
+    const SUPPORTS_LAYOUT_ZOOM = window.CSS
+      && typeof window.CSS.supports === "function"
+      && window.CSS.supports("zoom", "1");
     const MIN_CARD_SCALE = 100;
     const MAX_CARD_SCALE = 400;
     let dragState = null;
@@ -1201,7 +1203,11 @@ def render_corkboard_html(
 
     function storedBoardZoom() {{
       try {{
-        const stored = Number(window.localStorage.getItem(boardZoomStorageKey()));
+        const rawStored = window.localStorage.getItem(boardZoomStorageKey());
+        if (rawStored === null || rawStored.trim() === "") {{
+          return 100;
+        }}
+        const stored = Number(rawStored);
         if (Number.isFinite(stored)) {{
           return clampBoardZoom(stored);
         }}
@@ -1252,13 +1258,27 @@ def render_corkboard_html(
 
     function applyCanvasPan() {{
       const scale = boardZoomFactor();
+      if (SUPPORTS_LAYOUT_ZOOM) {{
+        board.style.zoom = String(scale);
+        if (boardType === "freeform") {{
+          board.style.width = "";
+          board.style.transform = canvasPan.x === 0 && canvasPan.y === 0
+            ? "none"
+            : `translate(${{canvasPan.x / scale}}px, ${{canvasPan.y / scale}}px)`;
+          return;
+        }}
+        board.style.width = `${{100 / scale}}%`;
+        board.style.transform = "none";
+        return;
+      }}
+      board.style.zoom = "";
       if (boardType === "freeform") {{
         board.style.width = "";
         board.style.transform = `translate(${{canvasPan.x}}px, ${{canvasPan.y}}px) scale(${{scale}})`;
         return;
       }}
       board.style.width = `${{100 / scale}}%`;
-      board.style.transform = `scale(${{scale}})`;
+      board.style.transform = scale === 1 ? "none" : `scale(${{scale}})`;
     }}
 
     function applyBoardZoom() {{

@@ -2360,6 +2360,19 @@ class ServiceTests(unittest.TestCase):
             )
             self.assertIn("board.style.width = `${100 / scale}%`;", page)
             self.assertIn(
+                'if (rawStored === null || rawStored.trim() === "")',
+                page,
+            )
+            self.assertIn('window.CSS.supports("zoom", "1")', page)
+            self.assertIn("board.style.zoom = String(scale);", page)
+            self.assertIn('board.style.transform = "none";', page)
+            self.assertIn(
+                'board.style.transform = scale === 1 ? "none"',
+                page,
+            )
+            self.assertIn("text-rendering: optimizeLegibility;", page)
+            self.assertNotIn("will-change: transform;", page)
+            self.assertIn(
                 'id="cardSizeSlider"\n        type="range"\n        min="100"',
                 page,
             )
@@ -2482,6 +2495,10 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function startCanvasPan(event)", page)
             self.assertIn("event.button !== 1", page)
             self.assertIn("function applyCanvasPan()", page)
+            self.assertIn(
+                "`translate(${canvasPan.x / scale}px, ${canvasPan.y / scale}px)`",
+                page,
+            )
             self.assertIn(
                 "`translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${scale})`",
                 page,
