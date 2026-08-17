@@ -3,6 +3,9 @@
 
   let runtimeApi = null;
   let runtimeState = null;
+  let inputPaneSync = null;
+  let inputSyncQueue = Promise.resolve();
+  const inputDrafts = new Map();
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -55,6 +58,47 @@
   const refreshProject = (...args) => runtimeApi.project.refresh(...args);
   const creativePromptMessage = (...args) =>
     runtimeApi.workflows.preparePrompt(...args);
+
+  function agentInputState() {
+    return {
+      sessionId: runtimeState.selectedSessionId || "",
+      value: runtimeApi.elements.agentInput.value,
+    };
+  }
+
+  function publishAgentInputState() {
+    if (inputPaneSync) {
+      inputPaneSync.publish(agentInputState());
+    }
+  }
+
+  async function applySharedAgentInputState(state) {
+    if (!state || typeof state.value !== "string") {
+      return;
+    }
+    const sessionId = String(state.sessionId || "");
+    const previousSessionId = runtimeState.selectedSessionId || "";
+    if (previousSessionId) {
+      inputDrafts.set(previousSessionId, runtimeApi.elements.agentInput.value);
+    }
+    if (sessionId && sessionId !== previousSessionId) {
+      await selectAgentSession(sessionId);
+    }
+    if (sessionId) {
+      inputDrafts.set(sessionId, state.value);
+    }
+    runtimeApi.elements.agentInput.value = state.value;
+  }
+
+  async function selectAgentInputSession(sessionId) {
+    const previousSessionId = runtimeState.selectedSessionId || "";
+    if (previousSessionId) {
+      inputDrafts.set(previousSessionId, runtimeApi.elements.agentInput.value);
+    }
+    await selectAgentSession(sessionId);
+    runtimeApi.elements.agentInput.value = inputDrafts.get(sessionId) || "";
+    publishAgentInputState();
+  }
 
     function sessionExportName(session) {
       const kind = exportSafeName(session && session.kind, "agent");
@@ -195,6 +239,10 @@
       if (!sessionId || sessionId === runtimeState.selectedSessionId) {
         return;
       }
+      const previousSessionId = runtimeState.selectedSessionId || "";
+      if (previousSessionId) {
+        inputDrafts.set(previousSessionId, runtimeApi.elements.agentInput.value);
+      }
       const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/select"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -208,6 +256,9 @@
       }
       runtimeState.agentSessions = Array.isArray(payload.sessions) ? payload.sessions : runtimeState.agentSessions;
       runtimeState.selectedSessionId = payload.selected_session_id || sessionId;
+      runtimeApi.elements.agentInput.value = inputDrafts.get(
+        runtimeState.selectedSessionId,
+      ) || "";
       syncOpenDocumentTargetsFromSessions();
       renderSessionSwitcher();
       const session = selectedSession();
@@ -320,7 +371,15 @@
       if (runtimeState.eventSource) {
         runtimeState.eventSource.close();
       }
+      const previousSessionId = runtimeState.selectedSessionId || "";
+      if (previousSessionId && previousSessionId !== sessionId) {
+        inputDrafts.set(previousSessionId, runtimeApi.elements.agentInput.value);
+      }
       runtimeState.selectedSessionId = sessionId;
+      if (previousSessionId !== sessionId) {
+        runtimeApi.elements.agentInput.value = inputDrafts.get(sessionId) || "";
+      }
+      publishAgentInputState();
       const session = selectedSession();
       runtimeState.activeAgentKind = session ? session.kind || "" : runtimeState.activeAgentKind;
       prepareTerminalStream();
@@ -428,6 +487,7 @@
         return;
       }
       runtimeApi.elements.agentInput.value = "";
+      publishAgentInputState();
       const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -522,6 +582,7 @@
     function finishSlashCommandMode() {
       runtimeState.slashCommandMode = false;
       runtimeApi.elements.agentInput.value = "";
+      publishAgentInputState();
     }
 
     function handleSlashCommandInput(event) {
@@ -615,11 +676,23 @@
   function mount(runtime) {
     bindRuntime(runtime);
     const element = runtime.elements;
+    inputPaneSync = runtime.sharedPanes.connect("input", {
+      snapshot: agentInputState,
+      receive: (state) => {
+        inputSyncQueue = inputSyncQueue
+          .catch(() => {})
+          .then(() => applySharedAgentInputState(state))
+          .catch((error) => {
+            runtime.notifications.appendOutput(`input synchronization failed: ${error}\n`, "error");
+          });
+      },
+    });
+    window.addEventListener("pagehide", () => inputPaneSync.close(), { once: true });
     const shortcutController = window.ElectroBoyInputShortcut.bindRecorder(
       runtime.input.sendShortcut,
     );
     element.sessionSwitcher.addEventListener("change", () => {
-      selectAgentSession(element.sessionSwitcher.value).catch((error) => {
+      selectAgentInputSession(element.sessionSwitcher.value).catch((error) => {
         runtime.notifications.appendOutput(
           `session switch failed: ${error}\n`,
           "error",
@@ -654,6 +727,13 @@
         sendTerminalKey(terminalKey);
         return;
       }
+    });
+    element.agentInput.addEventListener("input", () => {
+      const sessionId = runtimeState.selectedSessionId || "";
+      if (sessionId) {
+        inputDrafts.set(sessionId, element.agentInput.value);
+      }
+      publishAgentInputState();
     });
   }
 

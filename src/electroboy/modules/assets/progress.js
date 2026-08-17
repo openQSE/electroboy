@@ -4,6 +4,8 @@
   let terminal = null;
   let terminalFit = null;
   let eventSource = null;
+  let paneSync = null;
+  let latestProgressState = { entries: [] };
 
   function initializeProgressTerminal(runtime) {
     if (terminal || !window.Terminal) {
@@ -48,18 +50,38 @@
     runtime.elements.progressOutput.replaceChildren();
   }
 
+  function renderProgressState(runtime, state, publish = false) {
+    if (!state || !Array.isArray(state.entries)) {
+      return;
+    }
+    initializeProgressTerminal(runtime);
+    latestProgressState = {
+      entries: state.entries.map((entry) => ({
+        text: String(entry.text || ""),
+        className: entry.className || "",
+      })),
+    };
+    clearProgressOutput(runtime);
+    latestProgressState.entries.forEach((entry) => {
+      appendProgressOutput(runtime, entry.text, entry.className);
+    });
+    if (publish && paneSync) {
+      paneSync.publish(latestProgressState);
+    }
+  }
+
   function connectProgressEvents(runtime) {
     closeProgressEventStream();
     runtime.layout.showProgressPane(true);
     eventSource = runtime.http.eventSource("/api/progress/events");
     eventSource.addEventListener("progress-event", (event) => {
       const payload = JSON.parse(event.data);
-      clearProgressOutput(runtime);
-      appendProgressOutput(
-        runtime,
-        payload.text || "",
-        payload.type === "error" ? "error" : "",
-      );
+      renderProgressState(runtime, {
+        entries: [{
+          text: payload.text || "",
+          className: payload.type === "error" ? "error" : "",
+        }],
+      }, true);
       if (payload.running === false) {
         closeProgressEventStream();
       }
@@ -67,11 +89,15 @@
     eventSource.addEventListener("progress-issue", (event) => {
       const payload = JSON.parse(event.data);
       const severity = String(payload.severity || "issue").toUpperCase();
-      appendProgressOutput(
-        runtime,
-        `\r\nISSUE FOUND - ${severity} - ${payload.summary || ""}\r\n`,
-        "error",
-      );
+      renderProgressState(runtime, {
+        entries: [
+          ...latestProgressState.entries,
+          {
+            text: `\r\nISSUE FOUND - ${severity} - ${payload.summary || ""}\r\n`,
+            className: "error",
+          },
+        ],
+      }, true);
     });
     eventSource.onerror = () => {};
   }
@@ -95,6 +121,11 @@
   }
 
   function mount(runtime) {
+    paneSync = runtime.sharedPanes.connect("progress", {
+      snapshot: () => latestProgressState,
+      receive: (state) => renderProgressState(runtime, state),
+    });
+    window.addEventListener("pagehide", () => paneSync.close(), { once: true });
     runtime.elements.exportProgressOutput.addEventListener("click", () => {
       exportProgressLog(runtime).catch((error) => {
         runtime.notifications.appendOutput(`export failed: ${error}\n`, "error");

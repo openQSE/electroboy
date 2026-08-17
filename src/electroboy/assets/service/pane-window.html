@@ -709,6 +709,7 @@
   <script src="/assets/service/js/core/pane-layout-drag.js"></script>
   <script src="/assets/service/js/core/pane-workspace.js"></script>
   <script src="/assets/service/js/core/input-shortcut.js"></script>
+  <script src="/assets/service/js/core/pane-sync.js"></script>
   <script>
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
@@ -793,6 +794,11 @@
     let artifactEditing = false;
     let statusTimer = null;
     let disposableShellStopped = false;
+    let sharedPaneSync = null;
+    let inputSyncQueue = Promise.resolve();
+    let latestProgressState = { entries: [] };
+    let lastSharedStatusText = "";
+    const agentInputDrafts = new Map();
     const shortcutController = EMBEDDED_PANE
       ? window.ElectroBoyInputShortcut.bindRecorder(agentSendShortcut)
       : { matches: () => false };
@@ -1018,6 +1024,117 @@
       if (PANE_KIND === "agent") {
         connectAgentStream();
       }
+    }
+
+    function publishSharedPaneState(state) {
+      if (sharedPaneSync && sharedPaneSync.available) {
+        sharedPaneSync.publish(state);
+      }
+    }
+
+    function agentInputState() {
+      return {
+        sessionId: selectedSessionId || "",
+        value: agentInput.value,
+      };
+    }
+
+    function publishAgentInputState() {
+      publishSharedPaneState(agentInputState());
+    }
+
+    async function applySharedAgentInputState(state) {
+      if (!state || typeof state.value !== "string") {
+        return;
+      }
+      const sessionId = String(state.sessionId || "");
+      const previousSessionId = selectedSessionId || "";
+      if (previousSessionId) {
+        agentInputDrafts.set(previousSessionId, agentInput.value);
+      }
+      if (sessionId && sessionId !== previousSessionId) {
+        await selectAgentSession(sessionId);
+      }
+      if (sessionId) {
+        agentInputDrafts.set(sessionId, state.value);
+      }
+      agentInput.value = state.value;
+    }
+
+    async function selectAgentInputSession(sessionId) {
+      const previousSessionId = selectedSessionId || "";
+      if (previousSessionId) {
+        agentInputDrafts.set(previousSessionId, agentInput.value);
+      }
+      await selectAgentSession(sessionId);
+      agentInput.value = agentInputDrafts.get(sessionId) || "";
+      publishAgentInputState();
+    }
+
+    function renderSharedProgressState(state, publish = false) {
+      if (!terminal || !state || !Array.isArray(state.entries)) {
+        return;
+      }
+      latestProgressState = {
+        entries: state.entries.map((entry) => ({
+          text: String(entry.text || ""),
+          className: entry.className || "",
+        })),
+      };
+      terminal.clear();
+      latestProgressState.entries.forEach((entry) => {
+        terminal.write(formatTerminalMessage(entry.text, entry.className));
+      });
+      if (publish) {
+        publishSharedPaneState(latestProgressState);
+      }
+    }
+
+    function setSharedStatusText(text, publish = false) {
+      lastSharedStatusText = String(text || "");
+      statusOutput.textContent = lastSharedStatusText;
+      if (publish) {
+        publishSharedPaneState({ text: lastSharedStatusText });
+      }
+    }
+
+    function initializeSharedPaneSync() {
+      if (!["scratch", "progress", "status", "input"].includes(PANE_KIND)) {
+        return;
+      }
+      sharedPaneSync = window.ElectroBoyPaneSync.connect({
+        pane: PANE_KIND,
+        context: () => contextId,
+        priority: 10,
+        snapshot: () => {
+          if (PANE_KIND === "scratch") return { value: scratchPad.value };
+          if (PANE_KIND === "progress") return latestProgressState;
+          if (PANE_KIND === "status") return { text: statusOutput.textContent };
+          return agentInputState();
+        },
+        receive: (state) => {
+          if (PANE_KIND === "scratch" && state && typeof state.value === "string") {
+            scratchPad.value = state.value;
+            const storageKey = scratchPadStorageKey();
+            if (storageKey) {
+              try {
+                window.localStorage.setItem(storageKey, state.value);
+              } catch (error) {
+                // The live view remains synchronized when storage is unavailable.
+              }
+            }
+          } else if (PANE_KIND === "progress") {
+            renderSharedProgressState(state);
+          } else if (PANE_KIND === "status" && state && typeof state.text === "string") {
+            setSharedStatusText(state.text);
+          } else if (PANE_KIND === "input") {
+            inputSyncQueue = inputSyncQueue
+              .catch(() => {})
+              .then(() => applySharedAgentInputState(state))
+              .catch(() => {});
+          }
+        },
+      });
     }
 
     function clampArtifactZoom(value) {
@@ -1450,8 +1567,12 @@
       eventSource = new EventSource(contextUrl("/api/progress/events"));
       eventSource.addEventListener("progress-event", (event) => {
         const payload = JSON.parse(event.data);
-        terminal.clear();
-        terminal.write(formatTerminalMessage(payload.text || "", payload.type));
+        renderSharedProgressState({
+          entries: [{
+            text: payload.text || "",
+            className: payload.type === "error" ? "error" : "",
+          }],
+        }, true);
         if (payload.running === false) {
           eventSource.close();
         }
@@ -1615,6 +1736,7 @@
         }
         try {
           window.localStorage.setItem(activeStorageKey, scratchPad.value);
+          publishSharedPaneState({ value: scratchPad.value });
         } catch (error) {
           return;
         }
@@ -1631,21 +1753,25 @@
 
     async function refreshStatus() {
       if (!contextId) {
-        statusOutput.textContent = "no active project\n";
+        setSharedStatusText("no active project\n", true);
         return;
       }
-      statusOutput.textContent = "refreshing status...\n";
+      setSharedStatusText("refreshing status...\n", true);
       const response = await fetch(contextUrl("/api/project/status"), {
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({ error: "status failed" }));
-      statusOutput.textContent = response.ok
+      setSharedStatusText(response.ok
         ? payload.output || "status: none\n"
-        : `${payload.error || "status failed"}\n`;
+        : `${payload.error || "status failed"}\n`, true);
     }
 
     function showStatus() {
       statusOutput.hidden = false;
+      if (sharedPaneSync && sharedPaneSync.available) {
+        sharedPaneSync.request();
+        return;
+      }
       refreshStatus();
       statusTimer = window.setInterval(refreshStatus, 2500);
     }
@@ -1661,6 +1787,7 @@
         return;
       }
       agentInput.value = "";
+      publishAgentInputState();
       await fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1740,6 +1867,7 @@
     function finishSlashCommandMode() {
       slashCommandMode = false;
       agentInput.value = "";
+      publishAgentInputState();
     }
 
     function handleSlashCommandInput(event) {
@@ -1828,6 +1956,7 @@
         ? " "
         : "";
       agentInput.setRangeText(`${prefix}${text}${suffix}`, start, end, "end");
+      publishAgentInputState();
       agentInput.focus();
     }
 
@@ -1938,6 +2067,7 @@
 
     function initializeDirectPane() {
       dockPane.hidden = true;
+      initializeSharedPaneSync();
     decreaseArtifactZoom.addEventListener(
       "click",
       () => changeArtifactZoom(-ARTIFACT_ZOOM_STEP),
@@ -2012,7 +2142,11 @@
       }
     });
     sessionSwitcher.addEventListener("change", () => {
-      selectAgentSession(sessionSwitcher.value);
+      if (PANE_KIND === "input") {
+        selectAgentInputSession(sessionSwitcher.value).catch(() => {});
+      } else {
+        selectAgentSession(sessionSwitcher.value);
+      }
     });
     interruptAgent.addEventListener("click", interruptAgentSession);
     linkAgentFile.addEventListener("click", openLinkFileBrowser);
@@ -2036,6 +2170,15 @@
         return;
       }
     });
+    agentInput.addEventListener("input", () => {
+      if (PANE_KIND !== "input") {
+        return;
+      }
+      if (selectedSessionId) {
+        agentInputDrafts.set(selectedSessionId, agentInput.value);
+      }
+      publishAgentInputState();
+    });
 
     paneTitle.textContent = titleForPane(PANE_KIND);
     exportPaneFormat.hidden = PANE_KIND !== "artifact";
@@ -2053,6 +2196,7 @@
 
     window.addEventListener("beforeunload", () => {
       stopDisposableShell();
+      if (sharedPaneSync) sharedPaneSync.close();
       if (eventSource) eventSource.close();
       if (artifactEventSource) artifactEventSource.close();
       if (statusTimer) window.clearInterval(statusTimer);

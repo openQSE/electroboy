@@ -303,6 +303,10 @@ class ServiceTests(unittest.TestCase):
             "js/core/input-shortcut.js",
             frontend_bundles["core-shell"]["assets"],
         )
+        self.assertIn(
+            "js/core/pane-sync.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
@@ -310,6 +314,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("pane-window", frontend_bundles)
         self.assertIn(
             "js/core/pane-workspace.js",
+            frontend_bundles["pane-window"]["assets"],
+        )
+        self.assertIn(
+            "js/core/pane-sync.js",
             frontend_bundles["pane-window"]["assets"],
         )
         self.assertEqual(
@@ -329,6 +337,7 @@ class ServiceTests(unittest.TestCase):
         )
         sessions = read_service_text_asset("js/modules/agent-sessions.js")
         input_shortcut = read_service_text_asset("js/core/input-shortcut.js")
+        pane_sync = read_service_text_asset("js/core/pane-sync.js")
         documents = read_service_text_asset("js/modules/documents.js")
         binder = read_service_text_asset("js/modules/binder.js")
         corkboard = read_service_text_asset("js/modules/corkboard.js")
@@ -370,6 +379,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function bindRecorder(button)", input_shortcut)
         self.assertIn("electroboy.agentSendShortcut.v1", input_shortcut)
         self.assertIn("Hover to record a new shortcut", input_shortcut)
+        self.assertIn("function connect(options = {})", pane_sync)
+        self.assertIn("window.BroadcastChannel", pane_sync)
+        self.assertNotIn("creative-writing", pane_sync)
+        self.assertNotIn("software", pane_sync)
+        self.assertIn('runtime.sharedPanes.connect("input"', sessions)
+        self.assertIn('runtime.sharedPanes.connect("progress"', progress)
+        self.assertNotIn('sharedPanes.connect("input"', app)
+        self.assertNotIn('sharedPanes.connect("progress"', app)
+        self.assertIn('frontendRuntime.sharedPanes.connect("scratch"', app)
+        self.assertIn('frontendRuntime.sharedPanes.connect("status"', app)
         self.assertIn(
             "function showArtifactPreviews(items, options = {})",
             documents,
@@ -745,6 +764,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-layout-drag.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/input-shortcut.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/pane-sync.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -784,6 +804,10 @@ class ServiceTests(unittest.TestCase):
                         server,
                         "/assets/service/js/core/input-shortcut.js",
                     )
+                )
+                sync_status, sync_body, sync_type, _sync_headers = request_bytes(
+                    server,
+                    "/assets/service/js/core/pane-sync.js",
                 )
                 software_status, software_body, software_type, _software_headers = (
                     request_bytes(
@@ -835,6 +859,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(shortcut_type, "application/javascript; charset=utf-8")
         self.assertIn(b"function bindRecorder(button)", shortcut_body)
         self.assertIn(b"Shift", shortcut_body)
+        self.assertEqual(sync_status, 200)
+        self.assertEqual(sync_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"function connect(options = {})", sync_body)
         self.assertEqual(software_status, 200)
         self.assertEqual(software_type, "application/javascript; charset=utf-8")
         self.assertIn(b"Software engineering", software_body)
@@ -910,6 +937,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("ElectroBoyPaneWorkspace.create", page)
         self.assertIn("electroboy.paneWorkspaceLayout.v2.${PANE_KIND}", page)
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
+        self.assertIn('/assets/service/js/core/pane-sync.js', page)
         self.assertIn('paneParameters.set("embedded", "1")', page)
         self.assertIn('function initialPaneWorkspaceLayout()', page)
         self.assertIn('first: { type: "leaf", kind: "agent" }', page)
@@ -928,6 +956,13 @@ class ServiceTests(unittest.TestCase):
             'dockPane.addEventListener("click", restorePoppedPane);',
             page,
         )
+        self.assertIn(
+            '["scratch", "progress", "status", "input"].includes(PANE_KIND)',
+            page,
+        )
+        self.assertIn("function initializeSharedPaneSync()", page)
+        self.assertIn("function renderSharedProgressState(", page)
+        self.assertIn("function applySharedAgentInputState(", page)
 
     def test_pane_window_html_includes_reconnect_streams(self) -> None:
         page = pane_window_html("artifact")

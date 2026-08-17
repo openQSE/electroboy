@@ -4082,6 +4082,7 @@
       agentInput.value = `${value.slice(0, start)}${insertion}${value.slice(end)}`;
       const cursor = start + insertion.length;
       agentInput.setSelectionRange(cursor, cursor);
+      agentInput.dispatchEvent(new Event("input", { bubbles: true }));
     }
 
     async function applyProjectSelection(selectedPathOverride = "") {
@@ -4742,7 +4743,10 @@
       }
     });
 
-    scratchPad.addEventListener("input", saveScratchPad);
+    scratchPad.addEventListener("input", () => {
+      saveScratchPad();
+      scratchPaneSync.publish({ value: scratchPad.value });
+    });
     workflowModeSelect.addEventListener("change", () => {
       setWorkflowMode(workflowModeSelect.value).catch((error) => {
         appendOutput(`workflow switch failed: ${error}
@@ -4995,6 +4999,14 @@
       scratch: {
         restore: restoreScratchPad,
       },
+      sharedPanes: {
+        connect: (pane, options = {}) => window.ElectroBoyPaneSync.connect({
+          ...options,
+          pane,
+          context: () => contextId,
+          priority: 100,
+        }),
+      },
       modules: {
         invoke: (moduleId, action, ...args) =>
           window.ElectroBoyFrontend.invokeModule(moduleId, action, ...args),
@@ -5042,6 +5054,50 @@
       },
     };
 
+    const scratchPaneSync = frontendRuntime.sharedPanes.connect("scratch", {
+      snapshot: () => ({ value: scratchPad.value }),
+      receive: (state) => {
+        if (!state || typeof state.value !== "string") {
+          return;
+        }
+        const selectionStart = scratchPad.selectionStart;
+        const selectionEnd = scratchPad.selectionEnd;
+        scratchPad.value = state.value;
+        if (document.activeElement === scratchPad) {
+          const length = scratchPad.value.length;
+          scratchPad.setSelectionRange(
+            Math.min(selectionStart, length),
+            Math.min(selectionEnd, length),
+          );
+        }
+        saveScratchPad();
+      },
+    });
+    let lastSharedStatusText = projectStatusOutput.textContent;
+    const statusPaneSync = frontendRuntime.sharedPanes.connect("status", {
+      snapshot: () => ({ text: projectStatusOutput.textContent }),
+      receive: (state) => {
+        if (!state || typeof state.text !== "string") {
+          return;
+        }
+        lastSharedStatusText = state.text;
+        projectStatusOutput.textContent = state.text;
+      },
+    });
+    const projectStatusObserver = new MutationObserver(() => {
+      const text = projectStatusOutput.textContent;
+      if (text === lastSharedStatusText) {
+        return;
+      }
+      lastSharedStatusText = text;
+      statusPaneSync.publish({ text });
+    });
+    projectStatusObserver.observe(projectStatusOutput, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+
     async function initialize() {
       window.ElectroBoyFrontend.bindRuntime(frontendRuntime);
       await checkConnection();
@@ -5071,6 +5127,11 @@
     }
 
     window.addEventListener("pagehide", releaseContextOwner);
+    window.addEventListener("pagehide", () => {
+      scratchPaneSync.close();
+      statusPaneSync.close();
+      projectStatusObserver.disconnect();
+    });
     window.addEventListener("pageshow", () => {
       if (contextId) {
         claimContextOwner(contextId);
