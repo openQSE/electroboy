@@ -117,7 +117,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 workflow_stage=workflow_stage,
             )
         remember_recent_project(
-            self.services.files.service_root,
+            self.services.files.state_root,
             project_root,
             "project",
         )
@@ -142,7 +142,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 workflow_stage=_visible_workflow_stage(manifest.active_stage),
             )
         remember_recent_project(
-            self.services.files.service_root,
+            self.services.files.state_root,
             project_root,
             "project",
         )
@@ -163,7 +163,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         return {
             "project_root": str(command_root),
             "sessions": ad_hoc_session_history(
-                self.services.files.service_root,
+                self.services.files.state_root,
                 command_root,
             ),
         }
@@ -200,7 +200,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     f"{requested_session_id}"
                 )
             remember_ad_hoc_session(
-                self.services.files.service_root,
+                self.services.files.state_root,
                 provider_session,
             )
 
@@ -264,7 +264,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 workflow_stage=meta_context["workflow_stage"],
             )
         remember_recent_project(
-            self.services.files.service_root,
+            self.services.files.state_root,
             Path(str(meta_context["meta_root"])),
             "meta",
         )
@@ -288,7 +288,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 active_project_root=None,
                 registered_repositories=repositories,
             )
-        remember_recent_project(self.services.files.service_root, meta_root, "meta")
+        remember_recent_project(self.services.files.state_root, meta_root, "meta")
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "created",

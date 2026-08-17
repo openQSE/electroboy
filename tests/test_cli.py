@@ -83,6 +83,7 @@ class CliTests(unittest.TestCase):
                 os.environ,
                 {
                     "ELECTROBOY_SERVICE_ROOT": str(root),
+                    "ELECTROBOY_SERVICE_STATE_ROOT": str(root / "state"),
                     "ELECTROBOY_SERVICE_HOST": "0.0.0.0",
                     "ELECTROBOY_SERVICE_PORT": "9001",
                 },
@@ -95,7 +96,12 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0, stderr)
         self.assertEqual(stdout, "")
-        run_service.assert_called_once_with(str(root), host="0.0.0.0", port=9001)
+        run_service.assert_called_once_with(
+            str(root),
+            host="0.0.0.0",
+            port=9001,
+            state_root=str(root / "state"),
+        )
 
     def test_serve_command_line_options_override_environment(self) -> None:
         with temp_project() as env_root, temp_project() as cli_root:
@@ -164,8 +170,10 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
             browse_root = Path(tmp) / "openQSE"
+            state_root = Path(tmp) / "electroboy-state"
             home.mkdir()
             browse_root.mkdir()
+            state_root.mkdir()
 
             with mock.patch.dict(
                 os.environ,
@@ -181,6 +189,8 @@ class CliTests(unittest.TestCase):
                         "install",
                         "--browse-root",
                         str(browse_root),
+                        "--state-root",
+                        str(state_root),
                         "--host",
                         "0.0.0.0",
                         "--port",
@@ -203,6 +213,10 @@ class CliTests(unittest.TestCase):
             self.assertIn("WantedBy=default.target", unit_text)
             self.assertIn(
                 f'ELECTROBOY_SERVICE_ROOT="{browse_root.resolve()}"',
+                env_text,
+            )
+            self.assertIn(
+                f'ELECTROBOY_SERVICE_STATE_ROOT="{state_root.resolve()}"',
                 env_text,
             )
             self.assertIn('ELECTROBOY_SERVICE_HOST="0.0.0.0"', env_text)

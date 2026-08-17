@@ -193,6 +193,7 @@ CREATIVE_CARD_PALETTE_IDS = frozenset(entry["id"] for entry in CREATIVE_CARD_PAL
 CREATIVE_CARD_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 META_MANAGEMENT_COMMANDS = {"add", "start"}
 SERVICE_ROOT_ENV = "ELECTROBOY_SERVICE_ROOT"
+SERVICE_STATE_ROOT_ENV = "ELECTROBOY_SERVICE_STATE_ROOT"
 SERVICE_HOST_ENV = "ELECTROBOY_SERVICE_HOST"
 SERVICE_PORT_ENV = "ELECTROBOY_SERVICE_PORT"
 SERVICE_SESSION_BACKEND_ENV = "ELECTROBOY_SESSION_BACKEND"
@@ -565,6 +566,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     service_install.add_argument(
+        "--state-root",
+        help=(
+            "directory for service configuration and runtime state; defaults "
+            "to the browse root"
+        ),
+    )
+    service_install.add_argument(
         "--host",
         default=SERVICE_DEFAULT_HOST,
         help=(
@@ -626,6 +634,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--root",
         default=argparse.SUPPRESS,
         help="repository root containing pipeline artifacts",
+    )
+    serve.add_argument(
+        "--state-root",
+        help="directory for service configuration and runtime state",
     )
     serve.add_argument(
         "--host",
@@ -1359,6 +1371,9 @@ def _cmd_serve(args: argparse.Namespace, root_explicit: bool = False) -> int:
     host = args.host or os.environ.get(SERVICE_HOST_ENV) or SERVICE_DEFAULT_HOST
     port = args.port if args.port is not None else _service_port_from_environment()
     kwargs: dict[str, object] = {"host": host, "port": port}
+    state_root = args.state_root or os.environ.get(SERVICE_STATE_ROOT_ENV)
+    if state_root:
+        kwargs["state_root"] = state_root
     if args.session_backend:
         kwargs["session_backend"] = args.session_backend
     try:
@@ -1377,6 +1392,7 @@ def _cmd_service(args: argparse.Namespace) -> int:
 def _cmd_service_install(args: argparse.Namespace) -> int:
     scope = "system" if args.system else "user"
     browse_root = Path(args.browse_root or os.getcwd()).expanduser().resolve()
+    state_root = Path(args.state_root or browse_root).expanduser().resolve()
     port = _validate_service_port(args.port, "port")
     command_path = args.command_path or "/usr/local/bin:/usr/bin:/bin"
     unit_path, env_path = _service_install_paths(scope)
@@ -1386,6 +1402,7 @@ def _cmd_service_install(args: argparse.Namespace) -> int:
     )
     env_text = _service_env_text(
         browse_root=browse_root,
+        state_root=state_root,
         host=args.host,
         port=port,
         session_backend=args.session_backend,
@@ -1398,6 +1415,7 @@ def _cmd_service_install(args: argparse.Namespace) -> int:
     print(f"installed service unit: {unit_path}")
     print(f"installed service env: {env_path}")
     print(f"browse root: {browse_root}")
+    print(f"state root: {state_root}")
     print(f"bind: {args.host}:{port}")
     print(f"session backend: {args.session_backend}")
 
@@ -1446,6 +1464,7 @@ After=network.target
 [Service]
 Type=simple
 {user_line}Environment=ELECTROBOY_SERVICE_ROOT=%h
+Environment=ELECTROBOY_SERVICE_STATE_ROOT=%h
 Environment=ELECTROBOY_SERVICE_HOST={SERVICE_DEFAULT_HOST}
 Environment=ELECTROBOY_SERVICE_PORT={SERVICE_DEFAULT_PORT}
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -1462,6 +1481,7 @@ WantedBy={install_target}
 
 def _service_env_text(
     browse_root: Path,
+    state_root: Path,
     host: str,
     port: int,
     session_backend: str,
@@ -1474,6 +1494,7 @@ def _service_env_text(
             "# This is the GUI browse/base directory. It does not auto-open a",
             "# project or select an active meta-project repository.",
             _systemd_env_assignment(SERVICE_ROOT_ENV, str(browse_root)),
+            _systemd_env_assignment(SERVICE_STATE_ROOT_ENV, str(state_root)),
             "",
             "# Bind localhost by default. Use 0.0.0.0 only when network",
             "# exposure is intended.",

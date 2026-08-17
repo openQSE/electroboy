@@ -75,6 +75,9 @@ provided:
 
 - `ELECTROBOY_SERVICE_ROOT`: GUI browse/base directory. This does not
   auto-open a project or select a meta-project repository.
+- `ELECTROBOY_SERVICE_STATE_ROOT`: workflow configuration, recent projects,
+  service sessions, and transcripts. It defaults to the browse root for
+  backward compatibility and should be distinct for independent instances.
 - `ELECTROBOY_SERVICE_HOST`: bind address, defaulting to `127.0.0.1`.
 - `ELECTROBOY_SERVICE_PORT`: bind port, defaulting to `8765`.
 - `ELECTROBOY_SESSION_BACKEND`: agent session backend. The default `pty`
@@ -88,6 +91,7 @@ same Codex, Git, and project configuration as the operator:
 ```bash
 electroboy service install \
   --browse-root ~/ORNL/Quantum/openQSE \
+  --state-root ~/.local/state/electroboy/default \
   --host 127.0.0.1 \
   --port 8765 \
   --session-backend tmux

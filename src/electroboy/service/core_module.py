@@ -88,7 +88,7 @@ def _set_workflow_stage(request: RouteRequest) -> ServiceResponse:
 
 
 def _workflow_config(request: RouteRequest) -> JsonResponse:
-    return JsonResponse(workflow_config_payload(request.config.root))
+    return JsonResponse(workflow_config_payload(request.config.state_root))
 
 
 def _registry(request: RouteRequest) -> JsonResponse:
@@ -103,7 +103,7 @@ def _registry(request: RouteRequest) -> JsonResponse:
         {
             **registry_payload(modules, workflows),
             "frontend_bundles": request.operations.frontend_asset_payload(),
-            "workflow_config": workflow_config_payload(request.config.root),
+            "workflow_config": workflow_config_payload(request.config.state_root),
         }
     )
 
@@ -114,7 +114,7 @@ def _add_configured_workflow(request: RouteRequest) -> ServiceResponse:
         workflow_id = str(payload.get("id") or "")
         factory = str(payload.get("factory") or "")
         workflow_config = add_configured_workflow(
-            request.config.root,
+            request.config.state_root,
             workflow_id,
             factory,
         )
@@ -122,7 +122,7 @@ def _add_configured_workflow(request: RouteRequest) -> ServiceResponse:
         request.config.workflow_registry = build_workflow_registry(
             modules,
             configured_workflows(
-                request.config.root,
+                request.config.state_root,
                 installed_workflow_factories(),
             ),
         )

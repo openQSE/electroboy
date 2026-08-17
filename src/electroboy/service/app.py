@@ -156,6 +156,7 @@ def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
 @dataclass
 class ServiceState:
     root: Path
+    state_root: Path | None = None
     session_backend: str = SESSION_BACKEND_PTY
     workflow_registry: WorkflowRegistry | None = None
     context_store: ContextStore = field(default_factory=ContextStore)
@@ -174,12 +175,13 @@ class ServiceState:
 
     def __post_init__(self) -> None:
         self.root = self.root.resolve()
+        self.state_root = Path(self.state_root or self.root).resolve()
         self.session_backend = _normalize_session_backend(self.session_backend)
         if self.workflow_registry is None:
             module_registry = build_module_registry()
             self.workflow_registry = build_workflow_registry(module_registry)
         self.bind_workflow_registry(self.workflow_registry)
-        (self.root / SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR).mkdir(
+        (self.state_root / SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR).mkdir(
             parents=True,
             exist_ok=True,
         )
@@ -187,22 +189,45 @@ class ServiceState:
             self._restore_tmux_sessions()
 
     def workflow_controller(self, workflow_id: str) -> Any:
-        """Return executable behavior for an enabled workflow."""
-        try:
-            return self.workflow_controllers[workflow_id]
-        except KeyError as error:
-            raise StateError(
-                f"workflow has no executable controller: {workflow_id}"
-            ) from error
+        """Create executable workflow behavior on first use and cache it."""
+        with self.lock:
+            existing = self.workflow_controllers.get(workflow_id)
+            if existing is not None:
+                return existing
+            if self.workflow_registry is None:
+                raise StateError("workflow registry is not configured")
+            try:
+                workflow = self.workflow_registry.get(workflow_id)
+            except KeyError as error:
+                raise StateError(f"unknown workflow: {workflow_id}") from error
+            if workflow.controller_factory is None:
+                raise StateError(
+                    f"workflow has no executable controller: {workflow_id}"
+                )
+            controller = workflow.controller_factory(
+                build_service_services(self, self.workflow_registry)
+            )
+            if controller.workflow_id != workflow.id:
+                raise ValueError(
+                    "workflow controller id does not match its definition: "
+                    f"{controller.workflow_id} != {workflow.id}"
+                )
+            self.workflow_controllers[workflow_id] = controller
+            return controller
 
     def bind_workflow_registry(self, registry: WorkflowRegistry) -> None:
-        """Replace workflow definitions and their bound controllers together."""
-        controllers = registry.create_controllers(
-            build_service_services(self, registry)
-        )
+        """Replace definitions and release lazily created controllers."""
         with self.lock:
+            previous = tuple(self.workflow_controllers.values())
             self.workflow_registry = registry
-            self.workflow_controllers = controllers
+            self.workflow_controllers = {}
+        _close_workflow_controllers(previous)
+
+    def close_workflow_controllers(self) -> None:
+        with self.lock:
+            controllers = tuple(self.workflow_controllers.values())
+            self.workflow_controllers = {}
+        _close_workflow_controllers(controllers)
 
     def _prepare_session_locked(
         self,
@@ -217,14 +242,14 @@ class ServiceState:
         session.persist_to(
             context_id=context.context_id,
             transcript_path=_service_session_transcript_path(
-                self.root,
+                self.state_root,
                 session.session_id,
             ),
             on_status_changed=self._record_session_status,
         )
         _upsert_service_session_record(
-            self.root,
-            _service_session_record(self.root, context, session),
+            self.state_root,
+            _service_session_record(self.state_root, context, session),
         )
         return session
 
@@ -234,14 +259,14 @@ class ServiceState:
             if context is None:
                 return
             _upsert_service_session_record(
-                self.root,
-                _service_session_record(self.root, context, session),
+                self.state_root,
+                _service_session_record(self.state_root, context, session),
             )
 
     def _restore_tmux_sessions(self) -> None:
         if shutil.which("tmux") is None:
             return
-        records = _load_service_session_records(self.root)
+        records = _load_service_session_records(self.state_root)
         restored_sessions: list[TmuxAgentSession] = []
         with self.lock:
             for entry in records.get("sessions", []):
@@ -295,7 +320,7 @@ class ServiceState:
                 session.persist_to(
                     context_id=context.context_id,
                     transcript_path=_service_session_transcript_path(
-                        self.root,
+                        self.state_root,
                         session.session_id,
                     ),
                 )
@@ -326,7 +351,12 @@ class ServiceState:
             context = self._context_locked(context_id)
             active_project_root = context.active_project_root
             workflow_id = context.workflow_id
-        payload = project_payload(self.root, context, active_project_root)
+        payload = project_payload(
+            self.root,
+            context,
+            active_project_root,
+            state_root=self.state_root,
+        )
         controller = self.workflow_controllers.get(workflow_id)
         extension = getattr(controller, "project_payload_extension", None)
         if callable(extension):
@@ -557,7 +587,12 @@ class ServiceState:
                 active_project_root=None,
             )
         return {
-            **project_payload(self.root, context, None),
+            **project_payload(
+                self.root,
+                context,
+                None,
+                state_root=self.state_root,
+            ),
             "status": "deactivated",
         }
 
@@ -969,7 +1004,12 @@ class ServiceState:
         if session.is_active():
             session.terminate(timeout=0.5)
         return {
-            **project_payload(self.root, context, project_root),
+            **project_payload(
+                self.root,
+                context,
+                project_root,
+                state_root=self.state_root,
+            ),
             "status": "stopped project shell",
         }
 
@@ -986,7 +1026,7 @@ class ServiceState:
             }
 
     def session_registry_payload(self) -> dict[str, object]:
-        records = _load_service_session_records(self.root)
+        records = _load_service_session_records(self.state_root)
         by_id: dict[str, dict[str, object]] = {}
         for entry in records.get("sessions", []):
             if not isinstance(entry, dict):
@@ -1001,7 +1041,7 @@ class ServiceState:
             for context in self.contexts.values():
                 for session in self._context_process_sessions_locked(context):
                     record = _service_session_record(
-                        self.root,
+                        self.state_root,
                         context,
                         session,
                     )
@@ -1055,7 +1095,12 @@ class ServiceState:
                 target_context.selected_session_id = session.session_id
             project_root = target_context.active_project_root
         return {
-            **project_payload(self.root, target_context, project_root),
+            **project_payload(
+                self.root,
+                target_context,
+                project_root,
+                state_root=self.state_root,
+            ),
             "status": "attached",
             "attached_session_id": session.session_id,
         }
@@ -1494,9 +1539,17 @@ class ServiceState:
             raise AgentSessionError("start requirements first")
 
 
+def _close_workflow_controllers(controllers: tuple[Any, ...]) -> None:
+    for controller in controllers:
+        close = getattr(controller, "close", None)
+        if callable(close):
+            close()
+
+
 @dataclass
 class ServiceConfig:
     root: Path
+    state_root: Path
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
     session_backend: str = SESSION_BACKEND_PTY
@@ -1524,6 +1577,8 @@ class ElectroBoyHTTPServer(ThreadingHTTPServer):
             and self.service_state.session_backend != SESSION_BACKEND_TMUX
         ):
             self.service_state.terminate_all_sessions()
+        if self.service_state is not None:
+            self.service_state.close_workflow_controllers()
         super().server_close()
 
 
@@ -1532,6 +1587,7 @@ def create_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     session_backend: str | None = None,
+    state_root: Path | str | None = None,
 ) -> ElectroBoyHTTPServer:
     backend = (
         _session_backend_from_env()
@@ -1539,13 +1595,15 @@ def create_server(
         else _normalize_session_backend(session_backend)
     )
     resolved_root = Path(root).expanduser().resolve()
+    resolved_state_root = Path(state_root or resolved_root).expanduser().resolve()
     module_registry = build_module_registry()
     workflow_registry = build_workflow_registry(
         module_registry,
-        configured_workflows(resolved_root, installed_workflow_factories()),
+        configured_workflows(resolved_state_root, installed_workflow_factories()),
     )
     config = ServiceConfig(
         root=resolved_root,
+        state_root=resolved_state_root,
         host=host,
         port=port,
         session_backend=backend,
@@ -1554,6 +1612,7 @@ def create_server(
     )
     state = ServiceState(
         root=config.root,
+        state_root=config.state_root,
         session_backend=config.session_backend,
         workflow_registry=workflow_registry,
     )
@@ -1569,12 +1628,14 @@ def run_service(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     session_backend: str | None = None,
+    state_root: Path | str | None = None,
 ) -> int:
     server = create_server(
         root,
         host=host,
         port=port,
         session_backend=session_backend,
+        state_root=state_root,
     )
     stop_signal: int | None = None
     previous_signal_handlers: dict[int, Any] = {}
@@ -1598,6 +1659,7 @@ def run_service(
         flush=True,
     )
     print(f"root: {Path(root).expanduser().resolve()}", flush=True)
+    print(f"state root: {server.service_state.state_root}", flush=True)
     print(f"session backend: {server.service_state.session_backend}", flush=True)
     try:
         server.serve_forever()
@@ -1617,11 +1679,14 @@ def health_payload(
     root: Path | str,
     module_registry: ModuleRegistry | None = None,
     workflow_registry: WorkflowRegistry | None = None,
+    state_root: Path | str | None = None,
 ) -> dict[str, object]:
+    resolved_state_root = Path(state_root or root).expanduser().resolve()
     payload: dict[str, object] = {
         "status": "connected",
         "service": "electroboy",
         "root": str(Path(root).expanduser().resolve()),
+        "state_root": str(resolved_state_root),
     }
     if module_registry is not None:
         modules = module_registry.values()
@@ -1651,7 +1716,7 @@ def health_payload(
             for workflow in workflows
         ],
     }
-    payload["workflow_config"] = workflow_config_payload(root)
+    payload["workflow_config"] = workflow_config_payload(resolved_state_root)
     payload["frontend_bundles"] = [
         bundle["id"]
         for bundle in frontend_asset_payload(module_registry, workflow_registry)
@@ -1671,8 +1736,11 @@ def project_payload(
     service_root: Path | str,
     context: BrowserContext,
     active_project_root: Path | str | None = None,
+    *,
+    state_root: Path | str | None = None,
 ) -> dict[str, object]:
     service_root = Path(service_root).expanduser().resolve()
+    resolved_state_root = Path(state_root or service_root).expanduser().resolve()
     active_root = (
         Path(active_project_root).expanduser().resolve()
         if active_project_root
@@ -1728,7 +1796,26 @@ def project_payload(
         ),
         "selected_session_id": context.selected_session_id,
         "sessions": _session_payloads(context),
-        "recent_projects": _recent_project_entries(service_root),
+        "recent_projects": _recent_project_entries(resolved_state_root),
+        "requirements_started": False,
+        "requirements_running": False,
+        "requirements_approved": False,
+        "design_started": False,
+        "design_running": False,
+        "design_review_started": False,
+        "design_review_running": False,
+        "design_review_interactive": False,
+        "stage_runs": {},
+        "design_approved": False,
+        "work_items": {
+            "schema_version": 1,
+            "active_collection_id": None,
+            "active_feature_slug": None,
+            "active_bug_slug": None,
+            "collections": [],
+            "features": [],
+            "bugs": [],
+        },
     }
 
 
@@ -1997,6 +2084,7 @@ def _handler_for(
             config.root,
             config.module_registry,
             config.workflow_registry,
+            config.state_root,
         ),
         frontend_asset_payload_factory=lambda: frontend_asset_payload(
             config.module_registry,

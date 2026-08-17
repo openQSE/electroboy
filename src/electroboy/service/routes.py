@@ -23,6 +23,7 @@ class RouteServiceConfig(Protocol):
     """Immutable server configuration visible to route handlers."""
 
     root: Path
+    state_root: Path
     module_registry: ModuleRegistry | None
     workflow_registry: WorkflowRegistry | None
 

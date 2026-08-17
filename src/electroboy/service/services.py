@@ -173,6 +173,9 @@ class ProjectFileServices(Protocol):
     @property
     def service_root(self) -> Path: ...
 
+    @property
+    def state_root(self) -> Path: ...
+
 
 class WorkflowServices(Protocol):
     """Registered workflow metadata exposed to plugins."""
@@ -209,6 +212,7 @@ class ServiceRuntimeBackend(Protocol):
     """Internal runtime surface used only by core service adapters."""
 
     root: Path
+    state_root: Path
     context_store: ContextStore
 
     def _context_locked(self, context_id: str) -> BrowserContext: ...
@@ -643,6 +647,10 @@ class RuntimeProjectFileServices:
     @property
     def service_root(self) -> Path:
         return self.runtime.root
+
+    @property
+    def state_root(self) -> Path:
+        return self.runtime.state_root
 
 
 @dataclass

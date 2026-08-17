@@ -89,9 +89,11 @@ from electroboy.service.registry import (  # noqa: E402
 )
 from electroboy.service.routes import build_route_dispatcher  # noqa: E402
 from electroboy.service.workflow_config import (  # noqa: E402
+    WorkflowConfig,
     add_configured_workflow,
     configured_workflows,
     load_workflow_config,
+    save_workflow_config,
 )
 from electroboy.models import (  # noqa: E402
     STAGE_DESIGN,
@@ -233,6 +235,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["root"], str(root.resolve()))
         self.assertIn("agent_sessions", payload["modules"])
         self.assertIn("software", payload["workflows"])
+
         self.assertIn("core-shell", payload["frontend_bundles"])
         module_plugins = {
             entry["id"]: entry for entry in payload["plugins"]["modules"]
@@ -250,6 +253,39 @@ class ServiceTests(unittest.TestCase):
             workflow_plugins["software"]["entry_point"],
             "electroboy.workflows.software.plugin:workflow",
         )
+
+    def test_server_loads_workflows_and_state_from_separate_state_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            browse_root = Path(tmp) / "browse"
+            state_root = Path(tmp) / "state"
+            browse_root.mkdir()
+            state_root.mkdir()
+            save_workflow_config(
+                state_root,
+                WorkflowConfig(enabled_builtins=("creative-writing",)),
+            )
+            try:
+                server = create_server(browse_root, port=0, state_root=state_root)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            try:
+                self.assertEqual(server.service_state.root, browse_root.resolve())
+                self.assertEqual(server.service_state.state_root, state_root.resolve())
+                self.assertEqual(
+                    [
+                        workflow.id
+                        for workflow in server.service_state.workflow_registry.values()
+                    ],
+                    ["creative-writing"],
+                )
+                self.assertTrue(
+                    (state_root / ".electroboy/service/session-transcripts").is_dir()
+                )
+                self.assertFalse(
+                    (browse_root / ".electroboy/service/session-transcripts").exists()
+                )
+            finally:
+                server.server_close()
 
     def test_registry_endpoint_reports_backend_modules_and_workflows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -823,8 +859,45 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
         self.assertIn("sample-workflow", workflows)
-        self.assertIn("sample-workflow", controller_ids)
+        self.assertNotIn("sample-workflow", controller_ids)
         self.assertTrue(config_exists)
+
+    def test_service_state_creates_and_closes_workflow_controller_lazily(self) -> None:
+        created: list[object] = []
+
+        class SampleController:
+            workflow_id = "sample"
+
+            def __init__(self, _services: ServiceServices) -> None:
+                self.closed = False
+                created.append(self)
+
+            def close(self) -> None:
+                self.closed = True
+
+        definition = WorkflowDefinition(
+            id="sample",
+            label="Sample",
+            modules=("core",),
+            stages=(WorkflowStage("project", "Project", None),),
+            project_kinds=("sample",),
+            backend_package="sample",
+            frontend_bundle="workflows/sample.js",
+            controller_factory=SampleController,
+        )
+        registry = build_workflow_registry(build_module_registry(), (definition,))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp), workflow_registry=registry)
+            self.assertEqual(created, [])
+
+            first = state.workflow_controller("sample")
+            second = state.workflow_controller("sample")
+            state.close_workflow_controllers()
+
+        self.assertIs(first, second)
+        self.assertEqual(created, [first])
+        self.assertTrue(first.closed)
 
     def test_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

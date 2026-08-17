@@ -59,7 +59,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage="project",
             )
-        _remember_recent_project(self.services.files.service_root, project_root, "creative")
+        _remember_recent_project(self.services.files.state_root, project_root, "creative")
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "opened",
@@ -81,7 +81,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage="project",
             )
-        _remember_recent_project(self.services.files.service_root, project_root, "creative")
+        _remember_recent_project(self.services.files.state_root, project_root, "creative")
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "created",
