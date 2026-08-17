@@ -1638,7 +1638,10 @@ def render_corkboard_html(
         return;
       }}
       const title = card.title || "Untitled card";
-      if (!window.confirm(`Delete "${{title}}"?`)) {{
+      const confirmation = String(
+        card.delete_confirmation || `Delete "${{title}}"?`,
+      ).trim();
+      if (!window.confirm(confirmation)) {{
         return;
       }}
       const key = cardKey(card);

@@ -2514,6 +2514,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("card-delete-icon", page)
             self.assertIn('remove.title = "Delete card";', page)
             self.assertIn("function deleteFreeformCard(card, button)", page)
+            self.assertIn("card.delete_confirmation", page)
             self.assertIn("await cardSaveRequests.get(key);", page)
             self.assertIn("function cardColorName(card)", page)
             self.assertIn("function buildColorButton(card, cardElement)", page)
