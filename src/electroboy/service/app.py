@@ -925,6 +925,14 @@ class ServiceState:
                 return context.project_shell_sessions.get(session_id)
             return context.project_shell_session
 
+    def project_shell_payloads(self, context_id: str) -> list[dict[str, object]]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            return [
+                session.payload(selected=False)
+                for session in context.project_shell_sessions.values()
+            ]
+
     def start_project_shell(self, context_id: str) -> tuple[AgentSession, bool]:
         with self.lock:
             context = self._context_locked(context_id)

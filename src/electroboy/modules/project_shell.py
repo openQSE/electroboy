@@ -54,6 +54,14 @@ def _events(request: RouteRequest) -> ServiceResponse:
     return StreamResponse(lambda: request.stream_session_events(session))
 
 
+def _sessions(request: RouteRequest) -> ServiceResponse:
+    try:
+        sessions = request.services.sessions.project_shells(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse({"sessions": sessions})
+
+
 def _input(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
@@ -99,6 +107,7 @@ _HANDLERS = {
     "resize": _resize,
     "stop": _stop,
     "events": _events,
+    "sessions": _sessions,
 }
 
 
@@ -112,6 +121,7 @@ def module() -> ServiceModule:
             route("POST", "/api/shell/resize", "project_shell", "resize"),
             route("POST", "/api/shell/stop", "project_shell", "stop"),
             route("GET", "/api/shell/events", "project_shell", "events"),
+            route("GET", "/api/shell/sessions", "project_shell", "sessions"),
         ),
         handlers=_HANDLERS,
         assets=("js/modules/project-shell.js",),

@@ -12,6 +12,7 @@
   let runtimeApi = null;
   let runtimeState = null;
   let documentMenuEventsBound = false;
+  let fileCatalogSync = null;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -19,6 +20,14 @@
     bindDocumentMenuEvents();
     if (runtimeState.customDocumentTargets.length === 0) {
       runtimeState.customDocumentTargets = storedDocumentTargets();
+    }
+    if (!fileCatalogSync) {
+      fileCatalogSync = runtime.sharedPanes.connect("file-catalog", {
+        snapshot: openFileCatalogState,
+      });
+      window.addEventListener("pagehide", () => fileCatalogSync.close(), {
+        once: true,
+      });
     }
   }
 
@@ -364,7 +373,7 @@
       );
     }
 
-    function rememberOpenDocumentTarget(target) {
+  function rememberOpenDocumentTarget(target) {
       const path = documentTargetKey(target);
       if (!path) {
         return;
@@ -381,6 +390,16 @@
       } else {
         runtimeState.openDocumentTargets.push(storedTarget);
       }
+      fileCatalogSync?.publish(openFileCatalogState());
+    }
+
+    function openFileCatalogState() {
+      return {
+        files: runtimeState.openDocumentTargets.map((target) => ({
+          label: documentTargetLabel(target),
+          path: documentTargetKey(target),
+        })),
+      };
     }
 
     function syncOpenDocumentTargetsFromSessions() {

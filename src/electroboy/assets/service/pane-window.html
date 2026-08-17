@@ -238,20 +238,20 @@
       color: #d5f4ff;
     }
 
-    .pane-session-control {
+    .pane-content-control {
       display: flex;
       align-items: center;
       gap: 6px;
       min-width: 0;
     }
 
-    .pane-session-control label {
+    .pane-content-control label {
       color: #aab8cf;
       font-size: calc(var(--font-size) - 3px);
       font-weight: 750;
     }
 
-    .pane-session-control select {
+    .pane-content-control select {
       width: clamp(130px, 22vw, 240px);
       min-width: 100px;
       min-height: 30px;
@@ -586,11 +586,11 @@
     <header class="pane-toolbar">
       <span id="paneTitle">Pane</span>
       <div class="pane-actions">
-        <div id="paneSessionControl" class="pane-session-control" hidden>
-          <label for="sessionSwitcher">Select Agent</label>
+        <div id="paneContentControl" class="pane-content-control" hidden>
+          <label id="paneContentLabel" for="contentSwitcher">Content</label>
           <select
-            id="sessionSwitcher"
-            aria-label="Select Agent"
+            id="contentSwitcher"
+            aria-label="Select pane content"
             disabled
           ></select>
         </div>
@@ -676,7 +676,7 @@
       <iframe
         id="artifactFrame"
         class="artifact-frame"
-        title="Rendered artifact preview"
+        title="Rendered file preview"
         sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
         hidden
       ></iframe>
@@ -716,13 +716,14 @@
     const EMBEDDED_PANE = params.get("embedded") === "1";
     const contextId = params.get("context_id") || "";
     let selectedSessionId = params.get("session_id") || "";
-    const shellSessionId = params.get("shell_session_id") || "";
+    const ownedShellSessionId = params.get("shell_session_id") || "";
+    let selectedShellSessionId = ownedShellSessionId;
     const disposableShell = params.get("disposable") === "1";
-    const artifactKind = params.get("artifact") || "requirements";
-    const artifactDocumentPath = params.get("document_path") || "";
-    const artifactDocumentTitle = params.get("document_title") || "";
-    const artifactRoutePath = params.get("artifact_path") || "";
-    const artifactRouteTitle = params.get("artifact_title") || "";
+    let artifactKind = params.get("artifact") || "requirements";
+    let artifactDocumentPath = params.get("document_path") || "";
+    let artifactDocumentTitle = params.get("document_title") || "";
+    let artifactRoutePath = params.get("artifact_path") || "";
+    let artifactRouteTitle = params.get("artifact_title") || "";
     const artifactFolderPath = params.get("folder_path") || "";
     const artifactFolderTitle = params.get("folder_title") || "";
     const artifactCorkboardPath = params.get("corkboard_path") || "";
@@ -775,11 +776,14 @@
     const inputLayout = document.getElementById("inputLayout");
     const agentInput = document.getElementById("agentInput");
     const agentSendShortcut = document.getElementById("agentSendShortcut");
-    const paneSessionControl = document.getElementById("paneSessionControl");
-    const sessionSwitcher = document.getElementById("sessionSwitcher");
+    const paneContentControl = document.getElementById("paneContentControl");
+    const paneContentLabel = document.getElementById("paneContentLabel");
+    const contentSwitcher = document.getElementById("contentSwitcher");
     const interruptAgent = document.getElementById("interruptAgent");
     const linkAgentFile = document.getElementById("linkAgentFile");
     let agentSessions = [];
+    let shellSessions = [];
+    let openFileTargets = [];
     let activeProjectRoot = "";
     let terminal = null;
     let terminalFit = null;
@@ -793,8 +797,10 @@
     let artifactVersion = 0;
     let artifactEditing = false;
     let statusTimer = null;
+    let contentRefreshTimer = null;
     let disposableShellStopped = false;
     let sharedPaneSync = null;
+    let contentCatalogSync = null;
     let inputSyncQueue = Promise.resolve();
     let latestProgressState = { entries: [] };
     let lastSharedStatusText = "";
@@ -926,16 +932,7 @@
     function titleForPane(kind) {
       if (kind === "agent") return "Agent output";
       if (kind === "artifact") {
-        if (artifactKind === "document" && artifactDocumentTitle) {
-          return artifactDocumentTitle;
-        }
-        if (artifactKind === "route" && artifactRouteTitle) {
-          return artifactRouteTitle;
-        }
-        if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
-          return artifactCorkboardTitle || artifactFolderTitle || "Corkboard";
-        }
-        return "Artifact preview";
+        return "File";
       }
       if (kind === "progress") return "Progress";
       if (kind === "scratch") return "Scratch pad";
@@ -952,35 +949,217 @@
 
     function shellContextUrl(path) {
       const url = new URL(contextUrl(path), window.location.origin);
-      if (shellSessionId) {
-        url.searchParams.set("session_id", shellSessionId);
+      if (selectedShellSessionId) {
+        url.searchParams.set("session_id", selectedShellSessionId);
       }
       return `${url.pathname}${url.search}`;
     }
 
     function renderSessionSwitcher() {
-      sessionSwitcher.replaceChildren();
-      if (agentSessions.length === 0) {
+      contentSwitcher.replaceChildren();
+      const visibleSessions = agentSessions.filter(
+        (session) => session.status === "running" || session.session_id === selectedSessionId,
+      );
+      if (visibleSessions.length === 0) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "No streams";
-        sessionSwitcher.append(option);
-        sessionSwitcher.disabled = true;
+        option.textContent = "No active agents";
+        contentSwitcher.append(option);
+        contentSwitcher.disabled = true;
         return;
       }
-      for (const session of agentSessions) {
+      for (const session of visibleSessions) {
         const option = document.createElement("option");
         option.value = session.session_id;
         const status = session.status === "running" ? "running" : session.status || "done";
         option.textContent = `${session.kind || "agent"} · ${status}`;
-        sessionSwitcher.append(option);
+        contentSwitcher.append(option);
       }
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
-        const selected = agentSessions.find((session) => session.selected) || agentSessions[0];
+        const selected = visibleSessions.find((session) => session.selected) || visibleSessions[0];
         selectedSessionId = selected ? selected.session_id : "";
       }
-      sessionSwitcher.value = selectedSessionId;
-      sessionSwitcher.disabled = false;
+      contentSwitcher.value = selectedSessionId;
+      contentSwitcher.disabled = false;
+    }
+
+    function renderFileSwitcher() {
+      contentSwitcher.replaceChildren();
+      const files = [...openFileTargets];
+      if (
+        artifactKind === "document"
+        && artifactDocumentPath
+        && !files.some((file) => file.path === artifactDocumentPath)
+      ) {
+        files.unshift({
+          path: artifactDocumentPath,
+          label: artifactDocumentTitle || artifactDocumentPath,
+        });
+      }
+      if (files.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No open files";
+        contentSwitcher.append(option);
+        contentSwitcher.disabled = true;
+        return;
+      }
+      files.forEach((file) => {
+        const option = document.createElement("option");
+        option.value = file.path;
+        option.textContent = file.label || file.path;
+        contentSwitcher.append(option);
+      });
+      contentSwitcher.value = artifactDocumentPath;
+      contentSwitcher.disabled = false;
+      if (!contentSwitcher.value) {
+        selectFileTarget(files[0]);
+      }
+    }
+
+    function selectFileTarget(target) {
+      if (!target || !target.path) {
+        return;
+      }
+      artifactKind = "document";
+      artifactDocumentPath = target.path;
+      artifactDocumentTitle = target.label || target.path;
+      artifactRoutePath = "";
+      artifactRouteTitle = "";
+      artifactEditing = false;
+      contentSwitcher.value = artifactDocumentPath;
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("artifact", "document");
+      nextUrl.searchParams.set("document_path", artifactDocumentPath);
+      nextUrl.searchParams.set("document_title", artifactDocumentTitle);
+      nextUrl.searchParams.delete("artifact_path");
+      nextUrl.searchParams.delete("artifact_title");
+      window.history.replaceState(null, "", nextUrl);
+      if (artifactEventSource) {
+        artifactEventSource.close();
+        artifactEventSource = null;
+      }
+      connectArtifactStream();
+    }
+
+    function shellSessionLabel(session) {
+      const status = session.status === "running" ? "running" : session.status || "done";
+      const name = session.label || "Shell";
+      return `${name} · ${status} · ${String(session.session_id || "").slice(0, 6)}`;
+    }
+
+    function renderShellSwitcher() {
+      contentSwitcher.replaceChildren();
+      const visibleSessions = shellSessions.filter(
+        (session) => session.status === "running" || session.session_id === selectedShellSessionId,
+      );
+      if (visibleSessions.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No active shells";
+        contentSwitcher.append(option);
+        contentSwitcher.disabled = true;
+        return;
+      }
+      visibleSessions.forEach((session) => {
+        const option = document.createElement("option");
+        option.value = session.session_id;
+        option.textContent = shellSessionLabel(session);
+        contentSwitcher.append(option);
+      });
+      if (!visibleSessions.some((session) => session.session_id === selectedShellSessionId)) {
+        selectedShellSessionId = visibleSessions[0].session_id;
+      }
+      contentSwitcher.value = selectedShellSessionId;
+      contentSwitcher.disabled = false;
+    }
+
+    async function refreshShellSessions() {
+      const response = await fetch(contextUrl("/api/shell/sessions"), {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ sessions: [] }));
+      if (!response.ok) {
+        return;
+      }
+      shellSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      const previousSessionId = selectedShellSessionId;
+      renderShellSwitcher();
+      if (selectedShellSessionId && selectedShellSessionId !== previousSessionId) {
+        const nextSessionId = selectedShellSessionId;
+        selectedShellSessionId = previousSessionId;
+        selectShellSession(nextSessionId);
+      }
+    }
+
+    function selectShellSession(sessionId) {
+      if (!sessionId || sessionId === selectedShellSessionId) {
+        return;
+      }
+      selectedShellSessionId = sessionId;
+      contentSwitcher.value = selectedShellSessionId;
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("shell_session_id", selectedShellSessionId);
+      window.history.replaceState(null, "", nextUrl);
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      if (terminal) {
+        terminal.clear();
+      }
+      connectShellStream();
+    }
+
+    function initializeContentSwitcher() {
+      if (PANE_KIND === "agent" || PANE_KIND === "input") {
+        paneContentControl.hidden = false;
+        paneContentLabel.textContent = "Agent";
+        contentRefreshTimer = window.setInterval(
+          () => refreshSessions().catch(() => {}),
+          3000,
+        );
+        return;
+      }
+      if (PANE_KIND === "artifact") {
+        paneContentControl.hidden = false;
+        paneContentLabel.textContent = "File";
+        if (artifactKind === "document" && artifactDocumentPath) {
+          openFileTargets = [{
+            path: artifactDocumentPath,
+            label: artifactDocumentTitle || artifactDocumentPath,
+          }];
+        }
+        renderFileSwitcher();
+        contentCatalogSync = window.ElectroBoyPaneSync.connect({
+          pane: "file-catalog",
+          context: () => contextId,
+          priority: 10,
+          snapshot: () => ({ files: openFileTargets }),
+          receive: (state) => {
+            if (!state || !Array.isArray(state.files)) {
+              return;
+            }
+            openFileTargets = state.files
+              .map((file) => ({
+                path: String(file.path || ""),
+                label: String(file.label || file.path || ""),
+              }))
+              .filter((file) => file.path);
+            renderFileSwitcher();
+          },
+        });
+        return;
+      }
+      if (PANE_KIND === "shell") {
+        paneContentControl.hidden = false;
+        paneContentLabel.textContent = "Shell";
+        refreshShellSessions().catch(() => {});
+        contentRefreshTimer = window.setInterval(
+          () => refreshShellSessions().catch(() => {}),
+          3000,
+        );
+      }
     }
 
     async function refreshSessions() {
@@ -997,12 +1176,20 @@
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       activeProjectRoot = payload.active_project_root || payload.activation_root
         || payload.service_root || "";
-      selectedSessionId = payload.selected_session_id || selectedSessionId || "";
+      if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
+        selectedSessionId = payload.selected_session_id || "";
+      }
       renderSessionSwitcher();
     }
 
     async function selectAgentSession(sessionId) {
       if (!sessionId || sessionId === selectedSessionId) {
+        return;
+      }
+      if (PANE_KIND === "agent") {
+        selectedSessionId = sessionId;
+        renderSessionSwitcher();
+        connectAgentStream();
         return;
       }
       const response = await fetch(contextUrl("/api/sessions/select"), {
@@ -2000,13 +2187,15 @@
         PANE_KIND !== "shell"
         || !disposableShell
         || !contextId
-        || !shellSessionId
+        || !ownedShellSessionId
         || disposableShellStopped
       ) {
         return;
       }
       disposableShellStopped = true;
-      const url = shellContextUrl("/api/shell/stop");
+      const stopUrl = new URL(contextUrl("/api/shell/stop"), window.location.origin);
+      stopUrl.searchParams.set("session_id", ownedShellSessionId);
+      const url = `${stopUrl.pathname}${stopUrl.search}`;
       if (!navigator.sendBeacon(url)) {
         fetch(url, { method: "POST", keepalive: true }).catch(() => {});
       }
@@ -2049,7 +2238,7 @@
         kinds: [
           { id: "agent", label: "Agent" },
           { id: "progress", label: "Progress" },
-          { id: "artifact", label: "Artifact" },
+          { id: "artifact", label: "File" },
           { id: "shell", label: "Shell" },
           { id: "scratch", label: "Scratch" },
           { id: "status", label: "Status" },
@@ -2141,11 +2330,17 @@
         }
       }
     });
-    sessionSwitcher.addEventListener("change", () => {
+    contentSwitcher.addEventListener("change", () => {
       if (PANE_KIND === "input") {
-        selectAgentInputSession(sessionSwitcher.value).catch(() => {});
-      } else {
-        selectAgentSession(sessionSwitcher.value);
+        selectAgentInputSession(contentSwitcher.value).catch(() => {});
+      } else if (PANE_KIND === "agent") {
+        selectAgentSession(contentSwitcher.value);
+      } else if (PANE_KIND === "artifact") {
+        selectFileTarget(
+          openFileTargets.find((file) => file.path === contentSwitcher.value),
+        );
+      } else if (PANE_KIND === "shell") {
+        selectShellSession(contentSwitcher.value);
       }
     });
     interruptAgent.addEventListener("click", interruptAgentSession);
@@ -2181,10 +2376,10 @@
     });
 
     paneTitle.textContent = titleForPane(PANE_KIND);
+    initializeContentSwitcher();
     exportPaneFormat.hidden = PANE_KIND !== "artifact";
     exportPaneOutput.hidden = !canExportPaneOutput();
     if (PANE_KIND === "agent") {
-      paneSessionControl.hidden = false;
       refreshSessions().catch(() => {}).then(connectAgentStream);
     }
     else if (PANE_KIND === "progress") connectProgressStream();
@@ -2197,9 +2392,11 @@
     window.addEventListener("beforeunload", () => {
       stopDisposableShell();
       if (sharedPaneSync) sharedPaneSync.close();
+      if (contentCatalogSync) contentCatalogSync.close();
       if (eventSource) eventSource.close();
       if (artifactEventSource) artifactEventSource.close();
       if (statusTimer) window.clearInterval(statusTimer);
+      if (contentRefreshTimer) window.clearInterval(contentRefreshTimer);
     });
     }
 

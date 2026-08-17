@@ -144,6 +144,8 @@ class SessionServices(Protocol):
         context_id: str,
     ) -> tuple[AgentSession, bool]: ...
 
+    def project_shells(self, context_id: str) -> list[dict[str, object]]: ...
+
     def send_project_shell_input(
         self,
         context_id: str,
@@ -364,6 +366,11 @@ class ServiceRuntimeBackend(Protocol):
         columns: int,
         rows: int,
     ) -> None: ...
+
+    def project_shell_payloads(
+        self,
+        context_id: str,
+    ) -> list[dict[str, object]]: ...
 
     def start_project_shell(
         self,
@@ -604,6 +611,9 @@ class RuntimeSessionServices:
 
     def start_project_shell(self, context_id: str) -> tuple[AgentSession, bool]:
         return self.runtime.start_project_shell(context_id)
+
+    def project_shells(self, context_id: str) -> list[dict[str, object]]:
+        return self.runtime.project_shell_payloads(context_id)
 
     def send_project_shell_input(
         self,

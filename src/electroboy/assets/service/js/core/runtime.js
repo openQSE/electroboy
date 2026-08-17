@@ -252,7 +252,7 @@
     const PANE_LAYOUT_KINDS = {
       agent: { label: "Agent", element: agentOutputPane },
       progress: { label: "Progress", element: progressOutputPane },
-      artifact: { label: "Artifact", element: artifactPreviewPane },
+      artifact: { label: "File", element: artifactPreviewPane },
       shell: { label: "Shell", element: projectShellPane },
       scratch: { label: "Scratch", element: scratchPane },
       status: { label: "Status", element: projectStatusPane },

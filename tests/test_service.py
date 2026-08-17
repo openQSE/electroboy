@@ -439,6 +439,8 @@ class ServiceTests(unittest.TestCase):
             project_shell,
         )
         self.assertIn('parameters.set("shell_session_id", sessionId)', project_shell)
+        self.assertIn('runtime.sharedPanes.connect("file-catalog"', documents)
+        self.assertIn("function openFileCatalogState()", documents)
         self.assertNotIn(
             "showProjectShellPane(runtime, true);\n"
             "    initializeProjectShellTerminal(runtime);\n"
@@ -1042,13 +1044,20 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="decreasePaneFont"', PANE_WINDOW_HTML)
         self.assertIn('id="resetPaneFont"', PANE_WINDOW_HTML)
         self.assertIn('id="increasePaneFont"', PANE_WINDOW_HTML)
-        self.assertIn('id="paneSessionControl" class="pane-session-control" hidden', PANE_WINDOW_HTML)
-        self.assertIn('for="sessionSwitcher">Select Agent</label>', PANE_WINDOW_HTML)
-        self.assertIn('id="sessionSwitcher"', PANE_WINDOW_HTML)
+        self.assertIn('id="paneContentControl" class="pane-content-control" hidden', PANE_WINDOW_HTML)
+        self.assertIn('id="paneContentLabel" for="contentSwitcher">Content</label>', PANE_WINDOW_HTML)
+        self.assertIn('id="contentSwitcher"', PANE_WINDOW_HTML)
         self.assertLess(
-            PANE_WINDOW_HTML.index('id="sessionSwitcher"'),
+            PANE_WINDOW_HTML.index('id="contentSwitcher"'),
             PANE_WINDOW_HTML.index('id="terminalHost"'),
         )
+        self.assertIn('paneContentLabel.textContent = "Agent";', PANE_WINDOW_HTML)
+        self.assertIn('paneContentLabel.textContent = "File";', PANE_WINDOW_HTML)
+        self.assertIn('paneContentLabel.textContent = "Shell";', PANE_WINDOW_HTML)
+        self.assertIn("function renderFileSwitcher()", PANE_WINDOW_HTML)
+        self.assertIn("function renderShellSwitcher()", PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/shell/sessions")', PANE_WINDOW_HTML)
+        self.assertIn('{ id: "artifact", label: "File" }', PANE_WINDOW_HTML)
         self.assertIn('id="interruptAgent" class="input-interrupt"', PANE_WINDOW_HTML)
         self.assertIn('id="linkAgentFile" class="input-link"', PANE_WINDOW_HTML)
         self.assertIn("background: #3a1d1a;", PANE_WINDOW_HTML)
@@ -1093,7 +1102,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('shellContextUrl("/api/shell/resize")', PANE_WINDOW_HTML)
         self.assertIn('params.get("shell_session_id")', PANE_WINDOW_HTML)
         self.assertIn("function stopDisposableShell()", PANE_WINDOW_HTML)
-        self.assertIn('shellContextUrl("/api/shell/stop")', PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/shell/stop")', PANE_WINDOW_HTML)
+        self.assertIn('stopUrl.searchParams.set("session_id", ownedShellSessionId)', PANE_WINDOW_HTML)
         self.assertIn("dockWorkspace.hidden = true", PANE_WINDOW_HTML)
         self.assertIn('if (kind === "input") return "AI agent input";', PANE_WINDOW_HTML)
         self.assertIn(
@@ -3317,6 +3327,7 @@ class ServiceTests(unittest.TestCase):
                 second_session, second_started = state.start_project_shell(context_id)
             payload = state.project_payload(context_id)
             shell_sessions = state.contexts[context_id].project_shell_sessions
+            shell_payloads = state.project_shell_payloads(context_id)
 
         self.assertTrue(started)
         self.assertTrue(second_started)
@@ -3332,6 +3343,10 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(session.controlling_terminal)
         self.assertIsNone(payload["selected_session_id"])
         self.assertEqual(payload["sessions"], [])
+        self.assertEqual(
+            {item["session_id"] for item in shell_payloads},
+            {session.session_id, second_session.session_id},
+        )
 
     def test_project_shell_payload_reports_running_separately(self) -> None:
         class FakeShell:
@@ -3418,6 +3433,10 @@ class ServiceTests(unittest.TestCase):
                     self.skipTest(json.loads(first_body).get("error", "shell unavailable"))
                 first_id = json.loads(first_body)["shell_session"]["session_id"]
                 second_id = json.loads(second_body)["shell_session"]["session_id"]
+                sessions_status, sessions_body, _ = request(
+                    server,
+                    f"/api/shell/sessions?context_id={context_id}",
+                )
 
                 stop_status, _, _ = post_json(
                     server,
@@ -3431,6 +3450,14 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(first_status, HTTPStatus.OK)
                 self.assertEqual(second_status, HTTPStatus.OK)
                 self.assertNotEqual(first_id, second_id)
+                self.assertEqual(sessions_status, HTTPStatus.OK)
+                self.assertEqual(
+                    {
+                        item["session_id"]
+                        for item in json.loads(sessions_body)["sessions"]
+                    },
+                    {first_id, second_id},
+                )
                 self.assertEqual(stop_status, HTTPStatus.OK)
                 self.assertIsNone(
                     state.current_project_shell_session(context_id, first_id)
