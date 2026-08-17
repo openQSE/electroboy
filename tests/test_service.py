@@ -491,6 +491,9 @@ class ServiceTests(unittest.TestCase):
             )
         ]
         self.assertNotIn("hideArtifactPreview()", ad_hoc_start)
+        self.assertIn('contextUrl("/api/agents/ad-hoc/sessions")', software)
+        self.assertIn("function ensureAdHocSessionDialog()", software)
+        self.assertIn("provider_session_id: choice.providerSessionId", ad_hoc_start)
         self.assertIn("async function startGenericStageAgent(", software)
         self.assertIn("function bindRuntime(runtime)", software)
         self.assertIn("function bindRuntime(runtime)", creative)
@@ -612,6 +615,7 @@ class ServiceTests(unittest.TestCase):
             page.index("js/core/pane-layout-drag.js"),
             page.index("js/core/runtime.js"),
         )
+        self.assertIn("css/workflows/software.css", page)
         self.assertIn("css/workflows/creative-writing.css", page)
 
         empty_modules = build_module_registry(())
@@ -623,6 +627,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertNotIn("js/workflows/software.js", core_page)
         self.assertNotIn("js/workflows/creative-writing.js", core_page)
+        self.assertNotIn("css/workflows/software.css", core_page)
         self.assertNotIn("css/workflows/creative-writing.css", core_page)
         self.assertNotIn('data-stage="requirements"', core_page)
         self.assertNotIn("Creative writing", core_page)
@@ -904,6 +909,12 @@ class ServiceTests(unittest.TestCase):
                         "/assets/service/js/workflows/software.js",
                     )
                 )
+                software_css_status, software_css_body, software_css_type, _ = (
+                    request_bytes(
+                        server,
+                        "/assets/service/css/workflows/software.css",
+                    )
+                )
                 creative_status, creative_body, creative_type, _creative_headers = (
                     request_bytes(
                         server,
@@ -960,6 +971,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(software_status, 200)
         self.assertEqual(software_type, "application/javascript; charset=utf-8")
         self.assertIn(b"Software engineering", software_body)
+        self.assertEqual(software_css_status, 200)
+        self.assertEqual(software_css_type, "text/css; charset=utf-8")
+        self.assertIn(b".ad-hoc-session-dialog", software_css_body)
         self.assertEqual(creative_status, 200)
         self.assertEqual(creative_type, "application/javascript; charset=utf-8")
         self.assertIn(CREATIVE_SPLASH_IMAGE_ROUTE.encode("utf-8"), creative_body)
@@ -3218,8 +3232,9 @@ class ServiceTests(unittest.TestCase):
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
 
+            controller = state.workflow_controller("software")
             with mock.patch("electroboy.service.AgentSession.start"):
-                session, started = state.start_ad_hoc_agent(context_id)
+                session, started = controller.start_ad_hoc_agent(context_id)
             payload = state.project_payload(context_id)
 
         self.assertTrue(started)
@@ -3244,6 +3259,163 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "ad-hoc")
 
+    def test_ad_hoc_history_lists_and_resumes_project_codex_sessions(self) -> None:
+        provider_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"
+        older_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd1"
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            codex_home = Path(tmp) / "codex"
+            session_path = codex_home / "sessions" / "2026" / "08" / "17"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            session_path.mkdir(parents=True)
+            current_session_path = (
+                session_path / f"rollout-{provider_session_id}.jsonl"
+            )
+            current_session_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "session_meta",
+                                "payload": {
+                                    "session_id": provider_session_id,
+                                    "timestamp": "2026-08-17T12:00:00+00:00",
+                                    "cwd": str(project_root),
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "response_item",
+                                "payload": {
+                                    "type": "message",
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": (
+                                                "You are an ad-hoc agent for this "
+                                                "code base.\nWait for the operator."
+                                            ),
+                                        }
+                                    ],
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "response_item",
+                                "payload": {
+                                    "type": "message",
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": "Prototype the import service.",
+                                        }
+                                    ],
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            older_session_path = session_path / f"rollout-{older_session_id}.jsonl"
+            older_session_path.write_text(
+                current_session_path.read_text(encoding="utf-8")
+                .replace(provider_session_id, older_session_id)
+                .replace("Prototype the import service.", "Investigate the parser."),
+                encoding="utf-8",
+            )
+            os.utime(older_session_path, (1, 1))
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            controller = state.workflow_controller("software")
+            with mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                history = controller.ad_hoc_sessions(context_id)
+                with mock.patch("electroboy.service.AgentSession.start"):
+                    session, started = controller.start_ad_hoc_agent(
+                        context_id,
+                        provider_session_id,
+                    )
+            catalog = json.loads(
+                (
+                    service_root
+                    / ".electroboy"
+                    / "service"
+                    / "ad-hoc-sessions.json"
+                ).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(history["project_root"], str(project_root.resolve()))
+        self.assertEqual(len(history["sessions"]), 2)
+        self.assertEqual(
+            history["sessions"][0]["provider_session_id"],
+            provider_session_id,
+        )
+        self.assertEqual(
+            history["sessions"][0]["title"],
+            "Prototype the import service.",
+        )
+        self.assertTrue(started)
+        self.assertEqual(session.command[-2:], ["resume", provider_session_id])
+        self.assertEqual(
+            session.metadata["provider_session_id"],
+            provider_session_id,
+        )
+        self.assertTrue(session.metadata["resumed_session"])
+        self.assertEqual(
+            catalog["sessions"][0]["provider_session_id"],
+            provider_session_id,
+        )
+
+    def test_ad_hoc_resume_rejects_session_from_another_project(self) -> None:
+        provider_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            other_root = Path(tmp) / "other"
+            codex_home = Path(tmp) / "codex"
+            session_path = (
+                codex_home / "sessions" / f"rollout-{provider_session_id}.jsonl"
+            )
+            service_root.mkdir()
+            project_root.mkdir()
+            other_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            session_path.parent.mkdir(parents=True)
+            session_path.write_text(
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {
+                            "session_id": provider_session_id,
+                            "timestamp": "2026-08-17T12:00:00+00:00",
+                            "cwd": str(other_root),
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            controller = state.workflow_controller("software")
+            with (
+                mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
+                self.assertRaisesRegex(AgentSessionError, "active project"),
+            ):
+                controller.start_ad_hoc_agent(context_id, provider_session_id)
+
     def test_service_session_registry_records_and_attaches_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -3257,8 +3429,9 @@ class ServiceTests(unittest.TestCase):
             second_context = str(state.create_context()["context_id"])
             state.open_project(first_context, str(project_root))
 
+            controller = state.workflow_controller("software")
             with mock.patch("electroboy.service.AgentSession.start"):
-                session, _started = state.start_ad_hoc_agent(first_context)
+                session, _started = controller.start_ad_hoc_agent(first_context)
 
             registry = state.session_registry_payload()
             attach_payload = state.attach_session(second_context, session.session_id)
@@ -3295,8 +3468,9 @@ class ServiceTests(unittest.TestCase):
             context_id = str(state.create_context()["context_id"])
             state.open_project(context_id, str(project_root))
 
+            controller = state.workflow_controller("software")
             with mock.patch("electroboy.service.TmuxAgentSession.start"):
-                session, started = state.start_ad_hoc_agent(context_id)
+                session, started = controller.start_ad_hoc_agent(context_id)
 
             registry = state.session_registry_payload()
 

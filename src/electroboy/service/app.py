@@ -881,39 +881,6 @@ class ServiceState:
                 return list(context.documentation_sessions.values())[-1]
             return None
 
-    def start_ad_hoc_agent(self, context_id: str) -> tuple[AgentSession, bool]:
-        with self.lock:
-            context = self._context_locked(context_id)
-            command_root = self._command_root_locked(context)
-            if command_root is None:
-                raise AgentSessionError("activate a project first")
-            if (
-                context.ad_hoc_session is not None
-                and context.ad_hoc_session.is_active()
-            ):
-                context.selected_session_id = context.ad_hoc_session.session_id
-                return context.ad_hoc_session, False
-            session = AgentSession(
-                command=_ad_hoc_agent_command(command_root),
-                cwd=command_root,
-                label="ad-hoc agent",
-                kind="ad-hoc",
-                interactive=True,
-            )
-            session = self._prepare_session_locked(context, session)
-            context.ad_hoc_session = session
-            context.selected_session_id = session.session_id
-        try:
-            session.start()
-        except Exception:
-            with self.lock:
-                context = self._context_locked(context_id)
-                if context.ad_hoc_session is session:
-                    context.ad_hoc_session = None
-                    context.selected_session_id = None
-            raise
-        return session, True
-
     def current_project_shell_session(
         self,
         context_id: str,
@@ -1930,33 +1897,6 @@ def workflow_payload(
 
 def _status_command(root: Path) -> list[str]:
     return _electroboy_command(root, ["status"])
-
-
-def _ad_hoc_agent_command(root: Path) -> list[str]:
-    return [
-        "codex",
-        "--cd",
-        str(root),
-        "--sandbox",
-        "workspace-write",
-        _ad_hoc_agent_prompt(),
-    ]
-
-
-def _ad_hoc_agent_prompt() -> str:
-    return "\n".join(
-        [
-            "You are an ad-hoc agent for this code base.",
-            "The active ElectroBoy workflow stage is irrelevant to this session.",
-            "Do not inspect files, read .electroboy state, run commands, or launch",
-            "another agent until the operator gives you a task.",
-            "Do not infer a task from workflow state, project artifacts, or",
-            "repository contents.",
-            "Do not run any electroboy workflow command unless the operator",
-            "explicitly asks for that exact command.",
-            "Wait for and then follow the operator's next instruction directly.",
-        ]
-    )
 
 
 def _project_shell_command() -> list[str]:

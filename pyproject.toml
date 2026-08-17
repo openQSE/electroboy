@@ -54,7 +54,7 @@ electroboy = [
   "assets/service/js/core/*.js",
 ]
 "electroboy.modules" = ["assets/*.js"]
-"electroboy.workflows.software" = ["assets/*.js"]
+"electroboy.workflows.software" = ["assets/*.js", "assets/*.css"]
 "electroboy.workflows.creative_writing" = ["assets/*.js", "assets/*.css"]
 
 [tool.black]

@@ -4,19 +4,14 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import time
 from pathlib import Path
 
 from .base import AgentInvocation, AgentResult
+from .codex_sessions import CODEX_SESSION_ID_RE
 from .generic_cli import GenericCliRuntime
 from ..config import RuntimeConfig
-
-
-CODEX_SESSION_ID_RE = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-)
 
 
 class InteractiveCliRuntime(GenericCliRuntime):

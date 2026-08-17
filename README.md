@@ -63,6 +63,13 @@ Document panes in the browser UI can export the rendered Markdown source as
 Markdown, DOCX, or PDF. The export button opens the browser save picker when
 available and falls back to a normal download otherwise.
 
+The software workflow's `Code` actions include `Start ad-hoc`. Starting an
+ad-hoc agent opens a session chooser with a new-session option, resumable Codex
+sessions previously used for the active project, and a field for an explicit
+Codex session UUID. Previous sessions are ordered from most recently updated
+to oldest. ElectroBoy only resumes a UUID whose Codex metadata identifies the
+active project as its working directory.
+
 The service reads these environment variables when command-line options are not
 provided:
 

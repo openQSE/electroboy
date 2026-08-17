@@ -13,6 +13,7 @@
   let designReviewRunning = false;
   let artifactPreviewStage = "";
   let selectedSessionId = "";
+  let adHocSessionDialog = null;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -767,10 +768,182 @@
       sendTerminalResize();
     }
 
+    function adHocSessionDate(session) {
+      const value = String(session.updated_at || session.created_at || "");
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+    }
+
+    function ensureAdHocSessionDialog() {
+      if (adHocSessionDialog) {
+        return adHocSessionDialog;
+      }
+      const dialog = document.createElement("dialog");
+      dialog.className = "ad-hoc-session-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="ad-hoc-session-form">
+          <header class="ad-hoc-session-header">
+            <div>
+              <h2>Start ad-hoc agent</h2>
+              <p>Start fresh or resume a Codex session from this project.</p>
+            </div>
+            <button
+              type="button"
+              class="ad-hoc-session-close"
+              aria-label="Close"
+            >&times;</button>
+          </header>
+          <fieldset class="ad-hoc-session-options">
+            <legend>Session</legend>
+            <div class="ad-hoc-session-list"></div>
+            <label class="ad-hoc-session-option ad-hoc-session-custom">
+              <input type="radio" name="ad-hoc-session" value="custom">
+              <span class="ad-hoc-session-option-copy">
+                <strong>Resume by UUID</strong>
+                <input
+                  class="ad-hoc-session-uuid"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                >
+              </span>
+            </label>
+          </fieldset>
+          <p class="ad-hoc-session-error" role="alert" hidden></p>
+          <footer class="ad-hoc-session-footer">
+            <button type="button" class="ad-hoc-session-cancel">Cancel</button>
+            <button type="submit" class="ad-hoc-session-submit">Start</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      adHocSessionDialog = dialog;
+      return dialog;
+    }
+
+    function adHocSessionOption(session, index) {
+      const label = document.createElement("label");
+      label.className = "ad-hoc-session-option";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "ad-hoc-session";
+      input.value = String(session.provider_session_id || "");
+      input.id = `ad-hoc-session-${index}`;
+      const copy = document.createElement("span");
+      copy.className = "ad-hoc-session-option-copy";
+      const title = document.createElement("strong");
+      title.textContent = String(session.title || "Ad-hoc session");
+      const details = document.createElement("span");
+      details.className = "ad-hoc-session-details";
+      details.textContent = `${adHocSessionDate(session)} · ${input.value}`;
+      copy.append(title, details);
+      label.append(input, copy);
+      return label;
+    }
+
+    async function chooseAdHocSession() {
+      const response = await fetch(
+        contextUrl("/api/agents/ad-hoc/sessions"),
+        { cache: "no-store" },
+      );
+      const payload = await response.json().catch(() => ({
+        error: "session history failed",
+      }));
+      if (!response.ok) {
+        throw new Error(payload.error || "session history failed");
+      }
+      const dialog = ensureAdHocSessionDialog();
+      const list = dialog.querySelector(".ad-hoc-session-list");
+      const customInput = dialog.querySelector(".ad-hoc-session-uuid");
+      const customRadio = dialog.querySelector('input[value="custom"]');
+      const error = dialog.querySelector(".ad-hoc-session-error");
+      const submit = dialog.querySelector(".ad-hoc-session-submit");
+      const newOption = document.createElement("label");
+      newOption.className = "ad-hoc-session-option";
+      newOption.innerHTML = `
+        <input type="radio" name="ad-hoc-session" value="" checked>
+        <span class="ad-hoc-session-option-copy">
+          <strong>New session</strong>
+          <span class="ad-hoc-session-details">
+            Start with a clean ad-hoc context.
+          </span>
+        </span>
+      `;
+      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      list.replaceChildren(
+        newOption,
+        ...sessions.map((session, index) => adHocSessionOption(session, index)),
+      );
+      customInput.value = "";
+      error.hidden = true;
+      submit.textContent = "Start";
+      dialog.querySelector(".ad-hoc-session-options").onchange = (event) => {
+        if (event.target.name !== "ad-hoc-session") {
+          return;
+        }
+        submit.textContent = event.target.value ? "Resume" : "Start";
+        error.hidden = true;
+      };
+      customInput.onfocus = () => {
+        customRadio.checked = true;
+        submit.textContent = "Resume";
+      };
+
+      return new Promise((resolve) => {
+        const finish = (choice) => {
+          dialog.close();
+          resolve(choice);
+        };
+        dialog.querySelector(".ad-hoc-session-close").onclick = () => {
+          finish(null);
+        };
+        dialog.querySelector(".ad-hoc-session-cancel").onclick = () => {
+          finish(null);
+        };
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(null);
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          const selected = dialog.querySelector(
+            'input[name="ad-hoc-session"]:checked',
+          );
+          let providerSessionId = selected ? selected.value : "";
+          if (providerSessionId === "custom") {
+            providerSessionId = customInput.value.trim().toLowerCase();
+            const validSessionId = (
+              /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
+            ).test(providerSessionId);
+            if (!validSessionId) {
+              error.textContent = "Enter a valid Codex session UUID.";
+              error.hidden = false;
+              return;
+            }
+          }
+          finish({ providerSessionId });
+        };
+        dialog.showModal();
+      });
+    }
+
     async function startAdHocAgent() {
       if (!activationRoot) {
         appendOutput("activate a project first\n", "error");
         return;
+      }
+      let choice = { providerSessionId: "" };
+      if (!runtimeApi.getState().adHocRunning) {
+        try {
+          choice = await chooseAdHocSession();
+        } catch (error) {
+          appendOutput(`${error.message || "session history failed"}\n`, "error");
+          return;
+        }
+        if (!choice) {
+          return;
+        }
       }
       hideStageMenus();
       closeAgentEventStream();
@@ -780,9 +953,18 @@
       clearAgentOutput();
       agentInput.disabled = false;
       agentInput.focus();
-      appendOutput("$ codex ad-hoc\n", "system");
+      appendOutput(
+        choice.providerSessionId
+          ? `$ codex resume ${choice.providerSessionId}\n`
+          : "$ codex ad-hoc\n",
+        "system",
+      );
       const response = await fetch(contextUrl("/api/agents/ad-hoc/start"), {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider_session_id: choice.providerSessionId || "",
+        }),
       });
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {

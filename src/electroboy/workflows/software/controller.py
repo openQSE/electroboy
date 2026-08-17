@@ -18,6 +18,12 @@ from electroboy.service.sessions import AgentSession, AgentSessionError
 from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError, StateStore
 
+from .ad_hoc import (
+    ad_hoc_agent_command,
+    ad_hoc_session_history,
+    remember_ad_hoc_session,
+    resumable_ad_hoc_session,
+)
 from .domain import (
     APPROVAL_WORKFLOW_STAGES,
     SESSION_ARTIFACT_LOCKS,
@@ -136,6 +142,103 @@ class SoftwareWorkflowController(BoundWorkflowController):
             "status": "created",
             "run_id": manifest.run_id,
         }
+
+    def ad_hoc_sessions(self, context_id: str) -> dict[str, object]:
+        """List resumable ad-hoc sessions for the active command root."""
+
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            command_root = self.services.contexts.command_root(context)
+            if command_root is None:
+                raise AgentSessionError("activate a project first")
+        return {
+            "project_root": str(command_root),
+            "sessions": ad_hoc_session_history(
+                self.services.files.service_root,
+                command_root,
+            ),
+        }
+
+    def start_ad_hoc_agent(
+        self,
+        context_id: str,
+        provider_session_id: str | None = None,
+    ) -> tuple[AgentSession, bool]:
+        """Start a workflow-neutral agent or resume a selected Codex UUID."""
+
+        requested_session_id = str(provider_session_id or "").strip().lower()
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            command_root = self.services.contexts.command_root(context)
+            if command_root is None:
+                raise AgentSessionError("activate a project first")
+            if (
+                context.ad_hoc_session is not None
+                and context.ad_hoc_session.is_active()
+            ):
+                context.selected_session_id = context.ad_hoc_session.session_id
+                return context.ad_hoc_session, False
+
+        provider_session = None
+        if requested_session_id:
+            provider_session = resumable_ad_hoc_session(
+                requested_session_id,
+                command_root,
+            )
+            if provider_session is None:
+                raise AgentSessionError(
+                    "Codex session was not found for the active project: "
+                    f"{requested_session_id}"
+                )
+            remember_ad_hoc_session(
+                self.services.files.service_root,
+                provider_session,
+            )
+
+        metadata: dict[str, object] = {"provider": "codex"}
+        if provider_session is not None:
+            metadata.update(
+                {
+                    "provider_session_id": provider_session.session_id,
+                    "resumed_session": True,
+                }
+            )
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            current_root = self.services.contexts.command_root(context)
+            if current_root != command_root:
+                raise AgentSessionError("active project changed while starting ad-hoc")
+            if (
+                context.ad_hoc_session is not None
+                and context.ad_hoc_session.is_active()
+            ):
+                context.selected_session_id = context.ad_hoc_session.session_id
+                return context.ad_hoc_session, False
+            session = AgentSession(
+                command=ad_hoc_agent_command(
+                    command_root,
+                    provider_session.session_id if provider_session else None,
+                ),
+                cwd=command_root,
+                label="ad-hoc agent",
+                kind="ad-hoc",
+                interactive=True,
+                metadata=metadata,
+            )
+            session = self.services.sessions.prepare(context, session)
+            context.ad_hoc_session = session
+            context.selected_session_id = session.session_id
+        try:
+            session.start()
+        except Exception:
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
+                if context.ad_hoc_session is session:
+                    context.ad_hoc_session = None
+                    if context.selected_session_id == session.session_id:
+                        context.selected_session_id = None
+            raise
+        return session, True
 
     def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
         meta_context = _existing_meta_context(path)

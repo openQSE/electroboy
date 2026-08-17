@@ -167,9 +167,6 @@ class SessionServices(Protocol):
         session_id: str = "",
     ) -> dict[str, object]: ...
 
-    def start_ad_hoc(self, context_id: str) -> tuple[AgentSession, bool]: ...
-
-
 class ProjectFileServices(Protocol):
     """Filesystem roots exposed to plugins without the service runtime."""
 
@@ -397,11 +394,6 @@ class ServiceRuntimeBackend(Protocol):
         context_id: str,
         session_id: str = "",
     ) -> dict[str, object]: ...
-
-    def start_ad_hoc_agent(
-        self,
-        context_id: str,
-    ) -> tuple[AgentSession, bool]: ...
 
     def workflow_controller(self, workflow_id: str) -> object: ...
 
@@ -643,10 +635,6 @@ class RuntimeSessionServices:
         session_id: str = "",
     ) -> dict[str, object]:
         return self.runtime.stop_project_shell(context_id, session_id)
-
-    def start_ad_hoc(self, context_id: str) -> tuple[AgentSession, bool]:
-        return self.runtime.start_ad_hoc_agent(context_id)
-
 
 @dataclass(frozen=True)
 class RuntimeProjectFileServices:

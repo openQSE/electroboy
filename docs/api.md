@@ -166,6 +166,15 @@ input, ending with a carriage-return Enter key. Multiline composer content is
 sent through bracketed paste before the submit Enter. The interrupt endpoint
 sends an Escape key to the PTY, matching Codex's interactive interrupt control.
 
+The software workflow exposes project-scoped ad-hoc session history through
+`GET /api/agents/ad-hoc/sessions?context_id=<id>`. The response lists resumable
+provider sessions from most recently updated to oldest. `POST
+/api/agents/ad-hoc/start?context_id=<id>` starts a new session when its JSON
+body omits `provider_session_id`, or resumes the specified Codex UUID when the
+body contains `{"provider_session_id": "<uuid>"}`. Resume requests are rejected
+when the provider session is missing or its recorded working directory differs
+from the active project command root.
+
 `feature start` records feature metadata in the current run's `feature.json`.
 When `--name` is omitted in an interactive shell, ElectroBoy prompts for the
 feature artifact name. In non-interactive use, it derives a slug from the title

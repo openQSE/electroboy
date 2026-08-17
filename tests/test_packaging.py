@@ -70,6 +70,9 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
         ROOT / "src/electroboy/workflows/software/assets/frontend.js"
     ).is_file()
     assert (
+        ROOT / "src/electroboy/workflows/software/assets/software.css"
+    ).is_file()
+    assert (
         ROOT / "src/electroboy/workflows/creative_writing/assets/frontend.js"
     ).is_file()
     assert (
@@ -89,6 +92,10 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
         ROOT / "packages/electroboy-workflow-creative-writing/pyproject.toml"
     ).read_text(encoding="utf-8")
     assert '"assets/*.css"' in creative_manifest
+    software_manifest = (
+        ROOT / "packages/electroboy-workflow-software/pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert '"assets/*.css"' in software_manifest
 
 
 def test_workflow_controllers_do_not_import_service_app() -> None:

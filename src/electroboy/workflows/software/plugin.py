@@ -97,6 +97,7 @@ def workflow() -> WorkflowDefinition:
         project_kinds=("project", "meta-project"),
         backend_package="electroboy.workflows.software",
         frontend_bundle="workflows/software.js",
+        frontend_stylesheets=("css/workflows/software.css",),
         asset_package="electroboy.workflows.software",
         controller_factory=SoftwareWorkflowController,
         stage_operations_factory=_stage_operations,

@@ -216,11 +216,27 @@ def _agent_started(
 
 
 def _ad_hoc_start(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        provider_session_id = str(
+            payload.get("provider_session_id") or ""
+        ).strip()
+    except Exception as error:
+        return _error(error)
     return _agent_started(
         request,
-        lambda: request.services.sessions.start_ad_hoc(request.context_id),
+        lambda: _controller(request).start_ad_hoc_agent(
+            request.context_id,
+            provider_session_id or None,
+        ),
         "ad-hoc agent",
         include_session_id=True,
+    )
+
+
+def _ad_hoc_sessions(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).ad_hoc_sessions(request.context_id)
     )
 
 
@@ -588,6 +604,7 @@ ROUTES = (
     _route("POST", "/api/work-items/features/switch", "switch_feature"),
     _route("POST", "/api/work-items/bugs", "start_bug"),
     _route("POST", "/api/work-items/bugs/switch", "switch_bug"),
+    _route("GET", "/api/agents/ad-hoc/sessions", "ad_hoc_sessions"),
     _route("POST", "/api/agents/ad-hoc/start", "ad_hoc_start"),
     _route("POST", "/api/agents/requirements/start", "requirements_start"),
     _route("POST", "/api/agents/requirements/restart", "requirements_restart"),
@@ -654,6 +671,7 @@ HANDLERS: dict[str, RouteHandler] = {
     "switch_feature": _switch_feature,
     "start_bug": _start_bug,
     "switch_bug": _switch_bug,
+    "ad_hoc_sessions": _ad_hoc_sessions,
     "ad_hoc_start": _ad_hoc_start,
     "requirements_start": _requirements_start,
     "requirements_restart": _requirements_restart,
