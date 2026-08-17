@@ -1850,6 +1850,9 @@
     }
 
     function restorePoppedPane() {
+      if (EMBEDDED_PANE) {
+        return;
+      }
       if (PANE_KIND === "shell" && disposableShell) {
         window.close();
         return;
@@ -1935,7 +1938,6 @@
 
     function initializeDirectPane() {
       dockPane.hidden = true;
-      dockPane.addEventListener("click", restorePoppedPane);
     decreaseArtifactZoom.addEventListener(
       "click",
       () => changeArtifactZoom(-ARTIFACT_ZOOM_STEP),
@@ -1962,6 +1964,19 @@
     resetPaneFont.addEventListener("click", resetFontSize);
     increasePaneFont.addEventListener("click", () => changeFontSize(1));
     window.addEventListener("storage", (event) => {
+      if (PANE_KIND === "scratch" && event.key === scratchPadStorageKey()) {
+        const selectionStart = scratchPad.selectionStart;
+        const selectionEnd = scratchPad.selectionEnd;
+        scratchPad.value = event.newValue || "";
+        if (document.activeElement === scratchPad) {
+          const length = scratchPad.value.length;
+          scratchPad.setSelectionRange(
+            Math.min(selectionStart, length),
+            Math.min(selectionEnd, length),
+          );
+        }
+        return;
+      }
       if (event.key === TERMINAL_FONT_STORAGE_KEY) {
         const nextBase = Number(event.newValue || "");
         if (Number.isFinite(nextBase) && nextBase > 0) {

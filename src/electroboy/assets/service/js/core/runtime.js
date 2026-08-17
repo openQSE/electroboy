@@ -2890,10 +2890,11 @@
         return;
       }
       const entry = poppedPaneWindows.get(data.pane);
-      if (entry) {
-        window.clearInterval(entry.poll);
-        poppedPaneWindows.delete(data.pane);
+      if (!entry || event.source !== entry.popup) {
+        return;
       }
+      window.clearInterval(entry.poll);
+      poppedPaneWindows.delete(data.pane);
       setPanePoppedOut(data.pane, false);
     });
 
@@ -4644,6 +4645,19 @@
       });
     });
     window.addEventListener("storage", (event) => {
+      if (event.key === scratchPadStorageKey()) {
+        const selectionStart = scratchPad.selectionStart;
+        const selectionEnd = scratchPad.selectionEnd;
+        scratchPad.value = event.newValue || "";
+        if (document.activeElement === scratchPad) {
+          const length = scratchPad.value.length;
+          scratchPad.setSelectionRange(
+            Math.min(selectionStart, length),
+            Math.min(selectionEnd, length),
+          );
+        }
+        return;
+      }
       if (!event.key || !event.key.startsWith(PANE_FONT_OFFSET_STORAGE_PREFIX)) {
         return;
       }

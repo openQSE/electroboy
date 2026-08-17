@@ -469,6 +469,9 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("async function startGenericStageAgent(", app)
         self.assertNotIn("const SOFTWARE_WORKFLOW_MODE", app)
         self.assertNotIn("const CREATIVE_WORKFLOW_MODE", app)
+        self.assertIn("event.source !== entry.popup", app)
+        self.assertIn("event.key === scratchPadStorageKey()", app)
+        self.assertIn('scratchPad.value = event.newValue || "";', app)
 
     def test_workflow_payload_exposes_plugin_contract_metadata(self) -> None:
         modules = build_module_registry()
@@ -916,9 +919,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('function startCornerSplit(', workspace)
         self.assertIn('function startResize(', workspace)
         self.assertIn('function moveLeaf(', workspace)
+        self.assertIn('item.kind = kind;', workspace)
         self.assertIn('const paneFrames = new Map();', workspace)
         self.assertIn('const existing = { ...item };', workspace)
         self.assertIn('canDetach: false', workspace)
+        self.assertIn('if (EMBEDDED_PANE) {\n        return;\n      }', page)
+        self.assertNotIn(
+            'dockPane.addEventListener("click", restorePoppedPane);',
+            page,
+        )
 
     def test_pane_window_html_includes_reconnect_streams(self) -> None:
         page = pane_window_html("artifact")
@@ -1028,6 +1037,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.getItem(storageKey)", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.setItem(activeStorageKey", PANE_WINDOW_HTML)
+        self.assertIn(
+            'PANE_KIND === "scratch" && event.key === scratchPadStorageKey()',
+            PANE_WINDOW_HTML,
+        )
         self.assertIn(
             '<textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden>',
             PANE_WINDOW_HTML,
