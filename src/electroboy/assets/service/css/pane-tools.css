@@ -1,7 +1,8 @@
 .pane-tools-toggle {
   position: absolute;
   z-index: 20;
-  top: 10px;
+  /* Clear the pane toolbar and its right-aligned actions (such as Pop). */
+  top: 44px;
   right: 0;
   min-width: 24px;
   height: 68px;
@@ -12,9 +13,9 @@
   color: #c9d5e8;
   cursor: pointer;
   font: inherit;
-  font-size: var(--ui-small-font-size);
-  font-weight: 750;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   writing-mode: vertical-rl;
 }
