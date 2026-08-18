@@ -346,6 +346,10 @@ class ServiceTests(unittest.TestCase):
             "corkboard-auto-organize",
             modules["corkboard"]["capabilities"],
         )
+        self.assertIn(
+            "corkboard-board-selector",
+            modules["corkboard"]["capabilities"],
+        )
         core_handlers = {route["handler"] for route in modules["core"]["routes"]}
         self.assertIn("workflow_config", core_handlers)
         self.assertIn("add_configured_workflow", core_handlers)
@@ -3038,11 +3042,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"--card-height"', page)
         self.assertIn("const CARD_ASPECT_RATIO", page)
         self.assertIn('id="layoutSelect"', page)
+        self.assertIn('id="boardSelect"', page)
         self.assertIn('id="autoOrganize"', page)
         self.assertIn('id="undoOrganize"', page)
         self.assertIn("function selectLayoutMode(nextMode)", page)
         self.assertIn("function organizeFreeformCards", page)
         self.assertIn("function captureGridPositions", page)
+        self.assertIn("async function configureBoardSelector", page)
+        self.assertIn('type: "electroboy-corkboard-selected"', page)
 
     def test_generic_corkboard_routes_use_active_creative_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

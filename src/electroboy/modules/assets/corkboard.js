@@ -48,6 +48,7 @@
       "freeform-corkboard",
       "selectable-corkboard-layout",
       "corkboard-auto-organize",
+      "corkboard-board-selector",
     ],
     actions: { show },
   });

@@ -1027,6 +1027,10 @@ def render_corkboard_html(
                {"readonly" if payload["board_type"] != "freeform" else ""}>
       </div>
       <div class="toolbar-actions">
+        <label id="boardControl" class="layout-control" hidden>
+          <span>Board</span>
+          <select id="boardSelect" class="layout-select" aria-label="Corkboard"></select>
+        </label>
         <label id="layoutControl" class="layout-control" hidden>
           <span>Layout</span>
           <select id="layoutSelect" class="layout-select" aria-label="Corkboard layout"></select>
@@ -1090,6 +1094,8 @@ def render_corkboard_html(
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
     const boardTitle = document.getElementById("boardTitle");
+    const boardControl = document.getElementById("boardControl");
+    const boardSelect = document.getElementById("boardSelect");
     const layoutControl = document.getElementById("layoutControl");
     const layoutSelect = document.getElementById("layoutSelect");
     const autoOrganize = document.getElementById("autoOrganize");
@@ -1190,6 +1196,72 @@ def render_corkboard_html(
         return CORKBOARD_DATA.folder.path;
       }}
       return "default";
+    }}
+
+    async function configureBoardSelector() {{
+      if (!CORKBOARD_DATA.context_id) {{
+        return;
+      }}
+      const parameters = new URLSearchParams();
+      if (CORKBOARD_DATA.provider) {{
+        parameters.set("provider", CORKBOARD_DATA.provider);
+      }}
+      const response = await fetch(
+        contextUrl(`/api/corkboards?${{parameters.toString()}}`),
+      ).catch(() => null);
+      if (!response || !response.ok) {{
+        return;
+      }}
+      const payload = await response.json().catch(() => null);
+      const boards = payload && Array.isArray(payload.boards)
+        ? payload.boards
+        : [];
+      if (!boards.length) {{
+        return;
+      }}
+      boardSelect.replaceChildren();
+      let matchedCurrent = false;
+      for (const entry of boards) {{
+        const boardId = String(entry.board_id || entry.id || "").trim();
+        if (!boardId) {{
+          continue;
+        }}
+        const option = document.createElement("option");
+        option.value = boardId;
+        option.textContent = String(entry.title || entry.label || boardId);
+        option.selected = boardId === boardStoragePath();
+        matchedCurrent = matchedCurrent || option.selected;
+        boardSelect.append(option);
+      }}
+      if (!boardSelect.options.length) {{
+        return;
+      }}
+      if (!matchedCurrent) {{
+        const current = document.createElement("option");
+        current.value = boardStoragePath();
+        current.textContent = CORKBOARD_DATA.title || boardStoragePath();
+        current.selected = true;
+        boardSelect.prepend(current);
+      }}
+      boardControl.hidden = false;
+    }}
+
+    function selectBoard(boardId) {{
+      const option = boardSelect.selectedOptions[0];
+      const title = option ? option.textContent : boardId;
+      window.parent.postMessage(
+        {{
+          type: "electroboy-corkboard-selected",
+          provider: CORKBOARD_DATA.provider || "",
+          board_id: boardId,
+          title,
+        }},
+        "*",
+      );
+      const url = new URL(window.location.href);
+      url.searchParams.set("board_id", boardId);
+      url.searchParams.set("title", title);
+      window.location.assign(url);
     }}
 
     function cardScaleStorageKey() {{
@@ -2452,6 +2524,7 @@ def render_corkboard_html(
     }}
 
     addCard.addEventListener("click", makeFreeformCard);
+    boardSelect.addEventListener("change", () => selectBoard(boardSelect.value));
     layoutSelect.addEventListener("change", () =>
       selectLayoutMode(layoutSelect.value),
     );
@@ -2518,6 +2591,7 @@ def render_corkboard_html(
       }}
     }});
     window.addEventListener("resize", sizeBoard);
+    configureBoardSelector();
     configureLayoutControls();
     if (boardType === "freeform" && layoutMode === "grid") {{
       replaceCardOrder(cardsInPositionOrder());

@@ -158,6 +158,7 @@ def module() -> ServiceModule:
                 "freeform-corkboard",
                 "selectable-corkboard-layout",
                 "corkboard-auto-organize",
+                "corkboard-board-selector",
             }
         ),
         state_namespace="corkboard",
