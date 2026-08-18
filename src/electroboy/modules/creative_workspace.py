@@ -959,18 +959,14 @@ def render_corkboard_html(
       bottom: 12px;
       z-index: 1100;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      align-items: start;
-      gap: 12px;
-      width: min(660px, calc(100vw - 24px));
-      max-height: calc(100vh - 24px);
-      overflow: auto;
+      gap: 10px;
+      width: 220px;
       border: 1px solid rgba(255, 249, 232, 0.34);
       border-radius: 8px;
       background: rgba(15, 20, 32, 0.86);
       color: #d8e3f4;
       box-shadow: 0 10px 24px rgba(15, 20, 32, 0.26);
-      padding: 7px 9px;
+      padding: 8px 10px;
     }}
 
     .card-size-control,
@@ -985,8 +981,9 @@ def render_corkboard_html(
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      font-size: 10px;
-      font-weight: 400;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
     }}
 
     .card-size-control input,

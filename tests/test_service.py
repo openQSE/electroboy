@@ -2594,13 +2594,6 @@ class ServiceTests(unittest.TestCase):
             self.assertIn('id="boardZoomSlider"', page)
             self.assertIn('aria-label="Zoom corkboard out"', page)
             self.assertIn('aria-label="Zoom corkboard in"', page)
-            self.assertIn(
-                "repeat(auto-fit, minmax(150px, 1fr))",
-                page,
-            )
-            self.assertIn("width: min(660px, calc(100vw - 24px));", page)
-            self.assertIn("font-size: 10px;", page)
-            self.assertIn("font-weight: 400;", page)
             self.assertIn("function updateBoardZoom", page)
             self.assertIn("function handleBoardWheel(event)", page)
             self.assertIn(
