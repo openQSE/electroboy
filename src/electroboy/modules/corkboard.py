@@ -152,7 +152,13 @@ def module() -> ServiceModule:
         assets=("js/modules/corkboard.js",),
         asset_package="electroboy.modules",
         capabilities=frozenset(
-            {"corkboard-provider", "folder-corkboard", "freeform-corkboard"}
+            {
+                "corkboard-provider",
+                "folder-corkboard",
+                "freeform-corkboard",
+                "selectable-corkboard-layout",
+                "corkboard-auto-organize",
+            }
         ),
         state_namespace="corkboard",
     )

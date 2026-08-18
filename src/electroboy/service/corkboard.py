@@ -75,6 +75,28 @@ def normalize_board_snapshot(
     capabilities = payload.get("capabilities")
     if not isinstance(capabilities, list):
         capabilities = []
+    requested_layout_modes = payload.get("layout_modes")
+    if requested_layout_modes is None:
+        layout_modes = ["grid"] if board_type == "folder" else ["freeform"]
+    elif not isinstance(requested_layout_modes, list):
+        raise StateError("corkboard layout modes must be a list")
+    else:
+        layout_modes = []
+        for requested_mode in requested_layout_modes:
+            mode = str(requested_mode).strip().lower()
+            if mode not in {"grid", "freeform"}:
+                raise StateError(f"unknown corkboard layout mode: {mode or 'missing'}")
+            if mode not in layout_modes:
+                layout_modes.append(mode)
+        if not layout_modes:
+            raise StateError("corkboard layout modes cannot be empty")
+    if board_type == "folder" and layout_modes != ["grid"]:
+        raise StateError("folder corkboards support only grid layout")
+    default_layout_mode = str(
+        payload.get("default_layout_mode") or layout_modes[0]
+    ).strip().lower()
+    if default_layout_mode not in layout_modes:
+        raise StateError("default corkboard layout mode is not supported")
     normalized_ratio: float | None = None
     requested_ratio = payload.get("card_aspect_ratio")
     if requested_ratio is not None:
@@ -91,6 +113,8 @@ def normalize_board_snapshot(
         "board_id": board_id,
         "title": title,
         "board_type": board_type,
+        "layout_modes": layout_modes,
+        "default_layout_mode": default_layout_mode,
         "cards": normalized_cards,
         "capabilities": [str(item) for item in capabilities],
         **(

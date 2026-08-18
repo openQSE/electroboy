@@ -449,6 +449,40 @@ def render_corkboard_html(
       background: rgba(255, 249, 232, 0.10);
     }}
 
+    .toolbar-actions {{
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }}
+
+    .layout-control {{
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #fff9e8;
+      font-size: 12px;
+      font-weight: 800;
+    }}
+
+    .layout-control[hidden] {{
+      display: none;
+    }}
+
+    .layout-select {{
+      min-height: 32px;
+      border: 1px solid rgba(255, 249, 232, 0.42);
+      border-radius: 999px;
+      background: rgba(52, 34, 22, 0.66);
+      color: #fff9e8;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 0 28px 0 12px;
+    }}
+
     .toolbar-button {{
       min-height: 32px;
       border: 1px solid rgba(255, 249, 232, 0.42);
@@ -490,7 +524,8 @@ def render_corkboard_html(
       touch-action: none;
     }}
 
-    .board.folder {{
+    .board.folder,
+    .board.grid {{
       position: relative;
       display: grid;
       grid-template-columns: repeat(auto-fill, var(--card-width, 218px));
@@ -576,12 +611,20 @@ def render_corkboard_html(
         0 2px 0 rgba(255, 255, 255, 0.55) inset;
     }}
 
-    .board.folder .index-card {{
+    .board.folder .index-card,
+    .board.grid .index-card {{
       position: relative;
       width: auto;
+      left: auto !important;
+      top: auto !important;
     }}
 
-    .board.folder .index-card.dragging {{
+    .board.grid .index-card {{
+      transform: none;
+    }}
+
+    .board.folder .index-card.dragging,
+    .board.grid .index-card.dragging {{
       opacity: 0.42;
     }}
 
@@ -612,7 +655,8 @@ def render_corkboard_html(
       width: var(--card-width, 218px);
     }}
 
-    body.fixed-card-ratio .board.freeform .index-card {{
+    body.fixed-card-ratio .board.freeform .index-card,
+    body.fixed-card-ratio .board.grid .index-card {{
       height: var(--card-height, 291px);
       min-height: var(--card-height, 291px);
       overflow: auto;
@@ -982,7 +1026,19 @@ def render_corkboard_html(
                title="Edit corkboard title"
                {"readonly" if payload["board_type"] != "freeform" else ""}>
       </div>
-      <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
+      <div class="toolbar-actions">
+        <label id="layoutControl" class="layout-control" hidden>
+          <span>Layout</span>
+          <select id="layoutSelect" class="layout-select" aria-label="Corkboard layout"></select>
+        </label>
+        <button id="autoOrganize" class="toolbar-button" type="button" hidden>
+          Auto-organize
+        </button>
+        <button id="undoOrganize" class="toolbar-button" type="button" hidden>
+          Undo organize
+        </button>
+        <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
+      </div>
     </header>
     <section id="canvasViewport" class="canvas-viewport">
       <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
@@ -1034,6 +1090,10 @@ def render_corkboard_html(
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
     const boardTitle = document.getElementById("boardTitle");
+    const layoutControl = document.getElementById("layoutControl");
+    const layoutSelect = document.getElementById("layoutSelect");
+    const autoOrganize = document.getElementById("autoOrganize");
+    const undoOrganize = document.getElementById("undoOrganize");
     const addCard = document.getElementById("addCard");
     const boardZoomSlider = document.getElementById("boardZoomSlider");
     const boardZoomValue = document.getElementById("boardZoomValue");
@@ -1064,6 +1124,7 @@ def render_corkboard_html(
     const CARD_SCALE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardScale.`;
     const BOARD_ZOOM_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.boardZoom.`;
     const CANVAS_PAN_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.canvasPan.`;
+    const LAYOUT_MODE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.layoutMode.`;
     const MIN_BOARD_ZOOM = 1;
     const MAX_BOARD_ZOOM = 10000;
     const BOARD_ZOOM_FACTOR = 1.1;
@@ -1079,6 +1140,16 @@ def render_corkboard_html(
       && requestedCardAspectRatio <= 4
       ? requestedCardAspectRatio
       : 0;
+    const AVAILABLE_LAYOUT_MODES = Array.isArray(CORKBOARD_DATA.layout_modes)
+      ? CORKBOARD_DATA.layout_modes.filter((mode) =>
+          mode === "grid" || mode === "freeform",
+        )
+      : [boardType === "folder" ? "grid" : "freeform"];
+    const DEFAULT_LAYOUT_MODE = AVAILABLE_LAYOUT_MODES.includes(
+      CORKBOARD_DATA.default_layout_mode,
+    )
+      ? CORKBOARD_DATA.default_layout_mode
+      : AVAILABLE_LAYOUT_MODES[0];
     let dragState = null;
     let canvasPanState = null;
     let draggedPath = "";
@@ -1088,13 +1159,11 @@ def render_corkboard_html(
     let boardZoom = storedBoardZoom();
     let cardScale = storedCardScale();
     let canvasPan = storedCanvasPan();
+    let layoutMode = storedLayoutMode();
+    let organizeUndo = null;
     let selectedCardKey = "";
 
-    document.body.classList.toggle("freeform-canvas", boardType === "freeform");
-    document.body.classList.toggle(
-      "fixed-card-ratio",
-      boardType === "freeform" && CARD_ASPECT_RATIO > 0,
-    );
+    document.body.classList.toggle("fixed-card-ratio", CARD_ASPECT_RATIO > 0);
     boardTitle.readOnly = boardType !== "freeform" || !supports("rename-board");
 
     function supports(capability) {{
@@ -1133,6 +1202,38 @@ def render_corkboard_html(
 
     function canvasPanStorageKey() {{
       return `${{CANVAS_PAN_STORAGE_PREFIX}}${{boardStoragePath()}}`;
+    }}
+
+    function layoutModeStorageKey() {{
+      return `${{LAYOUT_MODE_STORAGE_PREFIX}}${{boardStoragePath()}}`;
+    }}
+
+    function storedLayoutMode() {{
+      try {{
+        const stored = window.localStorage.getItem(layoutModeStorageKey());
+        if (AVAILABLE_LAYOUT_MODES.includes(stored)) {{
+          return stored;
+        }}
+      }} catch (error) {{
+        return DEFAULT_LAYOUT_MODE;
+      }}
+      return DEFAULT_LAYOUT_MODE;
+    }}
+
+    function saveLayoutMode() {{
+      try {{
+        window.localStorage.setItem(layoutModeStorageKey(), layoutMode);
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function usesFreeformLayout() {{
+      return boardType === "freeform" && layoutMode === "freeform";
+    }}
+
+    function usesGridLayout() {{
+      return boardType === "folder" || layoutMode === "grid";
     }}
 
     async function saveBoardTitle() {{
@@ -1276,7 +1377,7 @@ def render_corkboard_html(
       const scale = boardZoomFactor();
       if (SUPPORTS_LAYOUT_ZOOM) {{
         board.style.zoom = String(scale);
-        if (boardType === "freeform") {{
+        if (usesFreeformLayout()) {{
           board.style.width = "";
           board.style.transform = canvasPan.x === 0 && canvasPan.y === 0
             ? "none"
@@ -1288,7 +1389,7 @@ def render_corkboard_html(
         return;
       }}
       board.style.zoom = "";
-      if (boardType === "freeform") {{
+      if (usesFreeformLayout()) {{
         board.style.width = "";
         board.style.transform = `translate(${{canvasPan.x}}px, ${{canvasPan.y}}px) scale(${{scale}})`;
         return;
@@ -1313,7 +1414,7 @@ def render_corkboard_html(
         return;
       }}
       if (
-        boardType === "freeform"
+        usesFreeformLayout()
         && Number.isFinite(clientX)
         && Number.isFinite(clientY)
       ) {{
@@ -1413,6 +1514,13 @@ def render_corkboard_html(
 
     function cardKey(card) {{
       return String(card.id || card.path || "");
+    }}
+
+    function cardElementFor(card) {{
+      const key = cardKey(card);
+      return Array.from(board.querySelectorAll(".index-card")).find(
+        (element) => element.dataset.key === key,
+      ) || null;
     }}
 
     function cardKind(card) {{
@@ -1527,12 +1635,168 @@ def render_corkboard_html(
       cardElement.style.setProperty("--paper", cardColor(card));
     }}
 
+    function cardsInPositionOrder() {{
+      return cards
+        .map((card, index) => ({{ card, index }}))
+        .sort((left, right) => {{
+          const yDifference = (Number(left.card.y) || 0) - (Number(right.card.y) || 0);
+          if (Math.abs(yDifference) > 1) {{
+            return yDifference;
+          }}
+          const xDifference = (Number(left.card.x) || 0) - (Number(right.card.x) || 0);
+          return Math.abs(xDifference) > 1 ? xDifference : left.index - right.index;
+        }})
+        .map((entry) => entry.card);
+    }}
+
+    function replaceCardOrder(nextCards) {{
+      cards.splice(0, cards.length, ...nextCards);
+    }}
+
+    async function persistCardPositions(changedCards = cards) {{
+      if (!CORKBOARD_DATA.context_id || !supports("move-card")) {{
+        return;
+      }}
+      await Promise.all(changedCards.map((card) => persistCard(card)));
+    }}
+
+    function updateLayoutControls() {{
+      document.body.classList.toggle("freeform-canvas", usesFreeformLayout());
+      layoutControl.hidden = AVAILABLE_LAYOUT_MODES.length < 2;
+      layoutSelect.value = layoutMode;
+      autoOrganize.hidden = !usesFreeformLayout() || !supports("move-card");
+      undoOrganize.hidden = !organizeUndo || !usesFreeformLayout();
+    }}
+
+    function configureLayoutControls() {{
+      layoutSelect.replaceChildren();
+      for (const mode of AVAILABLE_LAYOUT_MODES) {{
+        const option = document.createElement("option");
+        option.value = mode;
+        option.textContent = mode === "grid" ? "Grid" : "Freeform";
+        layoutSelect.append(option);
+      }}
+      updateLayoutControls();
+    }}
+
+    async function organizeFreeformCards({{ recordUndo = true }} = {{}}) {{
+      if (boardType !== "freeform" || cards.length === 0) {{
+        return;
+      }}
+      if (recordUndo) {{
+        organizeUndo = {{
+          order: cards.map((card) => cardKey(card)),
+          positions: new Map(
+            cards.map((card) => [
+              cardKey(card),
+              {{ x: Number(card.x) || 0, y: Number(card.y) || 0 }},
+            ]),
+          ),
+        }};
+      }} else {{
+        organizeUndo = null;
+      }}
+      const ordered = cardsInPositionOrder();
+      replaceCardOrder(ordered);
+      const viewportWidth = Math.max(
+        scaledCardValue(218) + 52,
+        canvasViewport.clientWidth / boardZoomFactor(),
+      );
+      const padding = 26;
+      const gap = Math.max(14, scaledCardValue(24));
+      let x = padding;
+      let y = padding;
+      let rowHeight = 0;
+      for (const card of cards) {{
+        const cardElement = cardElementFor(card);
+        const width = cardElement ? cardElement.offsetWidth : scaledCardValue(218);
+        const height = cardElement
+          ? cardElement.offsetHeight
+          : CARD_ASPECT_RATIO > 0
+            ? Math.round(width / CARD_ASPECT_RATIO)
+            : scaledCardValue(158);
+        if (x > padding && x + width > viewportWidth - padding) {{
+          x = padding;
+          y += rowHeight + gap;
+          rowHeight = 0;
+        }}
+        card.x = x;
+        card.y = y;
+        if (cardElement) {{
+          applyCardPosition(cardElement, card);
+        }}
+        x += width + gap;
+        rowHeight = Math.max(rowHeight, height);
+      }}
+      updateLayoutControls();
+      await persistCardPositions();
+    }}
+
+    async function restoreOrganizedCards() {{
+      if (!organizeUndo) {{
+        return;
+      }}
+      const snapshot = organizeUndo;
+      organizeUndo = null;
+      const byKey = new Map(cards.map((card) => [cardKey(card), card]));
+      const restoredKeys = new Set(snapshot.order);
+      replaceCardOrder(
+        [
+          ...snapshot.order.map((key) => byKey.get(key)).filter(Boolean),
+          ...cards.filter((card) => !restoredKeys.has(cardKey(card))),
+        ],
+      );
+      for (const card of cards) {{
+        const position = snapshot.positions.get(cardKey(card));
+        if (position) {{
+          card.x = position.x;
+          card.y = position.y;
+        }}
+      }}
+      renderCards();
+      await persistCardPositions();
+    }}
+
+    async function captureGridPositions() {{
+      if (boardType !== "freeform" || layoutMode !== "grid") {{
+        return;
+      }}
+      for (const card of cards) {{
+        const cardElement = cardElementFor(card);
+        if (cardElement) {{
+          card.x = cardElement.offsetLeft;
+          card.y = cardElement.offsetTop;
+        }}
+      }}
+      await persistCardPositions();
+    }}
+
+    async function selectLayoutMode(nextMode) {{
+      if (!AVAILABLE_LAYOUT_MODES.includes(nextMode) || nextMode === layoutMode) {{
+        layoutSelect.value = layoutMode;
+        return;
+      }}
+      layoutSelect.disabled = true;
+      if (layoutMode === "freeform" && nextMode === "grid") {{
+        await organizeFreeformCards({{ recordUndo: false }});
+      }} else if (layoutMode === "grid" && nextMode === "freeform") {{
+        await captureGridPositions();
+        canvasPan = {{ x: 0, y: 0 }};
+        saveCanvasPan();
+      }}
+      layoutMode = nextMode;
+      saveLayoutMode();
+      canvasPanState = null;
+      renderCards();
+      layoutSelect.disabled = false;
+    }}
+
     function sizeBoard() {{
       applyCanvasPan();
     }}
 
     function startCanvasPan(event) {{
-      if (boardType !== "freeform" || event.button !== 1) {{
+      if (!usesFreeformLayout() || event.button !== 1) {{
         return;
       }}
       event.preventDefault();
@@ -1805,6 +2069,8 @@ def render_corkboard_html(
       if (!card) {{
         return;
       }}
+      organizeUndo = null;
+      updateLayoutControls();
       dragState = {{
         card,
         cardElement,
@@ -1855,11 +2121,14 @@ def render_corkboard_html(
     }}
 
     function startFolderDrag(event, card, cardElement) {{
-      if (!supports("reorder-card")) {{
+      const canReorder = boardType === "folder"
+        ? supports("reorder-card")
+        : layoutMode === "grid" && supports("move-card");
+      if (!canReorder) {{
         event.preventDefault();
         return;
       }}
-      draggedPath = card.path || "";
+      draggedPath = cardKey(card);
       cardElement.classList.add("dragging");
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", draggedPath);
@@ -1896,7 +2165,7 @@ def render_corkboard_html(
     }}
 
     function showFolderInsertionMarker(event, card, cardElement) {{
-      if (!draggedPath || draggedPath === card.path) {{
+      if (!draggedPath || draggedPath === cardKey(card)) {{
         clearFolderInsertionMarker();
         return;
       }}
@@ -1912,19 +2181,19 @@ def render_corkboard_html(
       marker.style.top = `${{Math.max(0, (cardRect.top - boardRect.top) / scale)}}px`;
       marker.style.height = `${{Math.max(64, cardRect.height / scale)}}px`;
       marker.hidden = false;
-      folderDropTarget = card.path || "";
+      folderDropTarget = cardKey(card);
       folderDropPlacement = placement;
     }}
 
     function dropFolderCard(event, targetCard, cardElement) {{
       event.preventDefault();
       const sourcePath = draggedPath || event.dataTransfer.getData("text/plain");
-      if (!sourcePath || sourcePath === targetCard.path) {{
+      if (!sourcePath || sourcePath === cardKey(targetCard)) {{
         clearFolderInsertionMarker();
         return;
       }}
-      const sourceIndex = cards.findIndex((card) => card.path === sourcePath);
-      const targetPath = folderDropTarget || targetCard.path;
+      const sourceIndex = cards.findIndex((card) => cardKey(card) === sourcePath);
+      const targetPath = folderDropTarget || cardKey(targetCard);
       const placement = folderDropTarget
         ? folderDropPlacement
         : folderInsertionPlacement(event, cardElement);
@@ -1933,7 +2202,7 @@ def render_corkboard_html(
         return;
       }}
       const [moved] = cards.splice(sourceIndex, 1);
-      const targetIndex = cards.findIndex((card) => card.path === targetPath);
+      const targetIndex = cards.findIndex((card) => cardKey(card) === targetPath);
       if (targetIndex < 0) {{
         cards.splice(sourceIndex, 0, moved);
         clearFolderInsertionMarker();
@@ -1943,7 +2212,11 @@ def render_corkboard_html(
       cards.splice(insertIndex, 0, moved);
       clearFolderInsertionMarker();
       renderCards();
-      saveOrder();
+      if (boardType === "folder") {{
+        saveOrder();
+      }} else {{
+        window.requestAnimationFrame(captureGridPositions);
+      }}
     }}
 
     function makeFreeformCard() {{
@@ -2004,11 +2277,13 @@ def render_corkboard_html(
       board.replaceChildren();
       folderInsertionMarker = null;
       clearFolderInsertionMarker();
-      board.className = `board ${{boardType}}`;
-      boardEyebrow.textContent = boardType === "freeform"
-        ? "Freeform corkboard"
-        : "Folder board";
+      const renderedLayout = boardType === "folder" ? "folder" : layoutMode;
+      board.className = `board ${{renderedLayout}}`;
+      boardEyebrow.textContent = boardType === "folder"
+        ? "Folder board"
+        : layoutMode === "grid" ? "Grid corkboard" : "Freeform corkboard";
       addCard.hidden = boardType !== "freeform" || !supports("create-card");
+      updateLayoutControls();
       if (cards.length === 0) {{
         const empty = document.createElement("section");
         empty.className = "empty-board";
@@ -2036,7 +2311,7 @@ def render_corkboard_html(
           {{ capture: true }},
         );
         cardElement.addEventListener("focusin", () => selectCard(card, cardElement));
-        if (boardType === "freeform") {{
+        if (usesFreeformLayout()) {{
           applyCardPosition(cardElement, card);
           cardElement.addEventListener("pointerdown", startDrag);
           cardElement.addEventListener("pointermove", updateDrag);
@@ -2044,7 +2319,9 @@ def render_corkboard_html(
           cardElement.addEventListener("pointercancel", finishDrag);
         }} else {{
           ensureFolderInsertionMarker();
-          cardElement.draggable = supports("reorder-card");
+          cardElement.draggable = boardType === "folder"
+            ? supports("reorder-card")
+            : supports("move-card");
           cardElement.addEventListener("dragstart", (event) =>
             startFolderDrag(event, card, cardElement),
           );
@@ -2175,6 +2452,20 @@ def render_corkboard_html(
     }}
 
     addCard.addEventListener("click", makeFreeformCard);
+    layoutSelect.addEventListener("change", () =>
+      selectLayoutMode(layoutSelect.value),
+    );
+    autoOrganize.addEventListener("click", async () => {{
+      autoOrganize.disabled = true;
+      await organizeFreeformCards();
+      renderCards();
+      autoOrganize.disabled = false;
+    }});
+    undoOrganize.addEventListener("click", async () => {{
+      undoOrganize.disabled = true;
+      await restoreOrganizedCards();
+      undoOrganize.disabled = false;
+    }});
     boardTitle.addEventListener("input", queueBoardTitleSave);
     boardTitle.addEventListener("blur", saveBoardTitle);
     boardTitle.addEventListener("keydown", (event) => {{
@@ -2227,6 +2518,10 @@ def render_corkboard_html(
       }}
     }});
     window.addEventListener("resize", sizeBoard);
+    configureLayoutControls();
+    if (boardType === "freeform" && layoutMode === "grid") {{
+      replaceCardOrder(cardsInPositionOrder());
+    }}
     applyCardScale();
     applyBoardZoom();
     renderCards();

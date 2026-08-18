@@ -52,6 +52,8 @@ database transactions.
   "provider": "better-planned-family",
   "board_id": "member:184",
   "board_type": "freeform",
+  "layout_modes": ["grid", "freeform"],
+  "default_layout_mode": "grid",
   "title": "Ari",
   "capabilities": ["open-card"],
   "cards": [
@@ -76,6 +78,27 @@ database transactions.
   ]
 }
 ```
+
+`board_type` describes the provider's data and editing behavior. A `freeform`
+board may opt into one or both presentation layouts with `layout_modes`:
+
+- `grid` prevents overlap, reflows with the viewport, and treats dragging as
+  card reordering.
+- `freeform` uses the provider-owned card coordinates and allows direct
+  placement when `move-card` is available.
+
+`default_layout_mode` must name one of the declared modes. The renderer stores
+the user's current selection locally for the provider and board. Providers
+that omit these fields retain their existing behavior: folder boards use Grid
+and freeform boards use Freeform.
+
+When both layouts are available, the title bar displays a layout selector.
+Switching from Freeform to Grid auto-organizes the cards. Switching back keeps
+the displayed Grid positions as the Freeform starting point. In Freeform, an
+explicit Auto-organize action packs cards without changing layouts and offers
+Undo when practical. Position changes are persisted through the existing
+`update-card` operation, so database providers continue to authorize and store
+coordinates themselves.
 
 `target` and `metadata` are provider-owned values. The shared renderer displays
 metadata and sends the opaque target to the active workflow when a user opens a

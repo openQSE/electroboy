@@ -324,6 +324,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(("GET", "/api/corkboards"), corkboard_routes)
         self.assertIn(("POST", "/api/corkboard"), corkboard_routes)
         self.assertIn("corkboard-provider", modules["corkboard"]["capabilities"])
+        self.assertIn(
+            "selectable-corkboard-layout",
+            modules["corkboard"]["capabilities"],
+        )
+        self.assertIn(
+            "corkboard-auto-organize",
+            modules["corkboard"]["capabilities"],
+        )
         core_handlers = {route["handler"] for route in modules["core"]["routes"]}
         self.assertIn("workflow_config", core_handlers)
         self.assertIn("add_configured_workflow", core_handlers)
@@ -2832,11 +2840,36 @@ class ServiceTests(unittest.TestCase):
                 provider_id="better-planned",
                 board_id="backlog",
             )
+        with self.assertRaisesRegex(StateError, "unknown corkboard layout mode"):
+            normalize_board_snapshot(
+                {
+                    "board_type": "freeform",
+                    "title": "Backlog",
+                    "layout_modes": ["stacked"],
+                    "cards": [],
+                },
+                provider_id="better-planned",
+                board_id="backlog",
+            )
+        with self.assertRaisesRegex(StateError, "default corkboard layout mode"):
+            normalize_board_snapshot(
+                {
+                    "board_type": "freeform",
+                    "title": "Backlog",
+                    "layout_modes": ["grid", "freeform"],
+                    "default_layout_mode": "columns",
+                    "cards": [],
+                },
+                provider_id="better-planned",
+                board_id="backlog",
+            )
 
     def test_generic_corkboard_renders_database_record_cards(self) -> None:
         snapshot = normalize_board_snapshot(
             {
                 "board_type": "freeform",
+                "layout_modes": ["grid", "freeform"],
+                "default_layout_mode": "grid",
                 "title": "Family board",
                 "context_id": "context-1",
                 "capabilities": ["open-card"],
@@ -2869,6 +2902,8 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(snapshot["card_aspect_ratio"], 0.75)
+        self.assertEqual(snapshot["layout_modes"], ["grid", "freeform"])
+        self.assertEqual(snapshot["default_layout_mode"], "grid")
         self.assertIn('"provider": "better-planned"', page)
         self.assertIn('"type": "better-planned-entry"', page)
         self.assertIn('"deadline": "2026-08-20"', page)
@@ -2879,6 +2914,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"fixed-card-ratio"', page)
         self.assertIn('"--card-height"', page)
         self.assertIn("const CARD_ASPECT_RATIO", page)
+        self.assertIn('id="layoutSelect"', page)
+        self.assertIn('id="autoOrganize"', page)
+        self.assertIn('id="undoOrganize"', page)
+        self.assertIn("function selectLayoutMode(nextMode)", page)
+        self.assertIn("function organizeFreeformCards", page)
+        self.assertIn("function captureGridPositions", page)
 
     def test_generic_corkboard_routes_use_active_creative_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

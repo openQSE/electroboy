@@ -42,7 +42,13 @@
   window.ElectroBoyFrontend.registerModule({
     id: "corkboard",
     label: "Corkboard",
-    capabilities: ["corkboard-provider", "folder-corkboard", "freeform-corkboard"],
+    capabilities: [
+      "corkboard-provider",
+      "folder-corkboard",
+      "freeform-corkboard",
+      "selectable-corkboard-layout",
+      "corkboard-auto-organize",
+    ],
     actions: { show },
   });
 })();
