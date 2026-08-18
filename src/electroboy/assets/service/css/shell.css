@@ -1503,6 +1503,8 @@
     }
 
     .artifact-preview-pane {
+      position: relative;
+      grid-template-columns: minmax(0, 1fr) auto;
       grid-template-rows: minmax(0, 1fr);
     }
 

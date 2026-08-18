@@ -9,6 +9,7 @@
     href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
   >
   <link rel="stylesheet" href="/assets/service/css/shell.css">
+  <link rel="stylesheet" href="/assets/service/css/pane-tools.css">
   <!-- __ELECTROBOY_CONTRIBUTION_STYLES__ -->
 </head>
 <body>
@@ -333,6 +334,37 @@
               hidden
             >
               <div id="artifactPreviewStack" class="artifact-preview-stack"></div>
+              <button
+                id="artifactPaneToolsToggle"
+                class="pane-tools-toggle"
+                type="button"
+                aria-controls="artifactPaneToolsShelf"
+                aria-expanded="false"
+                hidden
+              >Tools</button>
+              <aside
+                id="artifactPaneToolsShelf"
+                class="pane-tools-shelf"
+                aria-label="Pane tools"
+                hidden
+              >
+                <div
+                  id="artifactPaneToolsResizeHandle"
+                  class="pane-tools-resize-handle"
+                ></div>
+                <header class="pane-tools-header">
+                  <span>Tools</span>
+                  <button
+                    id="closeArtifactPaneTools"
+                    type="button"
+                    aria-label="Close pane tools"
+                  >×</button>
+                </header>
+                <div
+                  id="artifactPaneToolsContent"
+                  class="pane-tools-content"
+                ></div>
+              </aside>
             </section>
             <div
               id="outputResizeHandle"

@@ -13,11 +13,15 @@
   let runtimeState = null;
   let documentMenuEventsBound = false;
   let fileCatalogSync = null;
+  let dockedPaneTools = null;
+  let dockedFilePaneTools = null;
+  let activeArtifactToolItemId = "";
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
     runtimeState = runtime.state;
     bindDocumentMenuEvents();
+    mountDockedPaneTools();
     if (runtimeState.customDocumentTargets.length === 0) {
       runtimeState.customDocumentTargets = storedDocumentTargets();
     }
@@ -82,6 +86,78 @@
     runtimeApi.modules.invoke("agent-sessions", "connectSessionEvents", ...args);
   const sendTerminalResize = (...args) =>
     runtimeApi.agent.sendResize(...args);
+
+  function activeArtifactToolItem() {
+    return runtimeState.artifactPreviewItems.find(
+      (item) => item.id === activeArtifactToolItemId,
+    ) || runtimeState.artifactPreviewItems[0] || null;
+  }
+
+  function activateArtifactToolItem(itemId) {
+    activeArtifactToolItemId = itemId;
+    dockedFilePaneTools?.refresh();
+  }
+
+  function dockedPaneToolTarget() {
+    const item = activeArtifactToolItem();
+    if (!item) return {};
+    return {
+      kind: item.kind,
+      path: item.kind === "document" && item.target
+        ? item.target.path
+        : item.path || "",
+      title: item.title || "",
+      editing: Boolean(item.editing),
+    };
+  }
+
+  function mountDockedPaneTools() {
+    if (dockedPaneTools || !window.ElectroBoyPaneTools || !window.ElectroBoyFilePaneTools) {
+      return;
+    }
+    const pane = document.getElementById("artifactPreviewPane");
+    dockedPaneTools = window.ElectroBoyPaneTools.create({
+      host: pane,
+      shelf: document.getElementById("artifactPaneToolsShelf"),
+      content: document.getElementById("artifactPaneToolsContent"),
+      toggleButton: document.getElementById("artifactPaneToolsToggle"),
+      closeButton: document.getElementById("closeArtifactPaneTools"),
+      resizeHandle: document.getElementById("artifactPaneToolsResizeHandle"),
+      storageKey: "electroboy.paneTools.docked.artifact",
+    });
+    dockedFilePaneTools = window.ElectroBoyFilePaneTools.mount({
+      controller: dockedPaneTools,
+      getFrame: () => artifactFrameForItem(activeArtifactToolItem()),
+      getTarget: dockedPaneToolTarget,
+      contextUrl,
+      actions: {
+        zoomOut: () => changeDocumentZoom(-DOCUMENT_ZOOM_STEP),
+        zoomIn: () => changeDocumentZoom(DOCUMENT_ZOOM_STEP),
+        zoomLabel: () => `${runtimeState.documentZoom}%`,
+        startAgent: () => {
+          const item = activeArtifactToolItem();
+          if (!item || item.kind !== "document" || !item.target) return;
+          const session = documentationSessionForTarget(item.target);
+          return session
+            ? selectAgentSession(session.session_id)
+            : startDocumentationAgent(item.target);
+        },
+        preview: () => {
+          const item = activeArtifactToolItem();
+          if (item) return setArtifactPreviewEditing(item, false);
+        },
+        edit: () => {
+          const item = activeArtifactToolItem();
+          if (item) return setArtifactPreviewEditing(item, true);
+        },
+        refresh: () => refreshArtifactPreview(),
+        export: (_target, format) => {
+          const item = activeArtifactToolItem();
+          if (item) return exportArtifactDocument(item, format);
+        },
+      },
+    });
+  }
 
     function storedDocumentTargets() {
       try {
@@ -731,6 +807,8 @@
       runtimeApi.elements.artifactPreviewStack.replaceChildren();
       if (runtimeApi.layout.isPopped("artifact")) {
         runtimeApi.elements.artifactPreviewStack.classList.remove("split");
+        activeArtifactToolItemId = "";
+        dockedFilePaneTools?.refresh();
         return;
       }
       if (runtimeState.artifactPreviewItems.length === 0) {
@@ -739,7 +817,14 @@
         empty.textContent = "No document open";
         runtimeApi.elements.artifactPreviewStack.classList.remove("split");
         runtimeApi.elements.artifactPreviewStack.append(empty);
+        activeArtifactToolItemId = "";
+        dockedFilePaneTools?.refresh();
         return;
+      }
+      if (!runtimeState.artifactPreviewItems.some(
+        (item) => item.id === activeArtifactToolItemId,
+      )) {
+        activeArtifactToolItemId = runtimeState.artifactPreviewItems[0].id;
       }
       runtimeApi.elements.artifactPreviewStack.classList.toggle("split", runtimeState.artifactPreviewItems.length > 1);
       for (const [index, item] of runtimeState.artifactPreviewItems.entries()) {
@@ -751,6 +836,12 @@
         const section = document.createElement("section");
         section.className = "artifact-preview-item";
         section.setAttribute("aria-label", `${item.title} preview`);
+        section.addEventListener("pointerenter", () => {
+          activateArtifactToolItem(item.id);
+        });
+        section.addEventListener("focusin", () => {
+          activateArtifactToolItem(item.id);
+        });
 
         const header = document.createElement("div");
         header.className = "pane-header";
@@ -888,6 +979,16 @@
         markArtifactFrameLoading(frame);
         frame.addEventListener("load", () => {
           postArtifactEditorFontSize(frame);
+          try {
+            frame.contentWindow.addEventListener("pointerdown", () => {
+              activateArtifactToolItem(item.id);
+            });
+          } catch (error) {
+            // Cross-origin content cannot select the active docked artifact.
+          }
+          if (item.id === activeArtifactToolItemId) {
+            dockedFilePaneTools?.refresh();
+          }
         });
         frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
 
@@ -895,6 +996,7 @@
         runtimeApi.elements.artifactPreviewStack.append(section);
       }
       applyDocumentZoom();
+      dockedFilePaneTools?.refresh();
     }
 
     function artifactFrameForItem(item) {

@@ -12,10 +12,52 @@
 
   function mount(options) {
     const controller = options.controller;
-    const frame = options.frame;
+    const fixedFrame = options.frame || null;
+    const getFrame = typeof options.getFrame === "function"
+      ? options.getFrame
+      : () => fixedFrame;
     const getTarget = options.getTarget;
     const contextUrl = options.contextUrl;
-    const controls = options.controls;
+    const controls = options.controls || {};
+    const actions = options.actions || {};
+
+    function target() {
+      return getTarget() || {};
+    }
+
+    function runAction(name, fallback, ...args) {
+      try {
+        const result = typeof actions[name] === "function"
+          ? actions[name](target(), ...args)
+          : fallback(...args);
+        Promise.resolve(result).catch((error) => {
+          setActionStatus(String(error), true);
+        });
+      } catch (error) {
+        setActionStatus(String(error), true);
+      }
+    }
+
+    function menu(label, className = "") {
+      const details = document.createElement("details");
+      details.className = `pane-tool-menu ${className}`.trim();
+      const summary = document.createElement("summary");
+      summary.className = "pane-tool-menu-trigger";
+      const text = document.createElement("span");
+      text.textContent = label;
+      const chevron = document.createElement("span");
+      chevron.className = "pane-tool-menu-chevron";
+      chevron.setAttribute("aria-hidden", "true");
+      summary.append(text, chevron);
+      const list = document.createElement("div");
+      list.className = "pane-tool-menu-list";
+      details.append(summary, list);
+      return { details, list };
+    }
+
+    function menuButton(label, action) {
+      return button(label, action, "pane-tool-menu-button");
+    }
 
     const findBody = controller.addSection("find", "Find");
     const findRow = document.createElement("div");
@@ -42,30 +84,69 @@
     findBody.append(findRow, findOptions);
 
     const viewBody = controller.addSection("view", "View");
-    controls.zoom.hidden = false;
-    viewBody.append(controls.zoom);
+    let zoomLevel = null;
+    if (controls.zoom) {
+      controls.zoom.hidden = false;
+      viewBody.append(controls.zoom);
+    } else {
+      const zoomRow = document.createElement("div");
+      zoomRow.className = "pane-tool-zoom-row";
+      const zoomOut = menuButton("−", () => runAction("zoomOut", () => {}));
+      zoomOut.title = "Zoom document out";
+      zoomLevel = document.createElement("span");
+      zoomLevel.className = "pane-tool-zoom-level";
+      const zoomIn = menuButton("+", () => runAction("zoomIn", () => {}));
+      zoomIn.title = "Zoom document in";
+      zoomRow.append(zoomOut, zoomLevel, zoomIn);
+      viewBody.append(zoomRow);
+    }
 
     const actionsBody = controller.addSection("actions", "Actions");
     const startAgent = button("Start agent", () => {
-      startFileAgent().catch((error) => setActionStatus(String(error), true));
+      runAction("startAgent", startFileAgent);
     }, "primary");
-    const modeRow = document.createElement("div");
-    modeRow.className = "pane-tool-button-row";
-    modeRow.append(controls.preview, controls.edit);
-    const actionRow = document.createElement("div");
-    actionRow.className = "pane-tool-button-row";
-    actionRow.append(controls.refresh, controls.exportFormat, controls.exportButton);
+
+    const fileMenu = menu("File", "pane-tool-file-menu");
+    const preview = menuButton("Preview", () => {
+      runAction("preview", () => controls.preview?.click());
+    });
+    const edit = menuButton("Edit", () => {
+      runAction("edit", () => controls.edit?.click());
+    });
+    const refreshButton = menuButton("Refresh", () => {
+      runAction("refresh", () => controls.refresh?.click());
+    });
+    fileMenu.list.append(preview, edit, refreshButton);
+
+    const exportMenu = menu("Export", "pane-tool-export-menu");
+    for (const [format, label] of [
+      ["markdown", "Markdown"],
+      ["pdf", "PDF"],
+      ["docx", "DOCX"],
+    ]) {
+      exportMenu.list.append(
+        menuButton(label, () => {
+          runAction("export", () => {
+            if (controls.exportFormat) controls.exportFormat.value = format;
+            controls.exportButton?.click();
+          }, format);
+        }),
+      );
+    }
+    fileMenu.list.append(exportMenu.details);
+
     const actionStatus = document.createElement("div");
     actionStatus.className = "pane-tool-status";
-    actionsBody.append(startAgent, modeRow, actionRow, actionStatus);
+    actionsBody.append(startAgent, fileMenu.details, actionStatus);
 
     function searchable() {
-      const target = getTarget();
-      return target.kind === "document" || target.kind === "requirements";
+      const current = target();
+      return current.kind === "document" || current.kind === "requirements";
     }
 
     function frameText() {
       try {
+        const frame = getFrame();
         const documentBody = frame.contentDocument && frame.contentDocument.body;
         if (!documentBody) return "";
         const formText = Array.from(
@@ -98,6 +179,7 @@
       }
       let found = false;
       try {
+        const frame = getFrame();
         found = frame.contentWindow.find(
           query,
           matchCase.checked,
@@ -125,6 +207,8 @@
 
     function bindFrameShortcuts() {
       try {
+        const frame = getFrame();
+        if (!frame || !frame.contentWindow) return;
         controller.bindKeyboardTarget(frame.contentWindow);
         frame.contentWindow.addEventListener("keydown", handleFindShortcut);
       } catch (error) {
@@ -138,8 +222,8 @@
     }
 
     async function startFileAgent() {
-      const target = getTarget();
-      if (target.kind !== "document" || !target.path) {
+      const current = target();
+      if (current.kind !== "document" || !current.path) {
         setActionStatus("This content does not support a file agent.", true);
         return;
       }
@@ -147,7 +231,7 @@
       const response = await fetch(contextUrl("/api/agents/documentation/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: target.path }),
+        body: JSON.stringify({ target: current.path }),
       });
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
@@ -158,16 +242,30 @@
     }
 
     function refresh() {
-      const target = getTarget();
+      const current = target();
+      const hasTarget = Boolean(current.kind);
       const canSearch = searchable();
       findBody.closest("details").hidden = !canSearch;
-      startAgent.hidden = target.kind !== "document" || !target.path;
-      const isBoard = target.kind === "corkboard" || target.kind === "creative-corkboard";
+      startAgent.hidden = current.kind !== "document" || !current.path;
+      const isBoard = current.kind === "corkboard" || current.kind === "creative-corkboard";
       viewBody.closest("details").hidden = isBoard;
-      controls.preview.hidden = isBoard;
-      controls.edit.hidden = isBoard;
-      controls.exportFormat.hidden = isBoard;
-      controls.exportButton.hidden = isBoard;
+      preview.hidden = isBoard;
+      edit.hidden = isBoard;
+      exportMenu.details.hidden = isBoard;
+      preview.setAttribute("aria-pressed", String(!current.editing));
+      edit.setAttribute("aria-pressed", String(Boolean(current.editing)));
+      if (controls.preview) controls.preview.hidden = true;
+      if (controls.edit) controls.edit.hidden = true;
+      if (controls.refresh) controls.refresh.hidden = true;
+      if (controls.exportFormat) controls.exportFormat.hidden = true;
+      if (controls.exportButton) controls.exportButton.hidden = true;
+      if (zoomLevel) {
+        zoomLevel.textContent = typeof actions.zoomLabel === "function"
+          ? actions.zoomLabel(current)
+          : "100%";
+      }
+      controller.setEnabled(hasTarget);
+      bindFrameShortcuts();
       setActionStatus("");
     }
 
@@ -179,12 +277,12 @@
       } else if (event.key === "Escape") {
         event.preventDefault();
         controller.close();
-        frame.focus();
+        getFrame()?.focus();
       }
     });
     matchCase.addEventListener("change", () => find(1));
     window.addEventListener("keydown", handleFindShortcut);
-    frame.addEventListener("load", bindFrameShortcuts);
+    if (fixedFrame) fixedFrame.addEventListener("load", bindFrameShortcuts);
     bindFrameShortcuts();
     refresh();
 
