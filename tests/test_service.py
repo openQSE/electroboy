@@ -2590,6 +2590,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("index-card", page)
             self.assertIn("card-size-control", page)
             self.assertIn('id="cardSizeSlider"', page)
+            self.assertIn('id="cardFontSlider"', page)
             self.assertIn('id="boardZoomSlider"', page)
             self.assertIn('aria-label="Zoom corkboard out"', page)
             self.assertIn('aria-label="Zoom corkboard in"', page)
@@ -2628,7 +2629,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn('"electroboy.creative.corkboard"', page)
             self.assertIn("CORKBOARD_STORAGE_NAMESPACE", page)
             self.assertIn(
-                "repeat(auto-fill, var(--card-width, 218px))",
+                "repeat(auto-fill, var(--card-width, 320px))",
                 page,
             )
             self.assertNotIn("--card-grid-min-width", page)
@@ -2638,10 +2639,15 @@ class ServiceTests(unittest.TestCase):
             self.assertIn('let selectedCardKey = "";', page)
             self.assertIn("function selectCard(card, cardElement)", page)
             self.assertIn('cardElement.setAttribute("aria-selected"', page)
-            self.assertNotIn("--card-title-font-size", page)
-            self.assertNotIn("--card-note-font-size", page)
-            self.assertNotIn("--card-type-font-size", page)
-            self.assertNotIn("--card-note-line-height", page)
+            self.assertIn("--card-title-font-size", page)
+            self.assertIn("--card-note-font-size", page)
+            self.assertIn("--card-type-font-size", page)
+            self.assertIn("--card-note-line-height", page)
+            self.assertIn("const BASE_CARD_WIDTH = 320;", page)
+            self.assertIn("const DEFAULT_CARD_FONT_SCALE = 125;", page)
+            self.assertIn("function updateCardFontScale", page)
+            self.assertIn("function randomCardRotation", page)
+            self.assertIn("rotation: randomCardRotation()", page)
             self.assertIn("insertion-marker", page)
             self.assertIn("function showFolderInsertionMarker", page)
             self.assertIn("function folderInsertionPlacement", page)

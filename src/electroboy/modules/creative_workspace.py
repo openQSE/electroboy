@@ -528,7 +528,7 @@ def render_corkboard_html(
     .board.grid {{
       position: relative;
       display: grid;
-      grid-template-columns: repeat(auto-fill, var(--card-width, 218px));
+      grid-template-columns: repeat(auto-fill, var(--card-width, 320px));
       align-content: start;
       justify-content: start;
       gap: var(--card-gap, 24px);
@@ -567,7 +567,7 @@ def render_corkboard_html(
     }}
 
     .index-card {{
-      min-height: var(--card-min-height, 158px);
+      min-height: var(--card-min-height, 200px);
       border: 1px solid rgba(38, 50, 71, 0.14);
       border-radius: 5px;
       background:
@@ -652,13 +652,13 @@ def render_corkboard_html(
 
     .board.freeform .index-card {{
       position: absolute;
-      width: var(--card-width, 218px);
+      width: var(--card-width, 320px);
     }}
 
     body.fixed-card-ratio .board.freeform .index-card,
     body.fixed-card-ratio .board.grid .index-card {{
-      height: var(--card-height, 291px);
-      min-height: var(--card-height, 291px);
+      height: var(--card-height, 180px);
+      min-height: var(--card-height, 180px);
       overflow: auto;
     }}
 
@@ -713,7 +713,7 @@ def render_corkboard_html(
       overflow: hidden;
       color: var(--ink);
       font-family: Georgia, "Times New Roman", serif;
-      font-size: 17px;
+      font-size: var(--card-title-font-size, 21.25px);
       font-weight: 700;
       line-height: 1.15;
       text-overflow: ellipsis;
@@ -726,7 +726,7 @@ def render_corkboard_html(
       background: transparent;
       color: var(--ink);
       font-family: Georgia, "Times New Roman", serif;
-      font-size: 17px;
+      font-size: var(--card-title-font-size, 21.25px);
       font-weight: 700;
       line-height: 1.15;
       outline: none;
@@ -736,7 +736,7 @@ def render_corkboard_html(
     .card-type {{
       margin-top: 3px;
       color: var(--muted);
-      font-size: 10px;
+      font-size: var(--card-type-font-size, 12.5px);
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -750,7 +750,7 @@ def render_corkboard_html(
       color: var(--ink);
       cursor: pointer;
       font: inherit;
-      font-size: 11px;
+      font-size: var(--card-action-font-size, 13.75px);
       font-weight: 800;
       padding: 0 10px;
     }}
@@ -914,20 +914,20 @@ def render_corkboard_html(
     .card-note {{
       display: block;
       width: calc(100% - 24px);
-      min-height: var(--card-note-min-height, 82px);
+      min-height: var(--card-note-min-height, 112px);
       margin: 0 12px 12px;
       border: 0;
       background:
         repeating-linear-gradient(
           to bottom,
           transparent 0,
-          transparent 25px,
-          rgba(63, 77, 103, 0.18) 26px
+          transparent calc(var(--card-note-line-height, 32.5px) - 1px),
+          rgba(63, 77, 103, 0.18) var(--card-note-line-height, 32.5px)
         );
       color: var(--ink);
       font: inherit;
-      font-size: 13px;
-      line-height: 26px;
+      font-size: var(--card-note-font-size, 16.25px);
+      line-height: var(--card-note-line-height, 32.5px);
       outline: none;
       resize: none;
     }}
@@ -938,7 +938,7 @@ def render_corkboard_html(
       gap: 3px 8px;
       margin: -2px 12px 12px;
       color: var(--muted);
-      font-size: 11px;
+      font-size: var(--card-metadata-font-size, 13.75px);
       line-height: 1.35;
     }}
 
@@ -970,6 +970,7 @@ def render_corkboard_html(
     }}
 
     .card-size-control,
+    .card-font-control,
     .board-zoom-control {{
       display: grid;
       gap: 6px;
@@ -986,6 +987,7 @@ def render_corkboard_html(
     }}
 
     .card-size-control input,
+    .card-font-control input,
     .board-zoom-control input {{
       width: 100%;
       accent-color: var(--insert);
@@ -1085,6 +1087,21 @@ def render_corkboard_html(
         aria-label="Resize corkboard cards"
       >
     </label>
+    <label class="card-font-control">
+      <span class="card-size-label">
+        <span>Card font</span>
+        <output id="cardFontValue">125%</output>
+      </span>
+      <input
+        id="cardFontSlider"
+        type="range"
+        min="75"
+        max="200"
+        step="5"
+        value="125"
+        aria-label="Resize corkboard card text"
+      >
+    </label>
   </aside>
   <script>
     const CORKBOARD_DATA = {data_json};
@@ -1107,6 +1124,8 @@ def render_corkboard_html(
     const zoomIn = document.getElementById("zoomIn");
     const cardSizeSlider = document.getElementById("cardSizeSlider");
     const cardSizeValue = document.getElementById("cardSizeValue");
+    const cardFontSlider = document.getElementById("cardFontSlider");
+    const cardFontValue = document.getElementById("cardFontValue");
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
     const BOARD_CAPABILITIES = new Set(
@@ -1128,6 +1147,7 @@ def render_corkboard_html(
       ? `electroboy.corkboard.${{CORKBOARD_DATA.provider}}`
       : "electroboy.creative.corkboard";
     const CARD_SCALE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardScale.`;
+    const CARD_FONT_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardFont.`;
     const BOARD_ZOOM_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.boardZoom.`;
     const CANVAS_PAN_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.canvasPan.`;
     const LAYOUT_MODE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.layoutMode.`;
@@ -1140,6 +1160,13 @@ def render_corkboard_html(
       && window.CSS.supports("zoom", "1");
     const MIN_CARD_SCALE = 100;
     const MAX_CARD_SCALE = 400;
+    const MIN_CARD_FONT_SCALE = 75;
+    const MAX_CARD_FONT_SCALE = 200;
+    const DEFAULT_CARD_FONT_SCALE = 125;
+    const BASE_CARD_WIDTH = 320;
+    const BASE_CARD_MIN_HEIGHT = 200;
+    const BASE_CARD_NOTE_MIN_HEIGHT = 112;
+    const BASE_CARD_GAP = 28;
     const requestedCardAspectRatio = Number(CORKBOARD_DATA.card_aspect_ratio);
     const CARD_ASPECT_RATIO = Number.isFinite(requestedCardAspectRatio)
       && requestedCardAspectRatio >= 0.25
@@ -1164,6 +1191,7 @@ def render_corkboard_html(
     let folderDropPlacement = "before";
     let boardZoom = storedBoardZoom();
     let cardScale = storedCardScale();
+    let cardFontScale = storedCardFontScale();
     let canvasPan = storedCanvasPan();
     let layoutMode = storedLayoutMode();
     let organizeUndo = null;
@@ -1270,6 +1298,10 @@ def render_corkboard_html(
 
     function boardZoomStorageKey() {{
       return `${{BOARD_ZOOM_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
+    }}
+
+    function cardFontStorageKey() {{
+      return `${{CARD_FONT_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
     }}
 
     function canvasPanStorageKey() {{
@@ -1558,20 +1590,107 @@ def render_corkboard_html(
       return Math.round(value * cardScale / 100);
     }}
 
+    function clampCardFontScale(value) {{
+      const scale = Number(value);
+      if (!Number.isFinite(scale)) {{
+        return DEFAULT_CARD_FONT_SCALE;
+      }}
+      return Math.max(
+        MIN_CARD_FONT_SCALE,
+        Math.min(MAX_CARD_FONT_SCALE, Math.round(scale)),
+      );
+    }}
+
+    function storedCardFontScale() {{
+      try {{
+        const stored = window.localStorage.getItem(cardFontStorageKey());
+        if (stored !== null && stored.trim() !== "") {{
+          return clampCardFontScale(stored);
+        }}
+      }} catch (error) {{
+        return DEFAULT_CARD_FONT_SCALE;
+      }}
+      return DEFAULT_CARD_FONT_SCALE;
+    }}
+
+    function saveCardFontScale() {{
+      try {{
+        window.localStorage.setItem(
+          cardFontStorageKey(),
+          String(cardFontScale),
+        );
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function scaledFontValue(value) {{
+      return Math.round(value * cardFontScale) / 100;
+    }}
+
+    function applyCardFontScale() {{
+      const root = document.documentElement;
+      root.style.setProperty(
+        "--card-title-font-size",
+        `${{scaledFontValue(17)}}px`,
+      );
+      root.style.setProperty(
+        "--card-note-font-size",
+        `${{scaledFontValue(13)}}px`,
+      );
+      root.style.setProperty(
+        "--card-note-line-height",
+        `${{scaledFontValue(26)}}px`,
+      );
+      root.style.setProperty(
+        "--card-type-font-size",
+        `${{scaledFontValue(10)}}px`,
+      );
+      root.style.setProperty(
+        "--card-action-font-size",
+        `${{scaledFontValue(11)}}px`,
+      );
+      root.style.setProperty(
+        "--card-metadata-font-size",
+        `${{scaledFontValue(11)}}px`,
+      );
+      cardFontSlider.value = String(cardFontScale);
+      cardFontValue.value = `${{cardFontScale}}%`;
+      cardFontValue.textContent = `${{cardFontScale}}%`;
+    }}
+
+    function updateCardFontScale(value) {{
+      cardFontScale = clampCardFontScale(value);
+      saveCardFontScale();
+      applyCardFontScale();
+    }}
+
     function applyCardScale() {{
       const root = document.documentElement;
-      root.style.setProperty("--card-width", `${{scaledCardValue(218)}}px`);
+      root.style.setProperty(
+        "--card-width",
+        `${{scaledCardValue(BASE_CARD_WIDTH)}}px`,
+      );
       if (CARD_ASPECT_RATIO > 0) {{
         root.style.setProperty(
           "--card-height",
-          `${{Math.round(scaledCardValue(218) / CARD_ASPECT_RATIO)}}px`,
+          `${{Math.round(scaledCardValue(BASE_CARD_WIDTH) / CARD_ASPECT_RATIO)}}px`,
         );
       }} else {{
         root.style.removeProperty("--card-height");
       }}
-      root.style.setProperty("--card-min-height", `${{scaledCardValue(158)}}px`);
-      root.style.setProperty("--card-note-min-height", `${{scaledCardValue(82)}}px`);
-      root.style.setProperty("--card-gap", `${{Math.max(14, scaledCardValue(24))}}px`);
+      root.style.setProperty(
+        "--card-min-height",
+        `${{scaledCardValue(BASE_CARD_MIN_HEIGHT)}}px`,
+      );
+      root.style.setProperty(
+        "--card-note-min-height",
+        `${{scaledCardValue(BASE_CARD_NOTE_MIN_HEIGHT)}}px`,
+      );
+      root.style.setProperty(
+        "--card-gap",
+        `${{Math.max(14, scaledCardValue(BASE_CARD_GAP))}}px`,
+      );
       cardSizeSlider.value = String(cardScale);
       cardSizeValue.value = `${{cardScale}}%`;
       cardSizeValue.textContent = `${{cardScale}}%`;
@@ -1771,22 +1890,24 @@ def render_corkboard_html(
       const ordered = cardsInPositionOrder();
       replaceCardOrder(ordered);
       const viewportWidth = Math.max(
-        scaledCardValue(218) + 52,
+        scaledCardValue(BASE_CARD_WIDTH) + 52,
         canvasViewport.clientWidth / boardZoomFactor(),
       );
       const padding = 26;
-      const gap = Math.max(14, scaledCardValue(24));
+      const gap = Math.max(14, scaledCardValue(BASE_CARD_GAP));
       let x = padding;
       let y = padding;
       let rowHeight = 0;
       for (const card of cards) {{
         const cardElement = cardElementFor(card);
-        const width = cardElement ? cardElement.offsetWidth : scaledCardValue(218);
+        const width = cardElement
+          ? cardElement.offsetWidth
+          : scaledCardValue(BASE_CARD_WIDTH);
         const height = cardElement
           ? cardElement.offsetHeight
           : CARD_ASPECT_RATIO > 0
             ? Math.round(width / CARD_ASPECT_RATIO)
-            : scaledCardValue(158);
+            : scaledCardValue(BASE_CARD_MIN_HEIGHT);
         if (x > padding && x + width > viewportWidth - padding) {{
           x = padding;
           y += rowHeight + gap;
@@ -2301,10 +2422,11 @@ def render_corkboard_html(
         id: `card-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
         title: "Untitled card",
         note: "",
-        x: (36 - canvasPan.x) / scale + (index % 4) * scaledCardValue(236),
+        x: (36 - canvasPan.x) / scale
+          + (index % 4) * scaledCardValue(BASE_CARD_WIDTH + 24),
         y: (36 - canvasPan.y) / scale
-          + Math.floor(index / 4) * scaledCardValue(206),
-        rotation: (index % 5) - 2,
+          + Math.floor(index / 4) * scaledCardValue(BASE_CARD_MIN_HEIGHT + 28),
+        rotation: randomCardRotation(),
         color: CARD_PALETTE.length
           ? CARD_PALETTE[index % CARD_PALETTE.length].id
           : "#fff6cf",
@@ -2314,6 +2436,12 @@ def render_corkboard_html(
       selectedCardKey = card.id;
       renderCards();
       persistCard(card);
+    }}
+
+    function randomCardRotation() {{
+      const direction = Math.random() < 0.5 ? -1 : 1;
+      const magnitude = 0.75 + Math.random() * 2.75;
+      return Math.round(direction * magnitude * 10) / 10;
     }}
 
     function buildCardMetadata(card) {{
@@ -2580,6 +2708,9 @@ def render_corkboard_html(
       updateBoardZoom(boardZoom * BOARD_ZOOM_FACTOR),
     );
     cardSizeSlider.addEventListener("input", () => updateCardScale(cardSizeSlider.value));
+    cardFontSlider.addEventListener("input", () =>
+      updateCardFontScale(cardFontSlider.value),
+    );
     canvasViewport.addEventListener("wheel", handleBoardWheel, {{ passive: false }});
     canvasViewport.addEventListener("pointerdown", startCanvasPan);
     canvasViewport.addEventListener("pointermove", updateCanvasPan);
@@ -2597,6 +2728,7 @@ def render_corkboard_html(
       replaceCardOrder(cardsInPositionOrder());
     }}
     applyCardScale();
+    applyCardFontScale();
     applyBoardZoom();
     renderCards();
   </script>
