@@ -1482,22 +1482,26 @@ def render_corkboard_html(
       if (SUPPORTS_LAYOUT_ZOOM) {{
         board.style.zoom = String(scale);
         if (usesFreeformLayout()) {{
+          board.style.minWidth = "";
           board.style.width = "";
           board.style.transform = canvasPan.x === 0 && canvasPan.y === 0
             ? "none"
             : `translate(${{canvasPan.x / scale}}px, ${{canvasPan.y / scale}}px)`;
           return;
         }}
+        board.style.minWidth = "0";
         board.style.width = `${{100 / scale}}%`;
         board.style.transform = "none";
         return;
       }}
       board.style.zoom = "";
       if (usesFreeformLayout()) {{
+        board.style.minWidth = "";
         board.style.width = "";
         board.style.transform = `translate(${{canvasPan.x}}px, ${{canvasPan.y}}px) scale(${{scale}})`;
         return;
       }}
+      board.style.minWidth = "0";
       board.style.width = `${{100 / scale}}%`;
       board.style.transform = scale === 1 ? "none" : `scale(${{scale}})`;
     }}
@@ -1984,8 +1988,29 @@ def render_corkboard_html(
       layoutSelect.disabled = false;
     }}
 
+    function applyGridColumns() {{
+      if (!usesGridLayout()) {{
+        board.style.gridTemplateColumns = "";
+        return;
+      }}
+      const cardWidth = scaledCardValue(BASE_CARD_WIDTH);
+      const gap = Math.max(14, scaledCardValue(BASE_CARD_GAP));
+      const horizontalPadding = 52;
+      const availableWidth = Math.max(
+        cardWidth,
+        canvasViewport.clientWidth / boardZoomFactor() - horizontalPadding,
+      );
+      const columnCount = Math.max(
+        1,
+        Math.floor((availableWidth + gap) / (cardWidth + gap)),
+      );
+      board.style.gridTemplateColumns =
+        `repeat(${{columnCount}}, minmax(0, ${{cardWidth}}px))`;
+    }}
+
     function sizeBoard() {{
       applyCanvasPan();
+      applyGridColumns();
     }}
 
     function startCanvasPan(event) {{

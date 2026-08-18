@@ -3054,6 +3054,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function selectLayoutMode(nextMode)", page)
         self.assertIn("function organizeFreeformCards", page)
         self.assertIn("function captureGridPositions", page)
+        self.assertIn("function applyGridColumns()", page)
+        self.assertIn("canvasViewport.clientWidth / boardZoomFactor()", page)
+        self.assertIn('board.style.minWidth = "0";', page)
+        self.assertIn(
+            '`repeat(${columnCount}, minmax(0, ${cardWidth}px))`',
+            page,
+        )
         self.assertIn("async function configureBoardSelector", page)
         self.assertIn('type: "electroboy-corkboard-selected"', page)
 
