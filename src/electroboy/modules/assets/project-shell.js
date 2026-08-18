@@ -27,6 +27,7 @@
     }
     terminal.onData((data) => sendProjectShellInput(runtime, data));
     terminal.open(runtime.elements.projectShellOutput);
+    window.ElectroBoyTerminalBehavior.install(terminal);
     runtime.terminals.applyFontSize();
   }
 
@@ -321,7 +322,7 @@
       return;
     }
     try {
-      terminalFit.fit();
+      window.ElectroBoyTerminalBehavior.fit(terminal, terminalFit);
     } catch (error) {
       // The pane may be between layout states.
     }

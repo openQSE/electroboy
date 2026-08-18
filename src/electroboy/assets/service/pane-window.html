@@ -735,6 +735,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="/assets/service/js/core/terminal-behavior.js"></script>
   <script src="/assets/service/js/core/pane-layout-drag.js"></script>
   <script src="/assets/service/js/core/pane-workspace.js"></script>
   <script src="/assets/service/js/core/input-shortcut.js"></script>
@@ -1642,6 +1643,7 @@
         terminal.loadAddon(terminalFit);
       }
       terminal.open(terminalHost);
+      window.ElectroBoyTerminalBehavior.install(terminal);
       terminal.onResize(({ cols, rows }) => {
         if (PANE_KIND === "shell") {
           queueShellResize(cols, rows);
@@ -1659,7 +1661,7 @@
         return;
       }
       try {
-        terminalFit.fit();
+        window.ElectroBoyTerminalBehavior.fit(terminal, terminalFit);
       } catch (error) {
         return;
       }

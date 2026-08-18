@@ -1652,6 +1652,7 @@
         terminal.loadAddon(terminalFit);
       }
       terminal.open(agentOutput);
+      window.ElectroBoyTerminalBehavior.install(terminal);
       terminal.onResize(({ cols, rows }) => {
         queueTerminalResize(cols, rows);
       });
@@ -1954,7 +1955,7 @@
     function fitTerminal() {
       if (terminalFit) {
         try {
-          terminalFit.fit();
+          window.ElectroBoyTerminalBehavior.fit(terminal, terminalFit);
         } catch (error) {
           return;
         }

@@ -348,6 +348,10 @@ class ServiceTests(unittest.TestCase):
             "js/core/pane-tools.js",
             frontend_bundles["core-shell"]["assets"],
         )
+        self.assertIn(
+            "js/core/terminal-behavior.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
@@ -363,6 +367,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn(
             "js/core/pane-tools.js",
+            frontend_bundles["pane-window"]["assets"],
+        )
+        self.assertIn(
+            "js/core/terminal-behavior.js",
             frontend_bundles["pane-window"]["assets"],
         )
         self.assertIn(
@@ -388,6 +396,9 @@ class ServiceTests(unittest.TestCase):
         input_shortcut = read_service_text_asset("js/core/input-shortcut.js")
         pane_sync = read_service_text_asset("js/core/pane-sync.js")
         pane_tools = read_service_text_asset("js/core/pane-tools.js")
+        terminal_behavior = read_service_text_asset(
+            "js/core/terminal-behavior.js"
+        )
         documents = read_service_text_asset("js/modules/documents.js")
         file_pane_tools = read_service_text_asset(
             "js/modules/file-pane-tools.js",
@@ -447,6 +458,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('String(event.key).toLowerCase() !== "n"', pane_tools)
         self.assertNotIn("documentation/start", pane_tools)
         self.assertNotIn("creative-writing", pane_tools)
+        self.assertIn("terminal.hasSelection()", terminal_behavior)
+        self.assertIn("navigator.clipboard.writeText", terminal_behavior)
+        self.assertIn("terminal.registerMarker", terminal_behavior)
+        self.assertIn("terminal.scrollToBottom()", terminal_behavior)
+        self.assertIn("terminal.scrollToLine(marker.line)", terminal_behavior)
         self.assertIn("window.ElectroBoyFilePaneTools", file_pane_tools)
         self.assertIn('controller.addSection("find", "Find")', file_pane_tools)
         self.assertIn('controller.addSection("actions", "Actions")', file_pane_tools)
@@ -946,6 +962,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/assets/service/js/core/input-shortcut.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-sync.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-tools.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/terminal-behavior.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
         self.assertIn('id="artifactPaneToolsToggle"', INDEX_HTML)
         self.assertIn('id="artifactPaneToolsShelf"', INDEX_HTML)
@@ -1001,6 +1018,15 @@ class ServiceTests(unittest.TestCase):
                 tools_status, tools_body, tools_type, _tools_headers = request_bytes(
                     server,
                     "/assets/service/js/core/pane-tools.js",
+                )
+                (
+                    terminal_behavior_status,
+                    terminal_behavior_body,
+                    terminal_behavior_type,
+                    _,
+                ) = request_bytes(
+                    server,
+                    "/assets/service/js/core/terminal-behavior.js",
                 )
                 file_tools_status, file_tools_body, file_tools_type, _ = request_bytes(
                     server,
@@ -1071,6 +1097,12 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(tools_status, 200)
         self.assertEqual(tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"function addSection(id, label", tools_body)
+        self.assertEqual(terminal_behavior_status, 200)
+        self.assertEqual(
+            terminal_behavior_type,
+            "application/javascript; charset=utf-8",
+        )
+        self.assertIn(b"window.ElectroBoyTerminalBehavior", terminal_behavior_body)
         self.assertEqual(file_tools_status, 200)
         self.assertEqual(file_tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyFilePaneTools", file_tools_body)
@@ -1245,7 +1277,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("let terminalResizeObserver = null;", PANE_WINDOW_HTML)
         self.assertIn("function observeTerminalPaneResize()", PANE_WINDOW_HTML)
         self.assertIn("terminalResizeObserver.observe(terminalHost);", PANE_WINDOW_HTML)
-        self.assertIn("terminalFit.fit();", PANE_WINDOW_HTML)
+        self.assertIn(
+            "ElectroBoyTerminalBehavior.fit(terminal, terminalFit)",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn("ElectroBoyTerminalBehavior.install(terminal)", PANE_WINDOW_HTML)
         self.assertIn("queueAgentResize(cols, rows);", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/resize")', PANE_WINDOW_HTML)
         self.assertIn("session_id: selectedSessionId,", PANE_WINDOW_HTML)

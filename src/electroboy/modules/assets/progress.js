@@ -17,6 +17,7 @@
       terminal.loadAddon(terminalFit);
     }
     terminal.open(runtime.elements.progressOutput);
+    window.ElectroBoyTerminalBehavior.install(terminal);
     runtime.terminals.applyFontSize();
   }
 
@@ -114,7 +115,7 @@
       return;
     }
     try {
-      terminalFit.fit();
+      window.ElectroBoyTerminalBehavior.fit(terminal, terminalFit);
     } catch (error) {
       // The pane may be between layout states.
     }
