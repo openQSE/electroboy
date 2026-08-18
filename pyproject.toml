@@ -25,6 +25,7 @@ electroboy = "electroboy.cli:main"
 [project.entry-points."electroboy.modules"]
 core = "electroboy.service.core_module:module"
 agent_sessions = "electroboy.modules.agent_sessions:module"
+agenda = "electroboy.modules.agenda:module"
 binder = "electroboy.modules.binder:module"
 corkboard = "electroboy.modules.corkboard:module"
 file_browser = "electroboy.modules.file_browser:module"

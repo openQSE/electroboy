@@ -118,6 +118,7 @@ INDEX_HTML = "\n".join(
         read_service_text_asset("css/shell.css"),
         read_service_text_asset("js/core/registry.js"),
         _optional_service_text_asset("js/modules/agent-sessions.js"),
+        _optional_service_text_asset("js/modules/agenda.js"),
         _optional_service_text_asset("js/modules/documents.js"),
         _optional_service_text_asset("js/modules/binder.js"),
         _optional_service_text_asset("js/modules/corkboard.js"),

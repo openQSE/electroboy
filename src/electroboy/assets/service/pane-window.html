@@ -763,6 +763,7 @@
       artifactCorkboardPath || artifactFolderPath;
     const artifactCorkboardProvider = params.get("corkboard_provider") || "";
     const artifactCorkboardTitle = params.get("corkboard_title") || "";
+    const artifactAgendaProvider = params.get("agenda_provider") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -1869,11 +1870,24 @@
         parameters.set("version", String(artifactVersion));
         return contextUrl(`/artifacts/corkboard?${parameters.toString()}`);
       }
+      if (artifactKind === "agenda") {
+        const parameters = new URLSearchParams();
+        if (artifactAgendaProvider) {
+          parameters.set("provider", artifactAgendaProvider);
+        }
+        parameters.set("embed", "1");
+        parameters.set("version", String(artifactVersion));
+        return contextUrl(`/artifacts/agenda?${parameters.toString()}`);
+      }
       return "";
     }
 
     function artifactEditUrl() {
-      if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
+      if (
+        artifactKind === "corkboard" ||
+        artifactKind === "creative-corkboard" ||
+        artifactKind === "agenda"
+      ) {
         return artifactUrl();
       }
       const parameters = new URLSearchParams();
@@ -1924,15 +1938,15 @@
     }
 
     function connectArtifactStream() {
-      const isCorkboard = artifactKind === "corkboard" ||
-        artifactKind === "creative-corkboard";
+      const isProviderView = artifactKind === "corkboard" ||
+        artifactKind === "creative-corkboard" || artifactKind === "agenda";
       artifactFrame.hidden = false;
-      artifactZoomControls.hidden = isCorkboard;
+      artifactZoomControls.hidden = isProviderView;
       refreshArtifactButton.hidden = false;
-      previewArtifactButton.hidden = isCorkboard;
-      editArtifactButton.hidden = isCorkboard;
-      exportPaneFormat.hidden = isCorkboard;
-      exportPaneOutput.hidden = isCorkboard;
+      previewArtifactButton.hidden = isProviderView;
+      editArtifactButton.hidden = isProviderView;
+      exportPaneFormat.hidden = isProviderView;
+      exportPaneOutput.hidden = isProviderView;
       previewArtifactButton.classList.toggle("active", !artifactEditing);
       editArtifactButton.classList.toggle("active", artifactEditing);
       applyArtifactZoom();

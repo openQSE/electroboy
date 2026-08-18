@@ -1,5 +1,10 @@
 """Stable route and service interfaces for ElectroBoy plugins."""
 
+from .agenda import (
+    AgendaProvider,
+    AgendaWorkflowController,
+    normalize_agenda_snapshot,
+)
 from .corkboard import (
     CorkboardProvider,
     CorkboardWorkflowController,
@@ -34,6 +39,8 @@ from .services import (
 )
 
 __all__ = [
+    "AgendaProvider",
+    "AgendaWorkflowController",
     "BinaryResponse",
     "CliCommandDefinition",
     "ContextServices",
@@ -57,5 +64,6 @@ __all__ = [
     "WorkflowDefinition",
     "WorkflowServices",
     "WorkflowStage",
+    "normalize_agenda_snapshot",
     "normalize_board_snapshot",
 ]

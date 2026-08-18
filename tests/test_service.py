@@ -10,18 +10,16 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from http import HTTPStatus
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.cli import build_parser  # noqa: E402
-from electroboy.service.corkboard import (  # noqa: E402
-    CorkboardWorkflowController,
-    normalize_board_snapshot,
-)
+from electroboy.modules.agenda_workspace import render_agenda_html  # noqa: E402
 from electroboy.modules.creative_workspace import (  # noqa: E402
     render_corkboard_html,
 )
@@ -70,6 +68,11 @@ from electroboy.service import (  # noqa: E402
     save_artifact_edit,
     splash_image_bytes,
     workflow_payload,
+)
+from electroboy.service.agenda import normalize_agenda_snapshot  # noqa: E402
+from electroboy.service.corkboard import (  # noqa: E402
+    CorkboardWorkflowController,
+    normalize_board_snapshot,
 )
 from electroboy.service.frontend import (  # noqa: E402
     read_service_text_asset,
@@ -314,7 +317,18 @@ class ServiceTests(unittest.TestCase):
         }
         self.assertIn("agent_sessions", modules)
         self.assertIn("structured_documents", modules)
+        self.assertIn("agenda", modules)
         self.assertIn("corkboard", modules)
+        agenda_routes = {
+            (route["method"], route["path"])
+            for route in modules["agenda"]["routes"]
+        }
+        self.assertIn(("GET", "/artifacts/agenda"), agenda_routes)
+        self.assertIn(("GET", "/api/agenda"), agenda_routes)
+        self.assertIn(("POST", "/api/agenda/action"), agenda_routes)
+        self.assertIn(("GET", "/api/agenda/editor"), agenda_routes)
+        self.assertIn(("POST", "/api/agenda/editor"), agenda_routes)
+        self.assertIn("agenda-provider", modules["agenda"]["capabilities"])
         corkboard_routes = {
             (route["method"], route["path"])
             for route in modules["corkboard"]["routes"]
@@ -363,6 +377,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
+        self.assertIn("agenda", frontend_bundles)
         self.assertIn("binder", frontend_bundles)
         self.assertIn("pane-window", frontend_bundles)
         self.assertIn(
@@ -415,6 +430,7 @@ class ServiceTests(unittest.TestCase):
         )
         binder = read_service_text_asset("js/modules/binder.js")
         corkboard = read_service_text_asset("js/modules/corkboard.js")
+        agenda = read_service_text_asset("js/modules/agenda.js")
         file_browser = read_service_text_asset("js/modules/file-browser.js")
         progress = read_service_text_asset("js/modules/progress.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
@@ -448,6 +464,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function renderTree(runtime)", binder)
         self.assertIn("function show(runtime, source, options = {})", corkboard)
         self.assertIn('kind: "corkboard"', corkboard)
+        self.assertIn('kind: "agenda"', agenda)
+        self.assertIn('id: "agenda"', agenda)
+        self.assertIn("function artifactPaneIsAgenda(item)", documents)
+        self.assertIn("function artifactPaneIsProviderView(item)", documents)
+        self.assertIn("/artifacts/agenda", documents)
         self.assertNotIn('invokeWorkflow(\n        "creative-writing"', corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
         self.assertIn("ElectroBoyInputShortcut.bindRecorder", sessions)
@@ -1268,8 +1289,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function exportCurrentPaneOutput()", page)
         self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
         self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
-        self.assertIn("previewArtifactButton.hidden = isCorkboard;", page)
-        self.assertIn("editArtifactButton.hidden = isCorkboard;", page)
+        self.assertIn("previewArtifactButton.hidden = isProviderView;", page)
+        self.assertIn("editArtifactButton.hidden = isProviderView;", page)
+        self.assertIn('artifactKind === "agenda"', page)
+        self.assertIn('params.get("agenda_provider")', page)
         self.assertIn('exportPaneOutput.addEventListener("click"', page)
         self.assertIn("function terminalKeyForInputEvent(event)", PANE_WINDOW_HTML)
         self.assertIn('id="agentSendShortcut"', PANE_WINDOW_HTML)
@@ -2832,6 +2855,106 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["board_type"], "freeform")
         self.assertNotIn("group-card", snapshot["capabilities"])
         self.assertEqual(saved["card"]["id"], "verify-package")
+
+    def test_agenda_contract_groups_items_and_renders_generic_controls(self) -> None:
+        snapshot = normalize_agenda_snapshot(
+            {
+                "title": "Shared plan",
+                "timezone": "UTC",
+                "filters": [
+                    {
+                        "id": "kind",
+                        "label": "Items",
+                        "value": "all",
+                        "options": [
+                            {"value": "all", "label": "All"},
+                            {"value": "event", "label": "Events"},
+                        ],
+                    }
+                ],
+                "items": [
+                    {
+                        "id": "event:today",
+                        "kind": "event",
+                        "title": "Practice",
+                        "start_at": "2026-08-17T17:00:00+00:00",
+                        "participants": [{"id": "member:1", "label": "Ari"}],
+                        "actions": [
+                            {
+                                "id": "edit",
+                                "label": "Edit",
+                                "editor": True,
+                            }
+                        ],
+                    },
+                    {
+                        "id": "task:later",
+                        "kind": "task",
+                        "title": "Return form",
+                        "due_at": "2026-08-19T12:00:00+00:00",
+                    },
+                    {
+                        "id": "note:undated",
+                        "kind": "note",
+                        "title": "Bring snacks",
+                        "status": "suggested",
+                        "confidence": 0.81,
+                        "badges": ["Suggested"],
+                    },
+                    {
+                        "id": "warning:review",
+                        "kind": "warning",
+                        "title": "Date needs review",
+                        "warning": {"message": "No date was extracted"},
+                    },
+                ],
+            },
+            provider_id="fixture-agenda",
+            now=datetime(2026, 8, 17, 9, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(
+            [section["id"] for section in snapshot["sections"]],
+            ["needs-attention", "today", "this-week", "unscheduled"],
+        )
+        self.assertEqual(
+            sum(len(section["items"]) for section in snapshot["sections"]),
+            4,
+        )
+        page, status = render_agenda_html(snapshot)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('id="agendaControls"', page)
+        self.assertIn('element("div", "agenda-modal-overlay")', page)
+        self.assertIn("async function invokeAction", page)
+        self.assertIn("async function openEditor", page)
+        self.assertIn('"provider": "fixture-agenda"', page)
+
+    def test_agenda_contract_rejects_invalid_snapshots(self) -> None:
+        with self.assertRaisesRegex(StateError, "agenda title is required"):
+            normalize_agenda_snapshot(
+                {"title": "", "items": []},
+                provider_id="fixture-agenda",
+            )
+        with self.assertRaisesRegex(StateError, "agenda items must be a list"):
+            normalize_agenda_snapshot(
+                {"title": "Agenda", "items": {}},
+                provider_id="fixture-agenda",
+            )
+        with self.assertRaisesRegex(StateError, "start_at must be an ISO timestamp"):
+            normalize_agenda_snapshot(
+                {
+                    "title": "Agenda",
+                    "items": [
+                        {
+                            "id": "event:1",
+                            "kind": "event",
+                            "title": "Invalid",
+                            "start_at": "tomorrow",
+                        }
+                    ],
+                },
+                provider_id="fixture-agenda",
+            )
 
     def test_corkboard_provider_contract_rejects_invalid_snapshots(self) -> None:
         with self.assertRaisesRegex(StateError, "unknown corkboard type"):

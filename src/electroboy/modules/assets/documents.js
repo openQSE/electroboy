@@ -624,6 +624,14 @@
       );
     }
 
+    function artifactPaneIsAgenda(item) {
+      return Boolean(item && item.kind === "agenda");
+    }
+
+    function artifactPaneIsProviderView(item) {
+      return artifactPaneIsCorkboard(item) || artifactPaneIsAgenda(item);
+    }
+
     function artifactRouteUrl(path, version = runtimeState.artifactPreviewVersion) {
       return `${contextUrl(`${path}?embed=1`)}&zoom=${runtimeState.documentZoom}&version=${version}`;
     }
@@ -650,6 +658,14 @@
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/corkboard?${parameters.toString()}`);
       }
+      if (artifactPaneIsAgenda(item)) {
+        const agenda = item.agenda || {};
+        const parameters = new URLSearchParams();
+        if (agenda.provider) parameters.set("provider", agenda.provider);
+        parameters.set("embed", "1");
+        parameters.set("version", String(runtimeState.artifactPreviewVersion));
+        return contextUrl(`/artifacts/agenda?${parameters.toString()}`);
+      }
       if (item.kind === "route" && item.path) {
         return artifactRouteUrl(item.path);
       }
@@ -670,7 +686,7 @@
       if (!item) {
         return "";
       }
-      if (artifactPaneIsCorkboard(item)) {
+      if (artifactPaneIsProviderView(item)) {
         return artifactPreviewUrl(item);
       }
       const parameters = new URLSearchParams();
@@ -690,15 +706,15 @@
     }
 
     function artifactPaneSupportsModeSwitch(item) {
-      return item && !artifactPaneIsCorkboard(item);
+      return item && !artifactPaneIsProviderView(item);
     }
 
     function artifactPaneSupportsDocumentExport(item) {
-      return item && !artifactPaneIsCorkboard(item);
+      return item && !artifactPaneIsProviderView(item);
     }
 
     function artifactPaneSupportsDocumentZoom(item) {
-      return item && !artifactPaneIsCorkboard(item);
+      return item && !artifactPaneIsProviderView(item);
     }
 
     function artifactPreviewsForStage(stage) {
@@ -720,8 +736,8 @@
     }
 
     function showArtifactPreviews(items, options = {}) {
-      const hasProviderBoard = items.some(artifactPaneIsCorkboard);
-      if (!runtimeState.activeProjectRoot && !hasProviderBoard) {
+      const hasProviderView = items.some(artifactPaneIsProviderView);
+      if (!runtimeState.activeProjectRoot && !hasProviderView) {
         hideArtifactPreview();
         return;
       }
@@ -1069,6 +1085,10 @@
           }
         }
       }
+      if (artifactPaneIsAgenda(item)) {
+        const agenda = item.agenda || {};
+        if (agenda.provider) parameters.set("agenda_provider", agenda.provider);
+      }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,
         `electroboy-artifact-${item.id}-${runtimeState.contextId}`,
@@ -1169,7 +1189,7 @@
 
     function syncArtifactPreviewWithProject() {
       if (!runtimeState.activeProjectRoot) {
-        if (runtimeState.artifactPreviewItems.some(artifactPaneIsCorkboard)) {
+        if (runtimeState.artifactPreviewItems.some(artifactPaneIsProviderView)) {
           runtimeState.artifactPaneRequested = true;
           applyOutputPaneVisibility();
           connectArtifactEvents();

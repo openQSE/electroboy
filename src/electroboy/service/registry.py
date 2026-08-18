@@ -21,6 +21,7 @@ WORKFLOW_ENTRY_POINT_GROUP = "electroboy.workflows"
 _SOURCE_MODULE_FACTORIES = {
     "core": "electroboy.service.core_module:module",
     "agent_sessions": "electroboy.modules.agent_sessions:module",
+    "agenda": "electroboy.modules.agenda:module",
     "binder": "electroboy.modules.binder:module",
     "corkboard": "electroboy.modules.corkboard:module",
     "file_browser": "electroboy.modules.file_browser:module",
