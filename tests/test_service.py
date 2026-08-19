@@ -737,6 +737,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function applyWorkflowMode(options = {})", runtime)
         self.assertIn("await contribution.activate(frontendRuntime);", runtime)
         self.assertIn("await applyWorkflowMode({ deferWorkspace: true });", runtime)
+        self.assertIn("function syncStageNodeState()", runtime)
+        self.assertIn("syncStageNodeState();", runtime)
         self.assertIn('frame.dataset.paneLoaded = "1";', runtime)
         initialize_start = runtime.index("async function initialize()")
         initialize_source = runtime[initialize_start:]

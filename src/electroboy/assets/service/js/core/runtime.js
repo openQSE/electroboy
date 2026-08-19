@@ -1863,6 +1863,7 @@
         workflowStageGraph.querySelectorAll(".stage-node[data-stage]"),
       );
       applyStageDescriptions();
+      syncStageNodeState();
     }
 
     function renderWorkflowNavigation() {
@@ -3888,6 +3889,14 @@
         stageNode.classList.toggle("complete", isComplete);
         stageNode.classList.toggle("sidecar", isSidecar);
       }
+    }
+
+    function syncStageNodeState() {
+      updateStageNodes(
+        Boolean(activationRoot),
+        Boolean(activeProjectRoot),
+        currentWorkflowStage,
+      );
     }
 
     function genericStageRun(stage) {
