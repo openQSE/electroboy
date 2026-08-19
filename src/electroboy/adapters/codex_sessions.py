@@ -24,6 +24,7 @@ class CodexSessionSummary:
     created_at: str
     updated_at: str
     user_messages: tuple[str, ...]
+    path: Path
 
     def payload(self) -> dict[str, object]:
         return {
@@ -32,6 +33,7 @@ class CodexSessionSummary:
             "project_root": str(self.cwd),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "session_path": str(self.path),
         }
 
 
@@ -41,46 +43,71 @@ def codex_sessions_for_root(root: Path | str) -> list[CodexSessionSummary]:
     expected_root = Path(root).expanduser().resolve()
     sessions = [
         session
-        for path in _codex_session_paths()
+        for path in codex_session_paths()
         if (session := _read_codex_session(path)) is not None
         and session.cwd == expected_root
     ]
     return sorted(sessions, key=lambda session: session.updated_at, reverse=True)
 
 
-def codex_session_by_id(session_id: str) -> CodexSessionSummary | None:
+def codex_session_by_id(
+    session_id: str,
+    *,
+    include_messages: bool = True,
+) -> CodexSessionSummary | None:
     """Return one locally persisted Codex session by its provider UUID."""
 
     normalized_id = session_id.strip().lower()
     if CODEX_SESSION_ID_RE.fullmatch(normalized_id) is None:
         return None
-    for path in _codex_session_paths():
+    for path in codex_session_paths():
         if normalized_id not in path.name.lower():
             continue
-        session = _read_codex_session(path)
+        session = _read_codex_session(path, include_messages=include_messages)
         if session is not None and session.session_id.lower() == normalized_id:
             return session
     return None
 
 
-def _codex_sessions_dir() -> Path:
+def codex_sessions_directory() -> Path:
+    """Return the configured Codex session storage directory."""
+
     codex_home = os.environ.get("CODEX_HOME")
     if codex_home:
         return Path(codex_home).expanduser() / "sessions"
     return Path.home() / ".codex" / "sessions"
 
 
-def _codex_session_paths() -> tuple[Path, ...]:
-    sessions_dir = _codex_sessions_dir()
+def codex_session_paths() -> frozenset[Path]:
+    """Return Codex rollout paths without parsing their contents."""
+
+    sessions_dir = codex_sessions_directory()
     if not sessions_dir.exists():
-        return ()
+        return frozenset()
     try:
-        return tuple(sessions_dir.rglob("*.jsonl"))
+        return frozenset(path.resolve() for path in sessions_dir.rglob("*.jsonl"))
     except OSError:
-        return ()
+        return frozenset()
 
 
-def _read_codex_session(path: Path) -> CodexSessionSummary | None:
+def codex_session_from_path(
+    path: Path | str,
+    *,
+    include_messages: bool = True,
+) -> CodexSessionSummary | None:
+    """Read one known Codex rollout instead of searching session history."""
+
+    return _read_codex_session(
+        Path(path).expanduser().resolve(),
+        include_messages=include_messages,
+    )
+
+
+def _read_codex_session(
+    path: Path,
+    *,
+    include_messages: bool = True,
+) -> CodexSessionSummary | None:
     metadata: dict[str, object] | None = None
     user_messages: list[str] = []
     try:
@@ -97,6 +124,10 @@ def _read_codex_session(path: Path) -> CodexSessionSummary | None:
                     continue
                 if record.get("type") == "session_meta" and metadata is None:
                     metadata = payload
+                    if not include_messages:
+                        break
+                if not include_messages:
+                    continue
                 message = _user_message(payload)
                 if message:
                     user_messages.append(message)
@@ -122,6 +153,7 @@ def _read_codex_session(path: Path) -> CodexSessionSummary | None:
         created_at=created_at,
         updated_at=updated_at,
         user_messages=tuple(user_messages),
+        path=path.resolve(),
     )
 
 

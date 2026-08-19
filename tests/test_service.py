@@ -4038,6 +4038,35 @@ class ServiceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             os.utime(older_session_path, (1, 1))
+            catalog_path = (
+                service_root
+                / ".electroboy"
+                / "service"
+                / "ad-hoc-sessions.json"
+            )
+            catalog_path.parent.mkdir(parents=True)
+            catalog_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sessions": [
+                            {
+                                "provider": "codex",
+                                "provider_session_id": provider_session_id,
+                                "project_root": str(project_root),
+                                "title": "Prototype the import service.",
+                            },
+                            {
+                                "provider": "codex",
+                                "provider_session_id": older_session_id,
+                                "project_root": str(project_root),
+                                "title": "Investigate the parser.",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
@@ -4051,12 +4080,7 @@ class ServiceTests(unittest.TestCase):
                         provider_session_id,
                     )
             catalog = json.loads(
-                (
-                    service_root
-                    / ".electroboy"
-                    / "service"
-                    / "ad-hoc-sessions.json"
-                ).read_text(encoding="utf-8")
+                catalog_path.read_text(encoding="utf-8")
             )
 
         self.assertEqual(history["project_root"], str(project_root.resolve()))
@@ -4079,6 +4103,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             catalog["sessions"][0]["provider_session_id"],
             provider_session_id,
+        )
+        self.assertEqual(catalog["schema_version"], 2)
+        self.assertEqual(
+            catalog["sessions"][0]["session_path"],
+            str(current_session_path.resolve()),
+        )
+        self.assertEqual(
+            catalog["sessions"][0]["title"],
+            "Prototype the import service.",
         )
 
     def test_ad_hoc_resume_rejects_session_from_another_project(self) -> None:

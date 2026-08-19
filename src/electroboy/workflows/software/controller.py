@@ -6,6 +6,10 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from electroboy.adapters.codex_sessions import (
+    CodexSessionSummary,
+    codex_session_paths,
+)
 from electroboy.models import (
     GATE_DESIGN,
     STAGE_DESIGN_ACCEPTANCE,
@@ -25,6 +29,7 @@ from .ad_hoc import (
     ad_hoc_session_history,
     remember_ad_hoc_session,
     resumable_ad_hoc_session,
+    start_ad_hoc_session_tracking,
 )
 from .domain import (
     APPROVAL_WORKFLOW_STAGES,
@@ -189,8 +194,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 return context.ad_hoc_session, False
 
         provider_session = None
+        known_provider_paths: frozenset[Path] = frozenset()
         if requested_session_id:
             provider_session = resumable_ad_hoc_session(
+                self.services.files.state_root,
                 requested_session_id,
                 command_root,
             )
@@ -203,6 +210,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 self.services.files.state_root,
                 provider_session,
             )
+        else:
+            known_provider_paths = codex_session_paths()
 
         metadata: dict[str, object] = {"provider": "codex"}
         if provider_session is not None:
@@ -247,6 +256,22 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     if context.selected_session_id == session.session_id:
                         context.selected_session_id = None
             raise
+        if provider_session is None:
+
+            def registered(provider: CodexSessionSummary) -> None:
+                provider_id = provider.session_id
+                if provider_id:
+                    session.metadata["provider_session_id"] = provider_id
+                    session.metadata["resumed_session"] = False
+
+            start_ad_hoc_session_tracking(
+                self.services.files.state_root,
+                command_root,
+                session.session_id,
+                known_provider_paths,
+                session.is_active,
+                registered,
+            )
         return session, True
 
     def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
