@@ -82,6 +82,9 @@ def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
     assert ">Creative Writing</option>" in completed.stdout
     assert "Software Engineering (electroboy" not in completed.stdout
     assert "Creative Writing (electroboy" not in completed.stdout
+    assert completed.stdout.count('data-pane-kind="agent"') == 1
+    assert completed.stdout.count('data-pane-kind="scratch"') == 1
+    assert completed.stdout.count('data-pane-kind="status"') == 1
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
@@ -102,6 +105,9 @@ def test_browser_shell_loads_creative_workflow_navigation(tmp_path: Path) -> Non
     assert 'data-creative-control="recent-projects-menu"' in completed.stdout
     assert ">Recent projects</span>" in completed.stdout
     assert 'data-stage="requirements"' not in completed.stdout
+    assert completed.stdout.count('data-pane-kind="empty"') == 1
+    assert 'class="pane-layout-leaf active pane-layout-root"' in completed.stdout
+    assert '<option value="empty">Choose pane</option>' in completed.stdout
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")

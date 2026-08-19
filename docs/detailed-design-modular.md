@@ -786,9 +786,16 @@ Workflows contribute navigation and actions.
 window.ElectroBoy.registerWorkflow({
   id: "creative-writing",
   sidebar: creativeSidebar,
-  defaultLayout: creativeLayout
+  defaultPaneLayout: { type: "leaf", kind: "empty" },
+  migratePaneLayout: migrateLegacyCreativeLayout
 });
 ```
+
+`defaultPaneLayout` is a declarative leaf/split tree interpreted by the core
+pane composer. A workflow may provide `migratePaneLayout` to replace a known
+legacy default while preserving other stored operator layouts. The core owns
+layout construction and persistence; workflows only declare their preferred
+initial arrangement.
 
 The service can still ship one bundled application at first. The important
 change is source structure. The UI should be split into files such as:

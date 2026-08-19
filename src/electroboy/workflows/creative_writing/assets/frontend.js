@@ -22,6 +22,22 @@
   let creativeProjectActionsExpanded = false;
   let creativeAgentActionsExpanded = false;
 
+  function creativePaneKinds(layout, result = []) {
+    if (!layout || layout.type === "leaf") {
+      result.push(String((layout && layout.kind) || "empty"));
+      return result;
+    }
+    creativePaneKinds(layout.first, result);
+    creativePaneKinds(layout.second, result);
+    return result;
+  }
+
+  function migratePaneLayout(layout) {
+    const kinds = creativePaneKinds(layout).sort();
+    return kinds.length === 3 &&
+      kinds.join(",") === "agent,scratch,status";
+  }
+
   function bindRuntime(runtime) {
     runtimeApi = runtime;
     const state = runtime.getState();
@@ -592,25 +608,6 @@
       }
       creativeTreePayload = payload;
       renderCreativeTree();
-      if (!creativeActiveDocument) {
-        const firstDocument = firstCreativeMarkdown(payload.entries || []);
-        if (firstDocument) {
-          selectCreativeDocument(firstDocument.path, { notifyAgent: false });
-        }
-      }
-    }
-
-    function firstCreativeMarkdown(entries) {
-      for (const entry of entries) {
-        if ((entry.type || "") === "file" && entry.markdown) {
-          return entry;
-        }
-        const child = firstCreativeMarkdown(entry.children || []);
-        if (child) {
-          return child;
-        }
-      }
-      return null;
     }
 
     function showCreativeTreeMessage(message) {
@@ -1134,6 +1131,8 @@
     order: 20,
     backendPackage: "electroboy.workflows.creative_writing",
     navigation: "sidebar",
+    defaultPaneLayout: { type: "leaf", kind: "empty" },
+    migratePaneLayout,
     capabilities: ["creative-workspace"],
     layoutClass: "creative-workflow",
     splashImage: "__CREATIVE_SPLASH_IMAGE_ROUTE__",
@@ -1161,7 +1160,6 @@
       updateCreativeActionGroup: (runtime, ...args) => invoke(runtime, updateCreativeActionGroup, args),
       toggleCreativeActionGroup: (runtime, ...args) => invoke(runtime, toggleCreativeActionGroup, args),
       refreshCreativeBinder: (runtime, ...args) => invoke(runtime, refreshCreativeBinder, args),
-      firstCreativeMarkdown: (runtime, ...args) => invoke(runtime, firstCreativeMarkdown, args),
       showCreativeTreeMessage: (runtime, ...args) => invoke(runtime, showCreativeTreeMessage, args),
       renderCreativeTree: (runtime, ...args) => invoke(runtime, renderCreativeTree, args),
       showCreativeCorkboard: (runtime, ...args) => invoke(runtime, showCreativeCorkboard, args),

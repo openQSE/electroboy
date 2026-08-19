@@ -368,6 +368,7 @@
       if (!sessionId) {
         return;
       }
+      runtimeApi.layout.ensurePane("agent");
       if (runtimeState.eventSource) {
         runtimeState.eventSource.close();
       }

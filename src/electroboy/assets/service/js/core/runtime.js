@@ -284,18 +284,75 @@
       };
     }
 
-    function defaultPaneLayout() {
+    function paneLayoutFromDefinition(definition) {
+      if (typeof definition === "string") {
+        return paneLayoutLeaf(
+          definition === "empty" || PANE_LAYOUT_KINDS[definition]
+            ? definition
+            : "empty",
+        );
+      }
+      if (!definition || typeof definition !== "object") {
+        return null;
+      }
+      if (definition.type === "leaf") {
+        return paneLayoutFromDefinition(String(definition.kind || "empty"));
+      }
+      if (definition.type !== "split") {
+        return null;
+      }
+      const first = paneLayoutFromDefinition(definition.first);
+      const second = paneLayoutFromDefinition(definition.second);
+      if (!first || !second) {
+        return null;
+      }
+      const ratio = Number(definition.ratio);
       return paneLayoutSplit(
-        "row",
-        paneLayoutLeaf("agent"),
-        paneLayoutSplit(
-          "column",
-          paneLayoutLeaf("scratch"),
-          paneLayoutLeaf("status"),
-          0.62,
-        ),
-        0.72,
+        definition.direction === "column" ? "column" : "row",
+        first,
+        second,
+        Number.isFinite(ratio) ? clampValue(ratio, 0.12, 0.88) : 0.5,
       );
+    }
+
+    function paneLayoutDescription(node) {
+      if (!node || node.type === "leaf") {
+        return { type: "leaf", kind: String((node && node.kind) || "empty") };
+      }
+      return {
+        type: "split",
+        direction: node.direction === "column" ? "column" : "row",
+        ratio: Number(node.ratio) || 0.5,
+        first: paneLayoutDescription(node.first),
+        second: paneLayoutDescription(node.second),
+      };
+    }
+
+    function paneLayoutContribution(mode = workflowMode) {
+      const frontend = window.ElectroBoyFrontend;
+      return frontend && typeof frontend.workflowForSelection === "function"
+        ? frontend.workflowForSelection(mode)
+        : null;
+    }
+
+    function defaultPaneLayout(mode = workflowMode) {
+      const contribution = paneLayoutContribution(mode);
+      return paneLayoutFromDefinition(
+        contribution && contribution.defaultPaneLayout,
+      ) || paneLayoutLeaf("empty");
+    }
+
+    function migratePaneLayoutForWorkflow(layout, mode = workflowMode) {
+      const contribution = paneLayoutContribution(mode);
+      if (
+        !layout ||
+        !contribution ||
+        typeof contribution.migratePaneLayout !== "function" ||
+        contribution.migratePaneLayout(paneLayoutDescription(layout)) !== true
+      ) {
+        return layout;
+      }
+      return defaultPaneLayout(mode);
     }
 
     function paneLayoutStorageKey(mode = workflowMode) {
@@ -343,21 +400,26 @@
         const storageKey = paneLayoutStorageKey(mode);
         const raw = window.localStorage.getItem(storageKey);
         if (raw !== null) {
-          return normalizePaneLayoutNode(JSON.parse(raw), new Set()) ||
-            defaultPaneLayout();
+          const stored = normalizePaneLayoutNode(JSON.parse(raw), new Set());
+          const migrated = migratePaneLayoutForWorkflow(stored, mode);
+          if (migrated && migrated !== stored) {
+            window.localStorage.setItem(storageKey, JSON.stringify(migrated));
+          }
+          return migrated || defaultPaneLayout(mode);
         }
         const legacyRaw = window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
         if (legacyRaw !== null) {
           window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
-          const migrated = normalizePaneLayoutNode(JSON.parse(legacyRaw), new Set());
+          const stored = normalizePaneLayoutNode(JSON.parse(legacyRaw), new Set());
+          const migrated = migratePaneLayoutForWorkflow(stored, mode);
           if (migrated) {
             window.localStorage.setItem(storageKey, JSON.stringify(migrated));
             return migrated;
           }
         }
-        return defaultPaneLayout();
+        return defaultPaneLayout(mode);
       } catch (error) {
-        return defaultPaneLayout();
+        return defaultPaneLayout(mode);
       }
     }
 
@@ -1161,6 +1223,20 @@
       if (!paneLayout || paneLayoutLeafByKind(kind)) {
         return;
       }
+      const activeLeaf = paneLayoutLeafById(activePaneLayoutLeafId);
+      const availableEmpty = activeLeaf && activeLeaf.kind === "empty"
+        ? activeLeaf
+        : paneLayoutLeafByKind("empty");
+      if (availableEmpty) {
+        availableEmpty.kind = kind;
+        availableEmpty.content = null;
+        availableEmpty.projectRoot = "";
+        setActivePaneLayoutLeaf(availableEmpty.id);
+        savePaneLayout();
+        renderPaneLayout();
+        activatePaneLayoutKind(kind);
+        return;
+      }
       const target = paneLayoutLeafByKind(targetKind) || paneLayoutLeaves()[0];
       if (!target) {
         paneLayout = paneLayoutLeaf(kind);
@@ -1233,7 +1309,7 @@
     }
 
     function resetPaneLayout() {
-      paneLayout = defaultPaneLayout();
+      paneLayout = defaultPaneLayout(workflowMode);
       savePaneLayout();
       renderPaneLayout();
       if (progressPaneRequested) {
