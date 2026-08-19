@@ -844,6 +844,7 @@
     let contentCatalogSync = null;
     let paneToolsController = null;
     let filePaneTools = null;
+    let directPaneActivationNotifier = null;
     let inputSyncQueue = Promise.resolve();
     let latestProgressState = { entries: [] };
     let lastSharedStatusText = "";
@@ -2536,6 +2537,32 @@
       });
     }
 
+    function bindArtifactFrameActivation() {
+      const notifyPaneActivated = directPaneActivationNotifier;
+      if (!notifyPaneActivated) {
+        return;
+      }
+      try {
+        const frameWindow = artifactFrame.contentWindow;
+        if (frameWindow && !frameWindow.__electroBoyPaneActivationBound) {
+          frameWindow.__electroBoyPaneActivationBound = true;
+          frameWindow.addEventListener("focus", notifyPaneActivated);
+          frameWindow.addEventListener("blur", notifyPaneActivated);
+        }
+        const frameDocument = artifactFrame.contentDocument;
+        if (frameDocument && !frameDocument.__electroBoyPaneActivationBound) {
+          frameDocument.__electroBoyPaneActivationBound = true;
+          frameDocument.addEventListener("pointerdown", notifyPaneActivated, true);
+          frameDocument.addEventListener("mousedown", notifyPaneActivated, true);
+          frameDocument.addEventListener("touchstart", notifyPaneActivated, true);
+          frameDocument.addEventListener("focusin", notifyPaneActivated, true);
+        }
+      } catch (error) {
+        // Artifact panes are expected to be same-origin. Keep activation
+        // best-effort if an artifact renderer changes that assumption.
+      }
+    }
+
     function initializeDirectPane() {
       dockPane.hidden = true;
       initializeSharedPaneSync();
@@ -2551,10 +2578,13 @@
           window.location.origin,
         );
       };
+      directPaneActivationNotifier = notifyPaneActivated;
       document.addEventListener("pointerdown", notifyPaneActivated, true);
+      document.addEventListener("mousedown", notifyPaneActivated, true);
       window.addEventListener("focus", notifyPaneActivated);
       window.addEventListener("blur", notifyPaneActivated);
       artifactFrame.addEventListener("focus", notifyPaneActivated);
+      bindArtifactFrameActivation();
     decreaseArtifactZoom.addEventListener(
       "click",
       () => changeArtifactZoom(-ARTIFACT_ZOOM_STEP),
@@ -2566,6 +2596,7 @@
     refreshArtifactButton.addEventListener("click", refreshArtifact);
     artifactFrame.addEventListener("load", () => {
       artifactFrame.classList.remove("loading");
+      bindArtifactFrameActivation();
       postArtifactEditorFontSize();
     });
     previewArtifactButton.addEventListener("click", () => setArtifactEditMode(false));

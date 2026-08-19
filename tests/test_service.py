@@ -1383,6 +1383,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function setArtifactEditMode(editing)", page)
         self.assertIn('artifactFrame.classList.add("loading");', page)
         self.assertIn('artifactFrame.addEventListener("load"', page)
+        self.assertIn("let directPaneActivationNotifier = null;", page)
+        self.assertIn("function bindArtifactFrameActivation()", page)
+        self.assertIn("artifactFrame.contentDocument", page)
+        self.assertIn(
+            'frameDocument.addEventListener("pointerdown", notifyPaneActivated, true);',
+            page,
+        )
+        self.assertIn(
+            'frameDocument.addEventListener("focusin", notifyPaneActivated, true);',
+            page,
+        )
         self.assertIn("function artifactEditorFontSize()", page)
         self.assertIn("function postArtifactEditorFontSize()", page)
         self.assertIn('type: "electroboy-editor-font-size"', page)
