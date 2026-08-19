@@ -999,6 +999,75 @@
       return `${url.pathname}${url.search}`;
     }
 
+    async function loadProjectPayload() {
+      if (!contextId) {
+        throw new Error("activate a project first");
+      }
+      const response = await fetch(contextUrl("/api/project"), { cache: "no-store" });
+      const payload = await response
+        .json()
+        .catch(() => ({ error: "project load failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || "project load failed");
+      }
+      return payload;
+    }
+
+    function applyAgentStartPayload(payload) {
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+      if (Array.isArray(payload.sessions)) {
+        agentSessions = payload.sessions;
+      }
+      activeProjectRoot = payload.active_project_root || payload.activation_root
+        || payload.service_root || activeProjectRoot;
+      selectedSessionId = payload.session_id || payload.selected_session_id
+        || selectedSessionId;
+      if (PANE_KIND === "agent") {
+        renderSessionSwitcher();
+        connectAgentStream();
+      }
+    }
+
+    function paneDocumentAgentPayload(target) {
+      const path = String(target?.path || "").trim();
+      if (!path || target?.kind !== "document") {
+        throw new Error("This content does not support a file agent.");
+      }
+      return {
+        type: "document",
+        path,
+        label: String(target.title || path),
+      };
+    }
+
+    async function startPaneDocumentAgent(target) {
+      const activeTarget = paneDocumentAgentPayload(target);
+      const project = await loadProjectPayload();
+      const isCreativeProject = project.project_mode === "creative";
+      const endpoint = isCreativeProject
+        ? "/api/creative/agent/start"
+        : "/api/agents/documentation/start";
+      const body = isCreativeProject
+        ? {
+            active_document: activeTarget.path,
+            active_target: activeTarget,
+          }
+        : { target: activeTarget.path };
+      const response = await fetch(contextUrl(endpoint), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || "start failed");
+      }
+      applyAgentStartPayload(payload);
+      return payload;
+    }
+
     function updateSelectOptions(select, options, value = "", disabled = false) {
       const normalizedOptions = options.map((option) => ({
         value: String(option.value || ""),
@@ -2736,6 +2805,9 @@
           title: artifactTargetTitle(),
           editing: artifactEditing,
         }),
+        actions: {
+          startAgent: startPaneDocumentAgent,
+        },
         controls: {
           zoom: artifactZoomControls,
           preview: previewArtifactButton,

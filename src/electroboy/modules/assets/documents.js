@@ -142,7 +142,7 @@
           const session = documentationSessionForTarget(item.target);
           return session
             ? selectAgentSession(session.session_id)
-            : startDocumentationAgent(item.target);
+            : startDocumentAgent(item.target);
         },
         preview: () => {
           const item = activeArtifactToolItem();
@@ -991,7 +991,7 @@
               `Start an agent for ${item.title}`,
             );
             agentButton.addEventListener("click", () => {
-              startDocumentationAgent(item.target).catch((error) => {
+              startDocumentAgent(item.target).catch((error) => {
                 appendOutput(`agent start failed: ${error}\n`, "error");
               });
             });
@@ -1266,6 +1266,67 @@
       }
     }
 
+    function activeProjectIsCreative() {
+      return runtimeState.activeProjectMode === "creative";
+    }
+
+    function creativeDocumentTargetPayload(target) {
+      const path = documentTargetKey(target);
+      return {
+        type: "document",
+        path,
+        label: documentTargetLabel(target),
+      };
+    }
+
+    async function startCreativeWritingAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {
+      if (!runtimeState.activeProjectRoot) {
+        appendOutput("activate a project first\n", "error");
+        return;
+      }
+      const documentTarget = target || DEFAULT_DOCUMENT_TARGETS[0];
+      const documentPath = documentTargetKey(documentTarget);
+      if (!documentPath) {
+        appendOutput("select a document first\n", "error");
+        return;
+      }
+      hideStageMenus();
+      closeAgentEventStream();
+      showProgressPane(false);
+      showDocumentPreview(documentTarget);
+      setAgentInputVisible(true);
+      clearAgentOutput();
+      runtimeApi.elements.agentInput.disabled = false;
+      runtimeApi.elements.agentInput.focus();
+      appendOutput("$ codex creative-writing\n", "system");
+      const response = await fetch(contextUrl("/api/creative/agent/start"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          active_document: documentPath,
+          active_target: creativeDocumentTargetPayload(documentTarget),
+        }),
+      });
+      const payload = await response.json().catch(() => ({ error: "start failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "start failed"}\n`, "error");
+        return;
+      }
+      updateProjectState(payload);
+      const sessionId = payload.session_id || runtimeState.selectedSessionId;
+      runtimeState.selectedSessionId = sessionId;
+      renderSessionSwitcher();
+      connectSessionEvents(sessionId);
+      sendTerminalResize();
+    }
+
+    async function startDocumentAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {
+      if (activeProjectIsCreative()) {
+        return startCreativeWritingAgent(target);
+      }
+      return startDocumentationAgent(target);
+    }
+
     async function startDocumentationAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {
       if (!runtimeState.activeProjectRoot) {
         appendOutput("activate a project first\n", "error");
@@ -1359,6 +1420,7 @@
       closeArtifactEventStream: (runtime, ...args) => invoke(runtime, closeArtifactEventStream, args),
       stageIsRunning: (runtime, ...args) => invoke(runtime, stageIsRunning, args),
       syncArtifactPreviewWithProject: (runtime, ...args) => invoke(runtime, syncArtifactPreviewWithProject, args),
+      startDocumentAgent: (runtime, ...args) => invoke(runtime, startDocumentAgent, args),
       startDocumentationAgent: (runtime, ...args) => invoke(runtime, startDocumentationAgent, args),
     },
     mount: bindRuntime,

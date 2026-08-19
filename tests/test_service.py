@@ -512,6 +512,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("window.ElectroBoyFilePaneTools", file_pane_tools)
         self.assertIn('controller.addSection("find", "Find")', file_pane_tools)
         self.assertIn('controller.addSection("actions", "Actions")', file_pane_tools)
+        self.assertIn('setActionStatus("Agent started")', file_pane_tools)
         self.assertIn('menu("File", "pane-tool-file-menu")', file_pane_tools)
         self.assertIn('menu("Export", "pane-tool-export-menu")', file_pane_tools)
         self.assertLess(
@@ -571,6 +572,11 @@ class ServiceTests(unittest.TestCase):
             documents,
         )
         self.assertIn('agentButton.textContent = "Start agent"', documents)
+        self.assertIn("function activeProjectIsCreative()", documents)
+        self.assertIn('runtimeState.activeProjectMode === "creative"', documents)
+        self.assertIn("async function startCreativeWritingAgent", documents)
+        self.assertIn('contextUrl("/api/creative/agent/start")', documents)
+        self.assertIn("startDocumentAgent(item.target)", documents)
         self.assertNotIn("launchDocumentTarget", documents)
         self.assertIn(
             "function openProjectBrowser(mode = state().projectMode",
@@ -1543,6 +1549,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function openLinkFileBrowser()", PANE_WINDOW_HTML)
         self.assertIn('data.mode === "link"', PANE_WINDOW_HTML)
+        self.assertIn("async function startPaneDocumentAgent(target)", PANE_WINDOW_HTML)
+        self.assertIn('project.project_mode === "creative"', PANE_WINDOW_HTML)
+        self.assertIn('"/api/creative/agent/start"', PANE_WINDOW_HTML)
+        self.assertIn('startAgent: startPaneDocumentAgent', PANE_WINDOW_HTML)
         self.assertIn("function refreshSessions()", PANE_WINDOW_HTML)
         self.assertIn("function selectAgentSession(sessionId)", PANE_WINDOW_HTML)
         self.assertIn("function scratchPadStorageKey()", PANE_WINDOW_HTML)

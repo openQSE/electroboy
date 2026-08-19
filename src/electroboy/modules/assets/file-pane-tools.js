@@ -27,16 +27,26 @@
       return getTarget() || {};
     }
 
+    function actionErrorMessage(error) {
+      return error && error.message ? error.message : String(error);
+    }
+
     function runAction(name, fallback, ...args) {
       try {
         const result = typeof actions[name] === "function"
           ? actions[name](target(), ...args)
           : fallback(...args);
-        Promise.resolve(result).catch((error) => {
-          setActionStatus(String(error), true);
-        });
+        Promise.resolve(result)
+          .then((value) => {
+            if (name === "startAgent" && value) {
+              setActionStatus("Agent started");
+            }
+          })
+          .catch((error) => {
+            setActionStatus(actionErrorMessage(error), true);
+          });
       } catch (error) {
-        setActionStatus(String(error), true);
+        setActionStatus(actionErrorMessage(error), true);
       }
     }
 
