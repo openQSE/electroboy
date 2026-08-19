@@ -584,6 +584,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("projectShellPaneRequested: false", project_shell)
         self.assertIn('runtime.sharedPanes.connect("file-catalog"', documents)
         self.assertIn("function openFileCatalogState()", documents)
+        self.assertIn("function updateSelectOptions(select, options", documents)
+        document_switcher_start = documents.index("function renderDocumentTargetSwitcher(select)")
+        document_switcher_end = documents.index(
+            "function refreshDocumentTargetSwitchers()",
+            document_switcher_start,
+        )
+        document_switcher_source = documents[
+            document_switcher_start:document_switcher_end
+        ]
+        self.assertIn("updateSelectOptions(", document_switcher_source)
+        self.assertNotIn("replaceChildren", document_switcher_source)
         self.assertNotIn(
             "showProjectShellPane(runtime, true);\n"
             "    initializeProjectShellTerminal(runtime);\n"
@@ -703,14 +714,23 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn('message.type === "electroboy:pane-activate"', runtime)
-        self.assertEqual(runtime.count("refreshPaneLayoutInstanceFrames();"), 1)
         self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
         self.assertIn("assignArtifact: assignArtifactToPane", runtime)
+        self.assertIn("function paneLayoutRequestedArtifact(leaf)", runtime)
+        self.assertIn("function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)", runtime)
+        self.assertIn('type: "electroboy:pane-set-artifact"', runtime)
+        self.assertIn('frame.dataset.paneLoaded = "1";', runtime)
+        assign_start = runtime.index("function assignArtifactToPane(")
+        assign_end = runtime.index("function handlePaneLayoutMessage(", assign_start)
+        assign_source = runtime[assign_start:assign_end]
+        self.assertIn("refreshPaneLayoutInstanceFrames();", assign_source)
+        self.assertNotIn("renderPaneLayout();", assign_source)
         self.assertIn("runtimeApi.layout.assignArtifact(nextItems[0]);", documents)
         self.assertIn('kind === "agent" &&', workspace)
         self.assertIn(".pane-layout-leaf.active::before", styles)
         self.assertIn("border: 3px solid #9bd6cf;", styles)
         self.assertIn("pointer-events: none;", styles)
+        self.assertIn(".artifact-preview-frame.loading {\n      opacity: 1;", styles)
 
     def test_agent_input_actions_are_fixed_height_and_top_aligned(self) -> None:
         styles = read_service_text_asset("css/shell.css")
@@ -1316,6 +1336,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="exportPaneFormat"', page)
         self.assertIn('id="exportPaneOutput"', page)
         self.assertIn(".artifact-frame.loading", page)
+        self.assertIn(".artifact-frame.loading {\n      opacity: 1;", page)
+        self.assertIn("function applyArtifactItem(item)", page)
+        self.assertIn("function syncArtifactUrlState()", page)
+        self.assertIn("function reconnectArtifactStream()", page)
+        self.assertIn('data.type === "electroboy:pane-set-artifact"', page)
         self.assertIn("function artifactEventUrl()", page)
         self.assertIn("function artifactEditUrl()", page)
         self.assertIn("function setArtifactEditMode(editing)", page)
@@ -1326,8 +1351,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('type: "electroboy-editor-font-size"', page)
         self.assertIn('artifactKind === "creative-corkboard"', page)
         self.assertIn("/artifacts/corkboard", page)
+        self.assertIn("function updateSelectOptions(select, options", page)
         self.assertIn("function fileSwitcherPlaceholderLabel()", page)
         self.assertIn('return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId', page)
+        file_switcher_start = page.index("function renderFileSwitcher()")
+        file_switcher_end = page.index("function fileSwitcherPlaceholderLabel()", file_switcher_start)
+        file_switcher_source = page[file_switcher_start:file_switcher_end]
+        self.assertIn("updateSelectOptions(", file_switcher_source)
+        self.assertIn('label: placeholderLabel || "Choose file"', file_switcher_source)
+        self.assertNotIn("replaceChildren", file_switcher_source)
         self.assertIn(
             'if (artifactKind === "document" && files.length > 0 && !contentSwitcher.value)',
             page,
@@ -1407,8 +1439,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('paneContentLabel.textContent = "Agent";', PANE_WINDOW_HTML)
         self.assertIn('paneContentLabel.textContent = "File";', PANE_WINDOW_HTML)
         self.assertIn('paneContentLabel.textContent = "Shell";', PANE_WINDOW_HTML)
+        self.assertIn("function updateSelectOptions(select, options", PANE_WINDOW_HTML)
         self.assertIn("function renderFileSwitcher()", PANE_WINDOW_HTML)
         self.assertIn("function renderShellSwitcher()", PANE_WINDOW_HTML)
+        shell_switcher_start = PANE_WINDOW_HTML.index("function renderShellSwitcher()")
+        shell_switcher_end = PANE_WINDOW_HTML.index(
+            "async function refreshShellSessions()",
+            shell_switcher_start,
+        )
+        shell_switcher_source = PANE_WINDOW_HTML[
+            shell_switcher_start:shell_switcher_end
+        ]
+        self.assertIn("updateSelectOptions(", shell_switcher_source)
+        self.assertNotIn("replaceChildren", shell_switcher_source)
         self.assertIn('contextUrl("/api/shell/sessions")', PANE_WINDOW_HTML)
         self.assertIn('{ id: "artifact", label: "File" }', PANE_WINDOW_HTML)
         self.assertIn('id="interruptAgent" class="input-interrupt"', PANE_WINDOW_HTML)

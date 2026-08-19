@@ -490,21 +490,59 @@
       refreshDocumentTargetSwitchers();
     }
 
+    function updateSelectOptions(select, options, value = "", disabled = false) {
+      const normalizedOptions = options.map((option) => ({
+        value: String(option.value || ""),
+        label: String(option.label || ""),
+        disabled: Boolean(option.disabled),
+      }));
+      const signature = JSON.stringify(
+        normalizedOptions.map((option) => [option.value, option.disabled]),
+      );
+      if (select.dataset.optionSignature !== signature) {
+        select.replaceChildren();
+        for (const option of normalizedOptions) {
+          const element = document.createElement("option");
+          element.value = option.value;
+          element.textContent = option.label;
+          element.disabled = option.disabled;
+          select.append(element);
+        }
+        select.dataset.optionSignature = signature;
+      } else {
+        Array.from(select.options).forEach((element, index) => {
+          const option = normalizedOptions[index];
+          if (!option) {
+            return;
+          }
+          if (element.textContent !== option.label) {
+            element.textContent = option.label;
+          }
+          element.disabled = option.disabled;
+        });
+      }
+      const nextValue = String(value || "");
+      if (select.value !== nextValue) {
+        select.value = nextValue;
+      }
+      select.disabled = Boolean(disabled);
+    }
+
     function renderDocumentTargetSwitcher(select) {
-      select.replaceChildren();
       const targets = runtimeState.openDocumentTargets.length > 0
         ? runtimeState.openDocumentTargets
         : runtimeState.artifactPreviewDocumentTarget
           ? [runtimeState.artifactPreviewDocumentTarget]
           : [];
-      for (const target of targets) {
-        const option = document.createElement("option");
-        option.value = target.path;
-        option.textContent = documentTargetLabel(target);
-        select.append(option);
-      }
-      select.value = documentTargetKey(runtimeState.artifactPreviewDocumentTarget);
-      select.disabled = targets.length <= 1;
+      updateSelectOptions(
+        select,
+        targets.map((target) => ({
+          value: target.path,
+          label: documentTargetLabel(target),
+        })),
+        documentTargetKey(runtimeState.artifactPreviewDocumentTarget),
+        targets.length <= 1,
+      );
     }
 
     function refreshDocumentTargetSwitchers() {

@@ -162,7 +162,7 @@
     }
 
     .artifact-frame.loading {
-      opacity: 0;
+      opacity: 1;
     }
 
     .scratch-pad,
@@ -757,14 +757,14 @@
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactRoutePath = params.get("artifact_path") || "";
     let artifactRouteTitle = params.get("artifact_title") || "";
-    const artifactFolderPath = params.get("folder_path") || "";
-    const artifactFolderTitle = params.get("folder_title") || "";
-    const artifactCorkboardPath = params.get("corkboard_path") || "";
-    const artifactCorkboardId = params.get("corkboard_id") ||
+    let artifactFolderPath = params.get("folder_path") || "";
+    let artifactFolderTitle = params.get("folder_title") || "";
+    let artifactCorkboardPath = params.get("corkboard_path") || "";
+    let artifactCorkboardId = params.get("corkboard_id") ||
       artifactCorkboardPath || artifactFolderPath;
-    const artifactCorkboardProvider = params.get("corkboard_provider") || "";
-    const artifactCorkboardTitle = params.get("corkboard_title") || "";
-    const artifactAgendaProvider = params.get("agenda_provider") || "";
+    let artifactCorkboardProvider = params.get("corkboard_provider") || "";
+    let artifactCorkboardTitle = params.get("corkboard_title") || "";
+    let artifactAgendaProvider = params.get("agenda_provider") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -998,42 +998,84 @@
       return `${url.pathname}${url.search}`;
     }
 
+    function updateSelectOptions(select, options, value = "", disabled = false) {
+      const normalizedOptions = options.map((option) => ({
+        value: String(option.value || ""),
+        label: String(option.label || ""),
+        disabled: Boolean(option.disabled),
+      }));
+      const signature = JSON.stringify(
+        normalizedOptions.map((option) => [option.value, option.disabled]),
+      );
+      if (select.dataset.optionSignature !== signature) {
+        select.replaceChildren();
+        for (const option of normalizedOptions) {
+          const element = document.createElement("option");
+          element.value = option.value;
+          element.textContent = option.label;
+          element.disabled = option.disabled;
+          select.append(element);
+        }
+        select.dataset.optionSignature = signature;
+      } else {
+        const elements = Array.from(select.options);
+        normalizedOptions.forEach((option, index) => {
+          const element = elements[index];
+          if (!element) {
+            return;
+          }
+          if (element.textContent !== option.label) {
+            element.textContent = option.label;
+          }
+          element.disabled = option.disabled;
+        });
+      }
+      const nextValue = String(value || "");
+      if (select.value !== nextValue) {
+        select.value = nextValue;
+      }
+      select.disabled = Boolean(disabled);
+    }
+
     function renderSessionSwitcher() {
-      contentSwitcher.replaceChildren();
       const visibleSessions = agentSessions.filter(
         (session) => session.status === "running" || session.session_id === selectedSessionId,
       );
       if (visibleSessions.length === 0) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = "No active agents";
-        contentSwitcher.append(option);
-        contentSwitcher.disabled = true;
+        updateSelectOptions(
+          contentSwitcher,
+          [{ value: "", label: "No active agents" }],
+          "",
+          true,
+        );
         return;
-      }
-      for (const session of visibleSessions) {
-        const option = document.createElement("option");
-        option.value = session.session_id;
-        const status = session.status === "running" ? "running" : session.status || "done";
-        option.textContent = `${session.kind || "agent"} · ${status}`;
-        contentSwitcher.append(option);
       }
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
         const selected = visibleSessions.find((session) => session.selected) || visibleSessions[0];
         selectedSessionId = selected ? selected.session_id : "";
       }
-      contentSwitcher.value = selectedSessionId;
-      contentSwitcher.disabled = false;
+      updateSelectOptions(
+        contentSwitcher,
+        visibleSessions.map((session) => {
+          const status = session.status === "running" ? "running" : session.status || "done";
+          return {
+            value: session.session_id,
+            label: `${session.kind || "agent"} · ${status}`,
+          };
+        }),
+        selectedSessionId,
+        false,
+      );
     }
 
     function renderFileSwitcher() {
-      contentSwitcher.replaceChildren();
       const placeholderLabel = fileSwitcherPlaceholderLabel();
+      const options = [{
+        value: "",
+        label: placeholderLabel || "Choose file",
+      }];
       if (placeholderLabel) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = placeholderLabel;
-        contentSwitcher.append(option);
+        options[0].label = placeholderLabel;
       }
       const files = [...openFileTargets];
       if (
@@ -1048,22 +1090,23 @@
       }
       if (files.length === 0) {
         if (!placeholderLabel) {
-          const option = document.createElement("option");
-          option.value = "";
-          option.textContent = "No open files";
-          contentSwitcher.append(option);
+          options[0].label = "No open files";
         }
-        contentSwitcher.disabled = true;
+        updateSelectOptions(contentSwitcher, options, "", true);
         return;
       }
       files.forEach((file) => {
-        const option = document.createElement("option");
-        option.value = file.path;
-        option.textContent = file.label || file.path;
-        contentSwitcher.append(option);
+        options.push({
+          value: file.path,
+          label: file.label || file.path,
+        });
       });
-      contentSwitcher.value = artifactKind === "document" ? artifactDocumentPath : "";
-      contentSwitcher.disabled = files.length === 0;
+      updateSelectOptions(
+        contentSwitcher,
+        options,
+        artifactKind === "document" ? artifactDocumentPath : "",
+        false,
+      );
       if (artifactKind === "document" && files.length > 0 && !contentSwitcher.value) {
         selectFileTarget(files[0]);
       }
@@ -1097,13 +1140,7 @@
       artifactRouteTitle = "";
       artifactEditing = false;
       contentSwitcher.value = artifactDocumentPath;
-      const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.set("artifact", "document");
-      nextUrl.searchParams.set("document_path", artifactDocumentPath);
-      nextUrl.searchParams.set("document_title", artifactDocumentTitle);
-      nextUrl.searchParams.delete("artifact_path");
-      nextUrl.searchParams.delete("artifact_title");
-      window.history.replaceState(null, "", nextUrl);
+      syncArtifactUrlState();
       if (EMBEDDED_PANE && paneInstanceId && window.parent !== window) {
         window.parent.postMessage(
           {
@@ -1122,12 +1159,7 @@
           window.location.origin,
         );
       }
-      if (artifactEventSource) {
-        artifactEventSource.close();
-        artifactEventSource = null;
-      }
-      connectArtifactStream();
-      if (filePaneTools) filePaneTools.refresh();
+      reconnectArtifactStream();
     }
 
     function shellSessionLabel(session) {
@@ -1137,29 +1169,30 @@
     }
 
     function renderShellSwitcher() {
-      contentSwitcher.replaceChildren();
       const visibleSessions = shellSessions.filter(
         (session) => session.status === "running" || session.session_id === selectedShellSessionId,
       );
       if (visibleSessions.length === 0) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = "No active shells";
-        contentSwitcher.append(option);
-        contentSwitcher.disabled = true;
+        updateSelectOptions(
+          contentSwitcher,
+          [{ value: "", label: "No active shells" }],
+          "",
+          true,
+        );
         return;
       }
-      visibleSessions.forEach((session) => {
-        const option = document.createElement("option");
-        option.value = session.session_id;
-        option.textContent = shellSessionLabel(session);
-        contentSwitcher.append(option);
-      });
       if (!visibleSessions.some((session) => session.session_id === selectedShellSessionId)) {
         selectedShellSessionId = visibleSessions[0].session_id;
       }
-      contentSwitcher.value = selectedShellSessionId;
-      contentSwitcher.disabled = false;
+      updateSelectOptions(
+        contentSwitcher,
+        visibleSessions.map((session) => ({
+          value: session.session_id,
+          label: shellSessionLabel(session),
+        })),
+        selectedShellSessionId,
+        false,
+      );
     }
 
     async function refreshShellSessions() {
@@ -1912,6 +1945,105 @@
       return "";
     }
 
+    function resetArtifactTargetState(kind = "empty") {
+      artifactKind = kind || "empty";
+      artifactDocumentPath = "";
+      artifactDocumentTitle = "";
+      artifactRoutePath = "";
+      artifactRouteTitle = "";
+      artifactFolderPath = "";
+      artifactFolderTitle = "";
+      artifactCorkboardPath = "";
+      artifactCorkboardId = "";
+      artifactCorkboardProvider = "";
+      artifactCorkboardTitle = "";
+      artifactAgendaProvider = "";
+      artifactEditing = false;
+    }
+
+    function applyArtifactItem(item) {
+      const next = item && typeof item === "object" ? item : null;
+      if (!next) {
+        resetArtifactTargetState("empty");
+        syncArtifactUrlState();
+        renderFileSwitcher();
+        reconnectArtifactStream();
+        return;
+      }
+      resetArtifactTargetState(String(next.kind || "empty"));
+      artifactEditing = Boolean(next.editing);
+      if (artifactKind === "document" && next.target) {
+        artifactDocumentPath = String(next.target.path || "");
+        artifactDocumentTitle = String(
+          next.target.label || next.title || artifactDocumentPath,
+        );
+      } else if (artifactKind === "route") {
+        artifactRoutePath = String(next.path || "");
+        artifactRouteTitle = String(next.title || artifactRoutePath);
+      } else if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
+        const board = next.board || next.folder || next.corkboard || {};
+        artifactCorkboardId = String(board.id || board.path || "");
+        artifactCorkboardPath = artifactCorkboardId;
+        artifactCorkboardProvider = String(board.provider || "");
+        artifactCorkboardTitle = String(board.label || next.title || artifactCorkboardId);
+      } else if (artifactKind === "agenda") {
+        const agenda = next.agenda || {};
+        artifactAgendaProvider = String(agenda.provider || "");
+      }
+      syncArtifactUrlState();
+      renderFileSwitcher();
+      reconnectArtifactStream();
+    }
+
+    function syncArtifactUrlState() {
+      const nextUrl = new URL(window.location.href);
+      for (const key of [
+        "artifact",
+        "document_path",
+        "document_title",
+        "artifact_path",
+        "artifact_title",
+        "folder_path",
+        "folder_title",
+        "corkboard_path",
+        "corkboard_id",
+        "corkboard_provider",
+        "corkboard_title",
+        "agenda_provider",
+      ]) {
+        nextUrl.searchParams.delete(key);
+      }
+      nextUrl.searchParams.set("artifact", artifactKind || "empty");
+      if (artifactKind === "document" && artifactDocumentPath) {
+        nextUrl.searchParams.set("document_path", artifactDocumentPath);
+        nextUrl.searchParams.set("document_title", artifactTargetTitle());
+      } else if (artifactKind === "route" && artifactRoutePath) {
+        nextUrl.searchParams.set("artifact_path", artifactRoutePath);
+        nextUrl.searchParams.set("artifact_title", artifactTargetTitle());
+      } else if (
+        (artifactKind === "corkboard" || artifactKind === "creative-corkboard") &&
+        artifactCorkboardId
+      ) {
+        nextUrl.searchParams.set("corkboard_id", artifactCorkboardId);
+        nextUrl.searchParams.set("corkboard_title", artifactTargetTitle());
+        if (artifactCorkboardProvider) {
+          nextUrl.searchParams.set("corkboard_provider", artifactCorkboardProvider);
+        }
+      } else if (artifactKind === "agenda" && artifactAgendaProvider) {
+        nextUrl.searchParams.set("agenda_provider", artifactAgendaProvider);
+      }
+      window.history.replaceState(null, "", nextUrl);
+    }
+
+    function reconnectArtifactStream() {
+      if (artifactEventSource) {
+        artifactEventSource.close();
+        artifactEventSource = null;
+      }
+      connectArtifactStream();
+      if (filePaneTools) filePaneTools.refresh();
+    }
+
     function artifactUrl() {
       if (artifactKind === "requirements") {
         return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${artifactZoom}&version=${artifactVersion}`;
@@ -2494,6 +2626,14 @@
         if (!artifactEditing) {
           refreshArtifact();
         }
+        return;
+      }
+      if (
+        data.type === "electroboy:pane-set-artifact" &&
+        PANE_KIND === "artifact" &&
+        (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
+      ) {
+        applyArtifactItem(data.item || null);
       }
     });
     contentSwitcher.addEventListener("change", () => {

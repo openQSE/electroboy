@@ -1981,7 +1981,7 @@
     }
 
     .artifact-preview-frame.loading {
-      opacity: 0;
+      opacity: 1;
     }
 
     .input-pane {

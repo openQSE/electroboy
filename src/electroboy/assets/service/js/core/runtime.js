@@ -680,12 +680,16 @@
       return handle;
     }
 
-    function paneLayoutInstanceUrl(leaf) {
-      const requestedArtifact = leaf.kind === "artifact"
+    function paneLayoutRequestedArtifact(leaf) {
+      return leaf.kind === "artifact"
         ? activeProjectRoot && leaf.projectRoot === activeProjectRoot
           ? leaf.content
           : null
         : undefined;
+    }
+
+    function paneLayoutInstanceUrl(leaf) {
+      const requestedArtifact = paneLayoutRequestedArtifact(leaf);
       const url = new URL(paneUrl(leaf.kind, requestedArtifact), window.location.origin);
       url.searchParams.set("embedded", "1");
       url.searchParams.set("pane_instance_id", leaf.id);
@@ -697,10 +701,40 @@
       frame.className = "pane-layout-instance-frame";
       frame.title = `${PANE_LAYOUT_KINDS[leaf.kind].label} pane`;
       frame.src = paneLayoutInstanceUrl(leaf);
+      frame.addEventListener("load", () => {
+        frame.dataset.paneLoaded = "1";
+      });
       frame.addEventListener("focus", () => {
         setActivePaneLayoutLeaf(leaf.id);
       });
       return frame;
+    }
+
+    function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl) {
+      if (
+        leaf.kind !== "artifact" ||
+        frame.dataset.paneLoaded !== "1" ||
+        !frame.contentWindow
+      ) {
+        return false;
+      }
+      const currentUrl = new URL(frame.src, window.location.origin);
+      if (
+        currentUrl.pathname !== nextUrl.pathname ||
+        currentUrl.searchParams.get("context_id") !==
+          nextUrl.searchParams.get("context_id")
+      ) {
+        return false;
+      }
+      frame.contentWindow.postMessage(
+        {
+          type: "electroboy:pane-set-artifact",
+          paneInstanceId: leaf.id,
+          item: paneLayoutRequestedArtifact(leaf),
+        },
+        window.location.origin,
+      );
+      return true;
     }
 
     function refreshPaneLayoutInstanceFrames() {
@@ -718,9 +752,13 @@
         const nextUrl = new URL(
           paneLayoutInstanceUrl(leaf),
           window.location.origin,
-        ).href;
-        if (frame.src !== nextUrl) {
-          frame.src = nextUrl;
+        );
+        if (updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)) {
+          continue;
+        }
+        if (frame.src !== nextUrl.href) {
+          frame.dataset.paneLoaded = "";
+          frame.src = nextUrl.href;
         }
       }
     }
@@ -1005,7 +1043,7 @@
       leaf.projectRoot = activeProjectRoot;
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
-      renderPaneLayout();
+      refreshPaneLayoutInstanceFrames();
     }
 
     function handlePaneLayoutMessage(event) {
