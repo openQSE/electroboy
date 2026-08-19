@@ -55,6 +55,7 @@ class CreativeWritingCorkboardProvider:
                 **payload,
                 "capabilities": [
                     "change-color",
+                    "change-layout",
                     "create-card",
                     "delete-card",
                     "edit-card",
@@ -89,6 +90,7 @@ class CreativeWritingCorkboardProvider:
         board_id = str(payload.get("board_id") or "").strip()
         action = str(payload.get("action") or "").strip()
         if not board_id or action not in {
+            "change-layout",
             "delete-card",
             "rename-board",
             "reorder-cards",
@@ -96,6 +98,13 @@ class CreativeWritingCorkboardProvider:
         }:
             return payload
         board_type = str(payload.get("board_type") or "freeform")
+        if action == "change-layout":
+            return {
+                "board_type": "freeform",
+                "action": "layout",
+                "corkboard": board_id,
+                "layout": payload.get("layout"),
+            }
         if action == "rename-board":
             return {
                 "board_type": "freeform",

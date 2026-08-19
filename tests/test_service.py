@@ -491,6 +491,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('String(event.key).toLowerCase() !== "n"', pane_tools)
         self.assertNotIn("documentation/start", pane_tools)
         self.assertNotIn("creative-writing", pane_tools)
+        self.assertIn('controller.addSection("corkboard-view", "Board view")', file_pane_tools)
+        self.assertIn('controller.addSection("corkboard-color", "Selected card")', file_pane_tools)
+        self.assertIn('controller.addSection("corkboard-export", "Export")', file_pane_tools)
+        self.assertIn('postBoardTool("random-card-color")', file_pane_tools)
+        self.assertIn('postBoardTool("export", exportFormat.value)', file_pane_tools)
+        self.assertIn('type: "electroboy-corkboard-tool"', file_pane_tools)
         self.assertIn("terminal.hasSelection()", terminal_behavior)
         self.assertIn("navigator.clipboard.writeText", terminal_behavior)
         self.assertIn("terminal.registerMarker", terminal_behavior)
@@ -2595,6 +2601,10 @@ class ServiceTests(unittest.TestCase):
             self.assertIn('id="cardSizeSlider"', page)
             self.assertIn('id="cardFontSlider"', page)
             self.assertIn('id="boardZoomSlider"', page)
+            self.assertIn(
+                'class="board-controls" aria-label="Corkboard display controls" hidden',
+                page,
+            )
             self.assertIn('aria-label="Zoom corkboard out"', page)
             self.assertIn('aria-label="Zoom corkboard in"', page)
             self.assertIn("function updateBoardZoom", page)
@@ -2629,6 +2639,14 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function boardZoomFromSlider(value)", page)
             self.assertIn("const BOARD_ZOOM_FACTOR = 1.1;", page)
             self.assertIn("function updateCardScale", page)
+            self.assertIn("function setSelectedCardColor(color)", page)
+            self.assertIn("function randomCardColor()", page)
+            self.assertIn("function occupiedCardBounds()", page)
+            self.assertIn("async function exportBoardImage(format", page)
+            self.assertIn("const maximumDimension = 16384;", page)
+            self.assertIn("const maximumPixels = 64_000_000;", page)
+            self.assertIn('message.action === "set-board-zoom"', page)
+            self.assertIn('message.action === "export"', page)
             self.assertIn('"electroboy.creative.corkboard"', page)
             self.assertIn("CORKBOARD_STORAGE_NAMESPACE", page)
             self.assertIn(
@@ -2712,6 +2730,35 @@ class ServiceTests(unittest.TestCase):
                     },
                 },
             )
+            recolored = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "card": {
+                        **saved["card"],
+                        "color": "#a1b2c3",
+                    },
+                },
+            )
+            saved_layout = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "action": "layout",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "layout": "grid",
+                },
+            )
+            state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "action": "title",
+                    "corkboard": "corkboard/plot.corkboard.json",
+                    "title": "Plot ideas",
+                },
+            )
             page, status = creative_corkboard_html(
                 project_root,
                 "corkboard/plot.corkboard.json",
@@ -2736,9 +2783,20 @@ class ServiceTests(unittest.TestCase):
                     encoding="utf-8",
                 )
             )
+            tree = state.creative_tree(context_id)
+            corkboard_folder = next(
+                entry for entry in tree["entries"] if entry["path"] == "corkboard"
+            )
+            tree_board = next(
+                entry
+                for entry in corkboard_folder["children"]
+                if entry["path"] == "corkboard/plot.corkboard.json"
+            )
 
             self.assertEqual(status, HTTPStatus.OK)
             self.assertIn('"board_type": "freeform"', page)
+            self.assertIn('"layout_modes": ["grid", "freeform"]', page)
+            self.assertIn('"default_layout_mode": "grid"', page)
             self.assertIn("Add card", page)
             self.assertIn("Resize corkboard cards", page)
             self.assertIn('id="canvasViewport"', page)
@@ -2773,12 +2831,17 @@ class ServiceTests(unittest.TestCase):
             self.assertNotIn('"Idea"', page)
             self.assertIn("selectedCardKey = card.id;", page)
             self.assertIn("Opening beat", page)
+            self.assertEqual(saved_layout["layout"], "grid")
+            self.assertEqual(document["layout"], "grid")
+            self.assertEqual(tree_board["name"], "plot.corkboard.json")
+            self.assertEqual(tree_board["title"], "Plot ideas")
             self.assertIn("Start with a quiet contradiction.", page)
             self.assertEqual(saved["card"]["id"], "opening-beat")
+            self.assertEqual(recolored["card"]["color"], "#a1b2c3")
             self.assertEqual(document["cards"][0]["id"], "opening-beat")
             self.assertEqual(document["cards"][0]["x"], -188)
             self.assertEqual(document["cards"][0]["y"], 8144)
-            self.assertEqual(document["cards"][0]["color"], "mint")
+            self.assertEqual(document["cards"][0]["color"], "#a1b2c3")
             self.assertEqual(document["cards"][0]["card_type"], "card")
             self.assertEqual(deleted["status"], "deleted")
             self.assertEqual(deleted["card_id"], "opening-beat")
@@ -2797,6 +2860,20 @@ class ServiceTests(unittest.TestCase):
             self.assertIsInstance(controller, CorkboardWorkflowController)
             provider = controller.get_corkboard_provider()
             snapshot = provider.get_board(context_id, "chapters")
+            ideas_snapshot = provider.get_board(
+                context_id,
+                "corkboard/ideas.corkboard.json",
+            )
+            saved_layout = provider.apply_operation(
+                context_id,
+                {
+                    "provider": "creative-files",
+                    "board_id": "corkboard/ideas.corkboard.json",
+                    "board_type": "freeform",
+                    "action": "change-layout",
+                    "layout": "grid",
+                },
+            )
             saved = provider.apply_operation(
                 context_id,
                 {
@@ -2817,6 +2894,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["provider"], "creative-files")
         self.assertEqual(snapshot["board_id"], "chapters")
         self.assertEqual(snapshot["board_type"], "folder")
+        self.assertEqual(ideas_snapshot["layout_modes"], ["grid", "freeform"])
+        self.assertEqual(ideas_snapshot["default_layout_mode"], "freeform")
+        self.assertEqual(saved_layout["layout"], "grid")
         self.assertIn("open-card", snapshot["capabilities"])
         self.assertEqual(saved["card"]["note"], "Provider-backed note.")
         self.assertEqual(status, HTTPStatus.OK)

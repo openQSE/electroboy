@@ -148,6 +148,17 @@
 
   function handleWindowMessage(runtime, data) {
     bindRuntime(runtime);
+    if (data.type === "corkboard-title-changed" && data.board_path) {
+      const entry = findCreativeEntry(
+        creativeTreePayload && creativeTreePayload.entries,
+        data.board_path,
+      );
+      if (entry && entry.corkboard) {
+        entry.title = String(data.title || "Untitled corkboard");
+        renderCreativeTree();
+      }
+      return true;
+    }
     if (
       !["electroboy-corkboard-open", "electroboy-creative-open"].includes(data.type) ||
       !data.path ||
@@ -865,11 +876,7 @@
         return "";
       }
       if (type === "corkboard") {
-        if (!name.toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX)) {
-          name = name.replace(/\.(md|json)$/i, "");
-          name = `${name}${CREATIVE_CORKBOARD_SUFFIX}`;
-        }
-        return name;
+        return name.slice(0, 200);
       }
       if (type === "file" && !/\.[^./]+$/.test(name)) {
         name = `${name}.md`;
@@ -882,10 +889,46 @@
         return;
       }
       const newName = normalizedCreativeName(rawName, type);
-      if (!newName || newName === basename(path)) {
+      const entry = findCreativeEntry(
+        creativeTreePayload && creativeTreePayload.entries,
+        path,
+      );
+      const currentName = type === "corkboard" && entry
+        ? String(entry.title || "")
+        : basename(path);
+      if (!newName || newName === currentName) {
         creativeEditingPath = "";
         creativeEditingType = "";
         renderCreativeTree();
+        return;
+      }
+      if (type === "corkboard") {
+        const response = await fetch(contextUrl("/api/corkboard"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "creative-files",
+            board_id: path,
+            action: "rename-board",
+            title: newName,
+          }),
+        });
+        const payload = await response.json().catch(() => ({ error: "rename failed" }));
+        if (!response.ok) {
+          appendOutput(`${payload.error || "rename failed"}\n`, "error");
+          renderCreativeTree();
+          return;
+        }
+        if (entry) {
+          entry.title = String(payload.title || newName);
+        }
+        creativeEditingPath = "";
+        creativeEditingType = "";
+        renderCreativeTree();
+        if (creativeActiveDocument === path) {
+          showCreativeCorkboard(path, { freeform: true, title: entry && entry.title });
+        }
+        recordProjectStatusMessage(`renamed board: ${payload.title || newName}`);
         return;
       }
       const response = await fetch(contextUrl("/api/creative/rename"), {

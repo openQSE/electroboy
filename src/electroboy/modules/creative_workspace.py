@@ -168,6 +168,7 @@ def _empty_creative_corkboard_document(
         "schema_version": 1,
         "type": "electroboy.creative.corkboard",
         "title": _normalize_creative_corkboard_title(title, "Untitled corkboard"),
+        "layout": "freeform",
         "cards": [],
     }
 
@@ -297,15 +298,21 @@ def _creative_tree_entries(
                 }
             )
             continue
-        entries.append(
-            {
-                "name": child.name,
-                "path": relative_path,
-                "type": "file",
-                "markdown": child.suffix.lower() == ".md",
-                "corkboard": child.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
-            }
-        )
+        is_corkboard = child.name.endswith(CREATIVE_CORKBOARD_SUFFIX)
+        entry: dict[str, object] = {
+            "name": child.name,
+            "path": relative_path,
+            "type": "file",
+            "markdown": child.suffix.lower() == ".md",
+            "corkboard": is_corkboard,
+        }
+        if is_corkboard:
+            data = _load_creative_corkboard_document(child)
+            entry["title"] = _normalize_creative_corkboard_title(
+                data.get("title"),
+                child.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX),
+            )
+        entries.append(entry)
     return entries
 
 
@@ -969,6 +976,10 @@ def render_corkboard_html(
       padding: 8px 10px;
     }}
 
+    .board-controls[hidden] {{
+      display: none;
+    }}
+
     .card-size-control,
     .card-font-control,
     .board-zoom-control {{
@@ -1050,7 +1061,7 @@ def render_corkboard_html(
       <section id="board" class="board" aria-label="{html.escape(str(payload["title"]))}"></section>
     </section>
   </main>
-  <aside class="board-controls" aria-label="Corkboard display controls">
+  <aside class="board-controls" aria-label="Corkboard display controls" hidden>
     <div class="board-zoom-control">
       <span class="card-size-label">
         <span>Board zoom</span>
@@ -1107,6 +1118,9 @@ def render_corkboard_html(
     const CORKBOARD_DATA = {data_json};
     const CORKBOARD_OPERATION_URL = {operation_url_json};
     const CORKBOARD_OPEN_EVENT_TYPE = {open_event_type_json};
+    const PARENT_MESSAGE_ORIGIN = window.location.origin === "null"
+      ? "*"
+      : window.location.origin;
     const canvasViewport = document.getElementById("canvasViewport");
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
@@ -1150,7 +1164,6 @@ def render_corkboard_html(
     const CARD_FONT_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardFont.`;
     const BOARD_ZOOM_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.boardZoom.`;
     const CANVAS_PAN_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.canvasPan.`;
-    const LAYOUT_MODE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.layoutMode.`;
     const MIN_BOARD_ZOOM = 1;
     const MAX_BOARD_ZOOM = 10000;
     const BOARD_ZOOM_FACTOR = 1.1;
@@ -1193,7 +1206,7 @@ def render_corkboard_html(
     let cardScale = storedCardScale();
     let cardFontScale = storedCardFontScale();
     let canvasPan = storedCanvasPan();
-    let layoutMode = storedLayoutMode();
+    let layoutMode = DEFAULT_LAYOUT_MODE;
     let organizeUndo = null;
     let selectedCardKey = "";
 
@@ -1308,28 +1321,22 @@ def render_corkboard_html(
       return `${{CANVAS_PAN_STORAGE_PREFIX}}${{boardStoragePath()}}`;
     }}
 
-    function layoutModeStorageKey() {{
-      return `${{LAYOUT_MODE_STORAGE_PREFIX}}${{boardStoragePath()}}`;
-    }}
-
-    function storedLayoutMode() {{
-      try {{
-        const stored = window.localStorage.getItem(layoutModeStorageKey());
-        if (AVAILABLE_LAYOUT_MODES.includes(stored)) {{
-          return stored;
-        }}
-      }} catch (error) {{
-        return DEFAULT_LAYOUT_MODE;
+    async function saveLayoutMode() {{
+      if (!CORKBOARD_DATA.context_id || !supports("change-layout")) {{
+        return true;
       }}
-      return DEFAULT_LAYOUT_MODE;
-    }}
-
-    function saveLayoutMode() {{
-      try {{
-        window.localStorage.setItem(layoutModeStorageKey(), layoutMode);
-      }} catch (error) {{
-        return;
-      }}
+      const response = await fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          provider: CORKBOARD_DATA.provider || "",
+          board_id: boardStoragePath(),
+          board_type: boardType,
+          action: "change-layout",
+          layout: layoutMode,
+        }}),
+      }}).catch(() => null);
+      return Boolean(response && response.ok);
     }}
 
     function usesFreeformLayout() {{
@@ -1381,6 +1388,11 @@ def render_corkboard_html(
           title: CORKBOARD_DATA.title,
         }});
       }}
+      window.parent.postMessage({{
+        type: "corkboard-title-changed",
+        board_path: CORKBOARD_DATA.corkboard.path,
+        title: CORKBOARD_DATA.title,
+      }}, "*");
     }}
 
     function queueBoardTitleSave() {{
@@ -1514,6 +1526,7 @@ def render_corkboard_html(
       zoomOut.disabled = boardZoom <= MIN_BOARD_ZOOM;
       zoomIn.disabled = boardZoom >= MAX_BOARD_ZOOM;
       sizeBoard();
+      postToolState();
     }}
 
     function updateBoardZoom(value, clientX = null, clientY = null) {{
@@ -1667,6 +1680,7 @@ def render_corkboard_html(
       cardFontScale = clampCardFontScale(value);
       saveCardFontScale();
       applyCardFontScale();
+      postToolState();
     }}
 
     function applyCardScale() {{
@@ -1705,6 +1719,7 @@ def render_corkboard_html(
       cardScale = clampCardScale(value);
       saveCardScale();
       applyCardScale();
+      postToolState();
     }}
 
     function cardKey(card) {{
@@ -1737,6 +1752,7 @@ def render_corkboard_html(
       }}
       cardElement.classList.add("selected");
       cardElement.setAttribute("aria-selected", "true");
+      postToolState();
     }}
 
     function paletteEntryFor(color) {{
@@ -1807,6 +1823,7 @@ def render_corkboard_html(
           swatch.classList.add("selected");
           palette.classList.remove("open");
           queueSave(card);
+          postToolState();
         }});
         palette.append(swatch);
       }}
@@ -1828,6 +1845,296 @@ def render_corkboard_html(
       cardElement.style.top = `${{Number(card.y) || 0}}px`;
       cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
       cardElement.style.setProperty("--paper", cardColor(card));
+    }}
+
+    function selectedCard() {{
+      return cards.find((card) => cardKey(card) === selectedCardKey) || null;
+    }}
+
+    function postToolState() {{
+      const card = selectedCard();
+      window.parent.postMessage({{
+        type: "electroboy-corkboard-tool-state",
+        boardPath: boardStoragePath(),
+        zoomSlider: boardZoomSliderValue(),
+        zoomLabel: boardZoomLabel(),
+        cardScale,
+        cardFontScale,
+        hasSelection: Boolean(card),
+        canChangeColor: supports("change-color"),
+        selectedColor: card ? cardColor(card) : "",
+      }}, PARENT_MESSAGE_ORIGIN);
+    }}
+
+    function setSelectedCardColor(color) {{
+      const card = selectedCard();
+      const normalized = String(color || "").trim().toLowerCase();
+      if (!card || !supports("change-color") || !/^#[0-9a-f]{{6}}$/.test(normalized)) {{
+        return;
+      }}
+      card.color = normalized;
+      const element = cardElementFor(card);
+      if (element) {{
+        element.style.setProperty("--paper", normalized);
+        const icon = element.querySelector(".card-color-icon");
+        if (icon) icon.style.setProperty("--selected-paper", normalized);
+      }}
+      queueSave(card);
+      postToolState();
+    }}
+
+    function randomCardColor() {{
+      const hue = Math.floor(Math.random() * 360);
+      const saturation = 55 + Math.floor(Math.random() * 26);
+      const lightness = 72 + Math.floor(Math.random() * 17);
+      const saturationRatio = saturation / 100;
+      const lightnessRatio = lightness / 100;
+      const chroma = (1 - Math.abs(2 * lightnessRatio - 1)) * saturationRatio;
+      const segment = hue / 60;
+      const secondary = chroma * (1 - Math.abs(segment % 2 - 1));
+      const values = segment < 1 ? [chroma, secondary, 0]
+        : segment < 2 ? [secondary, chroma, 0]
+          : segment < 3 ? [0, chroma, secondary]
+            : segment < 4 ? [0, secondary, chroma]
+              : segment < 5 ? [secondary, 0, chroma]
+                : [chroma, 0, secondary];
+      const match = lightnessRatio - chroma / 2;
+      const hex = values.map((value) =>
+        Math.round((value + match) * 255).toString(16).padStart(2, "0"),
+      ).join("");
+      setSelectedCardColor(`#${{hex}}`);
+    }}
+
+    function rotatedCardBounds(x, y, width, height, rotation) {{
+      const radians = rotation * Math.PI / 180;
+      const cosine = Math.cos(radians);
+      const sine = Math.sin(radians);
+      const originX = x + width / 2;
+      const originY = y + 22;
+      const points = [
+        [x, y],
+        [x + width, y],
+        [x + width, y + height],
+        [x, y + height],
+      ].map(([pointX, pointY]) => ({{
+        x: originX + (pointX - originX) * cosine - (pointY - originY) * sine,
+        y: originY + (pointX - originX) * sine + (pointY - originY) * cosine,
+      }}));
+      return {{
+        left: Math.min(...points.map((point) => point.x)),
+        top: Math.min(...points.map((point) => point.y)),
+        right: Math.max(...points.map((point) => point.x)),
+        bottom: Math.max(...points.map((point) => point.y)),
+      }};
+    }}
+
+    function occupiedCardBounds() {{
+      const bounds = [];
+      for (const card of cards) {{
+        const element = cardElementFor(card);
+        if (!element) continue;
+        const x = usesFreeformLayout() ? Number(card.x) || 0 : element.offsetLeft;
+        const y = usesFreeformLayout() ? Number(card.y) || 0 : element.offsetTop;
+        const rotation = boardType === "freeform" && layoutMode === "grid"
+          ? 0
+          : Number(card.rotation) || 0;
+        bounds.push(rotatedCardBounds(
+          x,
+          y,
+          element.offsetWidth,
+          element.offsetHeight,
+          rotation,
+        ));
+      }}
+      if (!bounds.length) return null;
+      const padding = 32;
+      return {{
+        left: Math.floor(Math.min(...bounds.map((item) => item.left)) - padding),
+        top: Math.floor(Math.min(...bounds.map((item) => item.top)) - padding),
+        right: Math.ceil(Math.max(...bounds.map((item) => item.right)) + padding),
+        bottom: Math.ceil(Math.max(...bounds.map((item) => item.bottom)) + padding),
+      }};
+    }}
+
+    function roundedRectangle(context, x, y, width, height, radius) {{
+      const boundedRadius = Math.min(radius, width / 2, height / 2);
+      context.beginPath();
+      context.moveTo(x + boundedRadius, y);
+      context.arcTo(x + width, y, x + width, y + height, boundedRadius);
+      context.arcTo(x + width, y + height, x, y + height, boundedRadius);
+      context.arcTo(x, y + height, x, y, boundedRadius);
+      context.arcTo(x, y, x + width, y, boundedRadius);
+      context.closePath();
+    }}
+
+    function drawWrappedText(context, text, x, y, maximumWidth, lineHeight, maximumY) {{
+      let cursorY = y;
+      for (const paragraph of String(text || "").split(/\\r?\\n/)) {{
+        const words = paragraph.split(/\\s+/).filter(Boolean);
+        let line = "";
+        for (const word of words) {{
+          const candidate = line ? `${{line}} ${{word}}` : word;
+          if (line && context.measureText(candidate).width > maximumWidth) {{
+            if (cursorY + lineHeight > maximumY) return;
+            context.fillText(line, x, cursorY);
+            cursorY += lineHeight;
+            line = word;
+          }} else {{
+            line = candidate;
+          }}
+        }}
+        if (line) {{
+          if (cursorY + lineHeight > maximumY) return;
+          context.fillText(line, x, cursorY);
+          cursorY += lineHeight;
+        }} else {{
+          cursorY += lineHeight;
+        }}
+      }}
+    }}
+
+    function drawExportCard(context, card) {{
+      const element = cardElementFor(card);
+      if (!element) return;
+      const x = usesFreeformLayout() ? Number(card.x) || 0 : element.offsetLeft;
+      const y = usesFreeformLayout() ? Number(card.y) || 0 : element.offsetTop;
+      const width = element.offsetWidth;
+      const height = element.offsetHeight;
+      const rotation = boardType === "freeform" && layoutMode === "grid"
+        ? 0
+        : Number(card.rotation) || 0;
+      context.save();
+      context.translate(x + width / 2, y + 22);
+      context.rotate(rotation * Math.PI / 180);
+      context.translate(-width / 2, -22);
+      context.shadowColor = "rgba(15, 20, 32, 0.32)";
+      context.shadowBlur = 18;
+      context.shadowOffsetY = 12;
+      roundedRectangle(context, 0, 0, width, height, 5);
+      context.fillStyle = cardColor(card);
+      context.fill();
+      context.shadowColor = "transparent";
+      context.strokeStyle = "rgba(38, 50, 71, 0.16)";
+      context.lineWidth = 1;
+      context.stroke();
+      context.fillStyle = "rgba(255, 255, 255, 0.22)";
+      context.fillRect(16, 8, Math.max(0, width - 32), 16);
+      context.beginPath();
+      context.arc(width / 2, -1, 8, 0, Math.PI * 2);
+      context.fillStyle = "#d1495b";
+      context.fill();
+      const horizontalPadding = 14;
+      context.fillStyle = "#263247";
+      context.font = `700 ${{scaledFontValue(17)}}px Georgia, serif`;
+      context.textBaseline = "top";
+      drawWrappedText(
+        context,
+        card.title || card.name || card.path || "Untitled card",
+        horizontalPadding,
+        20,
+        width - horizontalPadding * 2,
+        scaledFontValue(21),
+        Math.min(height - 20, 68),
+      );
+      context.fillStyle = "#374151";
+      context.font = `${{scaledFontValue(13)}}px Inter, Arial, sans-serif`;
+      drawWrappedText(
+        context,
+        card.note || "",
+        horizontalPadding,
+        70,
+        width - horizontalPadding * 2,
+        scaledFontValue(21),
+        height - 14,
+      );
+      context.restore();
+    }}
+
+    async function exportBoardImage(format = "png") {{
+      const bounds = occupiedCardBounds();
+      if (!bounds) throw new Error("Add at least one card before exporting.");
+      const width = Math.max(1, bounds.right - bounds.left);
+      const height = Math.max(1, bounds.bottom - bounds.top);
+      const maximumDimension = 16384;
+      const maximumPixels = 64_000_000;
+      const scale = Math.min(
+        2,
+        maximumDimension / Math.max(width, height),
+        Math.sqrt(maximumPixels / (width * height)),
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Image export is unavailable in this browser.");
+      context.scale(scale, scale);
+      context.fillStyle = "#a86d38";
+      context.fillRect(0, 0, width, height);
+      context.globalAlpha = 0.2;
+      for (let x = 7; x < width; x += 31) {{
+        for (let y = 11; y < height; y += 37) {{
+          context.fillStyle = (x + y) % 3 ? "#5f4128" : "#ecb770";
+          context.fillRect(x, y, 1.5, 1.5);
+        }}
+      }}
+      context.globalAlpha = 1;
+      context.translate(-bounds.left, -bounds.top);
+      for (const card of cards) drawExportCard(context, card);
+      const normalizedFormat = format === "jpeg" ? "jpeg" : "png";
+      const mimeType = normalizedFormat === "jpeg" ? "image/jpeg" : "image/png";
+      const blob = await new Promise((resolve, reject) =>
+        canvas.toBlob(
+          (value) => value ? resolve(value) : reject(new Error("Unable to encode image.")),
+          mimeType,
+          0.92,
+        ),
+      );
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const safeTitle = String(CORKBOARD_DATA.title || "corkboard")
+        .replace(/[^a-z0-9._-]+/gi, "-")
+        .replace(/^-+|-+$/g, "") || "corkboard";
+      anchor.href = downloadUrl;
+      anchor.download = `${{safeTitle}}.${{normalizedFormat === "jpeg" ? "jpg" : "png"}}`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      return normalizedFormat;
+    }}
+
+    function handlePaneToolMessage(event) {{
+      if (
+        event.source !== window.parent
+        || (window.location.origin !== "null" && event.origin !== window.location.origin)
+      ) return;
+      const message = event.data || {{}};
+      if (message.type !== "electroboy-corkboard-tool") return;
+      if (message.action === "request-state") {{
+        postToolState();
+      }} else if (message.action === "set-board-zoom") {{
+        updateBoardZoom(boardZoomFromSlider(message.value));
+      }} else if (message.action === "set-card-size") {{
+        updateCardScale(message.value);
+        postToolState();
+      }} else if (message.action === "set-card-font") {{
+        updateCardFontScale(message.value);
+        postToolState();
+      }} else if (message.action === "set-card-color") {{
+        setSelectedCardColor(message.value);
+      }} else if (message.action === "random-card-color") {{
+        randomCardColor();
+      }} else if (message.action === "export") {{
+        exportBoardImage(message.value).then((format) => {{
+          window.parent.postMessage({{
+            type: "electroboy-corkboard-exported",
+            format,
+          }}, PARENT_MESSAGE_ORIGIN);
+        }}).catch((error) => {{
+          window.parent.postMessage({{
+            type: "electroboy-corkboard-exported",
+            error: String(error && error.message || error),
+          }}, PARENT_MESSAGE_ORIGIN);
+        }});
+      }}
     }}
 
     function cardsInPositionOrder() {{
@@ -1973,6 +2280,7 @@ def render_corkboard_html(
         layoutSelect.value = layoutMode;
         return;
       }}
+      const previousMode = layoutMode;
       layoutSelect.disabled = true;
       if (layoutMode === "freeform" && nextMode === "grid") {{
         await organizeFreeformCards({{ recordUndo: false }});
@@ -1982,7 +2290,10 @@ def render_corkboard_html(
         saveCanvasPan();
       }}
       layoutMode = nextMode;
-      saveLayoutMode();
+      const saved = await saveLayoutMode();
+      if (!saved) {{
+        layoutMode = previousMode;
+      }}
       canvasPanState = null;
       renderCards();
       layoutSelect.disabled = false;
@@ -2516,6 +2827,7 @@ def render_corkboard_html(
           ? "No cards yet. Add one to start arranging ideas."
           : "No folders or files yet.";
         board.append(empty);
+        postToolState();
         return;
       }}
       for (const card of cards) {{
@@ -2674,6 +2986,7 @@ def render_corkboard_html(
         board.append(cardElement);
       }}
       sizeBoard();
+      postToolState();
     }}
 
     addCard.addEventListener("click", makeFreeformCard);
@@ -2747,6 +3060,7 @@ def render_corkboard_html(
       }}
     }});
     window.addEventListener("resize", sizeBoard);
+    window.addEventListener("message", handlePaneToolMessage);
     configureBoardSelector();
     configureLayoutControls();
     if (boardType === "freeform" && layoutMode === "grid") {{
@@ -2857,10 +3171,15 @@ def _creative_freeform_corkboard_payload(
 ) -> dict[str, object]:
     data = _load_creative_corkboard_document(corkboard_path)
     stored_title = str(data.get("title") or "").strip()
+    stored_layout = str(data.get("layout") or "freeform").strip().lower()
+    if stored_layout not in {"grid", "freeform"}:
+        stored_layout = "freeform"
     group_title = _creative_card_group_title(project_root, normalized_path)
     return {
         "schema_version": 1,
         "board_type": "freeform",
+        "layout_modes": ["grid", "freeform"],
+        "default_layout_mode": stored_layout,
         "context_id": context_id,
         "palette": _creative_card_palette_payload(),
         "title": (
@@ -3186,9 +3505,33 @@ def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
     if data.get("type") != "electroboy.creative.corkboard":
         data["type"] = "electroboy.creative.corkboard"
     data["schema_version"] = 1
+    if str(data.get("layout") or "").strip().lower() not in {"grid", "freeform"}:
+        data["layout"] = "freeform"
     if not isinstance(data.get("cards"), list):
         data["cards"] = []
     return data
+
+
+def _save_creative_freeform_corkboard_layout(
+    project_root: Path | str,
+    corkboard_path: str,
+    layout: object,
+) -> str:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    normalized_layout = str(layout or "").strip().lower()
+    if normalized_layout not in {"grid", "freeform"}:
+        raise StateError(f"unknown corkboard layout mode: {normalized_layout or 'missing'}")
+    data = _load_creative_corkboard_document(path)
+    data["layout"] = normalized_layout
+    path.write_text(
+        json.dumps(data, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return normalized_layout
 
 
 def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]]:
@@ -3432,6 +3775,13 @@ def save_creative_corkboard(
         return {"status": "saved", "card": card}
     if board_type == "freeform":
         action = str(payload.get("action") or "")
+        if action == "layout":
+            layout = _save_creative_freeform_corkboard_layout(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                layout=payload.get("layout"),
+            )
+            return {"status": "saved", "layout": layout}
         if action == "title":
             title_result = _save_creative_freeform_corkboard_title(
                 project_root,

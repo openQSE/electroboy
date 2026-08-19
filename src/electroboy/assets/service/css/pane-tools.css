@@ -103,7 +103,8 @@
 
 .pane-tool-section-body button,
 .pane-tool-section-body select,
-.pane-tool-section-body input[type="search"] {
+.pane-tool-section-body input[type="search"],
+.pane-tool-section-body input[type="color"] {
   min-width: 0;
   min-height: 30px;
   border: 1px solid #364156;
@@ -112,6 +113,47 @@
   color: var(--terminal-text);
   font: inherit;
   font-size: var(--ui-small-font-size);
+}
+
+.pane-tool-slider {
+  display: grid;
+  gap: 4px;
+  color: #c9d5e8;
+  font-size: var(--ui-small-font-size);
+}
+
+.pane-tool-slider > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pane-tool-slider output {
+  color: #66d9e8;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.pane-tool-slider input[type="range"] {
+  width: 100%;
+  accent-color: #66d9e8;
+}
+
+.pane-tool-color-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.pane-tool-color-row input[type="color"] {
+  width: 52px;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.pane-tool-section-body :disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .pane-tool-section-body button {

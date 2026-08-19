@@ -105,7 +105,9 @@
       kind: item.kind,
       path: item.kind === "document" && item.target
         ? item.target.path
-        : item.path || "",
+        : item.kind === "corkboard" && item.board
+          ? item.board.id
+          : item.path || "",
       title: item.title || "",
       editing: Boolean(item.editing),
     };

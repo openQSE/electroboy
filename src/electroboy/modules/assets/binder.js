@@ -154,7 +154,9 @@
   function treeName(entry, path) {
     const name = document.createElement("span");
     name.className = "creative-tree-name";
-    name.textContent = String(entry.name || path || "Untitled");
+    name.textContent = String(
+      (entry.corkboard && entry.title) || entry.name || path || "Untitled",
+    );
     return name;
   }
 
@@ -198,7 +200,9 @@
     const input = document.createElement("input");
     input.className = "creative-tree-name-input";
     input.type = "text";
-    input.value = String(entry.name || basename(path));
+    input.value = String(
+      (entry.corkboard && entry.title) || entry.name || basename(path),
+    );
     input.setAttribute("aria-label", `Rename ${path}`);
     input.addEventListener("click", (event) => event.stopPropagation());
     input.addEventListener("dblclick", (event) => event.stopPropagation());
