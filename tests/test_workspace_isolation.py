@@ -1,0 +1,344 @@
+from __future__ import annotations
+
+import http.client
+import json
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from electroboy.service import ServiceState, create_server
+from electroboy.service.sessions import AgentSessionError
+from electroboy.service.workspaces import WorkspaceRegistry
+from electroboy.state_store import StateStore
+
+
+class WorkspaceIsolationTests(unittest.TestCase):
+    @staticmethod
+    def _request(
+        server: object,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+    ) -> tuple[int, dict[str, object]]:
+        host, port = server.server_address[:2]
+        connection = http.client.HTTPConnection(host, port, timeout=2)
+        try:
+            connection.request(
+                method,
+                path,
+                body=(json.dumps(payload).encode("utf-8") if payload else None),
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            body = json.loads(response.read().decode("utf-8"))
+            return response.status, body
+        finally:
+            connection.close()
+
+    def test_workspace_routes_enforce_leases_and_switch_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            server = create_server(Path(tmp), port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                first_status, first = self._request(
+                    server,
+                    "POST",
+                    "/api/contexts",
+                    {"connection_id": "tab-a", "workflow_id": "software"},
+                )
+                workspace_id = str(first["workspace_id"])
+                first_token = str(first["lease_token"])
+                query = (
+                    f"workspace_id={workspace_id}&connection_id=tab-a"
+                    "&lease_token=wrong"
+                )
+                rejected_status, _rejected = self._request(
+                    server,
+                    "GET",
+                    f"/api/project?{query}",
+                )
+
+                second_status, second = self._request(
+                    server,
+                    "POST",
+                    "/api/contexts",
+                    {"connection_id": "tab-b", "workflow_id": "software"},
+                )
+                second_id = str(second["workspace_id"])
+                second_token = str(second["lease_token"])
+                second_query = (
+                    f"workspace_id={second_id}&connection_id=tab-b"
+                    f"&lease_token={second_token}"
+                )
+                conflict_status, _conflict = self._request(
+                    server,
+                    "POST",
+                    f"/api/workspaces/attach?{second_query}",
+                    {
+                        "workspace_id": workspace_id,
+                        "connection_id": "tab-b",
+                        "lease_token": second_token,
+                    },
+                )
+                first_query = (
+                    f"workspace_id={workspace_id}&connection_id=tab-a"
+                    f"&lease_token={first_token}"
+                )
+                detached_status, _detached = self._request(
+                    server,
+                    "POST",
+                    f"/api/workspaces/detach?{first_query}",
+                    {"connection_id": "tab-a", "lease_token": first_token},
+                )
+                attached_status, attached = self._request(
+                    server,
+                    "POST",
+                    f"/api/workspaces/attach?{second_query}",
+                    {
+                        "workspace_id": workspace_id,
+                        "connection_id": "tab-b",
+                        "lease_token": second_token,
+                    },
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(first_status, 200)
+        self.assertEqual(second_status, 200)
+        self.assertEqual(rejected_status, 409)
+        self.assertEqual(conflict_status, 409)
+        self.assertEqual(detached_status, 200)
+        self.assertEqual(attached_status, 200)
+        self.assertEqual(attached["workspace_id"], workspace_id)
+
+    def test_detached_project_resumes_original_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_root = root / "service"
+            project_root = root / "QFw"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            first = state.create_context("tab-a", "software")
+            opened = state.open_project(
+                str(first["workspace_id"]),
+                str(project_root),
+            )
+            workspace_id = str(opened["workspace_id"])
+            state.workspace_registry.detach(
+                workspace_id,
+                "tab-a",
+                str(first["lease_token"]),
+            )
+
+            second = state.create_context("tab-b", "software")
+            resumed = state.open_project(
+                str(second["workspace_id"]),
+                str(project_root),
+            )
+
+        self.assertEqual(resumed["status"], "resumed")
+        self.assertEqual(resumed["workspace_id"], workspace_id)
+        self.assertEqual(resumed["active_project_root"], str(project_root.resolve()))
+
+    def test_attached_project_rejects_second_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_root = root / "service"
+            project_root = root / "QFw"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            first = state.create_context("tab-a", "software")
+            state.open_project(str(first["workspace_id"]), str(project_root))
+            second = state.create_context("tab-b", "software")
+
+            with self.assertRaisesRegex(ValueError, "already in use"):
+                state.open_project(
+                    str(second["workspace_id"]),
+                    str(project_root),
+                )
+
+    def test_workspace_persists_namespaced_state_across_service_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_root = root / "service"
+            project_root = root / "QFw"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            created = state.create_context("tab-a", "software")
+            workspace_id = str(created["workspace_id"])
+            state.open_project(workspace_id, str(project_root))
+            context = state.context_store.require(workspace_id)
+            context.workflow("software")["custom_marker"] = "preserved"
+            state.workspace_registry.save_client_state(
+                workspace_id,
+                {
+                    "open_documents": [
+                        {"label": "README", "path": "README.md"}
+                    ]
+                },
+            )
+            state.workspace_registry.detach(
+                workspace_id,
+                "tab-a",
+                str(created["lease_token"]),
+            )
+
+            restored = ServiceState(service_root)
+            payload = restored.project_payload(workspace_id)
+
+        restored_context = restored.context_store.require(workspace_id)
+        self.assertEqual(
+            restored_context.workflow("software")["custom_marker"],
+            "preserved",
+        )
+        self.assertEqual(
+            payload["workspace_client_state"]["open_documents"][0]["path"],
+            "README.md",
+        )
+
+    def test_exclusive_lease_expires_and_allows_new_attachment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            state.workspace_registry.lease_seconds = 0.01
+            created = state.create_context("tab-a", "software")
+            workspace_id = str(created["workspace_id"])
+            time.sleep(0.02)
+
+            attached = state.workspace_registry.attach(workspace_id, "tab-b")
+
+        self.assertTrue(attached["lease_token"])
+        self.assertEqual(attached["connection_count"], 1)
+
+    def test_shared_singleton_accepts_multiple_connections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            first = state.create_context("tab-a", "software")
+            workspace, token_a, created = (
+                state.workspace_registry.resolve_shared_singleton(
+                    str(first["workspace_id"]),
+                    workflow_id="better-planned-family",
+                    owner_key="actor-1",
+                    name="Better Planned",
+                    connection_id="tab-a",
+                )
+            )
+            second = state.create_context("tab-b", "software")
+            same_workspace, token_b, created_again = (
+                state.workspace_registry.resolve_shared_singleton(
+                    str(second["workspace_id"]),
+                    workflow_id="better-planned-family",
+                    owner_key="actor-1",
+                    name="Better Planned",
+                    connection_id="tab-b",
+                )
+            )
+            metadata = state.workspace_registry.metadata(workspace.context_id)
+
+        self.assertTrue(created)
+        self.assertFalse(created_again)
+        self.assertEqual(same_workspace.context_id, workspace.context_id)
+        self.assertNotEqual(token_a, token_b)
+        self.assertEqual(metadata["connection_count"], 2)
+
+        first_state = state.workspace_registry.connection_state(
+            workspace.context_id,
+            "tab-a",
+            "better-planned",
+        )
+        second_state = state.workspace_registry.connection_state(
+            workspace.context_id,
+            "tab-b",
+            "better-planned",
+        )
+        first_state["selected_account"] = "family-a"
+        second_state["selected_account"] = "family-b"
+        self.assertEqual(first_state["selected_account"], "family-a")
+        self.assertEqual(second_state["selected_account"], "family-b")
+
+        with self.assertRaisesRegex(ValueError, "workflow authentication"):
+            state.workspace_registry.switch(
+                workspace.context_id,
+                workspace.context_id,
+                "tab-a",
+                token_a,
+            )
+
+    def test_agent_process_cannot_attach_to_another_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_root = root / "QFw"
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            state = ServiceState(root)
+            first = state.create_context()
+            second = state.create_context()
+            state.open_project(str(first["workspace_id"]), str(project_root))
+            controller = state.workflow_controller("software")
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, _started = controller.start_ad_hoc_agent(
+                    str(first["workspace_id"])
+                )
+
+            with self.assertRaises(AgentSessionError):
+                state.attach_session(
+                    str(second["workspace_id"]),
+                    session.session_id,
+                )
+
+    def test_process_without_workspace_identity_is_not_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = root / ".electroboy" / "service" / "sessions.json"
+            records.parent.mkdir(parents=True)
+            records.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sessions": [
+                            {
+                                "backend": "tmux",
+                                "session_id": "orphan",
+                                "tmux_session": "electroboy-orphan",
+                                "command": ["codex"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch(
+                    "electroboy.service.app.shutil.which",
+                    return_value="/usr/bin/tmux",
+                ),
+                mock.patch(
+                    "electroboy.service.app._tmux_has_session",
+                    return_value=True,
+                ),
+                mock.patch(
+                    "electroboy.service.TmuxAgentSession.attach_existing"
+                ) as attach_existing,
+            ):
+                state = ServiceState(root, session_backend="tmux")
+
+        attach_existing.assert_not_called()
+        self.assertEqual(state.context_store.contexts, {})
+
+
+if __name__ == "__main__":
+    unittest.main()

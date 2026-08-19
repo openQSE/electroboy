@@ -44,11 +44,34 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
     def get_corkboard_provider(self) -> CreativeWritingCorkboardProvider:
         return self.corkboard_provider
 
+    def _reserve_project_workspace(
+        self,
+        context_id: str,
+        project_root: Path,
+    ) -> tuple[str, bool]:
+        with self.services.contexts.lock:
+            current = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(current)
+        workspace, resumed = self.services.workspaces.reserve_project(
+            context_id,
+            workflow_id=self.workflow_id,
+            project_kind="creative-writing",
+            project_identity=str(project_root),
+            name=project_root.name,
+        )
+        return workspace.context_id, resumed
+
     def open_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _existing_creative_project_root(path)
-        with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
-            self.services.contexts.require_no_active_agent(context)
+        context_id, resumed = self._reserve_project_workspace(
+            context_id,
+            project_root,
+        )
+        if resumed:
+            return {
+                **self.services.contexts.project_payload(context_id),
+                "status": "resumed",
+            }
         _ensure_creative_workspace(project_root)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
@@ -59,7 +82,12 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage="project",
             )
-        _remember_recent_project(self.services.files.state_root, project_root, "creative")
+            self.services.workspaces.persist(context_id)
+        _remember_recent_project(
+            self.services.files.state_root,
+            project_root,
+            "creative",
+        )
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "opened",
@@ -67,9 +95,15 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
 
     def create_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _resolve_project_path(path)
-        with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
-            self.services.contexts.require_no_active_agent(context)
+        context_id, resumed = self._reserve_project_workspace(
+            context_id,
+            project_root,
+        )
+        if resumed:
+            return {
+                **self.services.contexts.project_payload(context_id),
+                "status": "resumed",
+            }
         project_root.mkdir(parents=True, exist_ok=True)
         _ensure_creative_workspace(project_root)
         with self.services.contexts.lock:
@@ -81,7 +115,12 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage="project",
             )
-        _remember_recent_project(self.services.files.state_root, project_root, "creative")
+            self.services.workspaces.persist(context_id)
+        _remember_recent_project(
+            self.services.files.state_root,
+            project_root,
+            "creative",
+        )
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "created",

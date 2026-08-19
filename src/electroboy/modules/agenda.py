@@ -62,6 +62,7 @@ def _load(request: RouteRequest) -> dict[str, object]:
         request.context_id,
         filters=_filters(request),
         visible_range=_visible_range(request),
+        connection_id=request.connection_id,
     )
 
 
@@ -89,7 +90,11 @@ def _action(request: RouteRequest) -> ServiceResponse:
         provider = _provider(request)
         payload = request.body()
         _require_matching_provider(provider, payload)
-        result = provider.invoke_agenda_action(request.context_id, payload)
+        result = provider.invoke_agenda_action(
+            request.context_id,
+            payload,
+            connection_id=request.connection_id,
+        )
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)
@@ -109,7 +114,11 @@ def _editor(request: RouteRequest) -> ServiceResponse:
         provider = _provider(request)
         payload = _editor_payload(request)
         _require_matching_provider(provider, payload)
-        result = provider.load_agenda_editor(request.context_id, payload)
+        result = provider.load_agenda_editor(
+            request.context_id,
+            payload,
+            connection_id=request.connection_id,
+        )
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)
@@ -120,7 +129,11 @@ def _submit_editor(request: RouteRequest) -> ServiceResponse:
         provider = _provider(request)
         payload = request.body()
         _require_matching_provider(provider, payload)
-        result = provider.submit_agenda_editor(request.context_id, payload)
+        result = provider.submit_agenda_editor(
+            request.context_id,
+            payload,
+            connection_id=request.connection_id,
+        )
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)

@@ -10,6 +10,7 @@ from typing import Protocol, TypeVar
 from .context import BrowserContext, ContextStore
 from .registry import WorkflowRegistry
 from .sessions import AgentSession
+from .workspaces import WorkspaceRegistry
 
 ControllerT = TypeVar("ControllerT")
 
@@ -43,7 +44,11 @@ class ContextServices(Protocol):
 
     def project_payload(self, context_id: str) -> dict[str, object]: ...
 
-    def create(self) -> dict[str, object]: ...
+    def create(
+        self,
+        connection_id: str = "",
+        workflow_id: str = "",
+    ) -> dict[str, object]: ...
 
     def project_mode(self, context_id: str) -> str: ...
 
@@ -56,6 +61,88 @@ class ContextServices(Protocol):
     def requirements_document_root(self, context_id: str) -> Path: ...
 
     def command_root_for(self, context_id: str) -> Path: ...
+
+
+class WorkspaceServices(Protocol):
+    """Durable workspace lifecycle exposed to workflows and modules."""
+
+    @property
+    def lock(self) -> ServiceLock: ...
+
+    def reserve_project(
+        self,
+        current_workspace_id: str,
+        *,
+        workflow_id: str,
+        project_kind: str,
+        project_identity: str,
+        name: str,
+    ) -> tuple[BrowserContext, bool]: ...
+
+    def persist(self, workspace_id: str) -> None: ...
+
+    def resolve_shared_singleton(
+        self,
+        current_workspace_id: str,
+        *,
+        workflow_id: str,
+        owner_key: str,
+        name: str,
+        connection_id: str,
+    ) -> tuple[BrowserContext, str, bool]: ...
+
+    def metadata(self, workspace_id: str) -> dict[str, object]: ...
+
+    def payload(self, workflow_id: str = "") -> dict[str, object]: ...
+
+    def attach(
+        self,
+        current_workspace_id: str,
+        target_workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]: ...
+
+    def detach(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]: ...
+
+    def close(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> None: ...
+
+    def heartbeat(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]: ...
+
+    def validate(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> None: ...
+
+    def save_client_state(
+        self,
+        workspace_id: str,
+        state: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def connection_state(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        namespace: str,
+    ) -> dict[str, object]: ...
 
 
 class SessionServices(Protocol):
@@ -88,8 +175,6 @@ class SessionServices(Protocol):
     def terminate_kind(self, context_id: str, kind: str) -> None: ...
 
     def payload(self, context_id: str) -> dict[str, object]: ...
-
-    def registry_payload(self) -> dict[str, object]: ...
 
     def selected(self, context_id: str) -> AgentSession | None: ...
 
@@ -203,6 +288,7 @@ class ServiceServices:
     """The complete, typed dependency surface passed to plugins."""
 
     contexts: ContextServices
+    workspaces: WorkspaceServices
     sessions: SessionServices
     files: ProjectFileServices
     workflows: WorkflowServices
@@ -214,6 +300,7 @@ class ServiceRuntimeBackend(Protocol):
     root: Path
     state_root: Path
     context_store: ContextStore
+    workspace_registry: WorkspaceRegistry
 
     def _context_locked(self, context_id: str) -> BrowserContext: ...
 
@@ -225,7 +312,35 @@ class ServiceRuntimeBackend(Protocol):
 
     def project_payload(self, context_id: str) -> dict[str, object]: ...
 
-    def create_context(self) -> dict[str, object]: ...
+    def create_context(
+        self,
+        connection_id: str = "",
+        workflow_id: str = "",
+    ) -> dict[str, object]: ...
+
+    def workspace_payload(self, workflow_id: str = "") -> dict[str, object]: ...
+
+    def attach_workspace(
+        self,
+        current_workspace_id: str,
+        target_workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]: ...
+
+    def detach_workspace(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]: ...
+
+    def heartbeat_workspace(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]: ...
 
     def project_mode(self, context_id: str) -> str: ...
 
@@ -433,8 +548,12 @@ class RuntimeContextServices:
     def project_payload(self, context_id: str) -> dict[str, object]:
         return self.runtime.project_payload(context_id)
 
-    def create(self) -> dict[str, object]:
-        return self.runtime.create_context()
+    def create(
+        self,
+        connection_id: str = "",
+        workflow_id: str = "",
+    ) -> dict[str, object]:
+        return self.runtime.create_context(connection_id, workflow_id)
 
     def project_mode(self, context_id: str) -> str:
         return self.runtime.project_mode(context_id)
@@ -453,6 +572,142 @@ class RuntimeContextServices:
 
     def command_root_for(self, context_id: str) -> Path:
         return self.runtime.command_root(context_id)
+
+
+@dataclass(frozen=True)
+class RuntimeWorkspaceServices:
+    runtime: ServiceRuntimeBackend
+
+    @property
+    def lock(self) -> ServiceLock:
+        return self.runtime.workspace_registry.lock
+
+    def reserve_project(
+        self,
+        current_workspace_id: str,
+        *,
+        workflow_id: str,
+        project_kind: str,
+        project_identity: str,
+        name: str,
+    ) -> tuple[BrowserContext, bool]:
+        return self.runtime.workspace_registry.reserve_project(
+            current_workspace_id,
+            workflow_id=workflow_id,
+            project_kind=project_kind,
+            project_identity=project_identity,
+            name=name,
+        )
+
+    def persist(self, workspace_id: str) -> None:
+        self.runtime.workspace_registry.persist(workspace_id)
+
+    def resolve_shared_singleton(
+        self,
+        current_workspace_id: str,
+        *,
+        workflow_id: str,
+        owner_key: str,
+        name: str,
+        connection_id: str,
+    ) -> tuple[BrowserContext, str, bool]:
+        return self.runtime.workspace_registry.resolve_shared_singleton(
+            current_workspace_id,
+            workflow_id=workflow_id,
+            owner_key=owner_key,
+            name=name,
+            connection_id=connection_id,
+        )
+
+    def metadata(self, workspace_id: str) -> dict[str, object]:
+        return self.runtime.workspace_registry.metadata(workspace_id)
+
+    def payload(self, workflow_id: str = "") -> dict[str, object]:
+        return self.runtime.workspace_payload(workflow_id=workflow_id)
+
+    def attach(
+        self,
+        current_workspace_id: str,
+        target_workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]:
+        return self.runtime.attach_workspace(
+            current_workspace_id,
+            target_workspace_id,
+            connection_id,
+            lease_token,
+        )
+
+    def detach(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]:
+        return self.runtime.detach_workspace(
+            workspace_id,
+            connection_id,
+            lease_token,
+        )
+
+    def close(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> None:
+        self.runtime.workspace_registry.close(
+            workspace_id,
+            connection_id,
+            lease_token,
+        )
+
+    def heartbeat(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]:
+        return self.runtime.heartbeat_workspace(
+            workspace_id,
+            connection_id,
+            lease_token,
+        )
+
+    def validate(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> None:
+        self.runtime.workspace_registry.validate(
+            workspace_id,
+            connection_id,
+            lease_token,
+        )
+
+    def save_client_state(
+        self,
+        workspace_id: str,
+        state: dict[str, object],
+    ) -> dict[str, object]:
+        return self.runtime.workspace_registry.save_client_state(
+            workspace_id,
+            state,
+        )
+
+    def connection_state(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        namespace: str,
+    ) -> dict[str, object]:
+        return self.runtime.workspace_registry.connection_state(
+            workspace_id,
+            connection_id,
+            namespace,
+        )
 
 
 @dataclass(frozen=True)
@@ -503,9 +758,6 @@ class RuntimeSessionServices:
 
     def payload(self, context_id: str) -> dict[str, object]:
         return self.runtime.session_payload(context_id)
-
-    def registry_payload(self) -> dict[str, object]:
-        return self.runtime.session_registry_payload()
 
     def selected(self, context_id: str) -> AgentSession | None:
         return self.runtime.selected_session(context_id)
@@ -694,6 +946,7 @@ def build_service_services(
 
     return ServiceServices(
         contexts=RuntimeContextServices(runtime),
+        workspaces=RuntimeWorkspaceServices(runtime),
         sessions=RuntimeSessionServices(runtime),
         files=RuntimeProjectFileServices(runtime),
         workflows=RuntimeWorkflowServices(runtime, workflow_registry),

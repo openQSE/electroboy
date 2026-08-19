@@ -63,6 +63,13 @@ Document panes in the browser UI can export the rendered Markdown source as
 Markdown, DOCX, or PDF. The export button opens the browser save picker when
 available and falls back to a normal download otherwise.
 
+Each opened or created project owns a durable ElectroBoy workspace. A browser
+tab holds an exclusive lease on that workspace, while agents continue running
+after the tab detaches. Use `Project -> Workspace` to attach a detached
+workspace. Opening the same project resumes its detached workspace and is
+rejected while another tab has it attached. Workflow plugins may instead
+declare a shared-singleton workspace for authenticated application workflows.
+
 The software workflow's `Code` actions include `Start ad-hoc`. Starting an
 ad-hoc agent opens a session chooser with a new-session option, resumable Codex
 sessions previously used for the active project, and a field for an explicit
@@ -83,7 +90,7 @@ provided:
 - `ELECTROBOY_SESSION_BACKEND`: agent session backend. The default `pty`
   backend stops sessions when the service stops. The opt-in `tmux` backend
   keeps running agent sessions alive across browser-service restarts and lets a
-  later browser context attach to them.
+  later browser attach their owning workspace.
 
 Install the systemd unit as a user service so the browser service runs with the
 same Codex, Git, and project configuration as the operator:

@@ -35,6 +35,7 @@ from .services import (
     ProjectFileServices,
     ServiceServices,
     SessionServices,
+    WorkspaceServices,
     WorkflowServices,
 )
 
@@ -61,6 +62,7 @@ __all__ = [
     "StreamResponse",
     "TextResponse",
     "WorkflowController",
+    "WorkspaceServices",
     "WorkflowDefinition",
     "WorkflowServices",
     "WorkflowStage",

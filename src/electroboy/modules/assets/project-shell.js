@@ -219,8 +219,7 @@
       projectShellPaneRequested: false,
     });
     runtime.project.update(payload);
-    const parameters = new URLSearchParams();
-    parameters.set("context_id", state.contextId);
+    const parameters = runtime.http.contextParameters();
     parameters.set("shell_session_id", sessionId);
     parameters.set("disposable", "1");
     parameters.set("font_size", String(state.terminalFontSize || 15));

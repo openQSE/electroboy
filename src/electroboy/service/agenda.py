@@ -37,24 +37,31 @@ class AgendaProvider(Protocol):
         *,
         filters: dict[str, str],
         visible_range: dict[str, str],
+        connection_id: str = "",
     ) -> dict[str, object]: ...
 
     def invoke_agenda_action(
         self,
         context_id: str,
         payload: dict[str, object],
+        *,
+        connection_id: str = "",
     ) -> dict[str, object]: ...
 
     def load_agenda_editor(
         self,
         context_id: str,
         payload: dict[str, object],
+        *,
+        connection_id: str = "",
     ) -> dict[str, object]: ...
 
     def submit_agenda_editor(
         self,
         context_id: str,
         payload: dict[str, object],
+        *,
+        connection_id: str = "",
     ) -> dict[str, object]: ...
 
 

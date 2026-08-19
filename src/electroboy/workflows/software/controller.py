@@ -106,14 +106,41 @@ class SoftwareWorkflowController(BoundWorkflowController):
             active_root = context.active_project_root
         return workflow_payload(active_root)
 
+    def _reserve_project_workspace(
+        self,
+        context_id: str,
+        project_root: Path,
+        project_kind: str,
+    ) -> tuple[str, bool]:
+        with self.services.contexts.lock:
+            current = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(current)
+        workspace, resumed = self.services.workspaces.reserve_project(
+            context_id,
+            workflow_id=self.workflow_id,
+            project_kind=project_kind,
+            project_identity=str(project_root),
+            name=project_root.name,
+        )
+        return workspace.context_id, resumed
+
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
         if _is_meta_project_path(path):
             return self.open_meta_project(context_id, path)
         project_root = _existing_project_root(path)
+        context_id, resumed = self._reserve_project_workspace(
+            context_id,
+            project_root,
+            "project",
+        )
+        if resumed:
+            return {
+                **self.services.contexts.project_payload(context_id),
+                "status": "resumed",
+            }
         workflow_stage = _active_workflow_stage(project_root)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
-            self.services.contexts.require_no_active_agent(context)
             context.reset_project(
                 workflow_id=self.workflow_id,
                 project_mode="project",
@@ -121,6 +148,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage=workflow_stage,
             )
+            self.services.workspaces.persist(context_id)
         remember_recent_project(
             self.services.files.state_root,
             project_root,
@@ -133,9 +161,16 @@ class SoftwareWorkflowController(BoundWorkflowController):
 
     def create_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = Path(path).expanduser().resolve()
-        with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
-            self.services.contexts.require_no_active_agent(context)
+        context_id, resumed = self._reserve_project_workspace(
+            context_id,
+            project_root,
+            "project",
+        )
+        if resumed:
+            return {
+                **self.services.contexts.project_payload(context_id),
+                "status": "resumed",
+            }
         manifest = initialize_project(project_root)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
@@ -146,6 +181,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 active_project_root=project_root,
                 workflow_stage=_visible_workflow_stage(manifest.active_stage),
             )
+            self.services.workspaces.persist(context_id)
         remember_recent_project(
             self.services.files.state_root,
             project_root,
@@ -276,9 +312,19 @@ class SoftwareWorkflowController(BoundWorkflowController):
 
     def open_meta_project(self, context_id: str, path: str) -> dict[str, object]:
         meta_context = _existing_meta_context(path)
+        meta_root = Path(str(meta_context["meta_root"]))
+        context_id, resumed = self._reserve_project_workspace(
+            context_id,
+            meta_root,
+            "meta-project",
+        )
+        if resumed:
+            return {
+                **self.services.contexts.project_payload(context_id),
+                "status": "resumed",
+            }
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
-            self.services.contexts.require_no_active_agent(context)
             context.reset_project(
                 workflow_id=self.workflow_id,
                 project_mode="meta",
@@ -288,6 +334,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 registered_repositories=meta_context["registered_repositories"],
                 workflow_stage=meta_context["workflow_stage"],
             )
+            self.services.workspaces.persist(context_id)
         remember_recent_project(
             self.services.files.state_root,
             Path(str(meta_context["meta_root"])),
@@ -299,9 +346,17 @@ class SoftwareWorkflowController(BoundWorkflowController):
         }
 
     def create_meta_project(self, context_id: str, path: str) -> dict[str, object]:
-        with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
-            self.services.contexts.require_no_active_agent(context)
+        requested_root = Path(path).expanduser().resolve()
+        context_id, resumed = self._reserve_project_workspace(
+            context_id,
+            requested_root,
+            "meta-project",
+        )
+        if resumed:
+            return {
+                **self.services.contexts.project_payload(context_id),
+                "status": "resumed",
+            }
         meta_root, registry = initialize_meta_project(path)
         repositories = _meta_repository_payloads(registry)
         with self.services.contexts.lock:
@@ -313,6 +368,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 active_project_root=None,
                 registered_repositories=repositories,
             )
+            self.services.workspaces.persist(context_id)
         remember_recent_project(self.services.files.state_root, meta_root, "meta")
         return {
             **self.services.contexts.project_payload(context_id),
@@ -378,6 +434,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 registered_repositories=meta_context["registered_repositories"],
                 workflow_stage=meta_context["workflow_stage"],
             )
+            self.services.workspaces.persist(context_id)
         return {
             **self.services.contexts.project_payload(context_id),
             "status": status,

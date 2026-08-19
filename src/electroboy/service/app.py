@@ -20,7 +20,6 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
-from uuid import uuid4
 
 from ..models import utc_now
 from ..state_store import StateError
@@ -72,6 +71,7 @@ from .workflow_config import (
     configured_workflows,
     workflow_config_payload,
 )
+from .workspaces import WorkspaceRegistry
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -161,6 +161,7 @@ class ServiceState:
     session_backend: str = SESSION_BACKEND_PTY
     workflow_registry: WorkflowRegistry | None = None
     context_store: ContextStore = field(default_factory=ContextStore)
+    workspace_registry: WorkspaceRegistry = field(init=False)
     workflow_controllers: dict[str, Any] = field(
         init=False,
         default_factory=dict,
@@ -177,6 +178,10 @@ class ServiceState:
     def __post_init__(self) -> None:
         self.root = self.root.resolve()
         self.state_root = Path(self.state_root or self.root).resolve()
+        self.workspace_registry = WorkspaceRegistry(
+            self.state_root,
+            self.context_store,
+        )
         self.session_backend = _normalize_session_backend(self.session_backend)
         if self.workflow_registry is None:
             module_registry = build_module_registry()
@@ -279,11 +284,21 @@ class ServiceState:
                 tmux_name = str(entry.get("tmux_session") or "").strip()
                 if not session_id or not tmux_name or not _tmux_has_session(tmux_name):
                     continue
-                context_id = str(entry.get("context_id") or "").strip() or uuid4().hex
-                context = self.context_store.get_or_create(context_id)
+                workspace_id = str(entry.get("workspace_id") or "").strip()
+                context_id = workspace_id or str(
+                    entry.get("context_id") or ""
+                ).strip()
+                if not context_id:
+                    continue
+                context = self.context_store.get(context_id)
+                if workspace_id and context is None:
+                    continue
+                context = context or self.context_store.get_or_create(context_id)
                 activation_root = str(entry.get("activation_root") or "").strip()
                 active_root = str(entry.get("active_project_root") or "").strip()
-                context.activation_root = Path(activation_root) if activation_root else None
+                context.activation_root = (
+                    Path(activation_root) if activation_root else None
+                )
                 context.active_project_root = Path(active_root) if active_root else None
                 context.project_mode = str(entry.get("project_mode") or "project")
                 context.workflow_id = (
@@ -295,6 +310,17 @@ class ServiceState:
                     str(entry.get("active_repository_name"))
                     if entry.get("active_repository_name")
                     else None
+                )
+                self.workspace_registry.adopt_context(
+                    context,
+                    name=(
+                        Path(active_root).name
+                        if active_root
+                        else Path(activation_root).name
+                        if activation_root
+                        else "Restored workspace"
+                    ),
+                    project_identity=active_root or activation_root,
                 )
                 command = [
                     str(item)
@@ -333,18 +359,26 @@ class ServiceState:
             session.on_status_changed = self._record_session_status
             session.attach_existing()
 
-    def create_context(self) -> dict[str, object]:
+    def create_context(
+        self,
+        connection_id: str = "",
+        workflow_id: str = "",
+    ) -> dict[str, object]:
         workflows = self.workflow_registry.values() if self.workflow_registry else ()
         workflow_ids = {workflow.id for workflow in workflows}
-        workflow_id = (
+        workflow_id = workflow_id if workflow_id in workflow_ids else (
             "software"
             if "software" in workflow_ids
             else (workflows[0].id if workflows else "")
         )
-        context = self.context_store.create(workflow_id=workflow_id)
+        context, lease_token = self.workspace_registry.create_draft(
+            workflow_id=workflow_id,
+            connection_id=connection_id,
+        )
         return {
             **self.project_payload(context.context_id),
             "status": "created",
+            "lease_token": lease_token,
         }
 
     def project_payload(self, context_id: str) -> dict[str, object]:
@@ -362,7 +396,77 @@ class ServiceState:
         extension = getattr(controller, "project_payload_extension", None)
         if callable(extension):
             payload.update(extension(context_id))
+        try:
+            payload.update(self.workspace_registry.metadata(context_id))
+            payload["workspace_client_state"] = (
+                self.workspace_registry.client_state(context_id)
+            )
+        except KeyError:
+            pass
+        self.workspace_registry.persist(context_id)
         return payload
+
+    def workspace_payload(
+        self,
+        *,
+        workflow_id: str = "",
+    ) -> dict[str, object]:
+        rows = self.workspace_registry.list_detached(workflow_id=workflow_id)
+        for row in rows:
+            workspace_id = str(row.get("workspace_id") or "")
+            context = self.context_store.get(workspace_id)
+            if context is None:
+                continue
+            row["workflow_stage"] = context.workflow_stage or "project"
+            row["running_agent_count"] = sum(
+                1
+                for session in self._context_process_sessions_locked(context)
+                if session.is_active()
+            )
+        return {"workspaces": rows}
+
+    def attach_workspace(
+        self,
+        current_workspace_id: str,
+        target_workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]:
+        attachment = self.workspace_registry.switch(
+            current_workspace_id,
+            target_workspace_id,
+            connection_id,
+            lease_token,
+        )
+        return {
+            **self.project_payload(target_workspace_id),
+            "status": "attached",
+            "lease_token": attachment["lease_token"],
+        }
+
+    def detach_workspace(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]:
+        return self.workspace_registry.detach(
+            workspace_id,
+            connection_id,
+            lease_token,
+        )
+
+    def heartbeat_workspace(
+        self,
+        workspace_id: str,
+        connection_id: str,
+        lease_token: str,
+    ) -> dict[str, object]:
+        return self.workspace_registry.heartbeat(
+            workspace_id,
+            connection_id,
+            lease_token,
+        )
 
     def project_mode(self, context_id: str) -> str:
         with self.lock:
@@ -587,6 +691,7 @@ class ServiceState:
                 activation_root=None,
                 active_project_root=None,
             )
+            self.workspace_registry.close(context_id)
         return {
             **project_payload(
                 self.root,
@@ -1046,7 +1151,7 @@ class ServiceState:
                         context,
                         session,
                     )
-                    record["attachable"] = True
+                    record["attachable"] = False
                     by_id[session.session_id] = record
         sessions = sorted(
             by_id.values(),
@@ -1075,23 +1180,7 @@ class ServiceState:
     def attach_session(self, context_id: str, session_id: str) -> dict[str, object]:
         with self.lock:
             target_context = self._context_locked(context_id)
-            source_context, session = self._session_by_id_any_context_locked(session_id)
-            target_context.activation_root = source_context.activation_root
-            target_context.project_mode = source_context.project_mode
-            target_context.active_project_root = source_context.active_project_root
-            target_context.active_repository_name = source_context.active_repository_name
-            target_context.registered_repositories = list(
-                source_context.registered_repositories
-            )
-            target_context.workflow_stage = source_context.workflow_stage
-            target_context.requirements_started = source_context.requirements_started
-            target_context.design_started = source_context.design_started
-            target_context.design_review_started = source_context.design_review_started
-            target_context.design_review_interactive = (
-                source_context.design_review_interactive
-            )
-            target_context.stage_started = set(source_context.stage_started)
-            self._attach_session_locked(target_context, session)
+            session = self._session_by_id_locked(target_context, session_id)
             if session.kind != "project-shell":
                 target_context.selected_session_id = session.session_id
             project_root = target_context.active_project_root
@@ -1102,7 +1191,7 @@ class ServiceState:
                 project_root,
                 state_root=self.state_root,
             ),
-            "status": "attached",
+            "status": "selected",
             "attached_session_id": session.session_id,
         }
 
@@ -1778,6 +1867,7 @@ def project_payload(
     workflow_stage = context.workflow_stage or "project"
     return {
         "context_id": context.context_id,
+        "workspace_id": context.context_id,
         "workflow_id": context.workflow_id,
         "service_root": str(service_root),
         "activation_root": str(activation_root) if activation_root else None,
@@ -1892,6 +1982,7 @@ def _service_session_record(
     record = {
         **payload,
         "context_id": context.context_id,
+        "workspace_id": context.context_id,
         "active_project_root": str(active_root) if active_root else None,
         "activation_root": str(activation_root) if activation_root else None,
         "project_mode": context.project_mode,

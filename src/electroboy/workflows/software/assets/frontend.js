@@ -163,6 +163,7 @@
       deactivateProject: runtime.project.deactivate,
       genericStageRun,
       openProjectBrowser: runtime.browser.openProject,
+      openWorkspace: runtime.workspaces.openSelector,
       recentProjectActions: runtime.recent.actions,
       removeMetaRepository: runtime.metaProject.removeRepository,
       repositoryLabel: runtime.metaProject.repositoryLabel,
@@ -736,6 +737,11 @@
         title: "Create and activate a new ElectroBoy project.",
         disabled: hasContext,
         run: () => action.openProjectBrowser("new", true),
+      },
+      {
+        label: "Workspace",
+        title: "Attach a detached ElectroBoy workspace.",
+        run: action.openWorkspace,
       },
       {
         subgroup: "project-recent",

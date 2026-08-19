@@ -469,6 +469,7 @@
         runtimeState.openDocumentTargets.push(storedTarget);
       }
       fileCatalogSync?.publish(openFileCatalogState());
+      runtimeApi.workspaces.saveState();
     }
 
     function openFileCatalogState() {
@@ -1102,8 +1103,7 @@
         appendOutput("create a browser context first\n", "error");
         return;
       }
-      const parameters = new URLSearchParams();
-      parameters.set("context_id", runtimeState.contextId);
+      const parameters = runtimeApi.http.contextParameters();
       parameters.set("artifact", artifactKindForPane(item));
       parameters.set("font_size", String(runtimeState.terminalFontSize));
       parameters.set("base_font_size", String(runtimeState.terminalFontSize));

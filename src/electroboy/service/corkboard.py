@@ -12,7 +12,12 @@ class CorkboardProvider(Protocol):
 
     provider_id: str
 
-    def list_boards(self, context_id: str) -> list[dict[str, object]]: ...
+    def list_boards(
+        self,
+        context_id: str,
+        *,
+        connection_id: str = "",
+    ) -> list[dict[str, object]]: ...
 
     def get_board(
         self,
@@ -20,12 +25,15 @@ class CorkboardProvider(Protocol):
         board_id: str,
         *,
         title: str | None = None,
+        connection_id: str = "",
     ) -> dict[str, object]: ...
 
     def apply_operation(
         self,
         context_id: str,
         payload: dict[str, object],
+        *,
+        connection_id: str = "",
     ) -> dict[str, object]: ...
 
     def create_board(
@@ -34,6 +42,7 @@ class CorkboardProvider(Protocol):
         board_id: str,
         *,
         title: str | None = None,
+        connection_id: str = "",
     ) -> dict[str, object]: ...
 
 

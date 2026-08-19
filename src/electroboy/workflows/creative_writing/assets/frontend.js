@@ -245,6 +245,7 @@
   let creativeProjectActions = null;
   let creativeOpenProject = null;
   let creativeNewProject = null;
+  let creativeWorkspace = null;
   let creativeRecentProjectsButton = null;
   let creativeRecentProjects = null;
   let creativeCloseProject = null;
@@ -271,6 +272,8 @@
                     data-creative-control="open-project">Open</button>
             <button class="stage-action-button" type="button"
                     data-creative-control="new-project">New</button>
+            <button class="stage-action-button" type="button"
+                    data-creative-control="workspace">Workspace</button>
             <div class="stage-action-subgroup">
               <button class="stage-action-subgroup-trigger" type="button"
                       aria-expanded="false"
@@ -311,6 +314,7 @@
     creativeProjectActions = find("project-actions");
     creativeOpenProject = find("open-project");
     creativeNewProject = find("new-project");
+    creativeWorkspace = find("workspace");
     creativeRecentProjectsButton = find("recent-projects-menu");
     creativeRecentProjects = find("recent-projects");
     creativeCloseProject = find("close-project");
@@ -335,6 +339,9 @@
     });
     creativeNewProject.addEventListener("click", () => {
       runtime.modules.invoke("file-browser", "openProjectBrowser", "new", true);
+    });
+    creativeWorkspace.addEventListener("click", () => {
+      runtime.workspaces.openSelector();
     });
     creativeCloseProject.addEventListener("click", () => {
       runtime.project.deactivate();
@@ -367,6 +374,7 @@
     creativeProjectActions = null;
     creativeOpenProject = null;
     creativeNewProject = null;
+    creativeWorkspace = null;
     creativeRecentProjectsButton = null;
     creativeRecentProjects = null;
     creativeCloseProject = null;

@@ -132,32 +132,41 @@ before the agent starts. If a record already exists for the same run, stage,
 and role, the explicit id replaces it and becomes the id used by later
 authoring resumes.
 
-The local browser service exposes the first GUI slice through stdlib HTTP
-handlers. `GET /` serves the workflow page. `GET /api/health` returns
-`status: connected`. Each loaded browser page creates an isolated service
-context with `POST /api/contexts`; project activation and running agents are
-scoped to that returned `context_id`. `GET /api/project?context_id=<id>`
-returns the service root, the context's active project root, and terminal
-activation command. `POST /api/project/open?context_id=<id>` activates an
-existing ElectroBoy project for that browser context, and
-`POST /api/project/new?context_id=<id>` initializes a new project with the same
-setup helpers used by `electroboy new` before activating it for that context.
-`POST /api/project/deactivate?context_id=<id>` clears only that context's
-active project. `GET /api/files/browse?path=<path>` returns child directories
-for the service-backed browser. The browser opens this directory browser inside
-the web UI because ordinary browser file pickers do not reliably expose
-absolute local directory paths to JavaScript. GUI activation means the service
-records an active project root for the browser context; each requirements
-process sources that project's activation script when one exists. `GET
-/api/workflow?context_id=<id>` returns the stage list, exposes `Open` and
+The local browser service exposes the GUI through registered HTTP modules.
+`GET /` serves the workflow page and `GET /api/health` reports service health.
+Each browser tab has a connection ID in `sessionStorage`. `POST /api/contexts`
+creates a draft workspace and returns its `workspace_id` and lease token. All
+stateful requests include `workspace_id`, `connection_id`, and `lease_token`.
+The compatibility `context_id` response field currently aliases the workspace
+UUID, but new plugin code uses workspace terminology.
+
+`GET /api/workspaces` lists detached exclusive workspaces. `POST
+/api/workspaces/attach` switches atomically from the current workspace, while
+`POST /api/workspaces/detach` releases only the requesting connection. `POST
+/api/workspaces/heartbeat` renews its lease, and `POST /api/workspaces/state`
+persists open documents, pane layout, and other client workspace state. Agent
+processes remain owned by one workspace and cannot be attached across workspace
+boundaries. The public `WorkspaceServices` plugin interface also supports
+authenticated `shared-singleton` workflows and connection-namespaced state.
+
+`GET /api/project?workspace_id=<id>` returns the service root, active project
+root, terminal activation command, and workspace metadata. `POST
+/api/project/open?workspace_id=<id>` activates or resumes an existing project,
+and `POST /api/project/new?workspace_id=<id>` initializes a new project with the
+same setup helpers used by `electroboy new`. `POST
+/api/project/deactivate?workspace_id=<id>` closes that project workspace and
+creates a new blank workspace for the connection. `GET
+/api/files/browse?path=<path>` returns child directories for the service-backed
+browser. `GET /api/workflow?workspace_id=<id>` returns the stage list, exposes
+`Open` and
 `Create` for `project`, adds `Deactivate` once a project is active, and exposes
 `Start` for `requirements` once a project is active. Other stages remain
 inactive until later GUI work wires them up. The requirements agent uses
-`POST /api/agents/requirements/start?context_id=<id>`,
-`POST /api/agents/requirements/message?context_id=<id>`,
-`POST /api/agents/requirements/interrupt?context_id=<id>`,
-`POST /api/agents/requirements/resize?context_id=<id>`, and
-`GET /api/agents/requirements/events?context_id=<id>`. The event stream is
+`POST /api/agents/requirements/start?workspace_id=<id>`,
+`POST /api/agents/requirements/message?workspace_id=<id>`,
+`POST /api/agents/requirements/interrupt?workspace_id=<id>`,
+`POST /api/agents/requirements/resize?workspace_id=<id>`, and
+`GET /api/agents/requirements/events?workspace_id=<id>`. The event stream is
 Server-Sent Events and carries raw terminal output for the browser's xterm
 renderer plus cleaned text fallback output for non-terminal clients. The browser
 keeps a normal textarea composer at the bottom; `Enter` inserts a newline and

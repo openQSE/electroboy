@@ -19,7 +19,12 @@ class CreativeWritingCorkboardProvider:
     def __init__(self, services: ServiceServices) -> None:
         self.services = services
 
-    def list_boards(self, context_id: str) -> list[dict[str, object]]:
+    def list_boards(
+        self,
+        context_id: str,
+        *,
+        connection_id: str = "",
+    ) -> list[dict[str, object]]:
         root = self.services.contexts.active_project_root(context_id)
         boards: list[dict[str, object]] = []
         for path in sorted(root.rglob("*.corkboard.json")):
@@ -42,6 +47,7 @@ class CreativeWritingCorkboardProvider:
         board_id: str,
         *,
         title: str | None = None,
+        connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
         payload = _creative_corkboard_payload(
@@ -74,6 +80,8 @@ class CreativeWritingCorkboardProvider:
         self,
         context_id: str,
         payload: dict[str, object],
+        *,
+        connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
         return save_creative_corkboard(
@@ -148,6 +156,7 @@ class CreativeWritingCorkboardProvider:
         board_id: str,
         *,
         title: str | None = None,
+        connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
         path = _create_creative_corkboard(root, board_id, title=title)

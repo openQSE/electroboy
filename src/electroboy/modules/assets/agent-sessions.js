@@ -162,16 +162,7 @@
     }
 
     function attachableServiceSessions() {
-      const localIds = new Set(runtimeState.agentSessions.map((session) => session.session_id));
-      return runtimeState.serviceSessions.filter((session) => {
-        if (!session || !session.attachable || !session.session_id) {
-          return false;
-        }
-        if (localIds.has(session.session_id)) {
-          return false;
-        }
-        return session.kind !== "project-shell";
-      });
+      return [];
     }
 
     function serviceSessionDisplayLabel(session) {
@@ -202,7 +193,7 @@
         ? document.createElement("optgroup")
         : runtimeApi.elements.sessionSwitcher;
       if (runtimeState.agentSessions.length > 0) {
-        localParent.label = "Current context";
+        localParent.label = "Current workspace";
         runtimeApi.elements.sessionSwitcher.append(localParent);
       }
       for (const session of runtimeState.agentSessions) {
@@ -274,56 +265,16 @@
     }
 
     async function refreshServiceSessions() {
-      const response = await runtimeApi.http.fetch("/api/session-registry", { cache: "no-store" });
-      if (!response.ok) {
-        return;
-      }
-      const payload = await response.json().catch(() => ({ sessions: [] }));
-      runtimeState.serviceSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      runtimeState.serviceSessions = [];
       renderSessionSwitcher();
     }
 
     async function attachAgentSession(sessionId) {
-      if (!runtimeState.contextId || !sessionId) {
-        return;
-      }
-      const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/attach"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId }),
-      });
-      const payload = await response.json().catch(() => ({ error: "session attach failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "session attach failed"}\n`, "error");
-        renderSessionSwitcher();
-        return;
-      }
-      updateProjectState(payload);
-      await refreshServiceSessions();
-      const session = selectedSession();
-      if (!session) {
-        return;
-      }
-      clearAgentOutput();
-      if (session.interactive) {
-        showProgressPane(false);
-        setAgentInputVisible(true);
-      } else {
-        clearProgressOutput();
-        showProgressPane(true);
-        setAgentInputVisible(false);
-      }
-      runtimeState.activeAgentKind = session.kind || "";
-      const documentTarget = documentTargetForSession(session);
-      if (documentTarget) {
-        showDocumentPreview(documentTarget);
-      }
-      connectSessionEvents(session.session_id);
-      if (!session.interactive && session.status === "running") {
-        connectProgressEvents();
-      }
-      updateAgentControls();
-      sendTerminalResize();
+      appendOutput(
+        `agent session ${sessionId || ""} belongs to another workspace\n`,
+        "error",
+      );
+      renderSessionSwitcher();
     }
 
     function connectAgentEvents(kind) {

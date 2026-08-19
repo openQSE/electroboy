@@ -214,6 +214,7 @@ class WorkflowDefinition:
     runtime_roles: tuple[RuntimeRoleDefinition, ...] = ()
     provider: str = "electroboy"
     entry_point: str | None = None
+    workspace_policy: str = "exclusive"
 
     def payload(self) -> dict[str, object]:
         return {
@@ -233,6 +234,7 @@ class WorkflowDefinition:
             "runtime_roles": [entry.payload() for entry in self.runtime_roles],
             "provider": self.provider,
             "entry_point": self.entry_point,
+            "workspace_policy": self.workspace_policy,
         }
 
 
@@ -311,6 +313,11 @@ class WorkflowRegistry:
             missing_list = ", ".join(sorted(missing))
             raise ValueError(
                 f"workflow {workflow.id} requires missing modules: {missing_list}"
+            )
+        if workflow.workspace_policy not in {"exclusive", "shared-singleton"}:
+            raise ValueError(
+                f"workflow {workflow.id} has invalid workspace policy: "
+                f"{workflow.workspace_policy}"
             )
         _validate_contribution_metadata(workflow)
         self._workflows[workflow.id] = workflow

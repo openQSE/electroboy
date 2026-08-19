@@ -20,6 +20,7 @@ class ServiceInterfaceTests(unittest.TestCase):
         dependency = object()
         services = ServiceServices(
             contexts=dependency,
+            workspaces=dependency,
             sessions=dependency,
             files=dependency,
             workflows=dependency,
@@ -56,6 +57,7 @@ class ServiceInterfaceTests(unittest.TestCase):
         self.assertIs(plugin_api.RouteRequest, RouteRequest)
         self.assertIs(plugin_api.ServiceServices, ServiceServices)
         self.assertIn("ContextServices", plugin_api.__all__)
+        self.assertIn("WorkspaceServices", plugin_api.__all__)
         self.assertIn("CorkboardProvider", plugin_api.__all__)
         self.assertIn("CorkboardWorkflowController", plugin_api.__all__)
         self.assertIn("SessionServices", plugin_api.__all__)

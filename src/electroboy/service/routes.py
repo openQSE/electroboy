@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import parse_qs
 
-from .http import ServiceResponse
+from .http import JsonResponse, ServiceResponse
 from .registry import (
     ModuleRegistry,
     RouteDefinition,
@@ -87,7 +87,25 @@ class RouteRequest:
 
     @property
     def context_id(self) -> str:
-        return str((self.params.get("context_id") or [""])[0])
+        return self.workspace_id
+
+    @property
+    def workspace_id(self) -> str:
+        return str(
+            (
+                self.params.get("workspace_id")
+                or self.params.get("context_id")
+                or [""]
+            )[0]
+        )
+
+    @property
+    def connection_id(self) -> str:
+        return str((self.params.get("connection_id") or [""])[0])
+
+    @property
+    def lease_token(self) -> str:
+        return str((self.params.get("lease_token") or [""])[0])
 
     def body(self) -> dict[str, object]:
         return self.transport.read_json_body()
@@ -145,6 +163,29 @@ class RouteDispatcher:
         match = self.match(request.method, request.path)
         if match is None:
             return False
+        workspace_routes = {
+            "/api/workspaces",
+            "/api/workspaces/attach",
+            "/api/workspaces/detach",
+            "/api/workspaces/heartbeat",
+            "/api/workspaces/close",
+        }
+        if (
+            "workspace_id" in request.params
+            and request.workspace_id
+            and request.path not in workspace_routes
+        ):
+            try:
+                request.services.workspaces.validate(
+                    request.workspace_id,
+                    request.connection_id,
+                    request.lease_token,
+                )
+            except Exception as error:
+                request.transport.emit_response(
+                    JsonResponse({"error": str(error)}, status=409)
+                )
+                return True
         request.transport.emit_response(match.handler(request))
         return True
 

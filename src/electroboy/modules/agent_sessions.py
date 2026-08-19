@@ -35,7 +35,7 @@ def _list_sessions(request: RouteRequest) -> ServiceResponse:
 
 
 def _session_registry(request: RouteRequest) -> JsonResponse:
-    return JsonResponse(request.services.sessions.registry_payload())
+    return JsonResponse(request.services.sessions.payload(request.context_id))
 
 
 def _attach(request: RouteRequest) -> ServiceResponse:

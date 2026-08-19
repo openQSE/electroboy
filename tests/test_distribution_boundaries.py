@@ -143,8 +143,9 @@ finally:
     expected_modules = (
         {"core"}
         if len(packages) == 1
-        else {
-            "agent_sessions",
+            else {
+                "agenda",
+                "agent_sessions",
             "binder",
             "corkboard",
             "core",

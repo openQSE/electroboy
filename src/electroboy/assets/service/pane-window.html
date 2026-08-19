@@ -748,6 +748,7 @@
     const EMBEDDED_PANE = params.get("embedded") === "1";
     const paneInstanceId = params.get("pane_instance_id") || "";
     const contextId = params.get("context_id") || "";
+    const connectionId = params.get("connection_id") || "";
     let selectedSessionId = params.get("session_id") || "";
     const ownedShellSessionId = params.get("shell_session_id") || "";
     let selectedShellSessionId = ownedShellSessionId;
@@ -1324,7 +1325,7 @@
         renderFileSwitcher();
         contentCatalogSync = window.ElectroBoyPaneSync.connect({
           pane: "file-catalog",
-          context: () => contextId,
+          context: () => `${contextId}:${connectionId}`,
           priority: 10,
           snapshot: () => ({ files: openFileTargets }),
           receive: (state) => {
@@ -1482,7 +1483,7 @@
       }
       sharedPaneSync = window.ElectroBoyPaneSync.connect({
         pane: PANE_KIND,
-        context: () => contextId,
+        context: () => `${contextId}:${connectionId}`,
         priority: 10,
         snapshot: () => {
           if (PANE_KIND === "scratch") return { value: scratchPad.value };

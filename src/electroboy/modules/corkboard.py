@@ -59,9 +59,10 @@ def _view(request: RouteRequest) -> HtmlResponse:
         board_id = _board_id(request)
         title = str((request.params.get("title") or [""])[0]).strip() or None
         payload = provider.get_board(
-            request.context_id,
-            board_id,
-            title=title,
+        request.context_id,
+        board_id,
+        title=title,
+        connection_id=request.connection_id,
         )
         page, status = render_corkboard_html(payload)
     except Exception as error:
@@ -79,6 +80,7 @@ def _board(request: RouteRequest) -> ServiceResponse:
             request.context_id,
             _board_id(request),
             title=str((request.params.get("title") or [""])[0]).strip() or None,
+            connection_id=request.connection_id,
         )
     except Exception as error:
         return conflict(error)
@@ -88,7 +90,10 @@ def _board(request: RouteRequest) -> ServiceResponse:
 def _boards(request: RouteRequest) -> ServiceResponse:
     try:
         provider = _provider(request)
-        boards = provider.list_boards(request.context_id)
+        boards = provider.list_boards(
+            request.context_id,
+            connection_id=request.connection_id,
+        )
     except Exception as error:
         return conflict(error)
     return JsonResponse({"provider": provider.provider_id, "boards": boards})
@@ -102,6 +107,7 @@ def _save(request: RouteRequest) -> ServiceResponse:
         payload = provider.apply_operation(
             request.context_id,
             body,
+            connection_id=request.connection_id,
         )
     except Exception as error:
         return conflict(error)
@@ -118,6 +124,7 @@ def _create(request: RouteRequest) -> ServiceResponse:
             request.context_id,
             board_id,
             title=str(payload.get("title") or "").strip() or None,
+            connection_id=request.connection_id,
         )
     except Exception as error:
         return conflict(error)

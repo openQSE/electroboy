@@ -87,6 +87,7 @@
     const splashImage = document.getElementById("splashImage");
     const closeSplash = document.getElementById("closeSplash");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
+    const WORKSPACE_LEASE_STORAGE_KEY = "electroboy.workspaceLease";
     const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
     const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
     const SERVICE_FINGERPRINT_STORAGE_KEY = "electroboy.serviceFingerprint.v2";
@@ -96,6 +97,7 @@
     const SPLASH_DISMISSED_STORAGE_KEY = "electroboy.splash.dismissed.v1";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
+    const WORKSPACE_HEARTBEAT_MS = 5000;
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
     const WORKFLOW_SIDE_SHEET_WIDTH_STORAGE_KEY = "electroboy.workflowSideSheetWidth";
     const WORKFLOW_MODE_STORAGE_KEY = "electroboy.workflowMode";
@@ -216,6 +218,11 @@
     let agentSessions = [];
     let selectedSessionId = "";
     let contextId = "";
+    let workspaceLeaseToken = "";
+    let workspaceAttachmentPolicy = "exclusive";
+    let workspaceHeartbeatTimer = null;
+    let workspaceStateSaveTimer = null;
+    let workspaceStateHydrating = false;
     const pageInstanceId = newContextOwnerId();
     let browserTabId = "";
     let ownedContextId = "";
@@ -356,7 +363,17 @@
     }
 
     function paneLayoutStorageKey(mode = workflowMode) {
-      return `${PANE_LAYOUT_STORAGE_KEY}.${mode || "none"}`;
+      return `${PANE_LAYOUT_STORAGE_KEY}.${mode || "none"}.${contextId || "detached"}`;
+    }
+
+    function workspacePresentationStorage() {
+      return workspaceAllowsSharedConnections()
+        ? window.sessionStorage
+        : window.localStorage;
+    }
+
+    function workspaceClientStateStorageKey() {
+      return `electroboy.workspaceClientState.${contextId || "detached"}`;
     }
 
     function normalizePaneLayoutNode(value, seenKinds) {
@@ -398,22 +415,25 @@
     function storedPaneLayout(mode = workflowMode) {
       try {
         const storageKey = paneLayoutStorageKey(mode);
-        const raw = window.localStorage.getItem(storageKey);
+        const storage = workspacePresentationStorage();
+        const raw = storage.getItem(storageKey);
         if (raw !== null) {
           const stored = normalizePaneLayoutNode(JSON.parse(raw), new Set());
           const migrated = migratePaneLayoutForWorkflow(stored, mode);
           if (migrated && migrated !== stored) {
-            window.localStorage.setItem(storageKey, JSON.stringify(migrated));
+            storage.setItem(storageKey, JSON.stringify(migrated));
           }
           return migrated || defaultPaneLayout(mode);
         }
-        const legacyRaw = window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
+        const legacyRaw = workspaceAllowsSharedConnections()
+          ? null
+          : window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
         if (legacyRaw !== null) {
           window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
           const stored = normalizePaneLayoutNode(JSON.parse(legacyRaw), new Set());
           const migrated = migratePaneLayoutForWorkflow(stored, mode);
           if (migrated) {
-            window.localStorage.setItem(storageKey, JSON.stringify(migrated));
+            storage.setItem(storageKey, JSON.stringify(migrated));
             return migrated;
           }
         }
@@ -444,7 +464,8 @@
           if (
             key === CONTEXT_STORAGE_KEY ||
             key === CONTEXT_TAB_STORAGE_KEY ||
-            key.startsWith(`${CONTEXT_STORAGE_KEY}.`)
+            key.startsWith(`${CONTEXT_STORAGE_KEY}.`) ||
+            key.startsWith(`${WORKSPACE_LEASE_STORAGE_KEY}.`)
           ) {
             window.sessionStorage.removeItem(key);
           }
@@ -473,7 +494,8 @@
           if (
             key === CONTEXT_STORAGE_KEY ||
             key === CONTEXT_TAB_STORAGE_KEY ||
-            key.startsWith(`${CONTEXT_STORAGE_KEY}.`)
+            key.startsWith(`${CONTEXT_STORAGE_KEY}.`) ||
+            key.startsWith(`${WORKSPACE_LEASE_STORAGE_KEY}.`)
           ) {
             return true;
           }
@@ -531,13 +553,90 @@
 
     function savePaneLayout() {
       try {
-        window.localStorage.setItem(
+        workspacePresentationStorage().setItem(
           paneLayoutStorageKey(),
           JSON.stringify(paneLayout),
         );
         window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
       } catch (error) {
         return;
+      }
+      queueWorkspaceStateSave();
+    }
+
+    function workspaceClientState() {
+      return {
+        pane_layout: paneLayout,
+        open_documents: openDocumentTargets.map((target) => ({
+          label: String(target.label || target.path || "Document"),
+          path: String(target.path || ""),
+        })).filter((target) => target.path),
+        scratchpad: scratchPad.value,
+      };
+    }
+
+    function queueWorkspaceStateSave(delay = 250) {
+      if (workspaceStateHydrating || !contextId || !workspaceLeaseToken) {
+        return;
+      }
+      if (workspaceAllowsSharedConnections()) {
+        window.sessionStorage.setItem(
+          workspaceClientStateStorageKey(),
+          JSON.stringify(workspaceClientState()),
+        );
+        return;
+      }
+      window.clearTimeout(workspaceStateSaveTimer);
+      workspaceStateSaveTimer = window.setTimeout(() => {
+        fetch(contextUrl("/api/workspaces/state"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(workspaceClientState()),
+        }).catch(() => {});
+      }, delay);
+    }
+
+    function applyWorkspaceClientState(payload) {
+      let state = payload && payload.workspace_client_state;
+      if (workspaceAllowsSharedConnections()) {
+        try {
+          state = JSON.parse(
+            window.sessionStorage.getItem(workspaceClientStateStorageKey()) ||
+              "null",
+          );
+        } catch (error) {
+          state = null;
+        }
+      }
+      if (!state || typeof state !== "object") {
+        return;
+      }
+      workspaceStateHydrating = true;
+      try {
+        if (state.pane_layout) {
+          const restored = normalizePaneLayoutNode(state.pane_layout, new Set());
+          if (restored) {
+            paneLayout = restored;
+            workspacePresentationStorage().setItem(
+              paneLayoutStorageKey(),
+              JSON.stringify(restored),
+            );
+          }
+        }
+        if (Array.isArray(state.open_documents)) {
+          openDocumentTargets = state.open_documents.filter(
+            (target) => target && target.path,
+          ).map((target) => ({
+            label: String(target.label || target.path),
+            path: String(target.path),
+          }));
+        }
+        if (typeof state.scratchpad === "string") {
+          scratchPad.value = state.scratchpad;
+          saveScratchPad();
+        }
+      } finally {
+        workspaceStateHydrating = false;
       }
     }
 
@@ -1747,7 +1846,7 @@
         return;
       }
       try {
-        scratchPad.value = window.localStorage.getItem(storageKey) || "";
+        scratchPad.value = workspacePresentationStorage().getItem(storageKey) || "";
         restoredScratchContextId = contextId;
       } catch (error) {
         scratchPad.value = "";
@@ -1763,7 +1862,7 @@
         return;
       }
       try {
-        window.localStorage.setItem(storageKey, scratchPad.value);
+        workspacePresentationStorage().setItem(storageKey, scratchPad.value);
       } catch (error) {
         return;
       }
@@ -2037,8 +2136,11 @@
         return;
       }
       const previous = activeWorkflowContribution();
+      await detachCurrentWorkspace();
+      stopWorkspaceHeartbeat();
       releaseContextOwner();
       contextId = "";
+      workspaceLeaseToken = "";
       resetWorkflowContextView();
       if (previous && typeof previous.deactivate === "function") {
         previous.deactivate(frontendRuntime);
@@ -2049,6 +2151,22 @@
       await applyWorkflowMode({ deferWorkspace: true });
       await restoreContext();
       await applyWorkflowMode();
+    }
+
+    async function detachCurrentWorkspace() {
+      if (!contextId) {
+        return;
+      }
+      try {
+        await fetch(contextUrl("/api/workspaces/detach"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connection_id: currentBrowserTabId() }),
+          keepalive: true,
+        });
+      } catch (error) {
+        return;
+      }
     }
 
     function applyWorkflowSideSheetState() {
@@ -3148,13 +3266,25 @@
 
     function contextUrl(path) {
       const separator = path.includes("?") ? "&" : "?";
-      return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
+      const parameters = new URLSearchParams();
+      parameters.set("context_id", contextId);
+      parameters.set("workspace_id", contextId);
+      parameters.set("connection_id", currentBrowserTabId());
+      if (workspaceLeaseToken) {
+        parameters.set("lease_token", workspaceLeaseToken);
+      }
+      return `${path}${separator}${parameters.toString()}`;
     }
 
     function paneUrl(kind, requestedArtifactItem = undefined) {
       const parameters = new URLSearchParams();
       if (contextId) {
         parameters.set("context_id", contextId);
+        parameters.set("workspace_id", contextId);
+        parameters.set("connection_id", currentBrowserTabId());
+        if (workspaceLeaseToken) {
+          parameters.set("lease_token", workspaceLeaseToken);
+        }
       }
       if (selectedSessionId) {
         parameters.set("session_id", selectedSessionId);
@@ -3354,6 +3484,42 @@
 
     function contextWorkflowStorageKey(mode = workflowMode) {
       return `${CONTEXT_STORAGE_KEY}.${mode || "none"}`;
+    }
+
+    function workflowWorkspacePolicy() {
+      const definition = workflowDefinition();
+      return definition && definition.workspace_policy === "shared-singleton"
+        ? "shared-singleton"
+        : "exclusive";
+    }
+
+    function workspaceAllowsSharedConnections() {
+      return workspaceAttachmentPolicy === "shared-singleton" ||
+        workflowWorkspacePolicy() === "shared-singleton";
+    }
+
+    function workspaceLeaseStorageKey(mode = workflowMode) {
+      return `${WORKSPACE_LEASE_STORAGE_KEY}.${mode || "none"}`;
+    }
+
+    function storedWorkspaceLease(mode = workflowMode) {
+      try {
+        return window.sessionStorage.getItem(workspaceLeaseStorageKey(mode)) || "";
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function saveWorkspaceLease(value, mode = workflowMode) {
+      try {
+        if (value) {
+          window.sessionStorage.setItem(workspaceLeaseStorageKey(mode), value);
+        } else {
+          window.sessionStorage.removeItem(workspaceLeaseStorageKey(mode));
+        }
+      } catch (error) {
+        return;
+      }
     }
 
     function splashDismissed() {
@@ -3583,7 +3749,9 @@
       try {
         clearLegacyContextId();
         if (value) {
-          if (!claimContextOwner(value)) {
+          if (workspaceAllowsSharedConnections()) {
+            releaseContextOwner();
+          } else if (!claimContextOwner(value)) {
             return false;
           }
           window.sessionStorage.setItem(contextWorkflowStorageKey(mode), value);
@@ -3647,20 +3815,66 @@
     }
 
     async function createContext() {
-      const response = await fetch("/api/contexts", { method: "POST" });
+      const response = await fetch("/api/contexts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection_id: currentBrowserTabId(),
+          workflow_id: workflowMode,
+        }),
+      });
       if (!response.ok) {
-        projectStatus.textContent = "could not create browser context";
+        projectStatus.textContent = "could not create workspace connection";
         return;
       }
       const payload = await response.json();
-      contextId = payload.context_id || "";
+      contextId = payload.workspace_id || payload.context_id || "";
+      workspaceLeaseToken = payload.lease_token || "";
       saveContextId(contextId);
+      saveWorkspaceLease(workspaceLeaseToken);
       updateProjectState(payload);
+    }
+
+    function stopWorkspaceHeartbeat() {
+      if (workspaceHeartbeatTimer) {
+        window.clearInterval(workspaceHeartbeatTimer);
+        workspaceHeartbeatTimer = null;
+      }
+    }
+
+    async function sendWorkspaceHeartbeat() {
+      if (!contextId || !workspaceLeaseToken) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/workspaces/heartbeat"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection_id: currentBrowserTabId(),
+          lease_token: workspaceLeaseToken,
+        }),
+      });
+      if (!response.ok) {
+        stopWorkspaceHeartbeat();
+      }
+    }
+
+    function startWorkspaceHeartbeat() {
+      stopWorkspaceHeartbeat();
+      if (!contextId || !workspaceLeaseToken) {
+        return;
+      }
+      workspaceHeartbeatTimer = window.setInterval(
+        () => sendWorkspaceHeartbeat().catch(() => {}),
+        WORKSPACE_HEARTBEAT_MS,
+      );
     }
 
     async function restoreContext() {
       const existingContextId = storedContextId();
-      if (!existingContextId || !claimContextOwner(existingContextId)) {
+      const ownerAccepted = workspaceAllowsSharedConnections() ||
+        claimContextOwner(existingContextId);
+      if (!existingContextId || !ownerAccepted) {
         if (existingContextId) {
           saveContextId("");
         }
@@ -3668,16 +3882,28 @@
         return;
       }
       contextId = existingContextId;
-      const response = await fetch(contextUrl("/api/project"), { cache: "no-store" });
-      if (!response.ok) {
+      workspaceLeaseToken = storedWorkspaceLease();
+      const attachResponse = await fetch(contextUrl("/api/workspaces/attach"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspace_id: existingContextId,
+          connection_id: currentBrowserTabId(),
+        }),
+      });
+      if (!attachResponse.ok) {
         saveContextId("");
+        saveWorkspaceLease("");
         contextId = "";
+        workspaceLeaseToken = "";
         await createContext();
         return;
       }
-      const payload = await response.json();
-      contextId = payload.context_id || existingContextId;
+      const payload = await attachResponse.json();
+      contextId = payload.workspace_id || payload.context_id || existingContextId;
+      workspaceLeaseToken = payload.lease_token || workspaceLeaseToken;
       saveContextId(contextId);
+      saveWorkspaceLease(workspaceLeaseToken);
       updateProjectState(payload);
       const session = selectedSession();
       if (session) {
@@ -3701,6 +3927,18 @@
     }
 
     function updateProjectState(payload, options = {}) {
+      const previousWorkspaceId = contextId;
+      workspaceAttachmentPolicy = payload.attachment_policy ||
+        workflowWorkspacePolicy();
+      const nextWorkspaceId = payload.workspace_id || payload.context_id || contextId;
+      if (nextWorkspaceId && nextWorkspaceId !== contextId) {
+        contextId = nextWorkspaceId;
+        saveContextId(contextId);
+      }
+      if (payload.lease_token) {
+        workspaceLeaseToken = payload.lease_token;
+        saveWorkspaceLease(workspaceLeaseToken);
+      }
       const previousActiveProjectRoot = activeProjectRoot;
       const nextActiveProjectRoot = payload.active_project_root || "";
       serviceRoot = payload.service_root || "";
@@ -3719,6 +3957,7 @@
         creativeTreePayload = null;
         restoredScratchContextId = "";
       }
+      applyWorkspaceClientState(payload);
       activeRepositoryName = payload.active_repository_name || "";
       registeredRepositories = Array.isArray(payload.registered_repositories)
         ? payload.registered_repositories
@@ -3773,6 +4012,11 @@
       projectStatus.textContent = projectStatusLine();
       queueProjectStatusRefresh();
       refreshPaneLayoutInstanceFrames();
+      if (previousWorkspaceId !== contextId) {
+        loadPaneLayoutForWorkflow();
+        renderPaneLayout();
+      }
+      startWorkspaceHeartbeat();
     }
 
     function activeProjectMenuLabel() {
@@ -4364,6 +4608,148 @@
 
     function syncArtifactPreviewWithProject(...args) {
       return window.ElectroBoyFrontend.invokeModule("documents", "syncArtifactPreviewWithProject", ...args);
+    }
+
+    function ensureWorkspaceDialog() {
+      let dialog = document.getElementById("workspaceSelectorDialog");
+      if (dialog) {
+        return dialog;
+      }
+      dialog = document.createElement("dialog");
+      dialog.id = "workspaceSelectorDialog";
+      dialog.className = "workspace-selector-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="workspace-selector-form">
+          <header class="workspace-selector-header">
+            <div>
+              <h2>Open workspace</h2>
+              <p>Choose a detached workspace to continue.</p>
+            </div>
+            <button class="workspace-selector-close" type="button"
+                    aria-label="Close">&times;</button>
+          </header>
+          <fieldset class="workspace-selector-options">
+            <legend>Available workspaces</legend>
+            <div class="workspace-selector-list"></div>
+          </fieldset>
+          <p class="workspace-selector-error" role="alert" hidden></p>
+          <footer class="workspace-selector-footer">
+            <button class="workspace-selector-cancel" type="button">Cancel</button>
+            <button class="workspace-selector-refresh" type="button">Refresh</button>
+            <button class="workspace-selector-submit" type="submit">Attach</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      return dialog;
+    }
+
+    function workspaceDetails(workspace) {
+      const details = [];
+      if (workspace.workflow_stage) {
+        details.push(String(workspace.workflow_stage));
+      }
+      const agents = Number(workspace.running_agent_count || 0);
+      details.push(`${agents} agent${agents === 1 ? "" : "s"} running`);
+      if (workspace.active_project_root) {
+        details.push(String(workspace.active_project_root));
+      }
+      return details.join(" · ");
+    }
+
+    async function loadWorkspaceChoices(dialog) {
+      const list = dialog.querySelector(".workspace-selector-list");
+      const submit = dialog.querySelector(".workspace-selector-submit");
+      const error = dialog.querySelector(".workspace-selector-error");
+      error.hidden = true;
+      list.textContent = "Loading workspaces...";
+      submit.disabled = true;
+      const parameters = new URLSearchParams({ workflow_id: workflowMode });
+      const response = await fetch(`/api/workspaces?${parameters.toString()}`, {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({ error: "workspace list failed" }));
+      if (!response.ok) {
+        list.replaceChildren();
+        error.textContent = payload.error || "workspace list failed";
+        error.hidden = false;
+        return;
+      }
+      const workspaces = Array.isArray(payload.workspaces) ? payload.workspaces : [];
+      if (workspaces.length === 0) {
+        list.textContent = "No detached workspaces are available.";
+        return;
+      }
+      list.replaceChildren(...workspaces.map((workspace, index) => {
+        const option = document.createElement("label");
+        option.className = "workspace-selector-option";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "workspace-selector";
+        input.value = String(workspace.workspace_id || "");
+        input.checked = index === 0;
+        const copy = document.createElement("span");
+        copy.className = "workspace-selector-option-copy";
+        const title = document.createElement("strong");
+        title.textContent = String(workspace.name || "Workspace");
+        const details = document.createElement("span");
+        details.className = "workspace-selector-details";
+        details.textContent = workspaceDetails(workspace);
+        copy.append(title, details);
+        option.append(input, copy);
+        return option;
+      }));
+      submit.disabled = false;
+    }
+
+    async function showWorkspaceSelector() {
+      const dialog = ensureWorkspaceDialog();
+      const error = dialog.querySelector(".workspace-selector-error");
+      await loadWorkspaceChoices(dialog);
+      return new Promise((resolve) => {
+        const finish = (value) => {
+          dialog.close();
+          resolve(value);
+        };
+        dialog.querySelector(".workspace-selector-close").onclick = () => finish(false);
+        dialog.querySelector(".workspace-selector-cancel").onclick = () => finish(false);
+        dialog.querySelector(".workspace-selector-refresh").onclick = () => {
+          loadWorkspaceChoices(dialog).catch((problem) => {
+            error.textContent = problem.message || String(problem);
+            error.hidden = false;
+          });
+        };
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(false);
+        };
+        dialog.querySelector("form").onsubmit = async (event) => {
+          event.preventDefault();
+          const selected = dialog.querySelector('input[name="workspace-selector"]:checked');
+          if (!selected) {
+            return;
+          }
+          const response = await fetch(contextUrl("/api/workspaces/attach"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workspace_id: selected.value,
+              connection_id: currentBrowserTabId(),
+            }),
+          });
+          const payload = await response.json().catch(() => ({ error: "workspace attach failed" }));
+          if (!response.ok) {
+            await loadWorkspaceChoices(dialog);
+            error.textContent = payload.error || "workspace attach failed";
+            error.hidden = false;
+            return;
+          }
+          resetWorkflowContextView();
+          updateProjectState(payload, { workspaceSwitch: true });
+          finish(true);
+        };
+        dialog.showModal();
+      });
     }
 
     async function refreshProject() {
@@ -5109,7 +5495,10 @@
       });
     });
     window.addEventListener("storage", (event) => {
-      if (event.key === scratchPadStorageKey()) {
+      if (
+        !workspaceAllowsSharedConnections() &&
+        event.key === scratchPadStorageKey()
+      ) {
         const selectionStart = scratchPad.selectionStart;
         const selectionEnd = scratchPad.selectionEnd;
         scratchPad.value = event.newValue || "";
@@ -5208,6 +5597,7 @@
 
     scratchPad.addEventListener("input", () => {
       saveScratchPad();
+      queueWorkspaceStateSave();
       scratchPaneSync.publish({ value: scratchPad.value });
     });
     workflowModeSelect.addEventListener("change", () => {
@@ -5400,6 +5790,10 @@
       },
       http: {
         contextUrl,
+        contextParameters: () => {
+          const url = new URL(contextUrl("/"), window.location.origin);
+          return new URLSearchParams(url.search);
+        },
         fetch: (...args) => window.fetch(...args),
         eventSource: (path) => new EventSource(contextUrl(path)),
       },
@@ -5437,6 +5831,11 @@
         },
         deactivate: deactivateActiveProject,
       },
+      workspaces: {
+        openSelector: showWorkspaceSelector,
+        saveState: queueWorkspaceStateSave,
+        detach: detachCurrentWorkspace,
+      },
       paths: {
         basename,
       },
@@ -5468,7 +5867,7 @@
         connect: (pane, options = {}) => window.ElectroBoyPaneSync.connect({
           ...options,
           pane,
-          context: () => contextId,
+          context: () => `${contextId}:${currentBrowserTabId()}`,
           priority: 100,
         }),
       },
@@ -5588,12 +5987,18 @@
       }
       await restoreContext();
       await applyWorkflowMode();
-      await refreshServiceSessions();
-      window.setInterval(refreshServiceSessions, 10000);
     }
 
     window.addEventListener("pagehide", releaseContextOwner);
     window.addEventListener("pagehide", () => {
+      stopWorkspaceHeartbeat();
+      if (contextId && navigator.sendBeacon) {
+        const payload = new Blob(
+          [JSON.stringify({ connection_id: currentBrowserTabId() })],
+          { type: "application/json" },
+        );
+        navigator.sendBeacon(contextUrl("/api/workspaces/detach"), payload);
+      }
       scratchPaneSync.close();
       statusPaneSync.close();
       projectStatusObserver.disconnect();

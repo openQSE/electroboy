@@ -52,7 +52,12 @@ class ProjectCorkboardProvider:
             raise StateError("invalid project corkboard id")
         return candidate.as_posix()
 
-    def list_boards(self, context_id: str) -> list[dict[str, object]]:
+    def list_boards(
+        self,
+        context_id: str,
+        *,
+        connection_id: str = "",
+    ) -> list[dict[str, object]]:
         root = self.services.contexts.active_project_root(context_id)
         directory = root / PROJECT_CORKBOARD_DIRECTORY
         if not directory.is_dir():
@@ -60,7 +65,11 @@ class ProjectCorkboardProvider:
         boards: list[dict[str, object]] = []
         for path in sorted(directory.glob(f"*{CREATIVE_CORKBOARD_SUFFIX}")):
             board_id = path.relative_to(root).as_posix()
-            snapshot = self.get_board(context_id, board_id)
+            snapshot = self.get_board(
+                context_id,
+                board_id,
+                connection_id=connection_id,
+            )
             boards.append(
                 {
                     "board_id": board_id,
@@ -76,6 +85,7 @@ class ProjectCorkboardProvider:
         board_id: str,
         *,
         title: str | None = None,
+        connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
         normalized_id = self._relative_board_path(board_id)
@@ -105,6 +115,8 @@ class ProjectCorkboardProvider:
         self,
         context_id: str,
         payload: dict[str, object],
+        *,
+        connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
         board_id = self._relative_board_path(str(payload.get("board_id") or ""))
@@ -129,6 +141,7 @@ class ProjectCorkboardProvider:
         board_id: str,
         *,
         title: str | None = None,
+        connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
         normalized_id = self._relative_board_path(board_id or title or "")

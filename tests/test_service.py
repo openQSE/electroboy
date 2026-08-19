@@ -934,6 +934,7 @@ class ServiceTests(unittest.TestCase):
         dependency = object()
         services = ServiceServices(
             contexts=dependency,
+            workspaces=dependency,
             sessions=dependency,
             files=dependency,
             workflows=dependency,
@@ -984,6 +985,7 @@ class ServiceTests(unittest.TestCase):
             registry.create_controllers(
                 ServiceServices(
                     contexts=object(),
+                    workspaces=object(),
                     sessions=object(),
                     files=object(),
                     workflows=object(),
@@ -2628,7 +2630,8 @@ class ServiceTests(unittest.TestCase):
 
             payload = state.open_project(second_context, str(meta_root))
 
-        self.assertEqual(payload["status"], "opened")
+        self.assertEqual(payload["status"], "resumed")
+        self.assertEqual(payload["workspace_id"], first_context)
         self.assertEqual(payload["project_mode"], "meta")
         self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
         self.assertIsNone(payload["active_project_root"])
@@ -4154,7 +4157,7 @@ class ServiceTests(unittest.TestCase):
             ):
                 controller.start_ad_hoc_agent(context_id, provider_session_id)
 
-    def test_service_session_registry_records_and_attaches_sessions(self) -> None:
+    def test_service_session_registry_rejects_cross_workspace_attach(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "project"
@@ -4172,27 +4175,22 @@ class ServiceTests(unittest.TestCase):
                 session, _started = controller.start_ad_hoc_agent(first_context)
 
             registry = state.session_registry_payload()
-            attach_payload = state.attach_session(second_context, session.session_id)
             records = json.loads(
                 _service_session_records_path(service_root).read_text(
                     encoding="utf-8",
                 )
             )
 
+            with self.assertRaisesRegex(AgentSessionError, "unknown agent session"):
+                state.attach_session(second_context, session.session_id)
+
         self.assertEqual(registry["sessions"][0]["session_id"], session.session_id)
-        self.assertTrue(registry["sessions"][0]["attachable"])
+        self.assertFalse(registry["sessions"][0]["attachable"])
         self.assertEqual(
             registry["sessions"][0]["active_project_root"],
             str(project_root.resolve()),
         )
         self.assertEqual(records["sessions"][0]["session_id"], session.session_id)
-        self.assertEqual(attach_payload["status"], "attached")
-        self.assertEqual(
-            attach_payload["active_project_root"],
-            str(project_root.resolve()),
-        )
-        self.assertEqual(attach_payload["selected_session_id"], session.session_id)
-        self.assertEqual(attach_payload["sessions"][0]["session_id"], session.session_id)
 
     def test_service_state_tmux_backend_wraps_new_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4270,7 +4268,7 @@ class ServiceTests(unittest.TestCase):
         attach_existing.assert_called_once()
         self.assertEqual(registry["sessions"][0]["session_id"], "session-restored")
         self.assertEqual(registry["sessions"][0]["backend"], "tmux")
-        self.assertTrue(registry["sessions"][0]["attachable"])
+        self.assertFalse(registry["sessions"][0]["attachable"])
         self.assertEqual(
             registry["sessions"][0]["active_project_root"],
             str(project_root),

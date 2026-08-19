@@ -38,7 +38,82 @@ def _health(request: RouteRequest) -> JsonResponse:
 
 
 def _create_context(request: RouteRequest) -> JsonResponse:
-    return JsonResponse(request.services.contexts.create())
+    payload = request.body()
+    return JsonResponse(
+        request.services.contexts.create(
+            str(payload.get("connection_id") or ""),
+            str(payload.get("workflow_id") or ""),
+        )
+    )
+
+
+def _workspaces(request: RouteRequest) -> JsonResponse:
+    workflow_id = str((request.params.get("workflow_id") or [""])[0])
+    return JsonResponse(request.services.workspaces.payload(workflow_id))
+
+
+def _attach_workspace(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        result = request.services.workspaces.attach(
+            request.workspace_id,
+            str(payload.get("workspace_id") or ""),
+            str(payload.get("connection_id") or request.connection_id),
+            str(payload.get("lease_token") or request.lease_token),
+        )
+    except Exception as error:
+        return _conflict(error)
+    return JsonResponse(result)
+
+
+def _detach_workspace(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        result = request.services.workspaces.detach(
+            request.workspace_id,
+            str(payload.get("connection_id") or request.connection_id),
+            str(payload.get("lease_token") or request.lease_token),
+        )
+    except Exception as error:
+        return _conflict(error)
+    return JsonResponse(result)
+
+
+def _close_workspace(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        request.services.workspaces.close(
+            request.workspace_id,
+            str(payload.get("connection_id") or request.connection_id),
+            str(payload.get("lease_token") or request.lease_token),
+        )
+    except Exception as error:
+        return _conflict(error)
+    return JsonResponse({"status": "closed", "workspace_id": request.workspace_id})
+
+
+def _heartbeat_workspace(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        result = request.services.workspaces.heartbeat(
+            request.workspace_id,
+            str(payload.get("connection_id") or request.connection_id),
+            str(payload.get("lease_token") or request.lease_token),
+        )
+    except Exception as error:
+        return _conflict(error)
+    return JsonResponse(result)
+
+
+def _save_workspace_state(request: RouteRequest) -> ServiceResponse:
+    try:
+        result = request.services.workspaces.save_client_state(
+            request.workspace_id,
+            request.body(),
+        )
+    except Exception as error:
+        return _conflict(error)
+    return JsonResponse({"status": "saved", "state": result})
 
 
 def _project_payload(request: RouteRequest) -> ServiceResponse:
@@ -62,6 +137,12 @@ def _project_status(request: RouteRequest) -> ServiceResponse:
 def _deactivate_project(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.services.contexts.deactivate_project(request.context_id)
+        if request.connection_id:
+            replacement = request.services.contexts.create(
+                request.connection_id,
+                str(payload.get("workflow_id") or ""),
+            )
+            payload = {**replacement, "status": "deactivated"}
     except Exception as error:
         return _conflict(error)
     return JsonResponse(payload)
@@ -145,6 +226,12 @@ _HANDLERS = {
     "index": _index,
     "health": _health,
     "create_context": _create_context,
+    "workspaces": _workspaces,
+    "attach_workspace": _attach_workspace,
+    "detach_workspace": _detach_workspace,
+    "close_workspace": _close_workspace,
+    "heartbeat_workspace": _heartbeat_workspace,
+    "save_workspace_state": _save_workspace_state,
     "project_payload": _project_payload,
     "project_status": _project_status,
     "deactivate_project": _deactivate_project,
@@ -167,6 +254,12 @@ def module() -> ServiceModule:
             _route("GET", "/index.html", "index"),
             _route("GET", "/api/health", "health"),
             _route("POST", "/api/contexts", "create_context"),
+            _route("GET", "/api/workspaces", "workspaces"),
+            _route("POST", "/api/workspaces/attach", "attach_workspace"),
+            _route("POST", "/api/workspaces/detach", "detach_workspace"),
+            _route("POST", "/api/workspaces/close", "close_workspace"),
+            _route("POST", "/api/workspaces/heartbeat", "heartbeat_workspace"),
+            _route("POST", "/api/workspaces/state", "save_workspace_state"),
             _route("GET", "/api/project", "project_payload"),
             _route("GET", "/api/project/status", "project_status"),
             _route("POST", "/api/project/deactivate", "deactivate_project"),
