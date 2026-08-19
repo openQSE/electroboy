@@ -89,6 +89,10 @@
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
     const CONTEXT_OWNER_STORAGE_PREFIX = "electroboy.contextOwner.";
+    const SERVICE_FINGERPRINT_STORAGE_KEY = "electroboy.serviceFingerprint.v2";
+    const LEGACY_SERVICE_FINGERPRINT_STORAGE_KEYS = [
+      "electroboy.serviceFingerprint.v1",
+    ];
     const SPLASH_DISMISSED_STORAGE_KEY = "electroboy.splash.dismissed.v1";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
@@ -219,6 +223,7 @@
     let projectMode = "open";
     let projectBrowserActivatesSelection = false;
     let serviceRoot = "";
+    let serviceFingerprint = "";
     let activationRoot = "";
     let activeProjectMode = "none";
     let activeProjectRoot = "";
@@ -336,6 +341,108 @@
       } catch (error) {
         return defaultPaneLayout();
       }
+    }
+
+    function serviceFingerprintFromPayload(payload) {
+      const workflowConfig = payload && payload.workflow_config
+        ? payload.workflow_config
+        : {};
+      const workflows = Array.isArray(payload && payload.workflows)
+        ? payload.workflows
+        : [];
+      return JSON.stringify({
+        root: String((payload && payload.root) || ""),
+        state_root: String((payload && payload.state_root) || ""),
+        workflow_config: String(workflowConfig.path || ""),
+        workflows: workflows.map((workflow) => String(workflow)).sort(),
+      });
+    }
+
+    function clearStaleServiceBrowserState() {
+      try {
+        for (const key of Object.keys(window.sessionStorage)) {
+          if (
+            key === CONTEXT_STORAGE_KEY ||
+            key === CONTEXT_TAB_STORAGE_KEY ||
+            key.startsWith(`${CONTEXT_STORAGE_KEY}.`)
+          ) {
+            window.sessionStorage.removeItem(key);
+          }
+        }
+      } catch (error) {
+        // Ignore storage failures; the server will reject stale contexts anyway.
+      }
+      try {
+        window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
+        for (const key of Object.keys(window.localStorage)) {
+          if (key.startsWith(CONTEXT_OWNER_STORAGE_PREFIX)) {
+            window.localStorage.removeItem(key);
+          }
+        }
+      } catch (error) {
+        // Ignore storage failures; a fresh context will still be created.
+      }
+    }
+
+    function hasServiceBrowserState() {
+      try {
+        for (const key of Object.keys(window.sessionStorage)) {
+          if (
+            key === CONTEXT_STORAGE_KEY ||
+            key === CONTEXT_TAB_STORAGE_KEY ||
+            key.startsWith(`${CONTEXT_STORAGE_KEY}.`)
+          ) {
+            return true;
+          }
+        }
+      } catch (error) {
+        // Ignore storage failures; this is only a migration hint.
+      }
+      try {
+        if (window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY) !== null) {
+          return true;
+        }
+        for (const key of Object.keys(window.localStorage)) {
+          if (key.startsWith(CONTEXT_OWNER_STORAGE_PREFIX)) {
+            return true;
+          }
+        }
+      } catch (error) {
+        // Ignore storage failures; this is only a migration hint.
+      }
+      return false;
+    }
+
+    function applyServiceFingerprint(payload) {
+      const nextFingerprint = serviceFingerprintFromPayload(payload);
+      if (!nextFingerprint) {
+        return;
+      }
+      try {
+        const storedFingerprint = window.localStorage.getItem(
+          SERVICE_FINGERPRINT_STORAGE_KEY,
+        ) || "";
+        const hasLegacyFingerprint = LEGACY_SERVICE_FINGERPRINT_STORAGE_KEYS.some(
+          (key) => window.localStorage.getItem(key) !== null,
+        );
+        if (!storedFingerprint) {
+          if (hasLegacyFingerprint || hasServiceBrowserState()) {
+            clearStaleServiceBrowserState();
+          }
+        } else if (storedFingerprint !== nextFingerprint) {
+          clearStaleServiceBrowserState();
+        }
+        for (const key of LEGACY_SERVICE_FINGERPRINT_STORAGE_KEYS) {
+          window.localStorage.removeItem(key);
+        }
+        window.localStorage.setItem(
+          SERVICE_FINGERPRINT_STORAGE_KEY,
+          nextFingerprint,
+        );
+      } catch (error) {
+        // Keep operating when storage is unavailable.
+      }
+      serviceFingerprint = nextFingerprint;
     }
 
     function savePaneLayout() {
@@ -680,12 +787,39 @@
       return handle;
     }
 
+    function paneLayoutArtifactIsProjectScoped(item) {
+      if (!item || typeof item !== "object") {
+        return false;
+      }
+      if (item.kind === "agenda") {
+        return false;
+      }
+      if (item.kind === "corkboard" || item.kind === "creative-corkboard") {
+        const board = item.board || item.folder || item.corkboard || {};
+        const provider = String(board.provider || item.provider || "").trim();
+        return !provider ||
+          provider === "creative-files" ||
+          provider === "project-files";
+      }
+      return true;
+    }
+
     function paneLayoutRequestedArtifact(leaf) {
-      return leaf.kind === "artifact"
-        ? activeProjectRoot && leaf.projectRoot === activeProjectRoot
-          ? leaf.content
-          : null
-        : undefined;
+      if (leaf.kind !== "artifact") {
+        return undefined;
+      }
+      const content = leaf.content && typeof leaf.content === "object"
+        ? leaf.content
+        : null;
+      if (!content) {
+        return null;
+      }
+      if (!paneLayoutArtifactIsProjectScoped(content)) {
+        return content;
+      }
+      return activeProjectRoot && leaf.projectRoot === activeProjectRoot
+        ? content
+        : null;
     }
 
     function paneLayoutInstanceUrl(leaf) {
@@ -1756,7 +1890,7 @@
       }
     }
 
-    function applyWorkflowMode(options = {}) {
+    async function applyWorkflowMode(options = {}) {
       workflowModeSelect.value = workflowMode;
       for (const workflow of registeredWorkflows()) {
         if (workflow.layoutClass) {
@@ -1776,7 +1910,7 @@
       }
       const contribution = activeWorkflowContribution();
       if (contribution && typeof contribution.activate === "function") {
-        contribution.activate(frontendRuntime);
+        await contribution.activate(frontendRuntime);
       }
       refreshStageActionPanel();
       window.requestAnimationFrame(fitTerminal);
@@ -1792,7 +1926,7 @@
       }
       const nextMode = selected.id;
       if (nextMode === workflowMode) {
-        applyWorkflowMode();
+        await applyWorkflowMode();
         return;
       }
       const previous = activeWorkflowContribution();
@@ -1804,8 +1938,9 @@
       resetWorkflowContextView();
       workflowMode = nextMode;
       saveWorkflowMode();
-      applyWorkflowMode({ deferWorkspace: true });
+      await applyWorkflowMode({ deferWorkspace: true });
       await restoreContext();
+      await applyWorkflowMode();
     }
 
     function applyWorkflowSideSheetState() {
@@ -2897,6 +3032,8 @@
     async function checkConnection() {
       const response = await fetch("/api/health", { cache: "no-store" });
       if (response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        applyServiceFingerprint(payload);
         setConnected();
       }
     }
@@ -5316,7 +5453,7 @@
       await loadWorkflowRegistry();
       renderWorkflowModeOptions();
       applyWorkflowSideSheetState();
-      applyWorkflowMode();
+      await applyWorkflowMode({ deferWorkspace: true });
       initializeWorkflowSideSheetResize();
       initializePaneLayout();
       applyStoredPaneSizes();
@@ -5334,6 +5471,7 @@
         return;
       }
       await restoreContext();
+      await applyWorkflowMode();
       await refreshServiceSessions();
       window.setInterval(refreshServiceSessions, 10000);
     }

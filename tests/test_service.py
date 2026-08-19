@@ -714,12 +714,47 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn('message.type === "electroboy:pane-activate"', runtime)
+        self.assertIn("function paneLayoutArtifactIsProjectScoped(item)", runtime)
+        self.assertIn('item.kind === "agenda"', runtime)
+        self.assertIn('provider === "creative-files"', runtime)
+        self.assertIn('provider === "project-files"', runtime)
         self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
         self.assertIn("assignArtifact: assignArtifactToPane", runtime)
         self.assertIn("function paneLayoutRequestedArtifact(leaf)", runtime)
         self.assertIn("function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)", runtime)
         self.assertIn('type: "electroboy:pane-set-artifact"', runtime)
+        self.assertIn("function serviceFingerprintFromPayload(payload)", runtime)
+        self.assertIn("function clearStaleServiceBrowserState()", runtime)
+        self.assertIn("function hasServiceBrowserState()", runtime)
+        self.assertIn("SERVICE_FINGERPRINT_STORAGE_KEY", runtime)
+        self.assertIn(
+            'const SERVICE_FINGERPRINT_STORAGE_KEY = "electroboy.serviceFingerprint.v2";',
+            runtime,
+        )
+        self.assertIn("LEGACY_SERVICE_FINGERPRINT_STORAGE_KEYS", runtime)
+        self.assertIn("hasLegacyFingerprint || hasServiceBrowserState()", runtime)
+        self.assertIn("window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY)", runtime)
+        self.assertIn("async function applyWorkflowMode(options = {})", runtime)
+        self.assertIn("await contribution.activate(frontendRuntime);", runtime)
+        self.assertIn("await applyWorkflowMode({ deferWorkspace: true });", runtime)
         self.assertIn('frame.dataset.paneLoaded = "1";', runtime)
+        initialize_start = runtime.index("async function initialize()")
+        initialize_source = runtime[initialize_start:]
+        self.assertLess(
+            initialize_source.index("await applyWorkflowMode({ deferWorkspace: true });"),
+            initialize_source.index("await restoreContext();"),
+        )
+        self.assertLess(
+            initialize_source.index("await restoreContext();"),
+            initialize_source.index("await applyWorkflowMode();"),
+        )
+        switch_start = runtime.index("async function setWorkflowMode(")
+        switch_end = runtime.index("function applyWorkflowSideSheetState(", switch_start)
+        switch_source = runtime[switch_start:switch_end]
+        self.assertLess(
+            switch_source.index("await restoreContext();"),
+            switch_source.index("await applyWorkflowMode();", switch_source.index("await restoreContext();")),
+        )
         assign_start = runtime.index("function assignArtifactToPane(")
         assign_end = runtime.index("function handlePaneLayoutMessage(", assign_start)
         assign_source = runtime[assign_start:assign_end]
