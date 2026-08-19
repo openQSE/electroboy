@@ -746,6 +746,7 @@
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
     const EMBEDDED_PANE = params.get("embedded") === "1";
+    const paneInstanceId = params.get("pane_instance_id") || "";
     const contextId = params.get("context_id") || "";
     let selectedSessionId = params.get("session_id") || "";
     const ownedShellSessionId = params.get("shell_session_id") || "";
@@ -1027,6 +1028,13 @@
 
     function renderFileSwitcher() {
       contentSwitcher.replaceChildren();
+      const placeholderLabel = fileSwitcherPlaceholderLabel();
+      if (placeholderLabel) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = placeholderLabel;
+        contentSwitcher.append(option);
+      }
       const files = [...openFileTargets];
       if (
         artifactKind === "document"
@@ -1039,10 +1047,12 @@
         });
       }
       if (files.length === 0) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = "No open files";
-        contentSwitcher.append(option);
+        if (!placeholderLabel) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No open files";
+          contentSwitcher.append(option);
+        }
         contentSwitcher.disabled = true;
         return;
       }
@@ -1052,11 +1062,28 @@
         option.textContent = file.label || file.path;
         contentSwitcher.append(option);
       });
-      contentSwitcher.value = artifactDocumentPath;
-      contentSwitcher.disabled = false;
-      if (!contentSwitcher.value) {
+      contentSwitcher.value = artifactKind === "document" ? artifactDocumentPath : "";
+      contentSwitcher.disabled = files.length === 0;
+      if (artifactKind === "document" && files.length > 0 && !contentSwitcher.value) {
         selectFileTarget(files[0]);
       }
+    }
+
+    function fileSwitcherPlaceholderLabel() {
+      if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
+        return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId
+          || "Corkboard";
+      }
+      if (artifactKind === "agenda") {
+        return "Agenda";
+      }
+      if (artifactKind === "requirements") {
+        return "Requirements";
+      }
+      if (artifactKind === "empty") {
+        return "No file open";
+      }
+      return "";
     }
 
     function selectFileTarget(target) {
@@ -1077,6 +1104,24 @@
       nextUrl.searchParams.delete("artifact_path");
       nextUrl.searchParams.delete("artifact_title");
       window.history.replaceState(null, "", nextUrl);
+      if (EMBEDDED_PANE && paneInstanceId && window.parent !== window) {
+        window.parent.postMessage(
+          {
+            type: "electroboy:pane-artifact-change",
+            paneInstanceId,
+            item: {
+              id: `document:${artifactDocumentPath}`,
+              kind: "document",
+              title: artifactDocumentTitle,
+              target: {
+                path: artifactDocumentPath,
+                label: artifactDocumentTitle,
+              },
+            },
+          },
+          window.location.origin,
+        );
+      }
       if (artifactEventSource) {
         artifactEventSource.close();
         artifactEventSource = null;
@@ -1835,6 +1880,38 @@
       window.requestAnimationFrame(sendShellResize);
     }
 
+    function artifactTargetPath() {
+      if (artifactKind === "document") {
+        return artifactDocumentPath;
+      }
+      if (artifactKind === "route") {
+        return artifactRoutePath;
+      }
+      if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
+        return artifactCorkboardId;
+      }
+      return "";
+    }
+
+    function artifactTargetTitle() {
+      if (artifactKind === "document") {
+        return artifactDocumentTitle || artifactDocumentPath;
+      }
+      if (artifactKind === "route") {
+        return artifactRouteTitle || artifactRoutePath;
+      }
+      if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
+        return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId;
+      }
+      if (artifactKind === "agenda") {
+        return "Agenda";
+      }
+      if (artifactKind === "requirements") {
+        return "Requirements";
+      }
+      return "";
+    }
+
     function artifactUrl() {
       if (artifactKind === "requirements") {
         return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${artifactZoom}&version=${artifactVersion}`;
@@ -1909,6 +1986,12 @@
     function refreshArtifact() {
       artifactVersion += 1;
       artifactFrame.classList.add("loading");
+      if (artifactKind === "empty") {
+        artifactFrame.removeAttribute("src");
+        artifactFrame.srcdoc = `<!doctype html><html><body style="margin:0;display:grid;place-items:center;height:100vh;background:#10141f;color:#77849a;font:14px system-ui,sans-serif">No file open</body></html>`;
+        return;
+      }
+      artifactFrame.removeAttribute("srcdoc");
       artifactFrame.src = artifactEditing ? artifactEditUrl() : artifactUrl();
     }
 
@@ -1940,6 +2023,7 @@
     function connectArtifactStream() {
       const isProviderView = artifactKind === "corkboard" ||
         artifactKind === "creative-corkboard" || artifactKind === "agenda";
+      const isEmpty = artifactKind === "empty";
       artifactFrame.hidden = false;
       artifactZoomControls.hidden = isProviderView;
       refreshArtifactButton.hidden = false;
@@ -1947,6 +2031,14 @@
       editArtifactButton.hidden = isProviderView;
       exportPaneFormat.hidden = isProviderView;
       exportPaneOutput.hidden = isProviderView;
+      if (isEmpty) {
+        artifactZoomControls.hidden = true;
+        refreshArtifactButton.hidden = true;
+        previewArtifactButton.hidden = true;
+        editArtifactButton.hidden = true;
+        exportPaneFormat.hidden = true;
+        exportPaneOutput.hidden = true;
+      }
       previewArtifactButton.classList.toggle("active", !artifactEditing);
       editArtifactButton.classList.toggle("active", artifactEditing);
       applyArtifactZoom();
@@ -2315,6 +2407,22 @@
     function initializeDirectPane() {
       dockPane.hidden = true;
       initializeSharedPaneSync();
+      const notifyPaneActivated = () => {
+        if (!paneInstanceId || window.parent === window) {
+          return;
+        }
+        window.parent.postMessage(
+          {
+            type: "electroboy:pane-activate",
+            paneInstanceId,
+          },
+          window.location.origin,
+        );
+      };
+      document.addEventListener("pointerdown", notifyPaneActivated, true);
+      window.addEventListener("focus", notifyPaneActivated);
+      window.addEventListener("blur", notifyPaneActivated);
+      artifactFrame.addEventListener("focus", notifyPaneActivated);
     decreaseArtifactZoom.addEventListener(
       "click",
       () => changeArtifactZoom(-ARTIFACT_ZOOM_STEP),
@@ -2394,6 +2502,9 @@
       } else if (PANE_KIND === "agent") {
         selectAgentSession(contentSwitcher.value);
       } else if (PANE_KIND === "artifact") {
+        if (!contentSwitcher.value) {
+          return;
+        }
         selectFileTarget(
           openFileTargets.find((file) => file.path === contentSwitcher.value),
         );
@@ -2450,8 +2561,9 @@
         contextUrl,
         getTarget: () => ({
           kind: artifactKind,
-          path: artifactDocumentPath || artifactRoutePath,
-          title: artifactDocumentTitle || artifactRouteTitle,
+          path: artifactTargetPath(),
+          title: artifactTargetTitle(),
+          editing: artifactEditing,
         }),
         controls: {
           zoom: artifactZoomControls,

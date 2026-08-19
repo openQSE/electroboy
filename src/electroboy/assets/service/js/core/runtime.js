@@ -170,6 +170,7 @@
     let paneLayoutObserver = null;
     let paneDragController = null;
     let paneLayoutIdSequence = 0;
+    let activePaneLayoutLeafId = "";
     let paneCornerSplitCancel = null;
     let terminalResizeObserver = null;
     let resizeTimer = null;
@@ -263,8 +264,8 @@
       return `${prefix}-${Date.now()}-${paneLayoutIdSequence}`;
     }
 
-    function paneLayoutLeaf(kind = "empty") {
-      return { type: "leaf", id: newPaneLayoutId(), kind };
+    function paneLayoutLeaf(kind = "empty", content = null, projectRoot = "") {
+      return { type: "leaf", id: newPaneLayoutId(), kind, content, projectRoot };
     }
 
     function paneLayoutSplit(direction, first, second, ratio = 0.5) {
@@ -299,11 +300,17 @@
       if (value.type === "leaf") {
         const requestedKind = String(value.kind || "empty");
         const validKind = requestedKind === "empty" || PANE_LAYOUT_KINDS[requestedKind];
-        const kind = validKind && !seenKinds.has(requestedKind) ? requestedKind : "empty";
-        if (kind !== "empty") {
-          seenKinds.add(kind);
+        const duplicateAgent = requestedKind === "agent" && seenKinds.has("agent");
+        const kind = validKind && !duplicateAgent ? requestedKind : "empty";
+        if (kind === "agent") {
+          seenKinds.add("agent");
         }
-        return paneLayoutLeaf(kind);
+        const content = kind === "artifact" && value.content &&
+            typeof value.content === "object"
+          ? value.content
+          : null;
+        const projectRoot = content ? String(value.projectRoot || "") : "";
+        return paneLayoutLeaf(kind, content, projectRoot);
       }
       if (value.type !== "split") {
         return null;
@@ -360,6 +367,22 @@
       return paneLayoutLeaves().find((leaf) => leaf.kind === kind) || null;
     }
 
+    function setActivePaneLayoutLeaf(id) {
+      const leaf = paneLayoutLeafById(String(id || ""));
+      if (!leaf) {
+        return;
+      }
+      activePaneLayoutLeafId = leaf.id;
+      for (const element of outputWorkbench.querySelectorAll(
+        ".pane-layout-leaf",
+      )) {
+        element.classList.toggle(
+          "active",
+          element.dataset.paneLayoutId === activePaneLayoutLeafId,
+        );
+      }
+    }
+
     function replacePaneLayoutNode(node, id, replacement) {
       if (node.id === id) {
         return replacement;
@@ -395,7 +418,11 @@
       return node;
     }
 
-    function paneLayoutKindAvailable(kind) {
+    function paneLayoutKindAvailable(kind, leaf = null) {
+      if (kind === "agent") {
+        const agentLeaf = paneLayoutLeafByKind("agent");
+        return !agentLeaf || agentLeaf === leaf;
+      }
       if (kind !== "artifact") {
         return true;
       }
@@ -421,11 +448,12 @@
         const option = document.createElement("option");
         option.value = kind;
         option.textContent = definition.label;
-        option.disabled = !paneLayoutKindAvailable(kind);
+        option.disabled = !paneLayoutKindAvailable(kind, leaf);
         select.append(option);
       }
       select.value = leaf.kind;
       select.addEventListener("change", () => {
+        setActivePaneLayoutLeaf(leaf.id);
         changePaneLayoutKind(leaf.id, select.value);
       });
 
@@ -652,19 +680,74 @@
       return handle;
     }
 
-    function renderPaneLayoutNode(node) {
+    function paneLayoutInstanceUrl(leaf) {
+      const requestedArtifact = leaf.kind === "artifact"
+        ? activeProjectRoot && leaf.projectRoot === activeProjectRoot
+          ? leaf.content
+          : null
+        : undefined;
+      const url = new URL(paneUrl(leaf.kind, requestedArtifact), window.location.origin);
+      url.searchParams.set("embedded", "1");
+      url.searchParams.set("pane_instance_id", leaf.id);
+      return `${url.pathname}${url.search}`;
+    }
+
+    function buildPaneLayoutInstanceFrame(leaf) {
+      const frame = document.createElement("iframe");
+      frame.className = "pane-layout-instance-frame";
+      frame.title = `${PANE_LAYOUT_KINDS[leaf.kind].label} pane`;
+      frame.src = paneLayoutInstanceUrl(leaf);
+      frame.addEventListener("focus", () => {
+        setActivePaneLayoutLeaf(leaf.id);
+      });
+      return frame;
+    }
+
+    function refreshPaneLayoutInstanceFrames() {
+      if (!paneLayout) {
+        return;
+      }
+      for (const frame of outputWorkbench.querySelectorAll(
+        ".pane-layout-instance-frame",
+      )) {
+        const leafElement = frame.closest(".pane-layout-leaf");
+        const leaf = paneLayoutLeafById(leafElement?.dataset.paneLayoutId || "");
+        if (!leaf) {
+          continue;
+        }
+        const nextUrl = new URL(
+          paneLayoutInstanceUrl(leaf),
+          window.location.origin,
+        ).href;
+        if (frame.src !== nextUrl) {
+          frame.src = nextUrl;
+        }
+      }
+    }
+
+    function renderPaneLayoutNode(node, renderedKinds = new Set()) {
       if (node.type === "leaf") {
         const leaf = document.createElement("div");
         leaf.className = "pane-layout-leaf";
         leaf.dataset.paneLayoutId = node.id;
         leaf.dataset.paneKind = node.kind;
+        leaf.classList.toggle("active", node.id === activePaneLayoutLeafId);
+        leaf.addEventListener("pointerdown", () => {
+          setActivePaneLayoutLeaf(node.id);
+        });
+        leaf.addEventListener("focusin", () => {
+          setActivePaneLayoutLeaf(node.id);
+        });
         leaf.append(buildPaneLayoutToolbar(node));
         if (node.kind === "empty") {
           const empty = document.createElement("div");
           empty.className = "pane-layout-empty";
           empty.textContent = "Choose a pane type";
           leaf.append(empty);
+        } else if (node.kind === "artifact" || renderedKinds.has(node.kind)) {
+          leaf.append(buildPaneLayoutInstanceFrame(node));
         } else {
+          renderedKinds.add(node.kind);
           const paneElement = PANE_LAYOUT_KINDS[node.kind].element;
           for (const header of paneElement.querySelectorAll(
             ".pane-header, .side-pane-header",
@@ -689,7 +772,7 @@
       const split = document.createElement("div");
       split.className = `pane-layout-split ${node.direction}`;
       split.dataset.paneLayoutId = node.id;
-      const first = renderPaneLayoutNode(node.first);
+      const first = renderPaneLayoutNode(node.first, renderedKinds);
       const divider = document.createElement("div");
       divider.className = `pane-layout-divider ${node.direction}`;
       divider.setAttribute("role", "separator");
@@ -701,7 +784,7 @@
       divider.addEventListener("pointerdown", (event) => {
         startPaneLayoutResize(event, node, split, divider);
       });
-      const second = renderPaneLayoutNode(node.second);
+      const second = renderPaneLayoutNode(node.second, renderedKinds);
       split.append(first, divider, second);
       applyPaneLayoutSplitTemplate(split, node);
       return split;
@@ -712,7 +795,9 @@
         return false;
       }
       if (node.type === "leaf") {
-        const visible = node.kind === "empty" || !PANE_LAYOUT_KINDS[node.kind].element.hidden;
+        const isInstance = Boolean(element.querySelector(".pane-layout-instance-frame"));
+        const visible = node.kind === "empty" || isInstance ||
+          !PANE_LAYOUT_KINDS[node.kind].element.hidden;
         element.hidden = !visible;
         return visible;
       }
@@ -751,7 +836,7 @@
       if (!leaf) {
         return;
       }
-      const existingLeaf = paneLayoutLeaf(leaf.kind);
+      const existingLeaf = { ...leaf };
       const emptyLeaf = paneLayoutLeaf();
       const replacement = paneLayoutSplit(
         direction,
@@ -769,12 +854,16 @@
       if (!leaf || (kind !== "empty" && !PANE_LAYOUT_KINDS[kind])) {
         return;
       }
-      const previousKind = leaf.kind;
-      const existing = kind === "empty" ? null : paneLayoutLeafByKind(kind);
-      if (existing && existing !== leaf) {
-        existing.kind = previousKind;
+      if (!paneLayoutKindAvailable(kind, leaf)) {
+        return;
       }
+      const previousKind = leaf.kind;
       leaf.kind = kind;
+      if (previousKind !== kind) {
+        leaf.content = null;
+        leaf.projectRoot = "";
+      }
+      setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
       renderPaneLayout();
       activatePaneLayoutKind(kind);
@@ -793,6 +882,9 @@
       }
       const removedKind = leaf.kind;
       paneLayout = removePaneLayoutLeaf(paneLayout, id);
+      if (activePaneLayoutLeafId === id) {
+        activePaneLayoutLeafId = paneLayoutLeaves()[0]?.id || "";
+      }
       savePaneLayout();
       renderPaneLayout();
       if (!paneLayoutLeafByKind(removedKind)) {
@@ -810,6 +902,12 @@
         const sourceKind = source.kind;
         source.kind = target.kind;
         target.kind = sourceKind;
+        const sourceContent = source.content;
+        source.content = target.content;
+        target.content = sourceContent;
+        const sourceProjectRoot = source.projectRoot;
+        source.projectRoot = target.projectRoot;
+        target.projectRoot = sourceProjectRoot;
       } else {
         const movedLeaf = { ...source };
         paneLayout = removePaneLayoutLeaf(paneLayout, sourceId);
@@ -871,13 +969,69 @@
       } else {
         const replacement = paneLayoutSplit(
           direction,
-          paneLayoutLeaf(target.kind),
+          { ...target },
           paneLayoutLeaf(kind),
         );
         paneLayout = replacePaneLayoutNode(paneLayout, target.id, replacement);
       }
       savePaneLayout();
       renderPaneLayout();
+    }
+
+    function clonePaneLayoutContent(content) {
+      if (!content || typeof content !== "object") {
+        return null;
+      }
+      try {
+        return JSON.parse(JSON.stringify(content));
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function assignArtifactToPane(item, requestedLeafId = "") {
+      let leaf = paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId);
+      if (!leaf || leaf.kind !== "artifact") {
+        leaf = paneLayoutLeafByKind("artifact");
+      }
+      if (!leaf) {
+        ensurePaneInLayout("artifact", "agent", "row");
+        leaf = paneLayoutLeafByKind("artifact");
+      }
+      if (!leaf) {
+        return;
+      }
+      leaf.content = clonePaneLayoutContent(item);
+      leaf.projectRoot = activeProjectRoot;
+      setActivePaneLayoutLeaf(leaf.id);
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
+    function handlePaneLayoutMessage(event) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      const message = event.data;
+      if (!message) {
+        return;
+      }
+      const leaf = paneLayoutLeafById(String(message.paneInstanceId || ""));
+      if (!leaf) {
+        return;
+      }
+      if (message.type === "electroboy:pane-activate") {
+        setActivePaneLayoutLeaf(leaf.id);
+        return;
+      }
+      if (message.type !== "electroboy:pane-artifact-change" ||
+          leaf.kind !== "artifact") {
+        return;
+      }
+      leaf.content = clonePaneLayoutContent(message.item);
+      leaf.projectRoot = activeProjectRoot;
+      setActivePaneLayoutLeaf(leaf.id);
+      savePaneLayout();
     }
 
     function resetPaneLayout() {
@@ -930,9 +1084,11 @@
 
     function initializePaneLayout() {
       paneLayout = storedPaneLayout();
+      activePaneLayoutLeafId = paneLayoutLeaves()[0]?.id || "";
       outputWorkbench.classList.add("pane-layout-enabled");
       initializePaneDragController();
       renderPaneLayout();
+      window.addEventListener("message", handlePaneLayoutMessage);
       paneLayoutObserver = new MutationObserver(() => refreshPaneLayoutVisibility());
       for (const definition of Object.values(PANE_LAYOUT_KINDS)) {
         paneLayoutObserver.observe(definition.element, {
@@ -2712,7 +2868,7 @@
       return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
     }
 
-    function paneUrl(kind, requestedArtifactItem = null) {
+    function paneUrl(kind, requestedArtifactItem = undefined) {
       const parameters = new URLSearchParams();
       if (contextId) {
         parameters.set("context_id", contextId);
@@ -2720,9 +2876,13 @@
       if (selectedSessionId) {
         parameters.set("session_id", selectedSessionId);
       }
-      const artifactItem = requestedArtifactItem || artifactPreviewItems[0] || null;
+      const artifactItem = requestedArtifactItem === undefined
+        ? artifactPreviewItems[0] || null
+        : requestedArtifactItem;
       if (artifactItem) {
         parameters.set("artifact", artifactKindForPane(artifactItem));
+      } else if (kind === "artifact") {
+        parameters.set("artifact", "empty");
       }
       if (artifactItem && artifactItem.kind === "document" && artifactItem.target) {
         parameters.set("document_path", artifactItem.target.path);
@@ -2740,6 +2900,16 @@
           if (board.provider) {
             parameters.set("corkboard_provider", board.provider);
           }
+        }
+      }
+      if (artifactItem && artifactItem.kind === "route" && artifactItem.path) {
+        parameters.set("artifact_path", artifactItem.path);
+        parameters.set("artifact_title", artifactItem.title || artifactItem.path);
+      }
+      if (artifactItem && artifactItem.kind === "agenda") {
+        const agenda = artifactItem.agenda || {};
+        if (agenda.provider) {
+          parameters.set("agenda_provider", agenda.provider);
         }
       }
       const fontPane = paneFontKeyForKind(kind);
@@ -3319,6 +3489,7 @@
       }
       projectStatus.textContent = projectStatusLine();
       queueProjectStatusRefresh();
+      refreshPaneLayoutInstanceFrames();
     }
 
     function activeProjectMenuLabel() {
@@ -4955,6 +5126,7 @@
       },
       layout: {
         ensurePane: ensurePaneInLayout,
+        assignArtifact: assignArtifactToPane,
         hasPane: (kind) => Boolean(paneLayoutLeafByKind(kind)),
         isPopped: (kind) => poppedPanes.has(kind),
         dockPane: dockPoppedPane,

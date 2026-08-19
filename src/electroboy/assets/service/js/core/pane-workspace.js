@@ -46,19 +46,25 @@
       return leaf(kindMap.has(initialKind) ? initialKind : "empty");
     }
 
-    function normalize(node) {
+    function normalize(node, seenKinds = new Set()) {
       if (!node || typeof node !== "object") {
         return null;
       }
       if (node.type === "leaf") {
-        const kind = String(node.kind || "empty");
-        return leaf(kind === "empty" || kindMap.has(kind) ? kind : "empty");
+        const requestedKind = String(node.kind || "empty");
+        const duplicateAgent = requestedKind === "agent" && seenKinds.has("agent");
+        const kind = !duplicateAgent &&
+            (requestedKind === "empty" || kindMap.has(requestedKind))
+          ? requestedKind
+          : "empty";
+        if (kind === "agent") seenKinds.add("agent");
+        return leaf(kind);
       }
       if (node.type !== "split") {
         return null;
       }
-      const first = normalize(node.first);
-      const second = normalize(node.second);
+      const first = normalize(node.first, seenKinds);
+      const second = normalize(node.second, seenKinds);
       if (!first || !second) {
         return null;
       }
@@ -155,6 +161,8 @@
         const option = document.createElement("option");
         option.value = kind.id;
         option.textContent = kind.label;
+        option.disabled = kind.id === "agent" &&
+          leaves().some((leafItem) => leafItem.kind === "agent" && leafItem !== item);
         select.append(option);
       }
       select.value = item.kind;
@@ -440,6 +448,10 @@
     function changeKind(id, kind) {
       const item = leafById(id);
       if (!item || (kind !== "empty" && !kindMap.has(kind))) return;
+      if (
+        kind === "agent" &&
+        leaves().some((leafItem) => leafItem.kind === "agent" && leafItem !== item)
+      ) return;
       item.kind = kind;
       saveLayout();
       render();

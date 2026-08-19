@@ -611,6 +611,20 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function bindRuntime(runtime)", creative)
         self.assertIn('contextUrl("/api/corkboards")', creative)
         self.assertNotIn('contextUrl("/api/creative/corkboards")', creative)
+        self.assertIn('contextUrl("/api/corkboard")', creative)
+        self.assertIn("action: \"rename-board\"", creative)
+        self.assertIn(
+            "renameInput(runtime, entry, entryActionType, path)",
+            binder,
+        )
+        self.assertIn(
+            "action.finishCreativeRename(path, actionType, input.value);",
+            binder,
+        )
+        self.assertNotIn(
+            "action.finishCreativeRename(path, type, input.value);",
+            binder,
+        )
         self.assertNotIn("runtime.actions", software)
         self.assertNotIn("runtime.actions", creative)
         self.assertNotIn("runtime.actions", binder)
@@ -677,6 +691,26 @@ class ServiceTests(unittest.TestCase):
             'artifactPaneRequested = runtimeApi.layout.hasPane("artifact")',
             creative,
         )
+
+    def test_pane_layout_allows_independent_duplicate_types(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+        documents = read_service_text_asset("js/modules/documents.js")
+        workspace = read_service_text_asset("js/core/pane-workspace.js")
+        styles = read_service_text_asset("css/shell.css")
+
+        self.assertNotIn("existing.kind = previousKind", runtime)
+        self.assertIn('requestedKind === "agent" && seenKinds.has("agent")', runtime)
+        self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
+        self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
+        self.assertIn('message.type === "electroboy:pane-activate"', runtime)
+        self.assertEqual(runtime.count("refreshPaneLayoutInstanceFrames();"), 1)
+        self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
+        self.assertIn("assignArtifact: assignArtifactToPane", runtime)
+        self.assertIn("runtimeApi.layout.assignArtifact(nextItems[0]);", documents)
+        self.assertIn('kind === "agent" &&', workspace)
+        self.assertIn(".pane-layout-leaf.active::before", styles)
+        self.assertIn("border: 3px solid #9bd6cf;", styles)
+        self.assertIn("pointer-events: none;", styles)
 
     def test_agent_input_actions_are_fixed_height_and_top_aligned(self) -> None:
         styles = read_service_text_asset("css/shell.css")
@@ -1292,6 +1326,22 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('type: "electroboy-editor-font-size"', page)
         self.assertIn('artifactKind === "creative-corkboard"', page)
         self.assertIn("/artifacts/corkboard", page)
+        self.assertIn("function fileSwitcherPlaceholderLabel()", page)
+        self.assertIn('return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId', page)
+        self.assertIn(
+            'if (artifactKind === "document" && files.length > 0 && !contentSwitcher.value)',
+            page,
+        )
+        self.assertIn("path: artifactTargetPath()", page)
+        self.assertIn("title: artifactTargetTitle()", page)
+        self.assertIn("editing: artifactEditing", page)
+        self.assertIn(
+            'if (!contentSwitcher.value) {\n'
+            "          return;\n"
+            "        }\n"
+            "        selectFileTarget(",
+            page,
+        )
         self.assertIn("function artifactDocumentExportUrl(format)", page)
         self.assertIn('parameters.set("artifact", "document")', page)
         self.assertIn('parameters.set("font_size", String(artifactEditorFontSize()))', page)
@@ -2551,6 +2601,65 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
             self.assertTrue((project_root / "chapters").is_dir())
             self.assertTrue((project_root / ".electroboy").is_dir())
+
+    def test_service_state_repairs_creative_corkboard_renamed_as_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            board_path = project_root / "corkboard" / "ideas.corkboard.json"
+            broken_path = project_root / "corkboard" / "ideas.md"
+            board_path.rename(broken_path)
+
+            tree = state.initialize_creative_workspace(context_id)
+            page, status = creative_corkboard_html(
+                project_root,
+                "corkboard/ideas.corkboard.json",
+                context_id=context_id,
+            )
+            corkboard_folder = next(
+                entry for entry in tree["entries"] if entry["path"] == "corkboard"
+            )
+            repaired_entry = next(
+                entry
+                for entry in corkboard_folder["children"]
+                if entry["path"] == "corkboard/ideas.corkboard.json"
+            )
+
+            self.assertTrue(board_path.is_file())
+            self.assertFalse(broken_path.exists())
+            self.assertTrue(repaired_entry["corkboard"])
+            self.assertFalse(repaired_entry["markdown"])
+            self.assertEqual(repaired_entry["title"], "ideas")
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertIn('"board_type": "freeform"', page)
+
+    def test_creative_tree_hides_duplicate_markdown_corkboard_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            board_path = project_root / "corkboard" / "ideas.corkboard.json"
+            broken_path = project_root / "corkboard" / "ideas.md"
+            broken_path.write_text(board_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+            tree = state.creative_tree(context_id)
+            corkboard_folder = next(
+                entry for entry in tree["entries"] if entry["path"] == "corkboard"
+            )
+            child_paths = [
+                child["path"] for child in corkboard_folder["children"]
+            ]
+
+            self.assertIn("corkboard/ideas.corkboard.json", child_paths)
+            self.assertNotIn("corkboard/ideas.md", child_paths)
+            self.assertTrue(broken_path.is_file())
 
     def test_creative_folder_board_renders_and_saves_ordered_cards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

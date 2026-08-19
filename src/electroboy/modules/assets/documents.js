@@ -762,6 +762,7 @@
       applyStoredArtifactPaneSize();
       renderArtifactPreviewItems();
       applyOutputPaneVisibility();
+      runtimeApi.layout.assignArtifact(nextItems[0]);
       connectArtifactEvents();
     }
 

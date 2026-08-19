@@ -95,7 +95,7 @@
     icon.className = `creative-tree-icon ${iconClass(entry)}`;
     icon.innerHTML = iconSvg(iconName(entry, expanded));
     const name = state.creativeEditingPath === path
-      ? renameInput(runtime, entry, type, path)
+      ? renameInput(runtime, entry, entryActionType, path)
       : treeName(entry, path);
     const rename = iconButton(
       "rename",
@@ -195,7 +195,7 @@
     }
   }
 
-  function renameInput(runtime, entry, type, path) {
+  function renameInput(runtime, entry, actionType, path) {
     const action = creativeActions(runtime);
     const input = document.createElement("input");
     input.className = "creative-tree-name-input";
@@ -209,14 +209,14 @@
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        action.finishCreativeRename(path, type, input.value);
+        action.finishCreativeRename(path, actionType, input.value);
       } else if (event.key === "Escape") {
         event.preventDefault();
         action.cancelCreativeRename();
       }
     });
     input.addEventListener("blur", () => {
-      action.finishCreativeRename(path, type, input.value);
+      action.finishCreativeRename(path, actionType, input.value);
     });
     window.requestAnimationFrame(() => {
       input.focus();

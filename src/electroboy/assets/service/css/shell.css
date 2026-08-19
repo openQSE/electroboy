@@ -1076,6 +1076,19 @@
       container-type: inline-size;
     }
 
+    .pane-layout-leaf.active {
+      z-index: 1;
+    }
+
+    .pane-layout-leaf.active::before {
+      position: absolute;
+      z-index: 40;
+      inset: 0;
+      border: 3px solid #9bd6cf;
+      content: "";
+      pointer-events: none;
+    }
+
     [data-pane-drag-handle] {
       cursor: grab;
     }
@@ -1266,6 +1279,16 @@
       min-height: 0;
       color: #77849a;
       font-size: var(--ui-small-font-size);
+    }
+
+    .pane-layout-instance-frame {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      border: 0;
+      background: var(--terminal);
     }
 
     .pane-layout-divider {

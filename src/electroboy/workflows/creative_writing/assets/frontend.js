@@ -380,6 +380,13 @@
     if (!path) {
       return;
     }
+    const entry = findCreativeEntry(
+      creativeTreePayload && creativeTreePayload.entries,
+      path,
+    );
+    const title = options.title || (
+      entry && entry.corkboard ? String(entry.title || "") : ""
+    );
     runtime.updateState({
       creativeActiveDocument: path,
       creativeActiveFolder: creativeParentPath(path),
@@ -387,7 +394,7 @@
     });
     showCreativeCorkboard(path, {
       freeform: true,
-      title: options.title || "",
+      title,
     });
     renderCreativeTree();
     renderProjectStatus(runtime);

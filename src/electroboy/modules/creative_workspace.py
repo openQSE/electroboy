@@ -110,6 +110,7 @@ def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, P
 def _ensure_creative_workspace(project_root: Path | str) -> None:
     project_root = Path(project_root).expanduser().resolve()
     (project_root / ".electroboy").mkdir(parents=True, exist_ok=True)
+    _repair_misnamed_creative_corkboards(project_root)
     for folder in CREATIVE_DEFAULT_FOLDERS:
         (project_root / folder).mkdir(parents=True, exist_ok=True)
     _ensure_creative_scratchpad(project_root)
@@ -208,6 +209,39 @@ def _create_creative_corkboard(
     return normalized_path
 
 
+def _is_creative_corkboard_document(path: Path) -> bool:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return False
+    return isinstance(data, dict) and data.get("type") == "electroboy.creative.corkboard"
+
+
+def _repair_misnamed_creative_corkboards(project_root: Path | str) -> list[tuple[str, str]]:
+    """Restore corkboard JSON files that were accidentally renamed as Markdown."""
+
+    project_root_path = Path(project_root).expanduser().resolve()
+    repaired: list[tuple[str, str]] = []
+    for source in sorted(project_root_path.rglob("*.md")):
+        if ".electroboy" in source.parts or not source.is_file():
+            continue
+        if not _is_creative_corkboard_document(source):
+            continue
+        destination = source.with_name(f"{source.stem}{CREATIVE_CORKBOARD_SUFFIX}")
+        if destination.exists():
+            continue
+        source.rename(destination)
+        old_relative_path = source.relative_to(project_root_path).as_posix()
+        new_relative_path = destination.relative_to(project_root_path).as_posix()
+        _remap_creative_corkboard_paths(
+            project_root_path,
+            old_relative_path,
+            new_relative_path,
+        )
+        repaired.append((old_relative_path, new_relative_path))
+    return repaired
+
+
 def _normalize_creative_entry_name(name: str) -> str:
     normalized_name = name.strip()
     if not normalized_name:
@@ -256,6 +290,7 @@ def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
 
 def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
     project_root = Path(project_root).expanduser().resolve()
+    _repair_misnamed_creative_corkboards(project_root)
     return {
         "root": str(project_root),
         "entries": _creative_tree_entries(project_root, project_root),
@@ -299,6 +334,9 @@ def _creative_tree_entries(
             )
             continue
         is_corkboard = child.name.endswith(CREATIVE_CORKBOARD_SUFFIX)
+        if not is_corkboard and child.suffix.lower() == ".md":
+            if _is_creative_corkboard_document(child):
+                continue
         entry: dict[str, object] = {
             "name": child.name,
             "path": relative_path,
