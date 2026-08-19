@@ -448,6 +448,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('sidecarStages: ["document", "corkboard"]', software)
         self.assertIn('contextUrl("/api/corkboards")', software)
         self.assertIn('navigation: "stages"', software)
+        self.assertIn("function resetSoftwareWorkflowState()", software)
+        self.assertIn("deactivate,", software)
         self.assertIn("stageDescriptions: STAGE_DESCRIPTIONS", software)
         self.assertNotIn("function mount(runtime)", software)
         self.assertIn("async function startAgent(runtime)", creative)
@@ -456,6 +458,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const WORKFLOW_ID = "creative-writing"', creative)
         self.assertIn("runtimeApi.getState().workflowMode === WORKFLOW_ID", creative)
         self.assertNotIn('workflowMode === "creative"', creative)
+        self.assertIn("function resetCreativeWorkflowState()", creative)
+        self.assertIn("window.clearTimeout(creativeScratchSaveTimer);", creative)
         self.assertIn("Recent projects", software)
         self.assertIn('action.openProjectBrowser("meta-add", true)', software)
         self.assertIn('subgroup: "project-meta-remove"', software)
@@ -497,6 +501,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('postBoardTool("random-card-color")', file_pane_tools)
         self.assertIn('postBoardTool("export", exportFormat.value)', file_pane_tools)
         self.assertIn('type: "electroboy-corkboard-tool"', file_pane_tools)
+        self.assertIn("const supportsCardColor = state.canChangeColor !== false;", file_pane_tools)
+        self.assertIn("This board does not support card color changes.", file_pane_tools)
+        self.assertIn("Select a card, then choose a color.", file_pane_tools)
         self.assertIn("terminal.hasSelection()", terminal_behavior)
         self.assertIn("navigator.clipboard.writeText", terminal_behavior)
         self.assertIn("terminal.registerMarker", terminal_behavior)
@@ -723,6 +730,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function paneLayoutRequestedArtifact(leaf)", runtime)
         self.assertIn("function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)", runtime)
         self.assertIn('type: "electroboy:pane-set-artifact"', runtime)
+        self.assertIn("function paneLayoutStorageKey(mode = workflowMode)", runtime)
+        self.assertIn("storedPaneLayout(mode = workflowMode)", runtime)
+        self.assertIn("key.startsWith(`${PANE_LAYOUT_STORAGE_KEY}.`)", runtime)
+        self.assertIn("loadPaneLayoutForWorkflow();", runtime)
         self.assertIn("function serviceFingerprintFromPayload(payload)", runtime)
         self.assertIn("function clearStaleServiceBrowserState()", runtime)
         self.assertIn("function hasServiceBrowserState()", runtime)
@@ -753,6 +764,18 @@ class ServiceTests(unittest.TestCase):
         switch_start = runtime.index("async function setWorkflowMode(")
         switch_end = runtime.index("function applyWorkflowSideSheetState(", switch_start)
         switch_source = runtime[switch_start:switch_end]
+        self.assertLess(
+            switch_source.index("resetWorkflowContextView();"),
+            switch_source.index("previous.deactivate(frontendRuntime);"),
+        )
+        self.assertLess(
+            switch_source.index("saveWorkflowMode();"),
+            switch_source.index("loadPaneLayoutForWorkflow();"),
+        )
+        self.assertLess(
+            switch_source.index("loadPaneLayoutForWorkflow();"),
+            switch_source.index("await applyWorkflowMode({ deferWorkspace: true });"),
+        )
         self.assertLess(
             switch_source.index("await restoreContext();"),
             switch_source.index("await applyWorkflowMode();", switch_source.index("await restoreContext();")),

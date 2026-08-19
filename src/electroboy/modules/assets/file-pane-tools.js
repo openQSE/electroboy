@@ -223,13 +223,15 @@
       cardSize.output.textContent = `${state.cardScale ?? 100}%`;
       cardFont.input.value = String(state.cardFontScale ?? 125);
       cardFont.output.textContent = `${state.cardFontScale ?? 125}%`;
-      const canColor = Boolean(state.hasSelection && state.canChangeColor);
-      cardColor.disabled = !canColor;
-      randomColor.disabled = !canColor;
+      const supportsCardColor = state.canChangeColor !== false;
+      cardColor.disabled = !supportsCardColor;
+      randomColor.disabled = !supportsCardColor;
       if (state.selectedColor) cardColor.value = state.selectedColor;
-      colorHelp.textContent = canColor
+      colorHelp.textContent = !supportsCardColor
+        ? "This board does not support card color changes."
+        : state.hasSelection
         ? "Changes are saved to the selected card."
-        : "Select a card to change its color.";
+        : "Select a card, then choose a color.";
     }
 
     function handleBoardMessage(event) {

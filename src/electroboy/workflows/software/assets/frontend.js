@@ -32,6 +32,33 @@
     selectedSessionId = state.selectedSessionId || "";
   }
 
+  function resetSoftwareWorkflowState() {
+    if (adHocSessionDialog) {
+      adHocSessionDialog.remove();
+      adHocSessionDialog = null;
+    }
+    if (corkboardDialog) {
+      corkboardDialog.remove();
+      corkboardDialog = null;
+    }
+    scratchPad = null;
+    agentInput = null;
+    activationRoot = "";
+    activeProjectRoot = "";
+    currentWorkflowStage = "project";
+    requirementsApproved = false;
+    designApproved = false;
+    designReviewInteractive = false;
+    designReviewRunning = false;
+    artifactPreviewStage = "";
+    selectedSessionId = "";
+  }
+
+  function deactivate(runtime) {
+    bindRuntime(runtime);
+    resetSoftwareWorkflowState();
+  }
+
   function invoke(runtime, handler, args) {
     bindRuntime(runtime);
     return handler(...args);
@@ -1447,6 +1474,7 @@
       bindRuntime(runtime);
       restoreSoftwareWorkspace();
     },
+    deactivate,
     stageActions,
     actions: {
       restoreSoftwareWorkspace: (runtime, ...args) => invoke(runtime, restoreSoftwareWorkspace, args),

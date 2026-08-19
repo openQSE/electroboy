@@ -298,6 +298,10 @@
       );
     }
 
+    function paneLayoutStorageKey(mode = workflowMode) {
+      return `${PANE_LAYOUT_STORAGE_KEY}.${mode || "none"}`;
+    }
+
     function normalizePaneLayoutNode(value, seenKinds) {
       if (!value || typeof value !== "object") {
         return null;
@@ -334,10 +338,24 @@
       );
     }
 
-    function storedPaneLayout() {
+    function storedPaneLayout(mode = workflowMode) {
       try {
-        const stored = JSON.parse(window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY));
-        return normalizePaneLayoutNode(stored, new Set()) || defaultPaneLayout();
+        const storageKey = paneLayoutStorageKey(mode);
+        const raw = window.localStorage.getItem(storageKey);
+        if (raw !== null) {
+          return normalizePaneLayoutNode(JSON.parse(raw), new Set()) ||
+            defaultPaneLayout();
+        }
+        const legacyRaw = window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
+        if (legacyRaw !== null) {
+          window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
+          const migrated = normalizePaneLayoutNode(JSON.parse(legacyRaw), new Set());
+          if (migrated) {
+            window.localStorage.setItem(storageKey, JSON.stringify(migrated));
+            return migrated;
+          }
+        }
+        return defaultPaneLayout();
       } catch (error) {
         return defaultPaneLayout();
       }
@@ -373,9 +391,12 @@
         // Ignore storage failures; the server will reject stale contexts anyway.
       }
       try {
-        window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
         for (const key of Object.keys(window.localStorage)) {
-          if (key.startsWith(CONTEXT_OWNER_STORAGE_PREFIX)) {
+          if (
+            key === PANE_LAYOUT_STORAGE_KEY ||
+            key.startsWith(`${PANE_LAYOUT_STORAGE_KEY}.`) ||
+            key.startsWith(CONTEXT_OWNER_STORAGE_PREFIX)
+          ) {
             window.localStorage.removeItem(key);
           }
         }
@@ -399,11 +420,12 @@
         // Ignore storage failures; this is only a migration hint.
       }
       try {
-        if (window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY) !== null) {
-          return true;
-        }
         for (const key of Object.keys(window.localStorage)) {
-          if (key.startsWith(CONTEXT_OWNER_STORAGE_PREFIX)) {
+          if (
+            key === PANE_LAYOUT_STORAGE_KEY ||
+            key.startsWith(`${PANE_LAYOUT_STORAGE_KEY}.`) ||
+            key.startsWith(CONTEXT_OWNER_STORAGE_PREFIX)
+          ) {
             return true;
           }
         }
@@ -447,7 +469,11 @@
 
     function savePaneLayout() {
       try {
-        window.localStorage.setItem(PANE_LAYOUT_STORAGE_KEY, JSON.stringify(paneLayout));
+        window.localStorage.setItem(
+          paneLayoutStorageKey(),
+          JSON.stringify(paneLayout),
+        );
+        window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
       } catch (error) {
         return;
       }
@@ -1221,6 +1247,12 @@
       }
     }
 
+    function loadPaneLayoutForWorkflow(mode = workflowMode) {
+      paneLayout = storedPaneLayout(mode);
+      activePaneLayoutLeafId = paneLayoutLeaves()[0]?.id || "";
+      renderPaneLayout();
+    }
+
     function initializePaneDragController() {
       if (paneDragController || !window.ElectroBoyPaneDrag) {
         return;
@@ -1255,11 +1287,9 @@
     }
 
     function initializePaneLayout() {
-      paneLayout = storedPaneLayout();
-      activePaneLayoutLeafId = paneLayoutLeaves()[0]?.id || "";
       outputWorkbench.classList.add("pane-layout-enabled");
       initializePaneDragController();
-      renderPaneLayout();
+      loadPaneLayoutForWorkflow();
       window.addEventListener("message", handlePaneLayoutMessage);
       paneLayoutObserver = new MutationObserver(() => refreshPaneLayoutVisibility());
       for (const definition of Object.values(PANE_LAYOUT_KINDS)) {
@@ -1931,14 +1961,15 @@
         return;
       }
       const previous = activeWorkflowContribution();
-      if (previous && typeof previous.deactivate === "function") {
-        previous.deactivate(frontendRuntime);
-      }
       releaseContextOwner();
       contextId = "";
       resetWorkflowContextView();
+      if (previous && typeof previous.deactivate === "function") {
+        previous.deactivate(frontendRuntime);
+      }
       workflowMode = nextMode;
       saveWorkflowMode();
+      loadPaneLayoutForWorkflow();
       await applyWorkflowMode({ deferWorkspace: true });
       await restoreContext();
       await applyWorkflowMode();

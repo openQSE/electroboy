@@ -42,6 +42,41 @@
       : new Set(state.expandedCreativeFolders || []);
   }
 
+  function resetCreativeWorkflowState() {
+    if (creativeScratchSaveTimer) {
+      window.clearTimeout(creativeScratchSaveTimer);
+      creativeScratchSaveTimer = null;
+    }
+    activationRoot = "";
+    activeProjectRoot = "";
+    contextId = "";
+    agentSessions = [];
+    artifactPaneRequested = false;
+    creativeTreePayload = null;
+    creativeActiveDocument = "";
+    creativeActiveFolder = "";
+    creativeEditingPath = "";
+    creativeEditingType = "";
+    creativeLastNotifiedTarget = "";
+    expandedCreativeFolders = new Set();
+    restoredScratchContextId = "";
+    creativeProjectActionsExpanded = false;
+    creativeAgentActionsExpanded = false;
+    creativeRecentProjectsExpanded = false;
+    if (runtimeApi) {
+      runtimeApi.updateState({
+        artifactPaneRequested: false,
+        creativeTreePayload: null,
+        creativeActiveDocument: "",
+        creativeActiveFolder: "",
+        creativeEditingPath: "",
+        creativeEditingType: "",
+        creativeLastNotifiedTarget: "",
+        expandedCreativeFolders,
+      });
+    }
+  }
+
   function publishState() {
     runtimeApi.updateState({
       artifactPaneRequested,
@@ -324,7 +359,7 @@
     creativeAgentMenuButton = null;
     creativeAgentActions = null;
     creativeStartAgent = null;
-    creativeRecentProjectsExpanded = false;
+    resetCreativeWorkflowState();
   }
 
   async function startAgent(runtime) {
