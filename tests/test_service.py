@@ -1399,6 +1399,12 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIn("__PANE_KIND__", PANE_WINDOW_HTML)
         self.assertIn('const PANE_KIND = "artifact";', page)
+        self.assertIn('params.get("workspace_id") || contextId', page)
+        self.assertIn('params.get("connection_id") || ""', page)
+        self.assertIn('params.get("lease_token") || ""', page)
+        self.assertIn('context.set("workspace_id", workspaceId)', page)
+        self.assertIn('context.set("connection_id", connectionId)', page)
+        self.assertIn('context.set("lease_token", leaseToken)', page)
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', page)
         self.assertIn('params.get("document_path")', page)
         self.assertIn('params.get("document_zoom")', page)

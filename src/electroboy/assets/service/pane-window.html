@@ -748,7 +748,9 @@
     const EMBEDDED_PANE = params.get("embedded") === "1";
     const paneInstanceId = params.get("pane_instance_id") || "";
     const contextId = params.get("context_id") || "";
+    const workspaceId = params.get("workspace_id") || contextId;
     const connectionId = params.get("connection_id") || "";
+    const leaseToken = params.get("lease_token") || "";
     let selectedSessionId = params.get("session_id") || "";
     const ownedShellSessionId = params.get("shell_session_id") || "";
     let selectedShellSessionId = ownedShellSessionId;
@@ -989,7 +991,14 @@
 
     function contextUrl(path) {
       const separator = path.includes("?") ? "&" : "?";
-      return `${path}${separator}context_id=${encodeURIComponent(contextId)}`;
+      const context = new URLSearchParams();
+      context.set("context_id", contextId);
+      context.set("workspace_id", workspaceId);
+      context.set("connection_id", connectionId);
+      if (leaseToken) {
+        context.set("lease_token", leaseToken);
+      }
+      return `${path}${separator}${context.toString()}`;
     }
 
     function shellContextUrl(path) {
