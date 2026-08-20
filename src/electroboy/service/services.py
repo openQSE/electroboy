@@ -56,7 +56,12 @@ class ContextServices(Protocol):
 
     def workflow_payload(self, context_id: str) -> dict[str, object]: ...
 
-    def deactivate_project(self, context_id: str) -> dict[str, object]: ...
+    def deactivate_project(
+        self,
+        context_id: str,
+        *,
+        terminate_agents: bool = False,
+    ) -> dict[str, object]: ...
 
     def requirements_document_root(self, context_id: str) -> Path: ...
 
@@ -350,7 +355,12 @@ class ServiceRuntimeBackend(Protocol):
 
     def workflow_payload(self, context_id: str) -> dict[str, object]: ...
 
-    def deactivate_project(self, context_id: str) -> dict[str, object]: ...
+    def deactivate_project(
+        self,
+        context_id: str,
+        *,
+        terminate_agents: bool = False,
+    ) -> dict[str, object]: ...
 
     def requirements_document_root(self, context_id: str) -> Path: ...
 
@@ -572,8 +582,16 @@ class RuntimeContextServices:
     def workflow_payload(self, context_id: str) -> dict[str, object]:
         return self.runtime.workflow_payload(context_id)
 
-    def deactivate_project(self, context_id: str) -> dict[str, object]:
-        return self.runtime.deactivate_project(context_id)
+    def deactivate_project(
+        self,
+        context_id: str,
+        *,
+        terminate_agents: bool = False,
+    ) -> dict[str, object]:
+        return self.runtime.deactivate_project(
+            context_id,
+            terminate_agents=terminate_agents,
+        )
 
     def requirements_document_root(self, context_id: str) -> Path:
         return self.runtime.requirements_document_root(context_id)

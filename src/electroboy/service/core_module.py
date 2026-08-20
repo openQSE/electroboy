@@ -136,7 +136,11 @@ def _project_status(request: RouteRequest) -> ServiceResponse:
 
 def _deactivate_project(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.services.contexts.deactivate_project(request.context_id)
+        body = request.body()
+        payload = request.services.contexts.deactivate_project(
+            request.context_id,
+            terminate_agents=body.get("terminate_agents") is True,
+        )
         if request.connection_id:
             replacement = request.services.contexts.create(
                 request.connection_id,

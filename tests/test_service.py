@@ -28,6 +28,7 @@ from electroboy.service import (  # noqa: E402
     FILE_BROWSER_WINDOW_HTML,
     GENERIC_STAGE_CONFIG,
     INDEX_HTML,
+    SESSION_EVENT_REPLAY_LIMIT,
     MAX_TERMINAL_COLUMNS,
     MAX_TERMINAL_ROWS,
     MIN_TERMINAL_COLUMNS,
@@ -43,6 +44,7 @@ from electroboy.service import (  # noqa: E402
     _artifact_event_document_path,
     _clean_terminal_output,
     _file_signature,
+    _limited_session_replay_events,
     _progress_once_command,
     _progress_snapshot,
     _progress_snapshot_markdown,
@@ -493,6 +495,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function ensureSelectedSessionStream()", sessions)
         self.assertIn("function selectAgentSessionLocally", sessions)
         self.assertIn("response.status === 404", sessions)
+        self.assertIn("AGENT_OUTPUT_FLUSH_BUDGET_MS", app)
+        self.assertIn("function flushAgentOutputQueue()", app)
+        self.assertIn("terminate_agents: terminateAgents", app)
+        self.assertIn("Deactivate will stop", app)
         self.assertIn("ElectroBoyInputShortcut.bindRecorder", sessions)
         self.assertIn("shortcutController.matches(event)", sessions)
         self.assertNotIn("isEnter && event.shiftKey", sessions)
@@ -4831,6 +4837,7 @@ class ServiceTests(unittest.TestCase):
         class FakeSession:
             def __init__(self) -> None:
                 self.terminated = False
+                self.label = "requirements agent"
 
             def is_active(self) -> bool:
                 return not self.terminated
@@ -4852,12 +4859,83 @@ class ServiceTests(unittest.TestCase):
             with state.lock:
                 state.contexts[context_id].requirements_session = session  # type: ignore[assignment]
 
-            payload = state.deactivate_project(context_id)
+            with self.assertRaisesRegex(
+                AgentSessionError,
+                "deactivation would terminate active agent sessions: requirements agent",
+            ):
+                state.deactivate_project(context_id)
+
+            self.assertFalse(session.terminated)
+
+            payload = state.deactivate_project(context_id, terminate_agents=True)
 
         self.assertTrue(session.terminated)
         self.assertEqual(payload["status"], "deactivated")
         self.assertIsNone(payload["active_project_root"])
         self.assertIsNone(state.current_requirements_session(context_id))
+
+    def test_project_deactivation_endpoint_requires_active_agent_confirmation(
+        self,
+    ) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+                self.label = "requirements agent"
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+
+            context_id = str(server.service_state.create_context()["context_id"])
+            server.service_state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with server.service_state.lock:
+                server.service_state.contexts[
+                    context_id
+                ].requirements_session = session  # type: ignore[assignment]
+
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = post_json(
+                    server,
+                    f"/api/project/deactivate?context_id={context_id}",
+                    {},
+                )
+                confirmed_status, confirmed_body, confirmed_content_type = post_json(
+                    server,
+                    f"/api/project/deactivate?context_id={context_id}",
+                    {"terminate_agents": True},
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        self.assertIn("active agent sessions", json.loads(body)["error"])
+        self.assertEqual(confirmed_status, HTTPStatus.OK)
+        self.assertEqual(
+            confirmed_content_type,
+            "application/json; charset=utf-8",
+        )
+        self.assertEqual(json.loads(confirmed_body)["status"], "deactivated")
+        self.assertTrue(session.terminated)
 
     def test_requirements_approve_terminates_agent_and_advances_to_design(self) -> None:
         class FakeSession:
@@ -5728,6 +5806,41 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(events[0]["text"], "hello\n")
         self.assertEqual(events[0]["terminal"], "hello\r\n")
         self.assertIn("hello", markdown)
+
+    def test_limited_session_replay_events_keeps_tail_and_notice(self) -> None:
+        events = [
+            {"id": index, "type": "output", "text": str(index)}
+            for index in range(1, SESSION_EVENT_REPLAY_LIMIT + 6)
+        ]
+
+        limited = _limited_session_replay_events(events)
+
+        self.assertEqual(len(limited), SESSION_EVENT_REPLAY_LIMIT + 1)
+        self.assertEqual(limited[0]["id"], 5)
+        self.assertEqual(limited[0]["type"], "system")
+        self.assertIn("Skipped 5 older terminal events", str(limited[0]["text"]))
+        self.assertEqual(limited[1]["id"], 6)
+        self.assertEqual(limited[-1]["id"], SESSION_EVENT_REPLAY_LIMIT + 5)
+
+    def test_limited_session_replay_events_caps_text_volume(self) -> None:
+        char_limit = 25
+        events = [
+            {"id": index, "type": "output", "text": "x" * 10}
+            for index in range(1, 6)
+        ]
+
+        limited = _limited_session_replay_events(
+            events,
+            limit=10,
+            char_limit=char_limit,
+        )
+
+        self.assertEqual([event["id"] for event in limited], [3, 4, 5])
+        self.assertIn("Skipped 3 older terminal events", str(limited[0]["text"]))
+        self.assertLessEqual(
+            sum(len(str(event.get("text") or "")) for event in limited[1:]),
+            char_limit,
+        )
 
     def test_agent_session_resize_signals_process_group(self) -> None:
         session = AgentSession([sys.executable, "-c", "pass"], ROOT)

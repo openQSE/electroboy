@@ -153,6 +153,8 @@
     const MIN_INPUT_PANE_HEIGHT = 56;
     const MIN_INPUT_ACTIONS_WIDTH = 160;
     const MIN_AGENT_INPUT_WIDTH = 260;
+    const AGENT_OUTPUT_FLUSH_BUDGET_MS = 8;
+    const AGENT_OUTPUT_FLUSH_CHARS = 65536;
     let eventSource = null;
     let artifactEventSources = [];
     let terminal = null;
@@ -181,6 +183,8 @@
     let terminalResizeObserver = null;
     let resizeTimer = null;
     let pendingTerminalResize = null;
+    let agentOutputQueue = [];
+    let agentOutputFlushTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
     let workflowSideSheetCollapsed = storedWorkflowSideSheetCollapsed();
@@ -2601,6 +2605,67 @@
       agentOutput.scrollTop = agentOutput.scrollHeight;
     }
 
+    function scheduleAgentOutputFlush() {
+      if (agentOutputFlushTimer !== null) {
+        return;
+      }
+      agentOutputFlushTimer = window.setTimeout(flushAgentOutputQueue, 0);
+    }
+
+    function flushAgentOutputQueue() {
+      agentOutputFlushTimer = null;
+      if (agentOutputQueue.length === 0) {
+        return;
+      }
+      if (!terminal) {
+        appendPlainOutput(agentOutputQueue.join(""));
+        agentOutputQueue = [];
+        return;
+      }
+      const start = window.performance ? window.performance.now() : Date.now();
+      let chunk = "";
+      while (agentOutputQueue.length > 0) {
+        const remainingCapacity = AGENT_OUTPUT_FLUSH_CHARS - chunk.length;
+        if (remainingCapacity <= 0) {
+          break;
+        }
+        const next = agentOutputQueue[0] || "";
+        if (!next) {
+          agentOutputQueue.shift();
+          continue;
+        }
+        if (next.length <= remainingCapacity) {
+          chunk += next;
+          agentOutputQueue.shift();
+        } else {
+          chunk += next.slice(0, remainingCapacity);
+          agentOutputQueue[0] = next.slice(remainingCapacity);
+        }
+        const elapsed = (window.performance ? window.performance.now() : Date.now()) -
+          start;
+        if (
+          chunk.length >= AGENT_OUTPUT_FLUSH_CHARS ||
+          elapsed >= AGENT_OUTPUT_FLUSH_BUDGET_MS
+        ) {
+          break;
+        }
+      }
+      if (chunk) {
+        terminal.write(chunk);
+      }
+      if (agentOutputQueue.length > 0) {
+        scheduleAgentOutputFlush();
+      }
+    }
+
+    function clearAgentOutputQueue() {
+      agentOutputQueue = [];
+      if (agentOutputFlushTimer !== null) {
+        window.clearTimeout(agentOutputFlushTimer);
+        agentOutputFlushTimer = null;
+      }
+    }
+
     function recordProjectStatusMessage(message) {
       const text = String(message || "").trim();
       if (!text) {
@@ -2622,13 +2687,15 @@
 
     function appendAgentOutput(text) {
       if (terminal) {
-        terminal.write(text);
+        agentOutputQueue.push(String(text ?? ""));
+        scheduleAgentOutputFlush();
         return;
       }
       appendPlainOutput(text);
     }
 
     function clearAgentOutput() {
+      clearAgentOutputQueue();
       if (terminal) {
         terminal.clear();
         return;
@@ -5305,8 +5372,30 @@
         return;
       }
       const previousProject = activationRoot;
+      const runningSessions = agentSessions.filter(
+        (session) => session && session.status === "running",
+      );
+      let terminateAgents = false;
+      if (runningSessions.length > 0) {
+        const labels = runningSessions
+          .slice(0, 3)
+          .map((session) => session.label || session.kind || "agent")
+          .join(", ");
+        const suffix = runningSessions.length > 3 ? ", ..." : "";
+        const confirmed = window.confirm(
+          `Deactivate will stop ${runningSessions.length} running agent ` +
+          `session${runningSessions.length === 1 ? "" : "s"}: ` +
+          `${labels}${suffix}. Continue?`,
+        );
+        if (!confirmed) {
+          return;
+        }
+        terminateAgents = true;
+      }
       const response = await fetch(contextUrl("/api/project/deactivate"), {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminate_agents: terminateAgents }),
       });
       const payload = await response.json().catch(() => ({ error: "deactivate failed" }));
       if (!response.ok) {

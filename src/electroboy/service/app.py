@@ -86,6 +86,8 @@ SERVICE_SESSION_RECORDS_RELATIVE_PATH = (
 SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR = (
     Path(".electroboy") / "service" / "session-transcripts"
 )
+SESSION_EVENT_REPLAY_LIMIT = 1200
+SESSION_EVENT_REPLAY_CHAR_LIMIT = 1_000_000
 
 
 INDEX_HTML_TEMPLATE = read_service_text_asset("index.html")
@@ -678,10 +680,25 @@ class ServiceState:
             repository,
         )
 
-    def deactivate_project(self, context_id: str) -> dict[str, object]:
+    def deactivate_project(
+        self,
+        context_id: str,
+        *,
+        terminate_agents: bool = False,
+    ) -> dict[str, object]:
         with self.lock:
             context = self._context_locked(context_id)
             sessions = self._context_process_sessions_locked(context)
+            active_sessions = [session for session in sessions if session.is_active()]
+            if active_sessions and not terminate_agents:
+                active_labels = ", ".join(
+                    _session_display_label(session) for session in active_sessions[:3]
+                )
+                extra = "" if len(active_sessions) <= 3 else "..."
+                raise AgentSessionError(
+                    "deactivation would terminate active agent sessions: "
+                    f"{active_labels}{extra}"
+                )
         self._terminate_sessions(sessions)
         with self.lock:
             context = self._context_locked(context_id)
@@ -2039,6 +2056,59 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
     return payloads
 
 
+def _session_display_label(session: AgentSession) -> str:
+    label = str(getattr(session, "label", "") or "")
+    kind = str(getattr(session, "kind", "") or "")
+    return label or kind or "agent"
+
+
+def _limited_session_replay_events(
+    events: list[dict[str, object]],
+    *,
+    limit: int = SESSION_EVENT_REPLAY_LIMIT,
+    char_limit: int = SESSION_EVENT_REPLAY_CHAR_LIMIT,
+) -> list[dict[str, object]]:
+    if (limit <= 0 and char_limit <= 0) or not events:
+        return events
+    kept_reversed: list[dict[str, object]] = []
+    kept_chars = 0
+    for event in reversed(events):
+        if limit > 0 and len(kept_reversed) >= limit:
+            break
+        event_chars = _session_replay_event_chars(event)
+        if (
+            char_limit > 0
+            and kept_reversed
+            and kept_chars + event_chars > char_limit
+        ):
+            break
+        kept_reversed.append(event)
+        kept_chars += event_chars
+        if char_limit > 0 and kept_chars >= char_limit:
+            break
+    kept = list(reversed(kept_reversed))
+    if len(kept) == len(events):
+        return events
+    first_kept_id = int(kept[0].get("id") or 1)
+    skipped = len(events) - len(kept)
+    notice_id = max(1, first_kept_id - 1)
+    notice = {
+        "id": notice_id,
+        "type": "system",
+        "text": (
+            f"Skipped {skipped} older terminal events in browser replay. "
+            "Export the session for the full transcript."
+        ),
+    }
+    return [notice, *kept]
+
+
+def _session_replay_event_chars(event: dict[str, object]) -> int:
+    text = str(event.get("text") or "")
+    terminal = str(event.get("terminal") or "")
+    return max(len(text), len(terminal))
+
+
 def workflow_payload(
     active_project_root: Path | str | None = None,
     workflow: WorkflowDefinition | None = None,
@@ -2420,6 +2490,7 @@ def _handler_for(
             try:
                 while True:
                     events = session.wait_for_events_after(last_event_id, timeout=15)
+                    events = _limited_session_replay_events(events)
                     if not events and session.is_active():
                         self.wfile.write(b": keep-alive\n\n")
                         self.wfile.flush()
