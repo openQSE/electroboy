@@ -1438,7 +1438,6 @@ class ServiceState:
                     context.design_session,
                     context.design_review_session,
                     *context.stage_sessions.values(),
-                    context.ad_hoc_session,
                 ]
                 if session is not None
             ]

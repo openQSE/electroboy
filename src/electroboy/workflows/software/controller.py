@@ -703,14 +703,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if project_root is None:
                 raise StateError("activate a project first")
             previous_stage = context.workflow_stage
-            sessions = (
-                self.services.sessions.for_context(context)
-                if previous_stage != stage
-                else []
-            )
         terminated_agent = False
-        if sessions:
-            terminated_agent = self.services.sessions.terminate(sessions)
+        if previous_stage != stage:
+            terminated_agent = self.services.sessions.terminate_workflow(context_id)
         reset_decision = None
         reset_output = ""
         if previous_stage != stage:
@@ -722,7 +717,6 @@ class SoftwareWorkflowController(BoundWorkflowController):
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.workflow_stage = stage
-            self.services.sessions.clear(context, sessions)
             project_root = context.active_project_root
         return {
             **self.services.contexts.project_payload(context_id),

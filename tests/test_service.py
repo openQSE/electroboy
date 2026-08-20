@@ -5217,6 +5217,57 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNone(state.current_requirements_session(context_id))
         self.assertEqual(manifest.active_stage, STAGE_DESIGN)
 
+    def test_workflow_stage_selection_preserves_non_workflow_agents(self) -> None:
+        class FakeSession:
+            def __init__(self, kind: str) -> None:
+                self.terminated = False
+                self.kind = kind
+                self.label = f"{kind} agent"
+                self.interactive = True
+                self.metadata: dict[str, object] = {}
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            requirements = FakeSession("requirements")
+            ad_hoc = FakeSession("ad-hoc")
+            documentation = FakeSession("documentation")
+            with state.lock:
+                context = state.contexts[context_id]
+                context.requirements_session = requirements  # type: ignore[assignment]
+                context.ad_hoc_session = ad_hoc  # type: ignore[assignment]
+                context.documentation_sessions["README.md"] = documentation  # type: ignore[assignment]
+
+            payload = state.select_workflow_stage(context_id, "design")
+
+            with state.lock:
+                context = state.contexts[context_id]
+                preserved_ad_hoc = context.ad_hoc_session
+                preserved_documentation = context.documentation_sessions.get(
+                    "README.md"
+                )
+
+        self.assertTrue(requirements.terminated)
+        self.assertFalse(ad_hoc.terminated)
+        self.assertFalse(documentation.terminated)
+        self.assertIs(preserved_ad_hoc, ad_hoc)
+        self.assertIs(preserved_documentation, documentation)
+        self.assertTrue(payload["terminated_agent"])
+        self.assertEqual(payload["workflow_stage"], "design")
+
     def test_after_requirements_approval_only_allows_requirements_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
