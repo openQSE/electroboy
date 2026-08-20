@@ -91,7 +91,8 @@ def _message(request: RouteRequest) -> ServiceResponse:
 def _terminal_input(
     request: RouteRequest,
     field: str,
-    action: Callable[[str, str], None],
+    selected_action: Callable[[str, str], None],
+    session_action: Callable[[str, str, str], None],
 ) -> ServiceResponse:
     try:
         payload = request.body()
@@ -101,7 +102,11 @@ def _terminal_input(
                 {"error": f"{field} is required"},
                 status=HTTPStatus.BAD_REQUEST,
             )
-        action(request.context_id, value)
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id:
+            session_action(request.context_id, session_id, value)
+        else:
+            selected_action(request.context_id, value)
     except Exception as error:
         return conflict(error)
     return JsonResponse({"status": "sent"})
@@ -112,6 +117,7 @@ def _key(request: RouteRequest) -> ServiceResponse:
         request,
         "key",
         request.services.sessions.send_selected_key,
+        request.services.sessions.send_key,
     )
 
 
@@ -120,12 +126,18 @@ def _raw(request: RouteRequest) -> ServiceResponse:
         request,
         "data",
         request.services.sessions.send_selected_raw,
+        request.services.sessions.send_raw,
     )
 
 
 def _interrupt(request: RouteRequest) -> ServiceResponse:
     try:
-        request.services.sessions.interrupt_selected(request.context_id)
+        payload = request.body()
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id:
+            request.services.sessions.interrupt(request.context_id, session_id)
+        else:
+            request.services.sessions.interrupt_selected(request.context_id)
     except Exception as error:
         return conflict(error)
     return JsonResponse({"status": "interrupted"})

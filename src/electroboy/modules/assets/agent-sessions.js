@@ -130,6 +130,13 @@
       return Boolean(session && session.interactive && sessionIsRunning(session));
     }
 
+    function selectedInputSession() {
+      const session = selectedSession();
+      return session && session.interactive && sessionIsRunning(session)
+        ? session
+        : null;
+    }
+
     function updateSessionIndicator(session) {
       const status = session ? session.status || "done" : "idle";
       let className = "agent-session-indicator";
@@ -463,7 +470,8 @@
     }
 
     async function sendMessage() {
-      if (!selectedSessionAcceptsInput()) {
+      const session = selectedInputSession();
+      if (!session) {
         return;
       }
       if (runtimeState.slashCommandMode) {
@@ -480,7 +488,10 @@
       const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: creativePromptMessage(message) }),
+        body: JSON.stringify({
+          session_id: session.session_id,
+          message: creativePromptMessage(message),
+        }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: "send failed" }));
@@ -495,14 +506,15 @@
     }
 
     function sendTerminalKey(key) {
-      if (!selectedSessionAcceptsInput()) {
+      const session = selectedInputSession();
+      if (!session) {
         return Promise.resolve();
       }
       return queueTerminalInput(async () => {
         const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/key"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key }),
+          body: JSON.stringify({ session_id: session.session_id, key }),
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({ error: "send failed" }));
@@ -512,14 +524,15 @@
     }
 
     function sendTerminalRaw(data) {
-      if (!selectedSessionAcceptsInput() || !data) {
+      const session = selectedInputSession();
+      if (!session || !data) {
         return Promise.resolve();
       }
       return queueTerminalInput(async () => {
         const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/raw"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data }),
+          body: JSON.stringify({ session_id: session.session_id, data }),
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({ error: "send failed" }));
@@ -649,11 +662,14 @@
     }
 
     async function interruptActiveAgent() {
-      if (!sessionIsRunning(selectedSession())) {
+      const session = selectedSession();
+      if (!sessionIsRunning(session)) {
         return;
       }
       const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/interrupt"), {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.session_id }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: "interrupt failed" }));
@@ -741,6 +757,7 @@
       selectedSession: (runtime, ...args) => invoke(runtime, selectedSession, args),
       sessionIsRunning: (runtime, ...args) => invoke(runtime, sessionIsRunning, args),
       selectedSessionAcceptsInput: (runtime, ...args) => invoke(runtime, selectedSessionAcceptsInput, args),
+      selectedInputSession: (runtime, ...args) => invoke(runtime, selectedInputSession, args),
       updateSessionIndicator: (runtime, ...args) => invoke(runtime, updateSessionIndicator, args),
       sessionMetadata: (runtime, ...args) => invoke(runtime, sessionMetadata, args),
       agentSessionDisplayLabel: (runtime, ...args) => invoke(runtime, agentSessionDisplayLabel, args),

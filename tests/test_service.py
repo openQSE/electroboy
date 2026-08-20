@@ -495,6 +495,20 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function ensureSelectedSessionStream()", sessions)
         self.assertIn("function selectAgentSessionLocally", sessions)
         self.assertIn("response.status === 404", sessions)
+        self.assertIn("function selectedInputSession()", sessions)
+        self.assertIn("session_id: session.session_id,\n          message:", sessions)
+        self.assertIn(
+            "JSON.stringify({ session_id: session.session_id, key })",
+            sessions,
+        )
+        self.assertIn(
+            "JSON.stringify({ session_id: session.session_id, data })",
+            sessions,
+        )
+        self.assertIn(
+            "body: JSON.stringify({ session_id: session.session_id })",
+            sessions,
+        )
         self.assertIn("AGENT_OUTPUT_FLUSH_BUDGET_MS", app)
         self.assertIn("function flushAgentOutputQueue()", app)
         self.assertIn("terminate_agents: terminateAgents", app)
@@ -4423,6 +4437,106 @@ class ServiceTests(unittest.TestCase):
                 second.session_id: False,
             },
         )
+
+    def test_agent_session_input_routes_can_target_explicit_session(self) -> None:
+        class FakeSession:
+            def __init__(self, session_id: str) -> None:
+                self.session_id = session_id
+                self.kind = "documentation"
+                self.label = session_id
+                self.interactive = True
+                self.metadata: dict[str, object] = {}
+                self.sent: list[tuple[str, str]] = []
+                self.interrupted = False
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def send(self, message: str) -> None:
+                self.sent.append(("message", message))
+
+            def send_key(self, key: str) -> None:
+                self.sent.append(("key", key))
+
+            def send_raw(self, data: str) -> None:
+                self.sent.append(("raw", data))
+
+            def interrupt(self) -> None:
+                self.interrupted = True
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            state = server.service_state
+            self.assertIsNotNone(state)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            first = FakeSession("first-session")
+            second = FakeSession("second-session")
+            with state.lock:
+                context = state.contexts[context_id]
+                context.selected_session_id = first.session_id
+                context.documentation_sessions["first"] = first  # type: ignore[assignment]
+                context.documentation_sessions["second"] = second  # type: ignore[assignment]
+
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                message_status, _, _ = post_json(
+                    server,
+                    f"/api/sessions/message?context_id={context_id}",
+                    {
+                        "session_id": second.session_id,
+                        "message": "hello second",
+                    },
+                )
+                key_status, _, _ = post_json(
+                    server,
+                    f"/api/sessions/key?context_id={context_id}",
+                    {"session_id": second.session_id, "key": "enter"},
+                )
+                raw_status, _, _ = post_json(
+                    server,
+                    f"/api/sessions/raw?context_id={context_id}",
+                    {"session_id": second.session_id, "data": "/"},
+                )
+                interrupt_status, _, _ = post_json(
+                    server,
+                    f"/api/sessions/interrupt?context_id={context_id}",
+                    {"session_id": second.session_id},
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(message_status, HTTPStatus.OK)
+        self.assertEqual(key_status, HTTPStatus.OK)
+        self.assertEqual(raw_status, HTTPStatus.OK)
+        self.assertEqual(interrupt_status, HTTPStatus.OK)
+        self.assertEqual(first.sent, [])
+        self.assertFalse(first.interrupted)
+        self.assertEqual(
+            second.sent,
+            [
+                ("message", "hello second"),
+                ("key", "enter"),
+                ("raw", "/"),
+            ],
+        )
+        self.assertTrue(second.interrupted)
 
     def test_project_shell_starts_in_active_project_without_agent_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

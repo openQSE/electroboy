@@ -1249,6 +1249,17 @@ class ServiceState:
             raise AgentSessionError(f"{session.label} does not accept input")
         session.send_key(key)
 
+    def send_session_key(
+        self,
+        context_id: str,
+        session_id: str,
+        key: str,
+    ) -> None:
+        session = self.session_by_id(context_id, session_id)
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send_key(key)
+
     def send_selected_session_raw(self, context_id: str, data: str) -> None:
         session = self.selected_session(context_id)
         if session is None:
@@ -1257,10 +1268,25 @@ class ServiceState:
             raise AgentSessionError(f"{session.label} does not accept input")
         session.send_raw(data)
 
+    def send_session_raw(
+        self,
+        context_id: str,
+        session_id: str,
+        data: str,
+    ) -> None:
+        session = self.session_by_id(context_id, session_id)
+        if not session.interactive:
+            raise AgentSessionError(f"{session.label} does not accept input")
+        session.send_raw(data)
+
     def interrupt_selected_session(self, context_id: str) -> None:
         session = self.selected_session(context_id)
         if session is None:
             raise AgentSessionError("no agent session is selected")
+        session.interrupt()
+
+    def interrupt_session(self, context_id: str, session_id: str) -> None:
+        session = self.session_by_id(context_id, session_id)
         session.interrupt()
 
     def resize_selected_session(

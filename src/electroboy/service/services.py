@@ -205,9 +205,15 @@ class SessionServices(Protocol):
 
     def send_selected_message(self, context_id: str, message: str) -> None: ...
 
+    def send_key(self, context_id: str, session_id: str, key: str) -> None: ...
+
     def send_selected_key(self, context_id: str, key: str) -> None: ...
 
+    def send_raw(self, context_id: str, session_id: str, data: str) -> None: ...
+
     def send_selected_raw(self, context_id: str, data: str) -> None: ...
+
+    def interrupt(self, context_id: str, session_id: str) -> None: ...
 
     def interrupt_selected(self, context_id: str) -> None: ...
 
@@ -432,9 +438,25 @@ class ServiceRuntimeBackend(Protocol):
 
     def send_selected_session_key(self, context_id: str, key: str) -> None: ...
 
+    def send_session_key(
+        self,
+        context_id: str,
+        session_id: str,
+        key: str,
+    ) -> None: ...
+
     def send_selected_session_raw(self, context_id: str, data: str) -> None: ...
 
+    def send_session_raw(
+        self,
+        context_id: str,
+        session_id: str,
+        data: str,
+    ) -> None: ...
+
     def interrupt_selected_session(self, context_id: str) -> None: ...
+
+    def interrupt_session(self, context_id: str, session_id: str) -> None: ...
 
     def resize_selected_session(
         self,
@@ -834,11 +856,20 @@ class RuntimeSessionServices:
     def send_selected_key(self, context_id: str, key: str) -> None:
         self.runtime.send_selected_session_key(context_id, key)
 
+    def send_key(self, context_id: str, session_id: str, key: str) -> None:
+        self.runtime.send_session_key(context_id, session_id, key)
+
     def send_selected_raw(self, context_id: str, data: str) -> None:
         self.runtime.send_selected_session_raw(context_id, data)
 
+    def send_raw(self, context_id: str, session_id: str, data: str) -> None:
+        self.runtime.send_session_raw(context_id, session_id, data)
+
     def interrupt_selected(self, context_id: str) -> None:
         self.runtime.interrupt_selected_session(context_id)
+
+    def interrupt(self, context_id: str, session_id: str) -> None:
+        self.runtime.interrupt_session(context_id, session_id)
 
     def interrupt_kind(self, context_id: str, kind: str) -> None:
         methods = {
