@@ -50,6 +50,18 @@ def _attach(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(result)
 
 
+def _select(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        result = request.services.sessions.select(
+            request.context_id,
+            str(payload.get("session_id") or ""),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(result)
+
+
 def _message(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
@@ -177,6 +189,7 @@ _HANDLERS = {
     "list_sessions": _list_sessions,
     "session_registry": _session_registry,
     "attach": _attach,
+    "select": _select,
     "message": _message,
     "key": _key,
     "raw": _raw,
@@ -195,6 +208,7 @@ def module() -> ServiceModule:
             route("GET", "/api/sessions", "agent_sessions", "list_sessions"),
             route("GET", "/api/session-registry", "agent_sessions", "session_registry"),
             route("POST", "/api/sessions/attach", "agent_sessions", "attach"),
+            route("POST", "/api/sessions/select", "agent_sessions", "select"),
             route("POST", "/api/sessions/message", "agent_sessions", "message"),
             route("POST", "/api/sessions/key", "agent_sessions", "key"),
             route("POST", "/api/sessions/raw", "agent_sessions", "raw"),

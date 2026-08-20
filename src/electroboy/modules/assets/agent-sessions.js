@@ -220,6 +220,45 @@
       }
       runtimeApi.elements.sessionSwitcher.value = runtimeState.selectedSessionId;
       updateSessionIndicator(selectedSession());
+      ensureSelectedSessionStream();
+    }
+
+    function selectAgentSessionLocally(sessionId, sessions = null) {
+      if (Array.isArray(sessions)) {
+        runtimeState.agentSessions = sessions;
+      }
+      runtimeState.selectedSessionId = sessionId;
+      runtimeApi.elements.agentInput.value = inputDrafts.get(sessionId) || "";
+      syncOpenDocumentTargetsFromSessions();
+      renderSessionSwitcher();
+      const session = selectedSession();
+      runtimeState.activeAgentKind = session ? session.kind || "" : "";
+      const documentTarget = documentTargetForSession(session);
+      if (documentTarget) {
+        showDocumentPreview(documentTarget);
+      }
+      clearAgentOutput();
+      connectSessionEvents(runtimeState.selectedSessionId);
+      updateAgentControls();
+      sendTerminalResize();
+    }
+
+    function ensureSelectedSessionStream() {
+      if (!runtimeState.selectedSessionId || runtimeState.eventSource) {
+        return;
+      }
+      window.setTimeout(() => {
+        if (!runtimeState.selectedSessionId || runtimeState.eventSource) {
+          return;
+        }
+        if (!selectedSession()) {
+          return;
+        }
+        clearAgentOutput();
+        connectSessionEvents(runtimeState.selectedSessionId);
+        updateAgentControls();
+        sendTerminalResize();
+      }, 0);
     }
 
     async function selectAgentSession(sessionId) {
@@ -227,7 +266,11 @@
         await attachAgentSession(sessionId.slice("attach:".length));
         return;
       }
-      if (!sessionId || sessionId === runtimeState.selectedSessionId) {
+      if (!sessionId) {
+        return;
+      }
+      if (sessionId === runtimeState.selectedSessionId) {
+        ensureSelectedSessionStream();
         return;
       }
       const previousSessionId = runtimeState.selectedSessionId || "";
@@ -241,27 +284,21 @@
       });
       const payload = await response.json().catch(() => ({ error: "session switch failed" }));
       if (!response.ok) {
+        if (
+          response.status === 404 &&
+          runtimeState.agentSessions.some((session) => session.session_id === sessionId)
+        ) {
+          selectAgentSessionLocally(sessionId);
+          return;
+        }
         appendOutput(`${payload.error || "session switch failed"}\n`, "error");
         renderSessionSwitcher();
         return;
       }
-      runtimeState.agentSessions = Array.isArray(payload.sessions) ? payload.sessions : runtimeState.agentSessions;
-      runtimeState.selectedSessionId = payload.selected_session_id || sessionId;
-      runtimeApi.elements.agentInput.value = inputDrafts.get(
-        runtimeState.selectedSessionId,
-      ) || "";
-      syncOpenDocumentTargetsFromSessions();
-      renderSessionSwitcher();
-      const session = selectedSession();
-      runtimeState.activeAgentKind = session ? session.kind || "" : "";
-      const documentTarget = documentTargetForSession(session);
-      if (documentTarget) {
-        showDocumentPreview(documentTarget);
-      }
-      clearAgentOutput();
-      connectSessionEvents(runtimeState.selectedSessionId);
-      updateAgentControls();
-      sendTerminalResize();
+      selectAgentSessionLocally(
+        payload.selected_session_id || sessionId,
+        payload.sessions,
+      );
     }
 
     async function refreshServiceSessions() {

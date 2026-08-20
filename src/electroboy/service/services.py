@@ -176,6 +176,8 @@ class SessionServices(Protocol):
 
     def payload(self, context_id: str) -> dict[str, object]: ...
 
+    def select(self, context_id: str, session_id: str) -> dict[str, object]: ...
+
     def selected(self, context_id: str) -> AgentSession | None: ...
 
     def by_id(self, context_id: str, session_id: str) -> AgentSession: ...
@@ -388,6 +390,12 @@ class ServiceRuntimeBackend(Protocol):
     def session_payload(self, context_id: str) -> dict[str, object]: ...
 
     def session_registry_payload(self) -> dict[str, object]: ...
+
+    def select_session(
+        self,
+        context_id: str,
+        session_id: str,
+    ) -> dict[str, object]: ...
 
     def selected_session(self, context_id: str) -> AgentSession | None: ...
 
@@ -758,6 +766,9 @@ class RuntimeSessionServices:
 
     def payload(self, context_id: str) -> dict[str, object]:
         return self.runtime.session_payload(context_id)
+
+    def select(self, context_id: str, session_id: str) -> dict[str, object]:
+        return self.runtime.select_session(context_id, session_id)
 
     def selected(self, context_id: str) -> AgentSession | None:
         return self.runtime.selected_session(context_id)

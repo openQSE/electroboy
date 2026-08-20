@@ -490,6 +490,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/artifacts/agenda", documents)
         self.assertNotIn('invokeWorkflow(\n        "creative-writing"', corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
+        self.assertIn("function ensureSelectedSessionStream()", sessions)
+        self.assertIn("function selectAgentSessionLocally", sessions)
+        self.assertIn("response.status === 404", sessions)
         self.assertIn("ElectroBoyInputShortcut.bindRecorder", sessions)
         self.assertIn("shortcutController.matches(event)", sessions)
         self.assertNotIn("isEnter && event.shiftKey", sessions)
@@ -4356,6 +4359,63 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             [session["metadata"]["document_path"] for session in payload["sessions"]],
             ["README.md", "docs/api.md"],
+        )
+
+    def test_agent_session_select_route_switches_selected_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            state = server.service_state
+            self.assertIsNotNone(state)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with mock.patch("electroboy.service.AgentSession.start"):
+                first, _ = state.start_documentation_agent(
+                    context_id,
+                    target="README.md",
+                )
+                second, _ = state.start_documentation_agent(
+                    context_id,
+                    target="docs/api.md",
+                )
+            self.assertEqual(
+                state.session_payload(context_id)["selected_session_id"],
+                second.session_id,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = post_json(
+                    server,
+                    f"/api/sessions/select?context_id={context_id}",
+                    {"session_id": first.session_id},
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        payload = json.loads(body)
+        self.assertEqual(payload["selected_session_id"], first.session_id)
+        self.assertEqual(
+            {
+                session["session_id"]: session["selected"]
+                for session in payload["sessions"]
+            },
+            {
+                first.session_id: True,
+                second.session_id: False,
+            },
         )
 
     def test_project_shell_starts_in_active_project_without_agent_selection(self) -> None:
