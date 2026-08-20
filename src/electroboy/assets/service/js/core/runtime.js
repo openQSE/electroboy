@@ -665,9 +665,19 @@
       return paneLayoutLeaves().find((leaf) => leaf.kind === kind) || null;
     }
 
+    function ensureActivePaneLayoutLeaf(preferredKind = "") {
+      if (paneLayoutLeafById(activePaneLayoutLeafId)) {
+        return;
+      }
+      const preferred = preferredKind ? paneLayoutLeafByKind(preferredKind) : null;
+      const fallback = preferred || paneLayoutLeaves()[0] || null;
+      activePaneLayoutLeafId = fallback ? fallback.id : "";
+    }
+
     function setActivePaneLayoutLeaf(id) {
       const leaf = paneLayoutLeafById(String(id || ""));
       if (!leaf) {
+        ensureActivePaneLayoutLeaf();
         return;
       }
       activePaneLayoutLeafId = leaf.id;
@@ -1187,6 +1197,7 @@
       if (paneCornerSplitCancel) {
         paneCornerSplitCancel();
       }
+      ensureActivePaneLayoutLeaf();
       const root = renderPaneLayoutNode(paneLayout);
       root.classList.add("pane-layout-root");
       outputWorkbench.replaceChildren(root);
@@ -1323,7 +1334,13 @@
     }
 
     function ensurePaneInLayout(kind, targetKind = "agent", direction = "row") {
-      if (!paneLayout || paneLayoutLeafByKind(kind)) {
+      if (!paneLayout) {
+        return;
+      }
+      const existing = paneLayoutLeafByKind(kind);
+      if (existing) {
+        setActivePaneLayoutLeaf(existing.id);
+        activatePaneLayoutKind(kind);
         return;
       }
       const activeLeaf = paneLayoutLeafById(activePaneLayoutLeafId);
@@ -1343,13 +1360,16 @@
       const target = paneLayoutLeafByKind(targetKind) || paneLayoutLeaves()[0];
       if (!target) {
         paneLayout = paneLayoutLeaf(kind);
+        activePaneLayoutLeafId = paneLayout.id;
       } else {
+        const newLeaf = paneLayoutLeaf(kind);
         const replacement = paneLayoutSplit(
           direction,
           { ...target },
-          paneLayoutLeaf(kind),
+          newLeaf,
         );
         paneLayout = replacePaneLayoutNode(paneLayout, target.id, replacement);
+        activePaneLayoutLeafId = newLeaf.id;
       }
       savePaneLayout();
       renderPaneLayout();
