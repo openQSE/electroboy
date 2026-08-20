@@ -782,6 +782,8 @@
     const MIN_ARTIFACT_ZOOM = 70;
     const MAX_ARTIFACT_ZOOM = 180;
     const ARTIFACT_ZOOM_STEP = 10;
+    const TERMINAL_OUTPUT_FLUSH_BUDGET_MS = 8;
+    const TERMINAL_OUTPUT_FLUSH_CHARS = 65536;
     let artifactZoom = clampArtifactZoom(Number(params.get("document_zoom") || "100"));
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
@@ -851,6 +853,8 @@
     let inputSyncQueue = Promise.resolve();
     let latestProgressState = { entries: [] };
     let lastSharedStatusText = "";
+    let terminalOutputQueue = [];
+    let terminalOutputFlushTimer = null;
     const agentInputDrafts = new Map();
     const shortcutController = EMBEDDED_PANE
       ? window.ElectroBoyInputShortcut.bindRecorder(agentSendShortcut)
@@ -1122,6 +1126,7 @@
         (session) => session.status === "running" || session.session_id === selectedSessionId,
       );
       if (visibleSessions.length === 0) {
+        selectedSessionId = "";
         updateSelectOptions(
           contentSwitcher,
           [{ value: "", label: "No active agents" }],
@@ -1146,6 +1151,11 @@
         selectedSessionId,
         false,
       );
+    }
+
+    function selectedAgentSession() {
+      return agentSessions.find((session) => session.session_id === selectedSessionId)
+        || null;
     }
 
     function renderFileSwitcher() {
@@ -1306,6 +1316,7 @@
         eventSource.close();
         eventSource = null;
       }
+      clearTerminalOutputQueue();
       if (terminal) {
         terminal.clear();
       }
@@ -1377,8 +1388,12 @@
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       activeProjectRoot = payload.active_project_root || payload.activation_root
         || payload.service_root || "";
+      selectedSessionId = payload.selected_session_id || selectedSessionId || "";
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
-        selectedSessionId = payload.selected_session_id || "";
+        const selected = agentSessions.find((session) => session.selected)
+          || agentSessions.find((session) => session.status === "running")
+          || agentSessions[0];
+        selectedSessionId = selected ? selected.session_id : "";
       }
       renderSessionSwitcher();
     }
@@ -1917,15 +1932,84 @@
       return text;
     }
 
+    function scheduleTerminalOutputFlush() {
+      if (terminalOutputFlushTimer !== null) {
+        return;
+      }
+      terminalOutputFlushTimer = window.setTimeout(flushTerminalOutputQueue, 0);
+    }
+
+    function flushTerminalOutputQueue() {
+      terminalOutputFlushTimer = null;
+      if (terminalOutputQueue.length === 0 || !terminal) {
+        return;
+      }
+      const start = window.performance ? window.performance.now() : Date.now();
+      let chunk = "";
+      while (terminalOutputQueue.length > 0) {
+        const remainingCapacity = TERMINAL_OUTPUT_FLUSH_CHARS - chunk.length;
+        if (remainingCapacity <= 0) {
+          break;
+        }
+        const next = terminalOutputQueue[0] || "";
+        if (!next) {
+          terminalOutputQueue.shift();
+          continue;
+        }
+        if (next.length <= remainingCapacity) {
+          chunk += next;
+          terminalOutputQueue.shift();
+        } else {
+          chunk += next.slice(0, remainingCapacity);
+          terminalOutputQueue[0] = next.slice(remainingCapacity);
+        }
+        const elapsed = (window.performance ? window.performance.now() : Date.now()) -
+          start;
+        if (
+          chunk.length >= TERMINAL_OUTPUT_FLUSH_CHARS ||
+          elapsed >= TERMINAL_OUTPUT_FLUSH_BUDGET_MS
+        ) {
+          break;
+        }
+      }
+      if (chunk) {
+        terminal.write(chunk);
+      }
+      if (terminalOutputQueue.length > 0) {
+        scheduleTerminalOutputFlush();
+      }
+    }
+
+    function queueTerminalOutput(text) {
+      const output = String(text ?? "");
+      if (!output || !terminal) {
+        return;
+      }
+      terminalOutputQueue.push(output);
+      scheduleTerminalOutputFlush();
+    }
+
+    function clearTerminalOutputQueue() {
+      terminalOutputQueue = [];
+      if (terminalOutputFlushTimer !== null) {
+        window.clearTimeout(terminalOutputFlushTimer);
+        terminalOutputFlushTimer = null;
+      }
+    }
+
     function connectAgentStream() {
       showTerminal();
-      if (!contextId || !selectedSessionId) {
-        terminal.write("\x1b[31mno selected stream\x1b[0m\r\n");
+      if (!contextId || !selectedSessionId || !selectedAgentSession()) {
+        clearTerminalOutputQueue();
+        terminal.clear();
+        terminal.write("\x1b[31mno active agent stream\x1b[0m\r\n");
         return;
       }
       if (eventSource) {
         eventSource.close();
       }
+      clearTerminalOutputQueue();
+      terminal.clear();
       eventSource = new EventSource(
         contextUrl(
           `/api/sessions/events?session_id=${encodeURIComponent(selectedSessionId)}`,
@@ -1934,11 +2018,11 @@
       eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
-          terminal.write(payload.terminal || payload.text || "");
+          queueTerminalOutput(payload.terminal || payload.text || "");
         } else if (payload.type === "system" || payload.type === "error") {
-          terminal.write(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
+          queueTerminalOutput(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
         } else if (payload.type === "completed") {
-          terminal.write(formatTerminalMessage(
+          queueTerminalOutput(formatTerminalMessage(
             `\r\nprocess exited with code ${payload.returncode}\r\n`,
             "system",
           ));
@@ -1979,11 +2063,11 @@
       eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
-          terminal.write(payload.terminal || payload.text || "");
+          queueTerminalOutput(payload.terminal || payload.text || "");
         } else if (payload.type === "system" || payload.type === "error") {
-          terminal.write(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
+          queueTerminalOutput(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
         } else if (payload.type === "completed") {
-          terminal.write(formatTerminalMessage(
+          queueTerminalOutput(formatTerminalMessage(
             `\r\nproject shell exited with code ${payload.returncode}\r\n`,
             "system",
           ));
@@ -2834,7 +2918,13 @@
     exportPaneFormat.hidden = PANE_KIND !== "artifact";
     exportPaneOutput.hidden = !canExportPaneOutput();
     if (PANE_KIND === "agent") {
-      refreshSessions().catch(() => {}).then(connectAgentStream);
+      refreshSessions()
+        .catch(() => {})
+        .then(() => {
+          if (selectedAgentSession()) {
+            connectAgentStream();
+          }
+        });
     }
     else if (PANE_KIND === "progress") connectProgressStream();
     else if (PANE_KIND === "artifact") connectArtifactStream();
@@ -2849,6 +2939,7 @@
       if (contentCatalogSync) contentCatalogSync.close();
       if (eventSource) eventSource.close();
       if (artifactEventSource) artifactEventSource.close();
+      clearTerminalOutputQueue();
       if (statusTimer) window.clearInterval(statusTimer);
       if (contentRefreshTimer) window.clearInterval(contentRefreshTimer);
     });

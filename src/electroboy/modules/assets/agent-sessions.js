@@ -377,6 +377,12 @@
       }
       publishAgentInputState();
       const session = selectedSession();
+      if (!session) {
+        runtimeState.selectedSessionId = "";
+        runtimeState.activeAgentKind = "";
+        updateAgentControls();
+        return;
+      }
       runtimeState.activeAgentKind = session ? session.kind || "" : runtimeState.activeAgentKind;
       prepareTerminalStream();
       runtimeState.eventSource = new EventSource(

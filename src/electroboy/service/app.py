@@ -86,8 +86,8 @@ SERVICE_SESSION_RECORDS_RELATIVE_PATH = (
 SERVICE_SESSION_TRANSCRIPTS_RELATIVE_DIR = (
     Path(".electroboy") / "service" / "session-transcripts"
 )
-SESSION_EVENT_REPLAY_LIMIT = 1200
-SESSION_EVENT_REPLAY_CHAR_LIMIT = 1_000_000
+SESSION_EVENT_REPLAY_LIMIT = 300
+SESSION_EVENT_REPLAY_CHAR_LIMIT = 250_000
 
 
 INDEX_HTML_TEMPLATE = read_service_text_asset("index.html")
@@ -413,6 +413,8 @@ class ServiceState:
         *,
         workflow_id: str = "",
     ) -> dict[str, object]:
+        if not workflow_id.strip():
+            return {"workspaces": []}
         rows = self.workspace_registry.list_detached(workflow_id=workflow_id)
         for row in rows:
             workspace_id = str(row.get("workspace_id") or "")
@@ -1907,6 +1909,11 @@ def project_payload(
         )
     )
     workflow_stage = context.workflow_stage or "project"
+    sessions = _session_payloads(context)
+    session_ids = {str(session.get("session_id") or "") for session in sessions}
+    selected_session_id = context.selected_session_id
+    if selected_session_id not in session_ids:
+        selected_session_id = None
     return {
         "context_id": context.context_id,
         "workspace_id": context.context_id,
@@ -1927,8 +1934,8 @@ def project_payload(
             if activation_root and context.project_mode != "creative"
             else None
         ),
-        "selected_session_id": context.selected_session_id,
-        "sessions": _session_payloads(context),
+        "selected_session_id": selected_session_id,
+        "sessions": sessions,
         "recent_projects": _recent_project_entries(resolved_state_root),
         "requirements_started": False,
         "requirements_running": False,

@@ -1333,14 +1333,16 @@
       }
     }
 
-    function ensurePaneInLayout(kind, targetKind = "agent", direction = "row") {
+    function ensurePaneInLayout(kind, targetKind = "agent", direction = "row", options = {}) {
       if (!paneLayout) {
         return;
       }
       const existing = paneLayoutLeafByKind(kind);
       if (existing) {
         setActivePaneLayoutLeaf(existing.id);
-        activatePaneLayoutKind(kind);
+        if (options.activateExisting !== false) {
+          activatePaneLayoutKind(kind);
+        }
         return;
       }
       const activeLeaf = paneLayoutLeafById(activePaneLayoutLeafId);
@@ -1436,13 +1438,13 @@
       savePaneLayout();
       renderPaneLayout();
       if (progressPaneRequested) {
-        ensurePaneInLayout("progress", "agent", "row");
+        ensurePaneInLayout("progress", "agent", "row", { activateExisting: false });
       }
       if (artifactPaneRequested && artifactPreviewItems.length > 0) {
-        ensurePaneInLayout("artifact", "agent", "row");
+        ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false });
       }
       if (projectShellPaneRequested) {
-        ensurePaneInLayout("shell", "agent", "column");
+        ensurePaneInLayout("shell", "agent", "column", { activateExisting: false });
       }
     }
 
@@ -3156,10 +3158,10 @@
         artifactPaneRequested && !poppedPanes.has("artifact");
       const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
       if (artifactVisible) {
-        ensurePaneInLayout("artifact", "agent", "row");
+        ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false });
       }
       if (progressVisible) {
-        ensurePaneInLayout("progress", "agent", "row");
+        ensurePaneInLayout("progress", "agent", "row", { activateExisting: false });
       }
       agentOutputPane.hidden = !agentVisible;
       artifactPreviewPane.hidden = !artifactVisible;

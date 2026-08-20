@@ -149,6 +149,37 @@ class WorkspaceIsolationTests(unittest.TestCase):
         self.assertEqual(resumed["workspace_id"], workspace_id)
         self.assertEqual(resumed["active_project_root"], str(project_root.resolve()))
 
+    def test_workspace_payload_requires_workflow_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_root = root / "service"
+            project_root = root / "QFw"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            first = state.create_context("tab-a", "software")
+            opened = state.open_project(
+                str(first["workspace_id"]),
+                str(project_root),
+            )
+            workspace_id = str(opened["workspace_id"])
+            state.workspace_registry.detach(
+                workspace_id,
+                "tab-a",
+                str(first["lease_token"]),
+            )
+
+            unfiltered = state.workspace_payload()
+            filtered = state.workspace_payload(workflow_id="software")
+
+        self.assertEqual(unfiltered["workspaces"], [])
+        self.assertEqual(
+            [workspace["workspace_id"] for workspace in filtered["workspaces"]],
+            [workspace_id],
+        )
+
     def test_attached_project_rejects_second_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

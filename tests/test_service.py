@@ -441,6 +441,7 @@ class ServiceTests(unittest.TestCase):
         progress = read_service_text_asset("js/modules/progress.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
         app = read_service_text_asset("js/core/runtime.js")
+        pane_window = read_service_text_asset("pane-window.html")
 
         self.assertIn("bindRuntime(nextRuntime)", registry)
         self.assertIn("invokeWorkflow(id, action, ...args)", registry)
@@ -511,6 +512,15 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("AGENT_OUTPUT_FLUSH_BUDGET_MS", app)
         self.assertIn("function flushAgentOutputQueue()", app)
+        self.assertIn("TERMINAL_OUTPUT_FLUSH_BUDGET_MS", pane_window)
+        self.assertIn("function flushTerminalOutputQueue()", pane_window)
+        self.assertIn(
+            'queueTerminalOutput(payload.terminal || payload.text || "")',
+            pane_window,
+        )
+        self.assertIn("function selectedAgentSession()", pane_window)
+        self.assertIn("no active agent stream", pane_window)
+        self.assertIn("if (!session) {", sessions)
         self.assertIn("terminate_agents: terminateAgents", app)
         self.assertIn("Deactivate will stop", app)
         self.assertIn("ElectroBoyInputShortcut.bindRecorder", sessions)
@@ -753,6 +763,7 @@ class ServiceTests(unittest.TestCase):
     def test_pane_layout_allows_independent_duplicate_types(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
         documents = read_service_text_asset("js/modules/documents.js")
+        project_shell = read_service_text_asset("js/modules/project-shell.js")
         workspace = read_service_text_asset("js/core/pane-workspace.js")
         styles = read_service_text_asset("css/shell.css")
 
@@ -762,8 +773,28 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
         self.assertIn("ensureActivePaneLayoutLeaf();\n      const root = renderPaneLayoutNode(paneLayout);", runtime)
+        self.assertIn(
+            "function ensurePaneInLayout(kind, targetKind = \"agent\", direction = \"row\", options = {})",
+            runtime,
+        )
         self.assertIn("const existing = paneLayoutLeafByKind(kind);", runtime)
         self.assertIn("setActivePaneLayoutLeaf(existing.id);", runtime)
+        self.assertIn("if (options.activateExisting !== false)", runtime)
+        visibility_start = runtime.index("function applyOutputPaneVisibility()")
+        visibility_end = runtime.index("function showProgressPane(show)", visibility_start)
+        visibility_source = runtime[visibility_start:visibility_end]
+        self.assertIn(
+            'ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false })',
+            visibility_source,
+        )
+        self.assertIn(
+            'ensurePaneInLayout("progress", "agent", "row", { activateExisting: false })',
+            visibility_source,
+        )
+        self.assertIn(
+            'runtime.layout.ensurePane("shell", "agent", "column", { activateExisting: false })',
+            project_shell,
+        )
         self.assertIn("activePaneLayoutLeafId = newLeaf.id;", runtime)
         self.assertIn('message.type === "electroboy:pane-activate"', runtime)
         self.assertIn("function paneLayoutArtifactIsProjectScoped(item)", runtime)
@@ -4580,6 +4611,25 @@ class ServiceTests(unittest.TestCase):
             {item["session_id"] for item in shell_payloads},
             {session.session_id, second_session.session_id},
         )
+
+    def test_project_payload_clears_stale_selected_session_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with state.lock:
+                state.contexts[context_id].selected_session_id = "missing-session"
+
+            payload = state.project_payload(context_id)
+
+        self.assertIsNone(payload["selected_session_id"])
+        self.assertEqual(payload["sessions"], [])
 
     def test_project_shell_payload_reports_running_separately(self) -> None:
         class FakeShell:
