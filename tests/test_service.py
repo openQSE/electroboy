@@ -892,6 +892,23 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("if (paneIsVisible(progressOutputPane))", runtime)
         self.assertIn("if (paneIsVisible(projectShellPane))", runtime)
         self.assertIn('const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";', runtime)
+        self.assertIn(
+            'const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v1";',
+            runtime,
+        )
+        self.assertIn('"telemetry",\n      "frontend_telemetry",\n      "frontend_debug"', runtime)
+        self.assertIn("let frontendTelemetryEnabled = storedFrontendTelemetryEnabled();", runtime)
+        self.assertIn("function setFrontendTelemetryEnabled(enabled, options = {})", runtime)
+        self.assertIn("function applyFrontendTelemetryUrlPreference()", runtime)
+        self.assertIn("if (!frontendTelemetryEnabled) {\n        return;\n      }", runtime)
+        self.assertIn("if (!frontendTelemetryEnabled) {\n        return false;\n      }", runtime)
+        self.assertIn("return new EventSource(url);", runtime)
+        self.assertIn("function stopFrontendDebugDiagnostics()", runtime)
+        self.assertIn("frontendDebugRafPulseActive = false;", runtime)
+        self.assertIn("telemetry: frontendTelemetryRuntime,", runtime)
+        self.assertIn("enable() {\n        return setFrontendTelemetryEnabled(true);", runtime)
+        self.assertIn("disable() {\n        return setFrontendTelemetryEnabled(false);", runtime)
+        self.assertIn("applyFrontendTelemetryUrlPreference();", runtime)
         self.assertIn("function sendFrontendDebugSnapshot(reason)", runtime)
         self.assertIn("function startFrontendDebugDiagnostics()", runtime)
         self.assertIn("function scheduleFrontendDebugRafPulse()", runtime)

@@ -104,6 +104,12 @@
     const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";
     const FRONTEND_DEBUG_STORAGE_KEY = "electroboy.frontendDebug.last";
     const FRONTEND_DEBUG_HEARTBEAT_ID = "electroboyFrontendDebugHeartbeat";
+    const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v1";
+    const FRONTEND_TELEMETRY_QUERY_KEYS = [
+      "telemetry",
+      "frontend_telemetry",
+      "frontend_debug",
+    ];
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
     const WORKFLOW_SIDE_SHEET_WIDTH_STORAGE_KEY = "electroboy.workflowSideSheetWidth";
     const WORKFLOW_MODE_STORAGE_KEY = "electroboy.workflowMode";
@@ -188,8 +194,11 @@
     let paneCornerSplitCancel = null;
     let terminalResizeObserver = null;
     let fitTerminalFrame = 0;
+    let frontendTelemetryEnabled = storedFrontendTelemetryEnabled();
     let frontendDebugDiagnosticsStarted = false;
     let frontendDebugFrameInstrumented = false;
+    let frontendDebugRafPulseActive = false;
+    let frontendDebugListenersBound = false;
     let frontendDebugNativeRequestAnimationFrame = null;
     let frontendDebugLastTick = 0;
     let frontendDebugMaxEventLoopLagMs = 0;
@@ -658,6 +667,81 @@
         Boolean(outputWorkbench.firstElementChild);
     }
 
+    function parseFrontendTelemetryPreference(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      if (["1", "true", "yes", "on", "enable", "enabled"].includes(normalized)) {
+        return true;
+      }
+      if (["0", "false", "no", "off", "disable", "disabled"].includes(normalized)) {
+        return false;
+      }
+      return null;
+    }
+
+    function storedFrontendTelemetryEnabled() {
+      try {
+        return parseFrontendTelemetryPreference(
+          window.localStorage.getItem(FRONTEND_TELEMETRY_STORAGE_KEY),
+        ) === true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function saveFrontendTelemetryEnabled(enabled) {
+      try {
+        window.localStorage.setItem(
+          FRONTEND_TELEMETRY_STORAGE_KEY,
+          enabled ? "1" : "0",
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function frontendTelemetryPreferenceFromUrl() {
+      const parameters = new URLSearchParams(window.location.search);
+      for (const key of FRONTEND_TELEMETRY_QUERY_KEYS) {
+        if (!parameters.has(key)) {
+          continue;
+        }
+        const preference = parseFrontendTelemetryPreference(parameters.get(key));
+        if (preference !== null) {
+          return preference;
+        }
+      }
+      return null;
+    }
+
+    function applyFrontendTelemetryUrlPreference() {
+      const preference = frontendTelemetryPreferenceFromUrl();
+      if (preference !== null) {
+        setFrontendTelemetryEnabled(preference);
+      }
+    }
+
+    function frontendTelemetryIsEnabled() {
+      return frontendTelemetryEnabled;
+    }
+
+    function setFrontendTelemetryEnabled(enabled, options = {}) {
+      const nextEnabled = Boolean(enabled);
+      const persist = options.persist !== false;
+      if (persist) {
+        saveFrontendTelemetryEnabled(nextEnabled);
+      }
+      if (frontendTelemetryEnabled === nextEnabled) {
+        return frontendTelemetryEnabled;
+      }
+      frontendTelemetryEnabled = nextEnabled;
+      if (frontendTelemetryEnabled) {
+        startFrontendDebugDiagnostics();
+      } else {
+        stopFrontendDebugDiagnostics();
+      }
+      return frontendTelemetryEnabled;
+    }
+
     function frontendDebugNow() {
       return window.performance && typeof window.performance.now === "function"
         ? window.performance.now()
@@ -665,6 +749,9 @@
     }
 
     function bumpFrontendDebugCounter(name, amount = 1) {
+      if (!frontendTelemetryEnabled) {
+        return;
+      }
       frontendDebugCounters[name] = (frontendDebugCounters[name] || 0) + amount;
     }
 
@@ -736,9 +823,15 @@
     }
 
     function scheduleFrontendDebugRafPulse() {
+      if (!frontendTelemetryEnabled || !frontendDebugRafPulseActive) {
+        return;
+      }
       const requestFrame = frontendDebugNativeRequestAnimationFrame ||
         window.requestAnimationFrame.bind(window);
       requestFrame((timestamp) => {
+        if (!frontendTelemetryEnabled || !frontendDebugRafPulseActive) {
+          return;
+        }
         if (frontendDebugRafLastTimestamp) {
           frontendDebugRafMaxGapMs = Math.max(
             frontendDebugRafMaxGapMs,
@@ -789,6 +882,9 @@
     }
 
     function recordFrontendDebugInput(event) {
+      if (!frontendTelemetryEnabled) {
+        return;
+      }
       const type = String(event.type || "event");
       frontendDebugInputCounters[type] =
         (frontendDebugInputCounters[type] || 0) + 1;
@@ -882,13 +978,16 @@
     }
 
     function sendFrontendDebugSnapshot(reason) {
+      if (!frontendTelemetryEnabled) {
+        return false;
+      }
       const snapshot = frontendDebugSnapshot(reason);
       persistFrontendDebugSnapshot(snapshot);
       const body = JSON.stringify(snapshot);
       if (navigator.sendBeacon) {
         const blob = new Blob([body], { type: "application/json" });
         if (navigator.sendBeacon(FRONTEND_DEBUG_ENDPOINT, blob)) {
-          return;
+          return true;
         }
       }
       window.fetch(FRONTEND_DEBUG_ENDPOINT, {
@@ -897,9 +996,13 @@
         body,
         keepalive: true,
       }).catch(() => {});
+      return true;
     }
 
     function createDebugEventSourceForUrl(url) {
+      if (!frontendTelemetryEnabled) {
+        return new EventSource(url);
+      }
       bumpFrontendDebugCounter("eventSource.created");
       const source = new EventSource(url);
       const nativeAddEventListener = source.addEventListener.bind(source);
@@ -928,11 +1031,87 @@
       return createDebugEventSourceForUrl(contextUrl(path));
     }
 
+    function recordFrontendDebugError(event) {
+      bumpFrontendDebugCounter("window.error");
+      frontendDebugLastError = String(event.message || "error").slice(0, 500);
+    }
+
+    function recordFrontendDebugUnhandledRejection(event) {
+      bumpFrontendDebugCounter("window.unhandledrejection");
+      frontendDebugLastError = String(event.reason || "rejection").slice(0, 500);
+    }
+
+    function bindFrontendDebugListeners() {
+      if (frontendDebugListenersBound) {
+        return;
+      }
+      frontendDebugListenersBound = true;
+      window.addEventListener("error", recordFrontendDebugError);
+      window.addEventListener(
+        "unhandledrejection",
+        recordFrontendDebugUnhandledRejection,
+      );
+      for (const eventName of ["pointerdown", "pointerup", "click", "keydown"]) {
+        window.addEventListener(eventName, recordFrontendDebugInput, true);
+      }
+      window.addEventListener("focus", recordFrontendDebugInput, true);
+      window.addEventListener("blur", recordFrontendDebugInput, true);
+      document.addEventListener("visibilitychange", recordFrontendDebugInput, true);
+    }
+
+    function unbindFrontendDebugListeners() {
+      if (!frontendDebugListenersBound) {
+        return;
+      }
+      frontendDebugListenersBound = false;
+      window.removeEventListener("error", recordFrontendDebugError);
+      window.removeEventListener(
+        "unhandledrejection",
+        recordFrontendDebugUnhandledRejection,
+      );
+      for (const eventName of ["pointerdown", "pointerup", "click", "keydown"]) {
+        window.removeEventListener(eventName, recordFrontendDebugInput, true);
+      }
+      window.removeEventListener("focus", recordFrontendDebugInput, true);
+      window.removeEventListener("blur", recordFrontendDebugInput, true);
+      document.removeEventListener("visibilitychange", recordFrontendDebugInput, true);
+    }
+
+    function stopFrontendDebugDiagnostics() {
+      frontendDebugDiagnosticsStarted = false;
+      frontendDebugRafPulseActive = false;
+      if (frontendDebugTickTimer) {
+        window.clearInterval(frontendDebugTickTimer);
+        frontendDebugTickTimer = null;
+      }
+      if (frontendDebugSendTimer) {
+        window.clearInterval(frontendDebugSendTimer);
+        frontendDebugSendTimer = null;
+      }
+      if (frontendDebugLongTaskObserver) {
+        frontendDebugLongTaskObserver.disconnect();
+        frontendDebugLongTaskObserver = null;
+      }
+      unbindFrontendDebugListeners();
+      if (frontendDebugPaintMarker) {
+        frontendDebugPaintMarker.remove();
+        frontendDebugPaintMarker = null;
+      }
+      if (document.title !== frontendDebugBaseTitle) {
+        document.title = frontendDebugBaseTitle;
+      }
+    }
+
     function startFrontendDebugDiagnostics() {
+      if (!frontendTelemetryEnabled) {
+        stopFrontendDebugDiagnostics();
+        return;
+      }
       if (frontendDebugDiagnosticsStarted) {
         return;
       }
       frontendDebugDiagnosticsStarted = true;
+      frontendDebugRafPulseActive = true;
       instrumentFrontendDebugFrames();
       ensureFrontendDebugPaintMarker();
       scheduleFrontendDebugRafPulse();
@@ -982,21 +1161,29 @@
           FRONTEND_DEBUG_INTERVAL_MS,
         );
       }
-      window.addEventListener("error", (event) => {
-        bumpFrontendDebugCounter("window.error");
-        frontendDebugLastError = String(event.message || "error").slice(0, 500);
-      });
-      window.addEventListener("unhandledrejection", (event) => {
-        bumpFrontendDebugCounter("window.unhandledrejection");
-        frontendDebugLastError = String(event.reason || "rejection").slice(0, 500);
-      });
-      for (const eventName of ["pointerdown", "pointerup", "click", "keydown"]) {
-        window.addEventListener(eventName, recordFrontendDebugInput, true);
-      }
-      window.addEventListener("focus", recordFrontendDebugInput, true);
-      window.addEventListener("blur", recordFrontendDebugInput, true);
-      document.addEventListener("visibilitychange", recordFrontendDebugInput, true);
+      bindFrontendDebugListeners();
     }
+
+    const frontendTelemetryRuntime = Object.freeze({
+      isEnabled: frontendTelemetryIsEnabled,
+      setEnabled: setFrontendTelemetryEnabled,
+      enable() {
+        return setFrontendTelemetryEnabled(true);
+      },
+      disable() {
+        return setFrontendTelemetryEnabled(false);
+      },
+      snapshot(reason = "manual") {
+        return frontendDebugSnapshot(reason);
+      },
+      sendSnapshot(reason = "manual") {
+        return sendFrontendDebugSnapshot(reason);
+      },
+      storageKey: FRONTEND_TELEMETRY_STORAGE_KEY,
+      queryKeys() {
+        return [...FRONTEND_TELEMETRY_QUERY_KEYS];
+      },
+    });
 
     function queueWorkspaceStateSave(delay = 250) {
       bumpFrontendDebugCounter("workspaceStateSave.queued");
@@ -6412,6 +6599,7 @@
       input: {
         sendShortcut: agentSendShortcut,
       },
+      telemetry: frontendTelemetryRuntime,
       http: {
         contextUrl,
         contextParameters: () => {
@@ -6589,6 +6777,7 @@
     });
 
     async function initialize() {
+      applyFrontendTelemetryUrlPreference();
       startFrontendDebugDiagnostics();
       window.ElectroBoyFrontend.bindRuntime(frontendRuntime);
       await checkConnection();
