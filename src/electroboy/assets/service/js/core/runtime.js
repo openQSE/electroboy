@@ -312,6 +312,13 @@
       status: { label: "Status", element: projectStatusPane },
     };
     const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);
+    const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
+      "empty",
+      "agent",
+      "artifact",
+      "scratch",
+      "status",
+    ]);
 
     function newPaneLayoutId(prefix = "pane") {
       paneLayoutIdSequence += 1;
@@ -404,6 +411,25 @@
       return defaultPaneLayout(mode);
     }
 
+    function paneLayoutHasRestorableLeaf(node) {
+      if (!node) {
+        return false;
+      }
+      if (node.type === "leaf") {
+        return RESTORABLE_PANE_LAYOUT_KINDS.has(node.kind);
+      }
+      return paneLayoutHasRestorableLeaf(node.first) ||
+        paneLayoutHasRestorableLeaf(node.second);
+    }
+
+    function restoredPaneLayoutForWorkflow(layout, mode = workflowMode) {
+      const migrated = migratePaneLayoutForWorkflow(layout, mode);
+      if (!paneLayoutHasRestorableLeaf(migrated)) {
+        return defaultPaneLayout(mode);
+      }
+      return migrated;
+    }
+
     function paneLayoutStorageKey(mode = workflowMode) {
       return `${PANE_LAYOUT_STORAGE_KEY}.${mode || "none"}.${contextId || "detached"}`;
     }
@@ -471,7 +497,7 @@
         const raw = storage.getItem(storageKey);
         if (raw !== null) {
           const stored = normalizePaneLayoutNode(JSON.parse(raw), new Set());
-          const migrated = migratePaneLayoutForWorkflow(stored, mode);
+          const migrated = restoredPaneLayoutForWorkflow(stored, mode);
           if (migrated && migrated !== stored) {
             storage.setItem(storageKey, JSON.stringify(migrated));
           }
@@ -483,7 +509,7 @@
         if (legacyRaw !== null) {
           window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
           const stored = normalizePaneLayoutNode(JSON.parse(legacyRaw), new Set());
-          const migrated = migratePaneLayoutForWorkflow(stored, mode);
+          const migrated = restoredPaneLayoutForWorkflow(stored, mode);
           if (migrated) {
             storage.setItem(storageKey, JSON.stringify(migrated));
             return migrated;
@@ -997,6 +1023,8 @@
 
     function applyWorkspaceClientState(payload) {
       let state = payload && payload.workspace_client_state;
+      let shouldPersistRestoredState = false;
+      let shouldRenderRestoredPaneLayout = false;
       if (workspaceAllowsSharedConnections()) {
         try {
           state = JSON.parse(
@@ -1013,9 +1041,13 @@
       workspaceStateHydrating = true;
       try {
         if (state.pane_layout) {
-          const restored = normalizePaneLayoutNode(state.pane_layout, new Set());
+          const restored = restoredPaneLayoutForWorkflow(
+            normalizePaneLayoutNode(state.pane_layout, new Set()),
+          );
           if (restored) {
             paneLayout = restored;
+            shouldRenderRestoredPaneLayout = paneLayoutIsMounted();
+            shouldPersistRestoredState = true;
             workspacePresentationStorage().setItem(
               paneLayoutStorageKey(),
               JSON.stringify(restored),
@@ -1029,13 +1061,22 @@
             label: String(target.label || target.path),
             path: String(target.path),
           }));
+          shouldPersistRestoredState = true;
         }
         if (typeof state.scratchpad === "string") {
           scratchPad.value = state.scratchpad;
           saveScratchPad();
+          shouldPersistRestoredState = true;
         }
       } finally {
         workspaceStateHydrating = false;
+      }
+      if (shouldRenderRestoredPaneLayout) {
+        bumpFrontendDebugCounter("paneLayout.hydrateRender");
+        renderPaneLayout();
+      }
+      if (shouldPersistRestoredState) {
+        queueWorkspaceStateSave(0);
       }
     }
 
@@ -1133,6 +1174,25 @@
         Boolean(paneLayoutLeafByKind("artifact"));
     }
 
+    function markPaneLayoutControl(element) {
+      element.dataset.paneDragIgnore = "true";
+      element.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+    }
+
+    function bindPaneLayoutCommand(button, handler) {
+      markPaneLayoutControl(button);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handler();
+      });
+    }
+
     function buildPaneLayoutToolbar(leaf) {
       const toolbar = document.createElement("div");
       toolbar.className = "pane-layout-toolbar";
@@ -1155,6 +1215,7 @@
         select.append(option);
       }
       select.value = leaf.kind;
+      markPaneLayoutControl(select);
       select.addEventListener("change", () => {
         setActivePaneLayoutLeaf(leaf.id);
         changePaneLayoutKind(leaf.id, select.value);
@@ -1165,14 +1226,17 @@
       splitRight.type = "button";
       splitRight.title = "Split pane right";
       splitRight.setAttribute("aria-label", "Split pane right");
-      splitRight.addEventListener("click", () => splitPaneLayoutLeaf(leaf.id, "row"));
+      bindPaneLayoutCommand(splitRight, () => splitPaneLayoutLeaf(leaf.id, "row"));
 
       const splitDown = document.createElement("button");
       splitDown.className = "pane-layout-command split-down";
       splitDown.type = "button";
       splitDown.title = "Split pane down";
       splitDown.setAttribute("aria-label", "Split pane down");
-      splitDown.addEventListener("click", () => splitPaneLayoutLeaf(leaf.id, "column"));
+      bindPaneLayoutCommand(
+        splitDown,
+        () => splitPaneLayoutLeaf(leaf.id, "column"),
+      );
 
       const close = document.createElement("button");
       close.className = "pane-layout-command close-pane";
@@ -1181,7 +1245,7 @@
       close.setAttribute("aria-label", "Close pane and join area");
       close.textContent = "×";
       close.disabled = paneLayoutLeaves().length <= 1;
-      close.addEventListener("click", () => closePaneLayoutLeaf(leaf.id));
+      bindPaneLayoutCommand(close, () => closePaneLayoutLeaf(leaf.id));
 
       const reset = document.createElement("button");
       reset.className = "pane-layout-command reset-layout";
@@ -1189,7 +1253,7 @@
       reset.title = "Reset pane layout";
       reset.setAttribute("aria-label", "Reset pane layout");
       reset.textContent = "↺";
-      reset.addEventListener("click", resetPaneLayout);
+      bindPaneLayoutCommand(reset, resetPaneLayout);
 
       toolbar.append(select, splitRight, splitDown, close, reset);
       return toolbar;
@@ -1650,11 +1714,14 @@
     }
 
     function closePaneLayoutLeaf(id) {
+      bumpFrontendDebugCounter("paneLayout.closeClick");
       if (paneLayoutLeaves().length <= 1) {
+        bumpFrontendDebugCounter("paneLayout.closeSkippedLastLeaf");
         return;
       }
       const leaf = paneLayoutLeafById(id);
       if (!leaf) {
+        bumpFrontendDebugCounter("paneLayout.closeSkippedMissingLeaf");
         return;
       }
       const removedKind = leaf.kind;
@@ -1664,6 +1731,7 @@
       }
       savePaneLayout();
       renderPaneLayout();
+      bumpFrontendDebugCounter("paneLayout.closeRemoved");
       if (!paneLayoutLeafByKind(removedKind)) {
         deactivatePaneLayoutKind(removedKind);
       }

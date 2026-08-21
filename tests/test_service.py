@@ -852,17 +852,77 @@ class ServiceTests(unittest.TestCase):
             'const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);',
             runtime,
         )
+        self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
+        self.assertIn('"agent",\n      "artifact",\n      "scratch",\n      "status"', runtime)
         self.assertIn("const duplicateSingleton =", runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind)", runtime)
         self.assertIn("if (validKind && duplicateSingleton)", runtime)
         self.assertIn("return null;", runtime)
         self.assertIn("if (!first) {\n        return second;\n      }", runtime)
         self.assertIn("if (!second) {\n        return first;\n      }", runtime)
+        self.assertIn("function paneLayoutHasRestorableLeaf(node)", runtime)
+        self.assertIn("RESTORABLE_PANE_LAYOUT_KINDS.has(node.kind)", runtime)
+        self.assertIn("function restoredPaneLayoutForWorkflow(layout, mode = workflowMode)", runtime)
+        self.assertIn("return defaultPaneLayout(mode);", runtime)
+        self.assertIn("const migrated = restoredPaneLayoutForWorkflow(stored, mode);", runtime)
+        self.assertIn("function paneLayoutIsMounted()", runtime)
+        self.assertIn("let shouldRenderRestoredPaneLayout = false;", runtime)
+        self.assertIn("shouldRenderRestoredPaneLayout = paneLayoutIsMounted();", runtime)
+        self.assertIn('bumpFrontendDebugCounter("paneLayout.hydrateRender")', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
         self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
+        self.assertIn('element.dataset.paneDragIgnore = "true";', runtime)
+        self.assertIn("function bindPaneLayoutCommand(button, handler)", runtime)
+        self.assertIn("bindPaneLayoutCommand(close, () => closePaneLayoutLeaf(leaf.id));", runtime)
+        self.assertIn('bumpFrontendDebugCounter("paneLayout.closeSkippedMissingLeaf")', runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
         self.assertIn("ensureActivePaneLayoutLeaf();\n      const root = renderPaneLayoutNode(paneLayout);", runtime)
+        self.assertIn("let shouldPersistRestoredState = false;", runtime)
+        self.assertIn("queueWorkspaceStateSave(0);", runtime)
+        self.assertIn("let fitTerminalFrame = 0;", runtime)
+        self.assertIn("function paneIsVisible(element)", runtime)
+        self.assertIn(
+            "return Boolean(element && element.isConnected && !element.hidden);",
+            runtime,
+        )
+        self.assertIn("function scheduleFitTerminal()", runtime)
+        self.assertIn("if (fitTerminalFrame)", runtime)
+        self.assertIn("if (terminalFit && paneIsVisible(agentOutputPane))", runtime)
+        self.assertIn("if (paneIsVisible(progressOutputPane))", runtime)
+        self.assertIn("if (paneIsVisible(projectShellPane))", runtime)
+        self.assertIn('const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";', runtime)
+        self.assertIn("function sendFrontendDebugSnapshot(reason)", runtime)
+        self.assertIn("function startFrontendDebugDiagnostics()", runtime)
+        self.assertIn("function scheduleFrontendDebugRafPulse()", runtime)
+        self.assertIn("function mutateFrontendDebugPaintMarker(now)", runtime)
+        self.assertIn("function recordFrontendDebugInput(event)", runtime)
+        self.assertIn("paint_heartbeat: frontendDebugPaintPayload()", runtime)
+        self.assertIn("raf: frontendDebugRafPayload()", runtime)
+        self.assertIn("input: frontendDebugInputPayload()", runtime)
+        self.assertIn("last_target: frontendDebugInputLastTarget", runtime)
+        self.assertIn("last_frame_age_ms:", runtime)
+        self.assertIn("last_mutation_age_ms:", runtime)
+        self.assertIn("document.title = `${frontendDebugBaseTitle} [${frontendDebugPaintSequence}]`;", runtime)
+        self.assertIn('marker.id = FRONTEND_DEBUG_HEARTBEAT_ID;', runtime)
+        self.assertIn("document.addEventListener(\"visibilitychange\", recordFrontendDebugInput, true);", runtime)
+        self.assertIn("bumpFrontendDebugCounter(\"terminalFit.run\")", runtime)
+        self.assertIn("bumpFrontendDebugCounter(\"mutationObserver.paneLayout\")", runtime)
+        self.assertIn("bumpFrontendDebugCounter(\"resizeObserver.terminal\")", runtime)
+        self.assertIn("eventSource: createDebugEventSource,", runtime)
+        self.assertIn("rawEventSource: createDebugEventSourceForUrl,", runtime)
+        self.assertNotIn("window.requestAnimationFrame(fitTerminal)", runtime)
+        self.assertIn('window.addEventListener("resize", scheduleFitTerminal);', runtime)
+        self.assertIn("fitAll: scheduleFitTerminal,", runtime)
+        self.assertIn(
+            "terminalResizeObserver = new window.ResizeObserver((entries) => {",
+            runtime,
+        )
+        self.assertIn(
+            "if (!entries.some((entry) => entry.target.isConnected))",
+            runtime,
+        )
+        self.assertIn("scheduleFitTerminal();", runtime)
         self.assertIn(
             "function ensurePaneInLayout(kind, targetKind = \"agent\", direction = \"row\", options = {})",
             runtime,
