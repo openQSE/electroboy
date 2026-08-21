@@ -5710,7 +5710,7 @@
           <p class="workspace-selector-error" role="alert" hidden></p>
           <footer class="workspace-selector-footer">
             <button class="workspace-selector-cancel" type="button">Cancel</button>
-            <button class="workspace-selector-refresh" type="button">Refresh</button>
+            <button class="workspace-selector-clear" type="button">Clear</button>
             <button class="workspace-selector-submit" type="submit">Attach</button>
           </footer>
         </form>
@@ -5735,10 +5735,12 @@
     async function loadWorkspaceChoices(dialog) {
       const list = dialog.querySelector(".workspace-selector-list");
       const submit = dialog.querySelector(".workspace-selector-submit");
+      const clear = dialog.querySelector(".workspace-selector-clear");
       const error = dialog.querySelector(".workspace-selector-error");
       error.hidden = true;
       list.textContent = "Loading workspaces...";
       submit.disabled = true;
+      clear.disabled = true;
       const parameters = new URLSearchParams({ workflow_id: workflowMode });
       appendFrontendTelemetryParameters(parameters);
       const response = await fetch(`/api/workspaces?${parameters.toString()}`, {
@@ -5776,6 +5778,23 @@
         return option;
       }));
       submit.disabled = false;
+      clear.disabled = false;
+    }
+
+    async function clearWorkspaceChoices(dialog) {
+      const error = dialog.querySelector(".workspace-selector-error");
+      const parameters = new URLSearchParams({ workflow_id: workflowMode });
+      appendFrontendTelemetryParameters(parameters);
+      const response = await fetch(`/api/workspaces/clear?${parameters.toString()}`, {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({ error: "workspace clear failed" }));
+      if (!response.ok) {
+        error.textContent = payload.error || "workspace clear failed";
+        error.hidden = false;
+        return;
+      }
+      await loadWorkspaceChoices(dialog);
     }
 
     async function showWorkspaceSelector() {
@@ -5789,8 +5808,13 @@
         };
         dialog.querySelector(".workspace-selector-close").onclick = () => finish(false);
         dialog.querySelector(".workspace-selector-cancel").onclick = () => finish(false);
-        dialog.querySelector(".workspace-selector-refresh").onclick = () => {
-          loadWorkspaceChoices(dialog).catch((problem) => {
+        dialog.querySelector(".workspace-selector-clear").onclick = () => {
+          if (!window.confirm(
+            "Clear all detached workspaces? Running sessions in them will be stopped.",
+          )) {
+            return;
+          }
+          clearWorkspaceChoices(dialog).catch((problem) => {
             error.textContent = problem.message || String(problem);
             error.hidden = false;
           });

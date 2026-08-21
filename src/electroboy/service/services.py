@@ -100,6 +100,8 @@ class WorkspaceServices(Protocol):
 
     def payload(self, workflow_id: str = "") -> dict[str, object]: ...
 
+    def clear(self, workflow_id: str) -> dict[str, object]: ...
+
     def attach(
         self,
         current_workspace_id: str,
@@ -332,6 +334,8 @@ class ServiceRuntimeBackend(Protocol):
     ) -> dict[str, object]: ...
 
     def workspace_payload(self, workflow_id: str = "") -> dict[str, object]: ...
+
+    def clear_workspaces(self, workflow_id: str) -> dict[str, object]: ...
 
     def attach_workspace(
         self,
@@ -672,6 +676,9 @@ class RuntimeWorkspaceServices:
 
     def payload(self, workflow_id: str = "") -> dict[str, object]:
         return self.runtime.workspace_payload(workflow_id=workflow_id)
+
+    def clear(self, workflow_id: str) -> dict[str, object]:
+        return self.runtime.clear_workspaces(workflow_id)
 
     def attach(
         self,

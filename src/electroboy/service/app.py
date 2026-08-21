@@ -430,6 +430,24 @@ class ServiceState:
             )
         return {"workspaces": rows}
 
+    def clear_workspaces(self, workflow_id: str) -> dict[str, object]:
+        with self.lock:
+            contexts = self.workspace_registry.clear_detached(
+                workflow_id=workflow_id,
+            )
+            sessions = [
+                session
+                for context in contexts
+                for session in self._context_process_sessions_locked(context)
+            ]
+        terminated_count = sum(1 for session in sessions if session.is_active())
+        self._terminate_sessions(sessions)
+        return {
+            "status": "cleared",
+            "cleared_workspace_count": len(contexts),
+            "terminated_session_count": terminated_count,
+        }
+
     def attach_workspace(
         self,
         current_workspace_id: str,

@@ -1207,6 +1207,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("resumeWorkspaceAttachment().catch(() => {});", runtime)
         self.assertIn('document.addEventListener("resume", () => {', runtime)
 
+    def test_workspace_selector_clears_detached_workspaces(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn(
+            '<button class="workspace-selector-clear" type="button">Clear</button>',
+            runtime,
+        )
+        self.assertNotIn("workspace-selector-refresh", runtime)
+        self.assertIn("async function clearWorkspaceChoices(dialog)", runtime)
+        self.assertIn("/api/workspaces/clear?${parameters.toString()}", runtime)
+        self.assertIn('method: "POST"', runtime)
+        self.assertIn("Running sessions in them will be stopped.", runtime)
+
     def test_agent_input_actions_are_fixed_height_and_top_aligned(self) -> None:
         styles = read_service_text_asset("css/shell.css")
 

@@ -57,6 +57,11 @@ def _workspaces(request: RouteRequest) -> JsonResponse:
     return JsonResponse(request.services.workspaces.payload(workflow_id))
 
 
+def _clear_workspaces(request: RouteRequest) -> JsonResponse:
+    workflow_id = str((request.params.get("workflow_id") or [""])[0])
+    return JsonResponse(request.services.workspaces.clear(workflow_id))
+
+
 def _attach_workspace(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
@@ -248,6 +253,7 @@ _HANDLERS = {
     "health": _health,
     "create_context": _create_context,
     "workspaces": _workspaces,
+    "clear_workspaces": _clear_workspaces,
     "attach_workspace": _attach_workspace,
     "detach_workspace": _detach_workspace,
     "close_workspace": _close_workspace,
@@ -277,6 +283,7 @@ def module() -> ServiceModule:
             _route("GET", "/api/health", "health"),
             _route("POST", "/api/contexts", "create_context"),
             _route("GET", "/api/workspaces", "workspaces"),
+            _route("POST", "/api/workspaces/clear", "clear_workspaces"),
             _route("POST", "/api/workspaces/attach", "attach_workspace"),
             _route("POST", "/api/workspaces/detach", "detach_workspace"),
             _route("POST", "/api/workspaces/close", "close_workspace"),

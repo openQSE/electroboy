@@ -117,6 +117,90 @@ class WorkspaceIsolationTests(unittest.TestCase):
         self.assertEqual(attached_status, 200)
         self.assertEqual(attached["workspace_id"], workspace_id)
 
+    def test_clear_route_removes_only_detached_workspaces_for_workflow(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.active = True
+
+            def is_active(self) -> bool:
+                return self.active
+
+            def terminate(self) -> None:
+                self.active = False
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = create_server(root, port=0)
+            state = server.service_state
+            self.assertIsNotNone(state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                software = state.create_context("tab-a", "software")
+                software_id = str(software["workspace_id"])
+                state.workspace_registry.adopt_context(
+                    state.context_store.require(software_id),
+                    name="Software workspace",
+                    project_identity=str(root / "software"),
+                )
+                session = FakeSession()
+                state.context_store.require(software_id).ad_hoc_session = session
+                state.workspace_registry.detach(
+                    software_id,
+                    "tab-a",
+                    str(software["lease_token"]),
+                )
+
+                creative = state.create_context("tab-b", "creative-writing")
+                creative_id = str(creative["workspace_id"])
+                state.workspace_registry.adopt_context(
+                    state.context_store.require(creative_id),
+                    name="Creative workspace",
+                    project_identity=str(root / "creative"),
+                )
+                state.workspace_registry.detach(
+                    creative_id,
+                    "tab-b",
+                    str(creative["lease_token"]),
+                )
+
+                status, payload = self._request(
+                    server,
+                    "POST",
+                    "/api/workspaces/clear?workflow_id=software",
+                )
+                software_status, software_payload = self._request(
+                    server,
+                    "GET",
+                    "/api/workspaces?workflow_id=software",
+                )
+                creative_status, creative_payload = self._request(
+                    server,
+                    "GET",
+                    "/api/workspaces?workflow_id=creative-writing",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+            restored = ServiceState(root)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "cleared")
+        self.assertEqual(payload["cleared_workspace_count"], 1)
+        self.assertEqual(payload["terminated_session_count"], 1)
+        self.assertFalse(session.active)
+        self.assertEqual(software_status, 200)
+        self.assertEqual(software_payload["workspaces"], [])
+        self.assertEqual(creative_status, 200)
+        self.assertEqual(
+            [row["workspace_id"] for row in creative_payload["workspaces"]],
+            [creative_id],
+        )
+        self.assertNotIn(software_id, restored.workspace_registry.records)
+        self.assertIn(creative_id, restored.workspace_registry.records)
+
     def test_detached_project_resumes_original_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

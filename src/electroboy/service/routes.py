@@ -165,6 +165,7 @@ class RouteDispatcher:
             return False
         workspace_routes = {
             "/api/workspaces",
+            "/api/workspaces/clear",
             "/api/workspaces/attach",
             "/api/workspaces/detach",
             "/api/workspaces/heartbeat",

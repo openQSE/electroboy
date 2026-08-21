@@ -678,6 +678,35 @@ class WorkspaceRegistry:
                 reverse=True,
             )
 
+    def clear_detached(self, *, workflow_id: str) -> list[BrowserContext]:
+        """Remove detached workspaces shown by one workflow's selector."""
+
+        workflow_id = workflow_id.strip()
+        if not workflow_id:
+            return []
+        with self.lock:
+            self._expire_locked()
+            workspace_ids = [
+                record.workspace_id
+                for record in self.records.values()
+                if record.status == "detached"
+                and not record.connections
+                and record.attachment_policy == WORKSPACE_POLICY_EXCLUSIVE
+                and record.workflow_id == workflow_id
+            ]
+            contexts = [
+                context
+                for workspace_id in workspace_ids
+                if (context := self.context_store.contexts.get(workspace_id))
+                is not None
+            ]
+            for workspace_id in workspace_ids:
+                self.records.pop(workspace_id, None)
+                self.context_store.contexts.pop(workspace_id, None)
+            if workspace_ids:
+                self._save_locked()
+            return contexts
+
     def require_record(self, workspace_id: str) -> WorkspaceRecord:
         try:
             return self.records[workspace_id]
