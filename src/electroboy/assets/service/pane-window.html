@@ -1347,6 +1347,25 @@
       }
     }
 
+    function popOutCurrentArtifact() {
+      if (artifactKind === "empty") {
+        return;
+      }
+      const popupUrl = new URL(window.location.href);
+      popupUrl.searchParams.delete("embedded");
+      popupUrl.searchParams.delete("pane_instance_id");
+      popupUrl.searchParams.set("popped", "1");
+      const popup = window.open(
+        `${popupUrl.pathname}${popupUrl.search}`,
+        `electroboy-artifact-${artifactTargetPath() || artifactKind}-${contextId}`,
+        "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,"
+          + "status=no,scrollbars=yes,resizable=yes",
+      );
+      if (!popup) {
+        throw new Error("popup was blocked by the browser");
+      }
+    }
+
     function closePaneDocument() {
       if (artifactKind !== "document" || !artifactDocumentPath) {
         return;
@@ -3037,12 +3056,14 @@
           title: artifactTargetTitle(),
           editing: artifactEditing,
           canClose: artifactKind === "document" && Boolean(artifactDocumentPath),
+          canPop: params.get("popped") !== "1" && artifactKind !== "empty",
         }),
         actions: {
           startAgent: startPaneDocumentAgent,
           open: () => openPaneDocumentFileBrowser("document"),
           new: () => openPaneDocumentFileBrowser("document-new"),
           close: closePaneDocument,
+          pop: popOutCurrentArtifact,
         },
         controls: {
           zoom: artifactZoomControls,

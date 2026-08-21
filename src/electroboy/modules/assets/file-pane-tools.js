@@ -117,6 +117,9 @@
     const startAgent = button("Start agent", () => {
       runAction("startAgent", startFileAgent);
     }, "primary");
+    const pop = button("Pop", () => {
+      runAction("pop", () => {});
+    });
 
     const fileMenu = menu("File", "pane-tool-file-menu");
     const open = menuButton("Open", () => {
@@ -162,6 +165,7 @@
     actionStatus.className = "pane-tool-status";
     actionsBody.append(
       startAgent,
+      pop,
       fileMenu.details,
       modeMenu.details,
       exportMenu.details,
@@ -402,7 +406,8 @@
       boardViewBody.closest("details").hidden = !isBoard;
       boardColorBody.closest("details").hidden = !isBoard;
       boardExportBody.closest("details").hidden = !isBoard;
-      actionsBody.closest("details").hidden = isBoard;
+      pop.hidden = typeof actions.pop !== "function" || current.canPop === false;
+      actionsBody.closest("details").hidden = isBoard && pop.hidden;
       open.hidden = typeof actions.open !== "function";
       create.hidden = typeof actions.new !== "function";
       close.hidden = typeof actions.close !== "function" || current.canClose === false;

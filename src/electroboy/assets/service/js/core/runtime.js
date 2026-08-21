@@ -492,8 +492,7 @@
         if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
           seenKinds.add(kind);
         }
-        const content = kind === "artifact" && value.content &&
-            typeof value.content === "object"
+        const content = value.content && typeof value.content === "object"
           ? value.content
           : null;
         const projectRoot = content ? String(value.projectRoot || "") : "";
@@ -1743,7 +1742,7 @@
         return true;
       }
       return Boolean(activeProjectRoot) || artifactPreviewItems.length > 0 ||
-        Boolean(paneLayoutLeafByKind("artifact"));
+        Boolean(paneLayoutLeafByKind("artifact")) || Boolean(leaf?.content);
     }
 
     function markPaneLayoutControl(element) {
@@ -2268,10 +2267,6 @@
       }
       const previousKind = leaf.kind;
       leaf.kind = kind;
-      if (previousKind !== kind) {
-        leaf.content = null;
-        leaf.projectRoot = "";
-      }
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
       renderPaneLayout();

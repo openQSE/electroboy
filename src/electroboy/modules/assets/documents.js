@@ -114,6 +114,7 @@
       editing: Boolean(item.editing),
       canRefresh: true,
       canClose: item.kind === "document" && Boolean(item.target),
+      canPop: true,
       canSwitchMode: artifactPaneSupportsModeSwitch(item),
       canExport: artifactPaneSupportsDocumentExport(item),
     };
@@ -157,6 +158,10 @@
           if (item && item.kind === "document" && item.target) {
             closeDocumentTarget(item.target);
           }
+        },
+        pop: () => {
+          const item = activeArtifactToolItem();
+          if (item) popOutArtifactPreview(item);
         },
         preview: () => {
           const item = activeArtifactToolItem();

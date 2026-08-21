@@ -706,6 +706,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('controller.addSection("find", "Find")', file_pane_tools)
         self.assertIn('controller.addSection("actions", "Actions")', file_pane_tools)
         self.assertIn('setActionStatus("Agent started")', file_pane_tools)
+        self.assertIn('const pop = button("Pop"', file_pane_tools)
+        self.assertIn('runAction("pop", () => {});', file_pane_tools)
         self.assertIn('menu("File", "pane-tool-file-menu")', file_pane_tools)
         self.assertIn('menu("Mode", "pane-tool-mode-menu")', file_pane_tools)
         self.assertIn('menu("Export", "pane-tool-export-menu")', file_pane_tools)
@@ -777,6 +779,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("function renderDocumentActionPanel", documents)
         self.assertIn("open: () => openDocumentFileBrowser(),", documents)
         self.assertIn("new: () => openNewDocumentFileBrowser(),", documents)
+        self.assertIn("if (item) popOutArtifactPreview(item);", documents)
         self.assertIn("function closeDocumentTarget(target)", documents)
         self.assertIn("closeDocumentTarget(item.target);", documents)
         self.assertIn('data.type !== "electroboy:document-file-action"', documents)
@@ -787,6 +790,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function openDocumentTarget(target)", documents)
         self.assertIn("function popOutArtifactPreview(item)", documents)
         self.assertNotIn('popOutPane("artifact", item)', documents)
+        self.assertIn("function popOutCurrentArtifact()", pane_window)
+        self.assertIn("pop: popOutCurrentArtifact,", pane_window)
         self.assertIn(
             'parameters.set("corkboard_id", board.id || board.path)',
             documents,
@@ -1153,6 +1158,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
         self.assertIn("assignArtifact: assignArtifactToPane", runtime)
         self.assertIn("function paneLayoutRequestedArtifact(leaf)", runtime)
+        self.assertIn(
+            'const content = value.content && typeof value.content === "object"',
+            runtime,
+        )
+        change_kind_start = runtime.index("function changePaneLayoutKind(id, kind)")
+        change_kind_end = runtime.index(
+            "function closePaneLayoutLeaf(id)",
+            change_kind_start,
+        )
+        change_kind_source = runtime[change_kind_start:change_kind_end]
+        self.assertNotIn("leaf.content = null", change_kind_source)
+        self.assertNotIn('leaf.projectRoot = ""', change_kind_source)
         self.assertIn("function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)", runtime)
         self.assertIn('type: "electroboy:pane-set-artifact"', runtime)
         self.assertIn("function paneLayoutStorageKey(mode = workflowMode)", runtime)
