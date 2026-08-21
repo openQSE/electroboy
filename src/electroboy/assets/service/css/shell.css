@@ -1194,6 +1194,8 @@
     }
 
     .pane-layout-toolbar {
+      position: relative;
+      z-index: 20;
       display: grid;
       grid-template-columns: minmax(76px, 1fr) 28px 28px 28px 28px;
       gap: 4px;

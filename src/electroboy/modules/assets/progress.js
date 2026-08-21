@@ -71,9 +71,9 @@
     }
   }
 
-  function connectProgressEvents(runtime) {
+  function connectProgressEvents(runtime, options = {}) {
     closeProgressEventStream();
-    runtime.layout.showProgressPane(true);
+    runtime.layout.showProgressPane(true, options);
     eventSource = runtime.http.eventSource("/api/progress/events");
     eventSource.addEventListener("progress-event", (event) => {
       const payload = JSON.parse(event.data);

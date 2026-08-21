@@ -4005,13 +4005,13 @@
           setAgentInputVisible(true);
         } else {
           clearProgressOutput();
-          showProgressPane(true);
+          showProgressPane(true, { ensureRequestedPanes: false });
           setAgentInputVisible(false);
         }
         activeAgentKind = session.kind || "";
-        connectSessionEvents(session.session_id);
+        connectSessionEvents(session.session_id, { ensurePane: false });
         if (!isInteractive && session.status === "running") {
-          connectProgressEvents();
+          connectProgressEvents({ ensureRequestedPanes: false });
         }
         sendTerminalResize();
       }

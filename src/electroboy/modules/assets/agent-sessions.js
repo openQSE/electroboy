@@ -264,7 +264,7 @@
           return;
         }
         clearAgentOutput();
-        connectSessionEvents(runtimeState.selectedSessionId);
+        connectSessionEvents(runtimeState.selectedSessionId, { ensurePane: false });
         updateAgentControls();
         sendTerminalResize();
       }, 0);
@@ -361,11 +361,13 @@
       runtimeState.eventSource.onerror = () => {};
     }
 
-    function connectSessionEvents(sessionId) {
+    function connectSessionEvents(sessionId, options = {}) {
       if (!sessionId) {
         return;
       }
-      runtimeApi.layout.ensurePane("agent");
+      if (options.ensurePane !== false) {
+        runtimeApi.layout.ensurePane("agent");
+      }
       if (runtimeState.eventSource) {
         runtimeState.eventSource.close();
       }

@@ -505,6 +505,12 @@ class ServiceTests(unittest.TestCase):
             sessions,
         )
         self.assertIn("function selectAgentSessionLocally", sessions)
+        self.assertIn("function connectSessionEvents(sessionId, options = {})", sessions)
+        self.assertIn("if (options.ensurePane !== false)", sessions)
+        self.assertIn(
+            "connectSessionEvents(runtimeState.selectedSessionId, { ensurePane: false })",
+            sessions,
+        )
         self.assertIn("response.status === 404", sessions)
         self.assertIn("function selectedInputSession()", sessions)
         self.assertIn("session_id: session.session_id,\n          message:", sessions)
@@ -531,6 +537,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function selectedAgentSession()", pane_window)
         self.assertIn("no active agent stream", pane_window)
         self.assertIn('if (session && session.status === "running")', app)
+        self.assertIn(
+            'showProgressPane(true, { ensureRequestedPanes: false })',
+            app,
+        )
+        self.assertIn(
+            'connectSessionEvents(session.session_id, { ensurePane: false })',
+            app,
+        )
+        self.assertIn(
+            'connectProgressEvents({ ensureRequestedPanes: false })',
+            app,
+        )
         self.assertIn("if (!session) {", sessions)
         self.assertIn("terminate_agents: terminateAgents", app)
         self.assertIn("Deactivate will stop", app)
@@ -641,7 +659,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("_runtime", sessions)
         self.assertNotIn("_runtime", documents)
         self.assertNotIn("_runtime", file_browser)
-        self.assertIn("function connectProgressEvents(runtime)", progress)
+        self.assertIn("function connectProgressEvents(runtime, options = {})", progress)
+        self.assertIn("runtime.layout.showProgressPane(true, options)", progress)
         self.assertIn("async function startProjectShell(runtime)", project_shell)
         self.assertIn(
             'window.open("", popupName, SHELL_POPUP_FEATURES)',
@@ -906,6 +925,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("runtimeApi.layout.assignArtifact(nextItems[0]);", documents)
         self.assertIn('kind === "agent" &&', workspace)
         self.assertIn(".pane-layout-leaf.active::before", styles)
+        self.assertIn(
+            ".pane-layout-toolbar {\n      position: relative;\n      z-index: 20;",
+            styles,
+        )
         self.assertIn("border: 3px solid #9bd6cf;", styles)
         self.assertIn("pointer-events: none;", styles)
         self.assertIn(".artifact-preview-frame.loading {\n      opacity: 1;", styles)
