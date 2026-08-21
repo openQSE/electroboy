@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from http import HTTPStatus
 
 from .http import HtmlResponse, JsonResponse, ServiceResponse
@@ -19,6 +21,10 @@ from .workflow_config import (
     configured_workflows,
     workflow_config_payload,
 )
+
+
+FRONTEND_DEBUG_LOG_LIMIT_BYTES = 5_000_000
+FRONTEND_DEBUG_PAYLOAD_LIMIT_BYTES = 40_000
 
 
 def _route(method: str, path: str, handler_name: str) -> RouteDefinition:
@@ -114,6 +120,47 @@ def _save_workspace_state(request: RouteRequest) -> ServiceResponse:
     except Exception as error:
         return _conflict(error)
     return JsonResponse({"status": "saved", "state": result})
+
+
+def _frontend_debug(request: RouteRequest) -> ServiceResponse:
+    payload = request.body()
+    encoded_payload = json.dumps(payload, sort_keys=True, default=str)
+    if len(encoded_payload.encode("utf-8")) > FRONTEND_DEBUG_PAYLOAD_LIMIT_BYTES:
+        payload = {
+            "truncated": True,
+            "payload_bytes": len(encoded_payload.encode("utf-8")),
+        }
+    entry = {
+        "received_at": time.time(),
+        "payload": payload,
+    }
+    log_path = (
+        request.config.state_root
+        / ".electroboy"
+        / "service"
+        / "frontend-debug.jsonl"
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    if log_path.exists() and log_path.stat().st_size > FRONTEND_DEBUG_LOG_LIMIT_BYTES:
+        previous_size = log_path.stat().st_size
+        log_path.write_text(
+            json.dumps(
+                {
+                    "received_at": time.time(),
+                    "payload": {
+                        "reason": "log-truncated",
+                        "previous_bytes": previous_size,
+                    },
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, sort_keys=True, default=str))
+        handle.write("\n")
+    return JsonResponse({"status": "recorded"})
 
 
 def _project_payload(request: RouteRequest) -> ServiceResponse:
@@ -236,6 +283,7 @@ _HANDLERS = {
     "close_workspace": _close_workspace,
     "heartbeat_workspace": _heartbeat_workspace,
     "save_workspace_state": _save_workspace_state,
+    "frontend_debug": _frontend_debug,
     "project_payload": _project_payload,
     "project_status": _project_status,
     "deactivate_project": _deactivate_project,
@@ -264,6 +312,7 @@ def module() -> ServiceModule:
             _route("POST", "/api/workspaces/close", "close_workspace"),
             _route("POST", "/api/workspaces/heartbeat", "heartbeat_workspace"),
             _route("POST", "/api/workspaces/state", "save_workspace_state"),
+            _route("POST", "/api/frontend/debug", "frontend_debug"),
             _route("GET", "/api/project", "project_payload"),
             _route("GET", "/api/project/status", "project_status"),
             _route("POST", "/api/project/deactivate", "deactivate_project"),

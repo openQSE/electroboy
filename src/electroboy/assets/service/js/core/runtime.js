@@ -98,6 +98,12 @@
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKSPACE_HEARTBEAT_MS = 5000;
+    const FRONTEND_DEBUG_INTERVAL_MS = 5000;
+    const FRONTEND_DEBUG_EVENT_LOOP_INTERVAL_MS = 1000;
+    const FRONTEND_DEBUG_PAINT_INTERVAL_MS = 1000;
+    const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";
+    const FRONTEND_DEBUG_STORAGE_KEY = "electroboy.frontendDebug.last";
+    const FRONTEND_DEBUG_HEARTBEAT_ID = "electroboyFrontendDebugHeartbeat";
     const WORKFLOW_SIDE_SHEET_STORAGE_KEY = "electroboy.workflowSideSheetCollapsed";
     const WORKFLOW_SIDE_SHEET_WIDTH_STORAGE_KEY = "electroboy.workflowSideSheetWidth";
     const WORKFLOW_MODE_STORAGE_KEY = "electroboy.workflowMode";
@@ -181,6 +187,37 @@
     let activePaneLayoutLeafId = "";
     let paneCornerSplitCancel = null;
     let terminalResizeObserver = null;
+    let fitTerminalFrame = 0;
+    let frontendDebugDiagnosticsStarted = false;
+    let frontendDebugFrameInstrumented = false;
+    let frontendDebugNativeRequestAnimationFrame = null;
+    let frontendDebugLastTick = 0;
+    let frontendDebugMaxEventLoopLagMs = 0;
+    let frontendDebugLongTaskCount = 0;
+    let frontendDebugMaxLongTaskMs = 0;
+    let frontendDebugSendTimer = null;
+    let frontendDebugTickTimer = null;
+    let frontendDebugLongTaskObserver = null;
+    let frontendDebugLastError = "";
+    let frontendDebugBaseTitle = document.title || "ElectroBoy";
+    let frontendDebugPaintMarker = null;
+    let frontendDebugPaintSequence = 0;
+    let frontendDebugLastPaintMutationMs = 0;
+    let frontendDebugLastPaintMutationAt = "";
+    let frontendDebugPaintExpectedWidth = 0;
+    let frontendDebugPaintActualWidth = 0;
+    let frontendDebugPaintProbeOk = false;
+    let frontendDebugPaintProbeFailures = 0;
+    let frontendDebugRafLastTimestamp = 0;
+    let frontendDebugRafTotalFrames = 0;
+    let frontendDebugRafFramesSinceSnapshot = 0;
+    let frontendDebugRafMaxGapMs = 0;
+    let frontendDebugRafLastFrameAt = "";
+    let frontendDebugInputLastEvent = "";
+    let frontendDebugInputLastAt = "";
+    let frontendDebugInputLastTarget = {};
+    const frontendDebugCounters = Object.create(null);
+    const frontendDebugInputCounters = Object.create(null);
     let resizeTimer = null;
     let pendingTerminalResize = null;
     let agentOutputQueue = [];
@@ -590,7 +627,353 @@
       };
     }
 
+    function paneLayoutIsMounted() {
+      return outputWorkbench.classList.contains("pane-layout-enabled") &&
+        Boolean(outputWorkbench.firstElementChild);
+    }
+
+    function frontendDebugNow() {
+      return window.performance && typeof window.performance.now === "function"
+        ? window.performance.now()
+        : Date.now();
+    }
+
+    function bumpFrontendDebugCounter(name, amount = 1) {
+      frontendDebugCounters[name] = (frontendDebugCounters[name] || 0) + amount;
+    }
+
+    function instrumentFrontendDebugFrames() {
+      if (frontendDebugFrameInstrumented) {
+        return;
+      }
+      frontendDebugFrameInstrumented = true;
+      frontendDebugNativeRequestAnimationFrame =
+        window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) => {
+        bumpFrontendDebugCounter("requestAnimationFrame.scheduled");
+        return frontendDebugNativeRequestAnimationFrame((timestamp) => {
+          bumpFrontendDebugCounter("requestAnimationFrame.callback");
+          return callback(timestamp);
+        });
+      };
+    }
+
+    function ensureFrontendDebugPaintMarker() {
+      if (frontendDebugPaintMarker && frontendDebugPaintMarker.isConnected) {
+        return frontendDebugPaintMarker;
+      }
+      let marker = document.getElementById(FRONTEND_DEBUG_HEARTBEAT_ID);
+      if (!marker) {
+        marker = document.createElement("div");
+        marker.id = FRONTEND_DEBUG_HEARTBEAT_ID;
+        marker.setAttribute("aria-hidden", "true");
+        marker.style.position = "fixed";
+        marker.style.right = "4px";
+        marker.style.bottom = "4px";
+        marker.style.height = "14px";
+        marker.style.padding = "0 3px";
+        marker.style.borderRadius = "2px";
+        marker.style.background = "rgba(0, 0, 0, 0.65)";
+        marker.style.color = "#fff";
+        marker.style.font = "10px/14px monospace";
+        marker.style.pointerEvents = "none";
+        marker.style.zIndex = "2147483647";
+        marker.style.opacity = "0.72";
+        marker.textContent = "EB 0";
+        document.body.append(marker);
+      }
+      frontendDebugPaintMarker = marker;
+      return marker;
+    }
+
+    function mutateFrontendDebugPaintMarker(now) {
+      if (now - frontendDebugLastPaintMutationMs < FRONTEND_DEBUG_PAINT_INTERVAL_MS) {
+        return;
+      }
+      const marker = ensureFrontendDebugPaintMarker();
+      frontendDebugLastPaintMutationMs = now;
+      frontendDebugLastPaintMutationAt = new Date().toISOString();
+      frontendDebugPaintSequence += 1;
+      frontendDebugPaintExpectedWidth = 34 + (frontendDebugPaintSequence % 2);
+      marker.textContent = `EB ${frontendDebugPaintSequence % 1000}`;
+      marker.style.width = `${frontendDebugPaintExpectedWidth}px`;
+      marker.style.transform = `translateX(${frontendDebugPaintSequence % 2}px)`;
+      marker.dataset.frontendDebugPulse = String(frontendDebugPaintSequence);
+      document.title = `${frontendDebugBaseTitle} [${frontendDebugPaintSequence}]`;
+      const rect = marker.getBoundingClientRect();
+      frontendDebugPaintActualWidth = rect.width;
+      frontendDebugPaintProbeOk =
+        Math.abs(rect.width - frontendDebugPaintExpectedWidth) < 1;
+      if (!frontendDebugPaintProbeOk) {
+        frontendDebugPaintProbeFailures += 1;
+      }
+    }
+
+    function scheduleFrontendDebugRafPulse() {
+      const requestFrame = frontendDebugNativeRequestAnimationFrame ||
+        window.requestAnimationFrame.bind(window);
+      requestFrame((timestamp) => {
+        if (frontendDebugRafLastTimestamp) {
+          frontendDebugRafMaxGapMs = Math.max(
+            frontendDebugRafMaxGapMs,
+            timestamp - frontendDebugRafLastTimestamp,
+          );
+        }
+        frontendDebugRafLastTimestamp = timestamp;
+        frontendDebugRafTotalFrames += 1;
+        frontendDebugRafFramesSinceSnapshot += 1;
+        frontendDebugRafLastFrameAt = new Date().toISOString();
+        mutateFrontendDebugPaintMarker(timestamp);
+        scheduleFrontendDebugRafPulse();
+      });
+    }
+
+    function frontendDebugRafPayload() {
+      const framesSinceSnapshot = frontendDebugRafFramesSinceSnapshot;
+      frontendDebugRafFramesSinceSnapshot = 0;
+      const lastFrameAgeMs = frontendDebugRafLastTimestamp
+        ? Math.max(0, frontendDebugNow() - frontendDebugRafLastTimestamp)
+        : null;
+      return {
+        total_frames: frontendDebugRafTotalFrames,
+        frames_since_last_snapshot: framesSinceSnapshot,
+        max_gap_ms: Math.round(frontendDebugRafMaxGapMs),
+        last_frame_age_ms: lastFrameAgeMs === null
+          ? null
+          : Math.round(lastFrameAgeMs),
+        last_frame_at: frontendDebugRafLastFrameAt,
+      };
+    }
+
+    function frontendDebugPaintPayload() {
+      const lastMutationAgeMs = frontendDebugLastPaintMutationMs
+        ? Math.max(0, frontendDebugNow() - frontendDebugLastPaintMutationMs)
+        : null;
+      return {
+        sequence: frontendDebugPaintSequence,
+        last_mutation_at: frontendDebugLastPaintMutationAt,
+        last_mutation_age_ms: lastMutationAgeMs === null
+          ? null
+          : Math.round(lastMutationAgeMs),
+        expected_width: frontendDebugPaintExpectedWidth,
+        actual_width: Math.round(frontendDebugPaintActualWidth * 100) / 100,
+        layout_probe_ok: frontendDebugPaintProbeOk,
+        layout_probe_failures: frontendDebugPaintProbeFailures,
+      };
+    }
+
+    function recordFrontendDebugInput(event) {
+      const type = String(event.type || "event");
+      frontendDebugInputCounters[type] =
+        (frontendDebugInputCounters[type] || 0) + 1;
+      frontendDebugInputLastEvent = type;
+      frontendDebugInputLastAt = new Date().toISOString();
+      const target = event.target instanceof Element ? event.target : null;
+      const leaf = target ? target.closest(".pane-layout-leaf") : null;
+      frontendDebugInputLastTarget = target
+        ? {
+            tag: target.tagName.toLowerCase(),
+            id: target.id || "",
+            class_name: String(target.className || ""),
+            pane_kind: leaf?.dataset.paneKind || "",
+            pane_layout_id: leaf?.dataset.paneLayoutId || "",
+          }
+        : {};
+      bumpFrontendDebugCounter(`input.${type}`);
+    }
+
+    function frontendDebugInputPayload() {
+      return {
+        last_event: frontendDebugInputLastEvent,
+        last_event_at: frontendDebugInputLastAt,
+        last_target: frontendDebugInputLastTarget,
+        counters: { ...frontendDebugInputCounters },
+        visibility_state: document.visibilityState || "",
+        has_focus: document.hasFocus ? document.hasFocus() : false,
+      };
+    }
+
+    function frontendDebugPaneKinds() {
+      return paneLayoutLeaves().map((leaf) => leaf.kind);
+    }
+
+    function frontendDebugMemoryPayload() {
+      const memory = window.performance && window.performance.memory;
+      if (!memory) {
+        return null;
+      }
+      return {
+        js_heap_size_limit: Number(memory.jsHeapSizeLimit || 0),
+        total_js_heap_size: Number(memory.totalJSHeapSize || 0),
+        used_js_heap_size: Number(memory.usedJSHeapSize || 0),
+      };
+    }
+
+    function frontendDebugSnapshot(reason) {
+      return {
+        reason,
+        page_id: pageInstanceId,
+        tab_id: currentBrowserTabId(),
+        workspace_id: contextId,
+        workflow_mode: workflowMode,
+        active_project_root: activeProjectRoot,
+        selected_session_id: selectedSessionId,
+        project_shell_running: projectShellRunning,
+        progress_requested: progressPaneRequested,
+        artifact_requested: artifactPaneRequested,
+        pane_kinds: frontendDebugPaneKinds(),
+        visible_panes: {
+          agent: paneIsVisible(agentOutputPane),
+          progress: paneIsVisible(progressOutputPane),
+          artifact: paneIsVisible(artifactPreviewPane),
+          shell: paneIsVisible(projectShellPane),
+          scratch: paneIsVisible(scratchPane),
+          status: paneIsVisible(projectStatusPane),
+        },
+        counters: { ...frontendDebugCounters },
+        last_error: frontendDebugLastError,
+        max_event_loop_lag_ms: Math.round(frontendDebugMaxEventLoopLagMs),
+        long_task_count: frontendDebugLongTaskCount,
+        max_long_task_ms: Math.round(frontendDebugMaxLongTaskMs),
+        raf: frontendDebugRafPayload(),
+        paint_heartbeat: frontendDebugPaintPayload(),
+        input: frontendDebugInputPayload(),
+        dom_nodes: document.getElementsByTagName("*").length,
+        memory: frontendDebugMemoryPayload(),
+        created_at: new Date().toISOString(),
+      };
+    }
+
+    function persistFrontendDebugSnapshot(snapshot) {
+      try {
+        window.localStorage.setItem(
+          FRONTEND_DEBUG_STORAGE_KEY,
+          JSON.stringify(snapshot),
+        );
+      } catch (error) {
+        // Diagnostics should never affect the main UI.
+      }
+    }
+
+    function sendFrontendDebugSnapshot(reason) {
+      const snapshot = frontendDebugSnapshot(reason);
+      persistFrontendDebugSnapshot(snapshot);
+      const body = JSON.stringify(snapshot);
+      if (navigator.sendBeacon) {
+        const blob = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon(FRONTEND_DEBUG_ENDPOINT, blob)) {
+          return;
+        }
+      }
+      window.fetch(FRONTEND_DEBUG_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+
+    function createDebugEventSourceForUrl(url) {
+      bumpFrontendDebugCounter("eventSource.created");
+      const source = new EventSource(url);
+      const nativeAddEventListener = source.addEventListener.bind(source);
+      source.addEventListener = (type, listener, options) => {
+        bumpFrontendDebugCounter(`eventSource.listener.${type}`);
+        return nativeAddEventListener(type, (event) => {
+          bumpFrontendDebugCounter(`eventSource.event.${type}`);
+          if (typeof listener === "function") {
+            return listener.call(source, event);
+          }
+          if (listener && typeof listener.handleEvent === "function") {
+            return listener.handleEvent(event);
+          }
+          return undefined;
+        }, options);
+      };
+      const nativeClose = source.close.bind(source);
+      source.close = () => {
+        bumpFrontendDebugCounter("eventSource.closed");
+        return nativeClose();
+      };
+      return source;
+    }
+
+    function createDebugEventSource(path) {
+      return createDebugEventSourceForUrl(contextUrl(path));
+    }
+
+    function startFrontendDebugDiagnostics() {
+      if (frontendDebugDiagnosticsStarted) {
+        return;
+      }
+      frontendDebugDiagnosticsStarted = true;
+      instrumentFrontendDebugFrames();
+      ensureFrontendDebugPaintMarker();
+      scheduleFrontendDebugRafPulse();
+      frontendDebugLastTick = frontendDebugNow();
+      if (!frontendDebugTickTimer) {
+        frontendDebugTickTimer = window.setInterval(() => {
+          const now = frontendDebugNow();
+          const lag = Math.max(
+            0,
+            now - frontendDebugLastTick - FRONTEND_DEBUG_EVENT_LOOP_INTERVAL_MS,
+          );
+          frontendDebugLastTick = now;
+          bumpFrontendDebugCounter("eventLoop.tick");
+          if (lag > 50) {
+            bumpFrontendDebugCounter("eventLoop.lag");
+            frontendDebugMaxEventLoopLagMs = Math.max(
+              frontendDebugMaxEventLoopLagMs,
+              lag,
+            );
+          }
+        }, FRONTEND_DEBUG_EVENT_LOOP_INTERVAL_MS);
+      }
+      if (
+        !frontendDebugLongTaskObserver &&
+        window.PerformanceObserver &&
+        PerformanceObserver.supportedEntryTypes &&
+        PerformanceObserver.supportedEntryTypes.includes("longtask")
+      ) {
+        try {
+          frontendDebugLongTaskObserver = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              frontendDebugLongTaskCount += 1;
+              frontendDebugMaxLongTaskMs = Math.max(
+                frontendDebugMaxLongTaskMs,
+                Number(entry.duration || 0),
+              );
+            }
+          });
+          frontendDebugLongTaskObserver.observe({ entryTypes: ["longtask"] });
+        } catch (error) {
+          frontendDebugLongTaskObserver = null;
+        }
+      }
+      if (!frontendDebugSendTimer) {
+        frontendDebugSendTimer = window.setInterval(
+          () => sendFrontendDebugSnapshot("interval"),
+          FRONTEND_DEBUG_INTERVAL_MS,
+        );
+      }
+      window.addEventListener("error", (event) => {
+        bumpFrontendDebugCounter("window.error");
+        frontendDebugLastError = String(event.message || "error").slice(0, 500);
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        bumpFrontendDebugCounter("window.unhandledrejection");
+        frontendDebugLastError = String(event.reason || "rejection").slice(0, 500);
+      });
+      for (const eventName of ["pointerdown", "pointerup", "click", "keydown"]) {
+        window.addEventListener(eventName, recordFrontendDebugInput, true);
+      }
+      window.addEventListener("focus", recordFrontendDebugInput, true);
+      window.addEventListener("blur", recordFrontendDebugInput, true);
+      document.addEventListener("visibilitychange", recordFrontendDebugInput, true);
+    }
+
     function queueWorkspaceStateSave(delay = 250) {
+      bumpFrontendDebugCounter("workspaceStateSave.queued");
       if (workspaceStateHydrating || !contextId || !workspaceLeaseToken) {
         return;
       }
@@ -603,6 +986,7 @@
       }
       window.clearTimeout(workspaceStateSaveTimer);
       workspaceStateSaveTimer = window.setTimeout(() => {
+        bumpFrontendDebugCounter("workspaceStateSave.sent");
         fetch(contextUrl("/api/workspaces/state"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1175,6 +1559,9 @@
     }
 
     function refreshPaneLayoutVisibility(node = paneLayout, element = outputWorkbench.firstElementChild) {
+      if (element === outputWorkbench.firstElementChild) {
+        bumpFrontendDebugCounter("paneLayout.refreshVisibility");
+      }
       if (!node || !element) {
         return false;
       }
@@ -1205,6 +1592,7 @@
     }
 
     function renderPaneLayout() {
+      bumpFrontendDebugCounter("paneLayout.render");
       if (paneCornerSplitCancel) {
         paneCornerSplitCancel();
       }
@@ -1213,7 +1601,7 @@
       root.classList.add("pane-layout-root");
       outputWorkbench.replaceChildren(root);
       refreshPaneLayoutVisibility();
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     function splitPaneLayoutLeaf(id, direction, ratio = 0.5, emptyFirst = false) {
@@ -1507,7 +1895,10 @@
       initializePaneDragController();
       loadPaneLayoutForWorkflow();
       window.addEventListener("message", handlePaneLayoutMessage);
-      paneLayoutObserver = new MutationObserver(() => refreshPaneLayoutVisibility());
+      paneLayoutObserver = new MutationObserver(() => {
+        bumpFrontendDebugCounter("mutationObserver.paneLayout");
+        refreshPaneLayoutVisibility();
+      });
       for (const definition of Object.values(PANE_LAYOUT_KINDS)) {
         paneLayoutObserver.observe(definition.element, {
           attributes: true,
@@ -1756,6 +2147,7 @@
 
     function initializeWorkflowSideSheetResize() {
       workflowSideSheetMutationObserver = new MutationObserver(() => {
+        bumpFrontendDebugCounter("mutationObserver.workflowSideSheet");
         window.requestAnimationFrame(updateWorkflowSideSheetMinimumWidth);
       });
       workflowSideSheetMutationObserver.observe(stageActionBody, {
@@ -2152,7 +2544,7 @@
       applyStoredWorkbenchPaneSize();
       if (options.deferWorkspace) {
         refreshStageActionPanel();
-        window.requestAnimationFrame(fitTerminal);
+        scheduleFitTerminal();
         return;
       }
       const contribution = activeWorkflowContribution();
@@ -2160,7 +2552,7 @@
         await contribution.activate(frontendRuntime);
       }
       refreshStageActionPanel();
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     async function setWorkflowMode(mode) {
@@ -2254,7 +2646,7 @@
       });
       applyTerminalFontSize();
       fitTerminal();
-      window.addEventListener("resize", fitTerminal);
+      window.addEventListener("resize", scheduleFitTerminal);
     }
 
     function initializeProgressTerminal(...args) {
@@ -2465,7 +2857,7 @@
       applyPaneFontSizes();
       decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
       increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     function applyPaneFontSizes() {
@@ -2485,7 +2877,7 @@
         paneTerminal.options.fontSize = fontSize;
       }
       updatePaneFontControls(pane);
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     function updatePaneFontControls(pane) {
@@ -2548,18 +2940,35 @@
       fitTerminal();
     }
 
+    function paneIsVisible(element) {
+      return Boolean(element && element.isConnected && !element.hidden);
+    }
+
+    function scheduleFitTerminal() {
+      bumpFrontendDebugCounter("terminalFit.schedule");
+      if (fitTerminalFrame) {
+        bumpFrontendDebugCounter("terminalFit.scheduleSkipped");
+        return;
+      }
+      fitTerminalFrame = window.requestAnimationFrame(() => {
+        fitTerminalFrame = 0;
+        fitTerminal();
+      });
+    }
+
     function fitTerminal() {
-      if (terminalFit) {
+      bumpFrontendDebugCounter("terminalFit.run");
+      if (terminalFit && paneIsVisible(agentOutputPane)) {
         try {
           window.ElectroBoyTerminalBehavior.fit(terminal, terminalFit);
         } catch (error) {
           return;
         }
       }
-      if (!progressOutputPane.hidden) {
+      if (paneIsVisible(progressOutputPane)) {
         window.ElectroBoyFrontend.invokeModule("progress", "fit");
       }
-      if (!projectShellPane.hidden) {
+      if (paneIsVisible(projectShellPane)) {
         window.ElectroBoyFrontend.invokeModule("project-shell", "fit");
       }
       queueTerminalResize();
@@ -2570,8 +2979,12 @@
       if (!window.ResizeObserver) {
         return;
       }
-      terminalResizeObserver = new window.ResizeObserver(() => {
-        window.requestAnimationFrame(fitTerminal);
+      terminalResizeObserver = new window.ResizeObserver((entries) => {
+        bumpFrontendDebugCounter("resizeObserver.terminal");
+        if (!entries.some((entry) => entry.target.isConnected)) {
+          return;
+        }
+        scheduleFitTerminal();
       });
       terminalResizeObserver.observe(agentOutput);
       terminalResizeObserver.observe(progressOutput);
@@ -2817,7 +3230,7 @@
         agentInput.disabled = true;
         insertFileLink.disabled = true;
       }
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     function startWorkflowSideSheetResize(event) {
@@ -3188,7 +3601,7 @@
         outputResizeHandle.hidden = true;
         outputSplit.classList.remove("artifact-visible", "split");
         outputSplit.classList.toggle("agent-popped", !agentVisible);
-        window.requestAnimationFrame(fitTerminal);
+        scheduleFitTerminal();
         return;
       }
       artifactPaneResizeHandle.hidden = !artifactVisible || !agentVisible;
@@ -3197,7 +3610,7 @@
       outputSplit.classList.toggle("agent-popped", !agentVisible);
       outputSplit.classList.toggle("artifact-visible", Boolean(artifactVisible));
       outputSplit.classList.toggle("split", progressVisible);
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     function showProgressPane(show, options = {}) {
@@ -3212,7 +3625,7 @@
         closeProgressEventStream();
       }
       applyOutputPaneVisibility(options);
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     function startOutputResize(event) {
@@ -3533,7 +3946,7 @@
           window.setTimeout(connectProjectShellEvents, 0);
         }
       }
-      window.requestAnimationFrame(fitTerminal);
+      scheduleFitTerminal();
     }
 
     function applySidePaneVisibility() {
@@ -4047,6 +4460,7 @@
     }
 
     function updateProjectState(payload, options = {}) {
+      bumpFrontendDebugCounter("workspace.updateProjectState");
       const previousWorkspaceId = contextId;
       workspaceAttachmentPolicy = payload.attachment_policy ||
         workflowWorkspacePolicy();
@@ -5937,13 +6351,14 @@
           return new URLSearchParams(url.search);
         },
         fetch: (...args) => window.fetch(...args),
-        eventSource: (path) => new EventSource(contextUrl(path)),
+        eventSource: createDebugEventSource,
+        rawEventSource: createDebugEventSourceForUrl,
       },
       terminals: {
         options: terminalOptions,
         formatMessage: formatTerminalMessage,
         applyFontSize: applyTerminalFontSize,
-        fitAll: fitTerminal,
+        fitAll: scheduleFitTerminal,
       },
       downloads: {
         exportMarkdown,
@@ -6091,6 +6506,7 @@
       },
     });
     const projectStatusObserver = new MutationObserver(() => {
+      bumpFrontendDebugCounter("mutationObserver.projectStatus");
       const text = projectStatusOutput.textContent;
       if (text === lastSharedStatusText) {
         return;
@@ -6105,6 +6521,7 @@
     });
 
     async function initialize() {
+      startFrontendDebugDiagnostics();
       window.ElectroBoyFrontend.bindRuntime(frontendRuntime);
       await checkConnection();
       await loadWorkflowRegistry();
@@ -6132,6 +6549,7 @@
     }
 
     window.addEventListener("pagehide", releaseContextOwner);
+    window.addEventListener("pagehide", () => sendFrontendDebugSnapshot("pagehide"));
     window.addEventListener("pagehide", () => {
       stopWorkspaceHeartbeat();
       if (contextId && navigator.sendBeacon) {

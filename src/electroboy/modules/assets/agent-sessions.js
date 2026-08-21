@@ -334,7 +334,7 @@
       }
       runtimeState.activeAgentKind = kind;
       prepareTerminalStream();
-      runtimeState.eventSource = new EventSource(contextUrl(`/api/agents/${kind}/events`));
+      runtimeState.eventSource = runtimeApi.http.eventSource(`/api/agents/${kind}/events`);
       runtimeState.eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
@@ -389,8 +389,8 @@
       }
       runtimeState.activeAgentKind = session ? session.kind || "" : runtimeState.activeAgentKind;
       prepareTerminalStream();
-      runtimeState.eventSource = new EventSource(
-        contextUrl(`/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`),
+      runtimeState.eventSource = runtimeApi.http.eventSource(
+        `/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`,
       );
       runtimeState.eventSource.addEventListener("agent-event", (event) => {
         const payload = JSON.parse(event.data);

@@ -1199,7 +1199,7 @@
       }
       const urls = new Set(runtimeState.artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
       for (const url of urls) {
-        const source = new EventSource(url);
+        const source = runtimeApi.http.rawEventSource(url);
         source.addEventListener("artifact-event", () => {
           refreshArtifactPreview({ includeEditing: false });
         });

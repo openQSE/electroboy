@@ -260,6 +260,54 @@ class ServiceTests(unittest.TestCase):
             "electroboy.workflows.software.plugin:workflow",
         )
 
+    def test_frontend_debug_endpoint_records_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            state_root = Path(tmp) / "state"
+            root.mkdir()
+            state_root.mkdir()
+            try:
+                server = create_server(root, port=0, state_root=state_root)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = post_json(
+                    server,
+                    "/api/frontend/debug",
+                    {
+                        "reason": "test",
+                        "workspace_id": "workspace-1",
+                        "counters": {"terminalFit.run": 2},
+                    },
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+            log_path = (
+                state_root
+                / ".electroboy"
+                / "service"
+                / "frontend-debug.jsonl"
+            )
+            log_entry = json.loads(log_path.read_text(encoding="utf-8").strip())
+            previous_log_path = log_path.with_name("frontend-debug.previous.jsonl")
+            previous_log_exists = previous_log_path.exists()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        self.assertEqual(json.loads(body)["status"], "recorded")
+        self.assertFalse(previous_log_exists)
+        self.assertEqual(log_entry["payload"]["reason"], "test")
+        self.assertEqual(
+            log_entry["payload"]["counters"]["terminalFit.run"],
+            2,
+        )
+
     def test_server_loads_workflows_and_state_from_separate_state_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             browse_root = Path(tmp) / "browse"
@@ -356,6 +404,7 @@ class ServiceTests(unittest.TestCase):
         core_handlers = {route["handler"] for route in modules["core"]["routes"]}
         self.assertIn("workflow_config", core_handlers)
         self.assertIn("add_configured_workflow", core_handlers)
+        self.assertIn("frontend_debug", core_handlers)
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
         self.assertIn("agent_sessions", workflows["software"]["modules"])
@@ -690,6 +739,9 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("_runtime", project_shell)
         self.assertIn("runtime.http.eventSource", progress)
         self.assertIn("runtime.http.eventSource", project_shell)
+        self.assertIn("runtimeApi.http.eventSource", sessions)
+        self.assertNotIn("new EventSource(contextUrl", sessions)
+        self.assertIn("runtimeApi.http.rawEventSource(url)", documents)
         self.assertIn("async function startRequirementsAgent()", software)
         ad_hoc_start_offset = software.index("async function startAdHocAgent()")
         ad_hoc_start = software[
@@ -1041,6 +1093,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(match.owner, "core")
         self.assertEqual(match.handler_name, "health")
         self.assertTrue(callable(match.handler))
+        debug_match = dispatcher.match("POST", "/api/frontend/debug")
+        self.assertIsNotNone(debug_match)
+        self.assertEqual(debug_match.owner, "core")
+        self.assertEqual(debug_match.handler_name, "frontend_debug")
 
     def test_all_registered_routes_have_executable_handlers(self) -> None:
         modules = build_module_registry()
