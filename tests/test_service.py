@@ -561,6 +561,7 @@ class ServiceTests(unittest.TestCase):
         project_shell = read_service_text_asset("js/modules/project-shell.js")
         app = read_service_text_asset("js/core/runtime.js")
         pane_window = read_service_text_asset("pane-window.html")
+        shell_css = read_service_text_asset("css/shell.css")
 
         self.assertIn("bindRuntime(nextRuntime)", registry)
         self.assertIn("invokeWorkflow(id, action, ...args)", registry)
@@ -703,7 +704,30 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('controller.addSection("actions", "Actions")', file_pane_tools)
         self.assertIn('setActionStatus("Agent started")', file_pane_tools)
         self.assertIn('menu("File", "pane-tool-file-menu")', file_pane_tools)
+        self.assertIn('menu("Mode", "pane-tool-mode-menu")', file_pane_tools)
         self.assertIn('menu("Export", "pane-tool-export-menu")', file_pane_tools)
+        file_menu_start = file_pane_tools.index("const fileMenu =")
+        file_menu_end = file_pane_tools.index("const modeMenu =", file_menu_start)
+        file_menu_source = file_pane_tools[file_menu_start:file_menu_end]
+        self.assertLess(
+            file_menu_source.index('menuButton("Open"'),
+            file_menu_source.index('menuButton("New"'),
+        )
+        self.assertLess(
+            file_menu_source.index('menuButton("New"'),
+            file_menu_source.index('menuButton("Refresh"'),
+        )
+        mode_menu_start = file_menu_end
+        mode_menu_end = file_pane_tools.index("const exportMenu =", mode_menu_start)
+        mode_menu_source = file_pane_tools[mode_menu_start:mode_menu_end]
+        self.assertLess(
+            mode_menu_source.index('menuButton("Preview"'),
+            mode_menu_source.index('menuButton("Edit"'),
+        )
+        self.assertIn(
+            "fileMenu.details,\n      modeMenu.details,\n      exportMenu.details,",
+            file_pane_tools,
+        )
         self.assertLess(
             file_pane_tools.index('["markdown", "Markdown"]'),
             file_pane_tools.index('["pdf", "PDF"]'),
@@ -741,12 +765,13 @@ class ServiceTests(unittest.TestCase):
             documents,
         )
         self.assertIn("rememberOpenDocumentTarget(item.target);", documents)
-        self.assertIn("function buildDocumentMenu(item)", documents)
-        self.assertIn('summary.textContent = "Document"', documents)
-        self.assertIn('"Preview",', documents)
-        self.assertIn('"Edit",', documents)
-        self.assertIn('"Refresh",', documents)
-        self.assertIn('exportLabel.textContent = "Export"', documents)
+        self.assertNotIn("function buildDocumentMenu(item)", documents)
+        self.assertNotIn('summary.textContent = "Document"', documents)
+        self.assertIn("open: () => openDocumentFileBrowser(),", documents)
+        self.assertIn("new: () => openNewDocumentFileBrowser(),", documents)
+        self.assertIn("canSwitchMode: artifactPaneSupportsModeSwitch(item),", documents)
+        self.assertIn("canExport: artifactPaneSupportsDocumentExport(item),", documents)
+        self.assertNotIn(".pane-document-menu", shell_css)
         self.assertNotIn('exportFormat.className = "document-export-format"', documents)
         self.assertIn("function openDocumentTarget(target)", documents)
         self.assertIn("function popOutArtifactPreview(item)", documents)

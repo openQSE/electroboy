@@ -11,7 +11,6 @@
     "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
   let runtimeApi = null;
   let runtimeState = null;
-  let documentMenuEventsBound = false;
   let fileCatalogSync = null;
   let dockedPaneTools = null;
   let dockedFilePaneTools = null;
@@ -20,7 +19,6 @@
   function bindRuntime(runtime) {
     runtimeApi = runtime;
     runtimeState = runtime.state;
-    bindDocumentMenuEvents();
     mountDockedPaneTools();
     if (runtimeState.customDocumentTargets.length === 0) {
       runtimeState.customDocumentTargets = storedDocumentTargets();
@@ -110,6 +108,9 @@
           : item.path || "",
       title: item.title || "",
       editing: Boolean(item.editing),
+      canRefresh: true,
+      canSwitchMode: artifactPaneSupportsModeSwitch(item),
+      canExport: artifactPaneSupportsDocumentExport(item),
     };
   }
 
@@ -144,6 +145,8 @@
             ? selectAgentSession(session.session_id)
             : startDocumentAgent(item.target);
         },
+        open: () => openDocumentFileBrowser(),
+        new: () => openNewDocumentFileBrowser(),
         preview: () => {
           const item = activeArtifactToolItem();
           if (item) return setArtifactPreviewEditing(item, false);
@@ -239,146 +242,6 @@
           accept: selected.accept,
         },
       ];
-    }
-
-    function closeDocumentMenus(except = null) {
-      for (const menu of document.querySelectorAll(".pane-document-menu[open]")) {
-        if (menu !== except) {
-          menu.open = false;
-        }
-      }
-    }
-
-    function bindDocumentMenuEvents() {
-      if (documentMenuEventsBound) {
-        return;
-      }
-      documentMenuEventsBound = true;
-      document.addEventListener("click", (event) => {
-        const activeMenu = event.target instanceof Element
-          ? event.target.closest(".pane-document-menu")
-          : null;
-        closeDocumentMenus(activeMenu);
-      });
-      document.addEventListener("keydown", (event) => {
-        if (event.key !== "Escape") {
-          return;
-        }
-        const openMenu = document.querySelector(".pane-document-menu[open]");
-        if (!openMenu) {
-          return;
-        }
-        event.preventDefault();
-        openMenu.open = false;
-        openMenu.querySelector("summary")?.focus();
-      });
-    }
-
-    function documentMenuButton(label, title, run, options = {}) {
-      const button = document.createElement("button");
-      button.className = "pane-document-menu-item";
-      button.type = "button";
-      button.role = options.role || "menuitem";
-      button.title = title;
-      button.setAttribute("aria-label", title);
-      if (options.checked !== undefined) {
-        button.setAttribute("aria-checked", String(Boolean(options.checked)));
-      }
-      const check = document.createElement("span");
-      check.className = "pane-document-menu-check";
-      check.setAttribute("aria-hidden", "true");
-      check.textContent = options.checked ? "\u2713" : "";
-      const text = document.createElement("span");
-      text.textContent = label;
-      button.append(check, text);
-      button.addEventListener("click", () => {
-        closeDocumentMenus();
-        run();
-      });
-      return button;
-    }
-
-    function buildDocumentMenu(item) {
-      const menu = document.createElement("details");
-      menu.className = "pane-document-menu";
-      menu.addEventListener("toggle", () => {
-        if (menu.open) {
-          closeDocumentMenus(menu);
-          return;
-        }
-        for (const submenu of menu.querySelectorAll("details[open]")) {
-          submenu.open = false;
-        }
-      });
-
-      const summary = document.createElement("summary");
-      summary.className = "pane-document-menu-trigger";
-      summary.title = `Document actions for ${item.title}`;
-      summary.setAttribute("aria-label", `Document actions for ${item.title}`);
-      summary.textContent = "Document";
-
-      const panel = document.createElement("div");
-      panel.className = "pane-document-menu-panel";
-      panel.role = "menu";
-      panel.setAttribute("aria-label", `Document actions for ${item.title}`);
-      panel.append(
-        documentMenuButton(
-          "Preview",
-          `Preview ${item.title}`,
-          () => setArtifactPreviewEditing(item, false),
-          { role: "menuitemradio", checked: !item.editing },
-        ),
-        documentMenuButton(
-          "Edit",
-          `Edit ${item.title}`,
-          () => setArtifactPreviewEditing(item, true),
-          { role: "menuitemradio", checked: Boolean(item.editing) },
-        ),
-      );
-
-      const separator = document.createElement("div");
-      separator.className = "pane-document-menu-separator";
-      separator.role = "separator";
-      panel.append(
-        separator,
-        documentMenuButton(
-          "Refresh",
-          `Refresh ${item.title}`,
-          () => refreshArtifactPreview(),
-        ),
-      );
-
-      const exportMenu = document.createElement("details");
-      exportMenu.className = "pane-document-export-menu";
-      const exportSummary = document.createElement("summary");
-      exportSummary.className = "pane-document-menu-item pane-document-submenu-trigger";
-      exportSummary.title = `Export ${item.title}`;
-      exportSummary.setAttribute("aria-label", `Export ${item.title}`);
-      const exportCheck = document.createElement("span");
-      exportCheck.className = "pane-document-menu-check";
-      exportCheck.setAttribute("aria-hidden", "true");
-      const exportLabel = document.createElement("span");
-      exportLabel.textContent = "Export";
-      exportSummary.append(exportCheck, exportLabel);
-      const exportPanel = document.createElement("div");
-      exportPanel.className = "pane-document-export-panel";
-      for (const format of documentExportFormats()) {
-        exportPanel.append(
-          documentMenuButton(
-            format.label,
-            `Export ${item.title} as ${format.label}`,
-            () => {
-              exportArtifactDocument(item, format.value).catch((error) => {
-                appendOutput(`export failed: ${error}\n`, "error");
-              });
-            },
-          ),
-        );
-      }
-      exportMenu.append(exportSummary, exportPanel);
-      panel.append(exportMenu);
-      menu.append(summary, panel);
-      return menu;
     }
 
     function artifactDocumentBaseName(item) {
@@ -1003,9 +866,7 @@
         if (supportsZoom) {
           actions.append(zoomControls);
         }
-        if (supportsModeSwitch && supportsExport) {
-          actions.append(buildDocumentMenu(item));
-        } else {
+        if (!(supportsModeSwitch && supportsExport)) {
           actions.append(refresh);
         }
         if (agentButton) {

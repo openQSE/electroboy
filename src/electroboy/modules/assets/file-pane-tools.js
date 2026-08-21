@@ -119,16 +119,25 @@
     }, "primary");
 
     const fileMenu = menu("File", "pane-tool-file-menu");
+    const open = menuButton("Open", () => {
+      runAction("open", () => {});
+    });
+    const create = menuButton("New", () => {
+      runAction("new", () => {});
+    });
+    const refreshButton = menuButton("Refresh", () => {
+      runAction("refresh", () => controls.refresh?.click());
+    });
+    fileMenu.list.append(open, create, refreshButton);
+
+    const modeMenu = menu("Mode", "pane-tool-mode-menu");
     const preview = menuButton("Preview", () => {
       runAction("preview", () => controls.preview?.click());
     });
     const edit = menuButton("Edit", () => {
       runAction("edit", () => controls.edit?.click());
     });
-    const refreshButton = menuButton("Refresh", () => {
-      runAction("refresh", () => controls.refresh?.click());
-    });
-    fileMenu.list.append(preview, edit, refreshButton);
+    modeMenu.list.append(preview, edit);
 
     const exportMenu = menu("Export", "pane-tool-export-menu");
     for (const [format, label] of [
@@ -145,11 +154,16 @@
         }),
       );
     }
-    fileMenu.list.append(exportMenu.details);
 
     const actionStatus = document.createElement("div");
     actionStatus.className = "pane-tool-status";
-    actionsBody.append(startAgent, fileMenu.details, actionStatus);
+    actionsBody.append(
+      startAgent,
+      fileMenu.details,
+      modeMenu.details,
+      exportMenu.details,
+      actionStatus,
+    );
 
     const boardViewBody = controller.addSection("corkboard-view", "Board view");
 
@@ -386,9 +400,17 @@
       boardColorBody.closest("details").hidden = !isBoard;
       boardExportBody.closest("details").hidden = !isBoard;
       actionsBody.closest("details").hidden = isBoard;
-      preview.hidden = isBoard;
-      edit.hidden = isBoard;
-      exportMenu.details.hidden = isBoard;
+      open.hidden = typeof actions.open !== "function";
+      create.hidden = typeof actions.new !== "function";
+      refreshButton.hidden = current.canRefresh === false;
+      fileMenu.details.hidden = isBoard || (
+        open.hidden && create.hidden && refreshButton.hidden
+      );
+      const canSwitchMode = current.canSwitchMode !== false;
+      preview.hidden = !canSwitchMode;
+      edit.hidden = !canSwitchMode;
+      modeMenu.details.hidden = isBoard || !canSwitchMode;
+      exportMenu.details.hidden = isBoard || current.canExport === false;
       preview.setAttribute("aria-pressed", String(!current.editing));
       edit.setAttribute("aria-pressed", String(Boolean(current.editing)));
       if (controls.preview) controls.preview.hidden = true;
