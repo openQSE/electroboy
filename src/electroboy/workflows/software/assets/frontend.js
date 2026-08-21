@@ -1485,6 +1485,7 @@
       },
     },
     sidecarStages: ["document", "corkboard"],
+    hiddenActionStages: ["document"],
     stageDescriptions: STAGE_DESCRIPTIONS,
     artifactPreviews: ARTIFACT_PREVIEWS,
     splashImage: "__SPLASH_IMAGE_ROUTE__",

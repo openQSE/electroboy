@@ -1231,33 +1231,147 @@
       if (!target || !target.path) {
         return;
       }
+      const existingIndex = openFileTargets.findIndex(
+        (file) => file.path === target.path,
+      );
+      const storedTarget = {
+        path: target.path,
+        label: target.label || target.path,
+      };
+      if (existingIndex >= 0) {
+        openFileTargets.splice(existingIndex, 1, storedTarget);
+      } else {
+        openFileTargets.push(storedTarget);
+      }
       artifactKind = "document";
       artifactDocumentPath = target.path;
       artifactDocumentTitle = target.label || target.path;
       artifactRoutePath = "";
       artifactRouteTitle = "";
       artifactEditing = false;
-      contentSwitcher.value = artifactDocumentPath;
       syncArtifactUrlState();
+      renderFileSwitcher();
+      notifyPaneArtifactChange({
+        id: `document:${artifactDocumentPath}`,
+        kind: "document",
+        title: artifactDocumentTitle,
+        target: {
+          path: artifactDocumentPath,
+          label: artifactDocumentTitle,
+        },
+      });
+      contentCatalogSync?.publish({ files: openFileTargets });
+      reconnectArtifactStream();
+    }
+
+    function notifyPaneArtifactChange(item) {
       if (EMBEDDED_PANE && paneInstanceId && window.parent !== window) {
         window.parent.postMessage(
           {
             type: "electroboy:pane-artifact-change",
             paneInstanceId,
-            item: {
-              id: `document:${artifactDocumentPath}`,
-              kind: "document",
-              title: artifactDocumentTitle,
-              target: {
-                path: artifactDocumentPath,
-                label: artifactDocumentTitle,
-              },
-            },
+            item,
           },
           window.location.origin,
         );
       }
-      reconnectArtifactStream();
+    }
+
+    function documentActionOwner() {
+      try {
+        if (window.top !== window && window.top.opener && !window.top.opener.closed) {
+          return window.top.opener;
+        }
+      } catch (error) {
+        // Cross-origin ancestors cannot expose their opener.
+      }
+      if (window.opener && !window.opener.closed) {
+        return window.opener;
+      }
+      return window.parent !== window ? window.parent : null;
+    }
+
+    function postDocumentFileAction(action, target) {
+      documentActionOwner()?.postMessage(
+        {
+          type: "electroboy:document-file-action",
+          action,
+          target,
+        },
+        window.location.origin,
+      );
+    }
+
+    function paneDocumentTargetFromSelectedPath(path) {
+      const selected = String(path || "").trim();
+      const root = String(activeProjectRoot || "").replace(/\/+$/, "");
+      if (!selected) {
+        return null;
+      }
+      let relativePath = selected;
+      if (root && selected.startsWith(`${root}/`)) {
+        relativePath = selected.slice(root.length + 1);
+      }
+      if (relativePath.startsWith("/")) {
+        throw new Error(`document must be under the active project: ${selected}`);
+      }
+      const label = relativePath.replace(/\.md$/i, "") || relativePath;
+      return { path: relativePath, label };
+    }
+
+    async function openPaneDocumentFileBrowser(mode) {
+      const popup = window.open(
+        "",
+        mode === "document-new"
+          ? "electroboy-new-document-browser"
+          : "electroboy-document-browser",
+        "popup=yes,width=980,height=720,scrollbars=yes,resizable=yes",
+      );
+      if (!popup) {
+        throw new Error("popup was blocked by the browser");
+      }
+      try {
+        const project = await loadProjectPayload();
+        activeProjectRoot = project.active_project_root || project.activation_root || "";
+        if (!activeProjectRoot) {
+          throw new Error("activate a project first");
+        }
+        const parameters = new URLSearchParams({
+          path: activeProjectRoot,
+          mode,
+        });
+        popup.location.replace(`/file-browser?${parameters.toString()}`);
+      } catch (error) {
+        popup.close();
+        throw error;
+      }
+    }
+
+    function closePaneDocument() {
+      if (artifactKind !== "document" || !artifactDocumentPath) {
+        return;
+      }
+      const target = {
+        path: artifactDocumentPath,
+        label: artifactDocumentTitle || artifactDocumentPath,
+      };
+      const targetIndex = openFileTargets.findIndex(
+        (file) => file.path === artifactDocumentPath,
+      );
+      openFileTargets = openFileTargets.filter(
+        (file) => file.path !== artifactDocumentPath,
+      );
+      const nextTarget = openFileTargets[
+        Math.min(Math.max(targetIndex, 0), openFileTargets.length - 1)
+      ];
+      if (nextTarget) {
+        selectFileTarget(nextTarget);
+      } else {
+        applyArtifactItem(null);
+        notifyPaneArtifactChange(null);
+        contentCatalogSync?.publish({ files: openFileTargets });
+      }
+      postDocumentFileAction("close", target);
     }
 
     function shellSessionLabel(session) {
@@ -2823,6 +2937,22 @@
         insertTextAtCursor(String(data.path));
         return;
       }
+      if (
+        data.type === "electroboy-file-browser-select"
+        && (data.mode === "document" || data.mode === "document-new")
+        && data.path
+      ) {
+        try {
+          const target = paneDocumentTargetFromSelectedPath(data.path);
+          if (target) {
+            selectFileTarget(target);
+            postDocumentFileAction("open", target);
+          }
+        } catch (error) {
+          window.alert(error.message || String(error));
+        }
+        return;
+      }
       if (data.type === "electroboy-artifact-saved") {
         artifactVersion += 1;
         if (!artifactEditing) {
@@ -2906,9 +3036,13 @@
           path: artifactTargetPath(),
           title: artifactTargetTitle(),
           editing: artifactEditing,
+          canClose: artifactKind === "document" && Boolean(artifactDocumentPath),
         }),
         actions: {
           startAgent: startPaneDocumentAgent,
+          open: () => openPaneDocumentFileBrowser("document"),
+          new: () => openPaneDocumentFileBrowser("document-new"),
+          close: closePaneDocument,
         },
         controls: {
           zoom: artifactZoomControls,

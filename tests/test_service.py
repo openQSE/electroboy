@@ -573,6 +573,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('kind: "status"', software)
         self.assertIn('if (stageId === "corkboard")', software)
         self.assertIn('sidecarStages: ["document", "corkboard"]', software)
+        self.assertIn('hiddenActionStages: ["document"]', software)
+        self.assertIn("hiddenActionStages.has(stageId)", app)
+        self.assertNotIn('if (stageId === "document")', app)
         self.assertIn('contextUrl("/api/corkboards")', software)
         self.assertIn('navigation: "stages"', software)
         self.assertIn("function resetSoftwareWorkflowState()", software)
@@ -715,6 +718,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertLess(
             file_menu_source.index('menuButton("New"'),
+            file_menu_source.index('menuButton("Close"'),
+        )
+        self.assertLess(
+            file_menu_source.index('menuButton("Close"'),
             file_menu_source.index('menuButton("Refresh"'),
         )
         mode_menu_start = file_menu_end
@@ -767,8 +774,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("rememberOpenDocumentTarget(item.target);", documents)
         self.assertNotIn("function buildDocumentMenu(item)", documents)
         self.assertNotIn('summary.textContent = "Document"', documents)
+        self.assertNotIn("function renderDocumentActionPanel", documents)
         self.assertIn("open: () => openDocumentFileBrowser(),", documents)
         self.assertIn("new: () => openNewDocumentFileBrowser(),", documents)
+        self.assertIn("function closeDocumentTarget(target)", documents)
+        self.assertIn("closeDocumentTarget(item.target);", documents)
+        self.assertIn('data.type !== "electroboy:document-file-action"', documents)
         self.assertIn("canSwitchMode: artifactPaneSupportsModeSwitch(item),", documents)
         self.assertIn("canExport: artifactPaneSupportsDocumentExport(item),", documents)
         self.assertNotIn(".pane-document-menu", shell_css)
@@ -1868,6 +1879,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/artifacts/corkboard", page)
         self.assertIn("function updateSelectOptions(select, options", page)
         self.assertIn("function fileSwitcherPlaceholderLabel()", page)
+        self.assertIn("function openPaneDocumentFileBrowser(mode)", page)
+        self.assertIn('open: () => openPaneDocumentFileBrowser("document")', page)
+        self.assertIn('new: () => openPaneDocumentFileBrowser("document-new")', page)
+        self.assertIn("close: closePaneDocument", page)
+        self.assertIn("function closePaneDocument()", page)
+        self.assertIn('postDocumentFileAction("close", target);', page)
         self.assertIn('return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId', page)
         file_switcher_start = page.index("function renderFileSwitcher()")
         file_switcher_end = page.index("function fileSwitcherPlaceholderLabel()", file_switcher_start)

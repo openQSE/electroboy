@@ -5370,9 +5370,15 @@
 
     function renderStageActionPanel() {
       stageActionBody.replaceChildren();
+      const contribution = activeWorkflowContribution();
+      const hiddenActionStages = new Set(
+        contribution && Array.isArray(contribution.hiddenActionStages)
+          ? contribution.hiddenActionStages
+          : [],
+      );
       for (const stageNode of stageNodes) {
         const stageId = stageNode.dataset.stage || "";
-        if (!stageId) {
+        if (!stageId || hiddenActionStages.has(stageId)) {
           continue;
         }
         stageActionBody.append(stageActionGroup(stageId, stageNode));
@@ -5412,11 +5418,7 @@
         const list = document.createElement("div");
         list.className = "stage-action-list";
         list.setAttribute("role", "group");
-        if (stageId === "document") {
-          renderDocumentActionPanel(list);
-        } else {
-          renderStageActionList(list, stageActions(stageId));
-        }
+        renderStageActionList(list, stageActions(stageId));
         group.append(list);
       }
       return group;
@@ -5531,10 +5533,6 @@
         workflowMode,
         stageId,
       );
-    }
-
-    function renderDocumentActionPanel(...args) {
-      return window.ElectroBoyFrontend.invokeModule("documents", "renderDocumentActionPanel", ...args);
     }
 
     function documentTargetFromInput(...args) {

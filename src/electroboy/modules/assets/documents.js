@@ -15,6 +15,7 @@
   let dockedPaneTools = null;
   let dockedFilePaneTools = null;
   let activeArtifactToolItemId = "";
+  let documentWindowMessagesBound = false;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -31,6 +32,10 @@
         once: true,
       });
     }
+    if (!documentWindowMessagesBound) {
+      documentWindowMessagesBound = true;
+      window.addEventListener("message", handleDocumentWindowMessage);
+    }
   }
 
   function invoke(runtime, handler, args) {
@@ -43,7 +48,6 @@
   const exportBlob = (...args) => runtimeApi.downloads.exportBlob(...args);
   const sessionMetadata = (...args) =>
     runtimeApi.modules.invoke("agent-sessions", "sessionMetadata", ...args);
-  const stageActionButton = (...args) => runtimeApi.ui.stageActionButton(...args);
   const openDocumentFileBrowser = (...args) =>
     runtimeApi.modules.invoke("file-browser", "openDocumentFileBrowser", ...args);
   const openNewDocumentFileBrowser = (...args) =>
@@ -109,6 +113,7 @@
       title: item.title || "",
       editing: Boolean(item.editing),
       canRefresh: true,
+      canClose: item.kind === "document" && Boolean(item.target),
       canSwitchMode: artifactPaneSupportsModeSwitch(item),
       canExport: artifactPaneSupportsDocumentExport(item),
     };
@@ -147,6 +152,12 @@
         },
         open: () => openDocumentFileBrowser(),
         new: () => openNewDocumentFileBrowser(),
+        close: () => {
+          const item = activeArtifactToolItem();
+          if (item && item.kind === "document" && item.target) {
+            closeDocumentTarget(item.target);
+          }
+        },
         preview: () => {
           const item = activeArtifactToolItem();
           if (item) return setArtifactPreviewEditing(item, false);
@@ -335,6 +346,65 @@
       runtimeApi.workspaces.saveState();
     }
 
+    function closeDocumentTarget(target) {
+      const path = documentTargetKey(target);
+      if (!path) {
+        return false;
+      }
+      const targetIndex = runtimeState.openDocumentTargets.findIndex(
+        (candidate) => documentTargetKey(candidate) === path,
+      );
+      if (targetIndex < 0) {
+        return false;
+      }
+      runtimeState.openDocumentTargets.splice(targetIndex, 1);
+      fileCatalogSync?.publish(openFileCatalogState());
+      runtimeApi.workspaces.saveState();
+      refreshDocumentTargetSwitchers();
+
+      const previewItems = runtimeState.artifactPreviewItems.filter(
+        (item) => !(
+          item.kind === "document"
+          && item.target
+          && documentTargetKey(item.target) === path
+        ),
+      );
+      if (previewItems.length === runtimeState.artifactPreviewItems.length) {
+        return true;
+      }
+      if (previewItems.length > 0) {
+        showArtifactPreviews(previewItems, {
+          manual: runtimeState.manualArtifactPreview,
+          stage: runtimeState.artifactPreviewStage,
+        });
+        return true;
+      }
+      const nextTarget = runtimeState.openDocumentTargets[
+        Math.min(targetIndex, runtimeState.openDocumentTargets.length - 1)
+      ];
+      if (nextTarget) {
+        showDocumentPreview(nextTarget);
+      } else {
+        hideArtifactPreview();
+      }
+      return true;
+    }
+
+    function handleDocumentWindowMessage(event) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      const data = event.data || {};
+      if (data.type !== "electroboy:document-file-action") {
+        return;
+      }
+      if (data.action === "open") {
+        openDocumentTarget(data.target || null);
+      } else if (data.action === "close") {
+        closeDocumentTarget(data.target || null);
+      }
+    }
+
     function openFileCatalogState() {
       return {
         files: runtimeState.openDocumentTargets.map((target) => ({
@@ -415,26 +485,6 @@
       )) {
         renderDocumentTargetSwitcher(select);
       }
-    }
-
-    function renderDocumentActionPanel(container) {
-      container.append(
-        stageActionButton({
-          label: "Open",
-          title: "Choose an existing Markdown file.",
-          primary: true,
-          disabled: !runtimeState.activeProjectRoot,
-          run: openDocumentFileBrowser,
-        }),
-      );
-      container.append(
-        stageActionButton({
-          label: "New",
-          title: "Choose where to create a Markdown document.",
-          disabled: !runtimeState.activeProjectRoot,
-          run: openNewDocumentFileBrowser,
-        }),
-      );
     }
 
     function documentTargetFromInput(value) {
@@ -1246,10 +1296,10 @@
       documentTargetForSession: (runtime, ...args) => invoke(runtime, documentTargetForSession, args),
       documentationSessionForTarget: (runtime, ...args) => invoke(runtime, documentationSessionForTarget, args),
       rememberOpenDocumentTarget: (runtime, ...args) => invoke(runtime, rememberOpenDocumentTarget, args),
+      closeDocumentTarget: (runtime, ...args) => invoke(runtime, closeDocumentTarget, args),
       syncOpenDocumentTargetsFromSessions: (runtime, ...args) => invoke(runtime, syncOpenDocumentTargetsFromSessions, args),
       renderDocumentTargetSwitcher: (runtime, ...args) => invoke(runtime, renderDocumentTargetSwitcher, args),
       refreshDocumentTargetSwitchers: (runtime, ...args) => invoke(runtime, refreshDocumentTargetSwitchers, args),
-      renderDocumentActionPanel: (runtime, ...args) => invoke(runtime, renderDocumentActionPanel, args),
       documentTargetFromInput: (runtime, ...args) => invoke(runtime, documentTargetFromInput, args),
       documentTargetFromSelectedPath: (runtime, ...args) => invoke(runtime, documentTargetFromSelectedPath, args),
       registerDocumentTarget: (runtime, ...args) => invoke(runtime, registerDocumentTarget, args),
