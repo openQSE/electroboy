@@ -250,15 +250,17 @@
       sendTerminalResize();
     }
 
-    function ensureSelectedSessionStream() {
+    function ensureSelectedSessionStream(options = {}) {
       if (!runtimeState.selectedSessionId || runtimeState.eventSource) {
         return;
       }
+      const runningOnly = options.runningOnly !== false;
       window.setTimeout(() => {
         if (!runtimeState.selectedSessionId || runtimeState.eventSource) {
           return;
         }
-        if (!selectedSession()) {
+        const session = selectedSession();
+        if (!session || (runningOnly && !sessionIsRunning(session))) {
           return;
         }
         clearAgentOutput();
@@ -277,7 +279,7 @@
         return;
       }
       if (sessionId === runtimeState.selectedSessionId) {
-        ensureSelectedSessionStream();
+        ensureSelectedSessionStream({ runningOnly: false });
         return;
       }
       const previousSessionId = runtimeState.selectedSessionId || "";

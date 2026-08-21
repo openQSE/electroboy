@@ -1240,9 +1240,10 @@
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
       renderPaneLayout();
-      activatePaneLayoutKind(kind);
+      const manualChangeOptions = { ensureRequestedPanes: false };
+      activatePaneLayoutKind(kind, manualChangeOptions);
       if (previousKind !== kind && !paneLayoutLeafByKind(previousKind)) {
-        deactivatePaneLayoutKind(previousKind);
+        deactivatePaneLayoutKind(previousKind, manualChangeOptions);
       }
     }
 
@@ -1308,26 +1309,26 @@
       renderPaneLayout();
     }
 
-    function activatePaneLayoutKind(kind) {
+    function activatePaneLayoutKind(kind, options = {}) {
       if (poppedPanes.has(kind)) {
         dockPoppedPane(kind);
       }
       if (kind === "progress") {
-        showProgressPane(true);
+        showProgressPane(true, options);
       } else if (kind === "artifact") {
         artifactPaneRequested = true;
-        applyOutputPaneVisibility();
+        applyOutputPaneVisibility(options);
       } else if (kind === "shell") {
         showProjectShellPane(true);
       }
     }
 
-    function deactivatePaneLayoutKind(kind) {
+    function deactivatePaneLayoutKind(kind, options = {}) {
       if (kind === "progress") {
-        showProgressPane(false);
+        showProgressPane(false, options);
       } else if (kind === "artifact") {
         artifactPaneRequested = false;
-        applyOutputPaneVisibility();
+        applyOutputPaneVisibility(options);
       } else if (kind === "shell") {
         hideProjectShellPane();
       }
@@ -3152,15 +3153,16 @@
       }
     }
 
-    function applyOutputPaneVisibility() {
+    function applyOutputPaneVisibility(options = {}) {
+      const ensureRequestedPanes = options.ensureRequestedPanes !== false;
       const agentVisible = !poppedPanes.has("agent");
       const artifactVisible =
         artifactPaneRequested && !poppedPanes.has("artifact");
       const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
-      if (artifactVisible) {
+      if (ensureRequestedPanes && artifactVisible) {
         ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false });
       }
-      if (progressVisible) {
+      if (ensureRequestedPanes && progressVisible) {
         ensurePaneInLayout("progress", "agent", "row", { activateExisting: false });
       }
       agentOutputPane.hidden = !agentVisible;
@@ -3175,7 +3177,7 @@
       window.requestAnimationFrame(fitTerminal);
     }
 
-    function showProgressPane(show) {
+    function showProgressPane(show, options = {}) {
       progressPaneRequested = show;
       if (show) {
         outputSplit.style.gridTemplateRows = "";
@@ -3186,7 +3188,7 @@
         outputSplit.style.gridTemplateRows = "";
         closeProgressEventStream();
       }
-      applyOutputPaneVisibility();
+      applyOutputPaneVisibility(options);
       window.requestAnimationFrame(fitTerminal);
     }
 
@@ -3995,7 +3997,7 @@
       saveWorkspaceLease(workspaceLeaseToken);
       updateProjectState(payload);
       const session = selectedSession();
-      if (session) {
+      if (session && session.status === "running") {
         clearAgentOutput();
         const isInteractive = Boolean(session.interactive);
         if (isInteractive) {

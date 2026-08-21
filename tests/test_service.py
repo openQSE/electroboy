@@ -57,6 +57,7 @@ from electroboy.service import (  # noqa: E402
     _terminal_input_chunks_for_message,
     _terminal_input_for_key,
     _terminal_input_for_message,
+    _tmux_capture_delta,
     artifact_editor_html,
     browse_directories,
     browse_files,
@@ -493,7 +494,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/artifacts/agenda", documents)
         self.assertNotIn('invokeWorkflow(\n        "creative-writing"', corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
-        self.assertIn("function ensureSelectedSessionStream()", sessions)
+        self.assertIn("function ensureSelectedSessionStream(options = {})", sessions)
+        self.assertIn("const runningOnly = options.runningOnly !== false;", sessions)
+        self.assertIn(
+            "if (!session || (runningOnly && !sessionIsRunning(session)))",
+            sessions,
+        )
+        self.assertIn(
+            "ensureSelectedSessionStream({ runningOnly: false });",
+            sessions,
+        )
         self.assertIn("function selectAgentSessionLocally", sessions)
         self.assertIn("response.status === 404", sessions)
         self.assertIn("function selectedInputSession()", sessions)
@@ -520,6 +530,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function selectedAgentSession()", pane_window)
         self.assertIn("no active agent stream", pane_window)
+        self.assertIn('if (session && session.status === "running")', app)
         self.assertIn("if (!session) {", sessions)
         self.assertIn("terminate_agents: terminateAgents", app)
         self.assertIn("Deactivate will stop", app)
@@ -780,11 +791,37 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const existing = paneLayoutLeafByKind(kind);", runtime)
         self.assertIn("setActivePaneLayoutLeaf(existing.id);", runtime)
         self.assertIn("if (options.activateExisting !== false)", runtime)
-        visibility_start = runtime.index("function applyOutputPaneVisibility()")
-        visibility_end = runtime.index("function showProgressPane(show)", visibility_start)
+        self.assertIn(
+            "const manualChangeOptions = { ensureRequestedPanes: false };",
+            runtime,
+        )
+        self.assertIn("activatePaneLayoutKind(kind, manualChangeOptions);", runtime)
+        self.assertIn(
+            "deactivatePaneLayoutKind(previousKind, manualChangeOptions);",
+            runtime,
+        )
+        visibility_start = runtime.index(
+            "function applyOutputPaneVisibility(options = {})"
+        )
+        visibility_end = runtime.index(
+            "function showProgressPane(show, options = {})",
+            visibility_start,
+        )
         visibility_source = runtime[visibility_start:visibility_end]
         self.assertIn(
+            "const ensureRequestedPanes = options.ensureRequestedPanes !== false;",
+            visibility_source,
+        )
+        self.assertIn(
+            'if (ensureRequestedPanes && artifactVisible)',
+            visibility_source,
+        )
+        self.assertIn(
             'ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false })',
+            visibility_source,
+        )
+        self.assertIn(
+            'if (ensureRequestedPanes && progressVisible)',
             visibility_source,
         )
         self.assertIn(
@@ -4338,6 +4375,53 @@ class ServiceTests(unittest.TestCase):
             registry["sessions"][0]["active_project_root"],
             str(project_root),
         )
+
+    def test_tmux_reattach_seeds_capture_without_replaying_screen(self) -> None:
+        class FakeThread:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+
+            def start(self) -> None:
+                return
+
+        session = TmuxAgentSession(
+            [sys.executable, "-c", "print('ready')"],
+            ROOT,
+            session_id="session-restored",
+            tmux_name="electroboy-session-restored",
+        )
+
+        with (
+            mock.patch(
+                "electroboy.service.sessions._tmux_has_session",
+                return_value=True,
+            ),
+            mock.patch(
+                "electroboy.service.sessions._tmux_capture_pane",
+                return_value="existing\nscreen\n",
+            ),
+            mock.patch("electroboy.service.sessions.threading.Thread", FakeThread),
+        ):
+            session.attach_existing()
+
+        events = session.events_after(0)
+        self.assertEqual(session._last_capture, "existing\nscreen\n")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "system")
+        self.assertIn("reattached tmux session", str(events[0]["text"]))
+
+    def test_tmux_capture_delta_suppresses_same_screen_repaints(self) -> None:
+        previous = "line 1\nspinner |\nline 3\n"
+        current = "line 1\nspinner /\nline 3\n"
+
+        self.assertEqual(_tmux_capture_delta(previous, current), "")
+
+    def test_tmux_capture_delta_keeps_scrolled_suffix(self) -> None:
+        previous = "line 1\nline 2\nline 3\n"
+        current = "line 2\nline 3\nline 4\n"
+
+        self.assertEqual(_tmux_capture_delta(previous, current), "line 4\n")
 
     def test_documentation_sidecar_session_does_not_change_workflow_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

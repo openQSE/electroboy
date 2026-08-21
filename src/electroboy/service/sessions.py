@@ -552,6 +552,7 @@ class TmuxAgentSession(AgentSession):
             self.returncode = 0
             return
         self.status = "running"
+        self._last_capture = _tmux_capture_pane(self.tmux_name)
         self._notify_status_changed()
         self._append_event(
             {
@@ -901,6 +902,8 @@ def _tmux_capture_delta(previous: str, current: str) -> str:
         if previous_lines[-count:] == current_lines[:count]:
             suffix = "\n".join(current_lines[count:])
             return suffix + ("\n" if suffix and current.endswith("\n") else "")
+    if previous_lines and current_lines and len(current_lines) <= len(previous_lines):
+        return ""
     return current
 
 
