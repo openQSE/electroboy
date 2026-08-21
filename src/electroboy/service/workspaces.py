@@ -112,17 +112,46 @@ class WorkspaceRecord:
     updated_at: float = field(default_factory=_now)
     last_attached_at: float = 0.0
     connections: dict[str, WorkspaceConnection] = field(default_factory=dict)
+    expired_connections: dict[str, WorkspaceConnection] = field(
+        default_factory=dict
+    )
 
     def expire_connections(self, now: float, timeout: float) -> None:
-        self.connections = {
+        expired = {
             connection_id: connection
             for connection_id, connection in self.connections.items()
-            if now - connection.heartbeat_at <= timeout
+            if now - connection.heartbeat_at > timeout
         }
+        self.expired_connections.update(expired)
+        for connection_id in expired:
+            self.connections.pop(connection_id, None)
         if self.status != "closed" and not self.connections:
             self.status = (
                 "detached" if self.project_identity or self.owner_key else "draft"
             )
+
+    def connection(self, connection_id: str) -> WorkspaceConnection | None:
+        """Return an active or recoverable browser connection."""
+
+        return self.connections.get(connection_id) or self.expired_connections.get(
+            connection_id
+        )
+
+    def renew_connection(
+        self,
+        connection_id: str,
+        lease_token: str,
+    ) -> WorkspaceConnection:
+        """Reactivate a matching lease without allowing stale-token takeover."""
+
+        connection = self.connection(connection_id)
+        if connection is None or connection.lease_token != lease_token:
+            raise ValueError("workspace is not attached to this browser connection")
+        self.expired_connections.pop(connection_id, None)
+        self.connections[connection_id] = connection
+        connection.heartbeat_at = _now()
+        self.status = "attached"
+        return connection
 
     def payload(self, context: BrowserContext | None = None) -> dict[str, object]:
         active_root = context.active_project_root if context is not None else None
@@ -361,6 +390,7 @@ class WorkspaceRegistry:
                     raise ValueError(
                         f"workspace is already in use: {existing.name or name}"
                     )
+                existing.expired_connections.clear()
                 existing.connections = current_record.connections
                 existing.status = "attached" if existing.connections else "detached"
                 existing.last_attached_at = _now() if existing.connections else 0.0
@@ -425,6 +455,7 @@ class WorkspaceRegistry:
                 and current_record.workspace_id != existing.workspace_id
             ):
                 current_record.connections.pop(connection_id, None)
+                current_record.expired_connections.pop(connection_id, None)
                 if not current_record.connections and current_record.status == "draft":
                     self.records.pop(current_record.workspace_id, None)
                     self.context_store.contexts.pop(current_record.workspace_id, None)
@@ -438,20 +469,22 @@ class WorkspaceRegistry:
         if not connection_id:
             raise ValueError("browser connection id is required")
         self._expire_locked()
+        connection = record.connection(connection_id)
         if (
             record.attachment_policy == WORKSPACE_POLICY_EXCLUSIVE
             and record.connections
-            and connection_id not in record.connections
+            and connection is None
         ):
             raise ValueError(
                 f"workspace is already in use: {record.name or record.workspace_id}"
             )
-        connection = record.connections.get(connection_id)
         if connection is None:
+            if record.attachment_policy == WORKSPACE_POLICY_EXCLUSIVE:
+                record.expired_connections.clear()
             connection = WorkspaceConnection(connection_id, uuid4().hex)
-            record.connections[connection_id] = connection
-        else:
-            connection.heartbeat_at = _now()
+        record.expired_connections.pop(connection_id, None)
+        record.connections[connection_id] = connection
+        connection.heartbeat_at = _now()
         record.status = "attached"
         record.last_attached_at = _now()
         record.updated_at = _now()
@@ -482,20 +515,21 @@ class WorkspaceRegistry:
                 )
             current = self.records.get(current_workspace_id)
             if current is not None and current.workspace_id != target.workspace_id:
-                connection = current.connections.get(connection_id)
+                connection = current.connection(connection_id)
                 if connection is None or connection.lease_token != lease_token:
                     raise ValueError(
                         "current workspace is not attached to this browser connection"
                     )
-            elif current is target and connection_id in target.connections:
-                connection = target.connections[connection_id]
-                if connection.lease_token != lease_token:
+            elif current is target:
+                connection = target.connection(connection_id)
+                if connection is not None and connection.lease_token != lease_token:
                     raise ValueError(
                         "workspace lease does not belong to this browser connection"
                     )
             token = self._attach_locked(target, connection_id)
             if current is not None and current.workspace_id != target.workspace_id:
                 current.connections.pop(connection_id, None)
+                current.expired_connections.pop(connection_id, None)
                 current.expire_connections(_now(), self.lease_seconds)
                 current.updated_at = _now()
             self._save_locked()
@@ -512,12 +546,13 @@ class WorkspaceRegistry:
     ) -> dict[str, object]:
         with self.lock:
             record = self.require_record(workspace_id)
-            connection = record.connections.get(connection_id)
+            connection = record.connection(connection_id)
             if connection is None or connection.lease_token != lease_token:
                 raise ValueError(
                     "workspace is not attached to this browser connection"
                 )
             record.connections.pop(connection_id, None)
+            record.expired_connections.pop(connection_id, None)
             record.expire_connections(_now(), self.lease_seconds)
             record.updated_at = _now()
             self._save_locked()
@@ -531,10 +566,8 @@ class WorkspaceRegistry:
     ) -> dict[str, object]:
         with self.lock:
             record = self.require_record(workspace_id)
-            connection = record.connections.get(connection_id)
-            if connection is None or connection.lease_token != lease_token:
-                raise ValueError("workspace is not attached to this browser connection")
-            connection.heartbeat_at = _now()
+            self._expire_locked()
+            record.renew_connection(connection_id, lease_token)
             record.updated_at = _now()
             return record.payload(self.context_store.get(workspace_id))
 
@@ -549,9 +582,7 @@ class WorkspaceRegistry:
         with self.lock:
             self._expire_locked()
             record = self.require_record(workspace_id)
-            connection = record.connections.get(connection_id)
-            if connection is None or connection.lease_token != lease_token:
-                raise ValueError("workspace is not attached to this browser connection")
+            record.renew_connection(connection_id, lease_token)
 
     def close(
         self,
@@ -562,12 +593,13 @@ class WorkspaceRegistry:
         with self.lock:
             record = self.require_record(workspace_id)
             if connection_id:
-                connection = record.connections.get(connection_id)
+                connection = record.connection(connection_id)
                 if connection is None or connection.lease_token != lease_token:
                     raise ValueError(
                         "workspace is not attached to this browser connection"
                     )
             record.connections.clear()
+            record.expired_connections.clear()
             record.status = "closed"
             record.updated_at = _now()
             self._save_locked()
@@ -608,7 +640,7 @@ class WorkspaceRegistry:
             raise ValueError("connection-state namespace is required")
         with self.lock:
             record = self.require_record(workspace_id)
-            connection = record.connections.get(connection_id)
+            connection = record.connection(connection_id)
             if connection is None:
                 raise ValueError(
                     "workspace is not attached to this browser connection"

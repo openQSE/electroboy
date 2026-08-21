@@ -1156,6 +1156,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("pointer-events: none;", styles)
         self.assertIn(".artifact-preview-frame.loading {\n      opacity: 1;", styles)
 
+    def test_frontend_recovers_workspace_attachment_after_resume(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn("async function recoverWorkspaceAttachment()", runtime)
+        self.assertIn("async function resumeWorkspaceAttachment()", runtime)
+        self.assertIn(
+            "const recovered = await recoverWorkspaceAttachment();",
+            runtime,
+        )
+        self.assertIn("resumeWorkspaceAttachment().catch(() => {});", runtime)
+        self.assertIn('document.addEventListener("resume", () => {', runtime)
+
     def test_agent_input_actions_are_fixed_height_and_top_aligned(self) -> None:
         styles = read_service_text_asset("css/shell.css")
 

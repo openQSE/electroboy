@@ -284,6 +284,7 @@
     let workspaceLeaseToken = "";
     let workspaceAttachmentPolicy = "exclusive";
     let workspaceHeartbeatTimer = null;
+    let workspaceRecoveryPromise = null;
     let workspaceStateSaveTimer = null;
     let workspaceStateHydrating = false;
     const pageInstanceId = newContextOwnerId();
@@ -4859,9 +4860,43 @@
       }
     }
 
+    async function recoverWorkspaceAttachment() {
+      if (!contextId || !workspaceLeaseToken) {
+        return false;
+      }
+      if (workspaceRecoveryPromise) {
+        return workspaceRecoveryPromise;
+      }
+      const recoveringContextId = contextId;
+      workspaceRecoveryPromise = (async () => {
+        const response = await fetch(contextUrl("/api/workspaces/attach"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workspace_id: recoveringContextId,
+            connection_id: currentBrowserTabId(),
+            lease_token: workspaceLeaseToken,
+          }),
+        });
+        if (!response.ok || contextId !== recoveringContextId) {
+          return false;
+        }
+        const payload = await response.json();
+        workspaceLeaseToken = payload.lease_token || workspaceLeaseToken;
+        saveWorkspaceLease(workspaceLeaseToken);
+        updateProjectState(payload, { workspaceRecovery: true });
+        return true;
+      })();
+      try {
+        return await workspaceRecoveryPromise;
+      } finally {
+        workspaceRecoveryPromise = null;
+      }
+    }
+
     async function sendWorkspaceHeartbeat() {
       if (!contextId || !workspaceLeaseToken) {
-        return;
+        return false;
       }
       const response = await fetch(contextUrl("/api/workspaces/heartbeat"), {
         method: "POST",
@@ -4872,7 +4907,21 @@
         }),
       });
       if (!response.ok) {
-        stopWorkspaceHeartbeat();
+        const recovered = await recoverWorkspaceAttachment();
+        if (!recovered) {
+          stopWorkspaceHeartbeat();
+        }
+        return recovered;
+      }
+      return true;
+    }
+
+    async function resumeWorkspaceAttachment() {
+      if (!contextId || !workspaceLeaseToken) {
+        return;
+      }
+      if (await sendWorkspaceHeartbeat()) {
+        startWorkspaceHeartbeat();
       }
     }
 
@@ -7060,6 +7109,15 @@
       if (contextId) {
         claimContextOwner(contextId);
       }
+      resumeWorkspaceAttachment().catch(() => {});
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        resumeWorkspaceAttachment().catch(() => {});
+      }
+    });
+    document.addEventListener("resume", () => {
+      resumeWorkspaceAttachment().catch(() => {});
     });
 
     if (document.readyState === "loading") {

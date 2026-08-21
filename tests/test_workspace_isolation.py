@@ -248,12 +248,50 @@ class WorkspaceIsolationTests(unittest.TestCase):
             state.workspace_registry.lease_seconds = 0.01
             created = state.create_context("tab-a", "software")
             workspace_id = str(created["workspace_id"])
+            first_token = str(created["lease_token"])
             time.sleep(0.02)
 
             attached = state.workspace_registry.attach(workspace_id, "tab-b")
 
+            with self.assertRaisesRegex(ValueError, "not attached"):
+                state.workspace_registry.heartbeat(
+                    workspace_id,
+                    "tab-a",
+                    first_token,
+                )
+
         self.assertTrue(attached["lease_token"])
         self.assertEqual(attached["connection_count"], 1)
+
+    def test_expired_lease_recovers_with_matching_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            state.workspace_registry.lease_seconds = 0.01
+            created = state.create_context("tab-a", "software")
+            workspace_id = str(created["workspace_id"])
+            lease_token = str(created["lease_token"])
+            time.sleep(0.02)
+
+            state.workspace_registry.list_detached(workflow_id="software")
+            record = state.workspace_registry.require_record(workspace_id)
+            self.assertNotIn("tab-a", record.connections)
+            self.assertIn("tab-a", record.expired_connections)
+
+            state.workspace_registry.validate(
+                workspace_id,
+                "tab-a",
+                lease_token,
+            )
+            renewed = state.workspace_registry.heartbeat(
+                workspace_id,
+                "tab-a",
+                lease_token,
+            )
+
+        self.assertTrue(renewed["attached"])
+        self.assertEqual(renewed["connection_count"], 1)
+        self.assertIn("tab-a", record.connections)
+        self.assertNotIn("tab-a", record.expired_connections)
 
     def test_shared_singleton_accepts_multiple_connections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
