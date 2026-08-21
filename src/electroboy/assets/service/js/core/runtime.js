@@ -1156,24 +1156,26 @@
       }
     }
 
-    function sendFrontendDebugSnapshot(reason) {
+    function sendFrontendDebugSnapshot(reason, options = {}) {
       if (!frontendTelemetryEnabled) {
         return false;
       }
       const snapshot = frontendDebugSnapshot(reason);
       persistFrontendDebugSnapshot(snapshot);
       const body = JSON.stringify(snapshot);
-      if (navigator.sendBeacon) {
-        const blob = new Blob([body], { type: "application/json" });
-        if (navigator.sendBeacon(FRONTEND_DEBUG_ENDPOINT, blob)) {
-          return true;
-        }
+      const useBeacon = Boolean(options.beacon);
+      if (
+        useBeacon
+        && navigator.sendBeacon
+        && navigator.sendBeacon(FRONTEND_DEBUG_ENDPOINT, body)
+      ) {
+        return true;
       }
       window.fetch(FRONTEND_DEBUG_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
-        keepalive: true,
+        keepalive: useBeacon,
       }).catch(() => {});
       return true;
     }
@@ -7091,7 +7093,9 @@
     }
 
     window.addEventListener("pagehide", releaseContextOwner);
-    window.addEventListener("pagehide", () => sendFrontendDebugSnapshot("pagehide"));
+    window.addEventListener("pagehide", () => {
+      sendFrontendDebugSnapshot("pagehide", { beacon: true });
+    });
     window.addEventListener("pagehide", () => {
       stopWorkspaceHeartbeat();
       if (contextId && navigator.sendBeacon) {

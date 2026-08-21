@@ -978,7 +978,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("enable() {\n        return setFrontendTelemetryEnabled(true);", runtime)
         self.assertIn("disable() {\n        return setFrontendTelemetryEnabled(false);", runtime)
         self.assertIn("applyFrontendTelemetryUrlPreference();", runtime)
-        self.assertIn("function sendFrontendDebugSnapshot(reason)", runtime)
+        self.assertIn("function sendFrontendDebugSnapshot(reason, options = {})", runtime)
+        self.assertIn("const useBeacon = Boolean(options.beacon);", runtime)
+        self.assertIn(
+            "navigator.sendBeacon(FRONTEND_DEBUG_ENDPOINT, body)",
+            runtime,
+        )
+        self.assertNotIn(
+            'new Blob([body], { type: "application/json" })',
+            runtime,
+        )
+        self.assertIn("keepalive: useBeacon,", runtime)
+        self.assertIn(
+            'sendFrontendDebugSnapshot("pagehide", { beacon: true });',
+            runtime,
+        )
         self.assertIn("function startFrontendDebugDiagnostics()", runtime)
         self.assertIn("function scheduleFrontendDebugRafPulse()", runtime)
         self.assertIn("function mutateFrontendDebugPaintMarker(now)", runtime)
