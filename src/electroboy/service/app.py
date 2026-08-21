@@ -33,6 +33,7 @@ from .frontend import (
     render_service_index,
     service_asset_content_type,
 )
+from .frontend_debug import append_frontend_debug_payload
 from .http import (
     BinaryResponse,
     HtmlResponse,
@@ -2290,6 +2291,62 @@ def _handler_for(
     class ElectroBoyRequestHandler(BaseHTTPRequestHandler):
         server_version = "ElectroBoyService/0.1"
 
+        def _record_frontend_debug_response(
+            self,
+            response: ServiceResponse,
+        ) -> None:
+            route = getattr(self, "_frontend_debug_route", None)
+            if route is None or getattr(
+                self,
+                "_frontend_debug_response_recorded",
+                False,
+            ):
+                return
+            method, path, query, started_at = route
+            params = parse_qs(query, keep_blank_values=True)
+            page_id = str((params.get("telemetry_page_id") or [""])[0])
+            if not page_id:
+                return
+            status = getattr(response, "status", HTTPStatus.OK)
+            query_keys = sorted(
+                key
+                for key in params
+                if key not in {
+                    "lease_token",
+                    "telemetry_page_id",
+                    "telemetry_tab_id",
+                }
+            )
+            payload = {
+                "reason": "http-response",
+                "page_id": page_id,
+                "tab_id": str(
+                    (params.get("telemetry_tab_id") or [""])[0]
+                ),
+                "workspace_id": str(
+                    (
+                        params.get("workspace_id")
+                        or params.get("context_id")
+                        or [""]
+                    )[0]
+                ),
+                "request": {
+                    "method": method,
+                    "path": path,
+                    "query_keys": query_keys,
+                    "status": int(status),
+                    "duration_ms": round(
+                        (time.perf_counter() - started_at) * 1000,
+                        3,
+                    ),
+                },
+            }
+            try:
+                append_frontend_debug_payload(config.state_root, payload)
+                self._frontend_debug_response_recorded = True
+            except OSError:
+                return
+
         def read_json_body(self) -> dict[str, object]:
             return self._read_json_body()
 
@@ -2308,6 +2365,7 @@ def _handler_for(
             self._stream_progress_events(context_id, root, snapshot)
 
         def emit_response(self, response: ServiceResponse) -> None:
+            self._record_frontend_debug_response(response)
             if isinstance(response, JsonResponse):
                 self._send_json(response.payload, status=response.status)
                 return
@@ -2431,17 +2489,27 @@ def _handler_for(
             path: str,
             query: str,
         ) -> bool:
-            return route_dispatcher.dispatch(
-                RouteRequest(
-                    method=method,
-                    path=path,
-                    query=query,
-                    services=route_services,
-                    config=config,
-                    transport=self,
-                    operations=route_operations,
-                )
+            self._frontend_debug_route = (
+                method,
+                path,
+                query,
+                time.perf_counter(),
             )
+            self._frontend_debug_response_recorded = False
+            try:
+                return route_dispatcher.dispatch(
+                    RouteRequest(
+                        method=method,
+                        path=path,
+                        query=query,
+                        services=route_services,
+                        config=config,
+                        transport=self,
+                        operations=route_operations,
+                    )
+                )
+            finally:
+                self._frontend_debug_route = None
 
         def _send_splash_image(
             self,

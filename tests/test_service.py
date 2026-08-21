@@ -66,6 +66,7 @@ from electroboy.service import (  # noqa: E402
     creative_corkboard_html,
     document_target_html,
     file_browser_window_html,
+    frontend_debug,
     pane_window_html,
     requirements_document_html,
     save_artifact_edit,
@@ -306,6 +307,74 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             log_entry["payload"]["counters"]["terminalFit.run"],
             2,
+        )
+
+    def test_frontend_debug_log_rotates_with_bounded_generations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_root = Path(tmp)
+            with mock.patch.object(
+                frontend_debug,
+                "FRONTEND_DEBUG_LOG_SEGMENT_LIMIT_BYTES",
+                600,
+            ):
+                for sequence in range(3):
+                    frontend_debug.append_frontend_debug_payload(
+                        state_root,
+                        {
+                            "reason": "rotation-test",
+                            "sequence": sequence,
+                            "padding": "x" * 400,
+                        },
+                    )
+
+            log_path = frontend_debug.frontend_debug_log_path(state_root)
+            previous_path = log_path.with_name(
+                frontend_debug.FRONTEND_DEBUG_PREVIOUS_LOG_NAME
+            )
+            current = json.loads(log_path.read_text(encoding="utf-8"))
+            previous = json.loads(previous_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(current["payload"]["sequence"], 2)
+        self.assertEqual(previous["payload"]["sequence"], 1)
+
+    def test_frontend_debug_records_sanitized_http_response(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            state_root = Path(tmp) / "state"
+            root.mkdir()
+            state_root.mkdir()
+            try:
+                server = create_server(root, port=0, state_root=state_root)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, _, _ = request(
+                    server,
+                    "/api/project?workspace_id=missing&context_id=missing"
+                    "&connection_id=tab-1&lease_token=secret"
+                    "&telemetry_page_id=page-1&telemetry_tab_id=tab-1",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+            log_path = frontend_debug.frontend_debug_log_path(state_root)
+            encoded_log = log_path.read_text(encoding="utf-8")
+            entry = json.loads(encoded_log)
+
+        self.assertEqual(status, 409)
+        self.assertNotIn("secret", encoded_log)
+        self.assertEqual(entry["payload"]["reason"], "http-response")
+        self.assertEqual(entry["payload"]["page_id"], "page-1")
+        self.assertEqual(entry["payload"]["request"]["path"], "/api/project")
+        self.assertEqual(entry["payload"]["request"]["status"], 409)
+        self.assertNotIn(
+            "lease_token",
+            entry["payload"]["request"]["query_keys"],
         )
 
     def test_server_loads_workflows_and_state_from_separate_state_root(self) -> None:
@@ -917,6 +986,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("paint_heartbeat: frontendDebugPaintPayload()", runtime)
         self.assertIn("raf: frontendDebugRafPayload()", runtime)
         self.assertIn("input: frontendDebugInputPayload()", runtime)
+        self.assertIn("lifecycle: frontendDebugLifecyclePayload()", runtime)
+        self.assertIn("network: frontendDebugNetworkPayload()", runtime)
+        self.assertIn('document.addEventListener("freeze", recordFrontendDebugLifecycle, true);', runtime)
+        self.assertIn('document.addEventListener("resume", recordFrontendDebugLifecycle, true);', runtime)
+        self.assertIn('type: "timer-gap"', runtime)
+        self.assertIn('type: "fetch-response"', runtime)
+        self.assertIn('type: "fetch-error"', runtime)
+        self.assertIn('type: "event-source-error"', runtime)
+        self.assertIn('parameters.set("telemetry_page_id", pageInstanceId);', runtime)
         self.assertIn("last_target: frontendDebugInputLastTarget", runtime)
         self.assertIn("last_frame_age_ms:", runtime)
         self.assertIn("last_mutation_age_ms:", runtime)
@@ -1670,9 +1748,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('params.get("workspace_id") || contextId', page)
         self.assertIn('params.get("connection_id") || ""', page)
         self.assertIn('params.get("lease_token") || ""', page)
+        self.assertIn('params.get("telemetry_page_id") || ""', page)
+        self.assertIn('params.get("telemetry_tab_id") || ""', page)
         self.assertIn('context.set("workspace_id", workspaceId)', page)
         self.assertIn('context.set("connection_id", connectionId)', page)
         self.assertIn('context.set("lease_token", leaseToken)', page)
+        self.assertIn('context.set("telemetry_page_id", telemetryPageId)', page)
+        self.assertIn('context.set("telemetry_tab_id", telemetryTabId)', page)
         self.assertIn('contextUrl("/api/artifacts/events?artifact=requirements")', page)
         self.assertIn('params.get("document_path")', page)
         self.assertIn('params.get("document_zoom")', page)

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-import time
 from http import HTTPStatus
 
+from .frontend_debug import (
+    FRONTEND_DEBUG_PAYLOAD_LIMIT_BYTES,
+    append_frontend_debug_payload,
+)
 from .http import HtmlResponse, JsonResponse, ServiceResponse
 from .registry import (
     RouteDefinition,
@@ -21,10 +24,6 @@ from .workflow_config import (
     configured_workflows,
     workflow_config_payload,
 )
-
-
-FRONTEND_DEBUG_LOG_LIMIT_BYTES = 5_000_000
-FRONTEND_DEBUG_PAYLOAD_LIMIT_BYTES = 40_000
 
 
 def _route(method: str, path: str, handler_name: str) -> RouteDefinition:
@@ -130,36 +129,7 @@ def _frontend_debug(request: RouteRequest) -> ServiceResponse:
             "truncated": True,
             "payload_bytes": len(encoded_payload.encode("utf-8")),
         }
-    entry = {
-        "received_at": time.time(),
-        "payload": payload,
-    }
-    log_path = (
-        request.config.state_root
-        / ".electroboy"
-        / "service"
-        / "frontend-debug.jsonl"
-    )
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    if log_path.exists() and log_path.stat().st_size > FRONTEND_DEBUG_LOG_LIMIT_BYTES:
-        previous_size = log_path.stat().st_size
-        log_path.write_text(
-            json.dumps(
-                {
-                    "received_at": time.time(),
-                    "payload": {
-                        "reason": "log-truncated",
-                        "previous_bytes": previous_size,
-                    },
-                },
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-    with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, sort_keys=True, default=str))
-        handle.write("\n")
+    append_frontend_debug_payload(request.config.state_root, payload)
     return JsonResponse({"status": "recorded"})
 
 

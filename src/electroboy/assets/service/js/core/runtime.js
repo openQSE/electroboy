@@ -101,6 +101,8 @@
     const FRONTEND_DEBUG_INTERVAL_MS = 5000;
     const FRONTEND_DEBUG_EVENT_LOOP_INTERVAL_MS = 1000;
     const FRONTEND_DEBUG_PAINT_INTERVAL_MS = 1000;
+    const FRONTEND_DEBUG_SUSPENSION_GAP_MS = 5000;
+    const FRONTEND_DEBUG_EVENT_LIMIT = 100;
     const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";
     const FRONTEND_DEBUG_STORAGE_KEY = "electroboy.frontendDebug.last";
     const FRONTEND_DEBUG_HEARTBEAT_ID = "electroboyFrontendDebugHeartbeat";
@@ -197,6 +199,7 @@
     let frontendTelemetryEnabled = storedFrontendTelemetryEnabled();
     let frontendDebugDiagnosticsStarted = false;
     let frontendDebugFrameInstrumented = false;
+    let frontendDebugFetchInstrumented = false;
     let frontendDebugRafPulseActive = false;
     let frontendDebugListenersBound = false;
     let frontendDebugNativeRequestAnimationFrame = null;
@@ -225,6 +228,16 @@
     let frontendDebugInputLastEvent = "";
     let frontendDebugInputLastAt = "";
     let frontendDebugInputLastTarget = {};
+    let frontendDebugLifecycleFrozen = false;
+    let frontendDebugLifecycleLastEvent = "";
+    let frontendDebugLifecycleLastAt = "";
+    let frontendDebugLifecycleDroppedEvents = 0;
+    let frontendDebugNetworkDroppedEvents = 0;
+    let frontendDebugEventSourceSequence = 0;
+    let frontendDebugFetchSequence = 0;
+    let frontendDebugNativeFetch = null;
+    const frontendDebugLifecycleEvents = [];
+    const frontendDebugNetworkEvents = [];
     const frontendDebugCounters = Object.create(null);
     const frontendDebugInputCounters = Object.create(null);
     let resizeTimer = null;
@@ -915,6 +928,169 @@
       };
     }
 
+    function queueFrontendDebugEvent(queue, event, droppedCounter) {
+      if (!frontendTelemetryEnabled) {
+        return droppedCounter;
+      }
+      if (queue.length >= FRONTEND_DEBUG_EVENT_LIMIT) {
+        queue.shift();
+        droppedCounter += 1;
+      }
+      queue.push({
+        ...event,
+        at: event.at || new Date().toISOString(),
+      });
+      return droppedCounter;
+    }
+
+    function recordFrontendDebugLifecycle(event) {
+      if (!frontendTelemetryEnabled) {
+        return;
+      }
+      const type = String(event.type || "lifecycle");
+      frontendDebugLifecycleLastEvent = type;
+      frontendDebugLifecycleLastAt = new Date().toISOString();
+      if (type === "freeze") {
+        frontendDebugLifecycleFrozen = true;
+      } else if (type === "resume" || type === "pageshow") {
+        frontendDebugLifecycleFrozen = false;
+      }
+      frontendDebugLifecycleDroppedEvents = queueFrontendDebugEvent(
+        frontendDebugLifecycleEvents,
+        {
+          type,
+          visibility_state: document.visibilityState || "",
+          persisted: Boolean(event.persisted),
+        },
+        frontendDebugLifecycleDroppedEvents,
+      );
+      bumpFrontendDebugCounter(`lifecycle.${type}`);
+      if (type === "freeze" || type === "resume") {
+        sendFrontendDebugSnapshot(type);
+      }
+    }
+
+    function recordFrontendDebugTimerGap(durationMs) {
+      frontendDebugLifecycleLastEvent = "timer-gap";
+      frontendDebugLifecycleLastAt = new Date().toISOString();
+      frontendDebugLifecycleDroppedEvents = queueFrontendDebugEvent(
+        frontendDebugLifecycleEvents,
+        {
+          type: "timer-gap",
+          duration_ms: Math.round(durationMs),
+          visibility_state: document.visibilityState || "",
+          exceeded_workspace_lease: durationMs >= 20_000,
+        },
+        frontendDebugLifecycleDroppedEvents,
+      );
+      bumpFrontendDebugCounter("lifecycle.timer-gap");
+    }
+
+    function frontendDebugLifecyclePayload() {
+      const events = frontendDebugLifecycleEvents.splice(
+        0,
+        frontendDebugLifecycleEvents.length,
+      );
+      return {
+        frozen: frontendDebugLifecycleFrozen,
+        was_discarded: Boolean(document.wasDiscarded),
+        last_event: frontendDebugLifecycleLastEvent,
+        last_event_at: frontendDebugLifecycleLastAt,
+        dropped_events: frontendDebugLifecycleDroppedEvents,
+        events,
+      };
+    }
+
+    function frontendDebugRequestDescription(value) {
+      try {
+        const raw = value instanceof Request ? value.url : String(value || "");
+        const url = new URL(raw, window.location.href);
+        return {
+          path: url.origin === window.location.origin
+            ? url.pathname
+            : `${url.origin}${url.pathname}`,
+          query_keys: [...new Set(url.searchParams.keys())]
+            .filter((key) => key !== "lease_token")
+            .sort(),
+        };
+      } catch (error) {
+        return { path: "invalid-url", query_keys: [] };
+      }
+    }
+
+    function recordFrontendDebugNetworkEvent(event) {
+      frontendDebugNetworkDroppedEvents = queueFrontendDebugEvent(
+        frontendDebugNetworkEvents,
+        event,
+        frontendDebugNetworkDroppedEvents,
+      );
+    }
+
+    function instrumentFrontendDebugFetch() {
+      if (frontendDebugFetchInstrumented) {
+        return;
+      }
+      frontendDebugFetchInstrumented = true;
+      frontendDebugNativeFetch = window.fetch.bind(window);
+      window.fetch = (input, options = {}) => {
+        const request = frontendDebugRequestDescription(input);
+        if (
+          !frontendTelemetryEnabled ||
+          request.path === FRONTEND_DEBUG_ENDPOINT
+        ) {
+          return frontendDebugNativeFetch(input, options);
+        }
+        frontendDebugFetchSequence += 1;
+        const requestId = frontendDebugFetchSequence;
+        const method = String(
+          options.method || (input instanceof Request ? input.method : "GET"),
+        ).toUpperCase();
+        const startedAt = frontendDebugNow();
+        recordFrontendDebugNetworkEvent({
+          type: "fetch-start",
+          request_id: requestId,
+          method,
+          ...request,
+        });
+        return frontendDebugNativeFetch(input, options).then(
+          (response) => {
+            recordFrontendDebugNetworkEvent({
+              type: "fetch-response",
+              request_id: requestId,
+              method,
+              status: response.status,
+              ok: response.ok,
+              duration_ms: Math.round(frontendDebugNow() - startedAt),
+              ...request,
+            });
+            return response;
+          },
+          (error) => {
+            recordFrontendDebugNetworkEvent({
+              type: "fetch-error",
+              request_id: requestId,
+              method,
+              error: String(error).slice(0, 300),
+              duration_ms: Math.round(frontendDebugNow() - startedAt),
+              ...request,
+            });
+            throw error;
+          },
+        );
+      };
+    }
+
+    function frontendDebugNetworkPayload() {
+      const events = frontendDebugNetworkEvents.splice(
+        0,
+        frontendDebugNetworkEvents.length,
+      );
+      return {
+        dropped_events: frontendDebugNetworkDroppedEvents,
+        events,
+      };
+    }
+
     function frontendDebugPaneKinds() {
       return paneLayoutLeaves().map((leaf) => leaf.kind);
     }
@@ -960,6 +1136,8 @@
         raf: frontendDebugRafPayload(),
         paint_heartbeat: frontendDebugPaintPayload(),
         input: frontendDebugInputPayload(),
+        lifecycle: frontendDebugLifecyclePayload(),
+        network: frontendDebugNetworkPayload(),
         dom_nodes: document.getElementsByTagName("*").length,
         memory: frontendDebugMemoryPayload(),
         created_at: new Date().toISOString(),
@@ -1004,8 +1182,34 @@
         return new EventSource(url);
       }
       bumpFrontendDebugCounter("eventSource.created");
+      frontendDebugEventSourceSequence += 1;
+      const sourceId = frontendDebugEventSourceSequence;
+      const request = frontendDebugRequestDescription(url);
       const source = new EventSource(url);
       const nativeAddEventListener = source.addEventListener.bind(source);
+      recordFrontendDebugNetworkEvent({
+        type: "event-source-created",
+        source_id: sourceId,
+        ...request,
+      });
+      nativeAddEventListener("open", () => {
+        bumpFrontendDebugCounter("eventSource.open");
+        recordFrontendDebugNetworkEvent({
+          type: "event-source-open",
+          source_id: sourceId,
+          ready_state: source.readyState,
+          ...request,
+        });
+      });
+      nativeAddEventListener("error", () => {
+        bumpFrontendDebugCounter("eventSource.error");
+        recordFrontendDebugNetworkEvent({
+          type: "event-source-error",
+          source_id: sourceId,
+          ready_state: source.readyState,
+          ...request,
+        });
+      });
       source.addEventListener = (type, listener, options) => {
         bumpFrontendDebugCounter(`eventSource.listener.${type}`);
         return nativeAddEventListener(type, (event) => {
@@ -1022,6 +1226,12 @@
       const nativeClose = source.close.bind(source);
       source.close = () => {
         bumpFrontendDebugCounter("eventSource.closed");
+        recordFrontendDebugNetworkEvent({
+          type: "event-source-closed",
+          source_id: sourceId,
+          ready_state: source.readyState,
+          ...request,
+        });
         return nativeClose();
       };
       return source;
@@ -1057,6 +1267,11 @@
       window.addEventListener("focus", recordFrontendDebugInput, true);
       window.addEventListener("blur", recordFrontendDebugInput, true);
       document.addEventListener("visibilitychange", recordFrontendDebugInput, true);
+      document.addEventListener("visibilitychange", recordFrontendDebugLifecycle, true);
+      document.addEventListener("freeze", recordFrontendDebugLifecycle, true);
+      document.addEventListener("resume", recordFrontendDebugLifecycle, true);
+      window.addEventListener("pagehide", recordFrontendDebugLifecycle, true);
+      window.addEventListener("pageshow", recordFrontendDebugLifecycle, true);
     }
 
     function unbindFrontendDebugListeners() {
@@ -1075,6 +1290,11 @@
       window.removeEventListener("focus", recordFrontendDebugInput, true);
       window.removeEventListener("blur", recordFrontendDebugInput, true);
       document.removeEventListener("visibilitychange", recordFrontendDebugInput, true);
+      document.removeEventListener("visibilitychange", recordFrontendDebugLifecycle, true);
+      document.removeEventListener("freeze", recordFrontendDebugLifecycle, true);
+      document.removeEventListener("resume", recordFrontendDebugLifecycle, true);
+      window.removeEventListener("pagehide", recordFrontendDebugLifecycle, true);
+      window.removeEventListener("pageshow", recordFrontendDebugLifecycle, true);
     }
 
     function stopFrontendDebugDiagnostics() {
@@ -1113,6 +1333,7 @@
       frontendDebugDiagnosticsStarted = true;
       frontendDebugRafPulseActive = true;
       instrumentFrontendDebugFrames();
+      instrumentFrontendDebugFetch();
       ensureFrontendDebugPaintMarker();
       scheduleFrontendDebugRafPulse();
       frontendDebugLastTick = frontendDebugNow();
@@ -1131,6 +1352,9 @@
               frontendDebugMaxEventLoopLagMs,
               lag,
             );
+          }
+          if (lag >= FRONTEND_DEBUG_SUSPENSION_GAP_MS) {
+            recordFrontendDebugTimerGap(lag);
           }
         }, FRONTEND_DEBUG_EVENT_LOOP_INTERVAL_MS);
       }
@@ -4055,7 +4279,17 @@
       if (workspaceLeaseToken) {
         parameters.set("lease_token", workspaceLeaseToken);
       }
+      appendFrontendTelemetryParameters(parameters);
       return `${path}${separator}${parameters.toString()}`;
+    }
+
+    function appendFrontendTelemetryParameters(parameters) {
+      if (!frontendTelemetryEnabled) {
+        return parameters;
+      }
+      parameters.set("telemetry_page_id", pageInstanceId);
+      parameters.set("telemetry_tab_id", currentBrowserTabId());
+      return parameters;
     }
 
     function paneUrl(kind, requestedArtifactItem = undefined) {
@@ -4067,6 +4301,7 @@
         if (workspaceLeaseToken) {
           parameters.set("lease_token", workspaceLeaseToken);
         }
+        appendFrontendTelemetryParameters(parameters);
       }
       if (selectedSessionId) {
         parameters.set("session_id", selectedSessionId);
@@ -5454,6 +5689,7 @@
       list.textContent = "Loading workspaces...";
       submit.disabled = true;
       const parameters = new URLSearchParams({ workflow_id: workflowMode });
+      appendFrontendTelemetryParameters(parameters);
       const response = await fetch(`/api/workspaces?${parameters.toString()}`, {
         cache: "no-store",
       });

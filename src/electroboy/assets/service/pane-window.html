@@ -751,6 +751,8 @@
     const workspaceId = params.get("workspace_id") || contextId;
     const connectionId = params.get("connection_id") || "";
     const leaseToken = params.get("lease_token") || "";
+    const telemetryPageId = params.get("telemetry_page_id") || "";
+    const telemetryTabId = params.get("telemetry_tab_id") || "";
     let selectedSessionId = params.get("session_id") || "";
     const ownedShellSessionId = params.get("shell_session_id") || "";
     let selectedShellSessionId = ownedShellSessionId;
@@ -1001,6 +1003,12 @@
       context.set("connection_id", connectionId);
       if (leaseToken) {
         context.set("lease_token", leaseToken);
+      }
+      if (telemetryPageId) {
+        context.set("telemetry_page_id", telemetryPageId);
+      }
+      if (telemetryTabId) {
+        context.set("telemetry_tab_id", telemetryTabId);
       }
       return `${path}${separator}${context.toString()}`;
     }
