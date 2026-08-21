@@ -1038,6 +1038,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("input: frontendDebugInputPayload()", runtime)
         self.assertIn("lifecycle: frontendDebugLifecyclePayload()", runtime)
         self.assertIn("network: frontendDebugNetworkPayload()", runtime)
+        self.assertIn(
+            "response_bodies: frontendDebugResponseBodyPayload()",
+            runtime,
+        )
+        self.assertIn(
+            "async function drainDiscardedFetchResponse(response, details = {})",
+            runtime,
+        )
+        self.assertIn('type: "fetch-body-drained"', runtime)
+        self.assertIn('type: "fetch-body-drain-error"', runtime)
+        self.assertIn(
+            'operation: "frontend-debug"',
+            runtime,
+        )
+        self.assertIn(
+            'operation: "workspace-heartbeat"',
+            runtime,
+        )
+        self.assertIn("const responseOk = response.ok;", runtime)
+        self.assertIn("await drainDiscardedFetchResponse(response, {", runtime)
         self.assertIn('document.addEventListener("freeze", recordFrontendDebugLifecycle, true);', runtime)
         self.assertIn('document.addEventListener("resume", recordFrontendDebugLifecycle, true);', runtime)
         self.assertIn('type: "timer-gap"', runtime)

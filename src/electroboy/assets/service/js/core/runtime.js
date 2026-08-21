@@ -236,8 +236,17 @@
     let frontendDebugEventSourceSequence = 0;
     let frontendDebugFetchSequence = 0;
     let frontendDebugNativeFetch = null;
+    let frontendDebugResponseBodyPending = 0;
+    let frontendDebugResponseBodyMaxPending = 0;
+    let frontendDebugResponseBodyDrainStarted = 0;
+    let frontendDebugResponseBodyDrainCompleted = 0;
+    let frontendDebugResponseBodyDrainFailed = 0;
+    let frontendDebugResponseBodyRequestFailed = 0;
+    let frontendDebugResponseBodyBytesDrained = 0;
+    let frontendDebugResponseBodyLastResult = null;
     const frontendDebugLifecycleEvents = [];
     const frontendDebugNetworkEvents = [];
+    const frontendDebugFetchMetadata = new WeakMap();
     const frontendDebugCounters = Object.create(null);
     const frontendDebugInputCounters = Object.create(null);
     let resizeTimer = null;
@@ -1055,6 +1064,11 @@
         });
         return frontendDebugNativeFetch(input, options).then(
           (response) => {
+            frontendDebugFetchMetadata.set(response, {
+              request_id: requestId,
+              method,
+              ...request,
+            });
             recordFrontendDebugNetworkEvent({
               type: "fetch-response",
               request_id: requestId,
@@ -1079,6 +1093,135 @@
           },
         );
       };
+    }
+
+    function frontendDebugResponseBodyPayload() {
+      return {
+        pending: frontendDebugResponseBodyPending,
+        max_pending: frontendDebugResponseBodyMaxPending,
+        drain_started: frontendDebugResponseBodyDrainStarted,
+        drain_completed: frontendDebugResponseBodyDrainCompleted,
+        drain_failed: frontendDebugResponseBodyDrainFailed,
+        request_failed: frontendDebugResponseBodyRequestFailed,
+        bytes_drained: frontendDebugResponseBodyBytesDrained,
+        last_result: frontendDebugResponseBodyLastResult,
+      };
+    }
+
+    function discardedFetchResponseDetails(response, details) {
+      const metadata = frontendDebugFetchMetadata.get(response) || {};
+      return {
+        ...metadata,
+        ...details,
+        status: response.status,
+        ok: response.ok,
+      };
+    }
+
+    async function drainDiscardedFetchResponse(response, details = {}) {
+      if (!response) {
+        return false;
+      }
+      const tracked = frontendTelemetryEnabled;
+      const description = discardedFetchResponseDetails(response, details);
+      const startedAt = frontendDebugNow();
+      const bodyUsedBefore = Boolean(response.bodyUsed);
+      let bytesDrained = 0;
+      let errorMessage = "";
+      let succeeded = false;
+      if (tracked) {
+        frontendDebugResponseBodyPending += 1;
+        frontendDebugResponseBodyMaxPending = Math.max(
+          frontendDebugResponseBodyMaxPending,
+          frontendDebugResponseBodyPending,
+        );
+        frontendDebugResponseBodyDrainStarted += 1;
+        bumpFrontendDebugCounter("responseBody.drainStarted");
+        recordFrontendDebugNetworkEvent({
+          type: "fetch-body-drain-start",
+          body_used_before: bodyUsedBefore,
+          pending: frontendDebugResponseBodyPending,
+          ...description,
+        });
+      }
+      try {
+        if (!bodyUsedBefore) {
+          const body = await response.arrayBuffer();
+          bytesDrained = body.byteLength;
+        }
+        succeeded = true;
+      } catch (error) {
+        errorMessage = String(error).slice(0, 300);
+        try {
+          if (!response.bodyUsed && response.body) {
+            await response.body.cancel();
+          }
+        } catch (cancelError) {
+          errorMessage = `${errorMessage}; cancel: ${String(cancelError)}`.slice(
+            0,
+            300,
+          );
+        }
+      } finally {
+        if (tracked) {
+          frontendDebugResponseBodyPending = Math.max(
+            0,
+            frontendDebugResponseBodyPending - 1,
+          );
+          const result = {
+            ...description,
+            body_used_before: bodyUsedBefore,
+            body_used_after: Boolean(response.bodyUsed),
+            bytes_drained: bytesDrained,
+            duration_ms: Math.round(frontendDebugNow() - startedAt),
+            pending: frontendDebugResponseBodyPending,
+            completed_at: new Date().toISOString(),
+          };
+          if (succeeded) {
+            frontendDebugResponseBodyDrainCompleted += 1;
+            frontendDebugResponseBodyBytesDrained += bytesDrained;
+            bumpFrontendDebugCounter("responseBody.drainCompleted");
+            recordFrontendDebugNetworkEvent({
+              type: "fetch-body-drained",
+              ...result,
+            });
+          } else {
+            frontendDebugResponseBodyDrainFailed += 1;
+            bumpFrontendDebugCounter("responseBody.drainFailed");
+            result.error = errorMessage;
+            recordFrontendDebugNetworkEvent({
+              type: "fetch-body-drain-error",
+              ...result,
+            });
+          }
+          frontendDebugResponseBodyLastResult = {
+            outcome: succeeded ? "drained" : "error",
+            ...result,
+          };
+        }
+      }
+      return succeeded;
+    }
+
+    function recordDiscardedFetchRequestFailure(details, error) {
+      if (!frontendTelemetryEnabled) {
+        return;
+      }
+      const result = {
+        ...details,
+        error: String(error).slice(0, 300),
+        completed_at: new Date().toISOString(),
+      };
+      frontendDebugResponseBodyRequestFailed += 1;
+      frontendDebugResponseBodyLastResult = {
+        outcome: "request-error",
+        ...result,
+      };
+      bumpFrontendDebugCounter("responseBody.requestFailed");
+      recordFrontendDebugNetworkEvent({
+        type: "fetch-body-request-error",
+        ...result,
+      });
     }
 
     function frontendDebugNetworkPayload() {
@@ -1139,6 +1282,7 @@
         input: frontendDebugInputPayload(),
         lifecycle: frontendDebugLifecyclePayload(),
         network: frontendDebugNetworkPayload(),
+        response_bodies: frontendDebugResponseBodyPayload(),
         dom_nodes: document.getElementsByTagName("*").length,
         memory: frontendDebugMemoryPayload(),
         created_at: new Date().toISOString(),
@@ -1171,12 +1315,26 @@
       ) {
         return true;
       }
-      window.fetch(FRONTEND_DEBUG_ENDPOINT, {
+      const fetchImpl = frontendDebugNativeFetch || window.fetch.bind(window);
+      fetchImpl(FRONTEND_DEBUG_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
         keepalive: useBeacon,
-      }).catch(() => {});
+      }).then(
+        (response) => drainDiscardedFetchResponse(response, {
+          operation: "frontend-debug",
+          method: "POST",
+          path: FRONTEND_DEBUG_ENDPOINT,
+          query_keys: [],
+        }),
+        (error) => recordDiscardedFetchRequestFailure({
+          operation: "frontend-debug",
+          method: "POST",
+          path: FRONTEND_DEBUG_ENDPOINT,
+          query_keys: [],
+        }, error),
+      );
       return true;
     }
 
@@ -4908,7 +5066,11 @@
           lease_token: workspaceLeaseToken,
         }),
       });
-      if (!response.ok) {
+      const responseOk = response.ok;
+      await drainDiscardedFetchResponse(response, {
+        operation: "workspace-heartbeat",
+      });
+      if (!responseOk) {
         const recovered = await recoverWorkspaceAttachment();
         if (!recovered) {
           stopWorkspaceHeartbeat();
