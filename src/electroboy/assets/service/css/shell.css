@@ -2268,6 +2268,27 @@
   text-transform: uppercase;
 }
 
+.workspace-selector-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: #52677f;
+  font-size: 0.78rem;
+}
+
+.workspace-selector-select-all {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  color: #172235;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .workspace-selector-list {
   display: grid;
   gap: 8px;
@@ -2324,6 +2345,11 @@
   border-radius: 5px;
   background: #fff;
   cursor: pointer;
+}
+
+.workspace-selector-footer button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .workspace-selector-footer .workspace-selector-submit {

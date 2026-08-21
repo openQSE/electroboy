@@ -5865,6 +5865,13 @@
           </header>
           <fieldset class="workspace-selector-options">
             <legend>Available workspaces</legend>
+            <div class="workspace-selector-toolbar">
+              <label class="workspace-selector-select-all">
+                <input type="checkbox" class="workspace-selector-select-all-input">
+                <span>Select all</span>
+              </label>
+              <span>Select one to attach or clear; select multiple to clear.</span>
+            </div>
             <div class="workspace-selector-list"></div>
           </fieldset>
           <p class="workspace-selector-error" role="alert" hidden></p>
@@ -5892,15 +5899,40 @@
       return details.join(" · ");
     }
 
+    function selectedWorkspaceChoices(dialog) {
+      return Array.from(dialog.querySelectorAll(
+        'input[name="workspace-selector"]:checked',
+      ));
+    }
+
+    function syncWorkspaceSelectorActions(dialog) {
+      const choices = Array.from(dialog.querySelectorAll(
+        'input[name="workspace-selector"]',
+      ));
+      const selected = choices.filter((choice) => choice.checked);
+      const selectAll = dialog.querySelector(".workspace-selector-select-all-input");
+      const submit = dialog.querySelector(".workspace-selector-submit");
+      const clear = dialog.querySelector(".workspace-selector-clear");
+      submit.disabled = selected.length !== 1;
+      clear.disabled = selected.length === 0;
+      selectAll.disabled = choices.length === 0;
+      selectAll.checked = choices.length > 0 && selected.length === choices.length;
+      selectAll.indeterminate = selected.length > 0 && selected.length < choices.length;
+    }
+
     async function loadWorkspaceChoices(dialog) {
       const list = dialog.querySelector(".workspace-selector-list");
       const submit = dialog.querySelector(".workspace-selector-submit");
       const clear = dialog.querySelector(".workspace-selector-clear");
+      const selectAll = dialog.querySelector(".workspace-selector-select-all-input");
       const error = dialog.querySelector(".workspace-selector-error");
       error.hidden = true;
       list.textContent = "Loading workspaces...";
       submit.disabled = true;
       clear.disabled = true;
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+      selectAll.disabled = true;
       const parameters = new URLSearchParams({ workflow_id: workflowMode });
       appendFrontendTelemetryParameters(parameters);
       const response = await fetch(`/api/workspaces?${parameters.toString()}`, {
@@ -5918,14 +5950,14 @@
         list.textContent = "No detached workspaces are available.";
         return;
       }
-      list.replaceChildren(...workspaces.map((workspace, index) => {
+      list.replaceChildren(...workspaces.map((workspace) => {
         const option = document.createElement("label");
         option.className = "workspace-selector-option";
         const input = document.createElement("input");
-        input.type = "radio";
+        input.type = "checkbox";
         input.name = "workspace-selector";
         input.value = String(workspace.workspace_id || "");
-        input.checked = index === 0;
+        input.addEventListener("change", () => syncWorkspaceSelectorActions(dialog));
         const copy = document.createElement("span");
         copy.className = "workspace-selector-option-copy";
         const title = document.createElement("strong");
@@ -5937,21 +5969,30 @@
         option.append(input, copy);
         return option;
       }));
-      submit.disabled = false;
-      clear.disabled = false;
+      syncWorkspaceSelectorActions(dialog);
     }
 
     async function clearWorkspaceChoices(dialog) {
       const error = dialog.querySelector(".workspace-selector-error");
+      const workspaceIds = selectedWorkspaceChoices(dialog).map((choice) => choice.value);
+      if (workspaceIds.length === 0) {
+        return;
+      }
+      dialog.querySelector(".workspace-selector-submit").disabled = true;
+      dialog.querySelector(".workspace-selector-clear").disabled = true;
+      dialog.querySelector(".workspace-selector-select-all-input").disabled = true;
       const parameters = new URLSearchParams({ workflow_id: workflowMode });
       appendFrontendTelemetryParameters(parameters);
       const response = await fetch(`/api/workspaces/clear?${parameters.toString()}`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_ids: workspaceIds }),
       });
       const payload = await response.json().catch(() => ({ error: "workspace clear failed" }));
       if (!response.ok) {
         error.textContent = payload.error || "workspace clear failed";
         error.hidden = false;
+        syncWorkspaceSelectorActions(dialog);
         return;
       }
       await loadWorkspaceChoices(dialog);
@@ -5968,15 +6009,27 @@
         };
         dialog.querySelector(".workspace-selector-close").onclick = () => finish(false);
         dialog.querySelector(".workspace-selector-cancel").onclick = () => finish(false);
+        dialog.querySelector(".workspace-selector-select-all-input").onchange = (event) => {
+          dialog.querySelectorAll('input[name="workspace-selector"]').forEach((choice) => {
+            choice.checked = event.currentTarget.checked;
+          });
+          syncWorkspaceSelectorActions(dialog);
+        };
         dialog.querySelector(".workspace-selector-clear").onclick = () => {
+          const selectedCount = selectedWorkspaceChoices(dialog).length;
+          if (selectedCount === 0) {
+            return;
+          }
           if (!window.confirm(
-            "Clear all detached workspaces? Running sessions in them will be stopped.",
+            `Clear ${selectedCount} selected workspace${selectedCount === 1 ? "" : "s"}? `
+              + "Running sessions in them will be stopped.",
           )) {
             return;
           }
           clearWorkspaceChoices(dialog).catch((problem) => {
             error.textContent = problem.message || String(problem);
             error.hidden = false;
+            syncWorkspaceSelectorActions(dialog);
           });
         };
         dialog.oncancel = (event) => {
@@ -5985,15 +6038,18 @@
         };
         dialog.querySelector("form").onsubmit = async (event) => {
           event.preventDefault();
-          const selected = dialog.querySelector('input[name="workspace-selector"]:checked');
-          if (!selected) {
+          const selected = selectedWorkspaceChoices(dialog);
+          if (selected.length !== 1) {
             return;
           }
+          dialog.querySelector(".workspace-selector-submit").disabled = true;
+          dialog.querySelector(".workspace-selector-clear").disabled = true;
+          dialog.querySelector(".workspace-selector-select-all-input").disabled = true;
           const response = await fetch(contextUrl("/api/workspaces/attach"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              workspace_id: selected.value,
+              workspace_id: selected[0].value,
               connection_id: currentBrowserTabId(),
             }),
           });

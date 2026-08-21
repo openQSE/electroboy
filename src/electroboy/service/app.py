@@ -430,10 +430,15 @@ class ServiceState:
             )
         return {"workspaces": rows}
 
-    def clear_workspaces(self, workflow_id: str) -> dict[str, object]:
+    def clear_workspaces(
+        self,
+        workflow_id: str,
+        workspace_ids: list[str] | None = None,
+    ) -> dict[str, object]:
         with self.lock:
             contexts = self.workspace_registry.clear_detached(
                 workflow_id=workflow_id,
+                workspace_ids=workspace_ids,
             )
             sessions = [
                 session

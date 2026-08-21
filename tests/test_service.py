@@ -1242,6 +1242,11 @@ class ServiceTests(unittest.TestCase):
         runtime = read_service_text_asset("js/core/runtime.js")
 
         self.assertIn(
+            'input type="checkbox" class="workspace-selector-select-all-input"',
+            runtime,
+        )
+        self.assertIn('input.type = "checkbox";', runtime)
+        self.assertIn(
             '<button class="workspace-selector-clear" type="button">Clear</button>',
             runtime,
         )
@@ -1249,6 +1254,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function clearWorkspaceChoices(dialog)", runtime)
         self.assertIn("/api/workspaces/clear?${parameters.toString()}", runtime)
         self.assertIn('method: "POST"', runtime)
+        self.assertIn("body: JSON.stringify({ workspace_ids: workspaceIds })", runtime)
+        self.assertIn("submit.disabled = selected.length !== 1;", runtime)
+        self.assertIn("clear.disabled = selected.length === 0;", runtime)
         self.assertIn("Running sessions in them will be stopped.", runtime)
 
     def test_agent_input_actions_are_fixed_height_and_top_aligned(self) -> None:

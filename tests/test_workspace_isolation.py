@@ -201,6 +201,96 @@ class WorkspaceIsolationTests(unittest.TestCase):
         self.assertNotIn(software_id, restored.workspace_registry.records)
         self.assertIn(creative_id, restored.workspace_registry.records)
 
+    def test_clear_route_removes_only_selected_workspaces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = create_server(root, port=0)
+            state = server.service_state
+            self.assertIsNotNone(state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                selected = state.create_context("tab-a", "software")
+                selected_id = str(selected["workspace_id"])
+                state.workspace_registry.adopt_context(
+                    state.context_store.require(selected_id),
+                    name="Selected workspace",
+                    project_identity=str(root / "selected"),
+                )
+                state.workspace_registry.detach(
+                    selected_id,
+                    "tab-a",
+                    str(selected["lease_token"]),
+                )
+
+                retained = state.create_context("tab-b", "software")
+                retained_id = str(retained["workspace_id"])
+                state.workspace_registry.adopt_context(
+                    state.context_store.require(retained_id),
+                    name="Retained workspace",
+                    project_identity=str(root / "retained"),
+                )
+                state.workspace_registry.detach(
+                    retained_id,
+                    "tab-b",
+                    str(retained["lease_token"]),
+                )
+
+                other_workflow = state.create_context("tab-c", "creative-writing")
+                other_workflow_id = str(other_workflow["workspace_id"])
+                state.workspace_registry.adopt_context(
+                    state.context_store.require(other_workflow_id),
+                    name="Other workflow workspace",
+                    project_identity=str(root / "other-workflow"),
+                )
+                state.workspace_registry.detach(
+                    other_workflow_id,
+                    "tab-c",
+                    str(other_workflow["lease_token"]),
+                )
+
+                invalid_status, invalid_payload = self._request(
+                    server,
+                    "POST",
+                    "/api/workspaces/clear?workflow_id=software",
+                    {"workspace_ids": selected_id},
+                )
+                status, payload = self._request(
+                    server,
+                    "POST",
+                    "/api/workspaces/clear?workflow_id=software",
+                    {"workspace_ids": [selected_id, other_workflow_id]},
+                )
+                software_status, software_payload = self._request(
+                    server,
+                    "GET",
+                    "/api/workspaces?workflow_id=software",
+                )
+                creative_status, creative_payload = self._request(
+                    server,
+                    "GET",
+                    "/api/workspaces?workflow_id=creative-writing",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(invalid_status, 400)
+        self.assertIn("workspace_ids", str(invalid_payload["error"]))
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["cleared_workspace_count"], 1)
+        self.assertEqual(software_status, 200)
+        self.assertEqual(
+            [row["workspace_id"] for row in software_payload["workspaces"]],
+            [retained_id],
+        )
+        self.assertEqual(creative_status, 200)
+        self.assertEqual(
+            [row["workspace_id"] for row in creative_payload["workspaces"]],
+            [other_workflow_id],
+        )
+
     def test_detached_project_resumes_original_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -59,7 +59,23 @@ def _workspaces(request: RouteRequest) -> JsonResponse:
 
 def _clear_workspaces(request: RouteRequest) -> JsonResponse:
     workflow_id = str((request.params.get("workflow_id") or [""])[0])
-    return JsonResponse(request.services.workspaces.clear(workflow_id))
+    payload = request.body()
+    requested_ids = payload.get("workspace_ids")
+    if "workspace_ids" not in payload:
+        workspace_ids = None
+    elif not isinstance(requested_ids, list) or any(
+        not isinstance(workspace_id, str) or not workspace_id.strip()
+        for workspace_id in requested_ids
+    ):
+        return JsonResponse(
+            {"error": "workspace_ids must be a list of workspace IDs"},
+            status=HTTPStatus.BAD_REQUEST,
+        )
+    else:
+        workspace_ids = list(
+            dict.fromkeys(workspace_id.strip() for workspace_id in requested_ids)
+        )
+    return JsonResponse(request.services.workspaces.clear(workflow_id, workspace_ids))
 
 
 def _attach_workspace(request: RouteRequest) -> ServiceResponse:
