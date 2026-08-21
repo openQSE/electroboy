@@ -160,7 +160,11 @@ def module() -> ServiceModule:
             route("POST", "/api/agenda/editor", "agenda", "submit_editor"),
         ),
         handlers=_HANDLERS,
-        assets=("js/modules/agenda.js",),
+        assets=(
+            "css/agenda-pane-tools.css",
+            "js/modules/agenda.js",
+            "js/modules/agenda-pane-tools.js",
+        ),
         asset_package="electroboy.modules",
         capabilities=frozenset(
             {

@@ -19,12 +19,25 @@
     const closeButton = options.closeButton;
     const resizeHandle = options.resizeHandle;
     const storageKey = String(options.storageKey || "");
+    const side = options.side === "left" ? "left" : "right";
     const onResize = typeof options.onResize === "function"
       ? options.onResize
       : () => {};
     const sections = new Map();
     let enabled = false;
     let open = false;
+
+    function storedOpen() {
+      if (!storageKey) return Boolean(options.defaultOpen);
+      try {
+        const value = window.localStorage.getItem(`${storageKey}.open`);
+        return value === null ? Boolean(options.defaultOpen) : value === "true";
+      } catch (error) {
+        return Boolean(options.defaultOpen);
+      }
+    }
+
+    let preferredOpen = storedOpen();
 
     function storedWidth() {
       if (!storageKey) return 280;
@@ -45,7 +58,20 @@
       }
     }
 
-    function applyOpenState(nextOpen) {
+    function applyOpenState(nextOpen, remember = true) {
+      if (remember) {
+        preferredOpen = Boolean(nextOpen);
+        if (storageKey) {
+          try {
+            window.localStorage.setItem(
+              `${storageKey}.open`,
+              String(preferredOpen),
+            );
+          } catch (error) {
+            // Open state persistence is optional.
+          }
+        }
+      }
       open = enabled && Boolean(nextOpen);
       host.classList.toggle("pane-tools-open", open);
       shelf.hidden = !open;
@@ -57,7 +83,7 @@
     function setEnabled(nextEnabled) {
       enabled = Boolean(nextEnabled);
       toggleButton.hidden = !enabled;
-      if (!enabled) applyOpenState(false);
+      applyOpenState(enabled ? preferredOpen : false, false);
     }
 
     function addSection(id, label, options = {}) {
@@ -119,7 +145,10 @@
       resizeHandle.setPointerCapture(pointerId);
       const update = (moveEvent) => {
         const rect = host.getBoundingClientRect();
-        const width = Math.max(210, Math.min(520, rect.right - moveEvent.clientX));
+        const requestedWidth = side === "left"
+          ? moveEvent.clientX - rect.left
+          : rect.right - moveEvent.clientX;
+        const width = Math.max(210, Math.min(520, requestedWidth));
         shelf.style.width = `${width}px`;
         onResize();
       };

@@ -79,6 +79,9 @@ def render_agenda_html(
       gap: 9px;
       flex-wrap: wrap;
     }}
+    body.agenda-embedded .agenda-header {{
+      display: none;
+    }}
     .agenda-filter {{ display: grid; gap: 3px; font-size: 11px; font-weight: 750; }}
     .agenda-filter select {{
       border: 1px solid rgba(255,255,255,.35);
@@ -269,6 +272,8 @@ def render_agenda_html(
       month: "short", day: "numeric", timeZone: AGENDA_DATA.timezone,
     }});
     const filterStorageKey = `electroboy.agenda.filters.${{AGENDA_DATA.provider}}`;
+    const embeddedAgenda = new URLSearchParams(window.location.search).get("embed") === "1";
+    document.body.classList.toggle("agenda-embedded", embeddedAgenda);
 
     function contextUrl(path) {{
       const url = new URL(path, window.location.origin);
@@ -282,6 +287,40 @@ def render_agenda_html(
       if (className) node.className = className;
       if (text !== "") node.textContent = text;
       return node;
+    }}
+
+    function agendaRange() {{
+      const parameters = new URLSearchParams(window.location.search);
+      return {{
+        range_start: parameters.get("range_start") || "",
+        range_end: parameters.get("range_end") || "",
+      }};
+    }}
+
+    function notifyAgendaHost() {{
+      if (window.parent === window) return;
+      window.parent.postMessage({{
+        type: "electroboy-agenda-state",
+        state: {{
+          provider: AGENDA_DATA.provider,
+          filters: AGENDA_DATA.filters || [],
+          range: agendaRange(),
+          referenceDate: AGENDA_DATA.reference_date,
+          itemCount: (AGENDA_DATA.items || []).length,
+        }},
+      }}, window.location.origin);
+    }}
+
+    function saveSelectedFilters(values) {{
+      try {{ window.localStorage.setItem(filterStorageKey, JSON.stringify(values)); }}
+      catch (_error) {{ /* Local persistence is optional. */ }}
+    }}
+
+    function selectedFilterValues(override = {{}}) {{
+      return Object.fromEntries((AGENDA_DATA.filters || []).map((filter) => [
+        filter.id,
+        Object.hasOwn(override, filter.id) ? override[filter.id] : filter.value,
+      ]));
     }}
 
     function itemTime(item) {{
@@ -503,8 +542,7 @@ def render_agenda_html(
             ),
           );
           selected[filter.id] = select.value;
-          try {{ window.localStorage.setItem(filterStorageKey, JSON.stringify(selected)); }}
-          catch (_error) {{ /* Local persistence is optional. */ }}
+          saveSelectedFilters(selected);
           window.location.assign(url);
         }});
         select.dataset.filterId = filter.id;
@@ -522,6 +560,7 @@ def render_agenda_html(
       sectionsRoot.replaceChildren();
       const itemCount = (AGENDA_DATA.items || []).length;
       summary.textContent = itemCount === 1 ? "1 item" : `${{itemCount}} items`;
+      notifyAgendaHost();
       if (!(AGENDA_DATA.sections || []).length) {{
         sectionsRoot.append(element("section", "agenda-empty", AGENDA_DATA.empty_message || "Nothing is on the agenda."));
         return;
@@ -536,6 +575,49 @@ def render_agenda_html(
         container.append(heading, items);
         sectionsRoot.append(container);
       }}
+    }}
+
+    function handleAgendaCommand(event) {{
+      if (event.origin !== window.location.origin || event.source !== window.parent) return;
+      const command = event.data || {{}};
+      if (command.type !== "electroboy-agenda-command") return;
+      if (command.action === "request-state") {{
+        notifyAgendaHost();
+        return;
+      }}
+      if (command.action === "jump-today") {{
+        document.getElementById("section-today")?.scrollIntoView({{ behavior: "smooth" }});
+        return;
+      }}
+      const url = new URL(window.location.href);
+      if (command.action === "set-filter") {{
+        const filter = (AGENDA_DATA.filters || []).find(
+          (entry) => entry.id === String(command.filterId || ""),
+        );
+        const value = String(command.value || "");
+        if (!filter || !(filter.options || []).some((option) => option.value === value)) return;
+        url.searchParams.set(`filter.${{filter.id}}`, value);
+        saveSelectedFilters(selectedFilterValues({{ [filter.id]: value }}));
+      }} else if (command.action === "set-range") {{
+        for (const [parameter, value] of [
+          ["range_start", command.rangeStart],
+          ["range_end", command.rangeEnd],
+        ]) {{
+          if (value) url.searchParams.set(parameter, String(value));
+          else url.searchParams.delete(parameter);
+        }}
+      }} else if (command.action === "reset") {{
+        for (const filter of AGENDA_DATA.filters || []) {{
+          url.searchParams.delete(`filter.${{filter.id}}`);
+        }}
+        url.searchParams.delete("range_start");
+        url.searchParams.delete("range_end");
+        try {{ window.localStorage.removeItem(filterStorageKey); }}
+        catch (_error) {{ /* Local persistence is optional. */ }}
+      }} else {{
+        return;
+      }}
+      window.location.assign(url);
     }}
 
     function restoreStoredFilters() {{
@@ -559,6 +641,7 @@ def render_agenda_html(
       return changed;
     }}
 
+    window.addEventListener("message", handleAgendaCommand);
     if (!restoreStoredFilters()) renderAgenda();
   </script>
 </body>

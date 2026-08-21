@@ -188,7 +188,10 @@ class ServiceTests(unittest.TestCase):
                 ServiceModule(
                     id="sample-module",
                     label="Sample Module",
-                    assets=("js/modules/sample.js",),
+                    assets=(
+                        "css/sample.css",
+                        "js/modules/sample.js",
+                    ),
                 ),
             )
         )
@@ -207,6 +210,7 @@ class ServiceTests(unittest.TestCase):
             ),
         )
         template = (
+            "<!-- __ELECTROBOY_CONTRIBUTION_STYLES__ -->\n"
             "<!-- __ELECTROBOY_CONTRIBUTION_SCRIPTS__ -->\n"
             '<script src="/assets/service/js/core/runtime.js"></script>'
         )
@@ -215,6 +219,14 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIn("/assets/service/js/modules/sample.js", page)
         self.assertIn("/assets/service/js/workflows/sample.js", page)
+        self.assertIn(
+            '<link rel="stylesheet" href="/assets/service/css/sample.css">',
+            page,
+        )
+        self.assertNotIn(
+            '<script src="/assets/service/css/sample.css"></script>',
+            page,
+        )
         self.assertNotIn("creative-writing.js", page)
 
     def test_health_endpoint_reports_connected(self) -> None:
@@ -524,6 +536,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(
             "js/modules/file-pane-tools.js",
             frontend_bundles["documents"]["assets"],
+        )
+        self.assertIn(
+            "js/modules/agenda-pane-tools.js",
+            frontend_bundles["agenda"]["assets"],
+        )
+        self.assertIn(
+            "css/agenda-pane-tools.css",
+            frontend_bundles["agenda"]["assets"],
         )
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
@@ -953,6 +973,7 @@ class ServiceTests(unittest.TestCase):
     def test_pane_layout_allows_independent_duplicate_types(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
         documents = read_service_text_asset("js/modules/documents.js")
+        agenda = read_service_text_asset("js/modules/agenda.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
         workspace = read_service_text_asset("js/core/pane-workspace.js")
         styles = read_service_text_asset("css/shell.css")
@@ -963,8 +984,13 @@ class ServiceTests(unittest.TestCase):
             runtime,
         )
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
-        self.assertIn('"agent",\n      "artifact",\n      "scratch",\n      "status"', runtime)
+        self.assertIn(
+            '"agent",\n      "artifact",\n      "agenda",\n'
+            '      "scratch",\n      "status"',
+            runtime,
+        )
         self.assertIn("const duplicateSingleton =", runtime)
+        self.assertIn('content?.kind === "agenda"', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind)", runtime)
         self.assertIn("if (validKind && duplicateSingleton)", runtime)
         self.assertIn("return null;", runtime)
@@ -1157,6 +1183,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('provider === "project-files"', runtime)
         self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
         self.assertIn("assignArtifact: assignArtifactToPane", runtime)
+        self.assertIn("assignPane: assignPaneContent", runtime)
         self.assertIn("function paneLayoutRequestedArtifact(leaf)", runtime)
         self.assertIn(
             'const content = value.content && typeof value.content === "object"',
@@ -1171,7 +1198,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("leaf.content = null", change_kind_source)
         self.assertNotIn('leaf.projectRoot = ""', change_kind_source)
         self.assertIn("function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)", runtime)
-        self.assertIn('type: "electroboy:pane-set-artifact"', runtime)
+        self.assertIn('"electroboy:pane-set-artifact"', runtime)
+        self.assertIn('"electroboy:pane-set-content"', runtime)
         self.assertIn("function paneLayoutStorageKey(mode = workflowMode)", runtime)
         self.assertIn("function paneLayoutFromDefinition(definition)", runtime)
         self.assertIn("function paneLayoutContribution(mode = workflowMode)", runtime)
@@ -1233,6 +1261,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("refreshPaneLayoutInstanceFrames();", assign_source)
         self.assertNotIn("renderPaneLayout();", assign_source)
         self.assertIn("runtimeApi.layout.assignArtifact(nextItems[0]);", documents)
+        self.assertIn('runtime.layout.assignPane("agenda", item);', agenda)
         self.assertIn('kind === "agent" &&', workspace)
         self.assertIn(".pane-layout-leaf.active::before", styles)
         self.assertIn(
@@ -3692,6 +3721,7 @@ class ServiceTests(unittest.TestCase):
                     {
                         "id": "kind",
                         "label": "Items",
+                        "control": "list",
                         "value": "all",
                         "options": [
                             {"value": "all", "label": "All"},
@@ -3748,13 +3778,42 @@ class ServiceTests(unittest.TestCase):
             sum(len(section["items"]) for section in snapshot["sections"]),
             4,
         )
+        self.assertEqual(snapshot["filters"][0]["control"], "list")
         page, status = render_agenda_html(snapshot)
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('id="agendaControls"', page)
+        self.assertIn(
+            "body.agenda-embedded .agenda-header {\n      display: none;",
+            page,
+        )
         self.assertIn('element("div", "agenda-modal-overlay")', page)
         self.assertIn("async function invokeAction", page)
         self.assertIn("async function openEditor", page)
+        self.assertIn('type: "electroboy-agenda-state"', page)
+        self.assertIn('command.action === "set-range"', page)
         self.assertIn('"provider": "fixture-agenda"', page)
+
+    def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+        agenda = read_service_text_asset("js/modules/agenda.js")
+        tools = read_service_text_asset("js/modules/agenda-pane-tools.js")
+        styles = read_service_text_asset("css/agenda-pane-tools.css")
+        page = pane_window_html("agenda")
+
+        self.assertIn('agenda: { label: "Agenda", element: null }', runtime)
+        self.assertIn('runtime.layout.assignPane("agenda", item);', agenda)
+        self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
+        self.assertIn('const PANE_KIND = "agenda";', page)
+        self.assertIn("ElectroBoyAgendaPaneTools.mount", page)
+        self.assertNotIn(
+            'PANE_KIND === "agenda" && window.ElectroBoyFilePaneTools',
+            page,
+        )
+        self.assertIn('controller.addSection("agenda-filters", "Filters")', tools)
+        self.assertIn('controller.addSection("agenda-date", "Date")', tools)
+        self.assertIn(".agenda-pane .pane-tools-shelf", styles)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", styles)
+        self.assertIn("inset: 0 auto 0 0;", styles)
 
     def test_agenda_contract_rejects_invalid_snapshots(self) -> None:
         with self.assertRaisesRegex(StateError, "agenda title is required"):

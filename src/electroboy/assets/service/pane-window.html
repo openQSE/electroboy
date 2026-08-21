@@ -9,6 +9,7 @@
     href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
   >
   <link rel="stylesheet" href="/assets/service/css/pane-tools.css">
+  <link rel="stylesheet" href="/assets/service/css/agenda-pane-tools.css">
   <style>
     :root {
       --terminal: #10141f;
@@ -688,7 +689,7 @@
       <iframe
         id="artifactFrame"
         class="artifact-frame"
-        title="Rendered file preview"
+        title="Rendered pane content"
         sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
         hidden
       ></iframe>
@@ -726,7 +727,7 @@
       <aside id="paneToolsShelf" class="pane-tools-shelf" aria-label="Pane tools" hidden>
         <div id="paneToolsResizeHandle" class="pane-tools-resize-handle"></div>
         <header class="pane-tools-header">
-          <span>Tools</span>
+          <span id="paneToolsTitle">Tools</span>
           <button id="closePaneTools" type="button" aria-label="Close pane tools">×</button>
         </header>
         <div id="paneToolsContent" class="pane-tools-content"></div>
@@ -742,6 +743,7 @@
   <script src="/assets/service/js/core/pane-sync.js"></script>
   <script src="/assets/service/js/core/pane-tools.js"></script>
   <script src="/assets/service/js/modules/file-pane-tools.js"></script>
+  <script src="/assets/service/js/modules/agenda-pane-tools.js"></script>
   <script>
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
@@ -757,7 +759,9 @@
     const ownedShellSessionId = params.get("shell_session_id") || "";
     let selectedShellSessionId = ownedShellSessionId;
     const disposableShell = params.get("disposable") === "1";
-    let artifactKind = params.get("artifact") || "requirements";
+    let artifactKind = PANE_KIND === "agenda"
+      ? "agenda"
+      : params.get("artifact") || "requirements";
     let artifactDocumentPath = params.get("document_path") || "";
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactRoutePath = params.get("artifact_path") || "";
@@ -799,6 +803,7 @@
     const paneToolsResizeHandle = document.getElementById("paneToolsResizeHandle");
     const closePaneTools = document.getElementById("closePaneTools");
     const paneToolsContent = document.getElementById("paneToolsContent");
+    const paneToolsTitle = document.getElementById("paneToolsTitle");
     const workspaceTitle = document.getElementById("workspaceTitle");
     const workspaceLayout = document.getElementById("workspaceLayout");
     const resetWorkspace = document.getElementById("resetWorkspace");
@@ -958,7 +963,7 @@
         terminal.options.fontSize = fontSize;
         window.requestAnimationFrame(fitTerminal);
       }
-      paneFontControls.hidden = PANE_KIND === "artifact";
+      paneFontControls.hidden = PANE_KIND === "artifact" || PANE_KIND === "agenda";
       paneFontLevel.textContent = `${fontSize}px`;
       paneFontLevel.title = fontOffset === 0
         ? "Global font size"
@@ -987,6 +992,7 @@
       if (kind === "artifact") {
         return "File";
       }
+      if (kind === "agenda") return "Agenda";
       if (kind === "progress") return "Progress";
       if (kind === "scratch") return "Scratch pad";
       if (kind === "status") return "Project status";
@@ -2269,7 +2275,7 @@
     function applyArtifactItem(item) {
       const next = item && typeof item === "object" ? item : null;
       if (!next) {
-        resetArtifactTargetState("empty");
+        resetArtifactTargetState(PANE_KIND === "agenda" ? "agenda" : "empty");
         syncArtifactUrlState();
         renderFileSwitcher();
         reconnectArtifactStream();
@@ -2826,6 +2832,7 @@
           { id: "agent", label: "Agent" },
           { id: "progress", label: "Progress" },
           { id: "artifact", label: "File" },
+          { id: "agenda", label: "Agenda" },
           { id: "shell", label: "Shell" },
           { id: "scratch", label: "Scratch" },
           { id: "status", label: "Status" },
@@ -2980,8 +2987,9 @@
         return;
       }
       if (
-        data.type === "electroboy:pane-set-artifact" &&
-        PANE_KIND === "artifact" &&
+        (data.type === "electroboy:pane-set-artifact" ||
+          data.type === "electroboy:pane-set-content") &&
+        (PANE_KIND === "artifact" || PANE_KIND === "agenda") &&
         (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
       ) {
         applyArtifactItem(data.item || null);
@@ -3043,6 +3051,8 @@
       closeButton: closePaneTools,
       resizeHandle: paneToolsResizeHandle,
       storageKey: `electroboy.paneTools.${contextId}.${PANE_KIND}`,
+      defaultOpen: PANE_KIND === "agenda",
+      side: PANE_KIND === "agenda" ? "left" : "right",
       onResize: fitTerminal,
     });
     if (PANE_KIND === "artifact" && window.ElectroBoyFilePaneTools) {
@@ -3075,8 +3085,20 @@
         },
       });
     }
+    if (PANE_KIND === "agenda" && window.ElectroBoyAgendaPaneTools) {
+      paneBody.classList.add("agenda-pane");
+      paneToolsTitle.textContent = "Agenda filters";
+      window.ElectroBoyAgendaPaneTools.mount({
+        controller: paneToolsController,
+        frame: artifactFrame,
+      });
+    }
 
     paneTitle.textContent = titleForPane(PANE_KIND);
+    if (PANE_KIND === "agenda") {
+      refreshArtifactButton.title = "Refresh agenda";
+      refreshArtifactButton.setAttribute("aria-label", "Refresh agenda");
+    }
     initializeContentSwitcher();
     exportPaneFormat.hidden = PANE_KIND !== "artifact";
     exportPaneOutput.hidden = !canExportPaneOutput();
@@ -3090,7 +3112,9 @@
         });
     }
     else if (PANE_KIND === "progress") connectProgressStream();
-    else if (PANE_KIND === "artifact") connectArtifactStream();
+    else if (PANE_KIND === "artifact" || PANE_KIND === "agenda") {
+      connectArtifactStream();
+    }
     else if (PANE_KIND === "scratch") showScratchPad();
     else if (PANE_KIND === "status") showStatus();
     else if (PANE_KIND === "input") showInput();

@@ -76,34 +76,38 @@ def render_service_index(
     module_registry: ModuleRegistry | None = None,
     workflow_registry: WorkflowRegistry | None = None,
 ) -> str:
-    """Render script tags for the installed and enabled contributions."""
+    """Render asset tags for the installed and enabled contributions."""
 
-    paths: list[str] = []
+    scripts: list[str] = []
+    stylesheets: list[str] = []
     if module_registry is not None:
         for module in module_registry.values():
-            paths.extend(module.assets)
+            scripts.extend(asset for asset in module.assets if asset.endswith(".js"))
+            stylesheets.extend(
+                asset for asset in module.assets if asset.endswith(".css")
+            )
     if workflow_registry is not None:
-        paths.extend(
+        scripts.extend(
             f"js/{workflow.frontend_bundle}"
             for workflow in workflow_registry.values()
             if workflow.frontend_bundle
         )
-    scripts = "\n  ".join(
+        stylesheets.extend(
+            stylesheet
+            for workflow in workflow_registry.values()
+            for stylesheet in workflow.frontend_stylesheets
+        )
+    script_tags = "\n  ".join(
         f'<script src="{SERVICE_STATIC_ROUTE_PREFIX}{path}"></script>'
-        for path in dict.fromkeys(paths)
+        for path in dict.fromkeys(scripts)
     )
-    stylesheets = [] if workflow_registry is None else [
-        stylesheet
-        for workflow in workflow_registry.values()
-        for stylesheet in workflow.frontend_stylesheets
-    ]
     links = "\n  ".join(
         f'<link rel="stylesheet" href="{SERVICE_STATIC_ROUTE_PREFIX}{path}">'
         for path in dict.fromkeys(stylesheets)
     )
     return (
         template.replace(CONTRIBUTION_STYLE_MARKER, links)
-        .replace(CONTRIBUTION_SCRIPT_MARKER, scripts)
+        .replace(CONTRIBUTION_SCRIPT_MARKER, script_tags)
     )
 
 
@@ -136,7 +140,11 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             id="agenda",
             label="Agenda Pane",
             owner="agenda",
-            assets=("js/modules/agenda.js",),
+            assets=(
+                "css/agenda-pane-tools.css",
+                "js/modules/agenda.js",
+                "js/modules/agenda-pane-tools.js",
+            ),
         ),
         FrontendBundle(
             id="documents",
@@ -330,6 +338,18 @@ def _contributed_assets(
             "electroboy.modules",
             "assets",
             "agenda.js",
+        ),
+        (
+            "js/modules/agenda-pane-tools.js",
+            "electroboy.modules",
+            "assets",
+            "agenda-pane-tools.js",
+        ),
+        (
+            "css/agenda-pane-tools.css",
+            "electroboy.modules",
+            "assets",
+            "agenda-pane-tools.css",
         ),
         (
             "js/modules/documents.js",

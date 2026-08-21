@@ -2586,6 +2586,7 @@ def _handler_for(
             kind = path.rsplit("/", 1)[-1].strip()
             if kind not in {
                 "agent",
+                "agenda",
                 "artifact",
                 "progress",
                 "scratch",

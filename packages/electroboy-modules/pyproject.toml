@@ -12,6 +12,7 @@ dependencies = ["electroboy-core==0.1.0"]
 
 [project.entry-points."electroboy.modules"]
 agent_sessions = "electroboy.modules.agent_sessions:module"
+agenda = "electroboy.modules.agenda:module"
 binder = "electroboy.modules.binder:module"
 corkboard = "electroboy.modules.corkboard:module"
 file_browser = "electroboy.modules.file_browser:module"
@@ -28,4 +29,4 @@ packages = ["electroboy.modules"]
 include-package-data = false
 
 [tool.setuptools.package-data]
-"electroboy.modules" = ["assets/*.js"]
+"electroboy.modules" = ["assets/*.js", "assets/*.css"]

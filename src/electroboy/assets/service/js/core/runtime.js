@@ -339,15 +339,18 @@
       agent: { label: "Agent", element: agentOutputPane },
       progress: { label: "Progress", element: progressOutputPane },
       artifact: { label: "File", element: artifactPreviewPane },
+      agenda: { label: "Agenda", element: null },
       shell: { label: "Shell", element: projectShellPane },
       scratch: { label: "Scratch", element: scratchPane },
       status: { label: "Status", element: projectStatusPane },
     };
+    const INSTANCE_PANE_LAYOUT_KINDS = new Set(["artifact", "agenda"]);
     const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);
     const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
       "empty",
       "agent",
       "artifact",
+      "agenda",
       "scratch",
       "status",
     ]);
@@ -488,13 +491,16 @@
         if (validKind && duplicateSingleton) {
           return null;
         }
-        const kind = validKind ? requestedKind : "empty";
-        if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
-          seenKinds.add(kind);
-        }
         const content = value.content && typeof value.content === "object"
           ? value.content
           : null;
+        const kind = validKind && requestedKind === "artifact" &&
+            content?.kind === "agenda"
+          ? "agenda"
+          : validKind ? requestedKind : "empty";
+        if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
+          seenKinds.add(kind);
+        }
         const projectRoot = content ? String(value.projectRoot || "") : "";
         return paneLayoutLeaf(kind, content, projectRoot);
       }
@@ -1738,6 +1744,9 @@
         const existingLeaf = paneLayoutLeafByKind(kind);
         return !existingLeaf || existingLeaf === leaf;
       }
+      if (kind === "agenda") {
+        return Boolean(window.ElectroBoyFrontend?.module("agenda"));
+      }
       if (kind !== "artifact") {
         return true;
       }
@@ -2053,9 +2062,18 @@
         : null;
     }
 
+    function paneLayoutRequestedContent(leaf) {
+      if (leaf.kind === "agenda") {
+        return leaf.content && typeof leaf.content === "object"
+          ? leaf.content
+          : null;
+      }
+      return paneLayoutRequestedArtifact(leaf);
+    }
+
     function paneLayoutInstanceUrl(leaf) {
-      const requestedArtifact = paneLayoutRequestedArtifact(leaf);
-      const url = new URL(paneUrl(leaf.kind, requestedArtifact), window.location.origin);
+      const requestedContent = paneLayoutRequestedContent(leaf);
+      const url = new URL(paneUrl(leaf.kind, requestedContent), window.location.origin);
       url.searchParams.set("embedded", "1");
       url.searchParams.set("pane_instance_id", leaf.id);
       return `${url.pathname}${url.search}`;
@@ -2077,7 +2095,7 @@
 
     function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl) {
       if (
-        leaf.kind !== "artifact" ||
+        !INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) ||
         frame.dataset.paneLoaded !== "1" ||
         !frame.contentWindow
       ) {
@@ -2093,9 +2111,11 @@
       }
       frame.contentWindow.postMessage(
         {
-          type: "electroboy:pane-set-artifact",
+          type: leaf.kind === "artifact"
+            ? "electroboy:pane-set-artifact"
+            : "electroboy:pane-set-content",
           paneInstanceId: leaf.id,
-          item: paneLayoutRequestedArtifact(leaf),
+          item: paneLayoutRequestedContent(leaf),
         },
         window.location.origin,
       );
@@ -2147,7 +2167,9 @@
           empty.className = "pane-layout-empty";
           empty.textContent = "Choose a pane type";
           leaf.append(empty);
-        } else if (node.kind === "artifact" || renderedKinds.has(node.kind)) {
+        } else if (
+          INSTANCE_PANE_LAYOUT_KINDS.has(node.kind) || renderedKinds.has(node.kind)
+        ) {
           leaf.append(buildPaneLayoutInstanceFrame(node));
         } else {
           renderedKinds.add(node.kind);
@@ -2202,8 +2224,10 @@
       }
       if (node.type === "leaf") {
         const isInstance = Boolean(element.querySelector(".pane-layout-instance-frame"));
-        const visible = node.kind === "empty" || isInstance ||
-          !PANE_LAYOUT_KINDS[node.kind].element.hidden;
+        const visible = !poppedPanes.has(node.kind) && (
+          node.kind === "empty" || isInstance ||
+          !PANE_LAYOUT_KINDS[node.kind].element.hidden
+        );
         element.hidden = !visible;
         return visible;
       }
@@ -2355,6 +2379,8 @@
       } else if (kind === "artifact") {
         artifactPaneRequested = true;
         applyOutputPaneVisibility(options);
+      } else if (kind === "agenda") {
+        refreshPaneLayoutInstanceFrames();
       } else if (kind === "shell") {
         showProjectShellPane(true);
       }
@@ -2427,13 +2453,24 @@
     }
 
     function assignArtifactToPane(item, requestedLeafId = "") {
+      if (item && item.kind === "agenda") {
+        assignPaneContent("agenda", item, requestedLeafId);
+        return;
+      }
+      assignPaneContent("artifact", item, requestedLeafId);
+    }
+
+    function assignPaneContent(kind, item, requestedLeafId = "") {
+      if (!INSTANCE_PANE_LAYOUT_KINDS.has(kind)) {
+        return;
+      }
       let leaf = paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId);
-      if (!leaf || leaf.kind !== "artifact") {
-        leaf = paneLayoutLeafByKind("artifact");
+      if (!leaf || leaf.kind !== kind) {
+        leaf = paneLayoutLeafByKind(kind);
       }
       if (!leaf) {
-        ensurePaneInLayout("artifact", "agent", "row");
-        leaf = paneLayoutLeafByKind("artifact");
+        ensurePaneInLayout(kind, "agent", "row");
+        leaf = paneLayoutLeafByKind(kind);
       }
       if (!leaf) {
         return;
@@ -2520,7 +2557,13 @@
           movePaneLayoutLeaf(source.id, target.id, position);
         },
         onDetach(source) {
-          popOutPane(source.kind);
+          const leaf = paneLayoutLeafById(source.id);
+          popOutPane(
+            source.kind,
+            leaf && INSTANCE_PANE_LAYOUT_KINDS.has(source.kind)
+              ? paneLayoutRequestedContent(leaf)
+              : null,
+          );
         },
       });
     }
@@ -2535,6 +2578,9 @@
         refreshPaneLayoutVisibility();
       });
       for (const definition of Object.values(PANE_LAYOUT_KINDS)) {
+        if (!definition.element) {
+          continue;
+        }
         paneLayoutObserver.observe(definition.element, {
           attributes: true,
           attributeFilter: ["hidden"],
@@ -4591,6 +4637,9 @@
         ) {
           window.setTimeout(connectProjectShellEvents, 0);
         }
+      }
+      if (INSTANCE_PANE_LAYOUT_KINDS.has(kind)) {
+        refreshPaneLayoutVisibility();
       }
       scheduleFitTerminal();
     }
@@ -7147,6 +7196,7 @@
       layout: {
         ensurePane: ensurePaneInLayout,
         assignArtifact: assignArtifactToPane,
+        assignPane: assignPaneContent,
         hasPane: (kind) => Boolean(paneLayoutLeafByKind(kind)),
         isPopped: (kind) => poppedPanes.has(kind),
         dockPane: dockPoppedPane,

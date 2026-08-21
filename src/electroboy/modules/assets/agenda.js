@@ -14,12 +14,7 @@
       editing: false,
       agenda: { provider, label },
     };
-    runtime.modules.invoke(
-      "documents",
-      "showArtifactPreviews",
-      [item],
-      { manual: true, stage: options.stage || runtime.getState().workflowMode },
-    );
+    runtime.layout.assignPane("agenda", item);
   }
 
   window.ElectroBoyFrontend.registerModule({

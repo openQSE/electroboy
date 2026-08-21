@@ -207,6 +207,9 @@ def _normalize_filters(value: object) -> list[dict[str, object]]:
         selected = str(entry.get("value") or normalized_options[0]["value"]).strip()
         if selected not in {str(option["value"]) for option in normalized_options}:
             selected = str(normalized_options[0]["value"])
+        control = str(entry.get("control") or "select").strip().lower()
+        if control not in {"list", "select"}:
+            control = "select"
         filters.append(
             {
                 **entry,
@@ -214,6 +217,7 @@ def _normalize_filters(value: object) -> list[dict[str, object]]:
                 "label": str(entry.get("label") or filter_id.replace("-", " ").title()),
                 "value": selected,
                 "options": normalized_options,
+                "control": control,
             }
         )
     return filters
