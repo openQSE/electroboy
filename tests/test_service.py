@@ -537,18 +537,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function selectedAgentSession()", pane_window)
         self.assertIn("no active agent stream", pane_window)
         self.assertIn('if (session && session.status === "running")', app)
-        self.assertIn(
-            'showProgressPane(true, { ensureRequestedPanes: false })',
-            app,
-        )
+        self.assertIn("showProgressPane(true, {", app)
+        self.assertIn("ensureRequestedPanes: false,", app)
+        self.assertIn("updateOutputSplit: false,", app)
         self.assertIn(
             'connectSessionEvents(session.session_id, { ensurePane: false })',
             app,
         )
-        self.assertIn(
-            'connectProgressEvents({ ensureRequestedPanes: false })',
-            app,
-        )
+        self.assertIn("connectProgressEvents({", app)
+        self.assertIn("ensureRequestedPanes: false,", app)
+        self.assertIn("updateOutputSplit: false,", app)
         self.assertIn("if (!session) {", sessions)
         self.assertIn("terminate_agents: terminateAgents", app)
         self.assertIn("Deactivate will stop", app)
@@ -798,7 +796,17 @@ class ServiceTests(unittest.TestCase):
         styles = read_service_text_asset("css/shell.css")
 
         self.assertNotIn("existing.kind = previousKind", runtime)
-        self.assertIn('requestedKind === "agent" && seenKinds.has("agent")', runtime)
+        self.assertIn(
+            'const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);',
+            runtime,
+        )
+        self.assertIn("const duplicateSingleton =", runtime)
+        self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind)", runtime)
+        self.assertIn("if (validKind && duplicateSingleton)", runtime)
+        self.assertIn("return null;", runtime)
+        self.assertIn("if (!first) {\n        return second;\n      }", runtime)
+        self.assertIn("if (!second) {\n        return first;\n      }", runtime)
+        self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
         self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
@@ -810,10 +818,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const existing = paneLayoutLeafByKind(kind);", runtime)
         self.assertIn("setActivePaneLayoutLeaf(existing.id);", runtime)
         self.assertIn("if (options.activateExisting !== false)", runtime)
-        self.assertIn(
-            "const manualChangeOptions = { ensureRequestedPanes: false };",
-            runtime,
-        )
+        self.assertIn("const manualChangeOptions = {", runtime)
+        self.assertIn("ensureRequestedPanes: false,", runtime)
+        self.assertIn("updateOutputSplit: false,", runtime)
         self.assertIn("activatePaneLayoutKind(kind, manualChangeOptions);", runtime)
         self.assertIn(
             "deactivatePaneLayoutKind(previousKind, manualChangeOptions);",
@@ -832,6 +839,10 @@ class ServiceTests(unittest.TestCase):
             visibility_source,
         )
         self.assertIn(
+            "const updateOutputSplit = options.updateOutputSplit !== false;",
+            visibility_source,
+        )
+        self.assertIn(
             'if (ensureRequestedPanes && artifactVisible)',
             visibility_source,
         )
@@ -845,6 +856,11 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn(
             'ensurePaneInLayout("progress", "agent", "row", { activateExisting: false })',
+            visibility_source,
+        )
+        self.assertIn("if (!updateOutputSplit)", visibility_source)
+        self.assertIn(
+            'outputSplit.classList.remove("artifact-visible", "split");',
             visibility_source,
         )
         self.assertIn(

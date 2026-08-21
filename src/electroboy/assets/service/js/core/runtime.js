@@ -274,6 +274,7 @@
       scratch: { label: "Scratch", element: scratchPane },
       status: { label: "Status", element: projectStatusPane },
     };
+    const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);
 
     function newPaneLayoutId(prefix = "pane") {
       paneLayoutIdSequence += 1;
@@ -387,10 +388,14 @@
       if (value.type === "leaf") {
         const requestedKind = String(value.kind || "empty");
         const validKind = requestedKind === "empty" || PANE_LAYOUT_KINDS[requestedKind];
-        const duplicateAgent = requestedKind === "agent" && seenKinds.has("agent");
-        const kind = validKind && !duplicateAgent ? requestedKind : "empty";
-        if (kind === "agent") {
-          seenKinds.add("agent");
+        const duplicateSingleton = SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind) &&
+          seenKinds.has(requestedKind);
+        if (validKind && duplicateSingleton) {
+          return null;
+        }
+        const kind = validKind ? requestedKind : "empty";
+        if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
+          seenKinds.add(kind);
         }
         const content = kind === "artifact" && value.content &&
             typeof value.content === "object"
@@ -404,8 +409,14 @@
       }
       const first = normalizePaneLayoutNode(value.first, seenKinds);
       const second = normalizePaneLayoutNode(value.second, seenKinds);
-      if (!first || !second) {
+      if (!first && !second) {
         return null;
+      }
+      if (!first) {
+        return second;
+      }
+      if (!second) {
+        return first;
       }
       const ratio = Number(value.ratio);
       return paneLayoutSplit(
@@ -727,9 +738,9 @@
     }
 
     function paneLayoutKindAvailable(kind, leaf = null) {
-      if (kind === "agent") {
-        const agentLeaf = paneLayoutLeafByKind("agent");
-        return !agentLeaf || agentLeaf === leaf;
+      if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
+        const existingLeaf = paneLayoutLeafByKind(kind);
+        return !existingLeaf || existingLeaf === leaf;
       }
       if (kind !== "artifact") {
         return true;
@@ -1240,7 +1251,10 @@
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
       renderPaneLayout();
-      const manualChangeOptions = { ensureRequestedPanes: false };
+      const manualChangeOptions = {
+        ensureRequestedPanes: false,
+        updateOutputSplit: false,
+      };
       activatePaneLayoutKind(kind, manualChangeOptions);
       if (previousKind !== kind && !paneLayoutLeafByKind(previousKind)) {
         deactivatePaneLayoutKind(previousKind, manualChangeOptions);
@@ -3155,6 +3169,7 @@
 
     function applyOutputPaneVisibility(options = {}) {
       const ensureRequestedPanes = options.ensureRequestedPanes !== false;
+      const updateOutputSplit = options.updateOutputSplit !== false;
       const agentVisible = !poppedPanes.has("agent");
       const artifactVisible =
         artifactPaneRequested && !poppedPanes.has("artifact");
@@ -3168,6 +3183,14 @@
       agentOutputPane.hidden = !agentVisible;
       artifactPreviewPane.hidden = !artifactVisible;
       progressOutputPane.hidden = !progressVisible;
+      if (!updateOutputSplit) {
+        artifactPaneResizeHandle.hidden = true;
+        outputResizeHandle.hidden = true;
+        outputSplit.classList.remove("artifact-visible", "split");
+        outputSplit.classList.toggle("agent-popped", !agentVisible);
+        window.requestAnimationFrame(fitTerminal);
+        return;
+      }
       artifactPaneResizeHandle.hidden = !artifactVisible || !agentVisible;
       outputResizeHandle.hidden =
         !progressVisible || (!agentVisible && !artifactVisible);
@@ -4005,13 +4028,19 @@
           setAgentInputVisible(true);
         } else {
           clearProgressOutput();
-          showProgressPane(true, { ensureRequestedPanes: false });
+          showProgressPane(true, {
+            ensureRequestedPanes: false,
+            updateOutputSplit: false,
+          });
           setAgentInputVisible(false);
         }
         activeAgentKind = session.kind || "";
         connectSessionEvents(session.session_id, { ensurePane: false });
         if (!isInteractive && session.status === "running") {
-          connectProgressEvents({ ensureRequestedPanes: false });
+          connectProgressEvents({
+            ensureRequestedPanes: false,
+            updateOutputSplit: false,
+          });
         }
         sendTerminalResize();
       }
