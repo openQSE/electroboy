@@ -3804,6 +3804,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('element("div", "agenda-modal-overlay")', page)
         self.assertIn("async function invokeAction", page)
         self.assertIn("async function openEditor", page)
+        self.assertIn(
+            'for (const key of ["workspace_id", "context_id", "connection_id", "lease_token"])',
+            page,
+        )
+        self.assertIn("const value = current.get(key);", page)
         self.assertIn('type: "electroboy-agenda-state"', page)
         self.assertIn('styles: AGENDA_DATA.styles || []', page)
         self.assertIn('command.action === "set-style"', page)
@@ -3905,6 +3910,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function openMonthHudCardEditor", month_page)
         self.assertIn("function applyAgendaInlineDraft", month_page)
         self.assertIn("function removeAgendaInlineItem", month_page)
+        self.assertIn("async function submitMonthHudEditor", month_page)
         self.assertIn("function monthHudSelect", month_page)
         self.assertIn("function monthHudPeoplePicker", month_page)
         self.assertIn("function monthHudCheckedPeople", month_page)
@@ -4002,6 +4008,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("if (event.target === layer) closeEditor();", month_page)
         self.assertIn('element("button", "item-action primary", "Approve")', month_page)
         self.assertIn('element("button", "item-action danger", "Discard")', month_page)
+        self.assertIn('renderItem(item, index, { hideActions: true })', month_page)
+        self.assertIn('const result = await submitMonthHudEditor(item, "approve", draft);', month_page)
+        self.assertIn("replaceAgendaInlineItem(item, result.item)", month_page)
+        self.assertIn('await submitAgendaAction(item, { id: "discard" });', month_page)
         self.assertIn('element("span", "month-hud-circuit-segment is-primary")', month_page)
         self.assertIn('element("span", "month-hud-circuit-segment is-secondary")', month_page)
         self.assertIn('stage.setAttribute("aria-label", "Month timeline");', month_page)

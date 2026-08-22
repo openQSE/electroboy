@@ -1918,8 +1918,11 @@ def render_agenda_html(
 
     function contextUrl(path) {{
       const url = new URL(path, window.location.origin);
-      const contextId = new URLSearchParams(window.location.search).get("context_id");
-      if (contextId) url.searchParams.set("context_id", contextId);
+      const current = new URLSearchParams(window.location.search);
+      for (const key of ["workspace_id", "context_id", "connection_id", "lease_token"]) {{
+        const value = current.get(key);
+        if (value) url.searchParams.set(key, value);
+      }}
       return url.toString();
     }}
 
@@ -2055,11 +2058,7 @@ def render_agenda_html(
       root.append(list);
     }}
 
-    async function invokeAction(item, action) {{
-      if (action.editor) {{
-        await openEditor(item, action);
-        return;
-      }}
+    async function submitAgendaAction(item, action) {{
       const response = await fetch(contextUrl("/api/agenda/action"), {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
@@ -2072,6 +2071,15 @@ def render_agenda_html(
         }}),
       }});
       if (!response.ok) throw new Error((await response.text()) || "Agenda action failed");
+      return response.json();
+    }}
+
+    async function invokeAction(item, action) {{
+      if (action.editor) {{
+        await openEditor(item, action);
+        return;
+      }}
+      await submitAgendaAction(item, action);
       window.location.reload();
     }}
 
@@ -2182,7 +2190,7 @@ def render_agenda_html(
       (form.querySelector("input,select,textarea") || close).focus();
     }}
 
-    function renderItem(item, index = 0) {{
+    function renderItem(item, index = 0, options = {{}}) {{
       const article = element("article", `agenda-item ${{item.status || ""}}`);
       article.dataset.itemId = item.id;
       article.style.setProperty("--agenda-index", String(index));
@@ -2201,7 +2209,7 @@ def render_agenda_html(
       appendPeople(body, item);
       if (item.warning) body.append(element("div", "agenda-warning", item.warning.message || String(item.warning)));
       appendMetadata(body, item);
-      if ((item.actions || []).length) {{
+      if (!options.hideActions && (item.actions || []).length) {{
         const actions = element("div", "agenda-actions");
         for (const action of item.actions) {{
           const button = element("button", `item-action ${{action.style || ""}}`, action.label || action.id);
@@ -2307,6 +2315,34 @@ def render_agenda_html(
       const items = AGENDA_DATA.items || [];
       const index = items.findIndex((entry) => entry.id === item.id);
       if (index >= 0) items.splice(index, 1);
+    }}
+
+    function replaceAgendaInlineItem(item, replacement) {{
+      if (!replacement) return item;
+      const items = AGENDA_DATA.items || [];
+      const index = items.findIndex((entry) => entry.id === item.id);
+      Object.assign(item, replacement);
+      if (index >= 0) items[index] = item;
+      else items.push(item);
+      return item;
+    }}
+
+    async function submitMonthHudEditor(item, submissionId, values = {{}}) {{
+      const response = await fetch(contextUrl("/api/agenda/editor"), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          provider: AGENDA_DATA.provider,
+          item_id: item.id,
+          item_version: item.version,
+          action_id: "edit",
+          submission_id: submissionId,
+          values,
+          idempotency_key: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+        }}),
+      }});
+      if (!response.ok) throw new Error((await response.text()) || "Could not save agenda card");
+      return response.json();
     }}
 
     function monthHudEditField(labelText, control, wide = false) {{
@@ -2501,6 +2537,8 @@ def render_agenda_html(
       discard.type = "button";
       const approve = element("button", "item-action primary", "Approve");
       approve.type = "button";
+      const error = element("div", "editor-error");
+      error.setAttribute("role", "alert");
       actions.append(discard, approve);
       let editorClosing = false;
       let discardConfirmation = null;
@@ -2566,10 +2604,24 @@ def render_agenda_html(
           if (event.target === confirmation) closeDiscardConfirmation();
         }});
         cancel.addEventListener("click", closeDiscardConfirmation);
-        ok.addEventListener("click", () => {{
+        ok.addEventListener("click", async () => {{
           if (editorClosing) return;
-          callbacks.onDiscard();
-          closeEditor();
+          ok.disabled = true;
+          cancel.disabled = true;
+          discard.disabled = true;
+          approve.disabled = true;
+          error.textContent = "";
+          try {{
+            await callbacks.onDiscard();
+            closeEditor();
+          }} catch (problem) {{
+            error.textContent = problem.message || "Could not discard agenda card";
+            ok.disabled = false;
+            cancel.disabled = false;
+            discard.disabled = false;
+            approve.disabled = false;
+            closeDiscardConfirmation();
+          }}
         }});
         layer.append(confirmation);
         discardConfirmation = confirmation;
@@ -2577,25 +2629,37 @@ def render_agenda_html(
         cancel.focus();
       }}
 
-      function approveDraft() {{
-        callbacks.onApprove({{
-          title: title.value.trim(),
-          kind: kind.value,
-          status: status.value,
-          when: when.value,
-          people: monthHudCheckedPeople(people),
-          badges: badges.value,
-          description: description.value.trim(),
-          warning: warning.value.trim(),
-        }});
-        closeEditor();
+      async function approveDraft() {{
+        if (editorClosing || approve.disabled) return;
+        approve.disabled = true;
+        discard.disabled = true;
+        error.textContent = "";
+        try {{
+          await callbacks.onApprove({{
+            title: title.value.trim(),
+            kind: kind.value,
+            status: status.value,
+            when: when.value,
+            people: monthHudCheckedPeople(people),
+            badges: badges.value,
+            description: description.value.trim(),
+            warning: warning.value.trim(),
+          }});
+          closeEditor();
+        }} catch (problem) {{
+          error.textContent = problem.message || "Could not save agenda card";
+          approve.disabled = false;
+          discard.disabled = false;
+        }}
       }}
 
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
-        approveDraft();
+        void approveDraft();
       }});
-      approve.addEventListener("click", approveDraft);
+      approve.addEventListener("click", () => {{
+        void approveDraft();
+      }});
       discard.addEventListener("click", () => {{
         openDiscardConfirmation();
       }});
@@ -2604,7 +2668,7 @@ def render_agenda_html(
         if (editorClosing) return;
         if (event.target === layer) closeEditor();
       }});
-      form.append(header, grid, actions);
+      form.append(header, grid, error, actions);
       layer.append(form);
       host.append(layer);
       title.focus();
@@ -3053,21 +3117,24 @@ def render_agenda_html(
               element("span", "month-hud-circuit-segment is-secondary"),
             );
             branch.style.setProperty("--agenda-index", String(index));
-            const card = renderItem(item, index);
+            const card = renderItem(item, index, {{ hideActions: true }});
             card.classList.add("month-hud-editable-card");
             card.tabIndex = 0;
             card.setAttribute("role", "button");
             card.setAttribute("aria-label", `Edit ${{item.title || "agenda item"}}`);
             const openCardEditor = () => {{
               openMonthHudCardEditor(root, stage, item, {{
-                onApprove: (draft) => {{
-                  applyAgendaInlineDraft(item, draft);
+                onApprove: async (draft) => {{
+                  const result = await submitMonthHudEditor(item, "approve", draft);
+                  if (result && result.item) replaceAgendaInlineItem(item, result.item);
+                  else applyAgendaInlineDraft(item, draft);
                   rebuildMonthGroups();
                   syncMonthButtons();
                   updateMonthHudSummary();
                   renderMonthBranches(selectedMonthKey() || key);
                 }},
-                onDiscard: () => {{
+                onDiscard: async () => {{
+                  await submitAgendaAction(item, {{ id: "discard" }});
                   removeAgendaInlineItem(item);
                   rebuildMonthGroups();
                   syncMonthButtons();
