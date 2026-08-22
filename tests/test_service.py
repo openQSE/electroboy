@@ -2488,9 +2488,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"viewBox"', page)
         self.assertIn('"preserveAspectRatio"', page)
         self.assertIn("window.requestAnimationFrame", page)
+        self.assertIn("const wheelZoomFactor = 1.1;", page)
+        self.assertIn("function zoomTo(nextZoom, clientX = null, clientY = null)", page)
+        self.assertIn("viewport.scrollLeft += rect.left", page)
+        self.assertIn("function handleWheelZoom(event)", page)
         self.assertIn("function startPan(event)", page)
+        self.assertIn("event.button !== 1", page)
         self.assertIn("viewport.scrollLeft", page)
+        self.assertIn(
+            'viewport.addEventListener("wheel", handleWheelZoom, { passive: false });',
+            page,
+        )
         self.assertIn('viewport.addEventListener("pointerdown", startPan);', page)
+        self.assertIn('viewport.addEventListener("auxclick", (event) => {', page)
         self.assertIn('securityLevel: "strict"', page)
         self.assertIn('querySelector: ".mermaid"', page)
 

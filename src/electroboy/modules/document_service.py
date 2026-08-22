@@ -2471,6 +2471,7 @@ def _mermaid_script(rendered: str) -> str:
       const minimumZoom = 0.4;
       const maximumZoom = 4;
       const zoomStep = 0.25;
+      const wheelZoomFactor = 1.1;
       let zoom = 1;
       let naturalWidth = 0;
       let naturalHeight = 0;
@@ -2551,6 +2552,12 @@ def _mermaid_script(rendered: str) -> str:
       function applyZoom() {
         const svg = content.querySelector("svg");
         if (svg) {
+          if (!baseWidth || !baseHeight) {
+            const dimensions = readSvgDimensions(svg);
+            naturalWidth = dimensions.width;
+            naturalHeight = dimensions.height;
+            updateBaseSize();
+          }
           svg.style.width = (baseWidth * zoom) + "px";
           svg.style.height = (baseHeight * zoom) + "px";
         } else {
@@ -2561,13 +2568,54 @@ def _mermaid_script(rendered: str) -> str:
         zoomIn.disabled = zoom >= maximumZoom;
       }
 
-      function changeZoom(delta) {
-        zoom = Math.max(minimumZoom, Math.min(maximumZoom, zoom + delta));
+      function zoomTo(nextZoom, clientX = null, clientY = null) {
+        const clampedZoom = Math.max(
+          minimumZoom,
+          Math.min(maximumZoom, nextZoom),
+        );
+        if (clampedZoom === zoom) {
+          return;
+        }
+        let anchor = null;
+        if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+          const anchorElement = content.querySelector("svg") || content;
+          const rect = anchorElement.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            anchor = {
+              element: anchorElement,
+              x: clientX,
+              y: clientY,
+              ratioX: (clientX - rect.left) / rect.width,
+              ratioY: (clientY - rect.top) / rect.height,
+            };
+          }
+        }
+        zoom = clampedZoom;
         applyZoom();
+        if (anchor) {
+          const rect = anchor.element.getBoundingClientRect();
+          viewport.scrollLeft += rect.left + rect.width * anchor.ratioX - anchor.x;
+          viewport.scrollTop += rect.top + rect.height * anchor.ratioY - anchor.y;
+        }
+      }
+
+      function changeZoom(delta) {
+        zoomTo(zoom + delta);
+      }
+
+      function handleWheelZoom(event) {
+        event.preventDefault();
+        if (event.deltaY === 0) {
+          return;
+        }
+        const factor = event.deltaY < 0
+          ? wheelZoomFactor
+          : 1 / wheelZoomFactor;
+        zoomTo(zoom * factor, event.clientX, event.clientY);
       }
 
       function startPan(event) {
-        if (event.button !== 0 || event.target.closest("a")) {
+        if (event.button !== 1 || event.target.closest("a")) {
           return;
         }
         event.preventDefault();
@@ -2621,14 +2669,19 @@ def _mermaid_script(rendered: str) -> str:
 
       zoomOut.addEventListener("click", () => changeZoom(-zoomStep));
       zoomReset.addEventListener("click", () => {
-        zoom = 1;
-        applyZoom();
+        zoomTo(1);
       });
       zoomIn.addEventListener("click", () => changeZoom(zoomStep));
+      viewport.addEventListener("wheel", handleWheelZoom, { passive: false });
       viewport.addEventListener("pointerdown", startPan);
       viewport.addEventListener("pointermove", updatePan);
       viewport.addEventListener("pointerup", finishPan);
       viewport.addEventListener("pointercancel", finishPan);
+      viewport.addEventListener("auxclick", (event) => {
+        if (event.button === 1) {
+          event.preventDefault();
+        }
+      });
       window.addEventListener("resize", () => {
         updateBaseSize();
         applyZoom();
