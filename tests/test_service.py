@@ -3847,6 +3847,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("@keyframes agenda-radar-sweep", radar_page)
         self.assertIn("body.agenda-style-radar .agenda-items::before", radar_page)
         self.assertIn('"id": "radar", "label": "Radar"', radar_page)
+        orbit_page, orbit_status = render_agenda_html(
+            snapshot,
+            style="family-orbit",
+        )
+        self.assertEqual(orbit_status, HTTPStatus.OK)
+        self.assertIn('<body class="agenda-style-family-orbit">', orbit_page)
+        self.assertIn("@keyframes agenda-orbit-float", orbit_page)
+        self.assertIn(
+            "body.agenda-style-family-orbit .agenda-items::before",
+            orbit_page,
+        )
+        self.assertIn(
+            '"id": "family-orbit", "label": "Family Orbit"',
+            orbit_page,
+        )
 
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
@@ -3868,6 +3883,10 @@ class ServiceTests(unittest.TestCase):
             agenda,
         )
         self.assertIn('Object.freeze({ id: "radar", label: "Radar" })', agenda)
+        self.assertIn(
+            'Object.freeze({ id: "family-orbit", label: "Family Orbit" })',
+            agenda,
+        )
         self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
         self.assertIn('const PANE_KIND = "agenda";', page)
         self.assertIn("ElectroBoyAgendaPaneTools.mount", page)

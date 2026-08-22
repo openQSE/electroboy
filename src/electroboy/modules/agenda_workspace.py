@@ -13,6 +13,7 @@ AGENDA_STYLES = (
     {"id": "command-center", "label": "Command Center"},
     {"id": "timeline-stack", "label": "Timeline Stack"},
     {"id": "radar", "label": "Radar"},
+    {"id": "family-orbit", "label": "Family Orbit"},
 )
 AGENDA_STYLE_IDS = frozenset(style["id"] for style in AGENDA_STYLES)
 
@@ -658,6 +659,142 @@ def render_agenda_html(
       }}
       body.agenda-style-radar .agenda-item:nth-child(n) {{
         transform: none;
+      }}
+    }}
+    body.agenda-style-family-orbit {{
+      --ink: #20283a;
+      --muted: #677386;
+      --line: #cad7df;
+      --paper: rgba(255, 255, 255, .94);
+      --wash: #edf4f6;
+      --accent: #237f86;
+      --accent-soft: #d8f0ed;
+      --warning: #a24a2b;
+      --warning-soft: #fff0e7;
+      --shadow: 0 18px 38px rgba(30, 50, 70, .14);
+      background:
+        radial-gradient(circle at 14% 16%, rgba(35, 127, 134, .14), transparent 28%),
+        radial-gradient(circle at 88% 22%, rgba(215, 92, 120, .14), transparent 26%),
+        #edf4f6;
+    }}
+    body.agenda-style-family-orbit .agenda-header {{
+      border-bottom: 1px solid #c4d3dc;
+      background: #24324a;
+      color: #f8fbff;
+      box-shadow: 0 12px 30px rgba(36, 50, 74, .18);
+    }}
+    body.agenda-style-family-orbit .agenda-kicker {{
+      color: #bfd7dd;
+      letter-spacing: 0;
+    }}
+    body.agenda-style-family-orbit h1,
+    body.agenda-style-family-orbit .agenda-section-heading {{
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-weight: 850;
+    }}
+    body.agenda-style-family-orbit .agenda-content {{
+      width: min(1220px, 100%);
+    }}
+    body.agenda-style-family-orbit .agenda-section {{
+      position: relative;
+      margin-bottom: 42px;
+    }}
+    body.agenda-style-family-orbit .agenda-section-heading {{
+      color: #24324a;
+    }}
+    body.agenda-style-family-orbit .agenda-count {{
+      border: 1px solid #afd2d0;
+      background: #d8f0ed;
+      color: #237f86;
+    }}
+    body.agenda-style-family-orbit .agenda-items {{
+      position: relative;
+      grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+      gap: 18px;
+      min-height: 380px;
+      overflow: hidden;
+      padding: 52px 32px 34px;
+      border: 1px solid rgba(54, 94, 122, .18);
+      border-radius: 8px;
+      background:
+        radial-gradient(ellipse at center, transparent 0 18%, rgba(35, 127, 134, .18) 18.5% 19%, transparent 19.5% 38%, rgba(215, 92, 120, .15) 38.5% 39%, transparent 39.5% 58%, rgba(69, 106, 164, .14) 58.5% 59%, transparent 59.5%),
+        linear-gradient(135deg, rgba(255, 255, 255, .9), rgba(236, 245, 246, .72));
+    }}
+    body.agenda-style-family-orbit .agenda-items::before {{
+      content: "";
+      position: absolute;
+      inset: 50% auto auto 50%;
+      z-index: 0;
+      width: 76px;
+      height: 76px;
+      border: 1px solid rgba(35, 127, 134, .28);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle, rgba(35, 127, 134, .2), rgba(35, 127, 134, .05));
+      box-shadow:
+        0 0 0 14px rgba(35, 127, 134, .08),
+        0 0 0 32px rgba(215, 92, 120, .06);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }}
+    body.agenda-style-family-orbit .agenda-item {{
+      position: relative;
+      z-index: 1;
+      grid-template-columns: 1fr;
+      border-color: rgba(54, 94, 122, .2);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      animation: agenda-orbit-float 5.6s ease-in-out infinite;
+      animation-delay: calc(var(--agenda-index, 0) * 180ms);
+    }}
+    body.agenda-style-family-orbit .agenda-item:nth-child(4n + 1) {{
+      transform: translateY(-20px) rotate(-1.2deg);
+    }}
+    body.agenda-style-family-orbit .agenda-item:nth-child(4n + 2) {{
+      transform: translateY(24px) rotate(.9deg);
+    }}
+    body.agenda-style-family-orbit .agenda-item:nth-child(4n + 3) {{
+      transform: translateY(-8px) rotate(1.4deg);
+    }}
+    body.agenda-style-family-orbit .agenda-time {{
+      border-right: 0;
+      border-bottom: 1px solid #e2edf1;
+      background: #ecf7f6;
+      color: #237f86;
+      text-align: left;
+    }}
+    body.agenda-style-family-orbit .agenda-kind,
+    body.agenda-style-family-orbit .agenda-meta dt {{
+      letter-spacing: 0;
+    }}
+    body.agenda-style-family-orbit .agenda-badge,
+    body.agenda-style-family-orbit .agenda-person {{
+      border-radius: 6px;
+      background: #e8edf9;
+      color: #405d95;
+    }}
+    body.agenda-style-family-orbit .agenda-person {{
+      background: #d8f0ed;
+      color: #237f86;
+    }}
+    body.agenda-style-family-orbit .item-action {{
+      border-radius: 6px;
+    }}
+    @keyframes agenda-orbit-float {{
+      0%, 100% {{ margin-top: 0; }}
+      50% {{ margin-top: -7px; }}
+    }}
+    @media (max-width: 720px) {{
+      body.agenda-style-family-orbit .agenda-items {{
+        min-height: 0;
+        padding: 18px;
+      }}
+      body.agenda-style-family-orbit .agenda-item:nth-child(n) {{
+        transform: none;
+      }}
+      body.agenda-style-family-orbit .agenda-items::before {{
+        display: none;
       }}
     }}
     body.agenda-style-hud {{
