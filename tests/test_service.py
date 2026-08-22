@@ -3841,6 +3841,12 @@ class ServiceTests(unittest.TestCase):
             '"id": "timeline-stack", "label": "Timeline Stack"',
             timeline_page,
         )
+        radar_page, radar_status = render_agenda_html(snapshot, style="radar")
+        self.assertEqual(radar_status, HTTPStatus.OK)
+        self.assertIn('<body class="agenda-style-radar">', radar_page)
+        self.assertIn("@keyframes agenda-radar-sweep", radar_page)
+        self.assertIn("body.agenda-style-radar .agenda-items::before", radar_page)
+        self.assertIn('"id": "radar", "label": "Radar"', radar_page)
 
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
@@ -3861,6 +3867,7 @@ class ServiceTests(unittest.TestCase):
             'Object.freeze({ id: "timeline-stack", label: "Timeline Stack" })',
             agenda,
         )
+        self.assertIn('Object.freeze({ id: "radar", label: "Radar" })', agenda)
         self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
         self.assertIn('const PANE_KIND = "agenda";', page)
         self.assertIn("ElectroBoyAgendaPaneTools.mount", page)

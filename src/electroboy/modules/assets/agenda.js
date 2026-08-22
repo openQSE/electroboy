@@ -6,6 +6,7 @@
     Object.freeze({ id: "hud", label: "HUD" }),
     Object.freeze({ id: "command-center", label: "Command Center" }),
     Object.freeze({ id: "timeline-stack", label: "Timeline Stack" }),
+    Object.freeze({ id: "radar", label: "Radar" }),
   ]);
 
   function styles() {

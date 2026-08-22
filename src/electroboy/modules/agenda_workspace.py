@@ -12,6 +12,7 @@ AGENDA_STYLES = (
     {"id": "hud", "label": "HUD"},
     {"id": "command-center", "label": "Command Center"},
     {"id": "timeline-stack", "label": "Timeline Stack"},
+    {"id": "radar", "label": "Radar"},
 )
 AGENDA_STYLE_IDS = frozenset(style["id"] for style in AGENDA_STYLES)
 
@@ -490,6 +491,172 @@ def render_agenda_html(
       }}
       body.agenda-style-timeline-stack .agenda-item,
       body.agenda-style-timeline-stack .agenda-item:nth-child(even) {{
+        transform: none;
+      }}
+    }}
+    body.agenda-style-radar {{
+      --ink: #effff8;
+      --muted: #a4c0b9;
+      --line: rgba(72, 213, 165, .26);
+      --paper: rgba(6, 28, 36, .92);
+      --wash: #061821;
+      --accent: #48d5a5;
+      --accent-soft: rgba(72, 213, 165, .14);
+      --warning: #ffd27d;
+      --warning-soft: rgba(255, 210, 125, .14);
+      --shadow: 0 20px 42px rgba(0, 0, 0, .3);
+      background:
+        radial-gradient(circle at 20% 18%, rgba(72, 213, 165, .12), transparent 28%),
+        linear-gradient(160deg, #061821, #0a222d 52%, #061821);
+    }}
+    body.agenda-style-radar .agenda-header {{
+      border-bottom: 1px solid rgba(72, 213, 165, .28);
+      background: rgba(4, 20, 28, .94);
+      color: #effff8;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, .32);
+    }}
+    body.agenda-style-radar .agenda-kicker,
+    body.agenda-style-radar .agenda-kind,
+    body.agenda-style-radar .agenda-meta dt {{
+      letter-spacing: 0;
+    }}
+    body.agenda-style-radar h1,
+    body.agenda-style-radar .agenda-section-heading {{
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-weight: 850;
+    }}
+    body.agenda-style-radar .agenda-content {{
+      width: min(1240px, 100%);
+    }}
+    body.agenda-style-radar .agenda-summary {{
+      color: #bdd6d0;
+    }}
+    body.agenda-style-radar .agenda-section {{
+      position: relative;
+      margin-bottom: 42px;
+    }}
+    body.agenda-style-radar .agenda-section-heading {{
+      color: #effff8;
+    }}
+    body.agenda-style-radar .agenda-count {{
+      border: 1px solid rgba(72, 213, 165, .34);
+      background: rgba(72, 213, 165, .14);
+      color: #a8ffd7;
+    }}
+    body.agenda-style-radar .agenda-items {{
+      position: relative;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      min-height: 360px;
+      overflow: hidden;
+      padding: 64px 28px 28px;
+      border: 1px solid rgba(72, 213, 165, .22);
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at center, transparent 0 21%, rgba(72, 213, 165, .18) 21.5% 22%, transparent 22.5% 41%, rgba(72, 213, 165, .16) 41.5% 42%, transparent 42.5% 62%, rgba(72, 213, 165, .14) 62.5% 63%, transparent 63.5%),
+        linear-gradient(rgba(72, 213, 165, .08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(72, 213, 165, .08) 1px, transparent 1px),
+        rgba(3, 16, 22, .44);
+      background-size: auto, 32px 32px, 32px 32px, auto;
+    }}
+    body.agenda-style-radar .agenda-items::before {{
+      content: "";
+      position: absolute;
+      inset: -38%;
+      z-index: 0;
+      background: conic-gradient(
+        from 0deg,
+        rgba(72, 213, 165, .38),
+        rgba(72, 213, 165, .08) 32deg,
+        transparent 58deg
+      );
+      opacity: .55;
+      transform-origin: center;
+      animation: agenda-radar-sweep 8s linear infinite;
+      pointer-events: none;
+    }}
+    body.agenda-style-radar .agenda-items::after {{
+      content: "";
+      position: absolute;
+      inset: 50% auto auto 50%;
+      z-index: 0;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #48d5a5;
+      box-shadow: 0 0 0 8px rgba(72, 213, 165, .12);
+      transform: translate(-50%, -50%);
+    }}
+    body.agenda-style-radar .agenda-item {{
+      position: relative;
+      z-index: 1;
+      grid-template-columns: 1fr;
+      border-color: rgba(72, 213, 165, .28);
+      border-radius: 8px;
+      background: rgba(6, 28, 36, .9);
+      box-shadow: var(--shadow);
+      animation: agenda-radar-contact 3.4s ease-in-out infinite;
+      animation-delay: calc(var(--agenda-index, 0) * 140ms);
+    }}
+    body.agenda-style-radar .agenda-item:nth-child(3n + 1) {{
+      transform: translateY(-18px);
+    }}
+    body.agenda-style-radar .agenda-item:nth-child(3n + 2) {{
+      transform: translateY(26px);
+    }}
+    body.agenda-style-radar .agenda-time {{
+      border-right: 0;
+      border-bottom: 1px solid rgba(72, 213, 165, .18);
+      background: rgba(72, 213, 165, .1);
+      color: #a8ffd7;
+      text-align: left;
+    }}
+    body.agenda-style-radar .agenda-item h3 {{
+      color: #effff8;
+    }}
+    body.agenda-style-radar .agenda-kind,
+    body.agenda-style-radar .agenda-description,
+    body.agenda-style-radar .agenda-meta dt,
+    body.agenda-style-radar .agenda-meta dd {{
+      color: #bdd6d0;
+    }}
+    body.agenda-style-radar .agenda-badge,
+    body.agenda-style-radar .agenda-person {{
+      border: 1px solid rgba(72, 213, 165, .24);
+      background: rgba(72, 213, 165, .13);
+      color: #a8ffd7;
+    }}
+    body.agenda-style-radar .item-action {{
+      border-color: rgba(72, 213, 165, .32);
+      border-radius: 6px;
+      background: rgba(3, 16, 22, .7);
+      color: #effff8;
+    }}
+    body.agenda-style-radar .item-action.primary {{
+      border-color: #48d5a5;
+      background: #48d5a5;
+      color: #06202a;
+    }}
+    body.agenda-style-radar .agenda-warning {{
+      border: 1px solid rgba(255, 210, 125, .3);
+      color: #ffe0a0;
+    }}
+    body.agenda-style-radar .agenda-metadata {{
+      border-top-color: rgba(72, 213, 165, .18);
+    }}
+    @keyframes agenda-radar-sweep {{
+      to {{ transform: rotate(360deg); }}
+    }}
+    @keyframes agenda-radar-contact {{
+      0%, 100% {{ box-shadow: 0 20px 42px rgba(0, 0, 0, .3); }}
+      50% {{ box-shadow: 0 20px 42px rgba(0, 0, 0, .3), 0 0 0 4px rgba(72, 213, 165, .12); }}
+    }}
+    @media (max-width: 720px) {{
+      body.agenda-style-radar .agenda-items {{
+        min-height: 0;
+        padding: 18px;
+      }}
+      body.agenda-style-radar .agenda-item:nth-child(n) {{
         transform: none;
       }}
     }}
