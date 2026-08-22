@@ -833,130 +833,238 @@ def render_agenda_html(
       font-weight: 850;
     }}
     body.agenda-style-month-hud .agenda-content {{
-      width: min(1360px, 100%);
-      padding-top: 28px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      width: 100%;
+      min-height: calc(100svh - 84px);
+      padding: clamp(10px, 2vh, 20px) clamp(10px, 2vw, 24px) clamp(14px, 3vh, 30px);
+    }}
+    body.agenda-embedded.agenda-style-month-hud .agenda-content {{
+      min-height: 100svh;
     }}
     body.agenda-style-month-hud .agenda-summary {{
+      position: relative;
+      z-index: 4;
       color: #a9c9c5;
       font-weight: 740;
     }}
+    body.agenda-style-month-hud #agendaSections {{
+      display: grid;
+      min-height: 0;
+    }}
     body.agenda-style-month-hud .month-hud {{
       display: grid;
-      gap: 20px;
+      min-height: 0;
     }}
     body.agenda-style-month-hud .month-hud-stage {{
+      --month-hud-node-size: clamp(112px, 9vw, 146px);
+      --month-hud-active-size: clamp(210px, 19vw, 284px);
+      --month-hud-branch-width: clamp(238px, 23vw, 336px);
+      --stage-pan-x: 0px;
+      --stage-pan-y: 0px;
+      --stage-zoom: 1;
       position: relative;
+      isolation: isolate;
       overflow: hidden;
-      padding: 24px 22px 18px;
+      min-height: max(clamp(650px, calc(100svh - 144px), 980px), var(--month-hud-dynamic-height, 0px));
       border: 1px solid rgba(98, 230, 217, .22);
       border-radius: 8px;
       background:
-        linear-gradient(180deg, rgba(16, 43, 52, .86), rgba(5, 19, 25, .9)),
-        radial-gradient(circle at 50% 32%, rgba(98, 230, 217, .13), transparent 38%);
+        linear-gradient(180deg, rgba(16, 43, 52, .9), rgba(5, 19, 25, .92)),
+        radial-gradient(circle at 50% 42%, rgba(98, 230, 217, .12), transparent 44%);
       box-shadow:
         var(--shadow),
         inset 0 1px 0 rgba(255, 255, 255, .08);
+      cursor: default;
+      touch-action: pan-y;
+      user-select: none;
+    }}
+    body.agenda-embedded.agenda-style-month-hud .month-hud-stage {{
+      min-height: max(clamp(650px, calc(100svh - 64px), 980px), var(--month-hud-dynamic-height, 0px));
     }}
     body.agenda-style-month-hud .month-hud-stage::before {{
       content: "";
       position: absolute;
       inset: 0;
+      z-index: 0;
       background:
         linear-gradient(rgba(255, 255, 255, .04) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px);
       background-size: 100% 18px, 18px 100%;
-      opacity: .55;
+      opacity: .42;
       pointer-events: none;
     }}
+    body.agenda-style-month-hud .month-hud.is-dragging-timeline .month-hud-stage {{
+      cursor: ew-resize;
+    }}
+    body.agenda-style-month-hud .month-hud.is-panning-stage .month-hud-stage {{
+      cursor: move;
+    }}
+    body.agenda-style-month-hud .month-hud-canvas {{
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      transform: translate(var(--stage-pan-x), var(--stage-pan-y)) scale(var(--stage-zoom));
+      transform-origin: center;
+      transition: opacity .46s ease, filter .46s ease, transform .46s cubic-bezier(.2, .8, .2, 1);
+      will-change: transform;
+      pointer-events: none;
+    }}
+    body.agenda-style-month-hud .month-hud-canvas::after {{
+      content: "";
+      position: absolute;
+      inset: 50% auto auto 50%;
+      z-index: 4;
+      width: calc(var(--month-hud-active-size) + 84px);
+      height: calc(var(--month-hud-active-size) + 84px);
+      border: 1px solid rgba(98, 230, 217, .24);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle, rgba(98, 230, 217, .14), transparent 52%),
+        conic-gradient(from 12deg, transparent, rgba(98, 230, 217, .14), transparent 22%, rgba(255, 191, 117, .12), transparent 48%, rgba(98, 230, 217, .12), transparent 74%);
+      box-shadow:
+        0 0 0 28px rgba(98, 230, 217, .035),
+        0 0 70px rgba(98, 230, 217, .18);
+      opacity: .86;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }}
+    body.agenda-style-month-hud .month-hud:not(.has-selection) .month-hud-canvas::after {{
+      opacity: 0;
+    }}
     body.agenda-style-month-hud .month-hud-viewport {{
-      position: relative;
-      z-index: 1;
-      overflow-x: auto;
-      overscroll-behavior-x: contain;
-      padding-bottom: 6px;
-      scrollbar-color: rgba(98, 230, 217, .42) rgba(98, 230, 217, .08);
-      scrollbar-width: thin;
-    }}
-    body.agenda-style-month-hud .month-hud-viewport::-webkit-scrollbar {{
-      height: 8px;
-    }}
-    body.agenda-style-month-hud .month-hud-viewport::-webkit-scrollbar-track {{
-      border-radius: 999px;
-      background: rgba(98, 230, 217, .08);
-    }}
-    body.agenda-style-month-hud .month-hud-viewport::-webkit-scrollbar-thumb {{
-      border-radius: 999px;
-      background: rgba(98, 230, 217, .42);
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      overflow: hidden;
+      pointer-events: none;
     }}
     body.agenda-style-month-hud .month-hud-rail {{
-      position: relative;
-      display: grid;
-      grid-auto-columns: minmax(112px, 1fr);
-      grid-auto-flow: column;
-      gap: 14px;
-      min-width: 1040px;
-      align-items: center;
-      padding: 18px 6px 8px;
+      position: absolute;
+      inset: 0;
+      min-width: 0;
+      perspective: 1400px;
+      transform-style: preserve-3d;
+      transition: filter .34s ease, opacity .34s ease;
+      pointer-events: none;
     }}
     body.agenda-style-month-hud .month-hud-rail::before {{
       content: "";
       position: absolute;
-      top: 62px;
-      left: 58px;
-      right: 58px;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(98, 230, 217, .56), transparent);
-      box-shadow: 0 0 18px rgba(98, 230, 217, .24);
+      top: 50%;
+      left: -160vw;
+      width: 320vw;
+      height: 2px;
+      background:
+        repeating-linear-gradient(90deg, rgba(98, 230, 217, .55) 0 22px, transparent 22px 34px),
+        linear-gradient(90deg, transparent, rgba(98, 230, 217, .58), transparent);
+      box-shadow: 0 0 24px rgba(98, 230, 217, .22);
+      opacity: .74;
+      transform: translateY(-50%);
       pointer-events: none;
     }}
+    body.agenda-style-month-hud .month-hud.has-selection .month-hud-rail {{
+      filter: saturate(.78);
+      opacity: .82;
+    }}
+    body.agenda-style-month-hud .month-hud.has-selection .month-hud-rail::before {{
+      opacity: .38;
+    }}
     body.agenda-style-month-hud .month-hud-node {{
-      position: relative;
-      z-index: 1;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      z-index: 2;
       display: grid;
-      min-height: 132px;
+      width: var(--month-hud-node-size);
+      height: var(--month-hud-node-size);
+      min-height: 0;
       min-width: 0;
-      justify-items: center;
+      place-items: center;
       align-content: center;
-      gap: 8px;
-      padding: 8px;
-      border: 1px solid transparent;
-      border-radius: 8px;
-      background: transparent;
+      gap: 4px;
+      padding: 12px;
+      border: 1px solid rgba(98, 230, 217, .22);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(98, 230, 217, .16), transparent 60%),
+        rgba(5, 20, 26, .78);
       color: #dffaf7;
       cursor: pointer;
+      opacity: var(--month-opacity, .42);
+      box-shadow:
+        0 18px 42px rgba(0, 0, 0, .24),
+        inset 0 1px 0 rgba(255, 255, 255, .08);
+      filter: saturate(.85) blur(.1px);
+      transform: translate(calc(-50% + var(--month-x, 0px)), calc(-50% + var(--month-y, 0px))) scale(var(--month-scale, .66));
       transition:
-        background .18s ease,
-        border-color .18s ease,
-        box-shadow .18s ease,
-        transform .18s ease;
+        width .42s cubic-bezier(.2, .8, .2, 1),
+        height .42s cubic-bezier(.2, .8, .2, 1),
+        opacity .34s ease,
+        filter .34s ease,
+        border-color .22s ease,
+        background .22s ease,
+        box-shadow .34s ease,
+        transform .42s cubic-bezier(.2, .8, .2, 1);
+      transform-style: preserve-3d;
+      will-change: transform, opacity;
+      pointer-events: auto;
+    }}
+    body.agenda-style-month-hud .month-hud.has-selection .month-hud-node:not(.selected) {{
+      box-shadow:
+        0 10px 30px rgba(0, 0, 0, .18),
+        inset 0 1px 0 rgba(255, 255, 255, .05);
+      filter: saturate(.72) blur(.15px);
     }}
     body.agenda-style-month-hud .month-hud-node:hover,
     body.agenda-style-month-hud .month-hud-node:focus-visible {{
-      border-color: rgba(98, 230, 217, .32);
-      background: rgba(98, 230, 217, .08);
+      border-color: rgba(98, 230, 217, .42);
+      background:
+        radial-gradient(circle at 50% 35%, rgba(98, 230, 217, .24), transparent 62%),
+        rgba(8, 29, 36, .88);
       outline: 0;
-      transform: translateY(-2px);
+      opacity: .9;
+      filter: none;
     }}
     body.agenda-style-month-hud .month-hud-node.selected {{
-      border-color: rgba(98, 230, 217, .5);
-      background: rgba(98, 230, 217, .12);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 18px 38px rgba(0, 0, 0, .24);
-      transform: translateY(-4px);
+      z-index: 9;
+      width: var(--month-hud-active-size);
+      height: var(--month-hud-active-size);
+      border-color: rgba(98, 230, 217, .62);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 38%, rgba(98, 230, 217, .28), transparent 64%),
+        linear-gradient(145deg, rgba(15, 50, 60, .96), rgba(5, 19, 25, .96));
+      opacity: 1;
+      filter: none;
+      box-shadow:
+        0 38px 86px rgba(0, 0, 0, .42),
+        0 0 0 16px rgba(98, 230, 217, .06),
+        0 0 70px rgba(98, 230, 217, .22),
+        inset 0 1px 0 rgba(255, 255, 255, .12);
+      transform: translate(calc(-50% + var(--month-x, 0px)), calc(-50% + var(--month-y, 0px))) scale(1);
     }}
     body.agenda-style-month-hud .month-hud-ring {{
       position: relative;
       display: grid;
-      width: 78px;
-      height: 78px;
+      width: 64%;
+      aspect-ratio: 1;
       place-items: center;
       border: 1px solid rgba(98, 230, 217, .48);
       border-radius: 50%;
       background:
-        radial-gradient(circle, rgba(98, 230, 217, .2), rgba(98, 230, 217, .04) 58%, transparent 59%);
+        radial-gradient(circle, rgba(98, 230, 217, .22), rgba(98, 230, 217, .04) 58%, transparent 59%);
       box-shadow:
         0 0 0 7px rgba(98, 230, 217, .06),
         0 0 24px rgba(98, 230, 217, .16);
       animation: agenda-month-hud-idle 5.8s ease-in-out infinite;
+    }}
+    body.agenda-style-month-hud .month-hud-node.selected .month-hud-ring {{
+      width: 58%;
+      max-width: 178px;
+      box-shadow:
+        0 0 0 11px rgba(98, 230, 217, .08),
+        0 0 46px rgba(98, 230, 217, .3);
     }}
     body.agenda-style-month-hud .month-hud-ring::before {{
       content: "";
@@ -975,19 +1083,20 @@ def render_agenda_html(
       opacity: .72;
       mask: radial-gradient(circle, transparent 0 56%, #000 57%);
       animation: agenda-month-hud-spin 8.5s linear infinite;
+      pointer-events: none;
     }}
     body.agenda-style-month-hud .month-hud-core {{
       position: relative;
       z-index: 1;
       display: grid;
-      width: 42px;
-      height: 42px;
+      width: 54%;
+      aspect-ratio: 1;
       place-items: center;
       border: 1px solid rgba(98, 230, 217, .22);
       border-radius: 50%;
       background: rgba(5, 20, 26, .9);
       color: #7ff5ea;
-      font-size: 13px;
+      font-size: clamp(14px, 1.7vw, 22px);
       font-weight: 850;
     }}
     body.agenda-style-month-hud .month-hud-node.has-events .month-hud-core {{
@@ -1009,8 +1118,13 @@ def render_agenda_html(
       border-radius: 50%;
       background: #62e6d9;
       box-shadow: 0 0 8px rgba(98, 230, 217, .8);
-      transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(-34px);
+      transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(calc(var(--month-hud-node-size) * -.31));
       transform-origin: 0 0;
+    }}
+    body.agenda-style-month-hud .month-hud-node.selected .month-hud-pip {{
+      width: 7px;
+      height: 7px;
+      transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(calc(var(--month-hud-active-size) * -.24));
     }}
     body.agenda-style-month-hud .month-hud-node.has-warning .month-hud-pip {{
       background: #ffbf75;
@@ -1018,9 +1132,13 @@ def render_agenda_html(
     }}
     body.agenda-style-month-hud .month-hud-month {{
       color: #dffaf7;
-      font-size: 13px;
+      font-size: clamp(13px, 1.2vw, 16px);
       font-weight: 850;
       text-transform: uppercase;
+    }}
+    body.agenda-style-month-hud .month-hud-node.selected .month-hud-month {{
+      font-size: clamp(19px, 2vw, 28px);
+      letter-spacing: .08em;
     }}
     body.agenda-style-month-hud .month-hud-count {{
       min-width: 34px;
@@ -1033,61 +1151,67 @@ def render_agenda_html(
       font-weight: 780;
       text-align: center;
     }}
-    body.agenda-style-month-hud .month-hud-panel {{
-      position: relative;
-      overflow: hidden;
-      padding: 20px;
-      border: 1px solid rgba(98, 230, 217, .2);
-      border-radius: 8px;
-      background:
-        linear-gradient(135deg, rgba(9, 31, 39, .92), rgba(5, 17, 23, .88));
-      box-shadow:
-        0 18px 42px rgba(0, 0, 0, .28),
-        inset 0 1px 0 rgba(255, 255, 255, .07);
+    body.agenda-style-month-hud .month-hud-node.selected .month-hud-count {{
+      border-color: rgba(98, 230, 217, .36);
+      background: rgba(98, 230, 217, .14);
+      color: #dffaf7;
+      font-size: 13px;
     }}
-    body.agenda-style-month-hud .month-hud-panel::before {{
-      content: "";
+    body.agenda-style-month-hud .month-hud-branches {{
       position: absolute;
       inset: 0;
-      background:
-        linear-gradient(90deg, rgba(98, 230, 217, .12), transparent 26%),
-        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px);
-      background-size: auto, 100% 20px;
+      z-index: 7;
       pointer-events: none;
     }}
-    body.agenda-style-month-hud .month-hud-panel-heading {{
-      position: relative;
-      z-index: 1;
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid rgba(98, 230, 217, .16);
+    body.agenda-style-month-hud .month-hud:not(.has-selection) .month-hud-branches {{
+      display: none;
     }}
-    body.agenda-style-month-hud .month-hud-panel-title {{
-      margin: 0;
-      color: #f2fffd;
-      font-size: 20px;
-      font-weight: 850;
+    body.agenda-style-month-hud .month-hud-branch {{
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      animation: agenda-month-hud-branch-in .38s ease-out both;
+      animation-delay: calc(var(--agenda-index, 0) * 54ms);
     }}
-    body.agenda-style-month-hud .month-hud-panel-meta {{
-      margin: 0;
-      color: #a9c9c5;
-      font-size: 13px;
-      font-weight: 750;
+    body.agenda-style-month-hud .month-hud-circuit {{
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
     }}
-    body.agenda-style-month-hud .month-hud-events {{
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 14px;
-      perspective: 1200px;
+    body.agenda-style-month-hud .month-hud-circuit-segment {{
+      position: absolute;
+      left: var(--circuit-left, 50%);
+      top: var(--circuit-top, 50%);
+      width: var(--circuit-length, 0px);
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(98, 230, 217, .88), rgba(98, 230, 217, .14));
+      box-shadow: 0 0 14px rgba(98, 230, 217, .2);
+      transform: rotate(var(--circuit-angle, 0deg));
+      transform-origin: left center;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-item {{
+    body.agenda-style-month-hud .month-hud-circuit-segment.is-secondary {{
+      background: linear-gradient(90deg, rgba(98, 230, 217, .62), rgba(255, 191, 117, .18));
+    }}
+    body.agenda-style-month-hud .month-hud-circuit-segment.is-secondary::after {{
+      content: "";
+      position: absolute;
+      right: -3px;
+      top: 50%;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #62e6d9;
+      box-shadow: 0 0 12px rgba(98, 230, 217, .72);
+      transform: translateY(-50%);
+    }}
+    body.agenda-style-month-hud .month-hud-branch .agenda-item {{
+      position: absolute;
+      left: var(--branch-card-left, 50%);
+      top: var(--branch-card-top, 50%);
+      width: var(--branch-card-width, var(--month-hud-branch-width));
+      max-width: calc(100% - 28px);
       grid-template-columns: 1fr;
       border-color: rgba(98, 230, 217, .25);
       border-radius: 8px;
@@ -1096,67 +1220,353 @@ def render_agenda_html(
       box-shadow:
         0 18px 42px rgba(0, 0, 0, .3),
         inset 0 1px 0 rgba(255, 255, 255, .08);
-      transform: perspective(1200px) rotateX(1deg) rotateY(-2deg);
+      transform: translate(-50%, -50%) perspective(1200px) rotateX(1deg);
       transition: box-shadow .18s ease, transform .18s ease;
+      pointer-events: auto;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-item:hover,
-    body.agenda-style-month-hud .month-hud-events .agenda-item:focus-within {{
+    body.agenda-style-month-hud .month-hud-branch .agenda-item:hover,
+    body.agenda-style-month-hud .month-hud-branch .agenda-item:focus-within {{
       box-shadow: 0 24px 52px rgba(0, 0, 0, .36);
-      transform: perspective(1200px) rotateX(0) rotateY(0) translateY(-3px);
+      transform: translate(-50%, calc(-50% - 3px)) perspective(1200px) rotateX(0) rotateY(0);
     }}
-    body.agenda-style-month-hud .month-hud-events.is-entering .agenda-item {{
-      animation: agenda-month-hud-card-in .34s ease-out both;
-      animation-delay: calc(var(--agenda-index, 0) * 44ms);
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.month-hud-editable-card {{
+      cursor: pointer;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-time {{
+    body.agenda-style-month-hud .month-hud.is-editing-card .month-hud-canvas {{
+      opacity: .28;
+      filter: blur(1.6px) saturate(.54);
+      transform: translate(var(--stage-pan-x), var(--stage-pan-y)) scale(calc(var(--stage-zoom) * .92));
+    }}
+    body.agenda-style-month-hud .month-hud.is-editing-card .month-hud-stage::before {{
+      opacity: .2;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-layer {{
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      place-items: center;
+      padding: clamp(18px, 4vw, 44px);
+      background:
+        radial-gradient(circle at center, rgba(98, 230, 217, .16), transparent 34%),
+        rgba(2, 9, 12, .46);
+      opacity: 1;
+      transition: opacity .5s ease;
+      pointer-events: auto;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-layer.is-closing {{
+      opacity: 0;
+    }}
+    body.agenda-style-month-hud .month-hud-card-editor {{
+      display: grid;
+      width: min(640px, 100%);
+      max-height: min(760px, calc(100svh - 86px));
+      overflow: auto;
+      gap: 16px;
+      padding: 20px;
+      border: 1px solid rgba(98, 230, 217, .34);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, #0d303a, #06131a);
+      box-shadow:
+        0 42px 92px rgba(0, 0, 0, .48),
+        0 0 0 1px rgba(255, 255, 255, .06) inset,
+        0 0 86px rgba(98, 230, 217, .18);
+      color: #eaf9f7;
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+      transition: opacity .46s ease, filter .3s ease, transform .5s cubic-bezier(.2, .8, .2, 1);
+      user-select: text;
+    }}
+    body.agenda-style-month-hud .month-hud-card-editor.has-confirmation {{
+      filter: blur(1.2px) saturate(.62);
+      opacity: .32;
+      pointer-events: none;
+      transform: translateY(0) scale(.985);
+    }}
+    body.agenda-style-month-hud .month-hud-edit-layer.is-closing .month-hud-card-editor {{
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(14px) scale(.96);
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-layer {{
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      display: grid;
+      place-items: center;
+      padding: clamp(18px, 4vw, 44px);
+      background:
+        radial-gradient(circle at center, rgba(255, 91, 91, .22), transparent 36%),
+        rgba(20, 3, 7, .5);
+      opacity: 0;
+      pointer-events: auto;
+      transition: opacity .28s ease;
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-layer.is-open {{
+      opacity: 1;
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-layer.is-closing {{
+      opacity: 0;
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-dialog {{
+      display: grid;
+      width: min(460px, 100%);
+      gap: 14px;
+      padding: 20px;
+      border: 1px solid rgba(255, 103, 103, .48);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, #42141a, #16070a);
+      box-shadow:
+        0 42px 92px rgba(0, 0, 0, .5),
+        0 0 0 1px rgba(255, 255, 255, .06) inset,
+        0 0 86px rgba(255, 91, 91, .18);
+      color: #fff2f2;
+      opacity: 0;
+      transform: translateY(16px) scale(.96);
+      transition: opacity .28s ease, transform .32s cubic-bezier(.2, .8, .2, 1);
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-layer.is-open .month-hud-confirm-dialog {{
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-layer.is-closing .month-hud-confirm-dialog {{
+      opacity: 0;
+      transform: translateY(12px) scale(.96);
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-dialog header {{
+      display: grid;
+      gap: 6px;
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-kicker {{
+      color: #ffb1a7;
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-dialog h3 {{
+      margin: 0;
+      color: #fffafa;
+      font-size: 22px;
+      line-height: 1.18;
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-dialog p {{
+      margin: 0;
+      color: #ffd6d2;
+      font-size: 14px;
+      font-weight: 650;
+      line-height: 1.5;
+    }}
+    body.agenda-style-month-hud .month-hud-card-editor header {{
+      display: grid;
+      gap: 5px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(98, 230, 217, .18);
+    }}
+    body.agenda-style-month-hud .month-hud-edit-kicker {{
+      color: #8bf7ee;
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }}
+    body.agenda-style-month-hud .month-hud-card-editor h2 {{
+      margin: 0;
+      color: #f2fffd;
+      font-size: 24px;
+      line-height: 1.18;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-field {{
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      color: #a9c9c5;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-field.wide {{
+      grid-column: 1 / -1;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-field input,
+    body.agenda-style-month-hud .month-hud-edit-field select,
+    body.agenda-style-month-hud .month-hud-check-menu,
+    body.agenda-style-month-hud .month-hud-edit-field textarea {{
+      width: 100%;
+      min-width: 0;
+      border: 1px solid rgba(98, 230, 217, .26);
+      border-radius: 8px;
+      background: rgba(5, 17, 23, .88);
+      color: #f2fffd;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 650;
+      padding: 9px 10px;
+      text-transform: none;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-field select {{
+      appearance: auto;
+    }}
+    body.agenda-style-month-hud .month-hud-check-menu {{
+      position: relative;
+      padding: 0;
+    }}
+    body.agenda-style-month-hud .month-hud-check-menu summary {{
+      min-height: 38px;
+      padding: 9px 10px;
+      cursor: pointer;
+      list-style-position: inside;
+    }}
+    body.agenda-style-month-hud .month-hud-check-options {{
+      display: grid;
+      gap: 4px;
+      max-height: 190px;
+      overflow: auto;
+      padding: 2px 10px 10px;
+    }}
+    body.agenda-style-month-hud .month-hud-check-option {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      color: #eaf9f7;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: none;
+      cursor: pointer;
+    }}
+    body.agenda-style-month-hud .month-hud-check-option input {{
+      width: 16px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0;
+      accent-color: #62e6d9;
+    }}
+    body.agenda-style-month-hud .month-hud-check-empty {{
+      padding: 0 10px 10px;
+      color: #a9c9c5;
+      font-size: 13px;
+      font-weight: 650;
+      text-transform: none;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-field textarea {{
+      resize: vertical;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-field input:focus-visible,
+    body.agenda-style-month-hud .month-hud-edit-field select:focus-visible,
+    body.agenda-style-month-hud .month-hud-check-menu:focus-within,
+    body.agenda-style-month-hud .month-hud-edit-field textarea:focus-visible {{
+      border-color: #62e6d9;
+      outline: 2px solid rgba(98, 230, 217, .18);
+      outline-offset: 1px;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-actions,
+    body.agenda-style-month-hud .month-hud-confirm-actions {{
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding-top: 2px;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-actions .item-action,
+    body.agenda-style-month-hud .month-hud-confirm-actions .item-action {{
+      min-height: 38px;
+      border-color: rgba(98, 230, 217, .32);
+      border-radius: 6px;
+      background: rgba(7, 24, 31, .82);
+      color: #eaf9f7;
+      padding: 0 16px;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-actions .item-action.primary,
+    body.agenda-style-month-hud .month-hud-confirm-actions .item-action.primary {{
+      border-color: #62e6d9;
+      background: #62e6d9;
+      color: #041115;
+    }}
+    body.agenda-style-month-hud .month-hud-edit-actions .item-action.danger,
+    body.agenda-style-month-hud .month-hud-confirm-actions .item-action.danger {{
+      border-color: rgba(255, 191, 117, .45);
+      background: rgba(255, 191, 117, .12);
+      color: #ffd5a1;
+    }}
+    body.agenda-style-month-hud .month-hud-confirm-actions .item-action.danger {{
+      border-color: #ff6767;
+      background: #ff6767;
+      color: #21070a;
+    }}
+    body.agenda-style-month-hud .month-hud-branch .agenda-time {{
       border-right: 0;
       border-bottom: 1px solid rgba(98, 230, 217, .18);
       background: rgba(98, 230, 217, .09);
       color: #8bf7ee;
+      padding: 10px 12px;
+      font-size: 12px;
       text-align: left;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-item h3 {{
-      color: #f2fffd;
+    body.agenda-style-month-hud .month-hud-branch .agenda-item-body {{
+      padding: 12px 13px 13px;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-kind,
-    body.agenda-style-month-hud .month-hud-events .agenda-description,
-    body.agenda-style-month-hud .month-hud-events .agenda-meta dt,
-    body.agenda-style-month-hud .month-hud-events .agenda-meta dd {{
+    body.agenda-style-month-hud .month-hud-branch .agenda-item h3 {{
+      color: #f2fffd;
+      font-size: 15px;
+    }}
+    body.agenda-style-month-hud .month-hud-branch .agenda-kind,
+    body.agenda-style-month-hud .month-hud-branch .agenda-description,
+    body.agenda-style-month-hud .month-hud-branch .agenda-meta dt,
+    body.agenda-style-month-hud .month-hud-branch .agenda-meta dd {{
       color: #a9c9c5;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-badge,
-    body.agenda-style-month-hud .month-hud-events .agenda-person {{
+    body.agenda-style-month-hud .month-hud-branch .agenda-description {{
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }}
+    body.agenda-style-month-hud .month-hud-branch .agenda-badge,
+    body.agenda-style-month-hud .month-hud-branch .agenda-person {{
       border: 1px solid rgba(98, 230, 217, .24);
       background: rgba(98, 230, 217, .13);
       color: #b6fff8;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-warning {{
+    body.agenda-style-month-hud .month-hud-branch .agenda-warning {{
       border: 1px solid rgba(255, 191, 117, .34);
       color: #ffd5a1;
     }}
-    body.agenda-style-month-hud .month-hud-events .agenda-metadata {{
+    body.agenda-style-month-hud .month-hud-branch .agenda-metadata {{
       border-top-color: rgba(98, 230, 217, .18);
     }}
-    body.agenda-style-month-hud .month-hud-events .item-action {{
+    body.agenda-style-month-hud .month-hud-branch .item-action {{
       border-color: rgba(98, 230, 217, .32);
       border-radius: 6px;
       background: rgba(7, 24, 31, .74);
       color: #eaf9f7;
     }}
-    body.agenda-style-month-hud .month-hud-events .item-action.primary {{
+    body.agenda-style-month-hud .month-hud-branch .item-action.primary {{
       border-color: #62e6d9;
       background: #2cc8b8;
       color: #051115;
     }}
     body.agenda-style-month-hud .month-hud-empty {{
-      position: relative;
-      z-index: 1;
-      padding: 24px;
+      position: absolute;
+      left: var(--branch-card-left, 50%);
+      top: var(--branch-card-top, calc(50% + 180px));
+      z-index: 8;
+      width: min(320px, calc(100% - 34px));
+      padding: 18px 20px;
       border: 1px dashed rgba(98, 230, 217, .28);
       border-radius: 8px;
       background: rgba(98, 230, 217, .06);
       color: #a9c9c5;
       font-weight: 720;
+      text-align: center;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
     }}
     body.agenda-style-month-hud .agenda-empty {{
       border-color: rgba(98, 230, 217, .28);
@@ -1196,49 +1606,54 @@ def render_agenda_html(
       0%, 100% {{ box-shadow: 0 0 0 7px rgba(255, 191, 117, .08), 0 0 24px rgba(98, 230, 217, .16); }}
       50% {{ box-shadow: 0 0 0 10px rgba(255, 191, 117, .16), 0 0 36px rgba(255, 191, 117, .24); }}
     }}
-    @keyframes agenda-month-hud-card-in {{
+    @keyframes agenda-month-hud-branch-in {{
       from {{
         opacity: 0;
-        transform: perspective(1200px) rotateX(7deg) rotateY(-4deg) translateY(12px);
+        transform: scale(.97);
       }}
       to {{
         opacity: 1;
       }}
     }}
+    @keyframes agenda-month-hud-card-focus {{
+      from {{
+        opacity: 0;
+        transform: perspective(1200px) rotateX(5deg) translateY(18px) scale(.96);
+      }}
+      to {{
+        opacity: 1;
+        transform: perspective(1200px) rotateX(0) translateY(0) scale(1);
+      }}
+    }}
     @media (max-width: 720px) {{
-      body.agenda-style-month-hud .month-hud-stage,
-      body.agenda-style-month-hud .month-hud-panel {{
-        padding: 16px;
+      body.agenda-style-month-hud .agenda-content {{
+        padding: 12px;
       }}
-      body.agenda-style-month-hud .month-hud-rail {{
-        grid-auto-columns: minmax(92px, 1fr);
-        min-width: 860px;
-      }}
-      body.agenda-style-month-hud .month-hud-rail::before {{
-        left: 48px;
-        right: 48px;
+      body.agenda-style-month-hud .month-hud-stage {{
+        --month-hud-node-size: clamp(90px, 25vw, 116px);
+        --month-hud-active-size: clamp(172px, 52vw, 228px);
+        --month-hud-branch-width: min(330px, calc(100vw - 42px));
+        min-height: max(clamp(700px, calc(100svh - 88px), 920px), var(--month-hud-dynamic-height, 0px));
       }}
       body.agenda-style-month-hud .month-hud-node {{
-        min-height: 120px;
+        padding: 8px;
       }}
-      body.agenda-style-month-hud .month-hud-ring {{
-        width: 66px;
-        height: 66px;
+      body.agenda-style-month-hud .month-hud-node.selected .month-hud-month {{
+        font-size: clamp(17px, 6vw, 23px);
       }}
-      body.agenda-style-month-hud .month-hud-core {{
-        width: 36px;
-        height: 36px;
+      body.agenda-style-month-hud .month-hud-circuit-segment {{
+        opacity: .7;
       }}
-      body.agenda-style-month-hud .month-hud-pip {{
-        transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(-28px);
+      body.agenda-style-month-hud .month-hud-branch .agenda-item,
+      body.agenda-style-month-hud .month-hud-branch .agenda-item:hover,
+      body.agenda-style-month-hud .month-hud-branch .agenda-item:focus-within {{
+        transform: translate(-50%, -50%);
       }}
-      body.agenda-style-month-hud .month-hud-events {{
+      body.agenda-style-month-hud .month-hud-edit-layer {{
+        padding: 14px;
+      }}
+      body.agenda-style-month-hud .month-hud-edit-grid {{
         grid-template-columns: 1fr;
-      }}
-      body.agenda-style-month-hud .month-hud-events .agenda-item,
-      body.agenda-style-month-hud .month-hud-events .agenda-item:hover,
-      body.agenda-style-month-hud .month-hud-events .agenda-item:focus-within {{
-        transform: none;
       }}
     }}
     body.agenda-style-hud {{
@@ -1725,6 +2140,398 @@ def render_agenda_html(
       return article;
     }}
 
+    function agendaInlineDateValue(item) {{
+      const parsed = itemDate(item);
+      return parsed ? parsed.toISOString().slice(0, 16) : "";
+    }}
+
+    function agendaInlineDateSerialized(value) {{
+      if (!value) return "";
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+    }}
+
+    function agendaInlineCsvLabels(values) {{
+      return (values || [])
+        .map((entry) => entry && (entry.label || entry.value || entry.id || entry))
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean)
+        .join(", ");
+    }}
+
+    function agendaInlineCsvEntries(value) {{
+      return String(value || "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((label, index) => ({{
+          id: `inline:${{index}}:${{label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}}`,
+          label,
+        }}));
+    }}
+
+    function agendaInlinePeopleEntries(value) {{
+      const entries = Array.isArray(value) ? value : agendaInlineCsvEntries(value);
+      return entries
+        .map((entry, index) => {{
+          if (!entry) return null;
+          const label = String(entry.label || entry.value || entry.id || entry).trim();
+          if (!label) return null;
+          return {{
+            id: entry.id || `inline:${{index}}:${{label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}}`,
+            label,
+            ...(entry.color ? {{ color: entry.color }} : {{}}),
+          }};
+        }})
+        .filter(Boolean);
+    }}
+
+    function applyAgendaInlineDraft(item, draft) {{
+      item.title = draft.title || item.title || "Untitled item";
+      item.kind = draft.kind || item.kind || "item";
+      if (draft.status) item.status = draft.status;
+      else delete item.status;
+
+      const dateTarget = item.start_at
+        ? "start_at"
+        : (item.due_at ? "due_at" : (item.kind === "event" ? "start_at" : "due_at"));
+      delete item.start_at;
+      delete item.due_at;
+      const when = agendaInlineDateSerialized(draft.when);
+      if (when) item[dateTarget] = when;
+      item.date_only = false;
+
+      if (draft.description) item.description = draft.description;
+      else delete item.description;
+
+      const badges = agendaInlineCsvEntries(draft.badges).map((entry) => entry.label);
+      if (badges.length) item.badges = badges;
+      else delete item.badges;
+
+      const people = agendaInlinePeopleEntries(draft.people);
+      delete item.participants;
+      delete item.assignees;
+      if (people.length && item.kind === "event") item.participants = people;
+      else if (people.length) item.assignees = people;
+
+      if (draft.warning) {{
+        item.warning = {{
+          ...(typeof item.warning === "object" && item.warning ? item.warning : {{}}),
+          message: draft.warning,
+        }};
+      }} else {{
+        delete item.warning;
+      }}
+    }}
+
+    function removeAgendaInlineItem(item) {{
+      const items = AGENDA_DATA.items || [];
+      const index = items.findIndex((entry) => entry.id === item.id);
+      if (index >= 0) items.splice(index, 1);
+    }}
+
+    function monthHudEditField(labelText, control, wide = false) {{
+      const wrapperTag = control.tagName === "DETAILS" ? "div" : "label";
+      const label = element(wrapperTag, wide ? "month-hud-edit-field wide" : "month-hud-edit-field");
+      label.append(element("span", "", labelText), control);
+      return label;
+    }}
+
+    function monthHudOptionLabel(value) {{
+      if (!value) return "None";
+      return String(value)
+        .replaceAll("_", " ")
+        .replaceAll("-", " ")
+        .split(" ")
+        .filter(Boolean)
+        .map((part) => `${{part.charAt(0).toUpperCase()}}${{part.slice(1)}}`)
+        .join(" ");
+    }}
+
+    function monthHudOptionValues(defaultValues, currentValue) {{
+      const values = [...defaultValues];
+      const current = String(currentValue || "").trim();
+      if (current && !values.includes(current)) values.push(current);
+      return values;
+    }}
+
+    function monthHudSelect(name, options, selectedValue) {{
+      const select = element("select", "month-hud-edit-select");
+      select.name = name;
+      const selected = String(selectedValue || "");
+      for (const value of options) {{
+        const option = element("option", "", monthHudOptionLabel(value));
+        option.value = value;
+        option.selected = value === selected;
+        select.append(option);
+      }}
+      return select;
+    }}
+
+    function monthHudPersonKey(person) {{
+      const id = String(person?.id || "").trim();
+      if (id) return id;
+      return String(person?.label || person?.value || person || "").trim().toLowerCase();
+    }}
+
+    function monthHudPeopleOptions() {{
+      const peopleByKey = new Map();
+      for (const agendaItem of AGENDA_DATA.items || []) {{
+        for (const person of [...(agendaItem.participants || []), ...(agendaItem.assignees || [])]) {{
+          const key = monthHudPersonKey(person);
+          const label = String(person?.label || person?.value || person?.id || person || "").trim();
+          if (!key || !label || peopleByKey.has(key)) continue;
+          peopleByKey.set(key, {{
+            id: String(person?.id || key),
+            label,
+            ...(person?.color ? {{ color: person.color }} : {{}}),
+          }});
+        }}
+      }}
+      return Array.from(peopleByKey.values())
+        .sort((left, right) => left.label.localeCompare(right.label));
+    }}
+
+    function monthHudSelectedPersonKeys(item) {{
+      return new Set([...(item.participants || []), ...(item.assignees || [])]
+        .map(monthHudPersonKey)
+        .filter(Boolean));
+    }}
+
+    function monthHudCheckedPeople(menu) {{
+      return Array.from(menu.querySelectorAll('input[type="checkbox"]:checked'))
+        .map((checkbox) => ({{
+          id: checkbox.value,
+          label: checkbox.dataset.label || checkbox.value,
+          ...(checkbox.dataset.color ? {{ color: checkbox.dataset.color }} : {{}}),
+        }}));
+    }}
+
+    function monthHudPeoplePicker(item) {{
+      const menu = element("details", "month-hud-check-menu");
+      const summary = element("summary");
+      const optionsRoot = element("div", "month-hud-check-options");
+      const choices = monthHudPeopleOptions();
+      const selected = monthHudSelectedPersonKeys(item);
+
+      function updateSummary() {{
+        const labels = Array.from(menu.querySelectorAll('input[type="checkbox"]:checked'))
+          .map((checkbox) => checkbox.dataset.label || checkbox.value);
+        summary.textContent = labels.length === 0
+          ? "No people"
+          : (labels.length === 1 ? labels[0] : `${{labels[0]}} + ${{labels.length - 1}}`);
+      }}
+
+      if (!choices.length) {{
+        optionsRoot.append(element("div", "month-hud-check-empty", "No people available"));
+      }}
+      for (const person of choices) {{
+        const label = element("label", "month-hud-check-option");
+        const checkbox = element("input");
+        checkbox.type = "checkbox";
+        checkbox.value = person.id || person.label;
+        checkbox.dataset.label = person.label;
+        checkbox.dataset.personKey = monthHudPersonKey(person);
+        checkbox.checked = selected.has(checkbox.dataset.personKey);
+        if (person.color) checkbox.dataset.color = person.color;
+        checkbox.addEventListener("change", updateSummary);
+        label.append(checkbox, element("span", "", person.label));
+        optionsRoot.append(label);
+      }}
+      menu.append(summary, optionsRoot);
+      updateSummary();
+      return menu;
+    }}
+
+    function openMonthHudCardEditor(root, host, item, callbacks) {{
+      host.querySelector(".month-hud-edit-layer")?.remove();
+      root.classList.add("is-editing-card");
+      const layer = element("div", "month-hud-edit-layer");
+      const form = element("form", "month-hud-card-editor");
+      form.noValidate = true;
+      form.setAttribute("aria-label", `Edit ${{item.title || "agenda item"}}`);
+      const header = element("header");
+      header.append(
+        element("div", "month-hud-edit-kicker", `${{itemTime(item)}} · ${{item.kind || "item"}}`),
+        element("h2", "", item.title || "Untitled item"),
+      );
+
+      const title = element("input");
+      title.name = "title";
+      title.value = item.title || "";
+      title.required = true;
+
+      const kind = monthHudSelect(
+        "kind",
+        monthHudOptionValues(["event", "task", "note", "warning"], item.kind || "task"),
+        item.kind || "task",
+      );
+
+      const status = monthHudSelect(
+        "status",
+        monthHudOptionValues([
+          "",
+          "suggested",
+          "proposed",
+          "needs_review",
+          "needs-attention",
+          "overdue",
+          "complete",
+          "dismissed",
+        ], item.status || ""),
+        item.status || "",
+      );
+
+      const when = element("input");
+      when.name = "when";
+      when.type = "datetime-local";
+      when.value = agendaInlineDateValue(item);
+
+      const people = monthHudPeoplePicker(item);
+
+      const badges = element("input");
+      badges.name = "badges";
+      badges.value = agendaInlineCsvLabels(item.badges || []);
+
+      const description = element("textarea");
+      description.name = "description";
+      description.rows = 4;
+      description.value = item.description || "";
+
+      const warning = element("textarea");
+      warning.name = "warning";
+      warning.rows = 2;
+      warning.value = item.warning
+        ? String(item.warning.message || item.warning || "")
+        : "";
+
+      const grid = element("div", "month-hud-edit-grid");
+      grid.append(
+        monthHudEditField("Title", title, true),
+        monthHudEditField("Kind", kind),
+        monthHudEditField("Status", status),
+        monthHudEditField("When", when),
+        monthHudEditField("People", people),
+        monthHudEditField("Badges", badges, true),
+        monthHudEditField("Description", description, true),
+        monthHudEditField("Warning", warning, true),
+      );
+
+      const actions = element("div", "month-hud-edit-actions");
+      const discard = element("button", "item-action danger", "Discard");
+      discard.type = "button";
+      const approve = element("button", "item-action primary", "Approve");
+      approve.type = "button";
+      actions.append(discard, approve);
+      let editorClosing = false;
+      let discardConfirmation = null;
+
+      function closeEditor() {{
+        if (editorClosing) return;
+        editorClosing = true;
+        root.classList.remove("is-editing-card");
+        layer.classList.add("is-closing");
+        const removeLayer = () => {{
+          if (layer.isConnected) layer.remove();
+        }};
+        layer.addEventListener("transitionend", (event) => {{
+          if (event.target === layer) removeLayer();
+        }}, {{ once: true }});
+        window.setTimeout(removeLayer, 560);
+      }}
+
+      function closeDiscardConfirmation() {{
+        if (!discardConfirmation || discardConfirmation.classList.contains("is-closing")) return;
+        const confirmation = discardConfirmation;
+        discardConfirmation = null;
+        form.classList.remove("has-confirmation");
+        confirmation.classList.remove("is-open");
+        confirmation.classList.add("is-closing");
+        const removeConfirmation = () => {{
+          if (confirmation.isConnected) confirmation.remove();
+        }};
+        confirmation.addEventListener("transitionend", (event) => {{
+          if (event.target === confirmation) removeConfirmation();
+        }}, {{ once: true }});
+        window.setTimeout(removeConfirmation, 360);
+      }}
+
+      function openDiscardConfirmation() {{
+        if (editorClosing || discardConfirmation) return;
+        form.classList.add("has-confirmation");
+        const confirmation = element("div", "month-hud-confirm-layer");
+        confirmation.setAttribute("role", "dialog");
+        confirmation.setAttribute("aria-modal", "true");
+        confirmation.setAttribute("aria-label", "Discard agenda card");
+        const dialog = element("section", "month-hud-confirm-dialog");
+        const confirmHeader = element("header");
+        confirmHeader.append(
+          element("div", "month-hud-confirm-kicker", "Delete event"),
+          element("h3", "", "Discard this card?"),
+        );
+        const message = element(
+          "p",
+          "",
+          "Discarding this card will delete the event from the agenda.",
+        );
+        const confirmActions = element("div", "month-hud-confirm-actions");
+        const cancel = element("button", "item-action", "Cancel");
+        cancel.type = "button";
+        const ok = element("button", "item-action danger", "OK");
+        ok.type = "button";
+        confirmActions.append(cancel, ok);
+        dialog.append(confirmHeader, message, confirmActions);
+        confirmation.append(dialog);
+        confirmation.addEventListener("click", (event) => {{
+          event.stopPropagation();
+          if (event.target === confirmation) closeDiscardConfirmation();
+        }});
+        cancel.addEventListener("click", closeDiscardConfirmation);
+        ok.addEventListener("click", () => {{
+          if (editorClosing) return;
+          callbacks.onDiscard();
+          closeEditor();
+        }});
+        layer.append(confirmation);
+        discardConfirmation = confirmation;
+        requestAnimationFrame(() => confirmation.classList.add("is-open"));
+        cancel.focus();
+      }}
+
+      function approveDraft() {{
+        callbacks.onApprove({{
+          title: title.value.trim(),
+          kind: kind.value,
+          status: status.value,
+          when: when.value,
+          people: monthHudCheckedPeople(people),
+          badges: badges.value,
+          description: description.value.trim(),
+          warning: warning.value.trim(),
+        }});
+        closeEditor();
+      }}
+
+      form.addEventListener("submit", (event) => {{
+        event.preventDefault();
+        approveDraft();
+      }});
+      approve.addEventListener("click", approveDraft);
+      discard.addEventListener("click", () => {{
+        openDiscardConfirmation();
+      }});
+      layer.addEventListener("click", (event) => {{
+        event.stopPropagation();
+        if (editorClosing) return;
+        if (event.target === layer) closeEditor();
+      }});
+      form.append(header, grid, actions);
+      layer.append(form);
+      host.append(layer);
+      title.focus();
+      title.select();
+    }}
+
     function renderControls() {{
       controls.replaceChildren();
       if ((AGENDA_DATA.styles || []).length) {{
@@ -1783,81 +2590,357 @@ def render_agenda_html(
       renderControls();
       sectionsRoot.replaceChildren();
       const allItems = AGENDA_DATA.items || [];
-      const grouped = new Map();
-      for (const item of allItems) {{
-        const key = itemMonthKey(item);
-        if (!key) continue;
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(item);
+      let grouped = new Map();
+
+      function rebuildMonthGroups() {{
+        grouped = new Map();
+        for (const item of allItems) {{
+          const key = itemMonthKey(item);
+          if (!key) continue;
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(item);
+        }}
+        for (const [key, items] of grouped.entries()) {{
+          grouped.set(key, [...items].sort((left, right) => {{
+            const leftDate = itemDate(left);
+            const rightDate = itemDate(right);
+            return (leftDate ? leftDate.getTime() : 0) - (rightDate ? rightDate.getTime() : 0);
+          }}));
+        }}
       }}
-      for (const [key, items] of grouped.entries()) {{
-        grouped.set(key, [...items].sort((left, right) => {{
-          const leftDate = itemDate(left);
-          const rightDate = itemDate(right);
-          return (leftDate ? leftDate.getTime() : 0) - (rightDate ? rightDate.getTime() : 0);
-        }}));
+
+      function updateMonthHudSummary() {{
+        const datedCount = allItems.filter((item) => itemMonthKey(item)).length;
+        const undated = allItems.length - datedCount;
+        if (allItems.length === 1) {{
+          summary.textContent = undated ? "1 item · no dated month" : "1 item by month";
+        }} else {{
+          summary.textContent = `${{allItems.length}} items by month${{undated ? ` · ${{undated}} unscheduled` : ""}}`;
+        }}
+        notifyAgendaHost();
       }}
+
+      rebuildMonthGroups();
       const months = monthSequence(grouped);
-      const datedCount = allItems.filter((item) => itemMonthKey(item)).length;
-      const undated = allItems.length - datedCount;
-      if (allItems.length === 1) {{
-        summary.textContent = undated ? "1 item · no dated month" : "1 item by month";
-      }} else {{
-        summary.textContent = `${{allItems.length}} items by month${{undated ? ` · ${{undated}} unscheduled` : ""}}`;
-      }}
-      notifyAgendaHost();
+      updateMonthHudSummary();
 
       const root = element("section", "month-hud");
       root.setAttribute("aria-label", "Month HUD agenda");
       const stage = element("div", "month-hud-stage");
+      const canvas = element("div", "month-hud-canvas");
       const viewport = element("div", "month-hud-viewport");
       const rail = element("div", "month-hud-rail");
-      const panel = element("section", "month-hud-panel");
-      panel.setAttribute("aria-live", "polite");
-      const panelHeading = element("div", "month-hud-panel-heading");
-      const panelTitle = element("h2", "month-hud-panel-title");
-      const panelMeta = element("p", "month-hud-panel-meta");
-      const eventsRoot = element("div", "month-hud-events");
-      panelHeading.append(panelTitle, panelMeta);
-      panel.append(panelHeading, eventsRoot);
+      const branchesRoot = element("div", "month-hud-branches");
+      branchesRoot.setAttribute("aria-live", "polite");
+      let layoutFrame = 0;
+      let timelineOffset = 0;
+      let stagePanX = 0;
+      let stagePanY = 0;
+      let stageZoom = 1;
+      let dragState = null;
+      let suppressClickUntil = 0;
+      const MIN_MONTH_HUD_ZOOM = 0.45;
+      const MAX_MONTH_HUD_ZOOM = 2.8;
+      const MONTH_HUD_ZOOM_FACTOR = 1.1;
 
-      function renderPanel(key) {{
-        const month = months.find((entry) => entry.key === key) || months[0];
-        const events = month ? grouped.get(month.key) || [] : [];
-        const warnings = events.filter(itemNeedsAttention).length;
-        const countText = events.length === 1 ? "1 item" : `${{events.length}} items`;
-        panelTitle.textContent = month ? month.label : "Agenda";
-        panelMeta.textContent = `${{countText}}${{warnings ? ` · ${{warnings}} need review` : ""}}`;
-        eventsRoot.classList.remove("is-entering");
-        eventsRoot.replaceChildren();
-        if (!events.length) {{
-          eventsRoot.append(element("div", "month-hud-empty", "No dated agenda items in this month."));
-        }} else {{
-          for (const [index, item] of events.entries()) eventsRoot.append(renderItem(item, index));
+      const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+      function scheduleMonthHudLayout() {{
+        if (layoutFrame) window.cancelAnimationFrame(layoutFrame);
+        layoutFrame = window.requestAnimationFrame(() => {{
+          layoutFrame = 0;
+          layoutMonthHud();
+        }});
+      }}
+
+      function selectedMonthKey() {{
+        return root.dataset.selectedMonth || "";
+      }}
+
+      function updateStageTransform() {{
+        stage.style.setProperty("--stage-pan-x", `${{Math.round(stagePanX)}}px`);
+        stage.style.setProperty("--stage-pan-y", `${{Math.round(stagePanY)}}px`);
+        stage.style.setProperty("--stage-zoom", String(stageZoom));
+      }}
+
+      function clampMonthHudZoom(value) {{
+        const zoom = Number(value);
+        if (!Number.isFinite(zoom)) return 1;
+        return Math.round(clamp(zoom, MIN_MONTH_HUD_ZOOM, MAX_MONTH_HUD_ZOOM) * 1000) / 1000;
+      }}
+
+      function updateMonthHudZoom(value, clientX = null, clientY = null) {{
+        const nextZoom = clampMonthHudZoom(value);
+        if (nextZoom === stageZoom) return;
+        if (Number.isFinite(clientX) && Number.isFinite(clientY)) {{
+          const rect = stage.getBoundingClientRect();
+          const pointerX = clientX - rect.left;
+          const pointerY = clientY - rect.top;
+          const originX = rect.width / 2;
+          const originY = rect.height / 2;
+          const previousZoom = stageZoom;
+          const worldX = (
+            pointerX - stagePanX - (1 - previousZoom) * originX
+          ) / previousZoom;
+          const worldY = (
+            pointerY - stagePanY - (1 - previousZoom) * originY
+          ) / previousZoom;
+          stagePanX = pointerX - worldX * nextZoom - (1 - nextZoom) * originX;
+          stagePanY = pointerY - worldY * nextZoom - (1 - nextZoom) * originY;
         }}
-        requestAnimationFrame(() => eventsRoot.classList.add("is-entering"));
+        stageZoom = nextZoom;
+        updateStageTransform();
+      }}
+
+      function setMonthNodePosition(button, x, y, scale, opacity) {{
+        button.style.setProperty("--month-x", `${{Math.round(x)}}px`);
+        button.style.setProperty("--month-y", `${{Math.round(y)}}px`);
+        button.style.setProperty("--month-scale", String(scale));
+        button.style.setProperty("--month-opacity", String(opacity));
+      }}
+
+      function timelineSpacing(width) {{
+        return clamp(width * (width < 760 ? .31 : .13), width < 760 ? 98 : 128, width < 760 ? 138 : 178);
+      }}
+
+      function layoutMonthNodes(width, height) {{
+        const buttons = Array.from(rail.querySelectorAll(".month-hud-node"));
+        if (!buttons.length) return;
+        const selectedKey = selectedMonthKey();
+        const selectedIndex = selectedKey
+          ? Math.max(0, months.findIndex((month) => month.key === selectedKey))
+          : (months.length - 1) / 2;
+        const spacing = timelineSpacing(width);
+        for (const button of buttons) {{
+          const monthIndex = Number(button.dataset.monthIndex || "0");
+          const hasEvents = button.classList.contains("has-events");
+          if (selectedKey && button.dataset.month === selectedKey) {{
+            setMonthNodePosition(button, 0, 0, 1, 1);
+            continue;
+          }}
+          const x = (monthIndex - selectedIndex) * spacing + timelineOffset;
+          const scale = selectedKey ? (width < 760 ? .48 : .56) : (width < 760 ? .74 : .9);
+          const opacity = selectedKey
+            ? (hasEvents ? .42 : .28)
+            : (hasEvents ? .92 : .68);
+          setMonthNodePosition(button, x, 0, scale, opacity);
+        }}
+      }}
+
+      function branchCardWidth(width) {{
+        return Math.round(clamp(width * .24, 236, 340));
+      }}
+
+      function setCircuitSegment(segment, startX, startY, endX, endY) {{
+        segment.style.setProperty("--circuit-left", `${{Math.round(startX)}}px`);
+        segment.style.setProperty("--circuit-top", `${{Math.round(startY)}}px`);
+        segment.style.setProperty("--circuit-length", `${{Math.round(Math.hypot(endX - startX, endY - startY))}}px`);
+        segment.style.setProperty("--circuit-angle", `${{Math.atan2(endY - startY, endX - startX)}}rad`);
+      }}
+
+      function setBranchPosition(branch, centerX, centerY, cardLeft, cardTop, cardWidth, cardHeight, activeRadius, index) {{
+        branch.style.setProperty("--branch-card-left", `${{Math.round(cardLeft)}}px`);
+        branch.style.setProperty("--branch-card-top", `${{Math.round(cardTop)}}px`);
+        branch.style.setProperty("--branch-card-width", `${{cardWidth}}px`);
+        const circuit = branch.querySelector(".month-hud-circuit");
+        const first = circuit?.querySelector(".is-primary");
+        const second = circuit?.querySelector(".is-secondary");
+        if (!first || !second) return;
+        const aboveTimeline = cardTop < centerY;
+        const horizontalDirection = cardLeft === centerX
+          ? (index % 2 === 0 ? 1 : -1)
+          : (cardLeft < centerX ? -1 : 1);
+        const verticalDirection = aboveTimeline ? -1 : 1;
+        const startX = centerX + horizontalDirection * activeRadius * .34;
+        const startY = centerY + verticalDirection * activeRadius * .58;
+        const targetX = cardLeft;
+        const targetY = cardTop - verticalDirection * (cardHeight / 2);
+        const tailLength = index % 2 === 0 ? 44 : 62;
+        const elbowX = targetX;
+        const elbowY = targetY - verticalDirection * tailLength;
+        setCircuitSegment(first, startX, startY, elbowX, elbowY);
+        setCircuitSegment(second, elbowX, elbowY, targetX, targetY);
+      }}
+
+      function sortMonthEvents(key) {{
+        const events = grouped.get(key) || [];
+        return [...events].sort((left, right) => {{
+          const leftAttention = itemNeedsAttention(left) ? 0 : 1;
+          const rightAttention = itemNeedsAttention(right) ? 0 : 1;
+          if (leftAttention !== rightAttention) return leftAttention - rightAttention;
+          const leftDate = itemDate(left);
+          const rightDate = itemDate(right);
+          const leftTime = leftDate ? leftDate.getTime() : Number.POSITIVE_INFINITY;
+          const rightTime = rightDate ? rightDate.getTime() : Number.POSITIVE_INFINITY;
+          if (leftTime !== rightTime) return leftTime - rightTime;
+          return String(left.title || "").localeCompare(String(right.title || ""));
+        }});
+      }}
+
+      function layoutMonthBranches(width, height) {{
+        if (!selectedMonthKey()) {{
+          stage.style.setProperty("--month-hud-dynamic-height", "0px");
+          return;
+        }}
+        const branches = Array.from(branchesRoot.querySelectorAll(".month-hud-branch"));
+        const selected = rail.querySelector(".month-hud-node.selected");
+        const activeRadius = selected ? selected.offsetWidth / 2 : Math.min(width, height) * .16;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const empty = branchesRoot.querySelector(".month-hud-empty");
+        const compact = width < 760;
+        if (empty) {{
+          const top = centerY + activeRadius + (compact ? 100 : 116);
+          stage.style.setProperty("--month-hud-dynamic-height", "0px");
+          empty.style.setProperty("--branch-card-left", `${{Math.round(centerX)}}px`);
+          empty.style.setProperty("--branch-card-top", `${{Math.round(top)}}px`);
+          return;
+        }}
+        if (!branches.length) {{
+          stage.style.setProperty("--month-hud-dynamic-height", "0px");
+          return;
+        }}
+
+        const cardWidth = branchCardWidth(width);
+        const gap = compact ? 18 : 24;
+        const margin = compact ? 18 : 34;
+        const availableWidth = Math.max(cardWidth, width - margin * 2);
+        const columns = compact
+          ? 1
+          : Math.max(1, Math.floor((availableWidth + gap) / (cardWidth + gap)));
+        const cardHeights = branches.map((branch) => {{
+          const card = branch.querySelector(".agenda-item");
+          return card ? card.offsetHeight || 136 : 136;
+        }});
+        const rowHeight = Math.max(compact ? 160 : 176, Math.max(...cardHeights) + gap);
+        const slotCount = columns * 2;
+        const rows = Math.ceil(branches.length / slotCount);
+        const laneGap = branches.length <= 2
+          ? (compact ? 22 : 30)
+          : (rows <= 1 ? (compact ? 34 : 42) : (compact ? 56 : 72));
+        stage.style.setProperty("--month-hud-dynamic-height", "0px");
+        for (const [index, branch] of branches.entries()) {{
+          const cardHeight = cardHeights[index] || 136;
+          const pairStart = Math.floor(index / slotCount) * slotCount;
+          const pairRemaining = Math.min(slotCount, branches.length - pairStart);
+          const aboveCount = Math.min(columns, pairRemaining);
+          const belowCount = Math.max(0, pairRemaining - aboveCount);
+          const slot = index % slotCount;
+          const row = Math.floor(index / slotCount);
+          const aboveTimeline = slot < aboveCount;
+          const laneIndex = aboveTimeline ? slot : slot - aboveCount;
+          const laneCount = aboveTimeline ? aboveCount : belowCount;
+          const laneWidth = laneCount * cardWidth + (laneCount - 1) * gap;
+          const cardLeft = centerX - laneWidth / 2 + cardWidth / 2 + laneIndex * (cardWidth + gap);
+          const cardOffset = activeRadius + laneGap + cardHeight / 2 + row * rowHeight;
+          const cardTop = centerY + (aboveTimeline ? -cardOffset : cardOffset);
+          setBranchPosition(branch, centerX, centerY, cardLeft, cardTop, cardWidth, cardHeight, activeRadius, index);
+        }}
+      }}
+
+      function layoutMonthHud() {{
+        const width = stage.clientWidth || stage.getBoundingClientRect().width || 1;
+        const height = stage.clientHeight || stage.getBoundingClientRect().height || 1;
+        layoutMonthNodes(width, height);
+        layoutMonthBranches(width, height);
+      }}
+
+      function renderMonthBranches(key) {{
+        const month = months.find((entry) => entry.key === key) || months[0];
+        const events = month ? sortMonthEvents(month.key) : [];
+        const warnings = events.filter(itemNeedsAttention).length;
+        const itemLabel = events.length === 1 ? "1 item" : `${{events.length}} items`;
+        stage.setAttribute(
+          "aria-label",
+          month
+            ? `${{month.label}}: ${{itemLabel}}${{warnings ? `, ${{warnings}} need review` : ""}}`
+            : "Month HUD agenda",
+        );
+        branchesRoot.replaceChildren();
+        if (!events.length) {{
+          branchesRoot.append(element("div", "month-hud-empty", "No dated agenda items in this month."));
+        }} else {{
+          for (const [index, item] of events.entries()) {{
+            const branch = element("div", "month-hud-branch");
+            const circuit = element("span", "month-hud-circuit");
+            circuit.append(
+              element("span", "month-hud-circuit-segment is-primary"),
+              element("span", "month-hud-circuit-segment is-secondary"),
+            );
+            branch.style.setProperty("--agenda-index", String(index));
+            const card = renderItem(item, index);
+            card.classList.add("month-hud-editable-card");
+            card.tabIndex = 0;
+            card.setAttribute("role", "button");
+            card.setAttribute("aria-label", `Edit ${{item.title || "agenda item"}}`);
+            const openCardEditor = () => {{
+              openMonthHudCardEditor(root, stage, item, {{
+                onApprove: (draft) => {{
+                  applyAgendaInlineDraft(item, draft);
+                  rebuildMonthGroups();
+                  syncMonthButtons();
+                  updateMonthHudSummary();
+                  renderMonthBranches(selectedMonthKey() || key);
+                }},
+                onDiscard: () => {{
+                  removeAgendaInlineItem(item);
+                  rebuildMonthGroups();
+                  syncMonthButtons();
+                  updateMonthHudSummary();
+                  renderMonthBranches(selectedMonthKey() || key);
+                }},
+              }});
+            }};
+            card.addEventListener("click", (event) => {{
+              if (event.target.closest("button,input,textarea,select,a")) return;
+              openCardEditor();
+            }});
+            card.addEventListener("keydown", (event) => {{
+              if (event.target.closest("button,input,textarea,select,a")) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              openCardEditor();
+            }});
+            branch.append(circuit, card);
+            branchesRoot.append(branch);
+          }}
+        }}
+        scheduleMonthHudLayout();
       }}
 
       function selectMonth(key) {{
+        if (!key) return;
+        root.dataset.selectedMonth = key;
+        root.classList.add("has-selection");
+        timelineOffset = 0;
         for (const button of rail.querySelectorAll(".month-hud-node")) {{
           const selected = button.dataset.month === key;
           button.classList.toggle("selected", selected);
           button.setAttribute("aria-pressed", selected ? "true" : "false");
         }}
-        renderPanel(key);
+        renderMonthBranches(key);
       }}
 
-      for (const month of months) {{
+      function clearMonthSelection() {{
+        delete root.dataset.selectedMonth;
+        root.classList.remove("has-selection");
+        for (const button of rail.querySelectorAll(".month-hud-node")) {{
+          button.classList.remove("selected");
+          button.setAttribute("aria-pressed", "false");
+        }}
+        branchesRoot.replaceChildren();
+        stage.setAttribute("aria-label", "Month timeline");
+        scheduleMonthHudLayout();
+      }}
+
+      function syncMonthButton(button, month) {{
         const events = grouped.get(month.key) || [];
         const hasWarnings = events.some(itemNeedsAttention);
-        const button = element("button", "month-hud-node");
-        button.type = "button";
-        button.dataset.month = month.key;
         button.classList.toggle("has-events", events.length > 0);
         button.classList.toggle("has-warning", hasWarnings);
         const itemLabel = events.length === 1 ? "1 item" : `${{events.length}} items`;
         button.setAttribute("aria-label", `${{month.label}}: ${{itemLabel}}`);
-        button.setAttribute("aria-pressed", "false");
+        button.replaceChildren();
         const ring = element("span", "month-hud-ring");
         ring.append(element("span", "month-hud-core", String(events.length)));
         for (let index = 0; index < Math.min(events.length, 10); index += 1) {{
@@ -1870,18 +2953,119 @@ def render_agenda_html(
           element("span", "month-hud-month", month.short),
           element("span", "month-hud-count", itemLabel),
         );
-        button.addEventListener("click", () => selectMonth(month.key));
+      }}
+
+      function syncMonthButtons() {{
+        for (const button of rail.querySelectorAll(".month-hud-node")) {{
+          const month = months.find((entry) => entry.key === button.dataset.month);
+          if (month) syncMonthButton(button, month);
+        }}
+      }}
+
+      for (const month of months) {{
+        const button = element("button", "month-hud-node");
+        button.type = "button";
+        button.dataset.month = month.key;
+        button.dataset.monthIndex = String(months.indexOf(month));
+        button.setAttribute("aria-pressed", "false");
+        syncMonthButton(button, month);
+        button.addEventListener("click", () => {{
+          if (root.classList.contains("is-editing-card")) return;
+          if (Date.now() < suppressClickUntil) return;
+          if (root.classList.contains("has-selection") && !button.classList.contains("selected")) {{
+            clearMonthSelection();
+            return;
+          }}
+          selectMonth(month.key);
+        }});
         rail.append(button);
       }}
 
       viewport.append(rail);
-      stage.append(viewport);
-      root.append(stage, panel);
+      canvas.append(viewport, branchesRoot);
+      stage.append(canvas);
+      root.append(stage);
       sectionsRoot.append(root);
 
-      const referenceKey = monthKeyFromDate(referenceDate());
-      const fallbackKey = months.find((month) => (grouped.get(month.key) || []).length)?.key || months[0]?.key;
-      selectMonth(months.some((month) => month.key === referenceKey) ? referenceKey : fallbackKey);
+      function beginMonthHudDrag(event) {{
+        if (root.classList.contains("is-editing-card")) return;
+        if (event.button !== 2 && event.button !== 1) return;
+        event.preventDefault();
+        const mode = event.button === 2 ? "timeline" : "stage";
+        dragState = {{
+          mode,
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          timelineOffset,
+          stagePanX,
+          stagePanY,
+          stageZoom,
+          moved: false,
+        }};
+        suppressClickUntil = Date.now() + 80;
+        root.classList.toggle("is-dragging-timeline", mode === "timeline");
+        root.classList.toggle("is-panning-stage", mode === "stage");
+        if (stage.setPointerCapture) stage.setPointerCapture(event.pointerId);
+      }}
+
+      function updateMonthHudDrag(event) {{
+        if (!dragState || event.pointerId !== dragState.pointerId) return;
+        event.preventDefault();
+        const dx = event.clientX - dragState.startX;
+        const dy = event.clientY - dragState.startY;
+        dragState.moved = dragState.moved || Math.abs(dx) + Math.abs(dy) > 3;
+        if (dragState.mode === "timeline") {{
+          timelineOffset = dragState.timelineOffset + dx / dragState.stageZoom;
+          scheduleMonthHudLayout();
+        }} else {{
+          stagePanX = dragState.stagePanX + dx;
+          stagePanY = dragState.stagePanY + dy;
+          updateStageTransform();
+        }}
+      }}
+
+      function endMonthHudDrag(event) {{
+        if (!dragState || event.pointerId !== dragState.pointerId) return;
+        if (dragState.moved) suppressClickUntil = Date.now() + 250;
+        if (stage.releasePointerCapture) stage.releasePointerCapture(event.pointerId);
+        dragState = null;
+        root.classList.remove("is-dragging-timeline", "is-panning-stage");
+      }}
+
+      function handleMonthHudWheel(event) {{
+        if (root.classList.contains("is-editing-card")) return;
+        if (event.target.closest(".month-hud-edit-layer")) return;
+        event.preventDefault();
+        if (event.deltaY === 0) return;
+        const factor = event.deltaY < 0
+          ? MONTH_HUD_ZOOM_FACTOR
+          : 1 / MONTH_HUD_ZOOM_FACTOR;
+        updateMonthHudZoom(stageZoom * factor, event.clientX, event.clientY);
+      }}
+
+      stage.addEventListener("wheel", handleMonthHudWheel, {{ passive: false }});
+      stage.addEventListener("pointerdown", beginMonthHudDrag);
+      stage.addEventListener("pointermove", updateMonthHudDrag);
+      stage.addEventListener("pointerup", endMonthHudDrag);
+      stage.addEventListener("pointercancel", endMonthHudDrag);
+      stage.addEventListener("contextmenu", (event) => event.preventDefault());
+      stage.addEventListener("auxclick", (event) => {{
+        if (event.button === 1) event.preventDefault();
+      }});
+      stage.addEventListener("click", (event) => {{
+        if (root.classList.contains("is-editing-card")) return;
+        if (!root.classList.contains("has-selection")) return;
+        if (Date.now() < suppressClickUntil) return;
+        if (event.target.closest(".agenda-item, .month-hud-node.selected")) return;
+        clearMonthSelection();
+      }});
+      window.addEventListener("resize", scheduleMonthHudLayout, {{ passive: true }});
+
+      updateStageTransform();
+      branchesRoot.replaceChildren();
+      stage.setAttribute("aria-label", "Month timeline");
+      scheduleMonthHudLayout();
     }}
 
     function renderAgenda() {{

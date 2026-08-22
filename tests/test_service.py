@@ -3867,7 +3867,120 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('<body class="agenda-style-month-hud">', month_page)
         self.assertIn("function renderMonthHud", month_page)
         self.assertIn("@keyframes agenda-month-hud-idle", month_page)
+        self.assertIn("@keyframes agenda-month-hud-branch-in", month_page)
+        self.assertIn("@keyframes agenda-month-hud-card-focus", month_page)
+        self.assertIn("--month-hud-active-size", month_page)
+        self.assertIn("--stage-zoom", month_page)
+        self.assertIn("scale(var(--stage-zoom))", month_page)
+        self.assertIn("scale(calc(var(--stage-zoom) * .92))", month_page)
         self.assertIn("body.agenda-style-month-hud .month-hud-node", month_page)
+        self.assertIn("body.agenda-style-month-hud .month-hud-node.selected", month_page)
+        self.assertIn(
+            "body.agenda-style-month-hud .month-hud.is-editing-card .month-hud-canvas",
+            month_page,
+        )
+        self.assertIn("body.agenda-style-month-hud .month-hud-card-editor", month_page)
+        self.assertIn(
+            "body.agenda-style-month-hud .month-hud-card-editor.has-confirmation",
+            month_page,
+        )
+        self.assertIn("body.agenda-style-month-hud .month-hud-check-menu", month_page)
+        self.assertIn("body.agenda-style-month-hud .month-hud-edit-layer.is-closing", month_page)
+        self.assertIn(
+            "body.agenda-style-month-hud .month-hud-edit-layer.is-closing .month-hud-card-editor",
+            month_page,
+        )
+        self.assertIn("body.agenda-style-month-hud .month-hud-confirm-layer", month_page)
+        self.assertIn("body.agenda-style-month-hud .month-hud-confirm-layer.is-open", month_page)
+        self.assertIn(
+            "body.agenda-style-month-hud .month-hud-confirm-layer.is-closing",
+            month_page,
+        )
+        self.assertIn("body.agenda-style-month-hud .month-hud-confirm-dialog", month_page)
+        self.assertIn("function openMonthHudCardEditor", month_page)
+        self.assertIn("function applyAgendaInlineDraft", month_page)
+        self.assertIn("function removeAgendaInlineItem", month_page)
+        self.assertIn("function monthHudSelect", month_page)
+        self.assertIn("function monthHudPeoplePicker", month_page)
+        self.assertIn("function monthHudCheckedPeople", month_page)
+        self.assertIn("function closeDiscardConfirmation", month_page)
+        self.assertIn("function openDiscardConfirmation", month_page)
+        self.assertIn("function layoutMonthHud", month_page)
+        self.assertIn("function renderMonthBranches", month_page)
+        self.assertIn("function sortMonthEvents", month_page)
+        self.assertIn("function setCircuitSegment", month_page)
+        self.assertIn("function updateStageTransform", month_page)
+        self.assertIn("function clampMonthHudZoom", month_page)
+        self.assertIn("function updateMonthHudZoom", month_page)
+        self.assertIn("function handleMonthHudWheel(event)", month_page)
+        self.assertIn("const slotCount = columns * 2;", month_page)
+        self.assertIn("const aboveCount = Math.min(columns, pairRemaining);", month_page)
+        self.assertIn("const aboveTimeline = slot < aboveCount;", month_page)
+        self.assertIn("const laneGap = branches.length <= 2", month_page)
+        self.assertIn("const laneWidth = laneCount * cardWidth + (laneCount - 1) * gap;", month_page)
+        self.assertIn(
+            "const cardLeft = centerX - laneWidth / 2 + cardWidth / 2 + laneIndex * (cardWidth + gap);",
+            month_page,
+        )
+        self.assertIn(
+            "const targetY = cardTop - verticalDirection * (cardHeight / 2);",
+            month_page,
+        )
+        self.assertIn("const elbowX = targetX;", month_page)
+        self.assertIn("const elbowY = targetY - verticalDirection * tailLength;", month_page)
+        self.assertIn("function clearMonthSelection", month_page)
+        self.assertIn('event.target.closest(".agenda-item, .month-hud-node.selected")', month_page)
+        self.assertIn('let timelineOffset = 0;', month_page)
+        self.assertIn('let stagePanX = 0;', month_page)
+        self.assertIn('let stageZoom = 1;', month_page)
+        self.assertIn('const MIN_MONTH_HUD_ZOOM = 0.45;', month_page)
+        self.assertIn('const MAX_MONTH_HUD_ZOOM = 2.8;', month_page)
+        self.assertIn('const MONTH_HUD_ZOOM_FACTOR = 1.1;', month_page)
+        self.assertIn('stage.style.setProperty("--stage-zoom", String(stageZoom));', month_page)
+        self.assertIn(
+            "pointerX - stagePanX - (1 - previousZoom) * originX",
+            month_page,
+        )
+        self.assertIn("timelineOffset = dragState.timelineOffset + dx / dragState.stageZoom;", month_page)
+        self.assertIn(
+            'stage.addEventListener("wheel", handleMonthHudWheel, { passive: false });',
+            month_page,
+        )
+        self.assertIn('if (event.button !== 2 && event.button !== 1) return;', month_page)
+        self.assertIn('const mode = event.button === 2 ? "timeline" : "stage";', month_page)
+        self.assertIn('element("div", "month-hud-branches")', month_page)
+        self.assertIn('element("div", "month-hud-canvas")', month_page)
+        self.assertIn('element("div", "month-hud-edit-layer")', month_page)
+        self.assertIn('element("form", "month-hud-card-editor")', month_page)
+        self.assertIn('element("div", "month-hud-confirm-layer")', month_page)
+        self.assertIn('element("section", "month-hud-confirm-dialog")', month_page)
+        self.assertIn('element("select", "month-hud-edit-select")', month_page)
+        self.assertIn('element("details", "month-hud-check-menu")', month_page)
+        self.assertIn('card.classList.add("month-hud-editable-card")', month_page)
+        self.assertIn('root.classList.add("is-editing-card")', month_page)
+        self.assertIn("form.noValidate = true;", month_page)
+        self.assertIn('checkbox.type = "checkbox";', month_page)
+        self.assertIn('approve.type = "button";', month_page)
+        self.assertIn("let editorClosing = false;", month_page)
+        self.assertIn('layer.classList.add("is-closing");', month_page)
+        self.assertIn('window.setTimeout(removeLayer, 560);', month_page)
+        self.assertIn('confirmation.setAttribute("role", "dialog");', month_page)
+        self.assertIn('form.classList.add("has-confirmation");', month_page)
+        self.assertIn('confirmation.classList.add("is-closing");', month_page)
+        self.assertIn('requestAnimationFrame(() => confirmation.classList.add("is-open"));', month_page)
+        self.assertIn("Discarding this card will delete the event from the agenda.", month_page)
+        self.assertIn('const cancel = element("button", "item-action", "Cancel");', month_page)
+        self.assertIn('const ok = element("button", "item-action danger", "OK");', month_page)
+        self.assertIn("openDiscardConfirmation();", month_page)
+        self.assertIn("event.stopPropagation();", month_page)
+        self.assertIn("if (event.target === layer) closeEditor();", month_page)
+        self.assertIn('element("button", "item-action primary", "Approve")', month_page)
+        self.assertIn('element("button", "item-action danger", "Discard")', month_page)
+        self.assertIn('element("span", "month-hud-circuit-segment is-primary")', month_page)
+        self.assertIn('element("span", "month-hud-circuit-segment is-secondary")', month_page)
+        self.assertIn('stage.setAttribute("aria-label", "Month timeline");', month_page)
+        self.assertNotIn("month-hud-panel", month_page)
+        self.assertNotIn("selectMonth(months.some", month_page)
         self.assertIn(
             '"id": "month-hud", "label": "Month HUD"',
             month_page,
