@@ -939,6 +939,88 @@ def render_agenda_html(
       overflow: hidden;
       pointer-events: none;
     }}
+    body.agenda-style-month-hud .month-hud-year-control {{
+      position: absolute;
+      left: 50%;
+      bottom: clamp(18px, 4vh, 42px);
+      z-index: 12;
+      display: grid;
+      grid-template-columns: minmax(58px, auto) 42px minmax(120px, auto) 42px minmax(58px, auto);
+      align-items: center;
+      gap: 10px;
+      transform: translateX(-50%);
+      pointer-events: auto;
+    }}
+    body.agenda-style-month-hud .month-hud-year-ghost {{
+      min-width: 58px;
+      color: rgba(169, 201, 197, .45);
+      font-size: 13px;
+      font-weight: 850;
+      text-align: center;
+      text-shadow: 0 0 16px rgba(98, 230, 217, .16);
+    }}
+    body.agenda-style-month-hud .month-hud-year-step,
+    body.agenda-style-month-hud .month-hud-year-value,
+    body.agenda-style-month-hud .month-hud-year-input {{
+      border: 1px solid rgba(98, 230, 217, .32);
+      background:
+        linear-gradient(135deg, rgba(12, 39, 48, .9), rgba(5, 17, 23, .88));
+      box-shadow:
+        0 18px 38px rgba(0, 0, 0, .28),
+        inset 0 1px 0 rgba(255, 255, 255, .08),
+        0 0 32px rgba(98, 230, 217, .12);
+      color: #eaf9f7;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-weight: 900;
+    }}
+    body.agenda-style-month-hud .month-hud-year-step {{
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 50%;
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+    }}
+    body.agenda-style-month-hud .month-hud-year-value,
+    body.agenda-style-month-hud .month-hud-year-input {{
+      min-width: 120px;
+      min-height: 50px;
+      border-radius: 8px;
+      color: #8bf7ee;
+      font-size: clamp(26px, 3vw, 44px);
+      letter-spacing: 0;
+      text-align: center;
+      text-shadow: 0 0 24px rgba(98, 230, 217, .28);
+    }}
+    body.agenda-style-month-hud .month-hud-year-value {{
+      cursor: text;
+    }}
+    body.agenda-style-month-hud .month-hud-year-input {{
+      padding: 0 10px;
+    }}
+    body.agenda-style-month-hud .month-hud-year-value[hidden],
+    body.agenda-style-month-hud .month-hud-year-input[hidden] {{
+      display: none;
+    }}
+    body.agenda-style-month-hud .month-hud-year-step:hover,
+    body.agenda-style-month-hud .month-hud-year-step:focus-visible,
+    body.agenda-style-month-hud .month-hud-year-value:hover,
+    body.agenda-style-month-hud .month-hud-year-value:focus-visible,
+    body.agenda-style-month-hud .month-hud-year-input:focus-visible {{
+      border-color: rgba(98, 230, 217, .58);
+      box-shadow:
+        0 20px 42px rgba(0, 0, 0, .32),
+        inset 0 1px 0 rgba(255, 255, 255, .1),
+        0 0 44px rgba(98, 230, 217, .2);
+      outline: 0;
+    }}
+    body.agenda-style-month-hud .month-hud.is-changing-year .month-hud-rail,
+    body.agenda-style-month-hud .month-hud.is-changing-year .month-hud-branches {{
+      opacity: .38;
+      filter: blur(.8px) saturate(.75);
+    }}
     body.agenda-style-month-hud .month-hud-rail {{
       position: absolute;
       inset: 0;
@@ -1916,15 +1998,12 @@ def render_agenda_html(
       }};
     }}
 
-    function monthSequence(groupedItems) {{
-      const reference = referenceDate();
-      const year = reference.getUTCFullYear();
-      const keys = new Set();
+    function monthSequence(year) {{
+      const keys = [];
       for (let index = 0; index < 12; index += 1) {{
-        keys.add(`${{year}}-${{String(index + 1).padStart(2, "0")}}`);
+        keys.push(`${{year}}-${{String(index + 1).padStart(2, "0")}}`);
       }}
-      for (const key of groupedItems.keys()) keys.add(key);
-      return Array.from(keys).sort().map(monthDescriptor);
+      return keys.map(monthDescriptor);
     }}
 
     function itemNeedsAttention(item) {{
@@ -2621,7 +2700,8 @@ def render_agenda_html(
       }}
 
       rebuildMonthGroups();
-      const months = monthSequence(grouped);
+      let displayYear = referenceDate().getUTCFullYear();
+      let months = monthSequence(displayYear);
       updateMonthHudSummary();
 
       const root = element("section", "month-hud");
@@ -2632,6 +2712,27 @@ def render_agenda_html(
       const rail = element("div", "month-hud-rail");
       const branchesRoot = element("div", "month-hud-branches");
       branchesRoot.setAttribute("aria-live", "polite");
+      const yearControl = element("div", "month-hud-year-control");
+      yearControl.setAttribute("aria-label", "Month HUD year");
+      const previousYearGhost = element("span", "month-hud-year-ghost");
+      const previousYear = element("button", "month-hud-year-step", "‹");
+      previousYear.type = "button";
+      previousYear.setAttribute("aria-label", "Previous year");
+      const yearValue = element("button", "month-hud-year-value");
+      yearValue.type = "button";
+      yearValue.setAttribute("aria-label", "Edit year");
+      const yearInput = element("input", "month-hud-year-input");
+      yearInput.type = "number";
+      yearInput.inputMode = "numeric";
+      yearInput.min = "1900";
+      yearInput.max = "9999";
+      yearInput.hidden = true;
+      yearInput.setAttribute("aria-label", "Year");
+      const nextYear = element("button", "month-hud-year-step", "›");
+      nextYear.type = "button";
+      nextYear.setAttribute("aria-label", "Next year");
+      const nextYearGhost = element("span", "month-hud-year-ghost");
+      yearControl.append(previousYearGhost, previousYear, yearValue, nextYear, nextYearGhost);
       let layoutFrame = 0;
       let timelineOffset = 0;
       let stagePanX = 0;
@@ -2639,6 +2740,8 @@ def render_agenda_html(
       let stageZoom = 1;
       let dragState = null;
       let suppressClickUntil = 0;
+      const MIN_MONTH_HUD_YEAR = 1900;
+      const MAX_MONTH_HUD_YEAR = 9999;
       const MIN_MONTH_HUD_ZOOM = 0.45;
       const MAX_MONTH_HUD_ZOOM = 2.8;
       const MONTH_HUD_ZOOM_FACTOR = 1.1;
@@ -2655,6 +2758,88 @@ def render_agenda_html(
 
       function selectedMonthKey() {{
         return root.dataset.selectedMonth || "";
+      }}
+
+      function updateYearControl() {{
+        previousYearGhost.textContent = String(displayYear - 1);
+        yearValue.textContent = String(displayYear);
+        yearInput.value = String(displayYear);
+        nextYearGhost.textContent = String(displayYear + 1);
+        yearControl.dataset.year = String(displayYear);
+      }}
+
+      function clampMonthHudYear(value) {{
+        const year = Number.parseInt(String(value || ""), 10);
+        if (!Number.isFinite(year)) return displayYear;
+        return Math.max(MIN_MONTH_HUD_YEAR, Math.min(MAX_MONTH_HUD_YEAR, year));
+      }}
+
+      function closeYearEdit() {{
+        yearInput.hidden = true;
+        yearValue.hidden = false;
+        updateYearControl();
+      }}
+
+      function commitYearEdit() {{
+        if (yearInput.hidden) return;
+        const nextDisplayYear = clampMonthHudYear(yearInput.value);
+        closeYearEdit();
+        setDisplayYear(nextDisplayYear);
+      }}
+
+      function cancelYearEdit() {{
+        if (yearInput.hidden) return;
+        closeYearEdit();
+        yearValue.focus();
+      }}
+
+      function startYearEdit() {{
+        if (root.classList.contains("is-editing-card")) return;
+        yearValue.hidden = true;
+        yearInput.hidden = false;
+        yearInput.value = String(displayYear);
+        yearInput.focus();
+        yearInput.select();
+      }}
+
+      function renderMonthRail() {{
+        rail.replaceChildren();
+        for (const [index, month] of months.entries()) {{
+          const button = element("button", "month-hud-node");
+          button.type = "button";
+          button.dataset.month = month.key;
+          button.dataset.monthIndex = String(index);
+          button.setAttribute("aria-pressed", "false");
+          syncMonthButton(button, month);
+          button.addEventListener("click", () => {{
+            if (root.classList.contains("is-editing-card")) return;
+            if (Date.now() < suppressClickUntil) return;
+            if (root.classList.contains("has-selection") && !button.classList.contains("selected")) {{
+              clearMonthSelection();
+              return;
+            }}
+            selectMonth(month.key);
+          }});
+          rail.append(button);
+        }}
+      }}
+
+      function setDisplayYear(value) {{
+        const nextDisplayYear = clampMonthHudYear(value);
+        if (nextDisplayYear === displayYear) {{
+          updateYearControl();
+          return;
+        }}
+        displayYear = nextDisplayYear;
+        months = monthSequence(displayYear);
+        timelineOffset = 0;
+        clearMonthSelection();
+        renderMonthRail();
+        updateYearControl();
+        updateMonthHudSummary();
+        root.classList.add("is-changing-year");
+        window.setTimeout(() => root.classList.remove("is-changing-year"), 280);
+        scheduleMonthHudLayout();
       }}
 
       function updateStageTransform() {{
@@ -2962,28 +3147,28 @@ def render_agenda_html(
         }}
       }}
 
-      for (const month of months) {{
-        const button = element("button", "month-hud-node");
-        button.type = "button";
-        button.dataset.month = month.key;
-        button.dataset.monthIndex = String(months.indexOf(month));
-        button.setAttribute("aria-pressed", "false");
-        syncMonthButton(button, month);
-        button.addEventListener("click", () => {{
-          if (root.classList.contains("is-editing-card")) return;
-          if (Date.now() < suppressClickUntil) return;
-          if (root.classList.contains("has-selection") && !button.classList.contains("selected")) {{
-            clearMonthSelection();
-            return;
-          }}
-          selectMonth(month.key);
-        }});
-        rail.append(button);
-      }}
+      yearControl.addEventListener("click", (event) => event.stopPropagation());
+      yearControl.addEventListener("pointerdown", (event) => event.stopPropagation());
+      previousYear.addEventListener("click", () => setDisplayYear(displayYear - 1));
+      nextYear.addEventListener("click", () => setDisplayYear(displayYear + 1));
+      yearValue.addEventListener("click", startYearEdit);
+      yearInput.addEventListener("keydown", (event) => {{
+        if (event.key === "Enter") {{
+          event.preventDefault();
+          commitYearEdit();
+        }} else if (event.key === "Escape") {{
+          event.preventDefault();
+          cancelYearEdit();
+        }}
+      }});
+      yearInput.addEventListener("blur", commitYearEdit);
+
+      updateYearControl();
+      renderMonthRail();
 
       viewport.append(rail);
       canvas.append(viewport, branchesRoot);
-      stage.append(canvas);
+      stage.append(canvas, yearControl);
       root.append(stage);
       sectionsRoot.append(root);
 
