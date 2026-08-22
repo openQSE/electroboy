@@ -4545,6 +4545,9 @@
         if (agenda.provider) {
           parameters.set("agenda_provider", agenda.provider);
         }
+        if (agenda.style) {
+          parameters.set("agenda_style", agenda.style);
+        }
       }
       const fontPane = paneFontKeyForKind(kind);
       parameters.set("base_font_size", String(terminalFontSize));

@@ -461,6 +461,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(("GET", "/api/agenda/editor"), agenda_routes)
         self.assertIn(("POST", "/api/agenda/editor"), agenda_routes)
         self.assertIn("agenda-provider", modules["agenda"]["capabilities"])
+        self.assertIn("agenda-styles", modules["agenda"]["capabilities"])
         corkboard_routes = {
             (route["method"], route["path"])
             for route in modules["corkboard"]["routes"]
@@ -634,6 +635,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function artifactPaneIsAgenda(item)", documents)
         self.assertIn("function artifactPaneIsProviderView(item)", documents)
         self.assertIn("/artifacts/agenda", documents)
+        self.assertIn('parameters.set("style", agenda.style);', documents)
+        self.assertIn('parameters.set("agenda_style", agenda.style);', documents)
+        self.assertIn(
+            'let artifactAgendaStyle = params.get("agenda_style") || "";',
+            pane_window,
+        )
+        self.assertIn('parameters.set("style", artifactAgendaStyle);', pane_window)
+        self.assertIn('parameters.set("agenda_style", agenda.style);', app)
         self.assertNotIn('invokeWorkflow(\n        "creative-writing"', corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
         self.assertIn("function ensureSelectedSessionStream(options = {})", sessions)
@@ -3786,6 +3795,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["filters"][0]["control"], "list")
         page, status = render_agenda_html(snapshot)
         self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('<body class="agenda-style-default">', page)
         self.assertIn('id="agendaControls"', page)
         self.assertIn(
             "body.agenda-embedded .agenda-header {\n      display: none;",
@@ -3795,8 +3805,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function invokeAction", page)
         self.assertIn("async function openEditor", page)
         self.assertIn('type: "electroboy-agenda-state"', page)
+        self.assertIn('styles: AGENDA_DATA.styles || []', page)
+        self.assertIn('command.action === "set-style"', page)
         self.assertIn('command.action === "set-range"', page)
         self.assertIn('"provider": "fixture-agenda"', page)
+        self.assertIn('"style": "default"', page)
 
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
@@ -3807,6 +3820,7 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIn('agenda: { label: "Agenda", element: null }', runtime)
         self.assertIn('runtime.layout.assignPane("agenda", item);', agenda)
+        self.assertIn("function styles()", agenda)
         self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
         self.assertIn('const PANE_KIND = "agenda";', page)
         self.assertIn("ElectroBoyAgendaPaneTools.mount", page)
@@ -3814,8 +3828,11 @@ class ServiceTests(unittest.TestCase):
             'PANE_KIND === "agenda" && window.ElectroBoyFilePaneTools',
             page,
         )
+        self.assertIn('controller.addSection("agenda-display", "Display")', tools)
         self.assertIn('controller.addSection("agenda-filters", "Filters")', tools)
         self.assertIn('controller.addSection("agenda-date", "Date")', tools)
+        self.assertIn('post("set-style"', tools)
+        self.assertIn(".agenda-tool-style-field", styles)
         self.assertIn(".agenda-pane .pane-tools-shelf", styles)
         self.assertIn("grid-template-columns: minmax(0, 1fr);", styles)
         self.assertIn("inset: 0 auto 0 0;", styles)

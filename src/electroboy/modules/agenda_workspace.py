@@ -7,13 +7,35 @@ import html
 import json
 from http import HTTPStatus
 
+AGENDA_STYLES = (
+    {"id": "default", "label": "Default"},
+)
+AGENDA_STYLE_IDS = frozenset(style["id"] for style in AGENDA_STYLES)
+
+
+def available_agenda_styles() -> list[dict[str, str]]:
+    return [dict(style) for style in AGENDA_STYLES]
+
+
+def normalize_agenda_style(value: object) -> str:
+    style = str(value or "default").strip().lower()
+    return style if style in AGENDA_STYLE_IDS else "default"
+
 
 def render_agenda_html(
     payload: dict[str, object],
+    *,
+    style: object = "default",
 ) -> tuple[str, HTTPStatus]:
     """Render a normalized agenda snapshot as a self-contained pane."""
 
-    encoded = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
+    selected_style = normalize_agenda_style(style)
+    view_payload = {
+        **payload,
+        "style": selected_style,
+        "styles": available_agenda_styles(),
+    }
+    encoded = json.dumps(view_payload, ensure_ascii=False).replace("<", "\\u003c")
     title = html.escape(str(payload.get("title") or "Agenda"))
     return (
         f"""<!doctype html>
@@ -246,7 +268,7 @@ def render_agenda_html(
     }}
   </style>
 </head>
-<body>
+<body class="agenda-style-{selected_style}">
   <main class="agenda">
     <header class="agenda-header">
       <div class="agenda-heading">
@@ -304,6 +326,8 @@ def render_agenda_html(
         state: {{
           provider: AGENDA_DATA.provider,
           filters: AGENDA_DATA.filters || [],
+          style: AGENDA_DATA.style || "default",
+          styles: AGENDA_DATA.styles || [],
           range: agendaRange(),
           referenceDate: AGENDA_DATA.reference_date,
           itemCount: (AGENDA_DATA.items || []).length,
@@ -522,6 +546,25 @@ def render_agenda_html(
 
     function renderControls() {{
       controls.replaceChildren();
+      if ((AGENDA_DATA.styles || []).length) {{
+        const styleLabel = element("label", "agenda-filter");
+        styleLabel.append(element("span", "", "Style"));
+        const styleSelect = element("select");
+        styleSelect.setAttribute("aria-label", "Agenda style");
+        for (const style of AGENDA_DATA.styles || []) {{
+          const node = element("option", "", style.label || style.id);
+          node.value = style.id;
+          node.selected = style.id === (AGENDA_DATA.style || "default");
+          styleSelect.append(node);
+        }}
+        styleSelect.addEventListener("change", () => {{
+          const url = new URL(window.location.href);
+          url.searchParams.set("style", styleSelect.value);
+          window.location.assign(url);
+        }});
+        styleLabel.append(styleSelect);
+        controls.append(styleLabel);
+      }}
       for (const filter of AGENDA_DATA.filters || []) {{
         const label = element("label", "agenda-filter");
         label.append(element("span", "", filter.label));
@@ -606,6 +649,10 @@ def render_agenda_html(
           if (value) url.searchParams.set(parameter, String(value));
           else url.searchParams.delete(parameter);
         }}
+      }} else if (command.action === "set-style") {{
+        const value = String(command.style || "");
+        if (!(AGENDA_DATA.styles || []).some((style) => style.id === value)) return;
+        url.searchParams.set("style", value);
       }} else if (command.action === "reset") {{
         for (const filter of AGENDA_DATA.filters || []) {{
           url.searchParams.delete(`filter.${{filter.id}}`);

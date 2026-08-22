@@ -33,6 +33,14 @@
     const frame = options.frame;
     let agendaState = null;
 
+    const displayBody = controller.addSection("agenda-display", "Display");
+    const styleLabel = element("label", "agenda-tool-style-field");
+    styleLabel.append(element("span", "", "Style"));
+    const styleSelect = element("select", "agenda-tool-select");
+    styleSelect.setAttribute("aria-label", "Agenda style");
+    styleLabel.append(styleSelect);
+    displayBody.append(styleLabel);
+
     const filterBody = controller.addSection("agenda-filters", "Filters");
     filterBody.classList.add("agenda-tool-filters");
 
@@ -135,6 +143,22 @@
       for (const filter of filters) filterBody.append(filterControl(filter));
     }
 
+    function renderStyles() {
+      styleSelect.replaceChildren();
+      const styles = agendaState && Array.isArray(agendaState.styles)
+        ? agendaState.styles
+        : [];
+      const selected = String(agendaState && agendaState.style || "default");
+      for (const style of styles) {
+        const option = element("option", "", style.label || style.id);
+        option.value = style.id;
+        option.selected = style.id === selected;
+        styleSelect.append(option);
+      }
+      displayBody.closest("details").hidden = styles.length === 0;
+      styleSelect.disabled = styles.length < 2;
+    }
+
     function setRange(start, end) {
       post("set-range", {
         rangeStart: rangeValue(start),
@@ -159,6 +183,7 @@
     }
 
     function renderState() {
+      renderStyles();
       renderFilters();
       renderQuickDates();
       const range = agendaState.range || {};
@@ -188,6 +213,9 @@
       setRange(startInput.value, endInput.value);
     });
     clearDates.addEventListener("click", () => setRange("", ""));
+    styleSelect.addEventListener("change", () => post("set-style", {
+      style: styleSelect.value,
+    }));
     jumpToday.addEventListener("click", () => post("jump-today"));
     reset.addEventListener("click", () => post("reset"));
     frame.addEventListener("load", () => post("request-state"));

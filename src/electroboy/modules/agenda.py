@@ -11,7 +11,7 @@ from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 from electroboy.state_store import StateError
 
-from .agenda_workspace import render_agenda_html
+from .agenda_workspace import normalize_agenda_style, render_agenda_html
 from .common import conflict, route
 
 
@@ -57,6 +57,10 @@ def _visible_range(request: RouteRequest) -> dict[str, str]:
     }
 
 
+def _style(request: RouteRequest) -> str:
+    return normalize_agenda_style((request.params.get("style") or ["default"])[0])
+
+
 def _load(request: RouteRequest) -> dict[str, object]:
     return _provider(request).load_agenda(
         request.context_id,
@@ -68,7 +72,7 @@ def _load(request: RouteRequest) -> dict[str, object]:
 
 def _view(request: RouteRequest) -> HtmlResponse:
     try:
-        page, status = render_agenda_html(_load(request))
+        page, status = render_agenda_html(_load(request), style=_style(request))
     except Exception as error:
         return HtmlResponse(
             f'<section role="alert"><p>{html.escape(str(error))}</p></section>',
@@ -171,6 +175,7 @@ def module() -> ServiceModule:
                 "agenda-provider",
                 "agenda-filters",
                 "agenda-actions",
+                "agenda-styles",
                 "agenda-modal-editor",
             }
         ),

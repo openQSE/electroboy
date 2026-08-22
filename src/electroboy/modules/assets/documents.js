@@ -621,6 +621,7 @@
         const agenda = item.agenda || {};
         const parameters = new URLSearchParams();
         if (agenda.provider) parameters.set("provider", agenda.provider);
+        if (agenda.style) parameters.set("style", agenda.style);
         parameters.set("embed", "1");
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/agenda?${parameters.toString()}`);
@@ -1045,6 +1046,7 @@
       if (artifactPaneIsAgenda(item)) {
         const agenda = item.agenda || {};
         if (agenda.provider) parameters.set("agenda_provider", agenda.provider);
+        if (agenda.style) parameters.set("agenda_style", agenda.style);
       }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,

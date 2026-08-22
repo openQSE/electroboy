@@ -774,6 +774,7 @@
     let artifactCorkboardProvider = params.get("corkboard_provider") || "";
     let artifactCorkboardTitle = params.get("corkboard_title") || "";
     let artifactAgendaProvider = params.get("agenda_provider") || "";
+    let artifactAgendaStyle = params.get("agenda_style") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -2269,6 +2270,7 @@
       artifactCorkboardProvider = "";
       artifactCorkboardTitle = "";
       artifactAgendaProvider = "";
+      artifactAgendaStyle = "";
       artifactEditing = false;
     }
 
@@ -2300,6 +2302,7 @@
       } else if (artifactKind === "agenda") {
         const agenda = next.agenda || {};
         artifactAgendaProvider = String(agenda.provider || "");
+        artifactAgendaStyle = String(agenda.style || "");
       }
       syncArtifactUrlState();
       renderFileSwitcher();
@@ -2321,6 +2324,7 @@
         "corkboard_provider",
         "corkboard_title",
         "agenda_provider",
+        "agenda_style",
       ]) {
         nextUrl.searchParams.delete(key);
       }
@@ -2342,6 +2346,9 @@
         }
       } else if (artifactKind === "agenda" && artifactAgendaProvider) {
         nextUrl.searchParams.set("agenda_provider", artifactAgendaProvider);
+        if (artifactAgendaStyle) {
+          nextUrl.searchParams.set("agenda_style", artifactAgendaStyle);
+        }
       }
       window.history.replaceState(null, "", nextUrl);
     }
@@ -2394,6 +2401,9 @@
         const parameters = new URLSearchParams();
         if (artifactAgendaProvider) {
           parameters.set("provider", artifactAgendaProvider);
+        }
+        if (artifactAgendaStyle) {
+          parameters.set("style", artifactAgendaStyle);
         }
         parameters.set("embed", "1");
         parameters.set("version", String(artifactVersion));
