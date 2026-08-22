@@ -1032,8 +1032,13 @@ class ServiceTests(unittest.TestCase):
             'const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v1";',
             runtime,
         )
+        self.assertIn("const DEFAULT_FRONTEND_TELEMETRY_ENABLED = false;", runtime)
         self.assertIn('"telemetry",\n      "frontend_telemetry",\n      "frontend_debug"', runtime)
         self.assertIn("let frontendTelemetryEnabled = storedFrontendTelemetryEnabled();", runtime)
+        self.assertIn(
+            "return stored === null ? DEFAULT_FRONTEND_TELEMETRY_ENABLED : stored;",
+            runtime,
+        )
         self.assertIn("function setFrontendTelemetryEnabled(enabled, options = {})", runtime)
         self.assertIn("function applyFrontendTelemetryUrlPreference()", runtime)
         self.assertIn("if (!frontendTelemetryEnabled) {\n        return;\n      }", runtime)

@@ -107,6 +107,7 @@
     const FRONTEND_DEBUG_STORAGE_KEY = "electroboy.frontendDebug.last";
     const FRONTEND_DEBUG_HEARTBEAT_ID = "electroboyFrontendDebugHeartbeat";
     const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v1";
+    const DEFAULT_FRONTEND_TELEMETRY_ENABLED = false;
     const FRONTEND_TELEMETRY_QUERY_KEYS = [
       "telemetry",
       "frontend_telemetry",
@@ -708,11 +709,12 @@
 
     function storedFrontendTelemetryEnabled() {
       try {
-        return parseFrontendTelemetryPreference(
+        const stored = parseFrontendTelemetryPreference(
           window.localStorage.getItem(FRONTEND_TELEMETRY_STORAGE_KEY),
-        ) === true;
+        );
+        return stored === null ? DEFAULT_FRONTEND_TELEMETRY_ENABLED : stored;
       } catch (error) {
-        return false;
+        return DEFAULT_FRONTEND_TELEMETRY_ENABLED;
       }
     }
 
