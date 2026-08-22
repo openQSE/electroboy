@@ -11,6 +11,7 @@ AGENDA_STYLES = (
     {"id": "default", "label": "Default"},
     {"id": "hud", "label": "HUD"},
     {"id": "command-center", "label": "Command Center"},
+    {"id": "timeline-stack", "label": "Timeline Stack"},
 )
 AGENDA_STYLE_IDS = frozenset(style["id"] for style in AGENDA_STYLES)
 
@@ -359,6 +360,137 @@ def render_agenda_html(
       }}
       body.agenda-style-command-center .agenda-items {{
         grid-template-columns: 1fr;
+      }}
+    }}
+    body.agenda-style-timeline-stack {{
+      --ink: #1d2a2b;
+      --muted: #637271;
+      --line: #c6d4d2;
+      --paper: #fbfdfc;
+      --wash: #e9f0ef;
+      --accent: #26706a;
+      --accent-soft: #d7ebe8;
+      --warning: #9b4d28;
+      --warning-soft: #fff0e4;
+      --shadow: 0 20px 44px rgba(35, 55, 56, .16);
+      background:
+        linear-gradient(90deg, rgba(38, 112, 106, .12) 1px, transparent 1px),
+        var(--wash);
+      background-size: 44px 100%, auto;
+    }}
+    body.agenda-style-timeline-stack .agenda-header {{
+      background: #243b3d;
+      color: #f7fffd;
+      box-shadow: 0 10px 30px rgba(29, 42, 43, .2);
+    }}
+    body.agenda-style-timeline-stack .agenda-kicker {{
+      color: #bdd8d3;
+      letter-spacing: 0;
+    }}
+    body.agenda-style-timeline-stack h1,
+    body.agenda-style-timeline-stack .agenda-section-heading {{
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-weight: 850;
+    }}
+    body.agenda-style-timeline-stack .agenda-content {{
+      width: min(980px, 100%);
+    }}
+    body.agenda-style-timeline-stack .agenda-section {{
+      position: relative;
+      padding-left: 38px;
+      perspective: 1400px;
+    }}
+    body.agenda-style-timeline-stack .agenda-section::before {{
+      content: "";
+      position: absolute;
+      top: 36px;
+      bottom: -16px;
+      left: 12px;
+      width: 2px;
+      border-radius: 999px;
+      background: linear-gradient(#26706a, rgba(38, 112, 106, .08));
+    }}
+    body.agenda-style-timeline-stack .agenda-section-heading {{
+      position: relative;
+      color: #243b3d;
+    }}
+    body.agenda-style-timeline-stack .agenda-section-heading::before {{
+      content: "";
+      position: absolute;
+      left: -34px;
+      top: .45em;
+      width: 12px;
+      height: 12px;
+      border: 3px solid #26706a;
+      border-radius: 50%;
+      background: #f7fffd;
+      box-shadow: 0 0 0 6px rgba(38, 112, 106, .12);
+    }}
+    body.agenda-style-timeline-stack .agenda-items {{
+      gap: 14px;
+      perspective: 1400px;
+      transform-style: preserve-3d;
+    }}
+    body.agenda-style-timeline-stack .agenda-item {{
+      border-color: #c4d4d0;
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      transform:
+        perspective(1400px)
+        rotateX(2deg)
+        rotateY(-4deg)
+        translateZ(calc(var(--agenda-index, 0) * -3px));
+      transform-origin: left center;
+      transition: box-shadow .18s ease, transform .18s ease;
+      animation: agenda-stack-settle .36s ease-out both;
+      animation-delay: calc(var(--agenda-index, 0) * 28ms);
+    }}
+    body.agenda-style-timeline-stack .agenda-item:nth-child(even) {{
+      transform:
+        perspective(1400px)
+        rotateX(2deg)
+        rotateY(4deg)
+        translateZ(calc(var(--agenda-index, 0) * -3px));
+    }}
+    body.agenda-style-timeline-stack .agenda-item:hover,
+    body.agenda-style-timeline-stack .agenda-item:focus-within {{
+      box-shadow: 0 24px 52px rgba(35, 55, 56, .22);
+      transform: perspective(1400px) rotateX(0) rotateY(0) translateY(-4px);
+    }}
+    body.agenda-style-timeline-stack .agenda-time {{
+      background: #edf7f5;
+      color: #26706a;
+    }}
+    body.agenda-style-timeline-stack .agenda-kind,
+    body.agenda-style-timeline-stack .agenda-meta dt {{
+      letter-spacing: 0;
+    }}
+    body.agenda-style-timeline-stack .agenda-badge,
+    body.agenda-style-timeline-stack .agenda-person,
+    body.agenda-style-timeline-stack .item-action {{
+      border-radius: 6px;
+    }}
+    @keyframes agenda-stack-settle {{
+      from {{
+        opacity: 0;
+        transform: perspective(1400px) rotateX(8deg) translateY(12px);
+      }}
+      to {{
+        opacity: 1;
+      }}
+    }}
+    @media (max-width: 720px) {{
+      body.agenda-style-timeline-stack .agenda-section {{
+        padding-left: 20px;
+      }}
+      body.agenda-style-timeline-stack .agenda-section::before,
+      body.agenda-style-timeline-stack .agenda-section-heading::before {{
+        display: none;
+      }}
+      body.agenda-style-timeline-stack .agenda-item,
+      body.agenda-style-timeline-stack .agenda-item:nth-child(even) {{
+        transform: none;
       }}
     }}
     body.agenda-style-hud {{
@@ -750,9 +882,10 @@ def render_agenda_html(
       (form.querySelector("input,select,textarea") || close).focus();
     }}
 
-    function renderItem(item) {{
+    function renderItem(item, index = 0) {{
       const article = element("article", `agenda-item ${{item.status || ""}}`);
       article.dataset.itemId = item.id;
+      article.style.setProperty("--agenda-index", String(index));
       article.append(element("div", "agenda-time", itemTime(item)));
       const body = element("div", "agenda-item-body");
       const top = element("div", "agenda-item-top");
@@ -856,7 +989,7 @@ def render_agenda_html(
         const heading = element("h2", "agenda-section-heading");
         heading.append(element("span", "", section.label), element("span", "agenda-count", String(section.items.length)));
         const items = element("div", "agenda-items");
-        for (const item of section.items) items.append(renderItem(item));
+        for (const [index, item] of section.items.entries()) items.append(renderItem(item, index));
         container.append(heading, items);
         sectionsRoot.append(container);
       }}

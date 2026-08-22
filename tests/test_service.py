@@ -3829,6 +3829,18 @@ class ServiceTests(unittest.TestCase):
             '"id": "command-center", "label": "Command Center"',
             command_page,
         )
+        timeline_page, timeline_status = render_agenda_html(
+            snapshot,
+            style="timeline-stack",
+        )
+        self.assertEqual(timeline_status, HTTPStatus.OK)
+        self.assertIn('<body class="agenda-style-timeline-stack">', timeline_page)
+        self.assertIn("@keyframes agenda-stack-settle", timeline_page)
+        self.assertIn('article.style.setProperty("--agenda-index"', timeline_page)
+        self.assertIn(
+            '"id": "timeline-stack", "label": "Timeline Stack"',
+            timeline_page,
+        )
 
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
@@ -3843,6 +3855,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('Object.freeze({ id: "hud", label: "HUD" })', agenda)
         self.assertIn(
             'Object.freeze({ id: "command-center", label: "Command Center" })',
+            agenda,
+        )
+        self.assertIn(
+            'Object.freeze({ id: "timeline-stack", label: "Timeline Stack" })',
             agenda,
         )
         self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
