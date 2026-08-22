@@ -9,6 +9,7 @@ from http import HTTPStatus
 
 AGENDA_STYLES = (
     {"id": "default", "label": "Default"},
+    {"id": "hud", "label": "HUD"},
 )
 AGENDA_STYLE_IDS = frozenset(style["id"] for style in AGENDA_STYLES)
 
@@ -260,6 +261,147 @@ def render_agenda_html(
     .editor-field input, .editor-field textarea, .editor-field select {{ border: 1px solid #bfb4a8; border-radius: 8px; padding: 9px 10px; background: white; color: var(--ink); }}
     .editor-error {{ color: #9b321f; min-height: 20px; }}
     .editor-actions {{ display: flex; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }}
+    body.agenda-style-hud {{
+      --ink: #eefcf8;
+      --muted: #9fb4ae;
+      --line: rgba(116, 229, 212, .24);
+      --paper: rgba(8, 23, 28, .9);
+      --wash: #081116;
+      --accent: #35dec8;
+      --accent-soft: rgba(53, 222, 200, .16);
+      --warning: #ffbd7a;
+      --warning-soft: rgba(255, 189, 122, .14);
+      --shadow: 0 26px 58px rgba(0, 0, 0, .32);
+      background:
+        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px),
+        #081116;
+      background-size: 32px 32px, 32px 32px, auto;
+    }}
+    body.agenda-style-hud .agenda-header {{
+      border-bottom: 1px solid rgba(116, 229, 212, .28);
+      background: rgba(5, 17, 22, .94);
+      color: #eefcf8;
+      box-shadow: 0 14px 42px rgba(0, 0, 0, .42);
+      backdrop-filter: blur(12px);
+    }}
+    body.agenda-style-hud .agenda-kicker,
+    body.agenda-style-hud .agenda-kind,
+    body.agenda-style-hud .agenda-meta dt {{
+      letter-spacing: 0;
+    }}
+    body.agenda-style-hud h1 {{
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 24px;
+      font-weight: 850;
+    }}
+    body.agenda-style-hud .agenda-content {{
+      width: min(1180px, 100%);
+      padding-top: 34px;
+    }}
+    body.agenda-style-hud .agenda-summary {{
+      color: #b8cbc6;
+    }}
+    body.agenda-style-hud .agenda-section {{
+      perspective: 1200px;
+    }}
+    body.agenda-style-hud .agenda-section-heading {{
+      color: #eefcf8;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 18px;
+      font-weight: 850;
+    }}
+    body.agenda-style-hud .agenda-count {{
+      border: 1px solid rgba(116, 229, 212, .32);
+      background: rgba(53, 222, 200, .14);
+      color: #7af1dd;
+    }}
+    body.agenda-style-hud .agenda-item {{
+      position: relative;
+      grid-template-columns: 128px minmax(0, 1fr);
+      border-color: rgba(116, 229, 212, .25);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(15, 39, 46, .96), rgba(6, 17, 22, .92));
+      box-shadow:
+        0 18px 42px rgba(0, 0, 0, .3),
+        inset 0 1px 0 rgba(255, 255, 255, .08);
+      transform: rotateX(.8deg);
+    }}
+    body.agenda-style-hud .agenda-item::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background:
+        linear-gradient(90deg, rgba(53, 222, 200, .18), transparent 34%),
+        linear-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px);
+      background-size: auto, 100% 18px;
+      pointer-events: none;
+    }}
+    body.agenda-style-hud .agenda-time {{
+      position: relative;
+      z-index: 1;
+      border-right-color: rgba(116, 229, 212, .22);
+      background: rgba(53, 222, 200, .08);
+      color: #7af1dd;
+    }}
+    body.agenda-style-hud .agenda-item-body {{
+      position: relative;
+      z-index: 1;
+    }}
+    body.agenda-style-hud .agenda-item h3 {{
+      color: #f4fffb;
+    }}
+    body.agenda-style-hud .agenda-kind,
+    body.agenda-style-hud .agenda-description,
+    body.agenda-style-hud .agenda-meta dt,
+    body.agenda-style-hud .agenda-meta dd {{
+      color: #b8cbc6;
+    }}
+    body.agenda-style-hud .agenda-badge,
+    body.agenda-style-hud .agenda-person {{
+      border: 1px solid rgba(116, 229, 212, .24);
+      background: rgba(53, 222, 200, .14);
+      color: #a8fff0;
+    }}
+    body.agenda-style-hud .agenda-warning {{
+      border: 1px solid rgba(255, 189, 122, .34);
+      color: #ffd5a6;
+    }}
+    body.agenda-style-hud .agenda-metadata {{
+      border-top-color: rgba(116, 229, 212, .18);
+    }}
+    body.agenda-style-hud .item-action {{
+      border-color: rgba(116, 229, 212, .32);
+      border-radius: 6px;
+      background: rgba(7, 20, 25, .72);
+      color: #eefcf8;
+    }}
+    body.agenda-style-hud .item-action.primary {{
+      border-color: #35dec8;
+      background: #1aa996;
+      color: #061316;
+    }}
+    body.agenda-style-hud .agenda-empty {{
+      border-color: rgba(116, 229, 212, .32);
+      background: rgba(7, 20, 25, .72);
+      color: #b8cbc6;
+    }}
+    body.agenda-style-hud .agenda-modal {{
+      border: 1px solid rgba(116, 229, 212, .26);
+      background: #0b1a20;
+    }}
+    body.agenda-style-hud .agenda-modal header {{
+      border-bottom-color: rgba(116, 229, 212, .2);
+    }}
+    body.agenda-style-hud .editor-field input,
+    body.agenda-style-hud .editor-field textarea,
+    body.agenda-style-hud .editor-field select {{
+      border-color: rgba(116, 229, 212, .28);
+      background: rgba(5, 17, 22, .96);
+      color: #eefcf8;
+    }}
     @media (max-width: 720px) {{
       .agenda-header {{ position: static; align-items: flex-start; flex-direction: column; }}
       .agenda-controls {{ justify-content: flex-start; }}
