@@ -316,6 +316,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                     scope_key=scope_key,
                 ):
                     context.selected_session_id = session.session_id
+                    self.services.sessions.record(context, session)
                     return session
         return None
 
@@ -463,6 +464,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                         )
                     ):
                         context.selected_session_id = session.session_id
+                        self.services.sessions.record(context, session)
                         return session, False
 
         provider_session = None
@@ -474,15 +476,17 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 requested_provider_session_id,
                 project_root,
                 scope_key=scope_key,
+                allow_unscoped_codex=True,
             )
             if provider_session is None:
                 raise AgentSessionError(
-                    "Codex session was not found for the active creative "
-                    f"scope: {requested_provider_session_id}"
+                    "Codex session was not found in ElectroBoy history or "
+                    f"local Codex sessions: {requested_provider_session_id}"
                 )
             provider_catalog_entry = remember_creative_session(
                 self.services.files.state_root,
                 provider_session,
+                project_root=project_root,
                 scope=scope_name,
                 scope_key=scope_key,
                 document_path=document_path,
@@ -530,6 +534,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             session = self.services.sessions.prepare(context, session)
             context.creative_sessions[session.session_id] = session
             context.selected_session_id = session.session_id
+            self.services.sessions.record(context, session)
         try:
             session.start()
         except Exception:
@@ -543,6 +548,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             remember_creative_session(
                 self.services.files.state_root,
                 provider_session,
+                project_root=project_root,
                 scope=scope_name,
                 scope_key=scope_key,
                 document_path=document_path,

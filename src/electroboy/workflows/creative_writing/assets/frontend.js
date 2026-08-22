@@ -129,6 +129,33 @@
     bindRuntime(runtimeApi);
   }
 
+  function payloadWithCreativeSession(payload) {
+    if (!payload || typeof payload !== "object" || !payload.session_id) {
+      return payload;
+    }
+    const sessionId = String(payload.session_id || "");
+    const sessions = Array.isArray(payload.sessions)
+      ? [...payload.sessions]
+      : [];
+    if (!sessions.some((session) => session.session_id === sessionId)) {
+      sessions.unshift({
+        session_id: sessionId,
+        kind: WORKFLOW_ID,
+        label: "creative writing agent",
+        status: payload.status || "running",
+        interactive: true,
+        selected: true,
+        command: Array.isArray(payload.command) ? payload.command : [],
+        metadata: {},
+      });
+    }
+    return {
+      ...payload,
+      sessions,
+      selected_session_id: sessionId,
+    };
+  }
+
   function hideStageMenus() {
     runtimeApi.ui.hideStageMenus();
   }
@@ -385,7 +412,9 @@
       runtime.project.deactivate();
     });
     creativeStartAgent.addEventListener("click", () => {
-      startAgent(runtime);
+      startAgent(runtime).catch((error) => {
+        appendOutput(`agent start failed: ${error.message || error}\n`, "error");
+      });
     });
     updateCreativeBinderActions();
   }
@@ -454,7 +483,7 @@
       return;
     }
     if (!choice) {
-      return;
+      return null;
     }
     hideStageMenus();
     closeAgentEventStream();
@@ -483,11 +512,13 @@
       appendOutput(`${payload.error || "start failed"}\n`, "error");
       return;
     }
-    updateProjectState(payload);
-    const sessionId = payload.session_id || runtime.getState().selectedSessionId;
+    const startPayload = payloadWithCreativeSession(payload);
+    updateProjectState(startPayload);
+    const sessionId = startPayload.session_id || runtime.getState().selectedSessionId;
     renderSessionSwitcher();
     connectSessionEvents(sessionId);
     sendTerminalResize();
+    return startPayload;
   }
 
   function selectFolder(runtime, path) {
@@ -890,8 +921,11 @@
         documentPath: options.documentPath || "",
         activeTarget: options.activeTarget || null,
       });
+      const sessionPath = query
+        ? `/api/creative/agent/sessions?${query}`
+        : "/api/creative/agent/sessions";
       const response = await fetch(
-        `${contextUrl("/api/creative/agent/sessions")}?${query}`,
+        contextUrl(sessionPath),
         { cache: "no-store" },
       );
       const payload = await response.json().catch(() => ({

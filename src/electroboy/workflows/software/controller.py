@@ -282,6 +282,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             session = self.services.sessions.prepare(context, session)
             context.ad_hoc_session = session
             context.selected_session_id = session.session_id
+            self.services.sessions.record(context, session)
         try:
             session.start()
         except Exception:
@@ -845,6 +846,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.requirements_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "requirements"
+            self.services.sessions.record(context, session)
         try:
             session.start()
         except Exception:
@@ -919,6 +921,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.design_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "design"
+            self.services.sessions.record(context, session)
         try:
             session.start()
         except Exception:
@@ -1034,6 +1037,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.selected_session_id = session.session_id
             context.design_review_interactive = interactive
             context.workflow_stage = "design-review"
+            self.services.sessions.record(context, session)
         try:
             session.start()
         except Exception:
@@ -1122,6 +1126,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             session = self.services.sessions.prepare(context, session)
             context.documentation_sessions[session_key] = session
             context.selected_session_id = session.session_id
+            self.services.sessions.record(context, session)
         try:
             session.start()
         except Exception:
@@ -1296,6 +1301,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 raise AgentSessionError(f"{stage} stage is not active")
             existing = context.stage_sessions.get(stage)
             if existing is not None and existing.is_active():
+                context.selected_session_id = existing.session_id
+                self.services.sessions.record(context, existing)
                 return existing, False
             lock_names = SESSION_ARTIFACT_LOCKS.get(stage, frozenset())
             self.services.sessions.require_locks_available(context, lock_names)
@@ -1335,6 +1342,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context.stage_sessions[stage] = session
             context.selected_session_id = session.session_id
             context.workflow_stage = stage
+            self.services.sessions.record(context, session)
         try:
             session.start()
         except Exception:

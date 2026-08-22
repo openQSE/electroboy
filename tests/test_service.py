@@ -605,6 +605,16 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("function mount(runtime)", software)
         self.assertIn("async function startAgent(runtime, options = {})", creative)
         self.assertIn("async function chooseCreativeAgentSession", creative)
+        self.assertIn("function payloadWithCreativeSession(payload)", creative)
+        self.assertIn("selected_session_id: sessionId", creative)
+        self.assertIn("const sessionPath = query", creative)
+        self.assertIn("contextUrl(sessionPath)", creative)
+        self.assertNotIn(
+            '`${contextUrl("/api/creative/agent/sessions")}?${query}`',
+            creative,
+        )
+        self.assertIn("if (!choice) {\n      return null;\n    }", creative)
+        self.assertIn("return startPayload;", creative)
         self.assertIn('placeholder="ElectroBoy id or Codex UUID"', creative)
         self.assertIn("function selectFolder(runtime, path)", creative)
         self.assertIn("function renderNavigation(container, runtime)", creative)
@@ -839,6 +849,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function startCreativeWritingAgent", documents)
         self.assertIn('"creative-writing",\n        "startAgent"', documents)
         self.assertIn("startDocumentAgent(item.target)", documents)
+        self.assertIn(
+            "if (activeProjectIsCreative()) {\n"
+            "            return startDocumentAgent(item.target);",
+            documents,
+        )
+        self.assertIn("const creativeProject = activeProjectIsCreative();", documents)
+        self.assertIn(
+            "const session = creativeProject\n"
+            "            ? null\n"
+            "            : documentationSessionForTarget(item.target);",
+            documents,
+        )
+        self.assertIn("Start or resume an agent for ${item.title}", documents)
+        self.assertIn("return payload;", documents)
+        self.assertIn("value === null", file_pane_tools)
         self.assertNotIn("launchDocumentTarget", documents)
         self.assertIn(
             "function openProjectBrowser(mode = state().projectMode",
@@ -2099,6 +2124,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function startPaneDocumentAgent(target)", PANE_WINDOW_HTML)
         self.assertIn('project.project_mode === "creative"', PANE_WINDOW_HTML)
         self.assertIn('"/api/creative/agent/start"', PANE_WINDOW_HTML)
+        self.assertIn(
+            "function choosePaneCreativeAgentSession(activeTarget)",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn(
+            "contextUrl(`/api/creative/agent/sessions?${query}`)",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn('scope: "document",', PANE_WINDOW_HTML)
+        self.assertIn('session_id: choice.sessionId || "",', PANE_WINDOW_HTML)
+        self.assertIn(
+            'provider_session_id: choice.providerSessionId || "",',
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn('placeholder="ElectroBoy id or Codex UUID"', PANE_WINDOW_HTML)
         self.assertIn('startAgent: startPaneDocumentAgent', PANE_WINDOW_HTML)
         self.assertIn("function refreshSessions()", PANE_WINDOW_HTML)
         self.assertIn("function selectAgentSession(sessionId)", PANE_WINDOW_HTML)
@@ -4540,6 +4580,16 @@ class ServiceTests(unittest.TestCase):
                     scope="document",
                     active_document="chapters/chapter-01.md",
                 )
+                records = json.loads(
+                    _service_session_records_path(service_root).read_text(
+                        encoding="utf-8",
+                    )
+                )
+                record_selection = {
+                    entry["session_id"]: entry["selected"]
+                    for entry in records["sessions"]
+                    if entry["session_id"] in {general.session_id, document.session_id}
+                }
 
         self.assertTrue(general_started)
         self.assertTrue(document_started)
@@ -4561,6 +4611,13 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             [entry["electroboy_session_id"] for entry in document_history["sessions"]],
             [document.session_id],
+        )
+        self.assertEqual(
+            record_selection,
+            {
+                general.session_id: True,
+                document.session_id: False,
+            },
         )
 
     def test_creative_document_agent_resumes_codex_provider_session(self) -> None:
@@ -4681,6 +4738,103 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             catalog["sessions"][0]["provider_session_id"],
             provider_session_id,
+        )
+        self.assertEqual(
+            catalog["sessions"][0]["scope_key"],
+            "document:chapters/chapter-01.md",
+        )
+
+    def test_creative_agent_imports_unscoped_codex_session_by_id(self) -> None:
+        provider_session_id = "019f99e8-c540-7503-a821-806d11807fda"
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            external_root = Path(tmp) / "outside-codex-project"
+            codex_home = Path(tmp) / "codex"
+            session_dir = codex_home / "sessions" / "2026" / "07" / "25"
+            session_path = (
+                session_dir
+                / f"rollout-2026-07-25T11-33-16-{provider_session_id}.jsonl"
+            )
+            service_root.mkdir()
+            project_root.mkdir()
+            external_root.mkdir()
+            session_dir.mkdir(parents=True)
+            session_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "session_meta",
+                                "payload": {
+                                    "session_id": provider_session_id,
+                                    "timestamp": "2026-07-25T11:33:16+00:00",
+                                    "cwd": str(external_root),
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "response_item",
+                                "payload": {
+                                    "type": "message",
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": "Independent draft session.",
+                                        }
+                                    ],
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with (
+                mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
+                mock.patch("electroboy.service.AgentSession.start"),
+            ):
+                session, started = state.start_creative_writing_agent(
+                    context_id,
+                    scope="document",
+                    active_document="chapters/chapter-01.md",
+                    session_id=provider_session_id,
+                )
+                history = state.creative_agent_sessions(
+                    context_id,
+                    scope="document",
+                    active_document="chapters/chapter-01.md",
+                )
+            catalog = json.loads(
+                (
+                    service_root
+                    / ".electroboy"
+                    / "service"
+                    / "creative-agent-sessions.json"
+                ).read_text(encoding="utf-8")
+            )
+
+        self.assertTrue(started)
+        self.assertEqual(session.command[-2:], ["resume", provider_session_id])
+        self.assertEqual(session.metadata["provider_session_id"], provider_session_id)
+        self.assertTrue(session.metadata["resumed_session"])
+        self.assertEqual(history["sessions"][0]["provider_session_id"], provider_session_id)
+        self.assertEqual(history["sessions"][0]["title"], "Independent draft session.")
+        self.assertEqual(
+            catalog["sessions"][0]["project_root"],
+            str(project_root.resolve()),
+        )
+        self.assertEqual(
+            catalog["sessions"][0]["provider_project_root"],
+            str(external_root.resolve()),
         )
         self.assertEqual(
             catalog["sessions"][0]["scope_key"],
@@ -5241,6 +5395,7 @@ class ServiceTests(unittest.TestCase):
             str(project_root.resolve()),
         )
         self.assertEqual(records["sessions"][0]["session_id"], session.session_id)
+        self.assertTrue(records["sessions"][0]["selected"])
 
     def test_service_state_tmux_backend_wraps_new_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

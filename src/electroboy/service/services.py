@@ -165,6 +165,8 @@ class SessionServices(Protocol):
         session: AgentSession,
     ) -> AgentSession: ...
 
+    def record(self, context: BrowserContext, session: AgentSession) -> None: ...
+
     def for_context(self, context: BrowserContext) -> list[AgentSession]: ...
 
     def require_locks_available(
@@ -787,6 +789,9 @@ class RuntimeSessionServices:
         session: AgentSession,
     ) -> AgentSession:
         return self.runtime._prepare_session_locked(context, session)
+
+    def record(self, context: BrowserContext, session: AgentSession) -> None:
+        self.runtime._record_session_locked(context, session)
 
     def for_context(self, context: BrowserContext) -> list[AgentSession]:
         return self.runtime._context_sessions_locked(context)

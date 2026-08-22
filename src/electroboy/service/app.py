@@ -262,15 +262,22 @@ class ServiceState:
         )
         return session
 
+    def _record_session_locked(
+        self,
+        context: BrowserContext,
+        session: AgentSession,
+    ) -> None:
+        _upsert_service_session_record(
+            self.state_root,
+            _service_session_record(self.state_root, context, session),
+        )
+
     def _record_session_status(self, session: AgentSession) -> None:
         with self.lock:
             context = self.contexts.get(str(session.context_id or ""))
             if context is None:
                 return
-            _upsert_service_session_record(
-                self.state_root,
-                _service_session_record(self.state_root, context, session),
-            )
+            self._record_session_locked(context, session)
 
     def _restore_tmux_sessions(self) -> None:
         if shutil.which("tmux") is None:
@@ -1237,6 +1244,7 @@ class ServiceState:
             context = self._context_locked(context_id)
             session = self._session_by_id_locked(context, session_id)
             context.selected_session_id = session.session_id
+            self._record_session_locked(context, session)
             return {
                 "context_id": context.context_id,
                 "selected_session_id": session.session_id,
@@ -1249,6 +1257,7 @@ class ServiceState:
             session = self._session_by_id_locked(target_context, session_id)
             if session.kind != "project-shell":
                 target_context.selected_session_id = session.session_id
+                self._record_session_locked(target_context, session)
             project_root = target_context.active_project_root
         return {
             **project_payload(
@@ -2056,12 +2065,21 @@ def _upsert_service_session_record(
     session_id = str(record.get("session_id") or "").strip()
     if not session_id:
         return
+    workspace_id = str(record.get("workspace_id") or record.get("context_id") or "")
+    record_selected = bool(record.get("selected"))
     data = _load_service_session_records(service_root)
-    sessions = [
-        entry
-        for entry in data.get("sessions", [])
-        if isinstance(entry, dict) and str(entry.get("session_id") or "") != session_id
-    ]
+    sessions = []
+    for entry in data.get("sessions", []):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("session_id") or "") == session_id:
+            continue
+        entry_workspace_id = str(
+            entry.get("workspace_id") or entry.get("context_id") or ""
+        )
+        if record_selected and workspace_id and entry_workspace_id == workspace_id:
+            entry = {**entry, "selected": False}
+        sessions.append(entry)
     data["sessions"] = [record, *sessions][:200]
     _save_service_session_records(service_root, data)
 
@@ -2071,7 +2089,9 @@ def _service_session_record(
     context: BrowserContext,
     session: AgentSession,
 ) -> dict[str, object]:
-    payload = session.payload(selected=False)
+    payload = session.payload(
+        selected=session.session_id == context.selected_session_id
+    )
     active_root = context.active_project_root
     activation_root = context.activation_root or active_root
     record = {

@@ -40,6 +40,8 @@
           .then((value) => {
             if (name === "startAgent" && value) {
               setActionStatus("Agent started");
+            } else if (name === "startAgent" && value === null) {
+              setActionStatus("");
             }
           })
           .catch((error) => {

@@ -59,6 +59,7 @@ def creative_session_history(
             scoped_entries.append(
                 _history_entry(
                     session,
+                    project_root=resolved_root,
                     scope=scope,
                     scope_key=scope_key,
                     document_path=str(entry.get("document_path") or ""),
@@ -83,6 +84,7 @@ def remember_creative_session(
     service_root: Path,
     session: CodexSessionSummary,
     *,
+    project_root: Path | None = None,
     scope: str,
     scope_key: str,
     document_path: str = "",
@@ -106,6 +108,7 @@ def remember_creative_session(
         )
         entry = _history_entry(
             session,
+            project_root=project_root,
             scope=scope,
             scope_key=scope_key,
             document_path=document_path,
@@ -128,8 +131,9 @@ def resumable_creative_session(
     project_root: Path,
     *,
     scope_key: str,
+    allow_unscoped_codex: bool = False,
 ) -> CodexSessionSummary | None:
-    """Resolve an indexed UUID, importing an explicit UUID when necessary."""
+    """Resolve an indexed UUID, importing an explicit UUID when requested."""
 
     resolved_root = project_root.expanduser().resolve()
     with _CATALOG_LOCK:
@@ -145,9 +149,11 @@ def resumable_creative_session(
             None,
         )
     session = _indexed_session(indexed, resolved_root) if indexed else None
-    if session is None and indexed is None:
+    if session is None:
         session = codex_session_by_id(provider_session_id)
-    if session is None or session.cwd != resolved_root:
+    if session is None:
+        return None
+    if session.cwd != resolved_root and not allow_unscoped_codex:
         return None
     return session
 
@@ -216,6 +222,7 @@ def _track_new_creative_session(
             remember_creative_session(
                 service_root,
                 session,
+                project_root=resolved_root,
                 scope=scope,
                 scope_key=scope_key,
                 document_path=document_path,
@@ -241,6 +248,7 @@ def _is_creative_session(session: CodexSessionSummary) -> bool:
 def _history_entry(
     session: CodexSessionSummary,
     *,
+    project_root: Path | None = None,
     scope: str,
     scope_key: str,
     document_path: str = "",
@@ -249,8 +257,14 @@ def _history_entry(
     electroboy_session_id: str = "",
     title: str | None = None,
 ) -> dict[str, object]:
+    payload = session.payload()
+    if project_root is not None:
+        scoped_root = project_root.expanduser().resolve()
+        if session.cwd != scoped_root:
+            payload["provider_project_root"] = str(session.cwd)
+        payload["project_root"] = str(scoped_root)
     return {
-        **session.payload(),
+        **payload,
         "scope": scope,
         "scope_key": scope_key,
         "document_path": document_path,
@@ -346,10 +360,16 @@ def _indexed_session(
         session = codex_session_from_path(path, include_messages=False)
     else:
         session = codex_session_by_id(session_id, include_messages=False)
+    provider_root_value = str(entry.get("provider_project_root") or "").strip()
+    expected_session_root = (
+        Path(provider_root_value).expanduser().resolve()
+        if provider_root_value
+        else project_root
+    )
     if (
         session is None
         or session.session_id.lower() != session_id
-        or session.cwd != project_root
+        or session.cwd != expected_session_root
     ):
         return None
     return session

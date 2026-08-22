@@ -146,6 +146,9 @@
         startAgent: () => {
           const item = activeArtifactToolItem();
           if (!item || item.kind !== "document" || !item.target) return;
+          if (activeProjectIsCreative()) {
+            return startDocumentAgent(item.target);
+          }
           const session = documentationSessionForTarget(item.target);
           return session
             ? selectAgentSession(session.session_id)
@@ -883,7 +886,10 @@
 
         let agentButton = null;
         if (item.kind === "document" && item.target) {
-          const session = documentationSessionForTarget(item.target);
+          const creativeProject = activeProjectIsCreative();
+          const session = creativeProject
+            ? null
+            : documentationSessionForTarget(item.target);
           agentButton = document.createElement("button");
           agentButton.className = "pane-popout-button";
           agentButton.type = "button";
@@ -905,10 +911,14 @@
             });
           } else {
             agentButton.textContent = "Start agent";
-            agentButton.title = `Start an agent for ${item.title}`;
+            agentButton.title = creativeProject
+              ? `Start or resume an agent for ${item.title}`
+              : `Start an agent for ${item.title}`;
             agentButton.setAttribute(
               "aria-label",
-              `Start an agent for ${item.title}`,
+              creativeProject
+                ? `Start or resume an agent for ${item.title}`
+                : `Start an agent for ${item.title}`,
             );
             agentButton.addEventListener("click", () => {
               startDocumentAgent(item.target).catch((error) => {
@@ -1264,6 +1274,7 @@
       renderSessionSwitcher();
       connectSessionEvents(sessionId);
       sendTerminalResize();
+      return payload;
     }
 
   window.ElectroBoyFrontend.registerModule({
