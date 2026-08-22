@@ -4,6 +4,7 @@
   const AGENDA_STYLES = Object.freeze([
     Object.freeze({ id: "default", label: "Default" }),
     Object.freeze({ id: "hud", label: "HUD" }),
+    Object.freeze({ id: "command-center", label: "Command Center" }),
   ]);
 
   function styles() {

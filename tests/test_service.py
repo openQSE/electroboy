@@ -3815,6 +3815,20 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('<body class="agenda-style-hud">', hud_page)
         self.assertIn("body.agenda-style-hud .agenda-item", hud_page)
         self.assertIn('"id": "hud", "label": "HUD"', hud_page)
+        command_page, command_status = render_agenda_html(
+            snapshot,
+            style="command-center",
+        )
+        self.assertEqual(command_status, HTTPStatus.OK)
+        self.assertIn('<body class="agenda-style-command-center">', command_page)
+        self.assertIn(
+            "body.agenda-style-command-center .agenda-section",
+            command_page,
+        )
+        self.assertIn(
+            '"id": "command-center", "label": "Command Center"',
+            command_page,
+        )
 
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
@@ -3827,6 +3841,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('runtime.layout.assignPane("agenda", item);', agenda)
         self.assertIn("function styles()", agenda)
         self.assertIn('Object.freeze({ id: "hud", label: "HUD" })', agenda)
+        self.assertIn(
+            'Object.freeze({ id: "command-center", label: "Command Center" })',
+            agenda,
+        )
         self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
         self.assertIn('const PANE_KIND = "agenda";', page)
         self.assertIn("ElectroBoyAgendaPaneTools.mount", page)

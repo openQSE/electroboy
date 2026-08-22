@@ -10,6 +10,7 @@ from http import HTTPStatus
 AGENDA_STYLES = (
     {"id": "default", "label": "Default"},
     {"id": "hud", "label": "HUD"},
+    {"id": "command-center", "label": "Command Center"},
 )
 AGENDA_STYLE_IDS = frozenset(style["id"] for style in AGENDA_STYLES)
 
@@ -261,6 +262,105 @@ def render_agenda_html(
     .editor-field input, .editor-field textarea, .editor-field select {{ border: 1px solid #bfb4a8; border-radius: 8px; padding: 9px 10px; background: white; color: var(--ink); }}
     .editor-error {{ color: #9b321f; min-height: 20px; }}
     .editor-actions {{ display: flex; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }}
+    body.agenda-style-command-center {{
+      --ink: #16202a;
+      --muted: #5f6d79;
+      --line: #cbd7e1;
+      --paper: #fbfdff;
+      --wash: #e7eef4;
+      --accent: #006b7a;
+      --accent-soft: #d8f0f3;
+      --warning: #9b4b20;
+      --warning-soft: #fff0dd;
+      --shadow: 0 16px 32px rgba(32, 52, 67, .12);
+      background: var(--wash);
+    }}
+    body.agenda-style-command-center .agenda-header {{
+      border-bottom: 1px solid #bdd0dc;
+      background: #16313f;
+      color: #f8fcff;
+      box-shadow: 0 10px 28px rgba(21, 49, 63, .18);
+    }}
+    body.agenda-style-command-center .agenda-kicker {{
+      color: #a9d9e0;
+      letter-spacing: 0;
+    }}
+    body.agenda-style-command-center h1,
+    body.agenda-style-command-center .agenda-section-heading {{
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-weight: 850;
+    }}
+    body.agenda-style-command-center .agenda-content {{
+      width: min(1280px, 100%);
+    }}
+    body.agenda-style-command-center .agenda-summary {{
+      margin-bottom: 20px;
+      font-weight: 750;
+    }}
+    body.agenda-style-command-center .agenda-section {{
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr);
+      gap: 18px;
+      margin-bottom: 28px;
+      padding-top: 18px;
+      border-top: 1px solid #cbd7e1;
+    }}
+    body.agenda-style-command-center .agenda-section-heading {{
+      align-content: start;
+      align-self: start;
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      color: #213547;
+      font-size: 17px;
+    }}
+    body.agenda-style-command-center .agenda-count {{
+      width: fit-content;
+      border: 1px solid #a9cbd2;
+      border-radius: 6px;
+      background: #d8f0f3;
+      color: #164f5a;
+    }}
+    body.agenda-style-command-center .agenda-items {{
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      align-items: start;
+    }}
+    body.agenda-style-command-center .agenda-item {{
+      grid-template-columns: 1fr;
+      border-color: #cad7e0;
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }}
+    body.agenda-style-command-center .agenda-time {{
+      border-right: 0;
+      border-bottom: 1px solid #e0e9ef;
+      background: #edf5f8;
+      color: #006b7a;
+      text-align: left;
+    }}
+    body.agenda-style-command-center .agenda-item-body {{
+      padding: 15px 16px 16px;
+    }}
+    body.agenda-style-command-center .agenda-kind,
+    body.agenda-style-command-center .agenda-meta dt {{
+      letter-spacing: 0;
+    }}
+    body.agenda-style-command-center .agenda-badge,
+    body.agenda-style-command-center .agenda-person {{
+      border-radius: 6px;
+    }}
+    body.agenda-style-command-center .item-action {{
+      border-radius: 6px;
+    }}
+    @media (max-width: 860px) {{
+      body.agenda-style-command-center .agenda-section {{
+        grid-template-columns: 1fr;
+      }}
+      body.agenda-style-command-center .agenda-items {{
+        grid-template-columns: 1fr;
+      }}
+    }}
     body.agenda-style-hud {{
       --ink: #eefcf8;
       --muted: #9fb4ae;
