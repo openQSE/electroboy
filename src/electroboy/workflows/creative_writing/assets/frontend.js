@@ -21,6 +21,7 @@
   let creativeScratchSaveTimer = null;
   let creativeProjectActionsExpanded = false;
   let creativeAgentActionsExpanded = false;
+  let creativeSessionDialog = null;
 
   function creativePaneKinds(layout, result = []) {
     if (!layout || layout.type === "leaf") {
@@ -79,6 +80,10 @@
     creativeProjectActionsExpanded = false;
     creativeAgentActionsExpanded = false;
     creativeRecentProjectsExpanded = false;
+    if (creativeSessionDialog) {
+      creativeSessionDialog.remove();
+      creativeSessionDialog = null;
+    }
     if (runtimeApi) {
       runtimeApi.updateState({
         artifactPaneRequested: false,
@@ -119,6 +124,15 @@
     runtimeApi.notifications.appendOutput(text, kind);
   }
 
+  function updateProjectState(payload) {
+    runtimeApi.project.update(payload);
+    bindRuntime(runtimeApi);
+  }
+
+  function hideStageMenus() {
+    runtimeApi.ui.hideStageMenus();
+  }
+
   function basename(path) {
     return runtimeApi.paths.basename(path);
   }
@@ -129,6 +143,30 @@
 
   function showProgressPane(visible) {
     runtimeApi.layout.showProgressPane(visible);
+  }
+
+  function clearAgentOutput() {
+    runtimeApi.agent.clearOutput();
+  }
+
+  function closeAgentEventStream() {
+    return runtimeApi.modules.invoke("agent-sessions", "closeAgentEventStream");
+  }
+
+  function connectSessionEvents(sessionId) {
+    return runtimeApi.modules.invoke(
+      "agent-sessions",
+      "connectSessionEvents",
+      sessionId,
+    );
+  }
+
+  function renderSessionSwitcher() {
+    return runtimeApi.modules.invoke("agent-sessions", "renderSessionSwitcher");
+  }
+
+  function sendTerminalResize() {
+    runtimeApi.agent.sendResize();
   }
 
   function applyOutputPaneVisibility() {
@@ -386,22 +424,56 @@
     resetCreativeWorkflowState();
   }
 
-  async function startAgent(runtime) {
+  async function startAgent(runtime, options = {}) {
     bindRuntime(runtime);
     const state = runtime.getState();
     if (!state.activeProjectRoot || !state.contextId) {
       appendOutput("activate a project first\n", "error");
       return;
     }
+    const scope = options.scope === "document" ? "document" : "general";
+    const documentPath = String(
+      options.documentPath
+        || (scope === "document" ? state.creativeActiveDocument : "")
+        || "",
+    );
+    const target = options.activeTarget || (
+      scope === "document" && documentPath
+        ? { type: "document", path: documentPath }
+        : null
+    );
+    let choice = null;
+    try {
+      choice = await chooseCreativeAgentSession({
+        scope,
+        documentPath,
+        activeTarget: target,
+      });
+    } catch (error) {
+      appendOutput(`${error.message || "session history failed"}\n`, "error");
+      return;
+    }
+    if (!choice) {
+      return;
+    }
+    hideStageMenus();
+    closeAgentEventStream();
+    showProgressPane(false);
     setAgentInputVisible(true);
-    runtime.agent.clearOutput();
-    appendOutput("$ codex creative-writing\n", "system");
+    clearAgentOutput();
+    runtime.elements.agentInput.disabled = false;
+    runtime.elements.agentInput.focus();
+    appendOutput(creativeAgentCommandLine(choice), "system");
     const response = await runtime.http.fetch(contextUrl("/api/creative/agent/start"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        active_document: state.creativeActiveDocument,
-        active_target: activeCreativeTarget(),
+        active_document: scope === "document" ? documentPath : "",
+        active_target: target || null,
+        scope,
+        session_id: choice.sessionId || "",
+        provider_session_id: choice.providerSessionId || "",
+        start_new: Boolean(choice.startNew),
       }),
     });
     const payload = await response
@@ -411,11 +483,11 @@
       appendOutput(`${payload.error || "start failed"}\n`, "error");
       return;
     }
-    runtime.project.update(payload);
-    bindRuntime(runtime);
+    updateProjectState(payload);
     const sessionId = payload.session_id || runtime.getState().selectedSessionId;
-    runtime.modules.invoke("agent-sessions", "connectSessionEvents", sessionId);
-    runtime.agent.sendResize();
+    renderSessionSwitcher();
+    connectSessionEvents(sessionId);
+    sendTerminalResize();
   }
 
   function selectFolder(runtime, path) {
@@ -677,14 +749,259 @@
       );
     }
 
-    function creativeAgentSession() {
-      return agentSessions.some(
-        (session) => session.kind === WORKFLOW_ID && session.status === "running",
-      )
-        ? agentSessions.find(
-            (session) => session.kind === WORKFLOW_ID && session.status === "running",
-          )
-        : null;
+    function creativeSessionDate(session) {
+      const value = String(session.updated_at || session.created_at || "");
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+    }
+
+    function ensureCreativeSessionDialog() {
+      if (creativeSessionDialog) {
+        return creativeSessionDialog;
+      }
+      const dialog = document.createElement("dialog");
+      dialog.className = "ad-hoc-session-dialog creative-session-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="ad-hoc-session-form">
+          <header class="ad-hoc-session-header">
+            <div>
+              <h2>Start creative agent</h2>
+              <p>Start fresh or resume an existing session.</p>
+            </div>
+            <button
+              type="button"
+              class="ad-hoc-session-close"
+              aria-label="Close"
+            >&times;</button>
+          </header>
+          <fieldset class="ad-hoc-session-options">
+            <legend>Session</legend>
+            <div class="ad-hoc-session-list"></div>
+            <label class="ad-hoc-session-option ad-hoc-session-custom">
+              <input type="radio" name="creative-session" value="custom">
+              <span class="ad-hoc-session-option-copy">
+                <strong>Resume by session id</strong>
+                <input
+                  class="ad-hoc-session-uuid"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="ElectroBoy id or Codex UUID"
+                >
+              </span>
+            </label>
+          </fieldset>
+          <p class="ad-hoc-session-error" role="alert" hidden></p>
+          <footer class="ad-hoc-session-footer">
+            <button type="button" class="ad-hoc-session-cancel">Cancel</button>
+            <button type="submit" class="ad-hoc-session-submit">Start</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      creativeSessionDialog = dialog;
+      return dialog;
+    }
+
+    function creativeSessionOptionValue(session) {
+      const status = String(session.status || "");
+      const providerId = String(session.provider_session_id || "");
+      const serviceId = String(
+        session.electroboy_session_id || session.session_id || "",
+      );
+      if (status === "running" && serviceId) {
+        return `service:${serviceId}`;
+      }
+      if (providerId) {
+        return `provider:${providerId}`;
+      }
+      return serviceId ? `service:${serviceId}` : "";
+    }
+
+    function creativeSessionOption(session, index) {
+      const label = document.createElement("label");
+      label.className = "ad-hoc-session-option";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "creative-session";
+      input.value = creativeSessionOptionValue(session);
+      input.id = `creative-session-${index}`;
+      const copy = document.createElement("span");
+      copy.className = "ad-hoc-session-option-copy";
+      const title = document.createElement("strong");
+      title.textContent = String(session.title || "Creative session");
+      const details = document.createElement("span");
+      details.className = "ad-hoc-session-details";
+      const date = creativeSessionDate(session);
+      const status = String(session.status || "");
+      const providerId = String(session.provider_session_id || "");
+      const serviceId = String(
+        session.electroboy_session_id || session.session_id || "",
+      );
+      details.textContent = [
+        status,
+        date,
+        providerId || serviceId,
+      ].filter(Boolean).join(" · ");
+      copy.append(title, details);
+      label.append(input, copy);
+      return label;
+    }
+
+    function creativeSessionQuery({ scope, documentPath, activeTarget }) {
+      const params = new URLSearchParams();
+      params.set("scope", scope);
+      if (documentPath) {
+        params.set("active_document", documentPath);
+      }
+      if (activeTarget && activeTarget.type) {
+        params.set("target_type", activeTarget.type);
+      }
+      if (activeTarget && activeTarget.path) {
+        params.set("target_path", activeTarget.path);
+      }
+      return params.toString();
+    }
+
+    function creativeSessionChoice(value, customInput) {
+      if (value === "custom") {
+        const manualId = customInput.value.trim();
+        return manualId ? { sessionId: manualId, startNew: false } : null;
+      }
+      if (value.startsWith("provider:")) {
+        return {
+          providerSessionId: value.slice("provider:".length),
+          startNew: false,
+        };
+      }
+      if (value.startsWith("service:")) {
+        return {
+          sessionId: value.slice("service:".length),
+          startNew: false,
+        };
+      }
+      return { startNew: true };
+    }
+
+    async function chooseCreativeAgentSession(options = {}) {
+      const scope = options.scope === "document" ? "document" : "general";
+      const query = creativeSessionQuery({
+        scope,
+        documentPath: options.documentPath || "",
+        activeTarget: options.activeTarget || null,
+      });
+      const response = await fetch(
+        `${contextUrl("/api/creative/agent/sessions")}?${query}`,
+        { cache: "no-store" },
+      );
+      const payload = await response.json().catch(() => ({
+        error: "session history failed",
+      }));
+      if (!response.ok) {
+        throw new Error(payload.error || "session history failed");
+      }
+      const dialog = ensureCreativeSessionDialog();
+      const heading = dialog.querySelector(".ad-hoc-session-header h2");
+      const summary = dialog.querySelector(".ad-hoc-session-header p");
+      const list = dialog.querySelector(".ad-hoc-session-list");
+      const customInput = dialog.querySelector(".ad-hoc-session-uuid");
+      const customRadio = dialog.querySelector('input[value="custom"]');
+      const error = dialog.querySelector(".ad-hoc-session-error");
+      const submit = dialog.querySelector(".ad-hoc-session-submit");
+      const newOption = document.createElement("label");
+      newOption.className = "ad-hoc-session-option";
+      newOption.innerHTML = `
+        <input type="radio" name="creative-session" value="" checked>
+        <span class="ad-hoc-session-option-copy">
+          <strong>New session</strong>
+          <span class="ad-hoc-session-details">
+            Start with a clean creative context.
+          </span>
+        </span>
+      `;
+      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      heading.textContent = scope === "document"
+        ? "Start document agent"
+        : "Start creative agent";
+      summary.textContent = scope === "document" && payload.document_path
+        ? `Sessions scoped to ${payload.document_path}.`
+        : "General creative sessions for this project.";
+      list.replaceChildren(
+        newOption,
+        ...sessions.map((session, index) => creativeSessionOption(session, index)),
+      );
+      customInput.value = "";
+      error.hidden = true;
+      submit.textContent = "Start";
+      dialog.querySelector(".ad-hoc-session-options").onchange = (event) => {
+        if (event.target.name !== "creative-session") {
+          return;
+        }
+        submit.textContent = event.target.value ? "Resume" : "Start";
+        error.hidden = true;
+      };
+      customInput.onfocus = () => {
+        customRadio.checked = true;
+        submit.textContent = "Resume";
+        error.hidden = true;
+      };
+
+      return new Promise((resolve) => {
+        const finish = (choice) => {
+          dialog.close();
+          resolve(choice);
+        };
+        dialog.querySelector(".ad-hoc-session-close").onclick = () => {
+          finish(null);
+        };
+        dialog.querySelector(".ad-hoc-session-cancel").onclick = () => {
+          finish(null);
+        };
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(null);
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          const selected = dialog.querySelector(
+            'input[name="creative-session"]:checked',
+          );
+          const choice = creativeSessionChoice(
+            selected ? selected.value : "",
+            customInput,
+          );
+          if (!choice) {
+            error.textContent = "Enter a session id.";
+            error.hidden = false;
+            return;
+          }
+          finish(choice);
+        };
+        dialog.showModal();
+      });
+    }
+
+    function creativeAgentCommandLine(choice) {
+      if (choice.providerSessionId) {
+        return `$ codex resume ${choice.providerSessionId}\n`;
+      }
+      if (choice.sessionId) {
+        return `$ electroboy session ${choice.sessionId}\n`;
+      }
+      return "$ codex creative-writing\n";
+    }
+
+    function creativeAgentSession(scopeKey = "general") {
+      return agentSessions.find((session) => {
+        if (session.kind !== WORKFLOW_ID || session.status !== "running") {
+          return false;
+        }
+        const metadata = session.metadata || {};
+        const sessionScopeKey = String(
+          metadata.creative_scope_key || "general",
+        );
+        return sessionScopeKey === scopeKey;
+      }) || null;
     }
 
     function creativeAgentRunning() {
@@ -1125,11 +1442,8 @@
       recordProjectStatusMessage(`deleted ${type}: ${path}`);
     }
 
-    async function startCreativeWritingAgent() {
-      return window.ElectroBoyFrontend.invokeWorkflow(
-        WORKFLOW_ID,
-        "startAgent",
-      );
+    async function startCreativeWritingAgent(options = {}) {
+      return startAgent(runtimeApi, options);
     }
 
   window.ElectroBoyFrontend.registerWorkflow({
@@ -1203,6 +1517,7 @@
       createCreativeDocumentInline: (runtime, ...args) => invoke(runtime, createCreativeDocumentInline, args),
       createCreativeCorkboardInline: (runtime, ...args) => invoke(runtime, createCreativeCorkboardInline, args),
       deleteCreativeEntry: (runtime, ...args) => invoke(runtime, deleteCreativeEntry, args),
+      chooseCreativeAgentSession: (runtime, ...args) => invoke(runtime, chooseCreativeAgentSession, args),
       startCreativeWritingAgent: (runtime, ...args) => invoke(runtime, startCreativeWritingAgent, args),
     },
   });

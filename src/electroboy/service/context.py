@@ -127,15 +127,37 @@ class BrowserContext:
         self.module("markdown_documents")["sessions"] = value
 
     @property
+    def creative_sessions(self) -> dict[str, AgentSession]:
+        state = self.workflow("creative-writing")
+        sessions = self._value(state, "sessions", dict)
+        legacy = state.pop("session", None)
+        if legacy is not None:
+            session_id = str(getattr(legacy, "session_id", "__general__"))
+            sessions.setdefault(session_id, legacy)
+        return sessions
+
+    @creative_sessions.setter
+    def creative_sessions(self, value: dict[str, AgentSession]) -> None:
+        self.workflow("creative-writing")["sessions"] = value
+
+    @property
     def creative_session(self) -> AgentSession | None:
-        return cast(
-            AgentSession | None,
-            self.workflow("creative-writing").get("session"),
-        )
+        for session in self.creative_sessions.values():
+            metadata = getattr(session, "metadata", {}) or {}
+            if str(metadata.get("creative_scope") or "general") != "document":
+                return session
+        return None
 
     @creative_session.setter
     def creative_session(self, value: AgentSession | None) -> None:
-        self.workflow("creative-writing")["session"] = value
+        sessions = self.creative_sessions
+        for session_id, session in list(sessions.items()):
+            metadata = getattr(session, "metadata", {}) or {}
+            if str(metadata.get("creative_scope") or "general") != "document":
+                sessions.pop(session_id, None)
+        if value is not None:
+            session_id = str(getattr(value, "session_id", "__general__"))
+            sessions[session_id] = value
 
     @property
     def ad_hoc_session(self) -> AgentSession | None:

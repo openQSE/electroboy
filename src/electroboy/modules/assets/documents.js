@@ -1208,34 +1208,16 @@
         appendOutput("select a document first\n", "error");
         return;
       }
-      hideStageMenus();
-      closeAgentEventStream();
-      showProgressPane(false);
       showDocumentPreview(documentTarget);
-      setAgentInputVisible(true);
-      clearAgentOutput();
-      runtimeApi.elements.agentInput.disabled = false;
-      runtimeApi.elements.agentInput.focus();
-      appendOutput("$ codex creative-writing\n", "system");
-      const response = await fetch(contextUrl("/api/creative/agent/start"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          active_document: documentPath,
-          active_target: creativeDocumentTargetPayload(documentTarget),
-        }),
-      });
-      const payload = await response.json().catch(() => ({ error: "start failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "start failed"}\n`, "error");
-        return;
-      }
-      updateProjectState(payload);
-      const sessionId = payload.session_id || runtimeState.selectedSessionId;
-      runtimeState.selectedSessionId = sessionId;
-      renderSessionSwitcher();
-      connectSessionEvents(sessionId);
-      sendTerminalResize();
+      return window.ElectroBoyFrontend.invokeWorkflow(
+        "creative-writing",
+        "startAgent",
+        {
+          scope: "document",
+          documentPath,
+          activeTarget: creativeDocumentTargetPayload(documentTarget),
+        },
+      );
     }
 
     async function startDocumentAgent(target = DEFAULT_DOCUMENT_TARGETS[0]) {

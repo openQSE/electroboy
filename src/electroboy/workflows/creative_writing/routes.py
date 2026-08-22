@@ -90,10 +90,14 @@ def _start_agent(request: RouteRequest) -> ServiceResponse:
             active_target=(
                 active_target if isinstance(active_target, dict) else None
             ),
+            scope=str(payload.get("scope") or ""),
+            session_id=str(payload.get("session_id") or ""),
+            provider_session_id=str(payload.get("provider_session_id") or ""),
+            start_new=bool(payload.get("start_new", False)),
         )
         result = {
             **request.services.contexts.project_payload(request.context_id),
-            "status": "started" if started else "running",
+            "status": "started" if started else session.status,
             "command": session.command,
             "session_id": session.session_id,
         }
@@ -107,12 +111,34 @@ def _start_agent(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(result)
 
 
+def _agent_sessions(request: RouteRequest) -> ServiceResponse:
+    try:
+        active_target = None
+        target_type = str((request.params.get("target_type") or [""])[0])
+        target_path = str((request.params.get("target_path") or [""])[0])
+        if target_type or target_path:
+            active_target = {
+                "type": target_type,
+                "path": target_path,
+            }
+        payload = _controller(request).creative_agent_sessions(
+            request.context_id,
+            scope=str((request.params.get("scope") or [""])[0]),
+            active_document=str((request.params.get("active_document") or [""])[0]),
+            active_target=active_target,
+        )
+    except Exception as error:
+        return _error(error)
+    return JsonResponse(payload)
+
+
 ROUTES = (
     _route("POST", "/api/creative/project/open", "open_project"),
     _route("POST", "/api/creative/project/new", "create_project"),
     _route("POST", "/api/creative/init", "initialize"),
     _route("GET", "/api/creative/scratch", "scratch"),
     _route("POST", "/api/creative/scratch", "save_scratch"),
+    _route("GET", "/api/creative/agent/sessions", "agent_sessions"),
     _route("POST", "/api/creative/agent/start", "start_agent"),
 )
 
@@ -122,5 +148,6 @@ HANDLERS: dict[str, RouteHandler] = {
     "initialize": _initialize,
     "scratch": _scratch,
     "save_scratch": _save_scratch,
+    "agent_sessions": _agent_sessions,
     "start_agent": _start_agent,
 }

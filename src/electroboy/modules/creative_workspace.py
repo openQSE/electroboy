@@ -3964,15 +3964,20 @@ def _creative_agent_target(
 def _creative_writing_command(
     root: Path,
     active_target: dict[str, str] | None = None,
+    provider_session_id: str | None = None,
 ) -> list[str]:
-    return [
+    command = [
         "codex",
         "--cd",
         str(root),
         "--sandbox",
         "workspace-write",
-        _creative_writing_prompt(active_target),
     ]
+    if provider_session_id:
+        command.extend(["resume", provider_session_id])
+    else:
+        command.append(_creative_writing_prompt(active_target))
+    return command
 
 
 def _creative_writing_prompt(active_target: dict[str, str] | None = None) -> str:

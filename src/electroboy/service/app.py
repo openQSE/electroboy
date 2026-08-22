@@ -913,17 +913,40 @@ class ServiceState:
             payload,
         )
 
+    def creative_agent_sessions(
+        self,
+        context_id: str,
+        *,
+        scope: str = "",
+        active_document: str | None = None,
+        active_target: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        return self.workflow_controller("creative-writing").creative_agent_sessions(
+            context_id,
+            scope=scope,
+            active_document=active_document,
+            active_target=active_target,
+        )
+
     def start_creative_writing_agent(
         self,
         context_id: str,
         *,
         active_document: str | None = None,
         active_target: dict[str, object] | None = None,
+        scope: str = "",
+        session_id: str | None = None,
+        provider_session_id: str | None = None,
+        start_new: bool = False,
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("creative-writing").start_creative_writing_agent(
             context_id,
             active_document=active_document,
             active_target=active_target,
+            scope=scope,
+            session_id=session_id,
+            provider_session_id=provider_session_id,
+            start_new=start_new,
         )
 
     def stop_design_review_agent(self, context_id: str) -> dict[str, object]:
@@ -1509,7 +1532,7 @@ class ServiceState:
                 context.design_review_session,
                 *context.stage_sessions.values(),
                 *context.documentation_sessions.values(),
-                context.creative_session,
+                *context.creative_sessions.values(),
                 context.ad_hoc_session,
             ]
             if session is not None
@@ -1555,8 +1578,9 @@ class ServiceState:
             for key, documentation_session in list(context.documentation_sessions.items()):
                 if documentation_session is session:
                     context.documentation_sessions.pop(key, None)
-            if context.creative_session is session:
-                context.creative_session = None
+            for key, creative_session in list(context.creative_sessions.items()):
+                if creative_session is session:
+                    context.creative_sessions.pop(key, None)
             if context.ad_hoc_session is session:
                 context.ad_hoc_session = None
             for shell_id, shell_session in list(
@@ -1622,7 +1646,7 @@ class ServiceState:
             session_key = str(session.metadata.get("document_path") or "__default__")
             context.documentation_sessions[session_key] = session
         elif session.kind == "creative-writing":
-            context.creative_session = session
+            context.creative_sessions[session.session_id] = session
         elif session.kind == "ad-hoc":
             context.ad_hoc_session = session
         elif session.kind == "project-shell":
@@ -1913,11 +1937,9 @@ def project_payload(
         active_root
         and any(session.is_active() for session in context.documentation_sessions.values())
     )
-    creative_session = context.creative_session
     creative_running = bool(
         active_root
-        and creative_session is not None
-        and creative_session.is_active()
+        and any(session.is_active() for session in context.creative_sessions.values())
     )
     ad_hoc_session = context.ad_hoc_session
     ad_hoc_running = bool(
@@ -2083,7 +2105,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         context.design_review_session,
         *context.stage_sessions.values(),
         *context.documentation_sessions.values(),
-        context.creative_session,
+        *context.creative_sessions.values(),
         context.ad_hoc_session,
     ]:
         if session is None:
