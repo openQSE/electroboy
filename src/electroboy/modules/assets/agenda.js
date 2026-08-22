@@ -8,6 +8,7 @@
     Object.freeze({ id: "timeline-stack", label: "Timeline Stack" }),
     Object.freeze({ id: "radar", label: "Radar" }),
     Object.freeze({ id: "family-orbit", label: "Family Orbit" }),
+    Object.freeze({ id: "month-hud", label: "Month HUD" }),
   ]);
 
   function styles() {

@@ -14,6 +14,7 @@ AGENDA_STYLES = (
     {"id": "timeline-stack", "label": "Timeline Stack"},
     {"id": "radar", "label": "Radar"},
     {"id": "family-orbit", "label": "Family Orbit"},
+    {"id": "month-hud", "label": "Month HUD"},
 )
 AGENDA_STYLE_IDS = frozenset(style["id"] for style in AGENDA_STYLES)
 
@@ -797,6 +798,449 @@ def render_agenda_html(
         display: none;
       }}
     }}
+    body.agenda-style-month-hud {{
+      --ink: #eaf9f7;
+      --muted: #9dbab6;
+      --line: rgba(98, 230, 217, .25);
+      --paper: rgba(7, 24, 31, .9);
+      --wash: #061014;
+      --accent: #62e6d9;
+      --accent-soft: rgba(98, 230, 217, .16);
+      --warning: #ffbf75;
+      --warning-soft: rgba(255, 191, 117, .14);
+      --shadow: 0 26px 64px rgba(0, 0, 0, .36);
+      background:
+        linear-gradient(rgba(98, 230, 217, .045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(98, 230, 217, .04) 1px, transparent 1px),
+        linear-gradient(160deg, #061014, #071b22 48%, #061014);
+      background-size: 36px 36px, 36px 36px, auto;
+    }}
+    body.agenda-style-month-hud .agenda-header {{
+      border-bottom: 1px solid rgba(98, 230, 217, .24);
+      background: rgba(4, 15, 20, .94);
+      color: #eaf9f7;
+      box-shadow: 0 14px 42px rgba(0, 0, 0, .4);
+      backdrop-filter: blur(12px);
+    }}
+    body.agenda-style-month-hud .agenda-kicker,
+    body.agenda-style-month-hud .agenda-kind,
+    body.agenda-style-month-hud .agenda-meta dt {{
+      letter-spacing: 0;
+    }}
+    body.agenda-style-month-hud h1 {{
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 24px;
+      font-weight: 850;
+    }}
+    body.agenda-style-month-hud .agenda-content {{
+      width: min(1360px, 100%);
+      padding-top: 28px;
+    }}
+    body.agenda-style-month-hud .agenda-summary {{
+      color: #a9c9c5;
+      font-weight: 740;
+    }}
+    body.agenda-style-month-hud .month-hud {{
+      display: grid;
+      gap: 20px;
+    }}
+    body.agenda-style-month-hud .month-hud-stage {{
+      position: relative;
+      overflow: hidden;
+      padding: 24px 22px 18px;
+      border: 1px solid rgba(98, 230, 217, .22);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(16, 43, 52, .86), rgba(5, 19, 25, .9)),
+        radial-gradient(circle at 50% 32%, rgba(98, 230, 217, .13), transparent 38%);
+      box-shadow:
+        var(--shadow),
+        inset 0 1px 0 rgba(255, 255, 255, .08);
+    }}
+    body.agenda-style-month-hud .month-hud-stage::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(rgba(255, 255, 255, .04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px);
+      background-size: 100% 18px, 18px 100%;
+      opacity: .55;
+      pointer-events: none;
+    }}
+    body.agenda-style-month-hud .month-hud-viewport {{
+      position: relative;
+      z-index: 1;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      padding-bottom: 6px;
+      scrollbar-color: rgba(98, 230, 217, .42) rgba(98, 230, 217, .08);
+      scrollbar-width: thin;
+    }}
+    body.agenda-style-month-hud .month-hud-viewport::-webkit-scrollbar {{
+      height: 8px;
+    }}
+    body.agenda-style-month-hud .month-hud-viewport::-webkit-scrollbar-track {{
+      border-radius: 999px;
+      background: rgba(98, 230, 217, .08);
+    }}
+    body.agenda-style-month-hud .month-hud-viewport::-webkit-scrollbar-thumb {{
+      border-radius: 999px;
+      background: rgba(98, 230, 217, .42);
+    }}
+    body.agenda-style-month-hud .month-hud-rail {{
+      position: relative;
+      display: grid;
+      grid-auto-columns: minmax(112px, 1fr);
+      grid-auto-flow: column;
+      gap: 14px;
+      min-width: 1040px;
+      align-items: center;
+      padding: 18px 6px 8px;
+    }}
+    body.agenda-style-month-hud .month-hud-rail::before {{
+      content: "";
+      position: absolute;
+      top: 62px;
+      left: 58px;
+      right: 58px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(98, 230, 217, .56), transparent);
+      box-shadow: 0 0 18px rgba(98, 230, 217, .24);
+      pointer-events: none;
+    }}
+    body.agenda-style-month-hud .month-hud-node {{
+      position: relative;
+      z-index: 1;
+      display: grid;
+      min-height: 132px;
+      min-width: 0;
+      justify-items: center;
+      align-content: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: #dffaf7;
+      cursor: pointer;
+      transition:
+        background .18s ease,
+        border-color .18s ease,
+        box-shadow .18s ease,
+        transform .18s ease;
+    }}
+    body.agenda-style-month-hud .month-hud-node:hover,
+    body.agenda-style-month-hud .month-hud-node:focus-visible {{
+      border-color: rgba(98, 230, 217, .32);
+      background: rgba(98, 230, 217, .08);
+      outline: 0;
+      transform: translateY(-2px);
+    }}
+    body.agenda-style-month-hud .month-hud-node.selected {{
+      border-color: rgba(98, 230, 217, .5);
+      background: rgba(98, 230, 217, .12);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 18px 38px rgba(0, 0, 0, .24);
+      transform: translateY(-4px);
+    }}
+    body.agenda-style-month-hud .month-hud-ring {{
+      position: relative;
+      display: grid;
+      width: 78px;
+      height: 78px;
+      place-items: center;
+      border: 1px solid rgba(98, 230, 217, .48);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle, rgba(98, 230, 217, .2), rgba(98, 230, 217, .04) 58%, transparent 59%);
+      box-shadow:
+        0 0 0 7px rgba(98, 230, 217, .06),
+        0 0 24px rgba(98, 230, 217, .16);
+      animation: agenda-month-hud-idle 5.8s ease-in-out infinite;
+    }}
+    body.agenda-style-month-hud .month-hud-ring::before {{
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border-radius: 50%;
+      background: conic-gradient(
+        from 0deg,
+        rgba(98, 230, 217, .7),
+        transparent 46deg,
+        rgba(255, 191, 117, .38) 112deg,
+        transparent 170deg,
+        rgba(98, 230, 217, .5) 260deg,
+        transparent 330deg
+      );
+      opacity: .72;
+      mask: radial-gradient(circle, transparent 0 56%, #000 57%);
+      animation: agenda-month-hud-spin 8.5s linear infinite;
+    }}
+    body.agenda-style-month-hud .month-hud-core {{
+      position: relative;
+      z-index: 1;
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border: 1px solid rgba(98, 230, 217, .22);
+      border-radius: 50%;
+      background: rgba(5, 20, 26, .9);
+      color: #7ff5ea;
+      font-size: 13px;
+      font-weight: 850;
+    }}
+    body.agenda-style-month-hud .month-hud-node.has-events .month-hud-core {{
+      background: rgba(98, 230, 217, .16);
+      color: #f2fffd;
+    }}
+    body.agenda-style-month-hud .month-hud-node.has-warning .month-hud-ring {{
+      border-color: rgba(255, 191, 117, .58);
+      animation:
+        agenda-month-hud-idle 5.8s ease-in-out infinite,
+        agenda-month-hud-warning 2.6s ease-in-out infinite;
+    }}
+    body.agenda-style-month-hud .month-hud-pip {{
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #62e6d9;
+      box-shadow: 0 0 8px rgba(98, 230, 217, .8);
+      transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(-34px);
+      transform-origin: 0 0;
+    }}
+    body.agenda-style-month-hud .month-hud-node.has-warning .month-hud-pip {{
+      background: #ffbf75;
+      box-shadow: 0 0 8px rgba(255, 191, 117, .85);
+    }}
+    body.agenda-style-month-hud .month-hud-month {{
+      color: #dffaf7;
+      font-size: 13px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }}
+    body.agenda-style-month-hud .month-hud-count {{
+      min-width: 34px;
+      padding: 3px 8px;
+      border: 1px solid rgba(98, 230, 217, .22);
+      border-radius: 999px;
+      background: rgba(98, 230, 217, .09);
+      color: #a9c9c5;
+      font-size: 12px;
+      font-weight: 780;
+      text-align: center;
+    }}
+    body.agenda-style-month-hud .month-hud-panel {{
+      position: relative;
+      overflow: hidden;
+      padding: 20px;
+      border: 1px solid rgba(98, 230, 217, .2);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(9, 31, 39, .92), rgba(5, 17, 23, .88));
+      box-shadow:
+        0 18px 42px rgba(0, 0, 0, .28),
+        inset 0 1px 0 rgba(255, 255, 255, .07);
+    }}
+    body.agenda-style-month-hud .month-hud-panel::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(98, 230, 217, .12), transparent 26%),
+        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px);
+      background-size: auto, 100% 20px;
+      pointer-events: none;
+    }}
+    body.agenda-style-month-hud .month-hud-panel-heading {{
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(98, 230, 217, .16);
+    }}
+    body.agenda-style-month-hud .month-hud-panel-title {{
+      margin: 0;
+      color: #f2fffd;
+      font-size: 20px;
+      font-weight: 850;
+    }}
+    body.agenda-style-month-hud .month-hud-panel-meta {{
+      margin: 0;
+      color: #a9c9c5;
+      font-size: 13px;
+      font-weight: 750;
+    }}
+    body.agenda-style-month-hud .month-hud-events {{
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      perspective: 1200px;
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-item {{
+      grid-template-columns: 1fr;
+      border-color: rgba(98, 230, 217, .25);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(14, 42, 51, .94), rgba(5, 17, 23, .92));
+      box-shadow:
+        0 18px 42px rgba(0, 0, 0, .3),
+        inset 0 1px 0 rgba(255, 255, 255, .08);
+      transform: perspective(1200px) rotateX(1deg) rotateY(-2deg);
+      transition: box-shadow .18s ease, transform .18s ease;
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-item:hover,
+    body.agenda-style-month-hud .month-hud-events .agenda-item:focus-within {{
+      box-shadow: 0 24px 52px rgba(0, 0, 0, .36);
+      transform: perspective(1200px) rotateX(0) rotateY(0) translateY(-3px);
+    }}
+    body.agenda-style-month-hud .month-hud-events.is-entering .agenda-item {{
+      animation: agenda-month-hud-card-in .34s ease-out both;
+      animation-delay: calc(var(--agenda-index, 0) * 44ms);
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-time {{
+      border-right: 0;
+      border-bottom: 1px solid rgba(98, 230, 217, .18);
+      background: rgba(98, 230, 217, .09);
+      color: #8bf7ee;
+      text-align: left;
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-item h3 {{
+      color: #f2fffd;
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-kind,
+    body.agenda-style-month-hud .month-hud-events .agenda-description,
+    body.agenda-style-month-hud .month-hud-events .agenda-meta dt,
+    body.agenda-style-month-hud .month-hud-events .agenda-meta dd {{
+      color: #a9c9c5;
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-badge,
+    body.agenda-style-month-hud .month-hud-events .agenda-person {{
+      border: 1px solid rgba(98, 230, 217, .24);
+      background: rgba(98, 230, 217, .13);
+      color: #b6fff8;
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-warning {{
+      border: 1px solid rgba(255, 191, 117, .34);
+      color: #ffd5a1;
+    }}
+    body.agenda-style-month-hud .month-hud-events .agenda-metadata {{
+      border-top-color: rgba(98, 230, 217, .18);
+    }}
+    body.agenda-style-month-hud .month-hud-events .item-action {{
+      border-color: rgba(98, 230, 217, .32);
+      border-radius: 6px;
+      background: rgba(7, 24, 31, .74);
+      color: #eaf9f7;
+    }}
+    body.agenda-style-month-hud .month-hud-events .item-action.primary {{
+      border-color: #62e6d9;
+      background: #2cc8b8;
+      color: #051115;
+    }}
+    body.agenda-style-month-hud .month-hud-empty {{
+      position: relative;
+      z-index: 1;
+      padding: 24px;
+      border: 1px dashed rgba(98, 230, 217, .28);
+      border-radius: 8px;
+      background: rgba(98, 230, 217, .06);
+      color: #a9c9c5;
+      font-weight: 720;
+    }}
+    body.agenda-style-month-hud .agenda-empty {{
+      border-color: rgba(98, 230, 217, .28);
+      background: rgba(7, 24, 31, .78);
+      color: #a9c9c5;
+    }}
+    body.agenda-style-month-hud .agenda-modal {{
+      border: 1px solid rgba(98, 230, 217, .26);
+      background: #07171d;
+    }}
+    body.agenda-style-month-hud .agenda-modal header {{
+      border-bottom-color: rgba(98, 230, 217, .2);
+    }}
+    body.agenda-style-month-hud .editor-field input,
+    body.agenda-style-month-hud .editor-field textarea,
+    body.agenda-style-month-hud .editor-field select {{
+      border-color: rgba(98, 230, 217, .28);
+      background: rgba(5, 17, 23, .96);
+      color: #eaf9f7;
+    }}
+    @keyframes agenda-month-hud-idle {{
+      0%, 100% {{
+        box-shadow:
+          0 0 0 7px rgba(98, 230, 217, .06),
+          0 0 24px rgba(98, 230, 217, .16);
+      }}
+      50% {{
+        box-shadow:
+          0 0 0 10px rgba(98, 230, 217, .1),
+          0 0 34px rgba(98, 230, 217, .26);
+      }}
+    }}
+    @keyframes agenda-month-hud-spin {{
+      to {{ transform: rotate(360deg); }}
+    }}
+    @keyframes agenda-month-hud-warning {{
+      0%, 100% {{ box-shadow: 0 0 0 7px rgba(255, 191, 117, .08), 0 0 24px rgba(98, 230, 217, .16); }}
+      50% {{ box-shadow: 0 0 0 10px rgba(255, 191, 117, .16), 0 0 36px rgba(255, 191, 117, .24); }}
+    }}
+    @keyframes agenda-month-hud-card-in {{
+      from {{
+        opacity: 0;
+        transform: perspective(1200px) rotateX(7deg) rotateY(-4deg) translateY(12px);
+      }}
+      to {{
+        opacity: 1;
+      }}
+    }}
+    @media (max-width: 720px) {{
+      body.agenda-style-month-hud .month-hud-stage,
+      body.agenda-style-month-hud .month-hud-panel {{
+        padding: 16px;
+      }}
+      body.agenda-style-month-hud .month-hud-rail {{
+        grid-auto-columns: minmax(92px, 1fr);
+        min-width: 860px;
+      }}
+      body.agenda-style-month-hud .month-hud-rail::before {{
+        left: 48px;
+        right: 48px;
+      }}
+      body.agenda-style-month-hud .month-hud-node {{
+        min-height: 120px;
+      }}
+      body.agenda-style-month-hud .month-hud-ring {{
+        width: 66px;
+        height: 66px;
+      }}
+      body.agenda-style-month-hud .month-hud-core {{
+        width: 36px;
+        height: 36px;
+      }}
+      body.agenda-style-month-hud .month-hud-pip {{
+        transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(-28px);
+      }}
+      body.agenda-style-month-hud .month-hud-events {{
+        grid-template-columns: 1fr;
+      }}
+      body.agenda-style-month-hud .month-hud-events .agenda-item,
+      body.agenda-style-month-hud .month-hud-events .agenda-item:hover,
+      body.agenda-style-month-hud .month-hud-events .agenda-item:focus-within {{
+        transform: none;
+      }}
+    }}
     body.agenda-style-hud {{
       --ink: #eefcf8;
       --muted: #9fb4ae;
@@ -1025,10 +1469,68 @@ def render_agenda_html(
       ]));
     }}
 
-    function itemTime(item) {{
+    function itemDate(item) {{
       const value = item.start_at || item.due_at;
-      if (!value) return "No date";
+      if (!value) return null;
       const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }}
+
+    function monthKeyFromDate(date) {{
+      return `${{date.getUTCFullYear()}}-${{String(date.getUTCMonth() + 1).padStart(2, "0")}}`;
+    }}
+
+    function itemMonthKey(item) {{
+      const parsed = itemDate(item);
+      return parsed ? monthKeyFromDate(parsed) : "";
+    }}
+
+    function referenceDate() {{
+      const value = AGENDA_DATA.reference_date || new Date().toISOString().slice(0, 10);
+      const parsed = new Date(`${{value}}T12:00:00Z`);
+      return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    }}
+
+    function monthDescriptor(key) {{
+      const [year, month] = key.split("-").map((part) => Number.parseInt(part, 10));
+      const date = new Date(Date.UTC(year, month - 1, 1, 12));
+      return {{
+        key,
+        short: new Intl.DateTimeFormat(undefined, {{ month: "short", timeZone: "UTC" }}).format(date),
+        label: new Intl.DateTimeFormat(undefined, {{ month: "long", year: "numeric", timeZone: "UTC" }}).format(date),
+      }};
+    }}
+
+    function monthSequence(groupedItems) {{
+      const reference = referenceDate();
+      const year = reference.getUTCFullYear();
+      const keys = new Set();
+      for (let index = 0; index < 12; index += 1) {{
+        keys.add(`${{year}}-${{String(index + 1).padStart(2, "0")}}`);
+      }}
+      for (const key of groupedItems.keys()) keys.add(key);
+      return Array.from(keys).sort().map(monthDescriptor);
+    }}
+
+    function itemNeedsAttention(item) {{
+      const status = String(item.status || "").toLowerCase();
+      return Boolean(item.warning) || item.kind === "warning" ||
+        ["overdue", "needs_review", "needs-attention"].includes(status);
+    }}
+
+    function jumpToToday() {{
+      if ((AGENDA_DATA.style || "default") === "month-hud") {{
+        const monthButton = sectionsRoot.querySelector(`[data-month="${{monthKeyFromDate(referenceDate())}}"]`);
+        monthButton?.click();
+        sectionsRoot.scrollIntoView({{ behavior: "smooth", block: "start" }});
+        return;
+      }}
+      document.getElementById("section-today")?.scrollIntoView({{ behavior: "smooth" }});
+    }}
+
+    function itemTime(item) {{
+      const parsed = itemDate(item);
+      if (!parsed) return "No date";
       if (item.date_only) return dateFormatter.format(parsed);
       return `${{dateFormatter.format(parsed)}} · ${{formatter.format(parsed)}}`;
     }}
@@ -1273,8 +1775,113 @@ def render_agenda_html(
       }}
       const today = element("button", "agenda-button", "Today");
       today.type = "button";
-      today.addEventListener("click", () => document.getElementById("section-today")?.scrollIntoView({{ behavior: "smooth" }}));
+      today.addEventListener("click", jumpToToday);
       controls.append(today);
+    }}
+
+    function renderMonthHud() {{
+      renderControls();
+      sectionsRoot.replaceChildren();
+      const allItems = AGENDA_DATA.items || [];
+      const grouped = new Map();
+      for (const item of allItems) {{
+        const key = itemMonthKey(item);
+        if (!key) continue;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(item);
+      }}
+      for (const [key, items] of grouped.entries()) {{
+        grouped.set(key, [...items].sort((left, right) => {{
+          const leftDate = itemDate(left);
+          const rightDate = itemDate(right);
+          return (leftDate ? leftDate.getTime() : 0) - (rightDate ? rightDate.getTime() : 0);
+        }}));
+      }}
+      const months = monthSequence(grouped);
+      const datedCount = allItems.filter((item) => itemMonthKey(item)).length;
+      const undated = allItems.length - datedCount;
+      if (allItems.length === 1) {{
+        summary.textContent = undated ? "1 item · no dated month" : "1 item by month";
+      }} else {{
+        summary.textContent = `${{allItems.length}} items by month${{undated ? ` · ${{undated}} unscheduled` : ""}}`;
+      }}
+      notifyAgendaHost();
+
+      const root = element("section", "month-hud");
+      root.setAttribute("aria-label", "Month HUD agenda");
+      const stage = element("div", "month-hud-stage");
+      const viewport = element("div", "month-hud-viewport");
+      const rail = element("div", "month-hud-rail");
+      const panel = element("section", "month-hud-panel");
+      panel.setAttribute("aria-live", "polite");
+      const panelHeading = element("div", "month-hud-panel-heading");
+      const panelTitle = element("h2", "month-hud-panel-title");
+      const panelMeta = element("p", "month-hud-panel-meta");
+      const eventsRoot = element("div", "month-hud-events");
+      panelHeading.append(panelTitle, panelMeta);
+      panel.append(panelHeading, eventsRoot);
+
+      function renderPanel(key) {{
+        const month = months.find((entry) => entry.key === key) || months[0];
+        const events = month ? grouped.get(month.key) || [] : [];
+        const warnings = events.filter(itemNeedsAttention).length;
+        const countText = events.length === 1 ? "1 item" : `${{events.length}} items`;
+        panelTitle.textContent = month ? month.label : "Agenda";
+        panelMeta.textContent = `${{countText}}${{warnings ? ` · ${{warnings}} need review` : ""}}`;
+        eventsRoot.classList.remove("is-entering");
+        eventsRoot.replaceChildren();
+        if (!events.length) {{
+          eventsRoot.append(element("div", "month-hud-empty", "No dated agenda items in this month."));
+        }} else {{
+          for (const [index, item] of events.entries()) eventsRoot.append(renderItem(item, index));
+        }}
+        requestAnimationFrame(() => eventsRoot.classList.add("is-entering"));
+      }}
+
+      function selectMonth(key) {{
+        for (const button of rail.querySelectorAll(".month-hud-node")) {{
+          const selected = button.dataset.month === key;
+          button.classList.toggle("selected", selected);
+          button.setAttribute("aria-pressed", selected ? "true" : "false");
+        }}
+        renderPanel(key);
+      }}
+
+      for (const month of months) {{
+        const events = grouped.get(month.key) || [];
+        const hasWarnings = events.some(itemNeedsAttention);
+        const button = element("button", "month-hud-node");
+        button.type = "button";
+        button.dataset.month = month.key;
+        button.classList.toggle("has-events", events.length > 0);
+        button.classList.toggle("has-warning", hasWarnings);
+        const itemLabel = events.length === 1 ? "1 item" : `${{events.length}} items`;
+        button.setAttribute("aria-label", `${{month.label}}: ${{itemLabel}}`);
+        button.setAttribute("aria-pressed", "false");
+        const ring = element("span", "month-hud-ring");
+        ring.append(element("span", "month-hud-core", String(events.length)));
+        for (let index = 0; index < Math.min(events.length, 10); index += 1) {{
+          const pip = element("span", "month-hud-pip");
+          pip.style.setProperty("--pip-index", String(index));
+          ring.append(pip);
+        }}
+        button.append(
+          ring,
+          element("span", "month-hud-month", month.short),
+          element("span", "month-hud-count", itemLabel),
+        );
+        button.addEventListener("click", () => selectMonth(month.key));
+        rail.append(button);
+      }}
+
+      viewport.append(rail);
+      stage.append(viewport);
+      root.append(stage, panel);
+      sectionsRoot.append(root);
+
+      const referenceKey = monthKeyFromDate(referenceDate());
+      const fallbackKey = months.find((month) => (grouped.get(month.key) || []).length)?.key || months[0]?.key;
+      selectMonth(months.some((month) => month.key === referenceKey) ? referenceKey : fallbackKey);
     }}
 
     function renderAgenda() {{
@@ -1299,6 +1906,14 @@ def render_agenda_html(
       }}
     }}
 
+    function renderSelectedAgendaStyle() {{
+      if ((AGENDA_DATA.style || "default") === "month-hud") {{
+        renderMonthHud();
+        return;
+      }}
+      renderAgenda();
+    }}
+
     function handleAgendaCommand(event) {{
       if (event.origin !== window.location.origin || event.source !== window.parent) return;
       const command = event.data || {{}};
@@ -1308,7 +1923,7 @@ def render_agenda_html(
         return;
       }}
       if (command.action === "jump-today") {{
-        document.getElementById("section-today")?.scrollIntoView({{ behavior: "smooth" }});
+        jumpToToday();
         return;
       }}
       const url = new URL(window.location.href);
@@ -1368,7 +1983,7 @@ def render_agenda_html(
     }}
 
     window.addEventListener("message", handleAgendaCommand);
-    if (!restoreStoredFilters()) renderAgenda();
+    if (!restoreStoredFilters()) renderSelectedAgendaStyle();
   </script>
 </body>
 </html>

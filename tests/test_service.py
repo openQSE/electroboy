@@ -3862,6 +3862,16 @@ class ServiceTests(unittest.TestCase):
             '"id": "family-orbit", "label": "Family Orbit"',
             orbit_page,
         )
+        month_page, month_status = render_agenda_html(snapshot, style="month-hud")
+        self.assertEqual(month_status, HTTPStatus.OK)
+        self.assertIn('<body class="agenda-style-month-hud">', month_page)
+        self.assertIn("function renderMonthHud", month_page)
+        self.assertIn("@keyframes agenda-month-hud-idle", month_page)
+        self.assertIn("body.agenda-style-month-hud .month-hud-node", month_page)
+        self.assertIn(
+            '"id": "month-hud", "label": "Month HUD"',
+            month_page,
+        )
 
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
@@ -3885,6 +3895,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('Object.freeze({ id: "radar", label: "Radar" })', agenda)
         self.assertIn(
             'Object.freeze({ id: "family-orbit", label: "Family Orbit" })',
+            agenda,
+        )
+        self.assertIn(
+            'Object.freeze({ id: "month-hud", label: "Month HUD" })',
             agenda,
         )
         self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
