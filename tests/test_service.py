@@ -3911,9 +3911,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('controller.addSection("agenda-display", "Display")', tools)
         self.assertIn('controller.addSection("agenda-filters", "Filters")', tools)
         self.assertIn('controller.addSection("agenda-date", "Date")', tools)
+        self.assertIn("function agendaStyleClass", tools)
+        self.assertIn("paneRoot.dataset.agendaStyle = agendaStyleClass", tools)
         self.assertIn('post("set-style"', tools)
         self.assertIn(".agenda-tool-style-field", styles)
         self.assertIn(".agenda-pane .pane-tools-shelf", styles)
+        self.assertIn('--agenda-tool-shelf-bg: #f8f3e9;', styles)
+        self.assertIn(
+            '.agenda-pane[data-agenda-style="command-center"]',
+            styles,
+        )
+        self.assertIn('.agenda-pane[data-agenda-style="hud"]', styles)
+        self.assertIn('.agenda-pane[data-agenda-style="radar"]', styles)
+        self.assertIn(
+            '.agenda-pane[data-agenda-style="family-orbit"]',
+            styles,
+        )
+        self.assertIn(
+            '.agenda-pane[data-agenda-style="month-hud"] .pane-tools-shelf',
+            styles,
+        )
         self.assertIn("grid-template-columns: minmax(0, 1fr);", styles)
         self.assertIn("inset: 0 auto 0 0;", styles)
 

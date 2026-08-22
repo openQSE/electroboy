@@ -28,9 +28,17 @@
     return value ? `${value}T${end ? "23:59:59.999" : "00:00:00"}` : "";
   }
 
+  function agendaStyleClass(value) {
+    const style = String(value || "default").trim().toLowerCase();
+    return style.replace(/[^a-z0-9-]+/g, "-") || "default";
+  }
+
   function mount(options) {
     const controller = options.controller;
     const frame = options.frame;
+    const paneRoot = options.host
+      || (frame && frame.closest(".pane-body"))
+      || document.body;
     let agendaState = null;
 
     const displayBody = controller.addSection("agenda-display", "Display");
@@ -159,6 +167,12 @@
       styleSelect.disabled = styles.length < 2;
     }
 
+    function applyAgendaStyle() {
+      paneRoot.dataset.agendaStyle = agendaStyleClass(
+        agendaState && agendaState.style,
+      );
+    }
+
     function setRange(start, end) {
       post("set-range", {
         rangeStart: rangeValue(start),
@@ -183,6 +197,7 @@
     }
 
     function renderState() {
+      applyAgendaStyle();
       renderStyles();
       renderFilters();
       renderQuickDates();
@@ -220,6 +235,7 @@
     reset.addEventListener("click", () => post("reset"));
     frame.addEventListener("load", () => post("request-state"));
     window.addEventListener("message", handleMessage);
+    applyAgendaStyle();
     post("request-state");
 
     return {
