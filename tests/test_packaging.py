@@ -66,6 +66,7 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
     assert (ROOT / "src/electroboy/modules/assets/progress.js").is_file()
     assert (ROOT / "src/electroboy/modules/assets/project-shell.js").is_file()
     assert (ROOT / "src/electroboy/modules/assets/corkboard.js").is_file()
+    assert (ROOT / "src/electroboy/modules/assets/calendar.js").is_file()
     assert (
         ROOT / "src/electroboy/workflows/software/assets/frontend.js"
     ).is_file()

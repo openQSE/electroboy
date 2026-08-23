@@ -5,6 +5,11 @@ from .agenda import (
     AgendaWorkflowController,
     normalize_agenda_snapshot,
 )
+from .calendar import (
+    CalendarProvider,
+    CalendarWorkflowController,
+    normalize_calendar_snapshot,
+)
 from .corkboard import (
     CorkboardProvider,
     CorkboardWorkflowController,
@@ -35,14 +40,16 @@ from .services import (
     ProjectFileServices,
     ServiceServices,
     SessionServices,
-    WorkspaceServices,
     WorkflowServices,
+    WorkspaceServices,
 )
 
 __all__ = [
     "AgendaProvider",
     "AgendaWorkflowController",
     "BinaryResponse",
+    "CalendarProvider",
+    "CalendarWorkflowController",
     "CliCommandDefinition",
     "ContextServices",
     "CorkboardProvider",
@@ -68,4 +75,5 @@ __all__ = [
     "WorkflowStage",
     "normalize_agenda_snapshot",
     "normalize_board_snapshot",
+    "normalize_calendar_snapshot",
 ]

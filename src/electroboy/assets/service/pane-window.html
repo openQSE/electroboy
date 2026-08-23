@@ -915,7 +915,9 @@
     const disposableShell = params.get("disposable") === "1";
     let artifactKind = PANE_KIND === "agenda"
       ? "agenda"
-      : params.get("artifact") || "requirements";
+      : PANE_KIND === "calendar"
+        ? "calendar"
+        : params.get("artifact") || "requirements";
     let artifactDocumentPath = params.get("document_path") || "";
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactRoutePath = params.get("artifact_path") || "";
@@ -929,6 +931,8 @@
     let artifactCorkboardTitle = params.get("corkboard_title") || "";
     let artifactAgendaProvider = params.get("agenda_provider") || "";
     let artifactAgendaStyle = params.get("agenda_style") || "";
+    let artifactCalendarProvider = params.get("calendar_provider") || "";
+    let artifactCalendarIds = params.get("calendar_ids") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -1154,6 +1158,7 @@
         return "File";
       }
       if (kind === "agenda") return "Agenda";
+      if (kind === "calendar") return "Calendar";
       if (kind === "progress") return "Progress";
       if (kind === "scratch") return "Scratch pad";
       if (kind === "status") return "Project status";
@@ -1614,6 +1619,9 @@
       }
       if (artifactKind === "agenda") {
         return "Agenda";
+      }
+      if (artifactKind === "calendar") {
+        return "Calendar";
       }
       if (artifactKind === "requirements") {
         return "Requirements";
@@ -2890,6 +2898,12 @@
         const agenda = next.agenda || {};
         artifactAgendaProvider = String(agenda.provider || "");
         artifactAgendaStyle = String(agenda.style || "");
+      } else if (artifactKind === "calendar") {
+        const calendar = next.calendar || {};
+        artifactCalendarProvider = String(calendar.provider || "");
+        artifactCalendarIds = Array.isArray(calendar.calendarIds)
+          ? calendar.calendarIds.join(",")
+          : String(calendar.calendarIds || "");
       }
       syncArtifactUrlState();
       renderFileSwitcher();
@@ -2912,6 +2926,8 @@
         "corkboard_title",
         "agenda_provider",
         "agenda_style",
+        "calendar_provider",
+        "calendar_ids",
       ]) {
         nextUrl.searchParams.delete(key);
       }
@@ -2935,6 +2951,11 @@
         nextUrl.searchParams.set("agenda_provider", artifactAgendaProvider);
         if (artifactAgendaStyle) {
           nextUrl.searchParams.set("agenda_style", artifactAgendaStyle);
+        }
+      } else if (artifactKind === "calendar" && artifactCalendarProvider) {
+        nextUrl.searchParams.set("calendar_provider", artifactCalendarProvider);
+        if (artifactCalendarIds) {
+          nextUrl.searchParams.set("calendar_ids", artifactCalendarIds);
         }
       }
       window.history.replaceState(null, "", nextUrl);
@@ -2996,6 +3017,18 @@
         parameters.set("version", String(artifactVersion));
         return contextUrl(`/artifacts/agenda?${parameters.toString()}`);
       }
+      if (artifactKind === "calendar") {
+        const parameters = new URLSearchParams();
+        if (artifactCalendarProvider) {
+          parameters.set("provider", artifactCalendarProvider);
+        }
+        if (artifactCalendarIds) {
+          parameters.set("calendar_ids", artifactCalendarIds);
+        }
+        parameters.set("embed", "1");
+        parameters.set("version", String(artifactVersion));
+        return contextUrl(`/artifacts/calendar?${parameters.toString()}`);
+      }
       return "";
     }
 
@@ -3003,7 +3036,8 @@
       if (
         artifactKind === "corkboard" ||
         artifactKind === "creative-corkboard" ||
-        artifactKind === "agenda"
+        artifactKind === "agenda" ||
+        artifactKind === "calendar"
       ) {
         return artifactUrl();
       }
@@ -3062,7 +3096,9 @@
 
     function connectArtifactStream() {
       const isProviderView = artifactKind === "corkboard" ||
-        artifactKind === "creative-corkboard" || artifactKind === "agenda";
+        artifactKind === "creative-corkboard" ||
+        artifactKind === "agenda" ||
+        artifactKind === "calendar";
       const isEmpty = artifactKind === "empty";
       artifactFrame.hidden = false;
       artifactZoomControls.hidden = isProviderView;
@@ -3430,6 +3466,7 @@
           { id: "progress", label: "Progress" },
           { id: "artifact", label: "File" },
           { id: "agenda", label: "Agenda" },
+          { id: "calendar", label: "Calendar" },
           { id: "shell", label: "Shell" },
           { id: "scratch", label: "Scratch" },
           { id: "status", label: "Status" },
@@ -3696,6 +3733,10 @@
       refreshArtifactButton.title = "Refresh agenda";
       refreshArtifactButton.setAttribute("aria-label", "Refresh agenda");
     }
+    if (PANE_KIND === "calendar") {
+      refreshArtifactButton.title = "Refresh calendar";
+      refreshArtifactButton.setAttribute("aria-label", "Refresh calendar");
+    }
     initializeContentSwitcher();
     exportPaneFormat.hidden = PANE_KIND !== "artifact";
     exportPaneOutput.hidden = !canExportPaneOutput();
@@ -3709,7 +3750,11 @@
         });
     }
     else if (PANE_KIND === "progress") connectProgressStream();
-    else if (PANE_KIND === "artifact" || PANE_KIND === "agenda") {
+    else if (
+      PANE_KIND === "artifact" ||
+      PANE_KIND === "agenda" ||
+      PANE_KIND === "calendar"
+    ) {
       connectArtifactStream();
     }
     else if (PANE_KIND === "scratch") showScratchPad();

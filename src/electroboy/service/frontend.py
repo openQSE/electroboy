@@ -148,6 +148,12 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             ),
         ),
         FrontendBundle(
+            id="calendar",
+            label="Calendar Pane",
+            owner="calendar",
+            assets=("js/modules/calendar.js",),
+        ),
+        FrontendBundle(
             id="documents",
             label="Document Panes",
             owner="markdown_documents",
@@ -346,6 +352,12 @@ def _contributed_assets(
             "electroboy.modules",
             "assets",
             "agenda-pane-tools.js",
+        ),
+        (
+            "js/modules/calendar.js",
+            "electroboy.modules",
+            "assets",
+            "calendar.js",
         ),
         (
             "css/agenda-pane-tools.css",

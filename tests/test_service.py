@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.cli import build_parser  # noqa: E402
 from electroboy.modules.agenda_workspace import render_agenda_html  # noqa: E402
+from electroboy.modules.calendar_workspace import render_calendar_html  # noqa: E402
 from electroboy.modules.creative_workspace import (  # noqa: E402
     render_corkboard_html,
 )
@@ -74,6 +75,7 @@ from electroboy.service import (  # noqa: E402
     workflow_payload,
 )
 from electroboy.service.agenda import normalize_agenda_snapshot  # noqa: E402
+from electroboy.service.calendar import normalize_calendar_snapshot  # noqa: E402
 from electroboy.service.corkboard import (  # noqa: E402
     CorkboardWorkflowController,
     normalize_board_snapshot,
@@ -450,6 +452,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("agent_sessions", modules)
         self.assertIn("structured_documents", modules)
         self.assertIn("agenda", modules)
+        self.assertIn("calendar", modules)
         self.assertIn("corkboard", modules)
         agenda_routes = {
             (route["method"], route["path"])
@@ -462,6 +465,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(("POST", "/api/agenda/editor"), agenda_routes)
         self.assertIn("agenda-provider", modules["agenda"]["capabilities"])
         self.assertIn("agenda-styles", modules["agenda"]["capabilities"])
+        calendar_routes = {
+            (route["method"], route["path"])
+            for route in modules["calendar"]["routes"]
+        }
+        self.assertIn(("GET", "/artifacts/calendar"), calendar_routes)
+        self.assertIn(("GET", "/api/calendar"), calendar_routes)
+        self.assertIn("calendar-provider", modules["calendar"]["capabilities"])
         corkboard_routes = {
             (route["method"], route["path"])
             for route in modules["corkboard"]["routes"]
@@ -520,6 +530,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("documents", frontend_bundles)
         self.assertIn("agenda", frontend_bundles)
+        self.assertIn("calendar", frontend_bundles)
         self.assertIn("binder", frontend_bundles)
         self.assertIn("pane-window", frontend_bundles)
         self.assertIn(
@@ -554,6 +565,10 @@ class ServiceTests(unittest.TestCase):
             "css/agenda-pane-tools.css",
             frontend_bundles["agenda"]["assets"],
         )
+        self.assertIn(
+            "js/modules/calendar.js",
+            frontend_bundles["calendar"]["assets"],
+        )
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
             ["software", "creative-writing"],
@@ -585,6 +600,7 @@ class ServiceTests(unittest.TestCase):
         binder = read_service_text_asset("js/modules/binder.js")
         corkboard = read_service_text_asset("js/modules/corkboard.js")
         agenda = read_service_text_asset("js/modules/agenda.js")
+        calendar = read_service_text_asset("js/modules/calendar.js")
         file_browser = read_service_text_asset("js/modules/file-browser.js")
         progress = read_service_text_asset("js/modules/progress.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
@@ -652,6 +668,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('kind: "corkboard"', corkboard)
         self.assertIn('kind: "agenda"', agenda)
         self.assertIn('id: "agenda"', agenda)
+        self.assertIn('kind: "calendar"', calendar)
+        self.assertIn('id: "calendar"', calendar)
+        self.assertIn('runtime.layout.assignPane("calendar", item);', calendar)
         self.assertIn("function artifactPaneIsAgenda(item)", documents)
         self.assertIn("function artifactPaneIsProviderView(item)", documents)
         self.assertIn("/artifacts/agenda", documents)
@@ -661,8 +680,14 @@ class ServiceTests(unittest.TestCase):
             'let artifactAgendaStyle = params.get("agenda_style") || "";',
             pane_window,
         )
+        self.assertIn(
+            'let artifactCalendarProvider = params.get("calendar_provider") || "";',
+            pane_window,
+        )
         self.assertIn('parameters.set("style", artifactAgendaStyle);', pane_window)
         self.assertIn('parameters.set("agenda_style", agenda.style);', app)
+        self.assertIn('calendar: { label: "Calendar", element: null }', app)
+        self.assertIn('/artifacts/calendar?${parameters.toString()}', pane_window)
         self.assertIn(".ad-hoc-session-dialog", shell_css)
         self.assertNotIn('invokeWorkflow(\n        "creative-writing"', corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
@@ -1060,7 +1085,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
         self.assertIn(
             '"agent",\n      "artifact",\n      "agenda",\n'
-            '      "scratch",\n      "status"',
+            '      "calendar",\n      "scratch",\n      "status"',
             runtime,
         )
         availability_start = runtime.index("function paneLayoutKindAvailable(")
@@ -1070,11 +1095,13 @@ class ServiceTests(unittest.TestCase):
         )
         availability_source = runtime[availability_start:availability_end]
         self.assertIn('if (kind === "agenda")', availability_source)
+        self.assertIn('if (kind === "calendar")', availability_source)
         self.assertIn("return true;", availability_source)
         self.assertNotIn('kind !== "artifact"', availability_source)
         self.assertNotIn("artifactPreviewItems.length", availability_source)
         self.assertIn("const duplicateSingleton =", runtime)
         self.assertIn('content?.kind === "agenda"', runtime)
+        self.assertIn('item.kind === "calendar"', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind)", runtime)
         self.assertIn("if (validKind && duplicateSingleton)", runtime)
         self.assertIn("return null;", runtime)
@@ -4217,6 +4244,54 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("grid-template-columns: minmax(0, 1fr);", styles)
         self.assertIn("inset: 0 auto 0 0;", styles)
+
+    def test_calendar_contract_renders_month_grid_and_event_details(self) -> None:
+        snapshot = normalize_calendar_snapshot(
+            {
+                "title": "Household Calendar",
+                "timezone": "UTC",
+                "range_start": "2026-08-01",
+                "range_end": "2026-08-31",
+                "selected_calendar_ids": ["family"],
+                "calendars": [
+                    {"id": "family", "label": "Family", "color": "#2563eb"},
+                    {"id": "work", "label": "Work", "color": "#16a34a"},
+                ],
+                "events": [
+                    {
+                        "id": "event-1",
+                        "calendar_id": "family",
+                        "title": "Soccer",
+                        "start_at": "2026-08-17T21:00:00+00:00",
+                        "end_at": "2026-08-17T22:00:00+00:00",
+                        "location": "Field",
+                        "metadata": [{"label": "Provider", "value": "google"}],
+                    },
+                    {
+                        "id": "event-2",
+                        "calendar_id": "work",
+                        "title": "Planning",
+                        "start_at": "2026-08-18T15:00:00+00:00",
+                    },
+                ],
+            },
+            provider_id="fixture-calendar",
+            now=datetime(2026, 8, 17, 9, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(snapshot["provider"], "fixture-calendar")
+        self.assertEqual(snapshot["selected_calendar_ids"], ["family"])
+        self.assertEqual([event["title"] for event in snapshot["events"]], ["Soccer"])
+        page, status = render_calendar_html(snapshot)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("Calendar", page)
+        self.assertIn("calendar-grid", page)
+        self.assertIn("function renderMonth", page)
+        self.assertIn("function openEvent", page)
+        self.assertIn("type: \"electroboy-calendar-state\"", page)
+        self.assertIn('"provider": "fixture-calendar"', page)
+        self.assertIn('"title": "Soccer"', page)
+        self.assertNotIn('"title": "Planning"', page)
 
     def test_agenda_contract_rejects_invalid_snapshots(self) -> None:
         with self.assertRaisesRegex(StateError, "agenda title is required"):

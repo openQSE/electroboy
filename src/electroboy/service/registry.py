@@ -22,6 +22,7 @@ _SOURCE_MODULE_FACTORIES = {
     "core": "electroboy.service.core_module:module",
     "agent_sessions": "electroboy.modules.agent_sessions:module",
     "agenda": "electroboy.modules.agenda:module",
+    "calendar": "electroboy.modules.calendar:module",
     "binder": "electroboy.modules.binder:module",
     "corkboard": "electroboy.modules.corkboard:module",
     "file_browser": "electroboy.modules.file_browser:module",
@@ -333,7 +334,7 @@ class WorkflowRegistry:
 
     def create_controllers(
         self,
-        services: "ServiceServices",
+        services: ServiceServices,
     ) -> dict[str, WorkflowController]:
         """Bind every executable workflow to a service runtime."""
         controllers: dict[str, WorkflowController] = {}

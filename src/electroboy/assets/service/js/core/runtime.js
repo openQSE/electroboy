@@ -343,17 +343,19 @@
       progress: { label: "Progress", element: progressOutputPane },
       artifact: { label: "File", element: artifactPreviewPane },
       agenda: { label: "Agenda", element: null },
+      calendar: { label: "Calendar", element: null },
       shell: { label: "Shell", element: projectShellPane },
       scratch: { label: "Scratch", element: scratchPane },
       status: { label: "Status", element: projectStatusPane },
     };
-    const INSTANCE_PANE_LAYOUT_KINDS = new Set(["artifact", "agenda"]);
+    const INSTANCE_PANE_LAYOUT_KINDS = new Set(["artifact", "agenda", "calendar"]);
     const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);
     const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
       "empty",
       "agent",
       "artifact",
       "agenda",
+      "calendar",
       "scratch",
       "status",
     ]);
@@ -1751,6 +1753,9 @@
       if (kind === "agenda") {
         return Boolean(window.ElectroBoyFrontend?.module("agenda"));
       }
+      if (kind === "calendar") {
+        return Boolean(window.ElectroBoyFrontend?.module("calendar"));
+      }
       return true;
     }
 
@@ -2050,7 +2055,7 @@
       if (!item || typeof item !== "object") {
         return false;
       }
-      if (item.kind === "agenda") {
+      if (item.kind === "agenda" || item.kind === "calendar") {
         return false;
       }
       if (item.kind === "corkboard" || item.kind === "creative-corkboard") {
@@ -2083,6 +2088,11 @@
 
     function paneLayoutRequestedContent(leaf) {
       if (leaf.kind === "agenda") {
+        return leaf.content && typeof leaf.content === "object"
+          ? leaf.content
+          : null;
+      }
+      if (leaf.kind === "calendar") {
         return leaf.content && typeof leaf.content === "object"
           ? leaf.content
           : null;
@@ -2400,6 +2410,8 @@
         applyOutputPaneVisibility(options);
       } else if (kind === "agenda") {
         refreshPaneLayoutInstanceFrames();
+      } else if (kind === "calendar") {
+        refreshPaneLayoutInstanceFrames();
       } else if (kind === "shell") {
         showProjectShellPane(true);
       }
@@ -2474,6 +2486,10 @@
     function assignArtifactToPane(item, requestedLeafId = "") {
       if (item && item.kind === "agenda") {
         assignPaneContent("agenda", item, requestedLeafId);
+        return;
+      }
+      if (item && item.kind === "calendar") {
+        assignPaneContent("calendar", item, requestedLeafId);
         return;
       }
       assignPaneContent("artifact", item, requestedLeafId);
@@ -4688,6 +4704,15 @@
         }
         if (agenda.style) {
           parameters.set("agenda_style", agenda.style);
+        }
+      }
+      if (artifactItem && artifactItem.kind === "calendar") {
+        const calendar = artifactItem.calendar || {};
+        if (calendar.provider) {
+          parameters.set("calendar_provider", calendar.provider);
+        }
+        if (Array.isArray(calendar.calendarIds) && calendar.calendarIds.length) {
+          parameters.set("calendar_ids", calendar.calendarIds.join(","));
         }
       }
       const fontPane = paneFontKeyForKind(kind);

@@ -147,6 +147,7 @@ finally:
                 "agenda",
                 "agent_sessions",
             "binder",
+            "calendar",
             "corkboard",
             "core",
             "file_browser",
