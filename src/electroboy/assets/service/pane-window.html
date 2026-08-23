@@ -933,6 +933,7 @@
     let artifactAgendaStyle = params.get("agenda_style") || "";
     let artifactCalendarProvider = params.get("calendar_provider") || "";
     let artifactCalendarIds = params.get("calendar_ids") || "";
+    let artifactCalendarIdsExplicit = params.get("calendar_ids_explicit") === "1";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -2904,6 +2905,7 @@
         artifactCalendarIds = Array.isArray(calendar.calendarIds)
           ? calendar.calendarIds.join(",")
           : String(calendar.calendarIds || "");
+        artifactCalendarIdsExplicit = Boolean(calendar.calendarIdsExplicit);
       }
       syncArtifactUrlState();
       renderFileSwitcher();
@@ -2928,6 +2930,7 @@
         "agenda_style",
         "calendar_provider",
         "calendar_ids",
+        "calendar_ids_explicit",
       ]) {
         nextUrl.searchParams.delete(key);
       }
@@ -2954,6 +2957,9 @@
         }
       } else if (artifactKind === "calendar" && artifactCalendarProvider) {
         nextUrl.searchParams.set("calendar_provider", artifactCalendarProvider);
+        if (artifactCalendarIdsExplicit) {
+          nextUrl.searchParams.set("calendar_ids_explicit", "1");
+        }
         if (artifactCalendarIds) {
           nextUrl.searchParams.set("calendar_ids", artifactCalendarIds);
         }
@@ -3021,6 +3027,9 @@
         const parameters = new URLSearchParams();
         if (artifactCalendarProvider) {
           parameters.set("provider", artifactCalendarProvider);
+        }
+        if (artifactCalendarIdsExplicit) {
+          parameters.set("calendar_ids_explicit", "1");
         }
         if (artifactCalendarIds) {
           parameters.set("calendar_ids", artifactCalendarIds);
@@ -3623,7 +3632,9 @@
       if (
         (data.type === "electroboy:pane-set-artifact" ||
           data.type === "electroboy:pane-set-content") &&
-        (PANE_KIND === "artifact" || PANE_KIND === "agenda") &&
+        (PANE_KIND === "artifact" ||
+          PANE_KIND === "agenda" ||
+          PANE_KIND === "calendar") &&
         (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
       ) {
         applyArtifactItem(data.item || null);

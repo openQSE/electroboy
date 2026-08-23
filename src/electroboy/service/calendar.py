@@ -31,6 +31,7 @@ class CalendarProvider(Protocol):
         context_id: str,
         *,
         calendar_ids: list[str],
+        calendar_ids_explicit: bool = False,
         visible_range: dict[str, str],
         connection_id: str = "",
     ) -> dict[str, object]: ...
@@ -209,11 +210,17 @@ def normalize_calendar_snapshot(
         for index, entry in enumerate(calendars_value)
     ]
     calendar_ids = {str(calendar["id"]) for calendar in calendars}
-    selected_ids = {
-        str(value)
-        for value in payload.get("selected_calendar_ids", [])
-        if str(value).strip()
-    } or {str(calendar["id"]) for calendar in calendars if calendar["selected"]}
+    raw_selected_ids = payload.get("selected_calendar_ids")
+    if raw_selected_ids is None:
+        selected_ids = {
+            str(calendar["id"]) for calendar in calendars if calendar["selected"]
+        }
+    else:
+        selected_ids = {
+            str(value)
+            for value in raw_selected_ids
+            if str(value).strip()
+        }
     for calendar in calendars:
         calendar["selected"] = str(calendar["id"]) in selected_ids
     normalized_events = [

@@ -2631,6 +2631,7 @@ def _handler_for(
                 "agent",
                 "agenda",
                 "artifact",
+                "calendar",
                 "progress",
                 "scratch",
                 "status",

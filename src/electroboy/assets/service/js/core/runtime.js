@@ -4711,6 +4711,9 @@
         if (calendar.provider) {
           parameters.set("calendar_provider", calendar.provider);
         }
+        if (calendar.calendarIdsExplicit) {
+          parameters.set("calendar_ids_explicit", "1");
+        }
         if (Array.isArray(calendar.calendarIds) && calendar.calendarIds.length) {
           parameters.set("calendar_ids", calendar.calendarIds.join(","));
         }

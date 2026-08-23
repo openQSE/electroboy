@@ -688,6 +688,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("agenda_style", agenda.style);', app)
         self.assertIn('calendar: { label: "Calendar", element: null }', app)
         self.assertIn('/artifacts/calendar?${parameters.toString()}', pane_window)
+        self.assertIn(
+            "let artifactCalendarIdsExplicit = "
+            'params.get("calendar_ids_explicit") === "1";',
+            pane_window,
+        )
+        self.assertIn('parameters.set("calendar_ids_explicit", "1");', pane_window)
+        self.assertIn('PANE_KIND === "calendar"', pane_window)
         self.assertIn(".ad-hoc-session-dialog", shell_css)
         self.assertNotIn('invokeWorkflow(\n        "creative-writing"', corkboard)
         self.assertIn("async function refreshServiceSessions()", sessions)
@@ -1972,6 +1979,11 @@ class ServiceTests(unittest.TestCase):
 
             try:
                 status, body, content_type = request(server, "/pane/agent")
+                (
+                    calendar_status,
+                    calendar_body,
+                    calendar_content_type,
+                ) = request(server, "/pane/calendar")
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -1983,6 +1995,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Dock", body)
         self.assertIn("xterm@5.3.0", body)
         self.assertNotIn("__PANE_KIND__", body)
+        self.assertEqual(calendar_status, 200)
+        self.assertEqual(calendar_content_type, "text/html; charset=utf-8")
+        self.assertIn('const PANE_KIND = "calendar";', calendar_body)
 
     def test_pane_window_supports_persistent_split_workspaces(self) -> None:
         page = pane_window_html("agent")
@@ -4292,6 +4307,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"provider": "fixture-calendar"', page)
         self.assertIn('"title": "Soccer"', page)
         self.assertNotIn('"title": "Planning"', page)
+
+        empty_selection = normalize_calendar_snapshot(
+            {
+                **snapshot,
+                "selected_calendar_ids": [],
+            },
+            provider_id="fixture-calendar",
+            now=datetime(2026, 8, 17, 9, tzinfo=timezone.utc),
+        )
+        self.assertEqual(empty_selection["selected_calendar_ids"], [])
+        self.assertEqual(empty_selection["events"], [])
 
     def test_agenda_contract_rejects_invalid_snapshots(self) -> None:
         with self.assertRaisesRegex(StateError, "agenda title is required"):

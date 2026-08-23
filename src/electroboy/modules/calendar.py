@@ -39,6 +39,12 @@ def _calendar_ids(request: RouteRequest) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _calendar_ids_explicit(request: RouteRequest) -> bool:
+    return str(
+        (request.params.get("calendar_ids_explicit") or [""])[0]
+    ).strip() == "1"
+
+
 def _visible_range(request: RouteRequest) -> dict[str, str]:
     return {
         key: str((request.params.get(key) or [""])[0]).strip()
@@ -51,6 +57,7 @@ def _load(request: RouteRequest) -> dict[str, object]:
     return _provider(request).load_calendar(
         request.context_id,
         calendar_ids=_calendar_ids(request),
+        calendar_ids_explicit=_calendar_ids_explicit(request),
         visible_range=_visible_range(request),
         connection_id=request.connection_id,
     )
