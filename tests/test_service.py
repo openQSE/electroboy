@@ -4329,6 +4329,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function closeDayView", page)
         self.assertIn("function selectDay", page)
         self.assertIn("function openMonthPicker", page)
+        self.assertIn("const rect = canvas.getBoundingClientRect();", page)
+        self.assertIn("const scaleRatio = nextZoom / canvasZoom;", page)
         self.assertIn("function handleCanvasWheel", page)
         self.assertIn("function beginCanvasPan", page)
         self.assertIn('type: "electroboy-calendar-month-change"', page)

@@ -720,13 +720,12 @@ def render_calendar_html(
       const nextZoom = clampCanvasZoom(value);
       if (nextZoom === canvasZoom) return;
       if (Number.isFinite(clientX) && Number.isFinite(clientY)) {{
-        const rect = viewport.getBoundingClientRect();
-        const pointerX = clientX - rect.left;
-        const pointerY = clientY - rect.top;
-        const worldX = (pointerX - canvasPanX) / canvasZoom;
-        const worldY = (pointerY - canvasPanY) / canvasZoom;
-        canvasPanX = pointerX - worldX * nextZoom;
-        canvasPanY = pointerY - worldY * nextZoom;
+        const rect = canvas.getBoundingClientRect();
+        const localX = clientX - rect.left;
+        const localY = clientY - rect.top;
+        const scaleRatio = nextZoom / canvasZoom;
+        canvasPanX += localX * (1 - scaleRatio);
+        canvasPanY += localY * (1 - scaleRatio);
       }}
       canvasZoom = nextZoom;
       applyCanvasTransform();
