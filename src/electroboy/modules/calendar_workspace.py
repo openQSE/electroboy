@@ -211,7 +211,10 @@ def render_calendar_html(
     .calendar-grid {{
       --calendar-span-lane-height: 24px;
       --calendar-span-top: 28px;
+      --calendar-grid-overlay-line: color-mix(in srgb, var(--line) 88%, transparent);
+      position: relative;
       display: grid;
+      isolation: isolate;
       grid-template-columns: repeat(7, minmax(0, 1fr));
       grid-template-rows: 34px repeat(6, minmax(0, 1fr));
       height: 100%;
@@ -220,6 +223,16 @@ def render_calendar_html(
       border-radius: 0;
       background: var(--paper);
       box-shadow: none;
+    }}
+    .calendar-grid::after {{
+      content: "";
+      position: absolute;
+      inset: 34px 0 0;
+      z-index: 5;
+      pointer-events: none;
+      background:
+        linear-gradient(to right, transparent calc(100% - 1px), var(--calendar-grid-overlay-line) calc(100% - 1px)) 0 0 / calc(100% / 7) 100%,
+        linear-gradient(to bottom, transparent calc(100% - 1px), var(--calendar-grid-overlay-line) calc(100% - 1px)) 0 0 / 100% calc(100% / 6);
     }}
     .calendar-weekday {{
       min-height: 34px;
@@ -537,6 +550,7 @@ def render_calendar_html(
       color: #c8fffa;
     }}
     body.calendar-style-month-hud .calendar-grid {{
+      --calendar-grid-overlay-line: rgba(98, 230, 217, .34);
       border: 0;
       background: rgba(4, 17, 21, .78);
       box-shadow: none;

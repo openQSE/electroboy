@@ -4330,6 +4330,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="calendarCanvas"', page)
         self.assertIn("--calendar-size: min(980px", page)
         self.assertIn("calendar-event-span", page)
+        self.assertIn(".calendar-grid::after", page)
+        self.assertIn("--calendar-grid-overlay-line", page)
         self.assertIn("function eventDisplayEndDate", page)
         self.assertIn("function eventSegments", page)
         self.assertIn("spans.segments.forEach", page)
