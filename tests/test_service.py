@@ -670,6 +670,12 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function selectAgentSessionLocally", sessions)
         self.assertIn("function connectSessionEvents(sessionId, options = {})", sessions)
+        self.assertIn("let agentEventStreamVersion = 0;", sessions)
+        self.assertIn("const agentEventStreams = new Map();", sessions)
+        self.assertIn("function ensureSessionEventStream(sessionId)", sessions)
+        self.assertIn("function ensureRunningSessionStreams()", sessions)
+        self.assertIn("appendAgentOutput(outputText, sessionId);", sessions)
+        self.assertIn("prepareTerminalStream(sessionId);", sessions)
         self.assertIn("if (options.ensurePane !== false)", sessions)
         self.assertIn(
             "connectSessionEvents(runtimeState.selectedSessionId, { ensurePane: false })",
@@ -691,9 +697,28 @@ class ServiceTests(unittest.TestCase):
             sessions,
         )
         self.assertIn("AGENT_OUTPUT_FLUSH_BUDGET_MS", app)
-        self.assertIn("function flushAgentOutputQueue()", app)
+        self.assertIn("const agentTerminalContexts = new Map();", app)
+        self.assertIn("function createAgentTerminalContext(sessionId = \"\")", app)
+        self.assertIn("function selectAgentTerminal(sessionId = \"\")", app)
+        self.assertIn("function flushAgentOutputQueue(context)", app)
+        self.assertIn("function resetTerminalOutput(terminalInstance)", app)
+        self.assertIn("reset: resetTerminalOutput", app)
         self.assertIn("TERMINAL_OUTPUT_FLUSH_BUDGET_MS", pane_window)
-        self.assertIn("function flushTerminalOutputQueue()", pane_window)
+        self.assertIn("const agentTerminalContexts = new Map();", pane_window)
+        self.assertIn("const agentEventStreams = new Map();", pane_window)
+        self.assertIn("function flushTerminalOutputQueue(target = terminalOutputTarget())", pane_window)
+        self.assertIn("function replacePaneEventSource(sessionId = \"\")", pane_window)
+        self.assertIn("const streamSessionId = selectedSessionId;", pane_window)
+        self.assertIn("queueTerminalOutput(payload.terminal || payload.text || \"\", streamSessionId)", pane_window)
+        self.assertIn(
+            "if (terminal) {\n        terminal.options.disableStdin = disableStdin;",
+            pane_window,
+        )
+        self.assertIn("let pinnedAgentSessionId = PANE_KIND === \"agent\" ? selectedSessionId : \"\";", pane_window)
+        self.assertIn("function selectAgentTerminal(sessionId = \"\")", pane_window)
+        self.assertIn("function ensureTerminalResizeTracking()", pane_window)
+        self.assertIn("window.addEventListener(\"resize\", fitTerminal);", pane_window)
+        self.assertIn("session_id: resizeSessionId,", pane_window)
         self.assertIn(
             'queueTerminalOutput(payload.terminal || payload.text || "")',
             pane_window,
@@ -744,6 +769,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("terminal.registerMarker", terminal_behavior)
         self.assertIn("terminal.scrollToBottom()", terminal_behavior)
         self.assertIn("terminal.scrollToLine(marker.line)", terminal_behavior)
+        self.assertIn("function reset(terminal)", terminal_behavior)
+        self.assertIn("terminal.reset()", terminal_behavior)
         self.assertIn("window.ElectroBoyFilePaneTools", file_pane_tools)
         self.assertIn('controller.addSection("find", "Find")', file_pane_tools)
         self.assertIn('controller.addSection("actions", "Actions")', file_pane_tools)
@@ -965,7 +992,9 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("async function startGenericStageAgent(", app)
         self.assertNotIn("const SOFTWARE_WORKFLOW_MODE", app)
         self.assertNotIn("const CREATIVE_WORKFLOW_MODE", app)
-        self.assertIn("event.source !== entry.popup", app)
+        self.assertIn("event.source === candidate.popup", app)
+        self.assertIn("function panePopoutHidesDockedPane(kind)", app)
+        self.assertIn('return kind !== "agent";', app)
         self.assertIn("event.key === scratchPadStorageKey()", app)
         self.assertIn('scratchPad.value = event.newValue || "";', app)
 
@@ -2057,9 +2086,18 @@ class ServiceTests(unittest.TestCase):
             PANE_WINDOW_HTML,
         )
         self.assertIn("ElectroBoyTerminalBehavior.install(terminal)", PANE_WINDOW_HTML)
-        self.assertIn("queueAgentResize(cols, rows);", PANE_WINDOW_HTML)
+        self.assertIn("ElectroBoyTerminalBehavior.reset(terminal)", PANE_WINDOW_HTML)
+        self.assertIn("let pinnedAgentSessionId = PANE_KIND === \"agent\" ? selectedSessionId : \"\";", PANE_WINDOW_HTML)
+        self.assertIn("function selectAgentTerminal(sessionId = \"\")", PANE_WINDOW_HTML)
+        self.assertIn(
+            "if (terminal) {\n        terminal.options.disableStdin = disableStdin;",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn("function replacePaneEventSource(sessionId = \"\")", PANE_WINDOW_HTML)
+        self.assertIn("function ensureTerminalResizeTracking()", PANE_WINDOW_HTML)
+        self.assertIn("queueAgentResize(cols, rows, terminalSessionId);", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/resize")', PANE_WINDOW_HTML)
-        self.assertIn("session_id: selectedSessionId,", PANE_WINDOW_HTML)
+        self.assertIn("session_id: resizeSessionId,", PANE_WINDOW_HTML)
         self.assertIn(".terminal-host .xterm {\n      width: 100%;", PANE_WINDOW_HTML)
         self.assertIn("function effectiveFontSize()", PANE_WINDOW_HTML)
         self.assertIn("function resetFontSize()", PANE_WINDOW_HTML)

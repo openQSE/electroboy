@@ -170,10 +170,14 @@
     const MIN_AGENT_INPUT_WIDTH = 260;
     const AGENT_OUTPUT_FLUSH_BUDGET_MS = 8;
     const AGENT_OUTPUT_FLUSH_CHARS = 65536;
+    const DEFAULT_AGENT_TERMINAL_ID = "__electroboy_agent_default__";
     let eventSource = null;
     let artifactEventSources = [];
+    const agentTerminalContexts = new Map();
+    let activeAgentTerminalSessionId = DEFAULT_AGENT_TERMINAL_ID;
     let terminal = null;
     let terminalFit = null;
+    let terminalWindowResizeListenerInstalled = false;
     let terminalFontSize = storedTerminalFontSize();
     let paneFontOffsets = storedPaneFontOffsets();
     let documentZoom = storedDocumentZoom();
@@ -252,8 +256,6 @@
     const frontendDebugInputCounters = Object.create(null);
     let resizeTimer = null;
     let pendingTerminalResize = null;
-    let agentOutputQueue = [];
-    let agentOutputFlushTimer = null;
     let statusRefreshTimer = null;
     let statusRefreshSequence = 0;
     let workflowSideSheetCollapsed = storedWorkflowSideSheetCollapsed();
@@ -3312,24 +3314,111 @@
       setWorkflowSideSheetCollapsed(!workflowSideSheetCollapsed);
     }
 
+    function normalizeAgentTerminalSessionId(sessionId = "") {
+      return String(sessionId || selectedSessionId || DEFAULT_AGENT_TERMINAL_ID);
+    }
+
+    function agentTerminalContext(sessionId = "") {
+      const terminalSessionId = normalizeAgentTerminalSessionId(sessionId);
+      return agentTerminalContexts.get(terminalSessionId) || null;
+    }
+
+    function createAgentTerminalContext(sessionId = "") {
+      if (!window.Terminal) {
+        return null;
+      }
+      const terminalSessionId = normalizeAgentTerminalSessionId(sessionId);
+      const existing = agentTerminalContexts.get(terminalSessionId);
+      if (existing) {
+        return existing;
+      }
+      const host = document.createElement("div");
+      host.className = "agent-terminal-host";
+      host.dataset.sessionId = terminalSessionId;
+      host.hidden = true;
+      agentOutput.append(host);
+      const nextTerminal = new window.Terminal(terminalOptions(true, "agent"));
+      let nextFit = null;
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        nextFit = new window.FitAddon.FitAddon();
+        nextTerminal.loadAddon(nextFit);
+      }
+      nextTerminal.open(host);
+      window.ElectroBoyTerminalBehavior.install(nextTerminal);
+      nextTerminal.onResize(({ cols, rows }) => {
+        queueTerminalResize(cols, rows, terminalSessionId);
+      });
+      const context = {
+        sessionId: terminalSessionId,
+        host,
+        terminal: nextTerminal,
+        fit: nextFit,
+        outputQueue: [],
+        flushTimer: null,
+      };
+      agentTerminalContexts.set(terminalSessionId, context);
+      return context;
+    }
+
+    function selectAgentTerminal(sessionId = "") {
+      const context = createAgentTerminalContext(sessionId);
+      if (!context) {
+        return null;
+      }
+      activeAgentTerminalSessionId = context.sessionId;
+      for (const candidate of agentTerminalContexts.values()) {
+        candidate.host.hidden = candidate.sessionId !== context.sessionId;
+      }
+      terminal = context.terminal;
+      terminalFit = context.fit;
+      terminal.options.fontSize = effectivePaneFontSize("agent");
+      scheduleFitTerminal();
+      return context;
+    }
+
+    function currentAgentTerminalContext() {
+      return agentTerminalContext(activeAgentTerminalSessionId);
+    }
+
+    function disposeAgentTerminalContext(context) {
+      if (!context) {
+        return;
+      }
+      clearAgentOutputQueue(context);
+      try {
+        context.terminal.dispose();
+      } catch (error) {
+        // Best effort cleanup; browser reloads should not depend on xterm disposal.
+      }
+      context.host.remove();
+    }
+
+    function disposeAgentTerminals() {
+      for (const context of agentTerminalContexts.values()) {
+        disposeAgentTerminalContext(context);
+      }
+      agentTerminalContexts.clear();
+      activeAgentTerminalSessionId = DEFAULT_AGENT_TERMINAL_ID;
+      terminal = null;
+      terminalFit = null;
+      agentOutput.replaceChildren();
+      initializeTerminal();
+    }
+
     function initializeTerminal() {
       if (!window.Terminal) {
         appendPlainOutput("terminal renderer unavailable; using plain text\n", "error");
         return;
       }
-      terminal = new window.Terminal(terminalOptions(true, "agent"));
-      if (window.FitAddon && window.FitAddon.FitAddon) {
-        terminalFit = new window.FitAddon.FitAddon();
-        terminal.loadAddon(terminalFit);
+      if (!selectAgentTerminal(activeAgentTerminalSessionId)) {
+        return;
       }
-      terminal.open(agentOutput);
-      window.ElectroBoyTerminalBehavior.install(terminal);
-      terminal.onResize(({ cols, rows }) => {
-        queueTerminalResize(cols, rows);
-      });
       applyTerminalFontSize();
       fitTerminal();
-      window.addEventListener("resize", scheduleFitTerminal);
+      if (!terminalWindowResizeListenerInstalled) {
+        terminalWindowResizeListenerInstalled = true;
+        window.addEventListener("resize", scheduleFitTerminal);
+      }
     }
 
     function initializeProgressTerminal(...args) {
@@ -3555,9 +3644,15 @@
       if (cssProperty) {
         document.documentElement.style.setProperty(cssProperty, `${fontSize}px`);
       }
-      const paneTerminal = terminalForPane(pane);
-      if (paneTerminal) {
-        paneTerminal.options.fontSize = fontSize;
+      if (pane === "agent") {
+        for (const context of agentTerminalContexts.values()) {
+          context.terminal.options.fontSize = fontSize;
+        }
+      } else {
+        const paneTerminal = terminalForPane(pane);
+        if (paneTerminal) {
+          paneTerminal.options.fontSize = fontSize;
+        }
       }
       updatePaneFontControls(pane);
       scheduleFitTerminal();
@@ -3618,7 +3713,8 @@
       }
     }
 
-    function prepareTerminalStream() {
+    function prepareTerminalStream(sessionId = "") {
+      selectAgentTerminal(sessionId);
       applyTerminalFontSize();
       fitTerminal();
     }
@@ -3674,20 +3770,24 @@
       terminalResizeObserver.observe(projectShellOutput);
     }
 
-    function terminalResizePayload(columns = null, rows = null) {
-      const session = selectedSession();
-      if (!sessionIsRunning(session) || !contextId || !terminal) {
+    function terminalResizePayload(columns = null, rows = null, sessionId = "") {
+      const requestedSessionId = String(sessionId || selectedSessionId || "");
+      const session = requestedSessionId
+        ? agentSessions.find((candidate) => candidate.session_id === requestedSessionId)
+        : selectedSession();
+      const context = agentTerminalContext(session ? session.session_id : "");
+      if (!sessionIsRunning(session) || !contextId || !context) {
         return null;
       }
       return {
         session_id: session.session_id,
-        columns: Number(columns || terminal.cols || 120),
-        rows: Number(rows || terminal.rows || 32),
+        columns: Number(columns || context.terminal.cols || 120),
+        rows: Number(rows || context.terminal.rows || 32),
       };
     }
 
-    function queueTerminalResize(columns = null, rows = null) {
-      const payload = terminalResizePayload(columns, rows);
+    function queueTerminalResize(columns = null, rows = null, sessionId = "") {
+      const payload = terminalResizePayload(columns, rows, sessionId);
       if (!payload) {
         return;
       }
@@ -3738,41 +3838,42 @@
       agentOutput.scrollTop = agentOutput.scrollHeight;
     }
 
-    function scheduleAgentOutputFlush() {
-      if (agentOutputFlushTimer !== null) {
+    function scheduleAgentOutputFlush(context) {
+      if (!context || context.flushTimer !== null) {
         return;
       }
-      agentOutputFlushTimer = window.setTimeout(flushAgentOutputQueue, 0);
+      context.flushTimer = window.setTimeout(
+        () => flushAgentOutputQueue(context),
+        0,
+      );
     }
 
-    function flushAgentOutputQueue() {
-      agentOutputFlushTimer = null;
-      if (agentOutputQueue.length === 0) {
+    function flushAgentOutputQueue(context) {
+      if (!context) {
         return;
       }
-      if (!terminal) {
-        appendPlainOutput(agentOutputQueue.join(""));
-        agentOutputQueue = [];
+      context.flushTimer = null;
+      if (context.outputQueue.length === 0) {
         return;
       }
       const start = window.performance ? window.performance.now() : Date.now();
       let chunk = "";
-      while (agentOutputQueue.length > 0) {
+      while (context.outputQueue.length > 0) {
         const remainingCapacity = AGENT_OUTPUT_FLUSH_CHARS - chunk.length;
         if (remainingCapacity <= 0) {
           break;
         }
-        const next = agentOutputQueue[0] || "";
+        const next = context.outputQueue[0] || "";
         if (!next) {
-          agentOutputQueue.shift();
+          context.outputQueue.shift();
           continue;
         }
         if (next.length <= remainingCapacity) {
           chunk += next;
-          agentOutputQueue.shift();
+          context.outputQueue.shift();
         } else {
           chunk += next.slice(0, remainingCapacity);
-          agentOutputQueue[0] = next.slice(remainingCapacity);
+          context.outputQueue[0] = next.slice(remainingCapacity);
         }
         const elapsed = (window.performance ? window.performance.now() : Date.now()) -
           start;
@@ -3784,18 +3885,21 @@
         }
       }
       if (chunk) {
-        terminal.write(chunk);
+        context.terminal.write(chunk);
       }
-      if (agentOutputQueue.length > 0) {
-        scheduleAgentOutputFlush();
+      if (context.outputQueue.length > 0) {
+        scheduleAgentOutputFlush(context);
       }
     }
 
-    function clearAgentOutputQueue() {
-      agentOutputQueue = [];
-      if (agentOutputFlushTimer !== null) {
-        window.clearTimeout(agentOutputFlushTimer);
-        agentOutputFlushTimer = null;
+    function clearAgentOutputQueue(context) {
+      if (!context) {
+        return;
+      }
+      context.outputQueue = [];
+      if (context.flushTimer !== null) {
+        window.clearTimeout(context.flushTimer);
+        context.flushTimer = null;
       }
     }
 
@@ -3818,19 +3922,40 @@
       }
     }
 
-    function appendAgentOutput(text) {
-      if (terminal) {
-        agentOutputQueue.push(String(text ?? ""));
-        scheduleAgentOutputFlush();
+    function appendAgentOutput(text, sessionId = "", className = "") {
+      const context = createAgentTerminalContext(sessionId);
+      const outputText = className
+        ? formatTerminalMessage(String(text ?? ""), className)
+        : String(text ?? "");
+      if (context) {
+        context.outputQueue.push(outputText);
+        scheduleAgentOutputFlush(context);
         return;
       }
-      appendPlainOutput(text);
+      appendPlainOutput(text, className);
     }
 
-    function clearAgentOutput() {
-      clearAgentOutputQueue();
-      if (terminal) {
-        terminal.clear();
+    function resetTerminalOutput(terminalInstance) {
+      if (
+        window.ElectroBoyTerminalBehavior &&
+        typeof window.ElectroBoyTerminalBehavior.reset === "function"
+      ) {
+        return window.ElectroBoyTerminalBehavior.reset(terminalInstance);
+      }
+      if (terminalInstance && typeof terminalInstance.clear === "function") {
+        terminalInstance.clear();
+        return true;
+      }
+      return false;
+    }
+
+    function clearAgentOutput(sessionId = "") {
+      const context = sessionId
+        ? agentTerminalContext(sessionId)
+        : currentAgentTerminalContext();
+      if (context) {
+        clearAgentOutputQueue(context);
+        resetTerminalOutput(context.terminal);
         return;
       }
       agentOutput.replaceChildren();
@@ -4496,7 +4621,7 @@
       return parameters;
     }
 
-    function paneUrl(kind, requestedArtifactItem = undefined) {
+    function paneUrl(kind, requestedArtifactItem = undefined, options = {}) {
       const parameters = new URLSearchParams();
       if (contextId) {
         parameters.set("context_id", contextId);
@@ -4507,8 +4632,9 @@
         }
         appendFrontendTelemetryParameters(parameters);
       }
-      if (selectedSessionId) {
-        parameters.set("session_id", selectedSessionId);
+      const paneSessionId = String(options.sessionId || selectedSessionId || "");
+      if (paneSessionId) {
+        parameters.set("session_id", paneSessionId);
       }
       const artifactItem = requestedArtifactItem === undefined
         ? artifactPreviewItems[0] || null
@@ -4558,21 +4684,54 @@
       return `/pane/${encodeURIComponent(kind)}?${parameters.toString()}`;
     }
 
+    function poppedPaneKey(kind, options = {}) {
+      if (kind === "agent") {
+        return `agent:${String(options.sessionId || selectedSessionId || "default")}`;
+      }
+      return kind;
+    }
+
+    function poppedPaneWindowName(kind, options = {}) {
+      if (kind === "agent") {
+        return `electroboy-agent-${contextId || "local"}-${String(options.sessionId || selectedSessionId || "default")}`;
+      }
+      return `electroboy-${kind}-${contextId || "local"}`;
+    }
+
+    function hasPoppedPaneKind(kind) {
+      if (poppedPaneWindows.has(kind)) {
+        return true;
+      }
+      if (kind !== "agent") {
+        return false;
+      }
+      for (const key of poppedPaneWindows.keys()) {
+        if (key.startsWith("agent:")) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     function popOutPane(kind, artifactItem = null) {
       if (!contextId && kind !== "scratch") {
         appendOutput("create a browser context first\n", "error");
         return;
       }
+      const popoutOptions = {
+        sessionId: kind === "agent" ? selectedSessionId : "",
+      };
+      const popoutKey = poppedPaneKey(kind, popoutOptions);
       const popup = window.open(
-        paneUrl(kind, artifactItem),
-        `electroboy-${kind}-${contextId || "local"}`,
+        paneUrl(kind, artifactItem, popoutOptions),
+        poppedPaneWindowName(kind, popoutOptions),
         PANE_POPUP_FEATURES,
       );
       if (!popup) {
         appendOutput("popup was blocked by the browser\n", "error");
         return;
       }
-      const existing = poppedPaneWindows.get(kind);
+      const existing = poppedPaneWindows.get(popoutKey);
       if (existing) {
         window.clearInterval(existing.poll);
       }
@@ -4582,14 +4741,15 @@
           return;
         }
         window.clearInterval(poll);
-        poppedPaneWindows.delete(kind);
-        setPanePoppedOut(kind, false);
+        poppedPaneWindows.delete(popoutKey);
+        setPanePoppedOut(kind, hasPoppedPaneKind(kind));
       }, 500);
-      poppedPaneWindows.set(kind, { popup, poll });
+      poppedPaneWindows.set(popoutKey, { popup, poll, kind });
     }
 
     function dockPoppedPane(kind) {
-      const existing = poppedPaneWindows.get(kind);
+      const key = poppedPaneKey(kind);
+      const existing = poppedPaneWindows.get(key) || poppedPaneWindows.get(kind);
       if (existing) {
         window.clearInterval(existing.poll);
         try {
@@ -4597,13 +4757,18 @@
         } catch (error) {
           // The browser may block closing a user-managed window.
         }
+        poppedPaneWindows.delete(key);
         poppedPaneWindows.delete(kind);
       }
-      setPanePoppedOut(kind, false);
+      setPanePoppedOut(kind, hasPoppedPaneKind(kind));
+    }
+
+    function panePopoutHidesDockedPane(kind) {
+      return kind !== "agent";
     }
 
     function setPanePoppedOut(kind, poppedOut) {
-      if (poppedOut) {
+      if (poppedOut && panePopoutHidesDockedPane(kind)) {
         poppedPanes.add(kind);
       } else {
         poppedPanes.delete(kind);
@@ -4700,13 +4865,21 @@
       if (data.type !== "electroboy-pane-restore" || !data.pane) {
         return;
       }
-      const entry = poppedPaneWindows.get(data.pane);
-      if (!entry || event.source !== entry.popup) {
+      let entryKey = "";
+      let entry = null;
+      for (const [key, candidate] of poppedPaneWindows.entries()) {
+        if (candidate.kind === data.pane && event.source === candidate.popup) {
+          entryKey = key;
+          entry = candidate;
+          break;
+        }
+      }
+      if (!entry) {
         return;
       }
       window.clearInterval(entry.poll);
-      poppedPaneWindows.delete(data.pane);
-      setPanePoppedOut(data.pane, false);
+      poppedPaneWindows.delete(entryKey);
+      setPanePoppedOut(data.pane, hasPoppedPaneKind(data.pane));
     });
 
     function contextWorkflowStorageKey(mode = workflowMode) {
@@ -4993,10 +5166,7 @@
     }
 
     function resetWorkflowContextView() {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
+      closeAgentEventStream();
       closeProgressEventStream();
       closeProjectShellEventStream();
       showProgressPane(false);
@@ -5032,7 +5202,7 @@
       creativeTreePayload = null;
       restoredScratchContextId = "";
       projectStatusMessages = [];
-      clearAgentOutput();
+      disposeAgentTerminals();
       clearProgressOutput();
       clearProjectShellOutput();
       hideArtifactPreview();
@@ -5186,7 +5356,6 @@
       updateProjectState(payload);
       const session = selectedSession();
       if (session && session.status === "running") {
-        clearAgentOutput();
         const isInteractive = Boolean(session.interactive);
         if (isInteractive) {
           showProgressPane(false);
@@ -6444,7 +6613,7 @@
       activeProjectRoot = payload.active_project_root || "";
       activationRoot = payload.activation_root || activationRoot;
       projectPath.value = activeProjectRoot || activationRoot;
-      clearAgentOutput();
+      disposeAgentTerminals();
       recordProjectStatusMessage(`${payload.status}: ${reference}`);
       updateProjectState(payload);
     }
@@ -6700,10 +6869,7 @@
         appendOutput(`${payload.error || "deactivate failed"}\n`, "error");
         return;
       }
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
+      closeAgentEventStream();
       closeProgressEventStream();
       closeProjectShellEventStream();
       showProgressPane(false);
@@ -6732,7 +6898,7 @@
       activeAgentKind = "";
       agentInput.value = "";
       setAgentInputVisible(true);
-      clearAgentOutput();
+      disposeAgentTerminals();
       clearProgressOutput();
       clearProjectShellOutput();
       hideArtifactPreview();
@@ -7191,6 +7357,7 @@
         formatMessage: formatTerminalMessage,
         applyFontSize: applyTerminalFontSize,
         fitAll: scheduleFitTerminal,
+        reset: resetTerminalOutput,
       },
       downloads: {
         exportMarkdown,

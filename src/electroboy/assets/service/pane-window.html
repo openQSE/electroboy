@@ -296,6 +296,17 @@
       padding: 10px 12px;
     }
 
+    .pane-agent-terminal-host {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .pane-agent-terminal-host[hidden] {
+      display: none;
+    }
+
     .artifact-frame {
       background: var(--terminal);
       color-scheme: dark;
@@ -897,6 +908,7 @@
     const telemetryPageId = params.get("telemetry_page_id") || "";
     const telemetryTabId = params.get("telemetry_tab_id") || "";
     let selectedSessionId = params.get("session_id") || "";
+    let pinnedAgentSessionId = PANE_KIND === "agent" ? selectedSessionId : "";
     const ownedShellSessionId = params.get("shell_session_id") || "";
     let selectedShellSessionId = ownedShellSessionId;
     const disposableShell = params.get("disposable") === "1";
@@ -983,7 +995,11 @@
     let activeProjectRoot = "";
     let terminal = null;
     let terminalFit = null;
+    const agentTerminalContexts = new Map();
+    const agentEventStreams = new Map();
+    let activeAgentTerminalSessionId = selectedSessionId || "";
     let terminalResizeObserver = null;
+    let terminalWindowResizeListenerInstalled = false;
     let terminalResizeTimer = null;
     let pendingTerminalResize = null;
     let eventSource = null;
@@ -1005,6 +1021,7 @@
     let lastSharedStatusText = "";
     let terminalOutputQueue = [];
     let terminalOutputFlushTimer = null;
+    let terminalStreamVersion = 0;
     const agentInputDrafts = new Map();
     const shortcutController = EMBEDDED_PANE
       ? window.ElectroBoyInputShortcut.bindRecorder(agentSendShortcut)
@@ -1832,14 +1849,6 @@
       const nextUrl = new URL(window.location.href);
       nextUrl.searchParams.set("shell_session_id", selectedShellSessionId);
       window.history.replaceState(null, "", nextUrl);
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
-      clearTerminalOutputQueue();
-      if (terminal) {
-        terminal.clear();
-      }
       connectShellStream();
     }
 
@@ -1908,12 +1917,14 @@
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       activeProjectRoot = payload.active_project_root || payload.activation_root
         || payload.service_root || "";
-      selectedSessionId = payload.selected_session_id || selectedSessionId || "";
+      selectedSessionId = pinnedAgentSessionId ||
+        payload.selected_session_id || selectedSessionId || "";
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
         const selected = agentSessions.find((session) => session.selected)
           || agentSessions.find((session) => session.status === "running")
           || agentSessions[0];
         selectedSessionId = selected ? selected.session_id : "";
+        pinnedAgentSessionId = PANE_KIND === "agent" ? selectedSessionId : pinnedAgentSessionId;
       }
       renderSessionSwitcher();
     }
@@ -1924,6 +1935,10 @@
       }
       if (PANE_KIND === "agent") {
         selectedSessionId = sessionId;
+        pinnedAgentSessionId = sessionId;
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set("session_id", pinnedAgentSessionId);
+        window.history.replaceState(null, "", nextUrl);
         renderSessionSwitcher();
         connectAgentStream();
         return;
@@ -2004,7 +2019,7 @@
           className: entry.className || "",
         })),
       };
-      terminal.clear();
+      resetTerminalOutput();
       latestProgressState.entries.forEach((entry) => {
         terminal.write(formatTerminalMessage(entry.text, entry.className));
       });
@@ -2326,8 +2341,74 @@
       );
     }
 
+    function normalizeAgentTerminalSessionId(sessionId = "") {
+      return String(sessionId || selectedSessionId || "default");
+    }
+
+    function createAgentTerminalContext(sessionId = "") {
+      const terminalSessionId = normalizeAgentTerminalSessionId(sessionId);
+      const existing = agentTerminalContexts.get(terminalSessionId);
+      if (existing) {
+        return existing;
+      }
+      const host = document.createElement("div");
+      host.className = "pane-agent-terminal-host";
+      host.dataset.sessionId = terminalSessionId;
+      host.hidden = true;
+      terminalHost.append(host);
+      const nextTerminal = new window.Terminal(terminalOptions(true));
+      let nextFit = null;
+      if (window.FitAddon && window.FitAddon.FitAddon) {
+        nextFit = new window.FitAddon.FitAddon();
+        nextTerminal.loadAddon(nextFit);
+      }
+      nextTerminal.open(host);
+      window.ElectroBoyTerminalBehavior.install(nextTerminal);
+      nextTerminal.onResize(({ cols, rows }) => {
+        queueAgentResize(cols, rows, terminalSessionId);
+      });
+      const context = {
+        sessionId: terminalSessionId,
+        host,
+        terminal: nextTerminal,
+        fit: nextFit,
+        outputQueue: [],
+        flushTimer: null,
+      };
+      agentTerminalContexts.set(terminalSessionId, context);
+      return context;
+    }
+
+    function selectAgentTerminal(sessionId = "") {
+      terminalHost.hidden = false;
+      const context = createAgentTerminalContext(sessionId);
+      activeAgentTerminalSessionId = context.sessionId;
+      for (const candidate of agentTerminalContexts.values()) {
+        candidate.host.hidden = candidate.sessionId !== context.sessionId;
+      }
+      terminal = context.terminal;
+      terminalFit = context.fit;
+      terminal.options.fontSize = fontSize;
+      ensureTerminalResizeTracking();
+      window.requestAnimationFrame(fitTerminal);
+      return context;
+    }
+
+    function activeAgentTerminalContext() {
+      return agentTerminalContexts.get(activeAgentTerminalSessionId) || null;
+    }
+
     function showTerminal(disableStdin = true, onData = null) {
       terminalHost.hidden = false;
+      if (PANE_KIND === "agent") {
+        selectAgentTerminal(selectedSessionId);
+        return;
+      }
+      if (terminal) {
+        terminal.options.disableStdin = disableStdin;
+        window.requestAnimationFrame(fitTerminal);
+        return;
+      }
       terminal = new window.Terminal(terminalOptions(disableStdin));
       if (onData) {
         terminal.onData(onData);
@@ -2345,9 +2426,8 @@
           queueAgentResize(cols, rows);
         }
       });
-      observeTerminalPaneResize();
+      ensureTerminalResizeTracking();
       fitTerminal();
-      window.addEventListener("resize", fitTerminal);
     }
 
     function fitTerminal() {
@@ -2376,6 +2456,15 @@
       terminalResizeObserver.observe(terminalHost);
     }
 
+    function ensureTerminalResizeTracking() {
+      observeTerminalPaneResize();
+      if (terminalWindowResizeListenerInstalled) {
+        return;
+      }
+      terminalWindowResizeListenerInstalled = true;
+      window.addEventListener("resize", fitTerminal);
+    }
+
     async function sendShellInput(data) {
       if (!contextId || !data) {
         return;
@@ -2401,19 +2490,22 @@
       }).catch(() => {});
     }
 
-    function agentResizePayload(columns = null, rows = null) {
-      if (!contextId || !terminal || !selectedSessionId) {
+    function agentResizePayload(columns = null, rows = null, sessionId = "") {
+      const resizeSessionId = normalizeAgentTerminalSessionId(sessionId);
+      const context = agentTerminalContexts.get(resizeSessionId) ||
+        activeAgentTerminalContext();
+      if (!contextId || !context || !resizeSessionId || resizeSessionId === "default") {
         return null;
       }
       return {
-        session_id: selectedSessionId,
-        columns: Number(columns || terminal.cols || 120),
-        rows: Number(rows || terminal.rows || 32),
+        session_id: resizeSessionId,
+        columns: Number(columns || context.terminal.cols || 120),
+        rows: Number(rows || context.terminal.rows || 32),
       };
     }
 
-    function queueAgentResize(columns = null, rows = null) {
-      const payload = agentResizePayload(columns, rows);
+    function queueAgentResize(columns = null, rows = null, sessionId = "") {
+      const payload = agentResizePayload(columns, rows, sessionId);
       if (!payload) {
         return;
       }
@@ -2452,36 +2544,65 @@
       return text;
     }
 
-    function scheduleTerminalOutputFlush() {
-      if (terminalOutputFlushTimer !== null) {
-        return;
+    function terminalOutputTarget(sessionId = "") {
+      if (PANE_KIND !== "agent") {
+        return {
+          terminal,
+          outputQueue: terminalOutputQueue,
+          flushTimer: terminalOutputFlushTimer,
+          setOutputQueue: (value) => {
+            terminalOutputQueue = value;
+          },
+          setFlushTimer: (value) => {
+            terminalOutputFlushTimer = value;
+          },
+        };
       }
-      terminalOutputFlushTimer = window.setTimeout(flushTerminalOutputQueue, 0);
+      return createAgentTerminalContext(sessionId || selectedSessionId);
     }
 
-    function flushTerminalOutputQueue() {
-      terminalOutputFlushTimer = null;
-      if (terminalOutputQueue.length === 0 || !terminal) {
+    function scheduleTerminalOutputFlush(target) {
+      if (!target || target.flushTimer !== null) {
+        return;
+      }
+      const timer = window.setTimeout(() => flushTerminalOutputQueue(target), 0);
+      if (typeof target.setFlushTimer === "function") {
+        target.setFlushTimer(timer);
+      } else {
+        target.flushTimer = timer;
+      }
+    }
+
+    function flushTerminalOutputQueue(target = terminalOutputTarget()) {
+      if (!target || !target.terminal) {
+        return;
+      }
+      if (typeof target.setFlushTimer === "function") {
+        target.setFlushTimer(null);
+      } else {
+        target.flushTimer = null;
+      }
+      if (target.outputQueue.length === 0) {
         return;
       }
       const start = window.performance ? window.performance.now() : Date.now();
       let chunk = "";
-      while (terminalOutputQueue.length > 0) {
+      while (target.outputQueue.length > 0) {
         const remainingCapacity = TERMINAL_OUTPUT_FLUSH_CHARS - chunk.length;
         if (remainingCapacity <= 0) {
           break;
         }
-        const next = terminalOutputQueue[0] || "";
+        const next = target.outputQueue[0] || "";
         if (!next) {
-          terminalOutputQueue.shift();
+          target.outputQueue.shift();
           continue;
         }
         if (next.length <= remainingCapacity) {
           chunk += next;
-          terminalOutputQueue.shift();
+          target.outputQueue.shift();
         } else {
           chunk += next.slice(0, remainingCapacity);
-          terminalOutputQueue[0] = next.slice(remainingCapacity);
+          target.outputQueue[0] = next.slice(remainingCapacity);
         }
         const elapsed = (window.performance ? window.performance.now() : Date.now()) -
           start;
@@ -2493,72 +2614,158 @@
         }
       }
       if (chunk) {
-        terminal.write(chunk);
+        target.terminal.write(chunk);
       }
-      if (terminalOutputQueue.length > 0) {
-        scheduleTerminalOutputFlush();
+      if (target.outputQueue.length > 0) {
+        scheduleTerminalOutputFlush(target);
       }
     }
 
-    function queueTerminalOutput(text) {
+    function queueTerminalOutput(text, sessionId = "") {
       const output = String(text ?? "");
-      if (!output || !terminal) {
+      const target = terminalOutputTarget(sessionId);
+      if (!output || !target || !target.terminal) {
         return;
       }
-      terminalOutputQueue.push(output);
-      scheduleTerminalOutputFlush();
+      target.outputQueue.push(output);
+      scheduleTerminalOutputFlush(target);
     }
 
-    function clearTerminalOutputQueue() {
-      terminalOutputQueue = [];
-      if (terminalOutputFlushTimer !== null) {
-        window.clearTimeout(terminalOutputFlushTimer);
-        terminalOutputFlushTimer = null;
+    function clearTerminalOutputQueue(sessionId = "") {
+      const target = terminalOutputTarget(sessionId);
+      if (!target) {
+        return;
       }
+      if (typeof target.setOutputQueue === "function") {
+        target.setOutputQueue([]);
+      } else {
+        target.outputQueue = [];
+      }
+      if (target.flushTimer !== null) {
+        window.clearTimeout(target.flushTimer);
+        if (typeof target.setFlushTimer === "function") {
+          target.setFlushTimer(null);
+        } else {
+          target.flushTimer = null;
+        }
+      }
+    }
+
+    function resetTerminalOutput() {
+      if (
+        window.ElectroBoyTerminalBehavior &&
+        typeof window.ElectroBoyTerminalBehavior.reset === "function"
+      ) {
+        return window.ElectroBoyTerminalBehavior.reset(terminal);
+      }
+      if (terminal && typeof terminal.clear === "function") {
+        terminal.clear();
+        return true;
+      }
+      return false;
+    }
+
+    function closeAgentPaneEventStream(sessionId) {
+      const stream = agentEventStreams.get(sessionId);
+      if (!stream) {
+        return;
+      }
+      stream.source.close();
+      agentEventStreams.delete(sessionId);
+      if (eventSource === stream.source) {
+        eventSource = null;
+      }
+    }
+
+    function replacePaneEventSource(sessionId = "") {
+      terminalStreamVersion += 1;
+      if (PANE_KIND === "agent") {
+        if (sessionId) {
+          closeAgentPaneEventStream(sessionId);
+          return terminalStreamVersion;
+        }
+        for (const streamSessionId of Array.from(agentEventStreams.keys())) {
+          closeAgentPaneEventStream(streamSessionId);
+        }
+      }
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      return terminalStreamVersion;
+    }
+
+    function isCurrentPaneEventSource(source, version, sessionId = "") {
+      if (PANE_KIND === "agent") {
+        const stream = agentEventStreams.get(sessionId);
+        return Boolean(stream && stream.source === source && stream.version === version);
+      }
+      return version === terminalStreamVersion && eventSource === source;
     }
 
     function connectAgentStream() {
       showTerminal();
       if (!contextId || !selectedSessionId || !selectedAgentSession()) {
-        clearTerminalOutputQueue();
-        terminal.clear();
+        resetTerminalOutput();
         terminal.write("\x1b[31mno active agent stream\x1b[0m\r\n");
         return;
       }
-      if (eventSource) {
-        eventSource.close();
+      const streamSessionId = selectedSessionId;
+      const existingStream = agentEventStreams.get(streamSessionId);
+      if (existingStream) {
+        eventSource = existingStream.source;
+        window.requestAnimationFrame(() => queueAgentResize(null, null, streamSessionId));
+        return;
       }
-      clearTerminalOutputQueue();
-      terminal.clear();
-      eventSource = new EventSource(
+      terminalStreamVersion += 1;
+      const streamVersion = terminalStreamVersion;
+      const source = new EventSource(
         contextUrl(
-          `/api/sessions/events?session_id=${encodeURIComponent(selectedSessionId)}`,
+          `/api/sessions/events?session_id=${encodeURIComponent(streamSessionId)}`,
         ),
       );
-      eventSource.addEventListener("agent-event", (event) => {
+      eventSource = source;
+      agentEventStreams.set(streamSessionId, { source, version: streamVersion });
+      source.addEventListener("agent-event", (event) => {
+        if (!isCurrentPaneEventSource(source, streamVersion, streamSessionId)) {
+          return;
+        }
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
-          queueTerminalOutput(payload.terminal || payload.text || "");
+          queueTerminalOutput(payload.terminal || payload.text || "", streamSessionId);
         } else if (payload.type === "system" || payload.type === "error") {
-          queueTerminalOutput(formatTerminalMessage(`${payload.text}\r\n`, payload.type));
+          queueTerminalOutput(
+            formatTerminalMessage(`${payload.text}\r\n`, payload.type),
+            streamSessionId,
+          );
         } else if (payload.type === "completed") {
-          queueTerminalOutput(formatTerminalMessage(
-            `\r\nprocess exited with code ${payload.returncode}\r\n`,
-            "system",
-          ));
+          queueTerminalOutput(
+            formatTerminalMessage(
+              `\r\nprocess exited with code ${payload.returncode}\r\n`,
+              "system",
+            ),
+            streamSessionId,
+          );
         }
       });
-      eventSource.onerror = () => {};
+      source.onerror = () => {};
+      window.requestAnimationFrame(() => queueAgentResize(null, null, streamSessionId));
     }
 
     function connectProgressStream() {
       showTerminal();
       if (!contextId) {
+        replacePaneEventSource();
         terminal.write("\x1b[31mno active context\x1b[0m\r\n");
         return;
       }
-      eventSource = new EventSource(contextUrl("/api/progress/events"));
-      eventSource.addEventListener("progress-event", (event) => {
+      const streamVersion = replacePaneEventSource();
+      const source = new EventSource(contextUrl("/api/progress/events"));
+      eventSource = source;
+      source.addEventListener("progress-event", (event) => {
+        if (!isCurrentPaneEventSource(source, streamVersion)) {
+          return;
+        }
         const payload = JSON.parse(event.data);
         renderSharedProgressState({
           entries: [{
@@ -2567,20 +2774,27 @@
           }],
         }, true);
         if (payload.running === false) {
-          eventSource.close();
+          replacePaneEventSource();
         }
       });
-      eventSource.onerror = () => {};
+      source.onerror = () => {};
     }
 
     function connectShellStream() {
       showTerminal(false, sendShellInput);
+      const streamVersion = replacePaneEventSource();
+      clearTerminalOutputQueue();
+      resetTerminalOutput();
       if (!contextId) {
         terminal.write("\x1b[31mno active context\x1b[0m\r\n");
         return;
       }
-      eventSource = new EventSource(shellContextUrl("/api/shell/events"));
-      eventSource.addEventListener("agent-event", (event) => {
+      const source = new EventSource(shellContextUrl("/api/shell/events"));
+      eventSource = source;
+      source.addEventListener("agent-event", (event) => {
+        if (!isCurrentPaneEventSource(source, streamVersion)) {
+          return;
+        }
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
           queueTerminalOutput(payload.terminal || payload.text || "");
@@ -2593,7 +2807,7 @@
           ));
         }
       });
-      eventSource.onerror = () => {};
+      source.onerror = () => {};
       window.requestAnimationFrame(sendShellResize);
     }
 
@@ -3506,7 +3720,7 @@
       stopDisposableShell();
       if (sharedPaneSync) sharedPaneSync.close();
       if (contentCatalogSync) contentCatalogSync.close();
-      if (eventSource) eventSource.close();
+      replacePaneEventSource();
       if (artifactEventSource) artifactEventSource.close();
       clearTerminalOutputQueue();
       if (statusTimer) window.clearInterval(statusTimer);

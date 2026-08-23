@@ -93,5 +93,21 @@
     return true;
   }
 
-  window.ElectroBoyTerminalBehavior = { fit, install };
+  function reset(terminal) {
+    if (!terminal) {
+      return false;
+    }
+    let didReset = false;
+    if (typeof terminal.reset === "function") {
+      terminal.reset();
+      didReset = true;
+    }
+    if (typeof terminal.clear === "function") {
+      terminal.clear();
+      return true;
+    }
+    return didReset;
+  }
+
+  window.ElectroBoyTerminalBehavior = { fit, install, reset };
 })();

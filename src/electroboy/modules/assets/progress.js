@@ -44,8 +44,7 @@
   }
 
   function clearProgressOutput(runtime) {
-    if (terminal) {
-      terminal.clear();
+    if (runtime.terminals.reset(terminal)) {
       return;
     }
     runtime.elements.progressOutput.replaceChildren();

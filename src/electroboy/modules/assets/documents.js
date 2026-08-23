@@ -72,13 +72,9 @@
   const popOutPane = (...args) => runtimeApi.ui.popOutPane(...args);
   const genericStageRun = (...args) => runtimeApi.workflows.stageRun(...args);
   const hideStageMenus = (...args) => runtimeApi.ui.hideStageMenus(...args);
-  const closeAgentEventStream = (...args) =>
-    runtimeApi.modules.invoke("agent-sessions", "closeAgentEventStream", ...args);
   const showProgressPane = (...args) => runtimeApi.layout.showProgressPane(...args);
   const setAgentInputVisible = (...args) =>
     runtimeApi.ui.setAgentInputVisible(...args);
-  const clearAgentOutput = (...args) =>
-    runtimeApi.agent.clearOutput(...args);
   const setAgentRunning = (...args) =>
     runtimeApi.modules.invoke("agent-sessions", "setAgentRunning", ...args);
   const updateProjectState = (...args) => runtimeApi.project.update(...args);
@@ -1244,18 +1240,12 @@
       }
       const documentTarget = target || DEFAULT_DOCUMENT_TARGETS[0];
       hideStageMenus();
-      closeAgentEventStream();
       showProgressPane(false);
       showDocumentPreview(documentTarget);
       setAgentInputVisible(true);
-      clearAgentOutput();
       setAgentRunning("documentation", true);
       runtimeApi.elements.agentInput.disabled = false;
       runtimeApi.elements.agentInput.focus();
-      appendOutput(
-        `$ electroboy document --sidecar --interactive --target ${documentTarget.path}\n`,
-        "system",
-      );
       const response = await fetch(contextUrl("/api/agents/documentation/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1273,6 +1263,10 @@
       runtimeState.selectedSessionId = sessionId;
       renderSessionSwitcher();
       connectSessionEvents(sessionId);
+      appendOutput(
+        `$ electroboy document --sidecar --interactive --target ${documentTarget.path}\n`,
+        "system",
+      );
       sendTerminalResize();
       return payload;
     }

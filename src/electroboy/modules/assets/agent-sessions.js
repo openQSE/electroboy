@@ -5,6 +5,8 @@
   let runtimeState = null;
   let inputPaneSync = null;
   let inputSyncQueue = Promise.resolve();
+  let agentEventStreamVersion = 0;
+  const agentEventStreams = new Map();
   const inputDrafts = new Map();
 
   function bindRuntime(runtime) {
@@ -40,7 +42,6 @@
     runtimeApi.modules.invoke("documents", "showArtifactPreview", ...args);
   const closeArtifactEventStream = (...args) =>
     runtimeApi.modules.invoke("documents", "closeArtifactEventStream", ...args);
-  const clearAgentOutput = (...args) => runtimeApi.agent.clearOutput(...args);
   const sendTerminalResize = (...args) => runtimeApi.agent.sendResize(...args);
   const updateProjectState = (...args) => runtimeApi.project.update(...args);
   const showProgressPane = (...args) => runtimeApi.layout.showProgressPane(...args);
@@ -58,6 +59,112 @@
   const refreshProject = (...args) => runtimeApi.project.refresh(...args);
   const creativePromptMessage = (...args) =>
     runtimeApi.workflows.preparePrompt(...args);
+
+  function closeSessionEventStream(sessionId) {
+    const stream = agentEventStreams.get(sessionId);
+    if (!stream) {
+      return;
+    }
+    stream.source.close();
+    agentEventStreams.delete(sessionId);
+    if (runtimeState.eventSource === stream.source) {
+      runtimeState.eventSource = null;
+    }
+  }
+
+  function replaceAgentEventSource(sessionId = "") {
+    agentEventStreamVersion += 1;
+    if (sessionId) {
+      closeSessionEventStream(sessionId);
+      return agentEventStreamVersion;
+    }
+    for (const streamSessionId of Array.from(agentEventStreams.keys())) {
+      closeSessionEventStream(streamSessionId);
+    }
+    if (runtimeState.eventSource && typeof runtimeState.eventSource.close === "function") {
+      runtimeState.eventSource.close();
+      runtimeState.eventSource = null;
+    }
+    return agentEventStreamVersion;
+  }
+
+  function isCurrentSessionEventSource(sessionId, source, version) {
+    const stream = agentEventStreams.get(sessionId);
+    return Boolean(
+      stream &&
+      stream.source === source &&
+      stream.version === version &&
+      version <= agentEventStreamVersion
+    );
+  }
+
+  function isCurrentLegacyAgentEventSource(source, version) {
+    return version === agentEventStreamVersion && runtimeState.eventSource === source;
+  }
+
+  function appendSessionMessage(sessionId, text, className = "") {
+    appendAgentOutput(`${text}\n`, sessionId, className);
+  }
+
+  function handleSessionEvent(sessionId, payload) {
+    const session = runtimeState.agentSessions.find(
+      (candidate) => candidate.session_id === sessionId,
+    );
+    if (payload.type === "output") {
+      const outputText = runtimeState.terminal
+        ? payload.terminal || payload.text || ""
+        : payload.text || "";
+      appendAgentOutput(outputText, sessionId);
+    } else if (payload.type === "system") {
+      appendSessionMessage(sessionId, payload.text, "system");
+    } else if (payload.type === "error") {
+      appendSessionMessage(sessionId, payload.text, "error");
+    } else if (payload.type === "completed") {
+      appendSessionMessage(
+        sessionId,
+        `\nprocess exited with code ${payload.returncode}`,
+        "system",
+      );
+      if (session && session.kind === "requirements") {
+        refreshArtifactPreview();
+      }
+      if (session && !session.interactive) {
+        closeProgressEventStream();
+      }
+      refreshProject();
+    }
+  }
+
+  function ensureSessionEventStream(sessionId) {
+    if (!sessionId || agentEventStreams.has(sessionId) || !runtimeState.contextId) {
+      return;
+    }
+    const source = runtimeApi.http.eventSource(
+      `/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`,
+    );
+    agentEventStreamVersion += 1;
+    const version = agentEventStreamVersion;
+    agentEventStreams.set(sessionId, { source, version });
+    if (runtimeState.selectedSessionId === sessionId) {
+      runtimeState.eventSource = source;
+    }
+    source.addEventListener("agent-event", (event) => {
+      if (!isCurrentSessionEventSource(sessionId, source, version)) {
+        return;
+      }
+      const payload = JSON.parse(event.data);
+      handleSessionEvent(sessionId, payload);
+    });
+    source.onerror = () => {};
+  }
+
+  function ensureRunningSessionStreams() {
+    for (const session of runtimeState.agentSessions) {
+      if (sessionIsRunning(session)) {
+        ensureSessionEventStream(session.session_id);
+      }
+    }
+  }
 
   function agentInputState() {
     return {
@@ -227,6 +334,7 @@
       }
       runtimeApi.elements.sessionSwitcher.value = runtimeState.selectedSessionId;
       updateSessionIndicator(selectedSession());
+      ensureRunningSessionStreams();
       ensureSelectedSessionStream();
     }
 
@@ -244,26 +352,30 @@
       if (documentTarget) {
         showDocumentPreview(documentTarget);
       }
-      clearAgentOutput();
       connectSessionEvents(runtimeState.selectedSessionId);
       updateAgentControls();
       sendTerminalResize();
     }
 
     function ensureSelectedSessionStream(options = {}) {
-      if (!runtimeState.selectedSessionId || runtimeState.eventSource) {
+      if (
+        !runtimeState.selectedSessionId ||
+        agentEventStreams.has(runtimeState.selectedSessionId)
+      ) {
         return;
       }
       const runningOnly = options.runningOnly !== false;
       window.setTimeout(() => {
-        if (!runtimeState.selectedSessionId || runtimeState.eventSource) {
+        if (
+          !runtimeState.selectedSessionId ||
+          agentEventStreams.has(runtimeState.selectedSessionId)
+        ) {
           return;
         }
         const session = selectedSession();
         if (!session || (runningOnly && !sessionIsRunning(session))) {
           return;
         }
-        clearAgentOutput();
         connectSessionEvents(runtimeState.selectedSessionId, { ensurePane: false });
         updateAgentControls();
         sendTerminalResize();
@@ -329,13 +441,15 @@
         connectSessionEvents(session.session_id);
         return;
       }
-      if (runtimeState.eventSource) {
-        runtimeState.eventSource.close();
-      }
+      const streamVersion = replaceAgentEventSource();
       runtimeState.activeAgentKind = kind;
       prepareTerminalStream();
-      runtimeState.eventSource = runtimeApi.http.eventSource(`/api/agents/${kind}/events`);
-      runtimeState.eventSource.addEventListener("agent-event", (event) => {
+      const source = runtimeApi.http.eventSource(`/api/agents/${kind}/events`);
+      runtimeState.eventSource = source;
+      source.addEventListener("agent-event", (event) => {
+        if (!isCurrentLegacyAgentEventSource(source, streamVersion)) {
+          return;
+        }
         const payload = JSON.parse(event.data);
         if (payload.type === "output") {
           const outputText = runtimeState.terminal
@@ -358,7 +472,7 @@
           refreshProject();
         }
       });
-      runtimeState.eventSource.onerror = () => {};
+      source.onerror = () => {};
     }
 
     function connectSessionEvents(sessionId, options = {}) {
@@ -367,9 +481,6 @@
       }
       if (options.ensurePane !== false) {
         runtimeApi.layout.ensurePane("agent");
-      }
-      if (runtimeState.eventSource) {
-        runtimeState.eventSource.close();
       }
       const previousSessionId = runtimeState.selectedSessionId || "";
       if (previousSessionId && previousSessionId !== sessionId) {
@@ -388,40 +499,14 @@
         return;
       }
       runtimeState.activeAgentKind = session ? session.kind || "" : runtimeState.activeAgentKind;
-      prepareTerminalStream();
-      runtimeState.eventSource = runtimeApi.http.eventSource(
-        `/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`,
-      );
-      runtimeState.eventSource.addEventListener("agent-event", (event) => {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "output") {
-          const outputText = runtimeState.terminal
-            ? payload.terminal || payload.text || ""
-            : payload.text || "";
-          appendAgentOutput(outputText);
-        } else if (payload.type === "system") {
-          appendOutput(`${payload.text}\n`, "system");
-        } else if (payload.type === "error") {
-          appendOutput(`${payload.text}\n`, "error");
-        } else if (payload.type === "completed") {
-          appendOutput(`\nprocess exited with code ${payload.returncode}\n`, "system");
-          if (session && session.kind === "requirements") {
-            refreshArtifactPreview();
-          }
-          if (session && !session.interactive) {
-            closeProgressEventStream();
-          }
-          refreshProject();
-        }
-      });
-      runtimeState.eventSource.onerror = () => {};
+      prepareTerminalStream(sessionId);
+      ensureSessionEventStream(sessionId);
+      const stream = agentEventStreams.get(sessionId);
+      runtimeState.eventSource = stream ? stream.source : null;
     }
 
     function closeAgentEventStream() {
-      if (runtimeState.eventSource) {
-        runtimeState.eventSource.close();
-        runtimeState.eventSource = null;
-      }
+      replaceAgentEventSource();
     }
 
     function agentProcessRunning() {
