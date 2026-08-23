@@ -283,16 +283,6 @@ def render_calendar_html(
     }}
     .calendar-event.cancelled {{ opacity: .58; text-decoration: line-through; }}
     .calendar-event-time {{ color: #475467; font-weight: 850; margin-right: 4px; }}
-    .calendar-empty {{
-      min-height: 280px;
-      display: grid;
-      place-items: center;
-      border: 1px dashed var(--line);
-      border-radius: 10px;
-      color: var(--muted);
-      background: rgba(255,255,255,.72);
-      font-weight: 750;
-    }}
     .calendar-day-panel-overlay {{
       position: fixed;
       inset: 0;
@@ -627,7 +617,6 @@ def render_calendar_html(
       <div id="calendarViewport" class="calendar-canvas-viewport">
         <div id="calendarCanvas" class="calendar-canvas">
           <div id="grid" class="calendar-grid" aria-label="Calendar month"></div>
-          <div id="empty" class="calendar-empty" hidden>No events in this view.</div>
         </div>
       </div>
     </section>
@@ -653,7 +642,6 @@ def render_calendar_html(
     const grid = document.getElementById("grid");
     const dayModal = document.getElementById("dayModal");
     const dayView = document.getElementById("dayView");
-    const empty = document.getElementById("empty");
     const legend = document.getElementById("legend");
     const summary = document.getElementById("summary");
     const monthTitle = document.getElementById("monthTitle");
@@ -1027,7 +1015,6 @@ def render_calendar_html(
         cell.append(header, events);
         grid.append(cell);
       }}
-      empty.hidden = true;
       notifyHost();
     }}
 

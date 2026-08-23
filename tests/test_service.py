@@ -4318,6 +4318,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="calendarViewport"', page)
         self.assertIn('id="calendarCanvas"', page)
         self.assertIn("--calendar-size: min(980px", page)
+        self.assertNotIn("calendar-empty", page)
+        self.assertNotIn("No events in this view", page)
         self.assertIn('id="dayModal"', page)
         self.assertIn('id="dayView"', page)
         self.assertIn("body.calendar-day-open .calendar-shell", page)
