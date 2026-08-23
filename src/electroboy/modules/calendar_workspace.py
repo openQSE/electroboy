@@ -32,16 +32,17 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       --shadow: 0 14px 34px rgba(20, 28, 43, .12);
     }}
     * {{ box-sizing: border-box; }}
-    html, body {{ min-height: 100%; }}
+    html, body {{ min-height: 100%; height: 100%; }}
     body {{
       margin: 0;
       background: var(--wash);
       color: var(--ink);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system,
         BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
     }}
     button {{ font: inherit; }}
-    .calendar-shell {{ min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }}
+    .calendar-shell {{ min-height: 100vh; height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr); }}
     .calendar-header {{
       position: sticky;
       top: 0;
@@ -68,7 +69,8 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     }}
     h1 {{ margin: 3px 0 0; font-size: 24px; line-height: 1.2; }}
     .calendar-controls {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
-    .calendar-button {{
+    .calendar-button,
+    .calendar-month-input {{
       min-height: 34px;
       border: 1px solid rgba(255,255,255,.28);
       border-radius: 8px;
@@ -78,21 +80,36 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       font-weight: 750;
       padding: 0 12px;
     }}
+    .calendar-month-input {{
+      width: 142px;
+      color-scheme: dark;
+    }}
     .calendar-button:hover, .calendar-button:focus-visible {{ background: rgba(255,255,255,.16); }}
     .calendar-content {{
       display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
       gap: 14px;
       width: min(1180px, 100%);
+      min-height: 0;
       margin: 0 auto;
+      overflow: hidden;
       padding: 18px clamp(12px, 3vw, 34px) 40px;
     }}
     body.calendar-embedded .calendar-content {{ padding-top: 12px; }}
     .calendar-toolbar {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }}
+    .calendar-toolbar-main {{
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 14px;
       flex-wrap: wrap;
+      min-width: 0;
     }}
     .calendar-month-title {{ margin: 0; font-size: 22px; line-height: 1.2; }}
     .calendar-summary {{ color: var(--muted); font-size: 13px; font-weight: 650; }}
@@ -111,6 +128,48 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       padding: 0 9px;
     }}
     .calendar-swatch {{ width: 9px; height: 9px; border-radius: 999px; background: var(--calendar-color); }}
+    .calendar-toolbar .calendar-controls {{
+      justify-content: flex-end;
+    }}
+    .calendar-toolbar .calendar-button,
+    .calendar-toolbar .calendar-month-input {{
+      border-color: var(--line);
+      background: white;
+      color: #344054;
+    }}
+    .calendar-toolbar .calendar-button:hover,
+    .calendar-toolbar .calendar-button:focus-visible,
+    .calendar-toolbar .calendar-month-input:focus-visible {{
+      border-color: #2563eb;
+      background: #f8fafc;
+      outline: 2px solid rgb(37 99 235 / 18%);
+      outline-offset: 2px;
+    }}
+    .calendar-canvas-viewport {{
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      border-radius: 10px;
+      cursor: default;
+      touch-action: pan-y;
+    }}
+    .calendar-canvas {{
+      display: grid;
+      gap: 14px;
+      min-width: 760px;
+      transform: translate(var(--calendar-pan-x, 0px), var(--calendar-pan-y, 0px)) scale(var(--calendar-zoom, 1));
+      transform-origin: 0 0;
+      transition: transform .12s ease;
+      will-change: transform;
+    }}
+    body.calendar-panning,
+    body.calendar-panning .calendar-canvas-viewport {{
+      cursor: grabbing;
+      user-select: none;
+    }}
+    body.calendar-panning .calendar-canvas {{
+      transition: none;
+    }}
     .calendar-grid {{
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -232,6 +291,10 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     }}
     @media (max-width: 760px) {{
       .calendar-header {{ position: static; align-items: flex-start; flex-direction: column; }}
+      .calendar-toolbar {{ grid-template-columns: 1fr; }}
+      .calendar-toolbar-main {{ align-items: flex-start; flex-direction: column; }}
+      .calendar-toolbar .calendar-controls {{ justify-content: flex-start; }}
+      .calendar-canvas {{ min-width: 680px; }}
       .calendar-day {{ min-height: 104px; padding: 6px; }}
       .calendar-event {{ font-size: 11px; }}
       .calendar-detail-row {{ grid-template-columns: 1fr; gap: 4px; }}
@@ -246,21 +309,33 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
         <h1>{title}</h1>
       </div>
       <div class="calendar-controls">
-        <button id="prevMonth" class="calendar-button" type="button">Previous</button>
-        <button id="todayMonth" class="calendar-button" type="button">Today</button>
-        <button id="nextMonth" class="calendar-button" type="button">Next</button>
+        <button class="calendar-button" type="button" data-calendar-action="previous">Previous</button>
+        <button class="calendar-button" type="button" data-calendar-action="today">Today</button>
+        <button class="calendar-button" type="button" data-calendar-action="next">Next</button>
       </div>
     </header>
     <section class="calendar-content">
       <div class="calendar-toolbar">
-        <div>
-          <h2 id="monthTitle" class="calendar-month-title"></h2>
-          <div id="summary" class="calendar-summary" aria-live="polite"></div>
+        <div class="calendar-toolbar-main">
+          <div>
+            <h2 id="monthTitle" class="calendar-month-title"></h2>
+            <div id="summary" class="calendar-summary" aria-live="polite"></div>
+          </div>
+          <div class="calendar-controls" aria-label="Calendar month controls">
+            <button class="calendar-button" type="button" data-calendar-action="previous">Previous</button>
+            <input id="monthPicker" class="calendar-month-input" type="month" aria-label="Calendar month">
+            <button class="calendar-button" type="button" data-calendar-action="today">Today</button>
+            <button class="calendar-button" type="button" data-calendar-action="next">Next</button>
+          </div>
         </div>
         <div id="legend" class="calendar-legend"></div>
       </div>
-      <div id="grid" class="calendar-grid" aria-label="Calendar month"></div>
-      <div id="empty" class="calendar-empty" hidden>No events in this view.</div>
+      <div id="calendarViewport" class="calendar-canvas-viewport">
+        <div id="calendarCanvas" class="calendar-canvas">
+          <div id="grid" class="calendar-grid" aria-label="Calendar month"></div>
+          <div id="empty" class="calendar-empty" hidden>No events in this view.</div>
+        </div>
+      </div>
     </section>
   </main>
   <div id="modal" class="calendar-modal" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
@@ -276,11 +351,14 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     const CALENDAR_DATA = {encoded};
     const params = new URLSearchParams(window.location.search);
     document.body.classList.toggle("calendar-embedded", params.get("embed") === "1");
+    const viewport = document.getElementById("calendarViewport");
+    const canvas = document.getElementById("calendarCanvas");
     const grid = document.getElementById("grid");
     const empty = document.getElementById("empty");
     const legend = document.getElementById("legend");
     const summary = document.getElementById("summary");
     const monthTitle = document.getElementById("monthTitle");
+    const monthPicker = document.getElementById("monthPicker");
     const modal = document.getElementById("modal");
     const dialogTitle = document.getElementById("dialogTitle");
     const dialogBody = document.getElementById("dialogBody");
@@ -292,6 +370,13 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     const dateFormatter = new Intl.DateTimeFormat(undefined, {{
       weekday: "short", month: "short", day: "numeric", timeZone: CALENDAR_DATA.timezone,
     }});
+    const MIN_CANVAS_ZOOM = 0.55;
+    const MAX_CANVAS_ZOOM = 2.4;
+    const CANVAS_ZOOM_FACTOR = 1.1;
+    let canvasZoom = 1;
+    let canvasPanX = 0;
+    let canvasPanY = 0;
+    let canvasPanState = null;
 
     function localDate(dateText) {{
       const [year, month, day] = String(dateText || "").split("-").map(Number);
@@ -310,20 +395,91 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       return `${{year}}-${{month}}-${{day}}`;
     }}
 
+    function monthKey(date) {{
+      return dateKey(date).slice(0, 7);
+    }}
+
+    function monthFromKey(value) {{
+      if (!/^\\d{{4}}-\\d{{2}}$/.test(value || "")) return null;
+      const [year, month] = value.split("-").map(Number);
+      return new Date(year, month - 1, 1);
+    }}
+
+    function monthWindow(date) {{
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const start = new Date(monthStart);
+      start.setDate(monthStart.getDate() - monthStart.getDay());
+      const end = new Date(start);
+      end.setDate(start.getDate() + 41);
+      return {{
+        month: monthKey(monthStart),
+        rangeStart: dateKey(start),
+        rangeEnd: dateKey(end),
+      }};
+    }}
+
     function initialMonth() {{
-      const requested = params.get("month");
+      const requested = params.get("month") || params.get("calendar_month");
       if (/^\\d{{4}}-\\d{{2}}$/.test(requested || "")) {{
-        const [year, month] = requested.split("-").map(Number);
-        return new Date(year, month - 1, 1);
-      }}
-      if ((CALENDAR_DATA.events || []).length) {{
-        const date = eventDate(CALENDAR_DATA.events[0]);
-        if (!Number.isNaN(date.getTime())) return new Date(date.getFullYear(), date.getMonth(), 1);
+        return monthFromKey(requested);
       }}
       return localDate(CALENDAR_DATA.reference_date || dateKey(new Date()));
     }}
 
     let visibleMonth = initialMonth();
+
+    function clamp(value, min, max) {{
+      return Math.min(Math.max(value, min), max);
+    }}
+
+    function clampCanvasZoom(value) {{
+      const zoom = Number(value);
+      if (!Number.isFinite(zoom)) return 1;
+      return Math.round(clamp(zoom, MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM) * 1000) / 1000;
+    }}
+
+    function applyCanvasTransform() {{
+      canvas.style.setProperty("--calendar-pan-x", `${{Math.round(canvasPanX)}}px`);
+      canvas.style.setProperty("--calendar-pan-y", `${{Math.round(canvasPanY)}}px`);
+      canvas.style.setProperty("--calendar-zoom", String(canvasZoom));
+    }}
+
+    function updateCanvasZoom(value, clientX = null, clientY = null) {{
+      const nextZoom = clampCanvasZoom(value);
+      if (nextZoom === canvasZoom) return;
+      if (Number.isFinite(clientX) && Number.isFinite(clientY)) {{
+        const rect = viewport.getBoundingClientRect();
+        const pointerX = clientX - rect.left;
+        const pointerY = clientY - rect.top;
+        const worldX = (pointerX - canvasPanX) / canvasZoom;
+        const worldY = (pointerY - canvasPanY) / canvasZoom;
+        canvasPanX = pointerX - worldX * nextZoom;
+        canvasPanY = pointerY - worldY * nextZoom;
+      }}
+      canvasZoom = nextZoom;
+      applyCanvasTransform();
+    }}
+
+    function requestMonth(date) {{
+      const target = new Date(date.getFullYear(), date.getMonth(), 1);
+      const range = monthWindow(target);
+      visibleMonth = target;
+      renderMonth();
+      if (window.parent !== window) {{
+        window.parent.postMessage({{
+          type: "electroboy-calendar-month-change",
+          month: range.month,
+          rangeStart: range.rangeStart,
+          rangeEnd: range.rangeEnd,
+        }}, window.location.origin);
+        return;
+      }}
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("month", range.month);
+      nextUrl.searchParams.set("range_start", range.rangeStart);
+      nextUrl.searchParams.set("range_end", range.rangeEnd);
+      window.location.assign(nextUrl.href);
+    }}
 
     function calendarColor(calendarId) {{
       const calendar = calendarsById.get(calendarId) || {{}};
@@ -409,6 +565,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       const grouped = eventsByDay();
       const current = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
       monthTitle.textContent = monthFormatter.format(current);
+      monthPicker.value = monthKey(current);
       const visibleEvents = CALENDAR_DATA.events || [];
       summary.textContent = `${{visibleEvents.length}} event${{visibleEvents.length === 1 ? "" : "s"}} · ${{(CALENDAR_DATA.calendars || []).filter((calendar) => calendar.selected).length}} calendar${{(CALENDAR_DATA.calendars || []).filter((calendar) => calendar.selected).length === 1 ? "" : "s"}}`;
       const start = new Date(current);
@@ -472,28 +629,89 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
 
     function notifyHost() {{
       if (window.parent === window) return;
+      const range = monthWindow(visibleMonth);
       window.parent.postMessage({{
         type: "electroboy-calendar-state",
         state: {{
           provider: CALENDAR_DATA.provider,
-          month: `${{visibleMonth.getFullYear()}}-${{String(visibleMonth.getMonth() + 1).padStart(2, "0")}}`,
+          month: range.month,
+          rangeStart: range.rangeStart,
+          rangeEnd: range.rangeEnd,
           calendars: CALENDAR_DATA.calendars || [],
         }},
       }}, window.location.origin);
     }}
 
-    document.getElementById("prevMonth").addEventListener("click", () => {{
-      visibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1);
-      renderMonth();
+    function handleCalendarAction(action) {{
+      if (action === "previous") {{
+        requestMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1));
+      }} else if (action === "today") {{
+        const today = new Date();
+        requestMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+      }} else if (action === "next") {{
+        requestMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1));
+      }}
+    }}
+
+    function beginCanvasPan(event) {{
+      if (event.button !== 1) return;
+      event.preventDefault();
+      canvasPanState = {{
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        panX: canvasPanX,
+        panY: canvasPanY,
+      }};
+      document.body.classList.add("calendar-panning");
+      if (viewport.setPointerCapture) viewport.setPointerCapture(event.pointerId);
+    }}
+
+    function updateCanvasPan(event) {{
+      if (!canvasPanState || event.pointerId !== canvasPanState.pointerId) return;
+      event.preventDefault();
+      canvasPanX = canvasPanState.panX + event.clientX - canvasPanState.startX;
+      canvasPanY = canvasPanState.panY + event.clientY - canvasPanState.startY;
+      applyCanvasTransform();
+    }}
+
+    function endCanvasPan(event) {{
+      if (!canvasPanState || event.pointerId !== canvasPanState.pointerId) return;
+      if (viewport.releasePointerCapture) viewport.releasePointerCapture(event.pointerId);
+      canvasPanState = null;
+      document.body.classList.remove("calendar-panning");
+    }}
+
+    function handleCanvasWheel(event) {{
+      if (modal.classList.contains("open")) return;
+      event.preventDefault();
+      if (event.deltaY === 0) return;
+      const factor = event.deltaY < 0
+        ? CANVAS_ZOOM_FACTOR
+        : 1 / CANVAS_ZOOM_FACTOR;
+      updateCanvasZoom(canvasZoom * factor, event.clientX, event.clientY);
+    }}
+
+    for (const button of document.querySelectorAll("[data-calendar-action]")) {{
+      button.addEventListener("click", () => handleCalendarAction(button.dataset.calendarAction));
+    }}
+    monthPicker.addEventListener("change", () => {{
+      const nextMonth = monthFromKey(monthPicker.value);
+      if (nextMonth) requestMonth(nextMonth);
     }});
-    document.getElementById("todayMonth").addEventListener("click", () => {{
-      const today = new Date();
-      visibleMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      renderMonth();
+    viewport.addEventListener("wheel", handleCanvasWheel, {{ passive: false }});
+    viewport.addEventListener("pointerdown", beginCanvasPan);
+    viewport.addEventListener("pointermove", updateCanvasPan);
+    viewport.addEventListener("pointerup", endCanvasPan);
+    viewport.addEventListener("pointercancel", endCanvasPan);
+    viewport.addEventListener("auxclick", (event) => {{
+      if (event.button === 1) event.preventDefault();
     }});
-    document.getElementById("nextMonth").addEventListener("click", () => {{
-      visibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
-      renderMonth();
+    document.addEventListener("mouseup", (event) => {{
+      if (canvasPanState && event.button === 1) {{
+        canvasPanState = null;
+        document.body.classList.remove("calendar-panning");
+      }}
     }});
     document.getElementById("closeModal").addEventListener("click", closeModal);
     modal.addEventListener("click", (event) => {{
@@ -502,6 +720,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     window.addEventListener("keydown", (event) => {{
       if (event.key === "Escape") closeModal();
     }});
+    applyCanvasTransform();
     renderLegend();
     renderMonth();
   </script>

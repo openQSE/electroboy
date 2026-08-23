@@ -586,8 +586,14 @@
       return Boolean(item && item.kind === "agenda");
     }
 
+    function artifactPaneIsCalendar(item) {
+      return Boolean(item && item.kind === "calendar");
+    }
+
     function artifactPaneIsProviderView(item) {
-      return artifactPaneIsCorkboard(item) || artifactPaneIsAgenda(item);
+      return artifactPaneIsCorkboard(item) ||
+        artifactPaneIsAgenda(item) ||
+        artifactPaneIsCalendar(item);
     }
 
     function artifactRouteUrl(path, version = runtimeState.artifactPreviewVersion) {
@@ -624,6 +630,23 @@
         parameters.set("embed", "1");
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/agenda?${parameters.toString()}`);
+      }
+      if (artifactPaneIsCalendar(item)) {
+        const calendar = item.calendar || {};
+        const parameters = new URLSearchParams();
+        if (calendar.provider) parameters.set("provider", calendar.provider);
+        if (calendar.calendarIdsExplicit) {
+          parameters.set("calendar_ids_explicit", "1");
+        }
+        if (Array.isArray(calendar.calendarIds) && calendar.calendarIds.length) {
+          parameters.set("calendar_ids", calendar.calendarIds.join(","));
+        }
+        if (calendar.month) parameters.set("month", calendar.month);
+        if (calendar.rangeStart) parameters.set("range_start", calendar.rangeStart);
+        if (calendar.rangeEnd) parameters.set("range_end", calendar.rangeEnd);
+        parameters.set("embed", "1");
+        parameters.set("version", String(runtimeState.artifactPreviewVersion));
+        return contextUrl(`/artifacts/calendar?${parameters.toString()}`);
       }
       if (item.kind === "route" && item.path) {
         return artifactRouteUrl(item.path);

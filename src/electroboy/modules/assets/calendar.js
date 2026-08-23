@@ -17,6 +17,20 @@
     };
   }
 
+  function calendarRange(source = {}, options = {}) {
+    const descriptor = source || {};
+    const month = String(
+      descriptor.month || descriptor.calendarMonth || options.month || "",
+    ).trim();
+    const rangeStart = String(
+      descriptor.rangeStart || descriptor.range_start || options.rangeStart || "",
+    ).trim();
+    const rangeEnd = String(
+      descriptor.rangeEnd || descriptor.range_end || options.rangeEnd || "",
+    ).trim();
+    return { month, rangeStart, rangeEnd };
+  }
+
   function show(runtime, source = {}, options = {}) {
     const descriptor = typeof source === "string"
       ? { provider: source }
@@ -24,6 +38,7 @@
     const provider = String(descriptor.provider || options.provider || "").trim();
     const label = String(descriptor.title || options.title || "Calendar").trim();
     const calendarSelection = selectedCalendarIds(descriptor, options);
+    const range = calendarRange(descriptor, options);
     const item = {
       id: `calendar-${provider || "active"}`,
       kind: "calendar",
@@ -34,6 +49,9 @@
         label,
         calendarIds: calendarSelection.ids,
         calendarIdsExplicit: calendarSelection.explicit,
+        month: range.month,
+        rangeStart: range.rangeStart,
+        rangeEnd: range.rangeEnd,
       },
     };
     runtime.layout.assignPane("calendar", item);

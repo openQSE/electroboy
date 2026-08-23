@@ -934,6 +934,10 @@
     let artifactCalendarProvider = params.get("calendar_provider") || "";
     let artifactCalendarIds = params.get("calendar_ids") || "";
     let artifactCalendarIdsExplicit = params.get("calendar_ids_explicit") === "1";
+    let artifactCalendarMonth = params.get("calendar_month") ||
+      params.get("month") || "";
+    let artifactCalendarRangeStart = params.get("range_start") || "";
+    let artifactCalendarRangeEnd = params.get("range_end") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -2906,10 +2910,66 @@
           ? calendar.calendarIds.join(",")
           : String(calendar.calendarIds || "");
         artifactCalendarIdsExplicit = Boolean(calendar.calendarIdsExplicit);
+        artifactCalendarMonth = String(calendar.month || "");
+        artifactCalendarRangeStart = String(calendar.rangeStart || "");
+        artifactCalendarRangeEnd = String(calendar.rangeEnd || "");
       }
       syncArtifactUrlState();
       renderFileSwitcher();
       reconnectArtifactStream();
+    }
+
+    function currentArtifactItem() {
+      if (artifactKind === "calendar") {
+        return {
+          id: `calendar-${artifactCalendarProvider || "active"}`,
+          kind: "calendar",
+          title: artifactTargetTitle(),
+          editing: false,
+          calendar: {
+            provider: artifactCalendarProvider,
+            label: artifactTargetTitle(),
+            calendarIds: artifactCalendarIds
+              ? artifactCalendarIds.split(",").map((item) => item.trim()).filter(Boolean)
+              : [],
+            calendarIdsExplicit: artifactCalendarIdsExplicit,
+            month: artifactCalendarMonth,
+            rangeStart: artifactCalendarRangeStart,
+            rangeEnd: artifactCalendarRangeEnd,
+          },
+        };
+      }
+      return null;
+    }
+
+    function publishArtifactItemChange() {
+      if (window.parent === window || !paneInstanceId) {
+        return;
+      }
+      const item = currentArtifactItem();
+      if (!item) {
+        return;
+      }
+      window.parent.postMessage(
+        {
+          type: "electroboy:pane-artifact-change",
+          paneInstanceId,
+          item,
+        },
+        window.location.origin,
+      );
+    }
+
+    function applyCalendarMonthChange(data) {
+      if (artifactKind !== "calendar") {
+        return;
+      }
+      artifactCalendarMonth = String(data.month || "").trim();
+      artifactCalendarRangeStart = String(data.rangeStart || data.range_start || "").trim();
+      artifactCalendarRangeEnd = String(data.rangeEnd || data.range_end || "").trim();
+      syncArtifactUrlState();
+      publishArtifactItemChange();
+      refreshArtifact();
     }
 
     function syncArtifactUrlState() {
@@ -2931,6 +2991,9 @@
         "calendar_provider",
         "calendar_ids",
         "calendar_ids_explicit",
+        "calendar_month",
+        "range_start",
+        "range_end",
       ]) {
         nextUrl.searchParams.delete(key);
       }
@@ -2962,6 +3025,15 @@
         }
         if (artifactCalendarIds) {
           nextUrl.searchParams.set("calendar_ids", artifactCalendarIds);
+        }
+        if (artifactCalendarMonth) {
+          nextUrl.searchParams.set("calendar_month", artifactCalendarMonth);
+        }
+        if (artifactCalendarRangeStart) {
+          nextUrl.searchParams.set("range_start", artifactCalendarRangeStart);
+        }
+        if (artifactCalendarRangeEnd) {
+          nextUrl.searchParams.set("range_end", artifactCalendarRangeEnd);
         }
       }
       window.history.replaceState(null, "", nextUrl);
@@ -3033,6 +3105,15 @@
         }
         if (artifactCalendarIds) {
           parameters.set("calendar_ids", artifactCalendarIds);
+        }
+        if (artifactCalendarMonth) {
+          parameters.set("month", artifactCalendarMonth);
+        }
+        if (artifactCalendarRangeStart) {
+          parameters.set("range_start", artifactCalendarRangeStart);
+        }
+        if (artifactCalendarRangeEnd) {
+          parameters.set("range_end", artifactCalendarRangeEnd);
         }
         parameters.set("embed", "1");
         parameters.set("version", String(artifactVersion));
@@ -3627,6 +3708,10 @@
         if (!artifactEditing) {
           refreshArtifact();
         }
+        return;
+      }
+      if (data.type === "electroboy-calendar-month-change") {
+        applyCalendarMonthChange(data);
         return;
       }
       if (

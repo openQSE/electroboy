@@ -2533,8 +2533,10 @@
         setActivePaneLayoutLeaf(leaf.id);
         return;
       }
-      if (message.type !== "electroboy:pane-artifact-change" ||
-          leaf.kind !== "artifact") {
+      if (
+        message.type !== "electroboy:pane-artifact-change" ||
+        !INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)
+      ) {
         return;
       }
       leaf.content = clonePaneLayoutContent(message.item);
@@ -4716,6 +4718,15 @@
         }
         if (Array.isArray(calendar.calendarIds) && calendar.calendarIds.length) {
           parameters.set("calendar_ids", calendar.calendarIds.join(","));
+        }
+        if (calendar.month) {
+          parameters.set("calendar_month", calendar.month);
+        }
+        if (calendar.rangeStart) {
+          parameters.set("range_start", calendar.rangeStart);
+        }
+        if (calendar.rangeEnd) {
+          parameters.set("range_end", calendar.rangeEnd);
         }
       }
       const fontPane = paneFontKeyForKind(kind);
