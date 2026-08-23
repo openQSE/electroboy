@@ -431,14 +431,31 @@ def render_calendar_html(
     .calendar-detail-label {{ color: var(--muted); font-size: 12px; font-weight: 850; text-transform: uppercase; }}
     .calendar-detail-value {{ min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }}
     .calendar-close {{
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
       width: 34px;
       height: 34px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: white;
+      appearance: none;
+      padding: 0;
+      background: color-mix(in srgb, var(--panel) 70%, white);
+      color: var(--ink);
       cursor: pointer;
-      font-size: 18px;
-      line-height: 1;
+      font: 850 20px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .42);
+      transition: border-color .16s ease, background .16s ease, color .16s ease, box-shadow .16s ease, transform .12s ease;
+    }}
+    .calendar-close:hover,
+    .calendar-close:focus-visible {{
+      border-color: color-mix(in srgb, var(--ink) 28%, var(--line));
+      background: color-mix(in srgb, var(--panel) 58%, white);
+      outline: 2px solid color-mix(in srgb, var(--ink) 16%, transparent);
+      outline-offset: 2px;
+    }}
+    .calendar-close:active {{
+      transform: translateY(1px);
     }}
     body.calendar-style-month-hud {{
       color-scheme: dark;
@@ -543,6 +560,21 @@ def render_calendar_html(
     body.calendar-style-month-hud .calendar-day-slot {{
       border-color: rgba(98, 230, 217, .18);
       background: rgba(7, 24, 31, .7);
+    }}
+    body.calendar-style-month-hud .calendar-close {{
+      border-color: rgba(98, 230, 217, .34);
+      background: rgba(7, 24, 31, .78);
+      color: #8bf7ee;
+      box-shadow:
+        0 0 18px rgba(98, 230, 217, .08),
+        inset 0 1px 0 rgba(255, 255, 255, .06);
+    }}
+    body.calendar-style-month-hud .calendar-close:hover,
+    body.calendar-style-month-hud .calendar-close:focus-visible {{
+      border-color: #62e6d9;
+      background: rgba(98, 230, 217, .15);
+      color: #f2fffd;
+      outline-color: rgba(98, 230, 217, .24);
     }}
     body.calendar-style-month-hud .calendar-day-panel-title {{
       color: #f2fffd;

@@ -4321,6 +4321,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="dayModal"', page)
         self.assertIn('id="dayView"', page)
         self.assertIn("body.calendar-day-open .calendar-shell", page)
+        self.assertIn("body.calendar-style-month-hud .calendar-close", page)
+        self.assertIn("background: rgba(7, 24, 31, .78);", page)
         self.assertIn('aria-label="Previous month">‹</button>', page)
         self.assertIn('aria-label="Next month">›</button>', page)
         self.assertIn("function renderMonth", page)
