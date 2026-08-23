@@ -497,6 +497,10 @@ class ServiceTests(unittest.TestCase):
             frontend_bundles["core-shell"]["assets"],
         )
         self.assertIn(
+            "js/core/split-resize.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
+        self.assertIn(
             "js/core/input-shortcut.js",
             frontend_bundles["core-shell"]["assets"],
         )
@@ -520,6 +524,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("pane-window", frontend_bundles)
         self.assertIn(
             "js/core/pane-workspace.js",
+            frontend_bundles["pane-window"]["assets"],
+        )
+        self.assertIn(
+            "js/core/split-resize.js",
             frontend_bundles["pane-window"]["assets"],
         )
         self.assertIn(
@@ -1055,6 +1063,16 @@ class ServiceTests(unittest.TestCase):
             '      "scratch",\n      "status"',
             runtime,
         )
+        availability_start = runtime.index("function paneLayoutKindAvailable(")
+        availability_end = runtime.index(
+            "function markPaneLayoutControl(",
+            availability_start,
+        )
+        availability_source = runtime[availability_start:availability_end]
+        self.assertIn('if (kind === "agenda")', availability_source)
+        self.assertIn("return true;", availability_source)
+        self.assertNotIn('kind !== "artifact"', availability_source)
+        self.assertNotIn("artifactPreviewItems.length", availability_source)
         self.assertIn("const duplicateSingleton =", runtime)
         self.assertIn('content?.kind === "agenda"', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind)", runtime)
@@ -1080,6 +1098,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
         self.assertIn("ensureActivePaneLayoutLeaf();\n      const root = renderPaneLayoutNode(paneLayout);", runtime)
+        self.assertIn("window.ElectroBoySplitResize.create({", runtime)
+        self.assertIn("layout: paneLayout,", runtime)
+        self.assertIn("afterUpdate: fitTerminal,", runtime)
+        self.assertIn("ElectroBoySplitResize.create({", workspace)
+        self.assertIn("applyTemplate: applySplitTemplate,", workspace)
         self.assertIn("let shouldPersistRestoredState = false;", runtime)
         self.assertIn("queueWorkspaceStateSave(0);", runtime)
         self.assertIn("let fitTerminalFrame = 0;", runtime)
@@ -1425,6 +1448,10 @@ class ServiceTests(unittest.TestCase):
             page.index("js/core/pane-layout-drag.js"),
             page.index("js/core/runtime.js"),
         )
+        self.assertLess(
+            page.index("js/core/split-resize.js"),
+            page.index("js/core/runtime.js"),
+        )
         self.assertIn("css/workflows/software.css", page)
         self.assertIn("css/workflows/creative-writing.css", page)
 
@@ -1702,6 +1729,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
         self.assertIn("/assets/service/css/pane-tools.css", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-layout-drag.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/split-resize.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/input-shortcut.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-sync.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-tools.js", INDEX_HTML)
@@ -1743,6 +1771,12 @@ class ServiceTests(unittest.TestCase):
                 drag_status, drag_body, drag_type, _drag_headers = request_bytes(
                     server,
                     "/assets/service/js/core/pane-layout-drag.js",
+                )
+                split_resize_status, split_resize_body, split_resize_type, _ = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/core/split-resize.js",
+                    )
                 )
                 workspace_status, workspace_body, workspace_type, _ = request_bytes(
                     server,
@@ -1830,6 +1864,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(b"pane-layout-ctrl-ready", drag_body)
         self.assertIn(b"options.onDetach", drag_body)
         self.assertIn(b"options.canDetach !== false", drag_body)
+        self.assertEqual(split_resize_status, 200)
+        self.assertEqual(split_resize_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"ElectroBoySplitResize", split_resize_body)
+        self.assertIn(b"createResizeController", split_resize_body)
         self.assertEqual(workspace_status, 200)
         self.assertEqual(workspace_type, "application/javascript; charset=utf-8")
         self.assertIn(b"function createWorkspace(options)", workspace_body)
@@ -1931,6 +1969,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("ElectroBoyPaneWorkspace.create", page)
         self.assertIn("electroboy.paneWorkspaceLayout.v2.${PANE_KIND}", page)
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
+        self.assertIn('/assets/service/js/core/split-resize.js', page)
+        self.assertLess(
+            page.index('/assets/service/js/core/split-resize.js'),
+            page.index('/assets/service/js/core/pane-workspace.js'),
+        )
         self.assertIn('/assets/service/js/core/pane-sync.js', page)
         self.assertIn('/assets/service/js/core/pane-tools.js', page)
         self.assertIn('/assets/service/css/pane-tools.css', page)

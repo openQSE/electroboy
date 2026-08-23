@@ -1751,11 +1751,7 @@
       if (kind === "agenda") {
         return Boolean(window.ElectroBoyFrontend?.module("agenda"));
       }
-      if (kind !== "artifact") {
-        return true;
-      }
-      return Boolean(activeProjectRoot) || artifactPreviewItems.length > 0 ||
-        Boolean(paneLayoutLeafByKind("artifact")) || Boolean(leaf?.content);
+      return true;
     }
 
     function markPaneLayoutControl(element) {
@@ -1861,7 +1857,26 @@
       const pointerId = event.pointerId;
       divider.setPointerCapture(pointerId);
       divider.classList.add("resizing");
+      const resizeController = window.ElectroBoySplitResize
+        ? window.ElectroBoySplitResize.create({
+          layout: paneLayout,
+          node,
+          splitElement,
+          startX: event.clientX,
+          startY: event.clientY,
+          elementForNode(candidate) {
+            return outputWorkbench.querySelector(
+              `[data-pane-layout-id="${candidate.id}"]`,
+            );
+          },
+          applyTemplate: applyPaneLayoutSplitTemplate,
+          afterUpdate: fitTerminal,
+        })
+        : null;
       const update = (moveEvent) => {
+        if (resizeController && resizeController.update(moveEvent)) {
+          return;
+        }
         const rect = splitElement.getBoundingClientRect();
         const available = node.direction === "column" ? rect.height - 7 : rect.width - 7;
         if (available <= 0) {

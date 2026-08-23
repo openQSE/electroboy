@@ -209,7 +209,25 @@
       const pointerId = event.pointerId;
       divider.setPointerCapture(pointerId);
       divider.classList.add("resizing");
+      const resizeController = global.ElectroBoySplitResize
+        ? global.ElectroBoySplitResize.create({
+          layout,
+          node,
+          splitElement,
+          startX: event.clientX,
+          startY: event.clientY,
+          elementForNode(candidate) {
+            return root.querySelector(
+              `[data-workspace-pane-id="${candidate.id}"]`,
+            );
+          },
+          applyTemplate: applySplitTemplate,
+        })
+        : null;
       const update = (moveEvent) => {
+        if (resizeController && resizeController.update(moveEvent)) {
+          return;
+        }
         const rect = splitElement.getBoundingClientRect();
         const available = node.direction === "column" ? rect.height - 7 : rect.width - 7;
         if (available <= 0) return;
