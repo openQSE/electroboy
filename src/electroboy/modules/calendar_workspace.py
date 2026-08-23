@@ -209,6 +209,8 @@ def render_calendar_html(
       transition: none;
     }}
     .calendar-grid {{
+      --calendar-span-lane-height: 24px;
+      --calendar-span-top: 28px;
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
       grid-template-rows: 34px repeat(6, minmax(0, 1fr));
@@ -233,6 +235,8 @@ def render_calendar_html(
     }}
     .calendar-weekday:nth-child(7n) {{ border-right: 0; }}
     .calendar-day {{
+      position: relative;
+      z-index: 1;
       min-height: 0;
       display: grid;
       grid-template-rows: auto 1fr;
@@ -261,11 +265,15 @@ def render_calendar_html(
       font-weight: 850;
     }}
     .calendar-day-count {{ color: var(--muted); font-weight: 750; }}
-    .calendar-events {{ display: grid; align-content: start; gap: 5px; min-width: 0; }}
-    .calendar-event {{
-      display: block;
-      width: 100%;
-      min-height: 24px;
+    .calendar-events {{
+      display: grid;
+      align-content: start;
+      gap: 5px;
+      min-width: 0;
+      margin-top: calc(var(--calendar-row-lanes, 0) * var(--calendar-span-lane-height));
+    }}
+    .calendar-event,
+    .calendar-event-span {{
       border: 0;
       border-left: 4px solid var(--calendar-color);
       border-radius: 6px;
@@ -281,7 +289,36 @@ def render_calendar_html(
       text-overflow: ellipsis;
       white-space: nowrap;
     }}
-    .calendar-event.cancelled {{ opacity: .58; text-decoration: line-through; }}
+    .calendar-event {{
+      display: block;
+      width: 100%;
+      min-height: 24px;
+    }}
+    .calendar-event-span {{
+      position: relative;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      height: 20px;
+      margin: calc(var(--calendar-span-top) + var(--calendar-span-lane, 0) * var(--calendar-span-lane-height)) 2px 0;
+      box-shadow: 0 7px 18px color-mix(in srgb, var(--calendar-color) 18%, transparent);
+    }}
+    .calendar-event-span.continues-before {{
+      border-left-width: 0;
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      padding-left: 8px;
+    }}
+    .calendar-event-span.continues-after {{
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+    }}
+    .calendar-event.cancelled,
+    .calendar-event-span.cancelled {{
+      opacity: .58;
+      text-decoration: line-through;
+    }}
     .calendar-event-time {{ color: #475467; font-weight: 850; margin-right: 4px; }}
     .calendar-day-panel-overlay {{
       position: fixed;
@@ -539,7 +576,8 @@ def render_calendar_html(
         inset 0 0 0 2px #62e6d9,
         0 0 26px rgba(98, 230, 217, .12);
     }}
-    body.calendar-style-month-hud .calendar-event {{
+    body.calendar-style-month-hud .calendar-event,
+    body.calendar-style-month-hud .calendar-event-span {{
       background: color-mix(in srgb, var(--calendar-color) 22%, rgba(7, 24, 31, .86));
       color: #f2fffd;
     }}
@@ -664,6 +702,7 @@ def render_calendar_html(
     const MIN_CANVAS_ZOOM = 0.55;
     const MAX_CANVAS_ZOOM = 2.4;
     const CANVAS_ZOOM_FACTOR = 1.1;
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
     let canvasZoom = 1;
     let canvasPanX = 0;
     let canvasPanY = 0;
@@ -678,6 +717,64 @@ def render_calendar_html(
     function eventDate(event) {{
       if (event.start_date) return localDate(event.start_date);
       return new Date(String(event.start_at || ""));
+    }}
+
+    function dateOnly(value) {{
+      if (!(value instanceof Date) || Number.isNaN(value.getTime())) return null;
+      return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    }}
+
+    function addDays(date, days) {{
+      const next = new Date(date);
+      next.setDate(date.getDate() + days);
+      return next;
+    }}
+
+    function dayNumber(date) {{
+      return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / MS_PER_DAY;
+    }}
+
+    function dayOffset(from, to) {{
+      return Math.round(dayNumber(to) - dayNumber(from));
+    }}
+
+    function eventStartDate(event) {{
+      return dateOnly(eventDate(event));
+    }}
+
+    function eventDisplayEndDate(event) {{
+      const start = eventStartDate(event);
+      if (!start) return null;
+      let end = null;
+      if (event.end_date) {{
+        end = localDate(event.end_date);
+        if (event.all_day || event.start_date) {{
+          end = addDays(end, -1);
+        }}
+      }} else if (event.end_at) {{
+        end = dateOnly(new Date(String(event.end_at)));
+      }}
+      if (!end || Number.isNaN(end.getTime()) || end < start) return start;
+      return end;
+    }}
+
+    function eventDateRange(event) {{
+      const start = eventStartDate(event);
+      const end = eventDisplayEndDate(event);
+      if (!start || !end) return null;
+      return {{ start, end }};
+    }}
+
+    function eventCoversDay(event, key) {{
+      const range = eventDateRange(event);
+      if (!range) return false;
+      const day = localDate(key);
+      return day >= range.start && day <= range.end;
+    }}
+
+    function eventSpansMultipleDays(event) {{
+      const range = eventDateRange(event);
+      return Boolean(range && dateKey(range.start) !== dateKey(range.end));
     }}
 
     function dateKey(date) {{
@@ -793,11 +890,12 @@ def render_calendar_html(
 
     function eventFullTimeLabel(event) {{
       if (event.start_date) {{
-        const start = localDate(event.start_date);
-        if (event.end_date && event.end_date !== event.start_date) {{
-          return `${{dateFormatter.format(start)}} - ${{dateFormatter.format(localDate(event.end_date))}}`;
+        const start = eventStartDate(event);
+        const end = eventDisplayEndDate(event);
+        if (start && end && dateKey(end) !== dateKey(start)) {{
+          return `${{dateFormatter.format(start)}} - ${{dateFormatter.format(end)}}`;
         }}
-        return dateFormatter.format(start);
+        return start ? dateFormatter.format(start) : "";
       }}
       const start = new Date(String(event.start_at || ""));
       const end = event.end_at ? new Date(String(event.end_at)) : null;
@@ -808,20 +906,25 @@ def render_calendar_html(
       return `${{dateFormatter.format(start)}} · ${{timeFormatter.format(start)}}`;
     }}
 
-    function eventsByDay() {{
+    function eventsByDay(rangeStart = null, rangeEnd = null) {{
       const grouped = new Map();
       for (const event of CALENDAR_DATA.events || []) {{
-        const date = eventDate(event);
-        if (Number.isNaN(date.getTime())) continue;
-        const key = dateKey(date);
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(event);
+        const range = eventDateRange(event);
+        if (!range) continue;
+        let cursor = rangeStart && range.start < rangeStart ? new Date(rangeStart) : new Date(range.start);
+        const end = rangeEnd && range.end > rangeEnd ? new Date(rangeEnd) : new Date(range.end);
+        while (cursor <= end) {{
+          const key = dateKey(cursor);
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(event);
+          cursor = addDays(cursor, 1);
+        }}
       }}
       return grouped;
     }}
 
     function eventsForDay(key) {{
-      return eventsByDay().get(key) || [];
+      return (CALENDAR_DATA.events || []).filter((event) => eventCoversDay(event, key));
     }}
 
     function element(tag, className = "", text = "") {{
@@ -853,6 +956,72 @@ def render_calendar_html(
         button.append(element("span", "calendar-event-time", time));
       }}
       button.append(document.createTextNode(event.title || "Untitled event"));
+      button.title = `${{calendarLabel(event.calendar_id)}} · ${{eventFullTimeLabel(event)}}`;
+      button.addEventListener("click", (clickEvent) => {{
+        clickEvent.stopPropagation();
+        openEvent(event);
+      }});
+      return button;
+    }}
+
+    function reserveSpanLane(weekLanes, startColumn, endColumn) {{
+      for (let lane = 0; lane < weekLanes.length; lane += 1) {{
+        if (weekLanes[lane] < startColumn) {{
+          weekLanes[lane] = endColumn;
+          return lane;
+        }}
+      }}
+      weekLanes.push(endColumn);
+      return weekLanes.length - 1;
+    }}
+
+    function eventSegments(gridStart, events) {{
+      const gridEnd = addDays(gridStart, 41);
+      const weekLanes = Array.from({{ length: 6 }}, () => []);
+      const segments = [];
+      for (const event of events) {{
+        if (!eventSpansMultipleDays(event)) continue;
+        const range = eventDateRange(event);
+        if (!range || range.end < gridStart || range.start > gridEnd) continue;
+        const clippedStart = range.start < gridStart ? new Date(gridStart) : new Date(range.start);
+        const clippedEnd = range.end > gridEnd ? new Date(gridEnd) : new Date(range.end);
+        for (let week = 0; week < 6; week += 1) {{
+          const weekStart = addDays(gridStart, week * 7);
+          const weekEnd = addDays(weekStart, 6);
+          if (clippedEnd < weekStart || clippedStart > weekEnd) continue;
+          const segmentStart = clippedStart > weekStart ? clippedStart : weekStart;
+          const segmentEnd = clippedEnd < weekEnd ? clippedEnd : weekEnd;
+          const startColumn = dayOffset(weekStart, segmentStart);
+          const endColumn = dayOffset(weekStart, segmentEnd);
+          const lane = reserveSpanLane(weekLanes[week], startColumn, endColumn);
+          segments.push({{
+            event,
+            week,
+            startColumn,
+            endColumn,
+            lane,
+            startsHere: dateKey(segmentStart) === dateKey(range.start),
+            endsHere: dateKey(segmentEnd) === dateKey(range.end),
+          }});
+        }}
+      }}
+      return {{
+        segments,
+        laneCounts: weekLanes.map((lanes) => lanes.length),
+      }};
+    }}
+
+    function renderEventSpan(segment) {{
+      const event = segment.event;
+      const button = element("button", "calendar-event-span", event.title || "Untitled event");
+      button.type = "button";
+      button.style.gridColumn = `${{segment.startColumn + 1}} / ${{segment.endColumn + 2}}`;
+      button.style.gridRow = String(segment.week + 2);
+      button.style.setProperty("--calendar-span-lane", String(segment.lane));
+      button.style.setProperty("--calendar-color", calendarColor(event.calendar_id));
+      button.classList.toggle("continues-before", !segment.startsHere);
+      button.classList.toggle("continues-after", !segment.endsHere);
+      button.classList.toggle("cancelled", String(event.status || "").toLowerCase() === "cancelled");
       button.title = `${{calendarLabel(event.calendar_id)}} · ${{eventFullTimeLabel(event)}}`;
       button.addEventListener("click", (clickEvent) => {{
         clickEvent.stopPropagation();
@@ -971,7 +1140,6 @@ def render_calendar_html(
     }}
 
     function renderMonth() {{
-      const grouped = eventsByDay();
       const current = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
       monthTitle.textContent = monthFormatter.format(current);
       monthPicker.value = monthKey(current);
@@ -979,6 +1147,9 @@ def render_calendar_html(
       summary.textContent = `${{visibleEvents.length}} event${{visibleEvents.length === 1 ? "" : "s"}} · ${{(CALENDAR_DATA.calendars || []).filter((calendar) => calendar.selected).length}} calendar${{(CALENDAR_DATA.calendars || []).filter((calendar) => calendar.selected).length === 1 ? "" : "s"}}`;
       const start = new Date(current);
       start.setDate(current.getDate() - current.getDay());
+      const end = addDays(start, 41);
+      const grouped = eventsByDay(start, end);
+      const spans = eventSegments(start, visibleEvents);
       grid.replaceChildren();
       for (const label of ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) {{
         grid.append(element("div", "calendar-weekday", label));
@@ -989,7 +1160,9 @@ def render_calendar_html(
         day.setDate(start.getDate() + index);
         const key = dateKey(day);
         const dayEvents = grouped.get(key) || [];
+        const cellEvents = dayEvents.filter((event) => !eventSpansMultipleDays(event));
         const cell = element("section", "calendar-day");
+        cell.style.setProperty("--calendar-row-lanes", String(spans.laneCounts[Math.floor(index / 7)] || 0));
         cell.tabIndex = 0;
         cell.setAttribute("role", "button");
         cell.setAttribute(
@@ -1011,10 +1184,11 @@ def render_calendar_html(
           dayEvents.length ? element("span", "calendar-day-count", String(dayEvents.length)) : document.createTextNode(""),
         );
         const events = element("div", "calendar-events");
-        dayEvents.forEach((event) => events.append(renderEvent(event)));
+        cellEvents.forEach((event) => events.append(renderEvent(event)));
         cell.append(header, events);
         grid.append(cell);
       }}
+      spans.segments.forEach((segment) => grid.append(renderEventSpan(segment)));
       notifyHost();
     }}
 

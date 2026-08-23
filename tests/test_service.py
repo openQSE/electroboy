@@ -4286,6 +4286,14 @@ class ServiceTests(unittest.TestCase):
                 ],
                 "events": [
                     {
+                        "id": "event-0",
+                        "calendar_id": "family",
+                        "title": "Fall break",
+                        "start_date": "2026-08-12",
+                        "end_date": "2026-08-15",
+                        "all_day": True,
+                    },
+                    {
                         "id": "event-1",
                         "calendar_id": "family",
                         "title": "Soccer",
@@ -4308,7 +4316,10 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(snapshot["provider"], "fixture-calendar")
         self.assertEqual(snapshot["selected_calendar_ids"], ["family"])
-        self.assertEqual([event["title"] for event in snapshot["events"]], ["Soccer"])
+        self.assertEqual(
+            [event["title"] for event in snapshot["events"]],
+            ["Fall break", "Soccer"],
+        )
         page, status = render_calendar_html(snapshot, style="month-hud")
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("Calendar", page)
@@ -4318,6 +4329,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="calendarViewport"', page)
         self.assertIn('id="calendarCanvas"', page)
         self.assertIn("--calendar-size: min(980px", page)
+        self.assertIn("calendar-event-span", page)
+        self.assertIn("function eventDisplayEndDate", page)
+        self.assertIn("function eventSegments", page)
+        self.assertIn("spans.segments.forEach", page)
         self.assertNotIn("calendar-empty", page)
         self.assertNotIn("No events in this view", page)
         self.assertIn('id="dayModal"', page)
@@ -4341,6 +4356,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function openEvent", page)
         self.assertIn("type: \"electroboy-calendar-state\"", page)
         self.assertIn('"provider": "fixture-calendar"', page)
+        self.assertIn('"title": "Fall break"', page)
         self.assertIn('"title": "Soccer"', page)
         self.assertNotIn('"title": "Planning"', page)
 
