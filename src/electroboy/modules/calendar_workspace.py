@@ -175,6 +175,9 @@ def render_calendar_html(
     }}
     .calendar-canvas-viewport {{
       position: relative;
+      display: grid;
+      justify-items: center;
+      align-items: start;
       min-height: 0;
       overflow: hidden;
       border-radius: 0;
@@ -182,14 +185,20 @@ def render_calendar_html(
       touch-action: pan-y;
     }}
     .calendar-canvas {{
-      display: grid;
-      gap: 14px;
-      min-width: 900px;
-      min-height: 100%;
+      --calendar-size: min(980px, calc(100vw - 48px), calc(100vh - 128px));
+      display: block;
+      width: var(--calendar-size);
+      height: var(--calendar-size);
+      margin: 0 auto;
       transform: translate(var(--calendar-pan-x, 0px), var(--calendar-pan-y, 0px)) scale(var(--calendar-zoom, 1));
       transform-origin: 0 0;
       transition: transform .12s ease;
       will-change: transform;
+    }}
+    body.calendar-day-open .calendar-shell {{
+      filter: blur(3px) saturate(.72);
+      transform: scale(.992);
+      transition: filter .28s ease, transform .32s cubic-bezier(.2, .8, .2, 1);
     }}
     body.calendar-panning,
     body.calendar-panning .calendar-canvas-viewport {{
@@ -202,6 +211,8 @@ def render_calendar_html(
     .calendar-grid {{
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
+      grid-template-rows: 34px repeat(6, minmax(0, 1fr));
+      height: 100%;
       overflow: hidden;
       border: 0;
       border-radius: 0;
@@ -222,7 +233,7 @@ def render_calendar_html(
     }}
     .calendar-weekday:nth-child(7n) {{ border-right: 0; }}
     .calendar-day {{
-      min-height: 124px;
+      min-height: 0;
       display: grid;
       grid-template-rows: auto 1fr;
       gap: 6px;
@@ -282,13 +293,51 @@ def render_calendar_html(
       background: rgba(255,255,255,.72);
       font-weight: 750;
     }}
+    .calendar-day-panel-overlay {{
+      position: fixed;
+      inset: 0;
+      z-index: 18;
+      display: grid;
+      place-items: center;
+      padding: clamp(16px, 4vw, 44px);
+      background:
+        radial-gradient(circle at center, rgba(98, 230, 217, .14), transparent 34%),
+        rgba(3, 12, 16, .46);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .28s ease;
+    }}
+    .calendar-day-panel-overlay[hidden] {{ display: none; }}
+    .calendar-day-panel-overlay.open {{
+      opacity: 1;
+      pointer-events: auto;
+    }}
+    .calendar-day-panel-overlay.closing {{
+      opacity: 0;
+    }}
     .calendar-day-panel {{
       display: grid;
-      min-height: 320px;
-      border-top: 1px solid var(--line);
+      width: min(760px, 100%);
+      max-height: min(82vh, 760px);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
       background: var(--paper);
+      box-shadow:
+        0 42px 92px rgba(15, 23, 42, .32),
+        inset 0 1px 0 rgba(255, 255, 255, .08);
+      opacity: 0;
+      transform: perspective(1200px) rotateX(4deg) translateY(18px) scale(.96);
+      transition: opacity .28s ease, transform .34s cubic-bezier(.2, .8, .2, 1);
     }}
-    .calendar-day-panel[hidden] {{ display: none; }}
+    .calendar-day-panel-overlay.open .calendar-day-panel {{
+      opacity: 1;
+      transform: perspective(1200px) rotateX(0) translateY(0) scale(1);
+    }}
+    .calendar-day-panel-overlay.closing .calendar-day-panel {{
+      opacity: 0;
+      transform: perspective(1200px) rotateX(3deg) translateY(14px) scale(.96);
+    }}
     .calendar-day-panel-header {{
       display: flex;
       align-items: center;
@@ -303,6 +352,11 @@ def render_calendar_html(
       font-size: 17px;
       line-height: 1.2;
     }}
+    .calendar-day-panel-heading {{
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }}
     .calendar-day-panel-summary {{
       color: var(--muted);
       font-size: 12px;
@@ -310,7 +364,7 @@ def render_calendar_html(
     }}
     .calendar-day-slots {{
       display: grid;
-      max-height: min(48vh, 520px);
+      max-height: min(62vh, 580px);
       overflow: auto;
       background: var(--paper);
     }}
@@ -443,12 +497,19 @@ def render_calendar_html(
       background: rgba(4, 17, 21, .78);
       box-shadow: none;
     }}
+    body.calendar-style-month-hud .calendar-day-panel-overlay {{
+      background:
+        radial-gradient(circle at center, rgba(98, 230, 217, .22), transparent 36%),
+        rgba(3, 12, 16, .58);
+    }}
     body.calendar-style-month-hud .calendar-day-panel {{
       border: 1px solid rgba(98, 230, 217, .18);
-      background: rgba(4, 17, 21, .78);
+      background:
+        linear-gradient(135deg, rgba(8, 31, 37, .96), rgba(4, 17, 21, .94));
       box-shadow:
-        0 28px 72px rgba(0, 0, 0, .28),
-        inset 0 1px 0 rgba(255, 255, 255, .04);
+        0 42px 92px rgba(0, 0, 0, .44),
+        0 0 72px rgba(98, 230, 217, .13),
+        inset 0 1px 0 rgba(255, 255, 255, .05);
     }}
     body.calendar-style-month-hud .calendar-weekday {{
       border-color: rgba(98, 230, 217, .18);
@@ -495,8 +556,10 @@ def render_calendar_html(
       .calendar-toolbar {{ grid-template-columns: 1fr; }}
       .calendar-toolbar-main {{ align-items: flex-start; flex-direction: column; }}
       .calendar-toolbar .calendar-controls {{ justify-content: flex-start; }}
-      .calendar-canvas {{ min-width: 680px; }}
-      .calendar-day {{ min-height: 104px; padding: 6px; }}
+      .calendar-canvas {{
+        --calendar-size: min(680px, calc(100vw - 24px), calc(100vh - 160px));
+      }}
+      .calendar-day {{ padding: 6px; }}
       .calendar-event {{ font-size: 11px; }}
       .calendar-detail-row {{ grid-template-columns: 1fr; gap: 4px; }}
     }}
@@ -532,12 +595,14 @@ def render_calendar_html(
       <div id="calendarViewport" class="calendar-canvas-viewport">
         <div id="calendarCanvas" class="calendar-canvas">
           <div id="grid" class="calendar-grid" aria-label="Calendar month"></div>
-          <section id="dayView" class="calendar-day-panel" aria-live="polite" hidden></section>
           <div id="empty" class="calendar-empty" hidden>No events in this view.</div>
         </div>
       </div>
     </section>
   </main>
+  <div id="dayModal" class="calendar-day-panel-overlay" role="dialog" aria-modal="true" aria-labelledby="dayDialogTitle" hidden>
+    <section id="dayView" class="calendar-day-panel" aria-live="polite"></section>
+  </div>
   <div id="modal" class="calendar-modal" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
     <article class="calendar-dialog">
       <header class="calendar-dialog-header">
@@ -554,6 +619,7 @@ def render_calendar_html(
     const viewport = document.getElementById("calendarViewport");
     const canvas = document.getElementById("calendarCanvas");
     const grid = document.getElementById("grid");
+    const dayModal = document.getElementById("dayModal");
     const dayView = document.getElementById("dayView");
     const empty = document.getElementById("empty");
     const legend = document.getElementById("legend");
@@ -671,6 +737,7 @@ def render_calendar_html(
       const range = monthWindow(target);
       visibleMonth = target;
       selectedDayKey = "";
+      closeDayView({{ animate: false, clearSelection: false }});
       renderMonth();
       if (window.parent !== window) {{
         window.parent.postMessage({{
@@ -787,26 +854,33 @@ def render_calendar_html(
       return start.getHours();
     }}
 
-    function renderDayView(key) {{
+    function openDayView(key) {{
       if (!key) {{
-        dayView.hidden = true;
-        dayView.replaceChildren();
+        closeDayView({{ animate: false }});
         return;
       }}
       const date = localDate(key);
       const events = eventsForDay(key);
       const timedEvents = events.filter((event) => eventStartHour(event) >= 0);
       const allDayEvents = events.filter((event) => eventStartHour(event) < 0);
-      dayView.hidden = false;
       dayView.replaceChildren();
       const header = element("header", "calendar-day-panel-header");
-      header.append(
+      const heading = element("div", "calendar-day-panel-heading");
+      heading.append(
         element("h3", "calendar-day-panel-title", dayHeadingFormatter.format(date)),
         element(
           "div",
           "calendar-day-panel-summary",
           events.length === 1 ? "1 event" : `${{events.length}} events`,
         ),
+      );
+      const close = element("button", "calendar-close", "×");
+      close.type = "button";
+      close.setAttribute("aria-label", "Close day schedule");
+      close.addEventListener("click", () => closeDayView());
+      header.append(
+        heading,
+        close,
       );
       const slots = element("div", "calendar-day-slots");
       const allDaySlot = element("div", "calendar-day-slot");
@@ -834,11 +908,47 @@ def render_calendar_html(
         slots.append(slot);
       }}
       dayView.append(header, slots);
+      dayModal.hidden = false;
+      dayModal.classList.remove("closing");
+      window.requestAnimationFrame(() => {{
+        dayModal.classList.add("open");
+        document.body.classList.add("calendar-day-open");
+      }});
+    }}
+
+    function closeDayView(options = {{}}) {{
+      const animate = options.animate !== false;
+      const clearSelection = options.clearSelection !== false;
+      if (clearSelection && selectedDayKey) {{
+        selectedDayKey = "";
+        renderMonth();
+      }}
+      if (dayModal.hidden) {{
+        dayView.replaceChildren();
+        document.body.classList.remove("calendar-day-open");
+        return;
+      }}
+      dayModal.classList.remove("open");
+      if (!animate) {{
+        dayModal.classList.remove("closing");
+        dayModal.hidden = true;
+        dayView.replaceChildren();
+        document.body.classList.remove("calendar-day-open");
+        return;
+      }}
+      dayModal.classList.add("closing");
+      document.body.classList.remove("calendar-day-open");
+      window.setTimeout(() => {{
+        dayModal.classList.remove("closing");
+        dayModal.hidden = true;
+        dayView.replaceChildren();
+      }}, 280);
     }}
 
     function selectDay(key) {{
-      selectedDayKey = selectedDayKey === key ? "" : key;
+      selectedDayKey = key;
       renderMonth();
+      openDayView(key);
     }}
 
     function renderMonth() {{
@@ -886,8 +996,7 @@ def render_calendar_html(
         cell.append(header, events);
         grid.append(cell);
       }}
-      renderDayView(selectedDayKey);
-      empty.hidden = visibleEvents.length > 0 || Boolean(selectedDayKey);
+      empty.hidden = true;
       notifyHost();
     }}
 
@@ -982,6 +1091,7 @@ def render_calendar_html(
 
     function handleCanvasWheel(event) {{
       if (modal.classList.contains("open")) return;
+      if (!dayModal.hidden) return;
       event.preventDefault();
       if (event.deltaY === 0) return;
       const factor = event.deltaY < 0
@@ -1013,11 +1123,19 @@ def render_calendar_html(
       }}
     }});
     document.getElementById("closeModal").addEventListener("click", closeModal);
+    dayModal.addEventListener("click", (event) => {{
+      if (event.target === dayModal) closeDayView();
+    }});
     modal.addEventListener("click", (event) => {{
       if (event.target === modal) closeModal();
     }});
     window.addEventListener("keydown", (event) => {{
-      if (event.key === "Escape") closeModal();
+      if (event.key !== "Escape") return;
+      if (modal.classList.contains("open")) {{
+        closeModal();
+        return;
+      }}
+      if (!dayModal.hidden) closeDayView();
     }});
     applyCanvasTransform();
     renderLegend();
