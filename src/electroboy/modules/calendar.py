@@ -13,6 +13,7 @@ from electroboy.state_store import StateError
 
 from .calendar_workspace import render_calendar_html
 from .common import conflict, route
+from .agenda_workspace import normalize_agenda_style
 
 
 def _provider(request: RouteRequest) -> CalendarProvider:
@@ -53,6 +54,10 @@ def _visible_range(request: RouteRequest) -> dict[str, str]:
     }
 
 
+def _style(request: RouteRequest) -> str:
+    return normalize_agenda_style((request.params.get("style") or ["default"])[0])
+
+
 def _load(request: RouteRequest) -> dict[str, object]:
     return _provider(request).load_calendar(
         request.context_id,
@@ -65,7 +70,7 @@ def _load(request: RouteRequest) -> dict[str, object]:
 
 def _view(request: RouteRequest) -> HtmlResponse:
     try:
-        page, status = render_calendar_html(_load(request))
+        page, status = render_calendar_html(_load(request), style=_style(request))
     except Exception as error:
         return HtmlResponse(
             f'<section role="alert"><p>{html.escape(str(error))}</p></section>',

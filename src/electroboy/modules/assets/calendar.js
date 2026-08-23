@@ -1,6 +1,21 @@
 (function () {
   "use strict";
 
+  const CALENDAR_STYLES = Object.freeze([
+    "default",
+    "hud",
+    "command-center",
+    "timeline-stack",
+    "radar",
+    "family-orbit",
+    "month-hud",
+  ]);
+
+  function normalizeStyle(value) {
+    const requested = String(value || "default").trim().toLowerCase();
+    return CALENDAR_STYLES.includes(requested) ? requested : "default";
+  }
+
   function selectedCalendarIds(source = {}, options = {}) {
     const hasSourceIds = Object.prototype.hasOwnProperty.call(source, "calendarIds") ||
       Object.prototype.hasOwnProperty.call(source, "calendar_ids");
@@ -39,6 +54,7 @@
     const label = String(descriptor.title || options.title || "Calendar").trim();
     const calendarSelection = selectedCalendarIds(descriptor, options);
     const range = calendarRange(descriptor, options);
+    const style = normalizeStyle(descriptor.style || options.style);
     const item = {
       id: `calendar-${provider || "active"}`,
       kind: "calendar",
@@ -52,6 +68,7 @@
         month: range.month,
         rangeStart: range.rangeStart,
         rangeEnd: range.rangeEnd,
+        style,
       },
     };
     runtime.layout.assignPane("calendar", item);

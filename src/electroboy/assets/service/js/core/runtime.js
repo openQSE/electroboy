@@ -4728,6 +4728,9 @@
         if (calendar.rangeEnd) {
           parameters.set("range_end", calendar.rangeEnd);
         }
+        if (calendar.style) {
+          parameters.set("calendar_style", calendar.style);
+        }
       }
       const fontPane = paneFontKeyForKind(kind);
       parameters.set("base_font_size", String(terminalFontSize));

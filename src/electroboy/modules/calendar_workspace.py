@@ -7,11 +7,20 @@ import html
 import json
 from http import HTTPStatus
 
+from .agenda_workspace import normalize_agenda_style
 
-def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
+
+def render_calendar_html(
+    payload: dict[str, object],
+    *,
+    style: object = "default",
+) -> tuple[str, HTTPStatus]:
     """Render a normalized calendar snapshot as a self-contained pane."""
 
-    encoded = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
+    selected_style = normalize_agenda_style(style)
+    snapshot = dict(payload)
+    snapshot["style"] = selected_style
+    encoded = json.dumps(snapshot, ensure_ascii=False).replace("<", "\\u003c")
     title = html.escape(str(payload.get("title") or "Calendar"))
     return (
         f"""<!doctype html>
@@ -81,7 +90,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       padding: 0 12px;
     }}
     .calendar-month-input {{
-      width: 142px;
+      width: 210px;
       color-scheme: dark;
     }}
     .calendar-button:hover, .calendar-button:focus-visible {{ background: rgba(255,255,255,.16); }}
@@ -89,13 +98,14 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       gap: 14px;
-      width: min(1180px, 100%);
+      width: 100%;
+      height: 100%;
       min-height: 0;
-      margin: 0 auto;
+      margin: 0;
       overflow: hidden;
-      padding: 18px clamp(12px, 3vw, 34px) 40px;
+      padding: 14px clamp(10px, 2vw, 24px) 18px;
     }}
-    body.calendar-embedded .calendar-content {{ padding-top: 12px; }}
+    body.calendar-embedded .calendar-content {{ padding-top: 14px; }}
     .calendar-toolbar {{
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -111,7 +121,19 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       flex-wrap: wrap;
       min-width: 0;
     }}
-    .calendar-month-title {{ margin: 0; font-size: 22px; line-height: 1.2; }}
+    .calendar-month-title {{
+      margin: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-size: 22px;
+      font-weight: 850;
+      line-height: 1.2;
+      padding: 0;
+      text-align: left;
+    }}
     .calendar-summary {{ color: var(--muted); font-size: 13px; font-weight: 650; }}
     .calendar-legend {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
     .calendar-legend-item {{
@@ -137,6 +159,12 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       background: white;
       color: #344054;
     }}
+    .calendar-toolbar .calendar-button {{
+      width: 38px;
+      padding: 0;
+      font-size: 22px;
+      line-height: 1;
+    }}
     .calendar-toolbar .calendar-button:hover,
     .calendar-toolbar .calendar-button:focus-visible,
     .calendar-toolbar .calendar-month-input:focus-visible {{
@@ -149,14 +177,15 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       position: relative;
       min-height: 0;
       overflow: hidden;
-      border-radius: 10px;
+      border-radius: 0;
       cursor: default;
       touch-action: pan-y;
     }}
     .calendar-canvas {{
       display: grid;
       gap: 14px;
-      min-width: 760px;
+      min-width: 900px;
+      min-height: 100%;
       transform: translate(var(--calendar-pan-x, 0px), var(--calendar-pan-y, 0px)) scale(var(--calendar-zoom, 1));
       transform-origin: 0 0;
       transition: transform .12s ease;
@@ -174,10 +203,10 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
       overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: 10px;
+      border: 0;
+      border-radius: 0;
       background: var(--paper);
-      box-shadow: var(--shadow);
+      box-shadow: none;
     }}
     .calendar-weekday {{
       min-height: 34px;
@@ -197,15 +226,21 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       display: grid;
       grid-template-rows: auto 1fr;
       gap: 6px;
+      border: 0;
       border-right: 1px solid var(--line);
       border-bottom: 1px solid var(--line);
       padding: 8px;
       background: white;
       min-width: 0;
+      cursor: pointer;
     }}
     .calendar-day:nth-child(7n) {{ border-right: 0; }}
     .calendar-day.outside {{ background: #f8fafc; color: #98a2b3; }}
     .calendar-day.today {{ box-shadow: inset 0 0 0 2px #111827; }}
+    .calendar-day.selected {{
+      box-shadow: inset 0 0 0 3px #2563eb;
+      z-index: 1;
+    }}
     .calendar-date {{
       display: flex;
       align-items: center;
@@ -246,6 +281,68 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       color: var(--muted);
       background: rgba(255,255,255,.72);
       font-weight: 750;
+    }}
+    .calendar-day-panel {{
+      display: grid;
+      min-height: 320px;
+      border-top: 1px solid var(--line);
+      background: var(--paper);
+    }}
+    .calendar-day-panel[hidden] {{ display: none; }}
+    .calendar-day-panel-header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }}
+    .calendar-day-panel-title {{
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+    }}
+    .calendar-day-panel-summary {{
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }}
+    .calendar-day-slots {{
+      display: grid;
+      max-height: min(48vh, 520px);
+      overflow: auto;
+      background: var(--paper);
+    }}
+    .calendar-day-slot {{
+      display: grid;
+      grid-template-columns: 88px minmax(0, 1fr);
+      min-height: 44px;
+      border-bottom: 1px solid var(--line);
+    }}
+    .calendar-day-slot-time {{
+      border-right: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      padding: 10px 12px;
+      text-align: right;
+    }}
+    .calendar-day-slot-events {{
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      padding: 7px 8px;
+      min-width: 0;
+    }}
+    .calendar-day-slot-empty {{
+      color: color-mix(in srgb, var(--muted) 70%, transparent);
+      font-size: 12px;
+      font-weight: 650;
+    }}
+    .calendar-day-slot .calendar-event {{
+      max-width: 460px;
+      white-space: normal;
     }}
     .calendar-modal {{
       position: fixed;
@@ -289,6 +386,110 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       font-size: 18px;
       line-height: 1;
     }}
+    body.calendar-style-month-hud {{
+      color-scheme: dark;
+      --ink: #eaf9f7;
+      --muted: #a9c9c5;
+      --line: rgba(98, 230, 217, .22);
+      --paper: rgba(5, 17, 23, .72);
+      --wash: #041115;
+      --panel: rgba(98, 230, 217, .08);
+      --shadow: 0 30px 80px rgba(0, 0, 0, .38);
+      background:
+        radial-gradient(circle at 50% 42%, rgba(98, 230, 217, .16), transparent 28%),
+        linear-gradient(rgba(98, 230, 217, .045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(98, 230, 217, .045) 1px, transparent 1px),
+        #041115;
+      background-size: auto, 36px 36px, 36px 36px, auto;
+    }}
+    body.calendar-style-month-hud .calendar-content {{
+      padding: clamp(12px, 2vw, 22px);
+    }}
+    body.calendar-style-month-hud .calendar-toolbar {{
+      border: 1px solid rgba(98, 230, 217, .18);
+      border-radius: 8px;
+      background: rgba(5, 17, 23, .76);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+      padding: 10px 12px;
+    }}
+    body.calendar-style-month-hud .calendar-month-title {{
+      color: #f2fffd;
+      font-size: clamp(22px, 2.6vw, 34px);
+      font-weight: 860;
+    }}
+    body.calendar-style-month-hud .calendar-summary {{
+      color: #a9c9c5;
+    }}
+    body.calendar-style-month-hud .calendar-toolbar .calendar-button,
+    body.calendar-style-month-hud .calendar-toolbar .calendar-month-input {{
+      border-color: rgba(98, 230, 217, .32);
+      background: rgba(7, 24, 31, .82);
+      color: #eaf9f7;
+    }}
+    body.calendar-style-month-hud .calendar-toolbar .calendar-button:hover,
+    body.calendar-style-month-hud .calendar-toolbar .calendar-button:focus-visible,
+    body.calendar-style-month-hud .calendar-toolbar .calendar-month-input:focus-visible {{
+      border-color: #62e6d9;
+      background: rgba(98, 230, 217, .13);
+      outline-color: rgba(98, 230, 217, .2);
+    }}
+    body.calendar-style-month-hud .calendar-legend-item {{
+      border-color: rgba(98, 230, 217, .22);
+      background: rgba(7, 24, 31, .72);
+      color: #c8fffa;
+    }}
+    body.calendar-style-month-hud .calendar-grid {{
+      border: 0;
+      background: rgba(4, 17, 21, .78);
+      box-shadow: none;
+    }}
+    body.calendar-style-month-hud .calendar-day-panel {{
+      border: 1px solid rgba(98, 230, 217, .18);
+      background: rgba(4, 17, 21, .78);
+      box-shadow:
+        0 28px 72px rgba(0, 0, 0, .28),
+        inset 0 1px 0 rgba(255, 255, 255, .04);
+    }}
+    body.calendar-style-month-hud .calendar-weekday {{
+      border-color: rgba(98, 230, 217, .18);
+      background: rgba(98, 230, 217, .08);
+      color: #8bf7ee;
+    }}
+    body.calendar-style-month-hud .calendar-day {{
+      border-color: rgba(98, 230, 217, .16);
+      background:
+        linear-gradient(135deg, rgba(9, 30, 36, .78), rgba(4, 17, 21, .68));
+      color: #eaf9f7;
+    }}
+    body.calendar-style-month-hud .calendar-day.outside {{
+      background: rgba(5, 15, 19, .64);
+      color: #5c7d7a;
+    }}
+    body.calendar-style-month-hud .calendar-day.today,
+    body.calendar-style-month-hud .calendar-day.selected {{
+      box-shadow:
+        inset 0 0 0 2px #62e6d9,
+        0 0 26px rgba(98, 230, 217, .12);
+    }}
+    body.calendar-style-month-hud .calendar-event {{
+      background: color-mix(in srgb, var(--calendar-color) 22%, rgba(7, 24, 31, .86));
+      color: #f2fffd;
+    }}
+    body.calendar-style-month-hud .calendar-event-time {{
+      color: #8bf7ee;
+    }}
+    body.calendar-style-month-hud .calendar-day-panel-header,
+    body.calendar-style-month-hud .calendar-day-slot {{
+      border-color: rgba(98, 230, 217, .18);
+      background: rgba(7, 24, 31, .7);
+    }}
+    body.calendar-style-month-hud .calendar-day-panel-title {{
+      color: #f2fffd;
+    }}
+    body.calendar-style-month-hud .calendar-day-slot-time {{
+      border-color: rgba(98, 230, 217, .18);
+      color: #8bf7ee;
+    }}
     @media (max-width: 760px) {{
       .calendar-header {{ position: static; align-items: flex-start; flex-direction: column; }}
       .calendar-toolbar {{ grid-template-columns: 1fr; }}
@@ -301,7 +502,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     }}
   </style>
 </head>
-<body>
+<body class="calendar-style-{selected_style}">
   <main class="calendar-shell">
     <header class="calendar-header">
       <div class="calendar-heading">
@@ -309,23 +510,21 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
         <h1>{title}</h1>
       </div>
       <div class="calendar-controls">
-        <button class="calendar-button" type="button" data-calendar-action="previous">Previous</button>
-        <button class="calendar-button" type="button" data-calendar-action="today">Today</button>
-        <button class="calendar-button" type="button" data-calendar-action="next">Next</button>
+        <button class="calendar-button" type="button" data-calendar-action="previous" aria-label="Previous month">‹</button>
+        <button class="calendar-button" type="button" data-calendar-action="next" aria-label="Next month">›</button>
       </div>
     </header>
     <section class="calendar-content">
       <div class="calendar-toolbar">
         <div class="calendar-toolbar-main">
           <div>
-            <h2 id="monthTitle" class="calendar-month-title"></h2>
+            <button id="monthTitle" class="calendar-month-title" type="button" aria-label="Choose calendar month"></button>
             <div id="summary" class="calendar-summary" aria-live="polite"></div>
           </div>
           <div class="calendar-controls" aria-label="Calendar month controls">
-            <button class="calendar-button" type="button" data-calendar-action="previous">Previous</button>
+            <button class="calendar-button" type="button" data-calendar-action="previous" aria-label="Previous month">‹</button>
             <input id="monthPicker" class="calendar-month-input" type="month" aria-label="Calendar month">
-            <button class="calendar-button" type="button" data-calendar-action="today">Today</button>
-            <button class="calendar-button" type="button" data-calendar-action="next">Next</button>
+            <button class="calendar-button" type="button" data-calendar-action="next" aria-label="Next month">›</button>
           </div>
         </div>
         <div id="legend" class="calendar-legend"></div>
@@ -333,6 +532,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       <div id="calendarViewport" class="calendar-canvas-viewport">
         <div id="calendarCanvas" class="calendar-canvas">
           <div id="grid" class="calendar-grid" aria-label="Calendar month"></div>
+          <section id="dayView" class="calendar-day-panel" aria-live="polite" hidden></section>
           <div id="empty" class="calendar-empty" hidden>No events in this view.</div>
         </div>
       </div>
@@ -354,6 +554,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     const viewport = document.getElementById("calendarViewport");
     const canvas = document.getElementById("calendarCanvas");
     const grid = document.getElementById("grid");
+    const dayView = document.getElementById("dayView");
     const empty = document.getElementById("empty");
     const legend = document.getElementById("legend");
     const summary = document.getElementById("summary");
@@ -370,6 +571,10 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     const dateFormatter = new Intl.DateTimeFormat(undefined, {{
       weekday: "short", month: "short", day: "numeric", timeZone: CALENDAR_DATA.timezone,
     }});
+    const dayHeadingFormatter = new Intl.DateTimeFormat(undefined, {{
+      weekday: "long", month: "long", day: "numeric", year: "numeric",
+      timeZone: CALENDAR_DATA.timezone,
+    }});
     const MIN_CANVAS_ZOOM = 0.55;
     const MAX_CANVAS_ZOOM = 2.4;
     const CANVAS_ZOOM_FACTOR = 1.1;
@@ -377,6 +582,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     let canvasPanX = 0;
     let canvasPanY = 0;
     let canvasPanState = null;
+    let selectedDayKey = "";
 
     function localDate(dateText) {{
       const [year, month, day] = String(dateText || "").split("-").map(Number);
@@ -464,6 +670,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       const target = new Date(date.getFullYear(), date.getMonth(), 1);
       const range = monthWindow(target);
       visibleMonth = target;
+      selectedDayKey = "";
       renderMonth();
       if (window.parent !== window) {{
         window.parent.postMessage({{
@@ -527,6 +734,10 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       return grouped;
     }}
 
+    function eventsForDay(key) {{
+      return eventsByDay().get(key) || [];
+    }}
+
     function element(tag, className = "", text = "") {{
       const node = document.createElement(tag);
       if (className) node.className = className;
@@ -557,8 +768,77 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       }}
       button.append(document.createTextNode(event.title || "Untitled event"));
       button.title = `${{calendarLabel(event.calendar_id)}} · ${{eventFullTimeLabel(event)}}`;
-      button.addEventListener("click", () => openEvent(event));
+      button.addEventListener("click", (clickEvent) => {{
+        clickEvent.stopPropagation();
+        openEvent(event);
+      }});
       return button;
+    }}
+
+    function slotTimeLabel(hour) {{
+      const date = new Date(2000, 0, 1, hour, 0, 0);
+      return timeFormatter.format(date);
+    }}
+
+    function eventStartHour(event) {{
+      if (event.all_day || event.start_date) return -1;
+      const start = new Date(String(event.start_at || ""));
+      if (Number.isNaN(start.getTime())) return -1;
+      return start.getHours();
+    }}
+
+    function renderDayView(key) {{
+      if (!key) {{
+        dayView.hidden = true;
+        dayView.replaceChildren();
+        return;
+      }}
+      const date = localDate(key);
+      const events = eventsForDay(key);
+      const timedEvents = events.filter((event) => eventStartHour(event) >= 0);
+      const allDayEvents = events.filter((event) => eventStartHour(event) < 0);
+      dayView.hidden = false;
+      dayView.replaceChildren();
+      const header = element("header", "calendar-day-panel-header");
+      header.append(
+        element("h3", "calendar-day-panel-title", dayHeadingFormatter.format(date)),
+        element(
+          "div",
+          "calendar-day-panel-summary",
+          events.length === 1 ? "1 event" : `${{events.length}} events`,
+        ),
+      );
+      const slots = element("div", "calendar-day-slots");
+      const allDaySlot = element("div", "calendar-day-slot");
+      allDaySlot.append(
+        element("div", "calendar-day-slot-time", "All day"),
+        element("div", "calendar-day-slot-events"),
+      );
+      const allDayContainer = allDaySlot.querySelector(".calendar-day-slot-events");
+      if (allDayEvents.length) {{
+        allDayEvents.forEach((event) => allDayContainer.append(renderEvent(event)));
+      }} else {{
+        allDayContainer.append(element("span", "calendar-day-slot-empty", "No all-day events"));
+      }}
+      slots.append(allDaySlot);
+      for (let hour = 0; hour < 24; hour += 1) {{
+        const slot = element("div", "calendar-day-slot");
+        const slotEvents = timedEvents.filter((event) => eventStartHour(event) === hour);
+        const slotBody = element("div", "calendar-day-slot-events");
+        if (slotEvents.length) {{
+          slotEvents.forEach((event) => slotBody.append(renderEvent(event)));
+        }} else {{
+          slotBody.append(element("span", "calendar-day-slot-empty", ""));
+        }}
+        slot.append(element("div", "calendar-day-slot-time", slotTimeLabel(hour)), slotBody);
+        slots.append(slot);
+      }}
+      dayView.append(header, slots);
+    }}
+
+    function selectDay(key) {{
+      selectedDayKey = selectedDayKey === key ? "" : key;
+      renderMonth();
     }}
 
     function renderMonth() {{
@@ -581,8 +861,21 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
         const key = dateKey(day);
         const dayEvents = grouped.get(key) || [];
         const cell = element("section", "calendar-day");
+        cell.tabIndex = 0;
+        cell.setAttribute("role", "button");
+        cell.setAttribute(
+          "aria-label",
+          `${{dayHeadingFormatter.format(day)}}: ${{dayEvents.length === 1 ? "1 event" : `${{dayEvents.length}} events`}}`,
+        );
         cell.classList.toggle("outside", day.getMonth() !== current.getMonth());
         cell.classList.toggle("today", key === todayKey);
+        cell.classList.toggle("selected", key === selectedDayKey);
+        cell.addEventListener("click", () => selectDay(key));
+        cell.addEventListener("keydown", (event) => {{
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          selectDay(key);
+        }});
         const header = element("div", "calendar-date");
         header.append(
           element("span", "", String(day.getDate())),
@@ -593,7 +886,8 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
         cell.append(header, events);
         grid.append(cell);
       }}
-      empty.hidden = visibleEvents.length > 0;
+      renderDayView(selectedDayKey);
+      empty.hidden = visibleEvents.length > 0 || Boolean(selectedDayKey);
       notifyHost();
     }}
 
@@ -645,11 +939,15 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
     function handleCalendarAction(action) {{
       if (action === "previous") {{
         requestMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1));
-      }} else if (action === "today") {{
-        const today = new Date();
-        requestMonth(new Date(today.getFullYear(), today.getMonth(), 1));
       }} else if (action === "next") {{
         requestMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1));
+      }}
+    }}
+
+    function openMonthPicker() {{
+      monthPicker.focus();
+      if (typeof monthPicker.showPicker === "function") {{
+        monthPicker.showPicker();
       }}
     }}
 
@@ -699,6 +997,7 @@ def render_calendar_html(payload: dict[str, object]) -> tuple[str, HTTPStatus]:
       const nextMonth = monthFromKey(monthPicker.value);
       if (nextMonth) requestMonth(nextMonth);
     }});
+    monthTitle.addEventListener("click", openMonthPicker);
     viewport.addEventListener("wheel", handleCanvasWheel, {{ passive: false }});
     viewport.addEventListener("pointerdown", beginCanvasPan);
     viewport.addEventListener("pointermove", updateCanvasPan);

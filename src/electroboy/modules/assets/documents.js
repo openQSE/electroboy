@@ -644,6 +644,7 @@
         if (calendar.month) parameters.set("month", calendar.month);
         if (calendar.rangeStart) parameters.set("range_start", calendar.rangeStart);
         if (calendar.rangeEnd) parameters.set("range_end", calendar.rangeEnd);
+        if (calendar.style) parameters.set("style", calendar.style);
         parameters.set("embed", "1");
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/calendar?${parameters.toString()}`);

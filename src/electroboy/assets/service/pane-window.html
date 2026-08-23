@@ -938,6 +938,8 @@
       params.get("month") || "";
     let artifactCalendarRangeStart = params.get("range_start") || "";
     let artifactCalendarRangeEnd = params.get("range_end") || "";
+    let artifactCalendarStyle = params.get("calendar_style") ||
+      params.get("style") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -2913,6 +2915,7 @@
         artifactCalendarMonth = String(calendar.month || "");
         artifactCalendarRangeStart = String(calendar.rangeStart || "");
         artifactCalendarRangeEnd = String(calendar.rangeEnd || "");
+        artifactCalendarStyle = String(calendar.style || "");
       }
       syncArtifactUrlState();
       renderFileSwitcher();
@@ -2936,6 +2939,7 @@
             month: artifactCalendarMonth,
             rangeStart: artifactCalendarRangeStart,
             rangeEnd: artifactCalendarRangeEnd,
+            style: artifactCalendarStyle,
           },
         };
       }
@@ -2994,6 +2998,7 @@
         "calendar_month",
         "range_start",
         "range_end",
+        "calendar_style",
       ]) {
         nextUrl.searchParams.delete(key);
       }
@@ -3034,6 +3039,9 @@
         }
         if (artifactCalendarRangeEnd) {
           nextUrl.searchParams.set("range_end", artifactCalendarRangeEnd);
+        }
+        if (artifactCalendarStyle) {
+          nextUrl.searchParams.set("calendar_style", artifactCalendarStyle);
         }
       }
       window.history.replaceState(null, "", nextUrl);
@@ -3114,6 +3122,9 @@
         }
         if (artifactCalendarRangeEnd) {
           parameters.set("range_end", artifactCalendarRangeEnd);
+        }
+        if (artifactCalendarStyle) {
+          parameters.set("style", artifactCalendarStyle);
         }
         parameters.set("embed", "1");
         parameters.set("version", String(artifactVersion));
