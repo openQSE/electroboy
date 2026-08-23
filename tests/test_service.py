@@ -4365,6 +4365,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"title": "Fall break"', page)
         self.assertIn('"title": "Soccer"', page)
         self.assertNotIn('"title": "Planning"', page)
+        for style in (
+            "hud",
+            "command-center",
+            "timeline-stack",
+            "radar",
+            "family-orbit",
+        ):
+            styled_page, styled_status = render_calendar_html(snapshot, style=style)
+            self.assertEqual(styled_status, HTTPStatus.OK)
+            self.assertIn(f'body class="calendar-style-{style}"', styled_page)
+            self.assertIn(f"body.calendar-style-{style} .calendar-grid", styled_page)
+            self.assertIn(f"body.calendar-style-{style} .calendar-event", styled_page)
 
         empty_selection = normalize_calendar_snapshot(
             {

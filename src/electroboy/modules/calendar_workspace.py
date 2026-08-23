@@ -495,6 +495,371 @@ def render_calendar_html(
     .calendar-close:active {{
       transform: translateY(1px);
     }}
+    body.calendar-style-hud,
+    body.calendar-style-radar {{
+      color-scheme: dark;
+    }}
+    body.calendar-style-hud {{
+      --ink: #eefcf8;
+      --muted: #9fb4ae;
+      --line: rgba(116, 229, 212, .24);
+      --paper: rgba(8, 23, 28, .9);
+      --wash: #081116;
+      --panel: rgba(53, 222, 200, .1);
+      --shadow: 0 26px 58px rgba(0, 0, 0, .32);
+      background:
+        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px),
+        #081116;
+      background-size: 32px 32px, 32px 32px, auto;
+    }}
+    body.calendar-style-hud .calendar-content {{
+      padding: clamp(12px, 2vw, 24px);
+    }}
+    body.calendar-style-hud .calendar-toolbar {{
+      border: 1px solid rgba(116, 229, 212, .26);
+      border-radius: 8px;
+      background: rgba(5, 17, 22, .86);
+      box-shadow:
+        0 18px 42px rgba(0, 0, 0, .26),
+        inset 0 1px 0 rgba(255, 255, 255, .07);
+    }}
+    body.calendar-style-hud .calendar-month-title,
+    body.calendar-style-hud .calendar-day-panel-title,
+    body.calendar-style-hud .calendar-dialog-title {{
+      color: #f4fffb;
+      font-weight: 850;
+    }}
+    body.calendar-style-hud .calendar-summary,
+    body.calendar-style-hud .calendar-day-panel-summary {{
+      color: #b8cbc6;
+    }}
+    body.calendar-style-hud .calendar-toolbar .calendar-button,
+    body.calendar-style-hud .calendar-toolbar .calendar-month-input,
+    body.calendar-style-hud .calendar-close {{
+      border-color: rgba(116, 229, 212, .32);
+      background: rgba(7, 20, 25, .72);
+      color: #eefcf8;
+    }}
+    body.calendar-style-hud .calendar-toolbar .calendar-button:hover,
+    body.calendar-style-hud .calendar-toolbar .calendar-button:focus-visible,
+    body.calendar-style-hud .calendar-toolbar .calendar-month-input:focus-visible,
+    body.calendar-style-hud .calendar-close:hover,
+    body.calendar-style-hud .calendar-close:focus-visible {{
+      border-color: #35dec8;
+      background: rgba(53, 222, 200, .16);
+      outline-color: rgba(53, 222, 200, .2);
+    }}
+    body.calendar-style-hud .calendar-grid {{
+      --calendar-span-divider: rgba(116, 229, 212, .3);
+      background:
+        linear-gradient(135deg, rgba(15, 39, 46, .92), rgba(6, 17, 22, .88));
+      box-shadow:
+        0 24px 58px rgba(0, 0, 0, .28),
+        inset 0 1px 0 rgba(255, 255, 255, .06);
+    }}
+    body.calendar-style-hud .calendar-weekday,
+    body.calendar-style-hud .calendar-day,
+    body.calendar-style-hud .calendar-day-panel-header,
+    body.calendar-style-hud .calendar-day-slot {{
+      border-color: rgba(116, 229, 212, .22);
+      background: rgba(53, 222, 200, .08);
+      color: #eefcf8;
+    }}
+    body.calendar-style-hud .calendar-day {{
+      background:
+        linear-gradient(135deg, rgba(15, 39, 46, .72), rgba(6, 17, 22, .68));
+    }}
+    body.calendar-style-hud .calendar-day.outside {{
+      background: rgba(5, 17, 22, .58);
+      color: #637b77;
+    }}
+    body.calendar-style-hud .calendar-day.today,
+    body.calendar-style-hud .calendar-day.selected {{
+      box-shadow:
+        inset 0 0 0 2px #35dec8,
+        0 0 24px rgba(53, 222, 200, .12);
+    }}
+    body.calendar-style-hud .calendar-event,
+    body.calendar-style-hud .calendar-event-span {{
+      background: color-mix(in srgb, var(--calendar-color) 24%, rgba(7, 20, 25, .9));
+      color: #f4fffb;
+    }}
+    body.calendar-style-hud .calendar-event-time,
+    body.calendar-style-hud .calendar-day-slot-time {{
+      border-color: rgba(116, 229, 212, .22);
+      color: #7af1dd;
+    }}
+    body.calendar-style-hud .calendar-legend-item,
+    body.calendar-style-hud .calendar-dialog,
+    body.calendar-style-hud .calendar-day-panel {{
+      border-color: rgba(116, 229, 212, .26);
+      background: rgba(8, 23, 28, .94);
+      color: #eefcf8;
+    }}
+    body.calendar-style-command-center {{
+      --ink: #16202a;
+      --muted: #5f6d79;
+      --line: #cbd7e1;
+      --paper: #fbfdff;
+      --wash: #e7eef4;
+      --panel: #edf5f8;
+      --shadow: 0 16px 32px rgba(32, 52, 67, .12);
+      background: var(--wash);
+    }}
+    body.calendar-style-command-center .calendar-toolbar {{
+      border: 1px solid #bdd0dc;
+      border-radius: 8px;
+      background: #fbfdff;
+      box-shadow: var(--shadow);
+    }}
+    body.calendar-style-command-center .calendar-month-title {{
+      color: #213547;
+      font-weight: 850;
+    }}
+    body.calendar-style-command-center .calendar-toolbar .calendar-button,
+    body.calendar-style-command-center .calendar-toolbar .calendar-month-input,
+    body.calendar-style-command-center .calendar-close {{
+      border-color: #a9cbd2;
+      border-radius: 6px;
+      background: #edf5f8;
+      color: #164f5a;
+    }}
+    body.calendar-style-command-center .calendar-grid {{
+      --calendar-span-divider: rgba(203, 215, 225, .9);
+      background: #fbfdff;
+      box-shadow: var(--shadow);
+    }}
+    body.calendar-style-command-center .calendar-weekday {{
+      border-color: #cad7e0;
+      background: #16313f;
+      color: #d8f0f3;
+    }}
+    body.calendar-style-command-center .calendar-day {{
+      border-color: #d4dee6;
+      background: #fbfdff;
+    }}
+    body.calendar-style-command-center .calendar-day.outside {{
+      background: #eef4f8;
+      color: #8ca0ad;
+    }}
+    body.calendar-style-command-center .calendar-day.today,
+    body.calendar-style-command-center .calendar-day.selected {{
+      box-shadow: inset 0 0 0 2px #006b7a;
+    }}
+    body.calendar-style-command-center .calendar-event,
+    body.calendar-style-command-center .calendar-event-span {{
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--calendar-color) 18%, #fbfdff);
+      color: #16202a;
+    }}
+    body.calendar-style-command-center .calendar-event-time {{
+      color: #006b7a;
+    }}
+    body.calendar-style-timeline-stack {{
+      --ink: #1d2a2b;
+      --muted: #637271;
+      --line: #c6d4d2;
+      --paper: #fbfdfc;
+      --wash: #e9f0ef;
+      --panel: #edf7f5;
+      --shadow: 0 20px 44px rgba(35, 55, 56, .16);
+      background:
+        linear-gradient(90deg, rgba(38, 112, 106, .12) 1px, transparent 1px),
+        var(--wash);
+      background-size: 44px 100%, auto;
+    }}
+    body.calendar-style-timeline-stack .calendar-toolbar {{
+      border: 1px solid #c4d4d0;
+      border-radius: 8px;
+      background: #fbfdfc;
+      box-shadow: var(--shadow);
+    }}
+    body.calendar-style-timeline-stack .calendar-month-title {{
+      color: #243b3d;
+      font-weight: 850;
+    }}
+    body.calendar-style-timeline-stack .calendar-grid {{
+      --calendar-span-divider: rgba(38, 112, 106, .26);
+      background: #fbfdfc;
+      box-shadow: var(--shadow);
+      transform: perspective(1400px) rotateX(1.2deg);
+      transform-origin: center top;
+    }}
+    body.calendar-style-timeline-stack .calendar-weekday {{
+      border-color: #c4d4d0;
+      background: #243b3d;
+      color: #f7fffd;
+    }}
+    body.calendar-style-timeline-stack .calendar-day {{
+      border-color: #c4d4d0;
+      background: linear-gradient(135deg, #fbfdfc, #f2f8f6);
+    }}
+    body.calendar-style-timeline-stack .calendar-day.outside {{
+      background: #edf3f1;
+      color: #879895;
+    }}
+    body.calendar-style-timeline-stack .calendar-day.today,
+    body.calendar-style-timeline-stack .calendar-day.selected {{
+      box-shadow: inset 0 0 0 2px #26706a;
+    }}
+    body.calendar-style-timeline-stack .calendar-event,
+    body.calendar-style-timeline-stack .calendar-event-span {{
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--calendar-color) 16%, #edf7f5);
+    }}
+    body.calendar-style-timeline-stack .calendar-toolbar .calendar-button,
+    body.calendar-style-timeline-stack .calendar-toolbar .calendar-month-input,
+    body.calendar-style-timeline-stack .calendar-close {{
+      border-color: #b7cec9;
+      border-radius: 6px;
+      background: #edf7f5;
+      color: #26706a;
+    }}
+    body.calendar-style-radar {{
+      --ink: #effff8;
+      --muted: #a4c0b9;
+      --line: rgba(72, 213, 165, .26);
+      --paper: rgba(6, 28, 36, .92);
+      --wash: #061821;
+      --panel: rgba(72, 213, 165, .1);
+      --shadow: 0 20px 42px rgba(0, 0, 0, .3);
+      background:
+        radial-gradient(circle at 20% 18%, rgba(72, 213, 165, .12), transparent 28%),
+        linear-gradient(160deg, #061821, #0a222d 52%, #061821);
+    }}
+    body.calendar-style-radar .calendar-toolbar {{
+      border: 1px solid rgba(72, 213, 165, .24);
+      border-radius: 8px;
+      background: rgba(4, 20, 28, .84);
+      box-shadow: var(--shadow);
+    }}
+    body.calendar-style-radar .calendar-month-title,
+    body.calendar-style-radar .calendar-day-panel-title,
+    body.calendar-style-radar .calendar-dialog-title {{
+      color: #effff8;
+      font-weight: 850;
+    }}
+    body.calendar-style-radar .calendar-summary,
+    body.calendar-style-radar .calendar-day-panel-summary {{
+      color: #bdd6d0;
+    }}
+    body.calendar-style-radar .calendar-grid {{
+      --calendar-span-divider: rgba(72, 213, 165, .34);
+      background:
+        radial-gradient(circle at center, transparent 0 21%, rgba(72, 213, 165, .18) 21.5% 22%, transparent 22.5% 41%, rgba(72, 213, 165, .16) 41.5% 42%, transparent 42.5% 62%, rgba(72, 213, 165, .14) 62.5% 63%, transparent 63.5%),
+        linear-gradient(rgba(72, 213, 165, .08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(72, 213, 165, .08) 1px, transparent 1px),
+        rgba(3, 16, 22, .44);
+      background-size: auto, 32px 32px, 32px 32px, auto;
+      box-shadow: var(--shadow);
+    }}
+    body.calendar-style-radar .calendar-weekday,
+    body.calendar-style-radar .calendar-day,
+    body.calendar-style-radar .calendar-day-panel-header,
+    body.calendar-style-radar .calendar-day-slot {{
+      border-color: rgba(72, 213, 165, .22);
+      background: rgba(6, 28, 36, .74);
+      color: #effff8;
+    }}
+    body.calendar-style-radar .calendar-day.outside {{
+      background: rgba(3, 16, 22, .58);
+      color: #56736d;
+    }}
+    body.calendar-style-radar .calendar-day.today,
+    body.calendar-style-radar .calendar-day.selected {{
+      box-shadow:
+        inset 0 0 0 2px #48d5a5,
+        0 0 22px rgba(72, 213, 165, .12);
+    }}
+    body.calendar-style-radar .calendar-event,
+    body.calendar-style-radar .calendar-event-span {{
+      background: color-mix(in srgb, var(--calendar-color) 24%, rgba(6, 28, 36, .92));
+      color: #effff8;
+      animation: calendar-radar-contact 3.8s ease-in-out infinite;
+    }}
+    body.calendar-style-radar .calendar-event-time,
+    body.calendar-style-radar .calendar-day-slot-time {{
+      border-color: rgba(72, 213, 165, .22);
+      color: #a8ffd7;
+    }}
+    body.calendar-style-radar .calendar-toolbar .calendar-button,
+    body.calendar-style-radar .calendar-toolbar .calendar-month-input,
+    body.calendar-style-radar .calendar-close,
+    body.calendar-style-radar .calendar-legend-item,
+    body.calendar-style-radar .calendar-dialog,
+    body.calendar-style-radar .calendar-day-panel {{
+      border-color: rgba(72, 213, 165, .28);
+      background: rgba(3, 16, 22, .78);
+      color: #effff8;
+    }}
+    @keyframes calendar-radar-contact {{
+      0%, 100% {{ box-shadow: 0 7px 18px color-mix(in srgb, var(--calendar-color) 18%, transparent); }}
+      50% {{ box-shadow: 0 7px 18px color-mix(in srgb, var(--calendar-color) 22%, transparent), 0 0 0 3px rgba(72, 213, 165, .1); }}
+    }}
+    body.calendar-style-family-orbit {{
+      --ink: #20283a;
+      --muted: #677386;
+      --line: #cad7df;
+      --paper: rgba(255, 255, 255, .94);
+      --wash: #edf4f6;
+      --panel: #ecf7f6;
+      --shadow: 0 18px 38px rgba(30, 50, 70, .14);
+      background:
+        radial-gradient(circle at 14% 16%, rgba(35, 127, 134, .14), transparent 28%),
+        radial-gradient(circle at 88% 22%, rgba(215, 92, 120, .14), transparent 26%),
+        #edf4f6;
+    }}
+    body.calendar-style-family-orbit .calendar-toolbar {{
+      border: 1px solid rgba(54, 94, 122, .18);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .9);
+      box-shadow: var(--shadow);
+    }}
+    body.calendar-style-family-orbit .calendar-month-title {{
+      color: #24324a;
+      font-weight: 850;
+    }}
+    body.calendar-style-family-orbit .calendar-grid {{
+      --calendar-span-divider: rgba(54, 94, 122, .24);
+      background:
+        radial-gradient(ellipse at center, transparent 0 18%, rgba(35, 127, 134, .18) 18.5% 19%, transparent 19.5% 38%, rgba(215, 92, 120, .15) 38.5% 39%, transparent 39.5% 58%, rgba(69, 106, 164, .14) 58.5% 59%, transparent 59.5%),
+        linear-gradient(135deg, rgba(255, 255, 255, .9), rgba(236, 245, 246, .72));
+      box-shadow: var(--shadow);
+    }}
+    body.calendar-style-family-orbit .calendar-weekday {{
+      border-color: #c4d3dc;
+      background: #24324a;
+      color: #f8fbff;
+    }}
+    body.calendar-style-family-orbit .calendar-day {{
+      border-color: rgba(54, 94, 122, .2);
+      background: rgba(255, 255, 255, .82);
+    }}
+    body.calendar-style-family-orbit .calendar-day.outside {{
+      background: rgba(236, 245, 246, .72);
+      color: #8d9bab;
+    }}
+    body.calendar-style-family-orbit .calendar-day.today,
+    body.calendar-style-family-orbit .calendar-day.selected {{
+      box-shadow:
+        inset 0 0 0 2px #237f86,
+        0 0 0 5px rgba(35, 127, 134, .08);
+    }}
+    body.calendar-style-family-orbit .calendar-event,
+    body.calendar-style-family-orbit .calendar-event-span {{
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--calendar-color) 18%, rgba(255, 255, 255, .94));
+      color: #20283a;
+    }}
+    body.calendar-style-family-orbit .calendar-toolbar .calendar-button,
+    body.calendar-style-family-orbit .calendar-toolbar .calendar-month-input,
+    body.calendar-style-family-orbit .calendar-close {{
+      border-color: #afd2d0;
+      border-radius: 6px;
+      background: #d8f0ed;
+      color: #237f86;
+    }}
     body.calendar-style-month-hud {{
       color-scheme: dark;
       --ink: #eaf9f7;
