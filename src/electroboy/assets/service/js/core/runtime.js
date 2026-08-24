@@ -276,6 +276,7 @@
     let inputPaneRequested = true;
     let projectShellRunning = false;
     const poppedPanes = new Set();
+    const poppedPaneLeafIds = new Set();
     const poppedPaneWindows = new Map();
     const pendingArtifactSaves = new Map();
     let slashCommandMode = false;
@@ -349,7 +350,7 @@
       status: { label: "Status", element: projectStatusPane },
     };
     const INSTANCE_PANE_LAYOUT_KINDS = new Set(["artifact", "agenda", "calendar"]);
-    const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);
+    const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress"]);
     const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
       "empty",
       "agent",
@@ -2087,6 +2088,11 @@
     }
 
     function paneLayoutRequestedContent(leaf) {
+      if (leaf.kind === "agent") {
+        return leaf.content && typeof leaf.content === "object"
+          ? leaf.content
+          : null;
+      }
       if (leaf.kind === "agenda") {
         return leaf.content && typeof leaf.content === "object"
           ? leaf.content
@@ -2102,7 +2108,13 @@
 
     function paneLayoutInstanceUrl(leaf) {
       const requestedContent = paneLayoutRequestedContent(leaf);
-      const url = new URL(paneUrl(leaf.kind, requestedContent), window.location.origin);
+      const paneOptions = leaf.kind === "agent"
+        ? { sessionId: String(requestedContent?.sessionId || selectedSessionId || "") }
+        : {};
+      const url = new URL(
+        paneUrl(leaf.kind, requestedContent, paneOptions),
+        window.location.origin,
+      );
       url.searchParams.set("embedded", "1");
       url.searchParams.set("pane_instance_id", leaf.id);
       return `${url.pathname}${url.search}`;
@@ -2124,7 +2136,7 @@
 
     function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl) {
       if (
-        !INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) ||
+        (leaf.kind !== "agent" && !INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)) ||
         frame.dataset.paneLoaded !== "1" ||
         !frame.contentWindow
       ) {
@@ -2139,13 +2151,21 @@
         return false;
       }
       frame.contentWindow.postMessage(
-        {
-          type: leaf.kind === "artifact"
-            ? "electroboy:pane-set-artifact"
-            : "electroboy:pane-set-content",
-          paneInstanceId: leaf.id,
-          item: paneLayoutRequestedContent(leaf),
-        },
+        leaf.kind === "agent"
+          ? {
+            type: "electroboy:pane-set-agent-session",
+            paneInstanceId: leaf.id,
+            sessionId: String(
+              paneLayoutRequestedContent(leaf)?.sessionId || selectedSessionId || "",
+            ),
+          }
+          : {
+            type: leaf.kind === "artifact"
+              ? "electroboy:pane-set-artifact"
+              : "electroboy:pane-set-content",
+            paneInstanceId: leaf.id,
+            item: paneLayoutRequestedContent(leaf),
+          },
         window.location.origin,
       );
       return true;
@@ -2197,7 +2217,9 @@
           empty.textContent = "Choose a pane type";
           leaf.append(empty);
         } else if (
-          INSTANCE_PANE_LAYOUT_KINDS.has(node.kind) || renderedKinds.has(node.kind)
+          INSTANCE_PANE_LAYOUT_KINDS.has(node.kind) ||
+          (node.kind === "agent" && Boolean(node.content?.sessionId)) ||
+          renderedKinds.has(node.kind)
         ) {
           leaf.append(buildPaneLayoutInstanceFrame(node));
         } else {
@@ -2253,7 +2275,8 @@
       }
       if (node.type === "leaf") {
         const isInstance = Boolean(element.querySelector(".pane-layout-instance-frame"));
-        const visible = !poppedPanes.has(node.kind) && (
+        const visible = !poppedPaneLeafIds.has(node.id) &&
+          !poppedPanes.has(node.kind) && (
           node.kind === "empty" || isInstance ||
           !PANE_LAYOUT_KINDS[node.kind].element.hidden
         );
@@ -2534,6 +2557,20 @@
         return;
       }
       if (
+        message.type === "electroboy:pane-agent-session-change" &&
+        leaf.kind === "agent"
+      ) {
+        const sessionId = String(message.sessionId || "");
+        if (!sessionId) {
+          return;
+        }
+        leaf.content = { sessionId };
+        leaf.projectRoot = activeProjectRoot;
+        setActivePaneLayoutLeaf(leaf.id);
+        savePaneLayout();
+        return;
+      }
+      if (
         message.type !== "electroboy:pane-artifact-change" ||
         !INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)
       ) {
@@ -2595,12 +2632,9 @@
         },
         onDetach(source) {
           const leaf = paneLayoutLeafById(source.id);
-          popOutPane(
-            source.kind,
-            leaf && INSTANCE_PANE_LAYOUT_KINDS.has(source.kind)
-              ? paneLayoutRequestedContent(leaf)
-              : null,
-          );
+          if (leaf) {
+            popOutPaneLayoutLeaf(leaf);
+          }
         },
       });
     }
@@ -3753,7 +3787,12 @@
     }
 
     function paneIsVisible(element) {
-      return Boolean(element && element.isConnected && !element.hidden);
+      return Boolean(
+        element &&
+        element.isConnected &&
+        !element.hidden &&
+        !element.closest("[hidden]")
+      );
     }
 
     function scheduleFitTerminal() {
@@ -4742,6 +4781,9 @@
     }
 
     function poppedPaneKey(kind, options = {}) {
+      if (options.leafId) {
+        return `${kind}:leaf:${String(options.leafId)}`;
+      }
       if (kind === "agent") {
         return `agent:${String(options.sessionId || selectedSessionId || "default")}`;
       }
@@ -4749,6 +4791,9 @@
     }
 
     function poppedPaneWindowName(kind, options = {}) {
+      if (options.leafId) {
+        return `electroboy-${kind}-${contextId || "local"}-${String(options.leafId)}`;
+      }
       if (kind === "agent") {
         return `electroboy-agent-${contextId || "local"}-${String(options.sessionId || selectedSessionId || "default")}`;
       }
@@ -4770,13 +4815,30 @@
       return false;
     }
 
-    function popOutPane(kind, artifactItem = null) {
+    function popOutPaneLayoutLeaf(leaf) {
+      const requestedContent = paneLayoutRequestedContent(leaf);
+      popOutPane(
+        leaf.kind,
+        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) ? requestedContent : null,
+        {
+          leafId: leaf.id,
+          sessionId: leaf.kind === "agent"
+            ? String(requestedContent?.sessionId || selectedSessionId || "")
+            : "",
+        },
+      );
+    }
+
+    function popOutPane(kind, artifactItem = null, options = {}) {
       if (!contextId && kind !== "scratch") {
         appendOutput("create a browser context first\n", "error");
         return;
       }
       const popoutOptions = {
-        sessionId: kind === "agent" ? selectedSessionId : "",
+        leafId: String(options.leafId || ""),
+        sessionId: kind === "agent"
+          ? String(options.sessionId || selectedSessionId || "")
+          : "",
       };
       const popoutKey = poppedPaneKey(kind, popoutOptions);
       const popup = window.open(
@@ -4792,16 +4854,25 @@
       if (existing) {
         window.clearInterval(existing.poll);
       }
-      setPanePoppedOut(kind, true);
+      setPanePoppedOut(kind, true, popoutOptions.leafId);
       const poll = window.setInterval(() => {
         if (!popup.closed) {
           return;
         }
         window.clearInterval(poll);
         poppedPaneWindows.delete(popoutKey);
-        setPanePoppedOut(kind, hasPoppedPaneKind(kind));
+        setPanePoppedOut(
+          kind,
+          popoutOptions.leafId ? false : hasPoppedPaneKind(kind),
+          popoutOptions.leafId,
+        );
       }, 500);
-      poppedPaneWindows.set(popoutKey, { popup, poll, kind });
+      poppedPaneWindows.set(popoutKey, {
+        popup,
+        poll,
+        kind,
+        leafId: popoutOptions.leafId,
+      });
     }
 
     function dockPoppedPane(kind) {
@@ -4820,12 +4891,18 @@
       setPanePoppedOut(kind, hasPoppedPaneKind(kind));
     }
 
-    function panePopoutHidesDockedPane(kind) {
-      return kind !== "agent";
-    }
-
-    function setPanePoppedOut(kind, poppedOut) {
-      if (poppedOut && panePopoutHidesDockedPane(kind)) {
+    function setPanePoppedOut(kind, poppedOut, leafId = "") {
+      if (leafId) {
+        if (poppedOut) {
+          poppedPaneLeafIds.add(leafId);
+        } else {
+          poppedPaneLeafIds.delete(leafId);
+        }
+        refreshPaneLayoutVisibility();
+        scheduleFitTerminal();
+        return;
+      }
+      if (poppedOut) {
         poppedPanes.add(kind);
       } else {
         poppedPanes.delete(kind);
@@ -4865,7 +4942,7 @@
           window.setTimeout(connectProjectShellEvents, 0);
         }
       }
-      if (INSTANCE_PANE_LAYOUT_KINDS.has(kind)) {
+      if (kind === "agent" || INSTANCE_PANE_LAYOUT_KINDS.has(kind)) {
         refreshPaneLayoutVisibility();
       }
       scheduleFitTerminal();
@@ -4936,7 +5013,11 @@
       }
       window.clearInterval(entry.poll);
       poppedPaneWindows.delete(entryKey);
-      setPanePoppedOut(data.pane, hasPoppedPaneKind(data.pane));
+      setPanePoppedOut(
+        data.pane,
+        entry.leafId ? false : hasPoppedPaneKind(data.pane),
+        entry.leafId,
+      );
     });
 
     function contextWorkflowStorageKey(mode = workflowMode) {
@@ -7131,11 +7212,22 @@
       paneFontOffsets[pane] = storedPaneFontOffset(pane);
       applyPaneFontSize(pane);
     });
-    popoutAgentPane.addEventListener("click", () => popOutPane("agent"));
-    popoutProgressPane.addEventListener("click", () => popOutPane("progress"));
-    popoutProjectShellPane.addEventListener("click", () => popOutPane("shell"));
-    popoutScratchPane.addEventListener("click", () => popOutPane("scratch"));
-    popoutStatusPane.addEventListener("click", () => popOutPane("status"));
+    function popOutMountedPane(kind) {
+      const paneElement = PANE_LAYOUT_KINDS[kind]?.element;
+      const leafElement = paneElement?.closest(".pane-layout-leaf");
+      const leaf = paneLayoutLeafById(leafElement?.dataset.paneLayoutId || "");
+      if (leaf) {
+        popOutPaneLayoutLeaf(leaf);
+        return;
+      }
+      popOutPane(kind);
+    }
+
+    popoutAgentPane.addEventListener("click", () => popOutMountedPane("agent"));
+    popoutProgressPane.addEventListener("click", () => popOutMountedPane("progress"));
+    popoutProjectShellPane.addEventListener("click", () => popOutMountedPane("shell"));
+    popoutScratchPane.addEventListener("click", () => popOutMountedPane("scratch"));
+    popoutStatusPane.addEventListener("click", () => popOutMountedPane("status"));
     popoutInputPane.addEventListener("click", () => popOutPane("input"));
     workflowSideSheetResizeHandle.addEventListener(
       "pointerdown",

@@ -1539,9 +1539,12 @@
     }
 
     function renderSessionSwitcher() {
-      const visibleSessions = agentSessions.filter(
-        (session) => session.status === "running" || session.session_id === selectedSessionId,
-      );
+      const visibleSessions = PANE_KIND === "agent"
+        ? agentSessions
+        : agentSessions.filter(
+          (session) => session.status === "running" ||
+            session.session_id === selectedSessionId,
+        );
       if (visibleSessions.length === 0) {
         selectedSessionId = "";
         updateSelectOptions(
@@ -1687,6 +1690,26 @@
           window.location.origin,
         );
       }
+    }
+
+    function notifyPaneAgentSessionChange() {
+      if (
+        PANE_KIND !== "agent" ||
+        !EMBEDDED_PANE ||
+        !paneInstanceId ||
+        !selectedSessionId ||
+        window.parent === window
+      ) {
+        return;
+      }
+      window.parent.postMessage(
+        {
+          type: "electroboy:pane-agent-session-change",
+          paneInstanceId,
+          sessionId: selectedSessionId,
+        },
+        window.location.origin,
+      );
     }
 
     function documentActionOwner() {
@@ -1941,6 +1964,7 @@
           || agentSessions[0];
         selectedSessionId = selected ? selected.session_id : "";
         pinnedAgentSessionId = PANE_KIND === "agent" ? selectedSessionId : pinnedAgentSessionId;
+        notifyPaneAgentSessionChange();
       }
       renderSessionSwitcher();
     }
@@ -1957,6 +1981,7 @@
         window.history.replaceState(null, "", nextUrl);
         renderSessionSwitcher();
         connectAgentStream();
+        notifyPaneAgentSessionChange();
         return;
       }
       const response = await fetch(contextUrl("/api/sessions/select"), {
@@ -3723,6 +3748,14 @@
       }
       if (data.type === "electroboy-calendar-month-change") {
         applyCalendarMonthChange(data);
+        return;
+      }
+      if (
+        data.type === "electroboy:pane-set-agent-session" &&
+        PANE_KIND === "agent" &&
+        (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
+      ) {
+        selectAgentSession(String(data.sessionId || ""));
         return;
       }
       if (

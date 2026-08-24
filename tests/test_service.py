@@ -1052,8 +1052,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("const SOFTWARE_WORKFLOW_MODE", app)
         self.assertNotIn("const CREATIVE_WORKFLOW_MODE", app)
         self.assertIn("event.source === candidate.popup", app)
-        self.assertIn("function panePopoutHidesDockedPane(kind)", app)
-        self.assertIn('return kind !== "agent";', app)
+        self.assertNotIn("function panePopoutHidesDockedPane(kind)", app)
+        self.assertIn("const poppedPaneLeafIds = new Set();", app)
         self.assertIn("event.key === scratchPadStorageKey()", app)
         self.assertIn('scratchPad.value = event.newValue || "";', app)
 
@@ -1105,7 +1105,7 @@ class ServiceTests(unittest.TestCase):
 
         self.assertNotIn("existing.kind = previousKind", runtime)
         self.assertIn(
-            'const SINGLETON_PANE_LAYOUT_KINDS = new Set(["agent", "progress"]);',
+            'const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress"]);',
             runtime,
         )
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
@@ -1144,6 +1144,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('bumpFrontendDebugCounter("paneLayout.hydrateRender")', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
         self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
+        self.assertIn(
+            '(node.kind === "agent" && Boolean(node.content?.sessionId))',
+            runtime,
+        )
         self.assertIn('element.dataset.paneDragIgnore = "true";', runtime)
         self.assertIn("function bindPaneLayoutCommand(button, handler)", runtime)
         self.assertIn("bindPaneLayoutCommand(close, () => closePaneLayoutLeaf(leaf.id));", runtime)
@@ -1161,7 +1165,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("let fitTerminalFrame = 0;", runtime)
         self.assertIn("function paneIsVisible(element)", runtime)
         self.assertIn(
-            "return Boolean(element && element.isConnected && !element.hidden);",
+            '!element.hidden &&\n        !element.closest("[hidden]")',
             runtime,
         )
         self.assertIn("function scheduleFitTerminal()", runtime)
@@ -1365,6 +1369,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("leaf.content = null", change_kind_source)
         self.assertNotIn('leaf.projectRoot = ""', change_kind_source)
         self.assertIn("function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)", runtime)
+        self.assertIn('"electroboy:pane-set-agent-session"', runtime)
+        self.assertIn('"electroboy:pane-agent-session-change"', runtime)
         self.assertIn('"electroboy:pane-set-artifact"', runtime)
         self.assertIn('"electroboy:pane-set-content"', runtime)
         self.assertIn("function paneLayoutStorageKey(mode = workflowMode)", runtime)
@@ -1438,6 +1444,36 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("border: 3px solid #9bd6cf;", styles)
         self.assertIn("pointer-events: none;", styles)
         self.assertIn(".artifact-preview-frame.loading {\n      opacity: 1;", styles)
+
+    def test_popped_layout_leaf_and_agent_session_assignment_are_persistent(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+        pane_window = read_service_text_asset("pane-window.html")
+
+        self.assertIn("const poppedPaneLeafIds = new Set();", runtime)
+        self.assertIn("!poppedPaneLeafIds.has(node.id)", runtime)
+        self.assertIn("function popOutPaneLayoutLeaf(leaf)", runtime)
+        self.assertIn("leafId: leaf.id,", runtime)
+        self.assertIn("setPanePoppedOut(kind, true, popoutOptions.leafId);", runtime)
+        self.assertIn(
+            "popoutOptions.leafId ? false : hasPoppedPaneKind(kind)",
+            runtime,
+        )
+        self.assertIn(
+            "entry.leafId ? false : hasPoppedPaneKind(data.pane)",
+            runtime,
+        )
+        self.assertIn("refreshPaneLayoutVisibility();", runtime)
+        self.assertIn("popOutMountedPane(\"agent\")", runtime)
+
+        self.assertIn('leaf.content = { sessionId };', runtime)
+        self.assertIn('type: "electroboy:pane-set-agent-session"', runtime)
+        self.assertIn(
+            'type: "electroboy:pane-agent-session-change"',
+            pane_window,
+        )
+        self.assertIn("function notifyPaneAgentSessionChange()", pane_window)
+        self.assertIn('PANE_KIND === "agent"\n        ? agentSessions', pane_window)
+        self.assertIn("notifyPaneAgentSessionChange();", pane_window)
 
     def test_frontend_recovers_workspace_attachment_after_resume(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
