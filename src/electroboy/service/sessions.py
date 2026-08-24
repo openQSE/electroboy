@@ -281,11 +281,7 @@ class AgentSession:
 
     def events_after(self, event_id: int) -> list[dict[str, object]]:
         with self._condition:
-            return [
-                event.copy()
-                for event in self._events
-                if int(event.get("id", 0)) > event_id
-            ]
+            return self._events_after_locked(event_id)
 
     def events(self) -> list[dict[str, object]]:
         transcript_events = self._read_transcript_events()
@@ -300,16 +296,15 @@ class AgentSession:
         timeout: float,
     ) -> list[dict[str, object]]:
         with self._condition:
-            if (
-                not any(int(event.get("id", 0)) > event_id for event in self._events)
-                and self.is_active()
-            ):
+            if event_id >= self._next_event_id - 1 and self.is_active():
                 self._condition.wait(timeout=timeout)
-            return [
-                event.copy()
-                for event in self._events
-                if int(event.get("id", 0)) > event_id
-            ]
+            return self._events_after_locked(event_id)
+
+    def _events_after_locked(self, event_id: int) -> list[dict[str, object]]:
+        # Event IDs are contiguous and one-based, so the requested ID is also
+        # the zero-based position where unseen events begin.
+        start_index = min(max(event_id, 0), len(self._events))
+        return [event.copy() for event in self._events[start_index:]]
 
     def is_active(self) -> bool:
         process = self.process

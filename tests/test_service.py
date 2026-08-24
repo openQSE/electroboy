@@ -7529,6 +7529,25 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(events[0]["terminal"], "hello\r\n")
         self.assertIn("hello", markdown)
 
+    def test_agent_session_reads_event_tail_without_scanning_history(self) -> None:
+        class UnreadableEvent(dict[str, object]):
+            def get(self, key: str, default: object = None) -> object:
+                raise AssertionError(f"older event was inspected: {key}")
+
+        session = AgentSession([sys.executable, "-c", "pass"], ROOT)
+        session._events = [  # pylint: disable=protected-access
+            UnreadableEvent(id=1, type="output", text="old-1"),
+            UnreadableEvent(id=2, type="output", text="old-2"),
+            {"id": 3, "type": "output", "text": "new"},
+        ]
+        session._next_event_id = 4  # pylint: disable=protected-access
+
+        self.assertEqual(session.events_after(2), [session._events[2]])
+        self.assertEqual(
+            session.wait_for_events_after(2, timeout=0),
+            [session._events[2]],
+        )
+
     def test_limited_session_replay_events_keeps_tail_and_notice(self) -> None:
         events = [
             {"id": index, "type": "output", "text": str(index)}
