@@ -915,7 +915,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("canExport: artifactPaneSupportsDocumentExport(item),", documents)
         self.assertNotIn(".pane-document-menu", shell_css)
         self.assertNotIn('exportFormat.className = "document-export-format"', documents)
-        self.assertIn("function openDocumentTarget(target)", documents)
+        self.assertIn(
+            'function openDocumentTarget(target, fragment = "")',
+            documents,
+        )
+        self.assertIn('data.type === "electroboy:document-link"', documents)
+        self.assertIn('data.type === "electroboy:document-link"', pane_window)
         self.assertIn("function popOutArtifactPreview(item)", documents)
         self.assertNotIn('popOutPane("artifact", item)', documents)
         self.assertIn("function popOutCurrentArtifact()", pane_window)
@@ -2661,8 +2666,8 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("<title>Guide</title>", page)
-        self.assertIn("<h1>Guide</h1>", page)
-        self.assertIn("<h2>Overview</h2>", page)
+        self.assertIn('<h1 id="guide">Guide</h1>', page)
+        self.assertIn('<h2 id="overview">Overview</h2>', page)
         self.assertIn("--doc-bg: #10141f;", page)
         self.assertIn("--doc-text: #e7edf7;", page)
         self.assertIn("article, article :where", page)
@@ -2685,7 +2690,7 @@ class ServiceTests(unittest.TestCase):
                 target.read_text(encoding="utf-8"),
                 "# README\n\n## Overview\n\n## Notes\n",
             )
-            self.assertIn("<h1>README</h1>", page)
+            self.assertIn('<h1 id="readme">README</h1>', page)
 
     def test_document_target_renderer_accepts_zoom(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2696,6 +2701,32 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("--doc-font-size: 20.80px;", page)
+
+    def test_document_target_renderer_supports_repository_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "guide.md").write_text(
+                "# Guide\n\n"
+                "## Installation Notes\n\n"
+                "[Jump](#installation-notes)\n\n"
+                "[API](../reference/api.md#authentication)\n",
+                encoding="utf-8",
+            )
+
+            page, status = document_target_html(root, "docs/guide.md")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('<h2 id="installation-notes">Installation Notes</h2>', page)
+        self.assertIn('<a href="#installation-notes">Jump</a>', page)
+        self.assertIn(
+            '<a href="../reference/api.md#authentication">API</a>',
+            page,
+        )
+        self.assertIn('const currentDocumentPath = "docs/guide.md";', page)
+        self.assertIn('type: "electroboy:document-link"', page)
+        self.assertIn('window.parent.postMessage(', page)
 
     def test_document_target_renderer_handles_code_fences_and_mermaid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2712,7 +2743,10 @@ class ServiceTests(unittest.TestCase):
             page, status = document_target_html(root, "README.md")
 
         self.assertEqual(status, HTTPStatus.OK)
-        self.assertIn("<h3>Clone the repositories</h3>", page)
+        self.assertIn(
+            '<h3 id="clone-the-repositories">Clone the repositories</h3>',
+            page,
+        )
         self.assertIn('<pre><code class="language-bash">mkdir -p qhpc', page)
         self.assertIn('<div class="mermaid">graph TD', page)
         self.assertIn("mermaid@10", page)
@@ -2767,7 +2801,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("<table>", page)
         self.assertIn("<th>Owner</th>", page)
         self.assertIn("<td>Site administrator</td>", page)
-        self.assertIn("<h3>Site Configuration</h3>", page)
+        self.assertIn(
+            '<h3 id="site-configuration">Site Configuration</h3>',
+            page,
+        )
         self.assertNotIn("| Owner | Configuration | Purpose |", page)
         self.assertNotIn("### Site Configuration", page)
 
@@ -7360,7 +7397,7 @@ class ServiceTests(unittest.TestCase):
             page, status = requirements_document_html(root)
 
         self.assertEqual(status.value, 200)
-        self.assertIn("<h1>Requirements</h1>", page)
+        self.assertIn('<h1 id="requirements">Requirements</h1>', page)
         self.assertIn("First requirement", page)
 
     def test_requirements_document_html_uses_feature_artifact(self) -> None:

@@ -920,6 +920,7 @@
         : params.get("artifact") || "requirements";
     let artifactDocumentPath = params.get("document_path") || "";
     let artifactDocumentTitle = params.get("document_title") || "";
+    let artifactDocumentFragment = "";
     let artifactRoutePath = params.get("artifact_path") || "";
     let artifactRouteTitle = params.get("artifact_title") || "";
     let artifactFolderPath = params.get("folder_path") || "";
@@ -1642,7 +1643,7 @@
       return "";
     }
 
-    function selectFileTarget(target) {
+    function selectFileTarget(target, fragment = "") {
       if (!target || !target.path) {
         return;
       }
@@ -1661,6 +1662,7 @@
       artifactKind = "document";
       artifactDocumentPath = target.path;
       artifactDocumentTitle = target.label || target.path;
+      artifactDocumentFragment = String(fragment || "");
       artifactRoutePath = "";
       artifactRouteTitle = "";
       artifactEditing = false;
@@ -1726,12 +1728,13 @@
       return window.parent !== window ? window.parent : null;
     }
 
-    function postDocumentFileAction(action, target) {
+    function postDocumentFileAction(action, target, fragment = "") {
       documentActionOwner()?.postMessage(
         {
           type: "electroboy:document-file-action",
           action,
           target,
+          fragment,
         },
         window.location.origin,
       );
@@ -3093,7 +3096,12 @@
         parameters.set("create", "1");
         parameters.set("zoom", String(artifactZoom));
         parameters.set("version", String(artifactVersion));
-        return contextUrl(`/artifacts/document?${parameters.toString()}`);
+        const url = new URL(
+          contextUrl(`/artifacts/document?${parameters.toString()}`),
+          window.location.origin,
+        );
+        url.hash = artifactDocumentFragment;
+        return `${url.pathname}${url.search}${url.hash}`;
       }
       if (artifactKind === "route" && artifactRoutePath) {
         const routeUrl = contextUrl(`${artifactRoutePath}?embed=1`);
@@ -3737,6 +3745,21 @@
         } catch (error) {
           window.alert(error.message || String(error));
         }
+        return;
+      }
+      if (
+        data.type === "electroboy:document-link" &&
+        PANE_KIND === "artifact" &&
+        data.target &&
+        data.target.path
+      ) {
+        const target = {
+          path: String(data.target.path),
+          label: String(data.target.label || data.target.path),
+        };
+        const fragment = String(data.fragment || "");
+        selectFileTarget(target, fragment);
+        postDocumentFileAction("open", target, fragment);
         return;
       }
       if (data.type === "electroboy-artifact-saved") {

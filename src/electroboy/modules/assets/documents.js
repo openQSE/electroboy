@@ -399,11 +399,15 @@
         return;
       }
       const data = event.data || {};
+      if (data.type === "electroboy:document-link") {
+        openDocumentTarget(data.target || null, data.fragment || "");
+        return;
+      }
       if (data.type !== "electroboy:document-file-action") {
         return;
       }
       if (data.action === "open") {
-        openDocumentTarget(data.target || null);
+        openDocumentTarget(data.target || null, data.fragment || "");
       } else if (data.action === "close") {
         closeDocumentTarget(data.target || null);
       }
@@ -537,12 +541,12 @@
       refreshStageActionPanel();
     }
 
-    function openDocumentTarget(target) {
+    function openDocumentTarget(target, fragment = "") {
       if (!target) {
         return;
       }
       registerDocumentTarget(target);
-      showDocumentPreview(target);
+      showDocumentPreview(target, fragment);
     }
 
     function selectOpenDocumentTarget(path) {
@@ -598,6 +602,15 @@
 
     function artifactRouteUrl(path, version = runtimeState.artifactPreviewVersion) {
       return `${contextUrl(`${path}?embed=1`)}&zoom=${runtimeState.documentZoom}&version=${version}`;
+    }
+
+    function documentPreviewUrlWithFragment(url, fragment = "") {
+      if (!fragment) {
+        return url;
+      }
+      const parsed = new URL(url, window.location.origin);
+      parsed.hash = fragment;
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
 
     function artifactPreviewUrl(item) {
@@ -660,7 +673,10 @@
         parameters.set("create", "1");
         parameters.set("zoom", String(runtimeState.documentZoom));
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
-        return contextUrl(`/artifacts/document?${parameters.toString()}`);
+        return documentPreviewUrlWithFragment(
+          contextUrl(`/artifacts/document?${parameters.toString()}`),
+          item.fragment || "",
+        );
       }
       return "";
     }
@@ -769,6 +785,7 @@
               kind: "document",
               title: target.label || target.path || "Document",
               target,
+              fragment: options.fragment || "",
             },
           ],
           { manual: true },
@@ -783,12 +800,12 @@
       }
     }
 
-    function showDocumentPreview(target) {
+    function showDocumentPreview(target, fragment = "") {
       if (!target) {
         return;
       }
       rememberOpenDocumentTarget(target);
-      showArtifactPreview("document", { target });
+      showArtifactPreview("document", { target, fragment });
       refreshDocumentTargetSwitchers();
     }
 

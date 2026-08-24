@@ -239,6 +239,7 @@ def markdown_document_html(
     zoom_percent = _clamp_document_zoom(zoom_percent)
     document_font_size = 16 * (zoom_percent / 100)
     mermaid_script = _mermaid_script(body)
+    document_link_script = _document_link_script(relative_path)
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -372,6 +373,7 @@ def markdown_document_html(
       {body}
     </article>
   </main>
+  {document_link_script}
 </body>
 </html>
 """
@@ -2155,10 +2157,136 @@ def _render_markdown(text: str) -> str:
     rendered = str(
         markdown_library.markdown(
             _enable_markdown_in_details(text),
-            extensions=["extra", "sane_lists", "md_in_html"],
+            extensions=["extra", "sane_lists", "md_in_html", "toc"],
         )
     )
     return _promote_mermaid_blocks(rendered)
+
+
+def _document_link_script(relative_path: str) -> str:
+    encoded_path = json.dumps(relative_path, ensure_ascii=False).replace(
+        "<", "\\u003c"
+    )
+    script = r"""
+  <script>
+    (() => {
+      const currentDocumentPath = __DOCUMENT_PATH__;
+
+      function decodeLinkPart(value) {
+        try {
+          return decodeURIComponent(value);
+        } catch (error) {
+          return value;
+        }
+      }
+
+      function repositoryDocumentTarget(href) {
+        const rawHref = String(href || "").trim();
+        if (
+          !rawHref ||
+          rawHref.startsWith("#") ||
+          /^[a-z][a-z0-9+.-]*:/i.test(rawHref) ||
+          rawHref.startsWith("//")
+        ) {
+          return null;
+        }
+        const hashIndex = rawHref.indexOf("#");
+        const rawFragment = hashIndex >= 0 ? rawHref.slice(hashIndex + 1) : "";
+        const pathAndQuery = hashIndex >= 0 ? rawHref.slice(0, hashIndex) : rawHref;
+        const queryIndex = pathAndQuery.indexOf("?");
+        const rawPath = queryIndex >= 0
+          ? pathAndQuery.slice(0, queryIndex)
+          : pathAndQuery;
+        if (!rawPath) {
+          return null;
+        }
+        const linkPath = decodeLinkPart(rawPath).replace(/\\/g, "/");
+        const segments = linkPath.startsWith("/")
+          ? []
+          : currentDocumentPath.split("/").slice(0, -1);
+        for (const segment of linkPath.split("/")) {
+          if (!segment || segment === ".") {
+            continue;
+          }
+          if (segment === "..") {
+            if (segments.length === 0) {
+              return null;
+            }
+            segments.pop();
+            continue;
+          }
+          segments.push(segment);
+        }
+        const path = segments.join("/");
+        if (!/\.md$/i.test(path)) {
+          return null;
+        }
+        return {
+          path,
+          label: path.replace(/\.md$/i, "") || path,
+          fragment: decodeLinkPart(rawFragment),
+        };
+      }
+
+      function scrollToDocumentFragment(fragment) {
+        if (!fragment) {
+          window.scrollTo({ top: 0, behavior: "auto" });
+          return;
+        }
+        const target = document.getElementById(fragment);
+        if (!target) {
+          return;
+        }
+        target.scrollIntoView({ block: "start" });
+        window.history.replaceState(null, "", `#${encodeURIComponent(fragment)}`);
+      }
+
+      document.addEventListener("click", (event) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          !(event.target instanceof Element)
+        ) {
+          return;
+        }
+        const link = event.target.closest("a[href]");
+        if (!link || link.hasAttribute("download")) {
+          return;
+        }
+        const target = repositoryDocumentTarget(link.getAttribute("href"));
+        if (!target) {
+          return;
+        }
+        event.preventDefault();
+        if (target.path === currentDocumentPath) {
+          scrollToDocumentFragment(target.fragment);
+          return;
+        }
+        if (window.parent === window) {
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.set("path", target.path);
+          nextUrl.searchParams.set("title", target.label);
+          nextUrl.hash = target.fragment;
+          window.location.assign(nextUrl);
+          return;
+        }
+        window.parent.postMessage(
+          {
+            type: "electroboy:document-link",
+            target: { path: target.path, label: target.label },
+            fragment: target.fragment,
+          },
+          window.location.origin,
+        );
+      });
+    })();
+  </script>
+"""
+    return script.replace("__DOCUMENT_PATH__", encoded_path)
 
 
 _DETAILS_TAG_RE = re.compile(r"<details(?P<attrs>[^>]*)>", re.IGNORECASE)
