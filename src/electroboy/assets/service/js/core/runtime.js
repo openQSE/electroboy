@@ -3776,6 +3776,7 @@
         } catch (error) {
           return;
         }
+        queueTerminalResize();
       }
       if (paneIsVisible(progressOutputPane)) {
         window.ElectroBoyFrontend.invokeModule("progress", "fit");
@@ -3783,7 +3784,6 @@
       if (paneIsVisible(projectShellPane)) {
         window.ElectroBoyFrontend.invokeModule("project-shell", "fit");
       }
-      queueTerminalResize();
       queueProjectShellResize();
     }
 

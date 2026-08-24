@@ -1,8 +1,6 @@
 (function () {
   "use strict";
 
-  const fitVersions = new WeakMap();
-
   function legacyCopy(text) {
     const textarea = document.createElement("textarea");
     textarea.value = text;
@@ -35,18 +33,29 @@
   }
 
   function install(terminal) {
-    if (!terminal || typeof terminal.attachCustomKeyEventHandler !== "function") {
+    if (!terminal) {
       return;
     }
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (!isCopySelectionEvent(terminal, event)) {
-        return true;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      void copyText(terminal.getSelection());
-      return false;
-    });
+    if (typeof terminal.attachCustomKeyEventHandler === "function") {
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (!isCopySelectionEvent(terminal, event)) {
+          return true;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void copyText(terminal.getSelection());
+        return false;
+      });
+    }
+    if (
+      terminal.parser &&
+      typeof terminal.parser.registerCsiHandler === "function"
+    ) {
+      terminal.parser.registerCsiHandler(
+        { final: "J" },
+        (params) => params.length > 0 && params[0] === 3,
+      );
+    }
   }
 
   function fit(terminal, fitAddon) {
@@ -61,9 +70,6 @@
     const marker = !atBottom && buffer && typeof terminal.registerMarker === "function"
       ? terminal.registerMarker(viewportY - (baseY + buffer.cursorY))
       : null;
-    const version = (fitVersions.get(terminal) || 0) + 1;
-    fitVersions.set(terminal, version);
-
     try {
       fitAddon.fit();
     } catch (error) {
@@ -71,15 +77,10 @@
       throw error;
     }
 
-    window.requestAnimationFrame(() => {
-      if (fitVersions.get(terminal) !== version) {
-        marker?.dispose();
-        return;
-      }
+    try {
       const nextBuffer = terminal.buffer && terminal.buffer.active;
       if (!nextBuffer) {
-        marker?.dispose();
-        return;
+        return true;
       }
       if (atBottom) {
         terminal.scrollToBottom();
@@ -88,8 +89,9 @@
       } else {
         terminal.scrollToLine(Math.max(0, nextBuffer.baseY - distanceFromBottom));
       }
+    } finally {
       marker?.dispose();
-    });
+    }
     return true;
   }
 

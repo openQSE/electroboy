@@ -822,6 +822,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("terminal.registerMarker", terminal_behavior)
         self.assertIn("terminal.scrollToBottom()", terminal_behavior)
         self.assertIn("terminal.scrollToLine(marker.line)", terminal_behavior)
+        self.assertIn("terminal.parser.registerCsiHandler", terminal_behavior)
+        self.assertIn(
+            '(params) => params.length > 0 && params[0] === 3',
+            terminal_behavior,
+        )
+        self.assertNotIn("window.requestAnimationFrame", terminal_behavior)
         self.assertIn("function reset(terminal)", terminal_behavior)
         self.assertIn("terminal.reset()", terminal_behavior)
         self.assertIn("window.ElectroBoyFilePaneTools", file_pane_tools)
@@ -1161,6 +1167,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function scheduleFitTerminal()", runtime)
         self.assertIn("if (fitTerminalFrame)", runtime)
         self.assertIn("if (terminalFit && paneIsVisible(agentOutputPane))", runtime)
+        terminal_fit_start = runtime.index("function fitTerminal()")
+        terminal_fit_end = runtime.index(
+            "function observeTerminalPaneResizes()",
+            terminal_fit_start,
+        )
+        terminal_fit_source = runtime[terminal_fit_start:terminal_fit_end]
+        visible_agent_fit = terminal_fit_source.index(
+            "if (terminalFit && paneIsVisible(agentOutputPane))",
+        )
+        progress_fit = terminal_fit_source.index(
+            "if (paneIsVisible(progressOutputPane))",
+        )
+        self.assertIn(
+            "queueTerminalResize();",
+            terminal_fit_source[visible_agent_fit:progress_fit],
+        )
+        self.assertNotIn(
+            "queueTerminalResize();",
+            terminal_fit_source[progress_fit:],
+        )
         self.assertIn("if (paneIsVisible(progressOutputPane))", runtime)
         self.assertIn("if (paneIsVisible(projectShellPane))", runtime)
         self.assertIn('const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";', runtime)
@@ -7517,6 +7543,42 @@ class ServiceTests(unittest.TestCase):
 
         set_size.assert_called_once_with(123, 100, 40)
         killpg.assert_called_once_with(456, signal.SIGWINCH)
+
+    def test_agent_session_resize_ignores_unchanged_dimensions(self) -> None:
+        session = AgentSession([sys.executable, "-c", "pass"], ROOT)
+        session._master_fd = 123
+        session.process = mock.Mock()
+
+        with (
+            mock.patch("electroboy.service.sessions._set_terminal_size") as set_size,
+            mock.patch("electroboy.service.sessions.os.killpg") as killpg,
+        ):
+            session.resize(session.columns, session.rows)
+
+        set_size.assert_not_called()
+        killpg.assert_not_called()
+
+    def test_tmux_session_can_force_initial_window_dimensions(self) -> None:
+        session = TmuxAgentSession([sys.executable, "-c", "pass"], ROOT)
+
+        with (
+            mock.patch.object(session, "is_active", return_value=True),
+            mock.patch("electroboy.service.sessions._tmux_run") as tmux_run,
+        ):
+            session._resize_window()
+
+        tmux_run.assert_called_once_with(
+            [
+                "resize-window",
+                "-t",
+                session.tmux_name,
+                "-x",
+                str(session.columns),
+                "-y",
+                str(session.rows),
+            ],
+            check=False,
+        )
 
     def test_agent_session_submits_raw_terminal_input(self) -> None:
         script = (

@@ -259,8 +259,12 @@ class AgentSession:
         self._close_master()
 
     def resize(self, columns: int, rows: int) -> None:
-        self.columns = _clamp_terminal_columns(columns)
-        self.rows = _clamp_terminal_rows(rows)
+        next_columns = _clamp_terminal_columns(columns)
+        next_rows = _clamp_terminal_rows(rows)
+        if next_columns == self.columns and next_rows == self.rows:
+            return
+        self.columns = next_columns
+        self.rows = next_rows
         fd = self._master_fd
         if fd is None:
             return
@@ -534,7 +538,7 @@ class TmuxAgentSession(AgentSession):
                 "text": f"started tmux session: {self.tmux_name}",
             }
         )
-        self.resize(self.columns, self.rows)
+        self._resize_window()
         self._reader_thread = threading.Thread(
             target=self._read_output,
             name="electroboy-tmux-output",
@@ -616,8 +620,15 @@ class TmuxAgentSession(AgentSession):
         self._notify_status_changed()
 
     def resize(self, columns: int, rows: int) -> None:
-        self.columns = _clamp_terminal_columns(columns)
-        self.rows = _clamp_terminal_rows(rows)
+        next_columns = _clamp_terminal_columns(columns)
+        next_rows = _clamp_terminal_rows(rows)
+        if next_columns == self.columns and next_rows == self.rows:
+            return
+        self.columns = next_columns
+        self.rows = next_rows
+        self._resize_window()
+
+    def _resize_window(self) -> None:
         if self.is_active():
             _tmux_run(
                 [
