@@ -345,6 +345,8 @@ class AgentSession:
             )
             if not text and not terminal_text:
                 continue
+            if not text and _terminal_output_is_transient_control(terminal_text):
+                continue
             self._append_event(
                 {
                     "type": "output",
@@ -1049,3 +1051,45 @@ def _consume_string_control(text: str, index: int) -> tuple[int, bool]:
 def _normalize_terminal_text(text: str) -> str:
     text = re.sub(r"\n{4,}", "\n\n\n", text)
     return text
+
+
+def _terminal_output_is_transient_control(text: str) -> bool:
+    if not text:
+        return False
+    index = 0
+    saw_escape = False
+    while index < len(text):
+        char = text[index]
+        if char == "\x1b":
+            consumed, incomplete = _terminal_escape_length(text, index)
+            if incomplete:
+                return False
+            sequence = text[index : index + consumed]
+            if not _terminal_escape_is_transient_control(sequence):
+                return False
+            saw_escape = True
+            index += consumed
+            continue
+        if char in _CONTROL_CHARS_TO_DROP or char == "\x07":
+            index += 1
+            continue
+        return False
+    return saw_escape
+
+
+def _terminal_escape_is_transient_control(sequence: str) -> bool:
+    if sequence.startswith("\x1b]"):
+        return True
+    if not sequence.startswith("\x1b[") or len(sequence) < 3:
+        return False
+    final = sequence[-1]
+    parameters = sequence[2:-1]
+    if final == "m":
+        return True
+    if final == "q":
+        return parameters.strip().isdigit()
+    if final in {"A", "B", "C", "D", "G", "H", "f", "s", "u"}:
+        return True
+    if final in {"h", "l"}:
+        return parameters in {"?25", "?2026"}
+    return False

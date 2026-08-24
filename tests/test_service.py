@@ -55,6 +55,7 @@ from electroboy.service import (  # noqa: E402
     _service_session_records_path,
     _status_command,
     _status_snapshot,
+    _terminal_output_is_transient_control,
     _terminal_input_chunks_for_message,
     _terminal_input_for_key,
     _terminal_input_for_message,
@@ -7801,6 +7802,27 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(pending, "")
         self.assertEqual(cleaned, "first\nsecond\nthir")
+
+    def test_terminal_output_filter_drops_transient_control_frames(self) -> None:
+        frame = (
+            "\x1b]0;\u2838 better-planned\x07"
+            "\x1b[?2026h"
+            "\x1b[39m\x1b[49m\x1b[0m"
+            "\x1b[0 q"
+            "\x1b[?25h"
+            "\x1b[35;3H"
+            "\x1b[?2026l"
+        )
+
+        cleaned, pending = _clean_terminal_output(frame)
+
+        self.assertEqual(cleaned, "")
+        self.assertEqual(pending, "")
+        self.assertTrue(_terminal_output_is_transient_control(frame))
+
+    def test_terminal_output_filter_keeps_visible_terminal_controls(self) -> None:
+        self.assertFalse(_terminal_output_is_transient_control("\x1b[2J"))
+        self.assertFalse(_terminal_output_is_transient_control("\x1b[35;3HWorking"))
 
     def test_terminal_input_uses_enter_key_for_single_line_submit(self) -> None:
         self.assertEqual(_terminal_input_for_message("hello"), "hello\r")
