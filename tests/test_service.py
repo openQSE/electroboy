@@ -13,6 +13,7 @@ import unittest
 from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
+from urllib.parse import urlencode
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2777,6 +2778,45 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const absolutePath = linkPath.startsWith("/");', page)
         self.assertIn('window.parent.postMessage(', page)
 
+    def test_document_target_renderer_rewrites_local_image_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "guide.md").write_text(
+                "# Guide\n\n"
+                "![Diagram](images/diagram.png)\n\n"
+                "![Photo](../photo.jpg)\n\n"
+                "![Remote](https://example.com/remote.png)\n\n"
+                "![Inline](data:image/png;base64,AA==)\n",
+                encoding="utf-8",
+            )
+
+            page, status = document_target_html(
+                root,
+                "docs/guide.md",
+                asset_context={
+                    "context_id": "ctx-1",
+                    "connection_id": "connection-1",
+                },
+            )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn(
+            'src="/artifacts/document-image?document_path=docs%2Fguide.md'
+            '&amp;image_path=images%2Fdiagram.png&amp;context_id=ctx-1'
+            '&amp;connection_id=connection-1"',
+            page,
+        )
+        self.assertIn(
+            'src="/artifacts/document-image?document_path=docs%2Fguide.md'
+            '&amp;image_path=..%2Fphoto.jpg&amp;context_id=ctx-1'
+            '&amp;connection_id=connection-1"',
+            page,
+        )
+        self.assertIn('src="https://example.com/remote.png"', page)
+        self.assertIn('src="data:image/png;base64,AA=="', page)
+
     def test_document_target_renderer_handles_code_fences_and_mermaid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3164,6 +3204,76 @@ class ServiceTests(unittest.TestCase):
             headers.get("Content-Disposition"),
             'attachment; filename="requirements.docx"',
         )
+
+    def test_document_image_endpoint_serves_images_relative_to_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            external_docs = base / "shared" / "docs"
+            image_directory = external_docs / "images"
+            image_directory.mkdir(parents=True)
+            document = external_docs / "guide.md"
+            document.write_text(
+                "# Guide\n\n![Pixel](images/pixel.png)\n",
+                encoding="utf-8",
+            )
+            images = {
+                "images/pixel.png": (b"png-image-data", "image/png"),
+                "images/photo.jpg": (b"jpeg-image-data", "image/jpeg"),
+            }
+            for relative_path, (image_data, _content_type) in images.items():
+                (external_docs / relative_path).write_bytes(image_data)
+
+            StateStore(root).init_run(run_id="run-1")
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            payload = server.service_state.create_context()
+            context_id = str(payload["context_id"])
+            server.service_state.open_project(context_id, str(root))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                preview_status, preview_body, preview_type = request(
+                    server,
+                    "/artifacts/document?"
+                    + urlencode(
+                        {
+                            "context_id": context_id,
+                            "path": str(document),
+                        }
+                    ),
+                )
+                responses = {}
+                for image_path in images:
+                    responses[image_path] = request_bytes(
+                        server,
+                        "/artifacts/document-image?"
+                        + urlencode(
+                            {
+                                "context_id": context_id,
+                                "document_path": str(document),
+                                "image_path": image_path,
+                            }
+                        ),
+                    )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(preview_status, 200)
+        self.assertEqual(preview_type, "text/html; charset=utf-8")
+        self.assertIn("/artifacts/document-image?document_path=", preview_body)
+        for image_path, (expected_data, expected_type) in images.items():
+            status, body, content_type, headers = responses[image_path]
+            self.assertEqual(status, 200)
+            self.assertEqual(body, expected_data)
+            self.assertEqual(content_type, expected_type)
+            self.assertNotIn("Content-Disposition", headers)
 
     def test_document_export_endpoint_serves_document_outside_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

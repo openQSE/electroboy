@@ -8,10 +8,30 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 from xml.sax.saxutils import escape as xml_escape
 
 
 SUPPORTED_DOCUMENT_EXPORT_FORMATS = {"markdown", "md", "docx", "pdf"}
+MARKDOWN_IMAGE_CONTENT_TYPES = {
+    ".avif": "image/avif",
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+_EXPORT_IMAGE_CONTENT_TYPES = {
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+}
+_MARKDOWN_IMAGE_RE = re.compile(
+    r"!\[(?P<alt>[^\]]*)\]\(\s*"
+    r"(?P<source><[^>\n]+>|[^)\s]+)"
+    r"(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)"
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +53,18 @@ class MarkdownBlock:
     anchor: str = ""
     language: str = ""
     rows: tuple[tuple[str, ...], ...] = ()
+    image_source: str = ""
+
+
+@dataclass(frozen=True)
+class ExportImage:
+    """Resolved local image included in a rendered document."""
+
+    data: bytes
+    content_type: str
+    extension: str
+    width: int
+    height: int
 
 
 class DocumentExportError(RuntimeError):
@@ -51,13 +83,20 @@ def export_markdown_document(
     if not document_path.is_file():
         raise DocumentExportError(f"document path is not a file: {relative_path}")
     markdown = document_path.read_text(encoding="utf-8")
-    return export_markdown_text(markdown, relative_path, export_format)
+    return export_markdown_text(
+        markdown,
+        relative_path,
+        export_format,
+        source_path=document_path,
+    )
 
 
 def export_markdown_text(
     markdown: str,
     source_name: str,
     export_format: str,
+    *,
+    source_path: Path | None = None,
 ) -> DocumentExport:
     """Export Markdown text as Markdown, DOCX, or PDF."""
 
@@ -70,9 +109,10 @@ def export_markdown_text(
             content_type="text/markdown; charset=utf-8",
         )
     blocks = parse_markdown_blocks(markdown)
+    images = _export_images(blocks, source_path)
     if normalized_format == "docx":
         return DocumentExport(
-            data=_docx_bytes(blocks),
+            data=_docx_bytes(blocks, images),
             filename=f"{stem}.docx",
             content_type=(
                 "application/vnd.openxmlformats-officedocument."
@@ -80,7 +120,11 @@ def export_markdown_text(
             ),
         )
     return DocumentExport(
-        data=_pdf_bytes(blocks, title=_document_title(blocks, stem)),
+        data=_pdf_bytes(
+            blocks,
+            images,
+            title=_document_title(blocks, stem),
+        ),
         filename=f"{stem}.pdf",
         content_type="application/pdf",
     )
@@ -113,7 +157,10 @@ def parse_markdown_blocks(markdown: str) -> list[MarkdownBlock]:
 
     def flush_paragraph() -> None:
         if paragraph:
-            blocks.append(MarkdownBlock("paragraph", _join_paragraph(paragraph)))
+            _append_paragraph_blocks(
+                blocks,
+                _join_paragraph(paragraph),
+            )
             paragraph.clear()
 
     def flush_code() -> None:
@@ -195,6 +242,146 @@ def parse_markdown_blocks(markdown: str) -> list[MarkdownBlock]:
     return blocks
 
 
+def resolve_markdown_image_path(
+    document_path: Path,
+    image_source: str,
+) -> tuple[Path, str]:
+    """Resolve a local Markdown image relative to its source document."""
+
+    source = html.unescape(image_source).strip()
+    parsed = urlsplit(source)
+    if parsed.scheme not in {"", "file"} or (
+        parsed.scheme == "file" and parsed.netloc not in {"", "localhost"}
+    ):
+        raise DocumentExportError("document image must use a local path")
+    raw_path = unquote(parsed.path).replace("\\", "/")
+    if not raw_path:
+        raise DocumentExportError("document image path is required")
+    requested_path = Path(raw_path).expanduser()
+    image_path = (
+        requested_path.resolve()
+        if requested_path.is_absolute()
+        else (document_path.parent / requested_path).resolve()
+    )
+    content_type = MARKDOWN_IMAGE_CONTENT_TYPES.get(image_path.suffix.lower())
+    if content_type is None:
+        raise DocumentExportError("unsupported document image format")
+    if not image_path.exists():
+        raise DocumentExportError(f"document image does not exist: {image_path}")
+    if not image_path.is_file():
+        raise DocumentExportError(
+            f"document image path is not a file: {image_path}"
+        )
+    return image_path, content_type
+
+
+def _append_paragraph_blocks(
+    blocks: list[MarkdownBlock],
+    paragraph: str,
+) -> None:
+    cursor = 0
+    for match in _MARKDOWN_IMAGE_RE.finditer(paragraph):
+        preceding = paragraph[cursor : match.start()].strip()
+        if preceding:
+            blocks.append(MarkdownBlock("paragraph", preceding))
+        source = match.group("source").strip()
+        if source.startswith("<") and source.endswith(">"):
+            source = source[1:-1]
+        blocks.append(
+            MarkdownBlock(
+                "image",
+                text=_plain_inline_text(match.group("alt")),
+                image_source=source,
+            )
+        )
+        cursor = match.end()
+    trailing = paragraph[cursor:].strip()
+    if trailing:
+        blocks.append(MarkdownBlock("paragraph", trailing))
+
+
+def _export_images(
+    blocks: list[MarkdownBlock],
+    source_path: Path | None,
+) -> dict[str, ExportImage]:
+    if source_path is None:
+        return {}
+    images: dict[str, ExportImage] = {}
+    for block in blocks:
+        if block.kind != "image" or block.image_source in images:
+            continue
+        try:
+            image_path, content_type = resolve_markdown_image_path(
+                source_path,
+                block.image_source,
+            )
+        except DocumentExportError:
+            continue
+        extension = image_path.suffix.lower()
+        if extension not in _EXPORT_IMAGE_CONTENT_TYPES:
+            continue
+        data = image_path.read_bytes()
+        width, height = _image_pixel_dimensions(data, content_type)
+        images[block.image_source] = ExportImage(
+            data=data,
+            content_type=content_type,
+            extension=extension.lstrip("."),
+            width=width,
+            height=height,
+        )
+    return images
+
+
+def _image_pixel_dimensions(data: bytes, content_type: str) -> tuple[int, int]:
+    if content_type == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n"):
+        if len(data) >= 24:
+            width = int.from_bytes(data[16:20], "big")
+            height = int.from_bytes(data[20:24], "big")
+            if width > 0 and height > 0:
+                return width, height
+    if content_type == "image/jpeg" and data.startswith(b"\xff\xd8"):
+        cursor = 2
+        start_of_frame = {
+            0xC0,
+            0xC1,
+            0xC2,
+            0xC3,
+            0xC5,
+            0xC6,
+            0xC7,
+            0xC9,
+            0xCA,
+            0xCB,
+            0xCD,
+            0xCE,
+            0xCF,
+        }
+        while cursor + 8 < len(data):
+            if data[cursor] != 0xFF:
+                cursor += 1
+                continue
+            while cursor < len(data) and data[cursor] == 0xFF:
+                cursor += 1
+            if cursor >= len(data):
+                break
+            marker = data[cursor]
+            cursor += 1
+            if marker in {0x01, *range(0xD0, 0xDA)}:
+                continue
+            if cursor + 2 > len(data):
+                break
+            segment_length = int.from_bytes(data[cursor : cursor + 2], "big")
+            if segment_length < 2 or cursor + segment_length > len(data):
+                break
+            if marker in start_of_frame and segment_length >= 7:
+                height = int.from_bytes(data[cursor + 3 : cursor + 5], "big")
+                width = int.from_bytes(data[cursor + 5 : cursor + 7], "big")
+                if width > 0 and height > 0:
+                    return width, height
+            cursor += segment_length
+    return 640, 480
+
+
 def _parse_markdown_table(
     lines: list[str],
     index: int,
@@ -229,28 +416,49 @@ def _markdown_table_cells(line: str) -> list[str]:
     return [cell.strip() for cell in stripped.strip("|").split("|")]
 
 
-def _docx_bytes(blocks: list[MarkdownBlock]) -> bytes:
+def _docx_bytes(
+    blocks: list[MarkdownBlock],
+    images: dict[str, ExportImage],
+) -> bytes:
     relationships = _docx_external_link_relationships(blocks)
-    document_xml = _docx_document_xml(blocks, relationships)
+    image_relationships = {
+        source: (f"rIdImage{index}", f"image{index}.{image.extension}")
+        for index, (source, image) in enumerate(images.items(), start=1)
+    }
+    document_xml = _docx_document_xml(
+        blocks,
+        relationships,
+        images,
+        image_relationships,
+    )
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", _docx_content_types_xml())
+        archive.writestr(
+            "[Content_Types].xml",
+            _docx_content_types_xml(images),
+        )
         archive.writestr("_rels/.rels", _docx_relationships_xml())
         archive.writestr("word/document.xml", document_xml)
         archive.writestr(
             "word/_rels/document.xml.rels",
-            _docx_document_rels_xml(relationships),
+            _docx_document_rels_xml(relationships, image_relationships),
         )
         archive.writestr("word/styles.xml", _docx_styles_xml())
+        for source, image in images.items():
+            _relationship_id, filename = image_relationships[source]
+            archive.writestr(f"word/media/{filename}", image.data)
     return output.getvalue()
 
 
 def _docx_document_xml(
     blocks: list[MarkdownBlock],
     relationships: dict[str, str],
+    images: dict[str, ExportImage],
+    image_relationships: dict[str, tuple[str, str]],
 ) -> str:
     body: list[str] = []
     bookmark_id = 1
+    drawing_id = 1
     for block in blocks or [MarkdownBlock("paragraph", "")]:
         if block.kind == "heading":
             level = max(1, min(block.level, 6))
@@ -279,6 +487,22 @@ def _docx_document_xml(
         if block.kind == "table":
             body.append(_docx_table(block.rows, relationships))
             continue
+        if block.kind == "image":
+            image = images.get(block.image_source)
+            image_relationship = image_relationships.get(block.image_source)
+            if image is not None and image_relationship is not None:
+                body.append(
+                    _docx_image_paragraph(
+                        image,
+                        image_relationship[0],
+                        block.text,
+                        drawing_id,
+                    )
+                )
+                drawing_id += 1
+            else:
+                body.append(_docx_paragraph(block.text or block.image_source))
+            continue
         body.append(_docx_paragraph(block.text, relationships=relationships))
     body.append(
         '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>'
@@ -294,6 +518,49 @@ def _docx_document_xml(
         '2006/relationships">'
         f"<w:body>{''.join(body)}</w:body>"
         "</w:document>"
+    )
+
+
+def _docx_image_paragraph(
+    image: ExportImage,
+    relationship_id: str,
+    alt_text: str,
+    drawing_id: int,
+) -> str:
+    native_width = max(1, image.width) * 9525
+    native_height = max(1, image.height) * 9525
+    scale = min(1.0, 5_943_600 / native_width, 6_858_000 / native_height)
+    width = max(1, int(native_width * scale))
+    height = max(1, int(native_height * scale))
+    description = html.escape(alt_text, quote=True)
+    name = f"Picture {drawing_id}"
+    return (
+        "<w:p><w:r><w:drawing>"
+        '<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/'
+        '2006/wordprocessingDrawing" distT="0" distB="0" distL="0" '
+        'distR="0">'
+        f'<wp:extent cx="{width}" cy="{height}"/>'
+        '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
+        f'<wp:docPr id="{drawing_id}" name="{name}" '
+        f'descr="{description}"/>'
+        '<wp:cNvGraphicFramePr><a:graphicFrameLocks '
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+        '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/'
+        '2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/'
+        'drawingml/2006/picture">'
+        '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/'
+        '2006/picture"><pic:nvPicPr>'
+        f'<pic:cNvPr id="{drawing_id}" name="{name}" '
+        f'descr="{description}"/><pic:cNvPicPr/></pic:nvPicPr>'
+        '<pic:blipFill>'
+        f'<a:blip r:embed="{relationship_id}"/>'
+        '<a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+        '<pic:spPr><a:xfrm><a:off x="0" y="0"/>'
+        f'<a:ext cx="{width}" cy="{height}"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        "</pic:spPr></pic:pic></a:graphicData></a:graphic>"
+        "</wp:inline></w:drawing></w:r></w:p>"
     )
 
 
@@ -407,7 +674,16 @@ def _docx_external_link_relationships(blocks: list[MarkdownBlock]) -> dict[str, 
     return links
 
 
-def _docx_content_types_xml() -> str:
+def _docx_content_types_xml(images: dict[str, ExportImage]) -> str:
+    image_types = "".join(
+        '<Default Extension="{extension}" ContentType="{content_type}"/>'.format(
+            extension=html.escape(extension, quote=True),
+            content_type=html.escape(content_type, quote=True),
+        )
+        for extension, content_type in sorted(
+            {(image.extension, image.content_type) for image in images.values()}
+        )
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -420,6 +696,7 @@ def _docx_content_types_xml() -> str:
         '<Override PartName="/word/styles.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.'
         'wordprocessingml.styles+xml"/>'
+        f"{image_types}"
         "</Types>"
     )
 
@@ -437,7 +714,10 @@ def _docx_relationships_xml() -> str:
     )
 
 
-def _docx_document_rels_xml(relationships: dict[str, str]) -> str:
+def _docx_document_rels_xml(
+    relationships: dict[str, str],
+    image_relationships: dict[str, tuple[str, str]],
+) -> str:
     hyperlink_relationships = "".join(
         '<Relationship Id="{relationship_id}" '
         'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
@@ -446,6 +726,15 @@ def _docx_document_rels_xml(relationships: dict[str, str]) -> str:
             target=xml_escape(target),
         )
         for target, relationship_id in relationships.items()
+    )
+    image_relationship_xml = "".join(
+        '<Relationship Id="{relationship_id}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+        'relationships/image" Target="media/{filename}"/>'.format(
+            relationship_id=html.escape(relationship_id, quote=True),
+            filename=html.escape(filename, quote=True),
+        )
+        for relationship_id, filename in image_relationships.values()
     )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -456,6 +745,7 @@ def _docx_document_rels_xml(relationships: dict[str, str]) -> str:
         'relationships/styles" '
         'Target="styles.xml"/>'
         f"{hyperlink_relationships}"
+        f"{image_relationship_xml}"
         "</Relationships>"
     )
 
@@ -486,13 +776,19 @@ def _docx_heading_styles() -> str:
     )
 
 
-def _pdf_bytes(blocks: list[MarkdownBlock], *, title: str) -> bytes:
+def _pdf_bytes(
+    blocks: list[MarkdownBlock],
+    images: dict[str, ExportImage],
+    *,
+    title: str,
+) -> bytes:
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.platypus import (
+            Image,
             ListFlowable,
             ListItem,
             Paragraph,
@@ -571,6 +867,32 @@ def _pdf_bytes(blocks: list[MarkdownBlock], *, title: str) -> bytes:
                     document.width,
                 )
             )
+            story.append(Spacer(1, 8))
+        elif block.kind == "image":
+            image = images.get(block.image_source)
+            if image is None:
+                story.append(
+                    _pdf_paragraph(
+                        block.text or block.image_source,
+                        styles["BodyText"],
+                        Paragraph,
+                    )
+                )
+            else:
+                native_width = max(1, image.width) * 0.75
+                native_height = max(1, image.height) * 0.75
+                scale = min(
+                    1.0,
+                    document.width / native_width,
+                    (document.height * 0.8) / native_height,
+                )
+                flowable = Image(
+                    io.BytesIO(image.data),
+                    width=native_width * scale,
+                    height=native_height * scale,
+                )
+                flowable.hAlign = "LEFT"
+                story.append(flowable)
             story.append(Spacer(1, 8))
         else:
             story.append(

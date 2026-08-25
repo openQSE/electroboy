@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import importlib.util
 import io
 import sys
+import tempfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -13,6 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.document_export import (  # noqa: E402
     _pdf_bullet_list,
+    export_markdown_document,
     export_markdown_text,
 )
 
@@ -56,6 +59,26 @@ BULLET_MARKDOWN = """# Bullets
 - First long bullet item that should wrap with hanging indentation in PDF output.
 - Second bullet item should not have paragraph-style spacing before it.
 """
+
+PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8A"
+    "AQUBAScY42YAAAAASUVORK5CYII="
+)
+PIXEL_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8U"
+    "HRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgN"
+    "DRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy"
+    "MjIyMjL/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQF"
+    "BgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEI"
+    "I0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNk"
+    "ZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLD"
+    "xMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEB"
+    "AQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJB"
+    "UQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZH"
+    "SElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaan"
+    "qKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oA"
+    "DAMBAAIRAxEAPwCOiiivmj7A/9k="
+)
 
 
 class DocumentExportTests(unittest.TestCase):
@@ -112,6 +135,44 @@ class DocumentExportTests(unittest.TestCase):
         self.assertIn("relationships/hyperlink", relationships_xml)
         self.assertIn('Target="https://example.com"', relationships_xml)
 
+    def test_docx_export_embeds_local_png_and_jpeg_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            (images / "pixel.png").write_bytes(PIXEL_PNG)
+            (images / "photo.jpg").write_bytes(PIXEL_JPEG)
+            document = root / "guide.md"
+            document.write_text(
+                "# Images\n\n"
+                "![Pixel](images/pixel.png)\n\n"
+                "![Photo](images/photo.jpg)\n",
+                encoding="utf-8",
+            )
+
+            exported = export_markdown_document(document, "guide.md", "docx")
+
+        with zipfile.ZipFile(io.BytesIO(exported.data)) as archive:
+            names = set(archive.namelist())
+            document_xml = archive.read("word/document.xml").decode("utf-8")
+            relationships_xml = archive.read(
+                "word/_rels/document.xml.rels"
+            ).decode("utf-8")
+            content_types_xml = archive.read("[Content_Types].xml").decode("utf-8")
+            png_data = archive.read("word/media/image1.png")
+            jpeg_data = archive.read("word/media/image2.jpg")
+
+        self.assertIn("word/media/image1.png", names)
+        self.assertIn("word/media/image2.jpg", names)
+        self.assertEqual(png_data, PIXEL_PNG)
+        self.assertEqual(jpeg_data, PIXEL_JPEG)
+        self.assertEqual(document_xml.count("<w:drawing>"), 2)
+        self.assertIn('descr="Pixel"', document_xml)
+        self.assertIn('descr="Photo"', document_xml)
+        self.assertEqual(relationships_xml.count("relationships/image"), 2)
+        self.assertIn('Extension="png" ContentType="image/png"', content_types_xml)
+        self.assertIn('Extension="jpg" ContentType="image/jpeg"', content_types_xml)
+
     @unittest.skipIf(
         importlib.util.find_spec("reportlab") is None,
         "reportlab is not installed",
@@ -136,6 +197,30 @@ class DocumentExportTests(unittest.TestCase):
 
         self.assertEqual(exported.content_type, "application/pdf")
         self.assertTrue(exported.data.startswith(b"%PDF"))
+
+    @unittest.skipIf(
+        importlib.util.find_spec("reportlab") is None,
+        "reportlab is not installed",
+    )
+    def test_pdf_export_embeds_local_png_and_jpeg_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            (images / "pixel.png").write_bytes(PIXEL_PNG)
+            (images / "photo.jpg").write_bytes(PIXEL_JPEG)
+            document = root / "guide.md"
+            document.write_text(
+                "# Images\n\n"
+                "![Pixel](images/pixel.png)\n\n"
+                "![Photo](images/photo.jpg)\n",
+                encoding="utf-8",
+            )
+
+            exported = export_markdown_document(document, "guide.md", "pdf")
+
+        self.assertTrue(exported.data.startswith(b"%PDF"))
+        self.assertGreaterEqual(exported.data.count(b"/Subtype /Image"), 2)
 
     @unittest.skipIf(
         importlib.util.find_spec("reportlab") is None,

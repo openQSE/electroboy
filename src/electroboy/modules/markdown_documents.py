@@ -21,10 +21,20 @@ from electroboy.service.routes import RouteRequest
 from .common import route
 from .document_service import (
     _artifact_event_document_path,
+    _document_image_asset,
     _document_target_path,
     _document_zoom_from_params,
     _ensure_document_target,
     document_target_html,
+)
+
+_DOCUMENT_ASSET_CONTEXT_KEYS = (
+    "context_id",
+    "workspace_id",
+    "connection_id",
+    "lease_token",
+    "telemetry_page_id",
+    "telemetry_tab_id",
 )
 
 
@@ -41,6 +51,11 @@ def _preview(request: RouteRequest) -> HtmlResponse:
             embedded=(params.get("embed") or ["0"])[0] == "1",
             create_missing=(params.get("create") or ["0"])[0] == "1",
             zoom_percent=_document_zoom_from_params(params),
+            asset_context={
+                key: str((params.get(key) or [""])[0])
+                for key in _DOCUMENT_ASSET_CONTEXT_KEYS
+                if (params.get(key) or [""])[0]
+            },
         )
     except Exception as error:
         return HtmlResponse(
@@ -48,6 +63,23 @@ def _preview(request: RouteRequest) -> HtmlResponse:
             status=HTTPStatus.CONFLICT,
         )
     return HtmlResponse(page, status=status)
+
+
+def _image(request: RouteRequest) -> ServiceResponse:
+    params = request.params
+    document_target = str((params.get("document_path") or [""])[0])
+    image_source = str((params.get("image_path") or [""])[0])
+    try:
+        root = request.services.contexts.active_project_root(request.context_id)
+        image_path, content_type = _document_image_asset(
+            root,
+            document_target,
+            image_source,
+        )
+        data = image_path.read_bytes()
+    except Exception as error:
+        return TextResponse(str(error), status=HTTPStatus.CONFLICT)
+    return BinaryResponse(data, content_type)
 
 
 def _export(request: RouteRequest) -> ServiceResponse:
@@ -96,7 +128,12 @@ def _events(request: RouteRequest) -> ServiceResponse:
     return StreamResponse(lambda: request.stream_artifact_events(artifact, path))
 
 
-_HANDLERS = {"preview": _preview, "export": _export, "events": _events}
+_HANDLERS = {
+    "preview": _preview,
+    "image": _image,
+    "export": _export,
+    "events": _events,
+}
 
 
 def module() -> ServiceModule:
@@ -105,6 +142,12 @@ def module() -> ServiceModule:
         label="Markdown Documents",
         routes=(
             route("GET", "/artifacts/document", "markdown_documents", "preview"),
+            route(
+                "GET",
+                "/artifacts/document-image",
+                "markdown_documents",
+                "image",
+            ),
             route("GET", "/api/documents/export", "markdown_documents", "export"),
             route("GET", "/api/artifacts/events", "markdown_documents", "events"),
         ),

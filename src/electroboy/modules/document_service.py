@@ -5,9 +5,12 @@ from __future__ import annotations
 import html
 import json
 import re
+from collections.abc import Mapping
 from http import HTTPStatus
 from pathlib import Path
+from urllib.parse import urlencode, urlsplit
 
+from electroboy.document_export import resolve_markdown_image_path
 from electroboy.feature_artifacts import (
     artifact_paths_for_run,
     resolve_artifact_path,
@@ -46,6 +49,12 @@ _STAGE_DOCUMENT_CONFIG = {
         "artifact_title": "Validation Report",
     },
 }
+
+_DOCUMENT_IMAGE_SRC_RE = re.compile(
+    r'(?P<prefix><img\b[^>]*?\bsrc\s*=\s*)(?P<quote>["\'])'
+    r"(?P<src>.*?)(?P=quote)",
+    re.IGNORECASE,
+)
 
 
 def _generic_stage_config(stage: str) -> dict[str, object]:
@@ -167,6 +176,7 @@ def document_target_html(
     embedded: bool = False,
     create_missing: bool = False,
     zoom_percent: int = 100,
+    asset_context: Mapping[str, str] | None = None,
 ) -> tuple[str, HTTPStatus]:
     normalized_path = (
         _ensure_document_target(project_root, relative_path)
@@ -181,6 +191,7 @@ def document_target_html(
         f"{normalized_path} document does not exist yet.",
         embedded=embedded,
         zoom_percent=zoom_percent,
+        asset_context=asset_context,
     )
 
 
@@ -220,12 +231,18 @@ def markdown_document_html(
     *,
     embedded: bool = False,
     zoom_percent: int = 100,
+    asset_context: Mapping[str, str] | None = None,
 ) -> tuple[str, HTTPStatus]:
     project_root = Path(project_root).expanduser().resolve()
     document_path = project_root / relative_path
     if document_path.exists():
         text = document_path.read_text(encoding="utf-8")
         body = _render_markdown(text)
+        body = _rewrite_document_image_sources(
+            body,
+            relative_path,
+            asset_context,
+        )
         status = HTTPStatus.OK
     else:
         body = f"<p>{html.escape(missing_message)}</p>"
@@ -2106,6 +2123,18 @@ def _document_target_path(project_root: Path | str, relative_path: str) -> tuple
     return stored_path, document_path
 
 
+def _document_image_asset(
+    project_root: Path | str,
+    document_target: str,
+    image_source: str,
+) -> tuple[Path, str]:
+    _stored_path, document_path = _document_target_path(
+        project_root,
+        document_target,
+    )
+    return resolve_markdown_image_path(document_path, image_source)
+
+
 def _resolved_artifact_relative_path(
     project_root: Path | str,
     default_relative_path: str,
@@ -2163,6 +2192,39 @@ def _render_markdown(text: str) -> str:
         )
     )
     return _promote_mermaid_blocks(rendered)
+
+
+def _rewrite_document_image_sources(
+    rendered: str,
+    document_target: str,
+    asset_context: Mapping[str, str] | None,
+) -> str:
+    if not asset_context or "<img" not in rendered.lower():
+        return rendered
+
+    def replace(match: re.Match[str]) -> str:
+        source = html.unescape(match.group("src")).strip()
+        parsed = urlsplit(source)
+        if (
+            not source
+            or source.startswith("#")
+            or source.startswith("//")
+            or parsed.scheme not in {"", "file"}
+        ):
+            return match.group(0)
+        parameters = {
+            "document_path": document_target,
+            "image_path": source,
+            **{key: str(value) for key, value in asset_context.items() if value},
+        }
+        image_url = f"/artifacts/document-image?{urlencode(parameters)}"
+        escaped_url = html.escape(image_url, quote=True)
+        return (
+            f'{match.group("prefix")}{match.group("quote")}'
+            f'{escaped_url}{match.group("quote")}'
+        )
+
+    return _DOCUMENT_IMAGE_SRC_RE.sub(replace, rendered)
 
 
 def _document_link_script(relative_path: str) -> str:
