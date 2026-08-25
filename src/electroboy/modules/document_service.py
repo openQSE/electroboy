@@ -413,15 +413,11 @@ def _artifact_editor_font_size_from_params(params: dict[str, list[str]]) -> int:
     return _clamp_artifact_editor_font_size(round(16 * (zoom / 100)))
 
 
-def _normalize_document_target_path(relative_path: str) -> str:
-    raw = relative_path.strip().replace("\\", "/")
+def _normalize_document_target_path(target_path: str) -> str:
+    raw = target_path.strip().replace("\\", "/")
     if not raw:
         raise StateError("document path is required")
-    path = Path(raw)
-    if path.is_absolute():
-        raise StateError("document path must be relative")
-    if any(part in {"..", ""} for part in path.parts):
-        raise StateError("document path cannot escape the project")
+    path = Path(raw).expanduser()
     if path.suffix.lower() != ".md":
         raise StateError("document path must be a markdown file")
     return path.as_posix()
@@ -697,10 +693,11 @@ def save_artifact_edit(
     )
     document_path.parent.mkdir(parents=True, exist_ok=True)
     document_path.write_text(markdown, encoding="utf-8")
+    saved_path = _document_target_path(project_root, str(document_path))[0]
     return {
         "status": "saved",
         "mode": "markdown",
-        "markdown_path": document_path.relative_to(project_root).as_posix(),
+        "markdown_path": saved_path,
     }
 
 
@@ -2096,12 +2093,17 @@ def _rich_markdown_editor_script() -> str:
 def _document_target_path(project_root: Path | str, relative_path: str) -> tuple[str, Path]:
     project_root = Path(project_root).expanduser().resolve()
     normalized_path = _normalize_document_target_path(relative_path)
-    document_path = (project_root / normalized_path).resolve()
+    requested_path = Path(normalized_path)
+    document_path = (
+        requested_path.resolve()
+        if requested_path.is_absolute()
+        else (project_root / requested_path).resolve()
+    )
     try:
-        document_path.relative_to(project_root)
-    except ValueError as error:
-        raise StateError("document path cannot escape the project") from error
-    return normalized_path, document_path
+        stored_path = document_path.relative_to(project_root).as_posix()
+    except ValueError:
+        stored_path = document_path.as_posix()
+    return stored_path, document_path
 
 
 def _resolved_artifact_relative_path(
@@ -2204,7 +2206,8 @@ def _document_link_script(relative_path: str) -> str:
           };
         }
         const linkPath = decodeLinkPart(rawPath).replace(/\\/g, "/");
-        const segments = linkPath.startsWith("/")
+        const absolutePath = linkPath.startsWith("/");
+        const segments = absolutePath
           ? []
           : currentDocumentPath.split("/").slice(0, -1);
         for (const segment of linkPath.split("/")) {
@@ -2220,7 +2223,7 @@ def _document_link_script(relative_path: str) -> str:
           }
           segments.push(segment);
         }
-        const path = segments.join("/");
+        const path = `${absolutePath ? "/" : ""}${segments.join("/")}`;
         if (!/\.md$/i.test(path)) {
           return null;
         }

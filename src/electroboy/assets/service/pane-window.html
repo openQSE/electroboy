@@ -1838,9 +1838,6 @@
       if (root && selected.startsWith(`${root}/`)) {
         relativePath = selected.slice(root.length + 1);
       }
-      if (relativePath.startsWith("/")) {
-        throw new Error(`document must be under the active project: ${selected}`);
-      }
       const label = relativePath.replace(/\.md$/i, "") || relativePath;
       return { path: relativePath, label };
     }

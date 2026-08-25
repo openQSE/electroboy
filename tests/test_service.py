@@ -938,6 +938,8 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('data.type === "electroboy:document-link"', documents)
         self.assertIn('data.type === "electroboy:document-link"', pane_window)
+        self.assertNotIn("document must be under the active project", documents)
+        self.assertNotIn("document must be under the active project", pane_window)
         self.assertIn('addSection("navigation", "Navigation")', file_pane_tools)
         self.assertIn('const back = button("←"', file_pane_tools)
         self.assertIn('const forward = button("→"', file_pane_tools)
@@ -2772,6 +2774,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("location: currentDocumentLocation()", page)
         self.assertIn('location: { fragment: target.fragment }', page)
         self.assertIn('data.type !== "electroboy:document-location"', page)
+        self.assertIn('const absolutePath = linkPath.startsWith("/");', page)
         self.assertIn('window.parent.postMessage(', page)
 
     def test_document_target_renderer_handles_code_fences_and_mermaid(self) -> None:
@@ -2854,12 +2857,54 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("| Owner | Configuration | Purpose |", page)
         self.assertNotIn("### Site Configuration", page)
 
-    def test_document_target_renderer_rejects_unsafe_paths(self) -> None:
+    def test_document_target_renderer_supports_paths_outside_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            external = base / "shared" / "notes.md"
+            external.parent.mkdir()
+            external.write_text("# External notes\n", encoding="utf-8")
+
+            page, status = document_target_html(root, str(external))
+            editor, editor_status = artifact_editor_html(
+                root,
+                "document",
+                str(external),
+            )
+            result = save_artifact_edit(
+                root,
+                "document",
+                str(external),
+                {"mode": "markdown", "markdown": "# Updated notes\n"},
+            )
+            created_page, created_status = document_target_html(
+                root,
+                "../outside.md",
+                create_missing=True,
+            )
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertIn('<h1 id="external-notes">External notes</h1>', page)
+            self.assertIn(
+                f"const currentDocumentPath = {json.dumps(str(external))};",
+                page,
+            )
+            self.assertEqual(editor_status, HTTPStatus.OK)
+            self.assertIn('"mode": "markdown"', editor)
+            self.assertEqual(result["markdown_path"], str(external))
+            self.assertEqual(
+                external.read_text(encoding="utf-8"),
+                "# Updated notes\n",
+            )
+            self.assertEqual(created_status, HTTPStatus.OK)
+            self.assertTrue((base / "outside.md").is_file())
+            self.assertIn('<h1 id="outside">Outside</h1>', created_page)
+
+    def test_document_target_renderer_rejects_non_markdown_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
 
-            with self.assertRaises(StateError):
-                document_target_html(root, "../outside.md", create_missing=True)
             with self.assertRaises(StateError):
                 document_target_html(root, "docs/guide.txt", create_missing=True)
 
@@ -3120,6 +3165,46 @@ class ServiceTests(unittest.TestCase):
             'attachment; filename="requirements.docx"',
         )
 
+    def test_document_export_endpoint_serves_document_outside_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            external = base / "shared.md"
+            external.write_text("# Shared\n", encoding="utf-8")
+            StateStore(root).init_run(run_id="run-1")
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            payload = server.service_state.create_context()
+            context_id = str(payload["context_id"])
+            server.service_state.open_project(context_id, str(root))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type, headers = request_bytes(
+                    server,
+                    (
+                        "/api/documents/export"
+                        f"?context_id={context_id}&artifact=document"
+                        f"&format=markdown&path={external}"
+                    ),
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"# Shared\n")
+        self.assertEqual(content_type, "text/markdown; charset=utf-8")
+        self.assertEqual(
+            headers.get("Content-Disposition"),
+            'attachment; filename="shared.md"',
+        )
+
     def test_project_declares_markdown_renderer_dependency(self) -> None:
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
@@ -3233,8 +3318,10 @@ class ServiceTests(unittest.TestCase):
                 root.resolve() / "docs" / "detailed-design.md",
             )
 
-            with self.assertRaises(StateError):
-                _artifact_event_document_path(root, "document", "../README.md")
+            self.assertEqual(
+                _artifact_event_document_path(root, "document", "../README.md"),
+                root.resolve().parent / "README.md",
+            )
             with self.assertRaises(StateError):
                 _artifact_event_document_path(root, "route", "/artifacts/unknown")
 

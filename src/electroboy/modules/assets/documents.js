@@ -527,13 +527,6 @@
       if (root && selected.startsWith(`${root}/`)) {
         relativePath = selected.slice(root.length + 1);
       }
-      if (relativePath.startsWith("/")) {
-        appendOutput(
-          `document must be under the active project: ${selected}\n`,
-          "error",
-        );
-        return null;
-      }
       return documentTargetFromInput(relativePath);
     }
 

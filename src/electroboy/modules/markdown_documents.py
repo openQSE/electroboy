@@ -21,6 +21,7 @@ from electroboy.service.routes import RouteRequest
 from .common import route
 from .document_service import (
     _artifact_event_document_path,
+    _document_target_path,
     _document_zoom_from_params,
     _ensure_document_target,
     document_target_html,
@@ -65,7 +66,7 @@ def _export(request: RouteRequest) -> ServiceResponse:
             artifact,
             requested_path,
         )
-        relative_path = document_path.relative_to(root).as_posix()
+        relative_path = _document_target_path(root, str(document_path))[0]
         exported = export_markdown_document(
             document_path,
             relative_path,
