@@ -3501,6 +3501,7 @@
         allowProposedApi: false,
         convertEol: true,
         cursorBlink: false,
+        cursorInactiveStyle: pane === "agent" ? "none" : "outline",
         disableStdin,
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
         fontSize: effectivePaneFontSize(pane),

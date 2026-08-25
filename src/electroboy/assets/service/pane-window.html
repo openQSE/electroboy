@@ -307,6 +307,11 @@
       display: none;
     }
 
+    .pane-agent-terminal-host .xterm-cursor-layer,
+    .pane-agent-terminal-host .xterm-cursor {
+      display: none !important;
+    }
+
     .artifact-frame {
       background: var(--terminal);
       color-scheme: dark;
@@ -2250,6 +2255,7 @@
         allowProposedApi: false,
         convertEol: true,
         cursorBlink: false,
+        cursorInactiveStyle: PANE_KIND === "agent" ? "none" : "outline",
         disableStdin,
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
         fontSize,

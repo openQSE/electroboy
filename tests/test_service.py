@@ -766,6 +766,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function flushAgentOutputQueue(context)", app)
         self.assertIn("function resetTerminalOutput(terminalInstance)", app)
         self.assertIn("reset: resetTerminalOutput", app)
+        self.assertIn(
+            'cursorInactiveStyle: pane === "agent" ? "none" : "outline",',
+            app,
+        )
+        self.assertIn(".agent-terminal-host .xterm-cursor-layer", shell_css)
+        self.assertIn(".agent-terminal-host .xterm-cursor", shell_css)
         self.assertIn("TERMINAL_OUTPUT_FLUSH_BUDGET_MS", pane_window)
         self.assertIn("const agentTerminalContexts = new Map();", pane_window)
         self.assertIn("const agentEventStreams = new Map();", pane_window)
@@ -779,6 +785,15 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("let pinnedAgentSessionId = PANE_KIND === \"agent\" ? selectedSessionId : \"\";", pane_window)
         self.assertIn("function selectAgentTerminal(sessionId = \"\")", pane_window)
+        self.assertIn(
+            'cursorInactiveStyle: PANE_KIND === "agent" ? "none" : "outline",',
+            pane_window,
+        )
+        self.assertIn(
+            ".pane-agent-terminal-host .xterm-cursor-layer",
+            pane_window,
+        )
+        self.assertIn(".pane-agent-terminal-host .xterm-cursor", pane_window)
         self.assertIn("function ensureTerminalResizeTracking()", pane_window)
         self.assertIn("window.addEventListener(\"resize\", fitTerminal);", pane_window)
         self.assertIn("session_id: resizeSessionId,", pane_window)
