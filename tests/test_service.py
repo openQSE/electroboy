@@ -770,8 +770,21 @@ class ServiceTests(unittest.TestCase):
             'cursorInactiveStyle: pane === "agent" ? "none" : "outline",',
             app,
         )
-        self.assertIn(".agent-terminal-host .xterm-cursor-layer", shell_css)
-        self.assertIn(".agent-terminal-host .xterm-cursor", shell_css)
+        self.assertNotIn(".agent-terminal-host .xterm-cursor", shell_css)
+        self.assertIn("const cursorlessTerminals = new WeakSet();", terminal_behavior)
+        self.assertIn('{ prefix: "?", final: "h" }', terminal_behavior)
+        self.assertIn(
+            "(params) => params.length === 1 && params[0] === 25",
+            terminal_behavior,
+        )
+        self.assertIn("hideCursor(terminal);", terminal_behavior)
+        self.assertIn("{ fit, install, reset }", terminal_behavior)
+        self.assertIn(
+            "ElectroBoyTerminalBehavior.install(nextTerminal, {\n"
+            "        hideCursor: true,",
+            app,
+        )
+        self.assertIn("context.terminal.write(chunk)", app)
         self.assertIn("TERMINAL_OUTPUT_FLUSH_BUDGET_MS", pane_window)
         self.assertIn("const agentTerminalContexts = new Map();", pane_window)
         self.assertIn("const agentEventStreams = new Map();", pane_window)
@@ -789,11 +802,13 @@ class ServiceTests(unittest.TestCase):
             'cursorInactiveStyle: PANE_KIND === "agent" ? "none" : "outline",',
             pane_window,
         )
+        self.assertNotIn(".pane-agent-terminal-host .xterm-cursor", pane_window)
         self.assertIn(
-            ".pane-agent-terminal-host .xterm-cursor-layer",
+            "ElectroBoyTerminalBehavior.install(nextTerminal, {\n"
+            "        hideCursor: true,",
             pane_window,
         )
-        self.assertIn(".pane-agent-terminal-host .xterm-cursor", pane_window)
+        self.assertIn("target.terminal.write(chunk)", pane_window)
         self.assertIn("function ensureTerminalResizeTracking()", pane_window)
         self.assertIn("window.addEventListener(\"resize\", fitTerminal);", pane_window)
         self.assertIn("session_id: resizeSessionId,", pane_window)

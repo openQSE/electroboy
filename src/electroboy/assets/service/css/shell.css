@@ -1947,11 +1947,6 @@
       display: none;
     }
 
-    .agent-terminal-host .xterm-cursor-layer,
-    .agent-terminal-host .xterm-cursor {
-      display: none !important;
-    }
-
     .progress-output {
       font-size: var(--progress-output-font-size, var(--terminal-font-size));
     }

@@ -3411,7 +3411,9 @@
         nextTerminal.loadAddon(nextFit);
       }
       nextTerminal.open(host);
-      window.ElectroBoyTerminalBehavior.install(nextTerminal);
+      window.ElectroBoyTerminalBehavior.install(nextTerminal, {
+        hideCursor: true,
+      });
       nextTerminal.onResize(({ cols, rows }) => {
         queueTerminalResize(cols, rows, terminalSessionId);
       });

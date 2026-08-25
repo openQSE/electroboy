@@ -1,6 +1,9 @@
 (function () {
   "use strict";
 
+  const CURSOR_HIDE_SEQUENCE = "\x1b[?25l";
+  const cursorlessTerminals = new WeakSet();
+
   function legacyCopy(text) {
     const textarea = document.createElement("textarea");
     textarea.value = text;
@@ -32,7 +35,15 @@
       && terminal.hasSelection();
   }
 
-  function install(terminal) {
+  function hideCursor(terminal) {
+    if (!terminal || typeof terminal.write !== "function") {
+      return false;
+    }
+    terminal.write(CURSOR_HIDE_SEQUENCE);
+    return true;
+  }
+
+  function install(terminal, options = {}) {
     if (!terminal) {
       return;
     }
@@ -55,6 +66,17 @@
         { final: "J" },
         (params) => params.length > 0 && params[0] === 3,
       );
+      if (options.hideCursor === true) {
+        // DECTCEM enables the terminal cursor. Output-only panes keep it hidden.
+        terminal.parser.registerCsiHandler(
+          { prefix: "?", final: "h" },
+          (params) => params.length === 1 && params[0] === 25,
+        );
+      }
+    }
+    if (options.hideCursor === true) {
+      cursorlessTerminals.add(terminal);
+      hideCursor(terminal);
     }
   }
 
@@ -106,7 +128,13 @@
     }
     if (typeof terminal.clear === "function") {
       terminal.clear();
+      if (cursorlessTerminals.has(terminal)) {
+        hideCursor(terminal);
+      }
       return true;
+    }
+    if (cursorlessTerminals.has(terminal)) {
+      hideCursor(terminal);
     }
     return didReset;
   }

@@ -307,11 +307,6 @@
       display: none;
     }
 
-    .pane-agent-terminal-host .xterm-cursor-layer,
-    .pane-agent-terminal-host .xterm-cursor {
-      display: none !important;
-    }
-
     .artifact-frame {
       background: var(--terminal);
       color-scheme: dark;
@@ -2498,7 +2493,9 @@
         nextTerminal.loadAddon(nextFit);
       }
       nextTerminal.open(host);
-      window.ElectroBoyTerminalBehavior.install(nextTerminal);
+      window.ElectroBoyTerminalBehavior.install(nextTerminal, {
+        hideCursor: true,
+      });
       nextTerminal.onResize(({ cols, rows }) => {
         queueAgentResize(cols, rows, terminalSessionId);
       });
