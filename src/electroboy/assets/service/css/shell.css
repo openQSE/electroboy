@@ -321,7 +321,7 @@
     }
 
     .help-card {
-      width: min(94vw, 980px);
+      width: min(96vw, 1320px);
       max-height: calc(100vh - 64px);
       overflow: auto;
       border: 1px solid rgb(102 217 232 / 48%);
@@ -398,6 +398,7 @@
 
     .help-section {
       min-width: 0;
+      overflow: hidden;
       padding: 18px;
       border: 1px solid rgb(255 255 255 / 8%);
       border-radius: 10px;
@@ -419,9 +420,23 @@
     .help-guide-item,
     .help-shortcut-item {
       display: grid;
-      grid-template-columns: minmax(92px, 0.34fr) minmax(0, 1fr);
       gap: 12px;
       align-items: start;
+    }
+
+    .help-guide-item {
+      grid-template-columns: 160px minmax(0, 1fr);
+    }
+
+    .help-shortcut-item {
+      grid-template-columns: 190px minmax(0, 1fr);
+    }
+
+    .help-guide-item > *,
+    .help-shortcut-item > * {
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
 
     .help-guide-item strong,
@@ -544,7 +559,7 @@
       display: grid;
       grid-template-columns:
         minmax(0, 1fr)
-        clamp(160px, 18vw, 280px)
+        max-content
         38px;
       gap: 14px;
       align-items: center;
@@ -861,10 +876,9 @@
 
     .connection {
       display: block;
-      min-width: 0;
+      width: max-content;
       height: calc(var(--ui-font-size) + 23px);
       min-height: 34px;
-      overflow: hidden;
       padding: 8px 12px;
       border: 1px solid #9fb4c8;
       border-radius: 8px;
@@ -876,7 +890,6 @@
       font-size: var(--ui-font-size);
       font-weight: 400;
       line-height: 1.1;
-      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
@@ -2588,7 +2601,7 @@
       .workflow-topbar {
         right: 16px;
         left: 16px;
-        grid-template-columns: minmax(0, 1fr) minmax(120px, 180px) 38px;
+        grid-template-columns: minmax(0, 1fr) max-content 38px;
         gap: 8px;
       }
 

@@ -730,7 +730,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="helpOverlay"', template)
         self.assertIn('class="workflow-topbar"', template)
         self.assertIn(".workflow-topbar", shell_css)
-        self.assertIn("grid-template-columns:", shell_css)
+        self.assertIn(
+            "grid-template-columns:\n"
+            "        minmax(0, 1fr)\n"
+            "        max-content\n"
+            "        38px;",
+            shell_css,
+        )
+        self.assertIn("width: min(96vw, 1320px);", shell_css)
+        self.assertIn("grid-template-columns: 160px minmax(0, 1fr);", shell_css)
+        self.assertIn("grid-template-columns: 190px minmax(0, 1fr);", shell_css)
+        self.assertIn("overflow-wrap: anywhere;", shell_css)
         self.assertIn('id="terminalFontValue"', template)
         self.assertIn('data-pane-font-level="agent"', template)
         self.assertNotIn("data-pane-font-reset", template)
