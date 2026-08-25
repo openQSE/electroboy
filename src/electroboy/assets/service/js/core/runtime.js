@@ -86,6 +86,18 @@
     const splashOverlay = document.getElementById("splashOverlay");
     const splashImage = document.getElementById("splashImage");
     const closeSplash = document.getElementById("closeSplash");
+    const helpOverlay = document.getElementById("helpOverlay");
+    const showHelpButton = document.getElementById("showHelp");
+    const closeHelpButton = document.getElementById("closeHelp");
+    const helpSummary = document.getElementById("helpSummary");
+    const helpTour = document.getElementById("helpTour");
+    const helpControls = document.getElementById("helpControls");
+    const helpWorkflowTitle = document.getElementById("helpWorkflowTitle");
+    const helpWorkflowSummary = document.getElementById("helpWorkflowSummary");
+    const helpWorkflowFeatures = document.getElementById("helpWorkflowFeatures");
+    const helpShortcuts = document.getElementById("helpShortcuts");
+    const helpWorkflowBadge = document.getElementById("helpWorkflowBadge");
+    const helpVersion = document.getElementById("helpVersion");
     const CONTEXT_STORAGE_KEY = "electroboy.contextId";
     const WORKSPACE_LEASE_STORAGE_KEY = "electroboy.workspaceLease";
     const CONTEXT_TAB_STORAGE_KEY = "electroboy.contextTabId";
@@ -148,10 +160,6 @@
       { label: "API", path: "docs/api.md" },
     ];
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
-    const MIN_TERMINAL_FONT_SIZE = 11;
-    const MAX_TERMINAL_FONT_SIZE = 24;
-    const MIN_PANE_FONT_OFFSET = -6;
-    const MAX_PANE_FONT_OFFSET = 6;
     const PANE_FONT_KEYS = ["agent", "progress", "shell", "input", "scratch", "status"];
     const PANE_FONT_CSS_PROPERTIES = {
       agent: "--agent-output-font-size",
@@ -181,6 +189,8 @@
     let terminalFontSize = storedTerminalFontSize();
     let paneFontOffsets = storedPaneFontOffsets();
     let documentZoom = storedDocumentZoom();
+    let serviceVersion = "";
+    let helpPreviousFocus = null;
     let serviceSessions = [];
     let resizeShellState = null;
     let resizeWorkflowSideSheetState = null;
@@ -2661,9 +2671,11 @@
 
     function storedTerminalFontSize() {
       try {
-        const stored = Number(window.localStorage.getItem(TERMINAL_FONT_STORAGE_KEY));
-        if (Number.isFinite(stored)) {
-          return clampTerminalFontSize(stored);
+        const stored = fontSizeFromValue(
+          window.localStorage.getItem(TERMINAL_FONT_STORAGE_KEY),
+        );
+        if (stored !== null) {
+          return stored;
         }
       } catch (error) {
         return DEFAULT_TERMINAL_FONT_SIZE;
@@ -2695,8 +2707,8 @@
         const stored = Number(
           window.localStorage.getItem(PANE_FONT_OFFSET_STORAGE_PREFIX + pane),
         );
-        if (Number.isFinite(stored)) {
-          return clampPaneFontOffset(stored);
+        if (Number.isFinite(stored) && terminalFontSize + stored > 0) {
+          return stored;
         }
       } catch (error) {
         return 0;
@@ -2735,18 +2747,54 @@
       }
     }
 
-    function clampTerminalFontSize(value) {
-      return Math.max(
-        MIN_TERMINAL_FONT_SIZE,
-        Math.min(MAX_TERMINAL_FONT_SIZE, value),
-      );
+    function fontSizeFromValue(value) {
+      const normalized = String(value ?? "")
+        .trim()
+        .replace(/px$/i, "")
+        .trim();
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
 
-    function clampPaneFontOffset(value) {
-      return Math.max(
-        MIN_PANE_FONT_OFFSET,
-        Math.min(MAX_PANE_FONT_OFFSET, Math.round(value)),
-      );
+    function displayFontSize(value) {
+      return `${value}px`;
+    }
+
+    function bindFontSizeInput(input, currentValue, applyValue) {
+      if (!input) {
+        return;
+      }
+      let cancelBlurCommit = false;
+      const restore = () => {
+        input.value = displayFontSize(currentValue());
+      };
+      const commit = () => {
+        if (!applyValue(input.value)) {
+          restore();
+        }
+      };
+      input.addEventListener("focus", () => input.select());
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          input.blur();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          cancelBlurCommit = true;
+          restore();
+          input.blur();
+        }
+      });
+      input.addEventListener("blur", () => {
+        if (cancelBlurCommit) {
+          cancelBlurCommit = false;
+          return;
+        }
+        commit();
+      });
     }
 
     function paneFontOffset(pane) {
@@ -2754,7 +2802,8 @@
     }
 
     function effectivePaneFontSize(pane) {
-      return clampTerminalFontSize(terminalFontSize + paneFontOffset(pane));
+      const value = terminalFontSize + paneFontOffset(pane);
+      return value > 0 ? value : terminalFontSize;
     }
 
     function paneFontKeyForKind(kind) {
@@ -3642,18 +3691,63 @@
     }
 
     function changeTerminalFontSize(delta) {
-      terminalFontSize = clampTerminalFontSize(terminalFontSize + delta);
+      const next = fontSizeFromValue(terminalFontSize + delta);
+      if (next === null) {
+        return;
+      }
+      terminalFontSize = next;
+      for (const pane of PANE_FONT_KEYS) {
+        if (terminalFontSize + paneFontOffset(pane) <= 0) {
+          paneFontOffsets[pane] = 0;
+          savePaneFontOffset(pane);
+        }
+      }
       saveTerminalFontSize();
       applyTerminalFontSize();
+    }
+
+    function setTerminalFontSize(value) {
+      const next = fontSizeFromValue(value);
+      if (next === null) {
+        return false;
+      }
+      terminalFontSize = next;
+      for (const pane of PANE_FONT_KEYS) {
+        if (terminalFontSize + paneFontOffset(pane) <= 0) {
+          paneFontOffsets[pane] = 0;
+          savePaneFontOffset(pane);
+        }
+      }
+      saveTerminalFontSize();
+      applyTerminalFontSize();
+      return true;
     }
 
     function changePaneFontOffset(pane, delta) {
       if (!PANE_FONT_KEYS.includes(pane)) {
         return;
       }
-      paneFontOffsets[pane] = clampPaneFontOffset(paneFontOffset(pane) + delta);
+      const nextSize = effectivePaneFontSize(pane) + delta;
+      if (fontSizeFromValue(nextSize) === null) {
+        return;
+      }
+      paneFontOffsets[pane] = nextSize - terminalFontSize;
       savePaneFontOffset(pane);
       applyPaneFontSize(pane);
+    }
+
+    function setPaneFontSize(pane, value) {
+      if (!PANE_FONT_KEYS.includes(pane)) {
+        return false;
+      }
+      const next = fontSizeFromValue(value);
+      if (next === null) {
+        return false;
+      }
+      paneFontOffsets[pane] = next - terminalFontSize;
+      savePaneFontOffset(pane);
+      applyPaneFontSize(pane);
+      return true;
     }
 
     function resetPaneFontOffset(pane) {
@@ -3679,26 +3773,28 @@
     }
 
     function applyTerminalFontSize() {
-      terminalFontValue.textContent = `${terminalFontSize}px`;
+      if (document.activeElement !== terminalFontValue) {
+        terminalFontValue.value = displayFontSize(terminalFontSize);
+      }
       document.documentElement.style.setProperty(
         "--terminal-font-size",
-        `${terminalFontSize}px`,
+        displayFontSize(terminalFontSize),
       );
       document.documentElement.style.setProperty(
         "--ui-font-size",
-        `${terminalFontSize}px`,
+        displayFontSize(terminalFontSize),
       );
       document.documentElement.style.setProperty(
         "--ui-small-font-size",
-        `${Math.max(10, terminalFontSize - 2)}px`,
+        displayFontSize(terminalFontSize * 0.87),
       );
       document.documentElement.style.setProperty(
         "--ui-menu-font-size",
-        `${Math.max(11, terminalFontSize - 1)}px`,
+        displayFontSize(terminalFontSize * 0.93),
       );
       applyPaneFontSizes();
-      decreaseTerminalFont.disabled = terminalFontSize <= MIN_TERMINAL_FONT_SIZE;
-      increaseTerminalFont.disabled = terminalFontSize >= MAX_TERMINAL_FONT_SIZE;
+      decreaseTerminalFont.disabled = terminalFontSize - 1 <= 0;
+      increaseTerminalFont.disabled = false;
       scheduleFitTerminal();
     }
 
@@ -3712,7 +3808,10 @@
       const cssProperty = PANE_FONT_CSS_PROPERTIES[pane];
       const fontSize = effectivePaneFontSize(pane);
       if (cssProperty) {
-        document.documentElement.style.setProperty(cssProperty, `${fontSize}px`);
+        document.documentElement.style.setProperty(
+          cssProperty,
+          displayFontSize(fontSize),
+        );
       }
       if (pane === "agent") {
         for (const context of agentTerminalContexts.values()) {
@@ -3732,7 +3831,9 @@
       const offset = paneFontOffset(pane);
       const fontSize = effectivePaneFontSize(pane);
       for (const level of document.querySelectorAll(`[data-pane-font-level="${pane}"]`)) {
-        level.textContent = `${fontSize}px`;
+        if (document.activeElement !== level) {
+          level.value = displayFontSize(fontSize);
+        }
         level.title = offset === 0 ? "Global font size" : `Global ${offset > 0 ? "+" : ""}${offset}px`;
       }
       for (const button of document.querySelectorAll(`[data-pane-font="${pane}"]`)) {
@@ -3742,9 +3843,9 @@
         }
         const delta = Number(button.dataset.paneFontDelta || "0");
         if (delta < 0) {
-          button.disabled = offset <= MIN_PANE_FONT_OFFSET;
+          button.disabled = fontSize + delta <= 0;
         } else if (delta > 0) {
-          button.disabled = offset >= MAX_PANE_FONT_OFFSET;
+          button.disabled = false;
         }
       }
     }
@@ -4670,6 +4771,7 @@
       if (response.ok) {
         const payload = await response.json().catch(() => ({}));
         applyServiceFingerprint(payload);
+        serviceVersion = String(payload.version || "");
         setConnected();
       }
     }
@@ -4995,7 +5097,11 @@
         data.type === "electroboy-pane-font-offset" &&
         PANE_FONT_KEYS.includes(data.pane)
       ) {
-        paneFontOffsets[data.pane] = clampPaneFontOffset(Number(data.offset || 0));
+        const offset = Number(data.offset);
+        if (!Number.isFinite(offset) || terminalFontSize + offset <= 0) {
+          return;
+        }
+        paneFontOffsets[data.pane] = offset;
         applyPaneFontSize(data.pane);
         return;
       }
@@ -5114,6 +5220,138 @@
         window.sessionStorage.setItem(SPLASH_DISMISSED_STORAGE_KEY, "1");
       } catch (error) {
         return;
+      }
+    }
+
+    function renderHelpPairs(container, entries, keyElement = "strong") {
+      container.replaceChildren();
+      for (const [label, description] of entries) {
+        const item = document.createElement("div");
+        item.className = keyElement === "kbd"
+          ? "help-shortcut-item"
+          : "help-guide-item";
+        const key = document.createElement(keyElement);
+        key.textContent = label;
+        const detail = document.createElement("span");
+        detail.textContent = description;
+        item.append(key, detail);
+        container.append(item);
+      }
+    }
+
+    function renderHelp() {
+      const contribution = activeWorkflowContribution() || {};
+      const workflowHelp = contribution.help || {};
+      const workflowLabel = contribution.label || "ElectroBoy";
+      helpSummary.textContent =
+        "A workspace for working with agents, project files, and live tools.";
+      renderHelpPairs(helpTour, [
+        ["Workflow menu", "Choose a workflow and open its project actions."],
+        ["Workflow map", "Follow the current stages and open stage-specific actions."],
+        ["Workspace panes", "Arrange agent output, files, shells, notes, and status."],
+        ["Context tools", "Use each pane's tool button for actions specific to its content."],
+      ]);
+      renderHelpPairs(helpControls, [
+        ["Agent input", "The only field that sends instructions to an agent."],
+        ["Agent output", "A read-only live terminal view; select the agent above it."],
+        ["Send shortcut", "Hover over its badge to record the key chord you prefer."],
+        ["Interrupt", "Sends Escape to the selected agent."],
+        ["Link file", "Insert a filesystem file reference into the agent input."],
+        ["Pane controls", "Pop out, close, split, assign content, or open context tools."],
+        ["Text size", "Use A-/A+ or enter an exact positive size in the middle field."],
+      ]);
+      const shortcutApi = window.ElectroBoyInputShortcut;
+      const sendShortcut = shortcutApi
+        ? shortcutApi.label(shortcutApi.load())
+        : "Shift+Enter";
+      renderHelpPairs(helpShortcuts, [
+        [sendShortcut, "Send the Agent Input message."],
+        ["Escape", "Interrupt the selected agent from Agent Input; close Help here."],
+        ["Ctrl/Cmd+C", "Copy selected terminal output."],
+        ["F1", "Open this Help overlay."],
+      ], "kbd");
+      helpWorkflowTitle.textContent = `${workflowLabel} workflow`;
+      helpWorkflowSummary.textContent = workflowHelp.summary ||
+        "Use the workflow controls to organize project work and agent activity.";
+      helpWorkflowFeatures.replaceChildren();
+      const features = Array.isArray(workflowHelp.features)
+        ? workflowHelp.features
+        : [];
+      for (const feature of features) {
+        const item = document.createElement("li");
+        item.textContent = feature;
+        helpWorkflowFeatures.append(item);
+      }
+      helpWorkflowBadge.textContent = workflowLabel;
+      helpVersion.textContent = serviceVersion
+        ? `Version ${serviceVersion}`
+        : "Local browser service";
+    }
+
+    function helpFocusableElements() {
+      if (!helpOverlay) {
+        return [];
+      }
+      return Array.from(
+        helpOverlay.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), ' +
+          'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hidden);
+    }
+
+    function openHelp() {
+      if (!helpOverlay) {
+        return;
+      }
+      renderHelp();
+      helpPreviousFocus = document.activeElement;
+      helpOverlay.hidden = false;
+      closeHelpButton.focus();
+    }
+
+    function dismissHelp() {
+      if (!helpOverlay || helpOverlay.hidden) {
+        return;
+      }
+      helpOverlay.hidden = true;
+      if (helpPreviousFocus && typeof helpPreviousFocus.focus === "function") {
+        helpPreviousFocus.focus();
+      }
+      helpPreviousFocus = null;
+    }
+
+    function handleHelpKeydown(event) {
+      if (helpOverlay && !helpOverlay.hidden) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          dismissHelp();
+          return;
+        }
+        if (event.key !== "Tab") {
+          return;
+        }
+        const focusable = helpFocusableElements();
+        if (focusable.length === 0) {
+          event.preventDefault();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+      if (event.key === "F1") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        openHelp();
       }
     }
 
@@ -7175,6 +7413,19 @@
 
     decreaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(-1));
     increaseTerminalFont.addEventListener("click", () => changeTerminalFontSize(1));
+    bindFontSizeInput(
+      terminalFontValue,
+      () => terminalFontSize,
+      setTerminalFontSize,
+    );
+    document.querySelectorAll("[data-pane-font-level]").forEach((input) => {
+      const pane = input.dataset.paneFontLevel || "";
+      bindFontSizeInput(
+        input,
+        () => effectivePaneFontSize(pane),
+        (value) => setPaneFontSize(pane, value),
+      );
+    });
     document.querySelectorAll("[data-pane-font-delta]").forEach((button) => {
       button.addEventListener("click", () => {
         changePaneFontOffset(
@@ -7203,6 +7454,17 @@
             Math.min(selectionEnd, length),
           );
         }
+        return;
+      }
+      if (event.key === TERMINAL_FONT_STORAGE_KEY) {
+        terminalFontSize = storedTerminalFontSize();
+        for (const pane of PANE_FONT_KEYS) {
+          if (terminalFontSize + paneFontOffset(pane) <= 0) {
+            paneFontOffsets[pane] = 0;
+            savePaneFontOffset(pane);
+          }
+        }
+        applyTerminalFontSize();
         return;
       }
       if (!event.key || !event.key.startsWith(PANE_FONT_OFFSET_STORAGE_PREFIX)) {
@@ -7289,11 +7551,19 @@
     toggleWorkflowSideSheet.addEventListener("click", toggleWorkflowSideSheetCollapsed);
     closeSplash.addEventListener("click", dismissSplash);
     showSplashButton.addEventListener("click", openSplash);
+    showHelpButton.addEventListener("click", openHelp);
+    closeHelpButton.addEventListener("click", dismissHelp);
+    helpOverlay.addEventListener("click", (event) => {
+      if (event.target === helpOverlay) {
+        dismissHelp();
+      }
+    });
     splashOverlay.addEventListener("click", (event) => {
       if (event.target === splashOverlay) {
         dismissSplash();
       }
     });
+    window.addEventListener("keydown", handleHelpKeydown, true);
     window.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && splashOverlay && !splashOverlay.hidden) {
         dismissSplash();

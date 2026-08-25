@@ -304,6 +304,209 @@
       outline: none;
     }
 
+    .help-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1100;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      background:
+        radial-gradient(circle at center, rgb(24 40 61 / 64%), rgb(5 8 14 / 90%));
+      backdrop-filter: blur(8px);
+    }
+
+    .help-overlay[hidden] {
+      display: none;
+    }
+
+    .help-card {
+      width: min(94vw, 980px);
+      max-height: calc(100vh - 64px);
+      overflow: auto;
+      border: 1px solid rgb(102 217 232 / 48%);
+      border-radius: 14px;
+      background:
+        linear-gradient(145deg, rgb(24 31 46 / 98%), rgb(12 17 27 / 98%));
+      box-shadow:
+        0 0 0 1px rgb(255 255 255 / 5%) inset,
+        0 28px 72px rgb(0 0 0 / 54%),
+        0 0 52px rgb(102 217 232 / 18%);
+      color: #e7edf7;
+    }
+
+    .help-header {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 30px 34px 24px;
+      border-bottom: 1px solid rgb(255 255 255 / 9%);
+    }
+
+    .help-eyebrow {
+      color: #66d9e8;
+      font-size: var(--ui-small-font-size);
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .help-header h1 {
+      margin: 5px 0 7px;
+      font-size: calc(var(--ui-font-size) * 1.65);
+      line-height: 1.1;
+    }
+
+    .help-header p,
+    .help-workflow-section p {
+      margin: 0;
+      color: #aeb9ca;
+      line-height: 1.5;
+    }
+
+    .help-close {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border: 1px solid rgb(102 217 232 / 40%);
+      border-radius: 50%;
+      background: rgb(16 20 31 / 74%);
+      color: #e7edf7;
+      cursor: pointer;
+      font: inherit;
+      font-size: 21px;
+      line-height: 1;
+    }
+
+    .help-close:hover,
+    .help-close:focus-visible {
+      border-color: #66d9e8;
+      background: rgb(38 51 72 / 92%);
+      outline: none;
+    }
+
+    .help-content {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      padding: 22px 34px 26px;
+    }
+
+    .help-section {
+      min-width: 0;
+      padding: 18px;
+      border: 1px solid rgb(255 255 255 / 8%);
+      border-radius: 10px;
+      background: rgb(255 255 255 / 3%);
+    }
+
+    .help-section h2 {
+      margin: 0 0 13px;
+      color: #f3f7fc;
+      font-size: calc(var(--ui-font-size) * 1.05);
+    }
+
+    .help-guide-list,
+    .help-shortcut-list {
+      display: grid;
+      gap: 11px;
+    }
+
+    .help-guide-item,
+    .help-shortcut-item {
+      display: grid;
+      grid-template-columns: minmax(92px, 0.34fr) minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .help-guide-item strong,
+    .help-shortcut-item kbd {
+      color: #d8f7fb;
+      font-weight: 650;
+    }
+
+    .help-guide-item span,
+    .help-shortcut-item span,
+    .help-feature-list {
+      color: #aeb9ca;
+      line-height: 1.42;
+    }
+
+    .help-shortcut-item kbd {
+      width: fit-content;
+      max-width: 100%;
+      padding: 2px 7px;
+      overflow-wrap: anywhere;
+      border: 1px solid rgb(102 217 232 / 30%);
+      border-bottom-color: rgb(102 217 232 / 55%);
+      border-radius: 5px;
+      background: rgb(4 9 17 / 70%);
+      font: inherit;
+      font-size: var(--ui-small-font-size);
+    }
+
+    .help-feature-list {
+      margin: 13px 0 0;
+      padding-left: 20px;
+    }
+
+    .help-feature-list li + li {
+      margin-top: 7px;
+    }
+
+    .help-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 13px 34px 16px;
+      border-top: 1px solid rgb(255 255 255 / 8%);
+      color: #7f8da2;
+      font-size: var(--ui-small-font-size);
+    }
+
+    .help-workflow-badge {
+      color: #66d9e8;
+    }
+
+    .help-launch {
+      position: absolute;
+      top: 9px;
+      right: 17px;
+      z-index: 14;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border: 1px solid rgb(102 217 232 / 58%);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 35% 28%, #33445f, #151d2c 68%);
+      box-shadow:
+        0 0 0 1px rgb(255 255 255 / 5%) inset,
+        0 3px 14px rgb(0 0 0 / 38%),
+        0 0 18px rgb(102 217 232 / 10%);
+      color: #dffbff;
+      cursor: pointer;
+      font: 700 calc(var(--ui-font-size) * 1.1) / 1 sans-serif;
+    }
+
+    .help-launch:hover,
+    .help-launch:focus-visible {
+      border-color: #66d9e8;
+      box-shadow:
+        0 0 0 1px rgb(255 255 255 / 8%) inset,
+        0 3px 14px rgb(0 0 0 / 38%),
+        0 0 24px rgb(102 217 232 / 28%);
+      outline: none;
+      transform: translateY(-1px);
+    }
+
     .shell {
       position: relative;
       display: grid;
@@ -329,10 +532,32 @@
       z-index: 10;
       grid-column: 2;
       grid-row: 1;
-      padding: 8px 18px 4px;
+      padding: 8px 62px 4px 18px;
       border-bottom: 1px solid var(--border);
       background: var(--top-surface);
       overflow: visible;
+    }
+
+    @media (max-width: 820px) {
+      .help-overlay {
+        padding: 14px;
+      }
+
+      .help-card {
+        width: 100%;
+        max-height: calc(100vh - 28px);
+      }
+
+      .help-header,
+      .help-content,
+      .help-footer {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+
+      .help-content {
+        grid-template-columns: 1fr;
+      }
     }
 
     .workflow-side-sheet {
@@ -1891,6 +2116,21 @@
       font-weight: 750;
     }
 
+    input.pane-font-level {
+      width: 54px;
+      height: 26px;
+      padding: 0 4px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #161d2b;
+      font-family: inherit;
+    }
+
+    input.pane-font-level:focus {
+      border-color: #66d9e8;
+      outline: none;
+    }
+
     .artifact-preview-stack {
       display: grid;
       grid-template-rows: minmax(0, 1fr);
@@ -2259,11 +2499,21 @@
       justify-content: center;
       align-self: stretch;
       flex: 1 1 auto;
+      width: 64px;
       min-width: 54px;
+      border: 0;
       color: #2d465f;
+      font-family: inherit;
       font-size: var(--ui-small-font-size);
       font-weight: 400;
+      text-align: center;
       background: #d6e6f3;
+    }
+
+    .terminal-font-value:focus {
+      background: #eef7fc;
+      box-shadow: 0 0 0 2px #2c7da0 inset;
+      outline: none;
     }
 
     .agent-action-button {

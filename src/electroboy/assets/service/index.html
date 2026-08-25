@@ -35,6 +35,56 @@
       >&times;</button>
     </div>
   </div>
+  <div
+    id="helpOverlay"
+    class="help-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="helpTitle"
+    hidden
+  >
+    <article class="help-card" role="document">
+      <header class="help-header">
+        <div>
+          <span class="help-eyebrow">ElectroBoy</span>
+          <h1 id="helpTitle">Help and About</h1>
+          <p id="helpSummary">
+            A workspace for working with agents, project files, and live tools.
+          </p>
+        </div>
+        <button
+          id="closeHelp"
+          class="help-close"
+          type="button"
+          title="Close Help"
+          aria-label="Close Help"
+        >&times;</button>
+      </header>
+      <div class="help-content">
+        <section class="help-section">
+          <h2>Quick tour</h2>
+          <div id="helpTour" class="help-guide-list"></div>
+        </section>
+        <section class="help-section">
+          <h2>Common controls</h2>
+          <div id="helpControls" class="help-guide-list"></div>
+        </section>
+        <section class="help-section help-workflow-section">
+          <h2 id="helpWorkflowTitle">Current workflow</h2>
+          <p id="helpWorkflowSummary"></p>
+          <ul id="helpWorkflowFeatures" class="help-feature-list"></ul>
+        </section>
+        <section class="help-section">
+          <h2>Shortcuts</h2>
+          <div id="helpShortcuts" class="help-shortcut-list"></div>
+        </section>
+      </div>
+      <footer class="help-footer">
+        <span id="helpWorkflowBadge" class="help-workflow-badge"></span>
+        <span id="helpVersion"></span>
+      </footer>
+    </article>
+  </div>
   <main class="shell">
     <svg
       class="stage-icon-defs"
@@ -114,6 +164,13 @@
     ></div>
     <section class="workflow-pane" aria-label="Project workflow">
       <div id="connection" class="connection"></div>
+      <button
+        id="showHelp"
+        class="help-launch"
+        type="button"
+        title="Help and About (F1)"
+        aria-label="Help and About"
+      >?</button>
       <div class="workflow-toolbar" aria-label="Agent controls">
         <div class="splash-control toolbar-control-group">
           <span class="toolbar-control-label">Splash</span>
@@ -138,11 +195,14 @@
           >
             A-
           </button>
-          <span
+          <input
             id="terminalFontValue"
             class="terminal-font-value"
-            aria-live="polite"
-          >15px</span>
+            type="text"
+            inputmode="decimal"
+            value="15px"
+            aria-label="Enter interface font size"
+          >
           <button
             id="increaseTerminalFont"
             class="terminal-font-button"
@@ -283,7 +343,14 @@
                       title="Decrease agent output font size"
                       aria-label="Decrease agent output font size"
                     >A-</button>
-                    <span class="pane-font-level" data-pane-font-level="agent">15px</span>
+                    <input
+                      class="pane-font-level"
+                      type="text"
+                      inputmode="decimal"
+                      value="15px"
+                      data-pane-font-level="agent"
+                      aria-label="Enter agent output font size"
+                    >
                     <button
                       class="pane-font-button pane-font-reset"
                       type="button"
@@ -396,7 +463,14 @@
                       title="Decrease progress font size"
                       aria-label="Decrease progress font size"
                     >A-</button>
-                    <span class="pane-font-level" data-pane-font-level="progress">15px</span>
+                    <input
+                      class="pane-font-level"
+                      type="text"
+                      inputmode="decimal"
+                      value="15px"
+                      data-pane-font-level="progress"
+                      aria-label="Enter progress font size"
+                    >
                     <button
                       class="pane-font-button pane-font-reset"
                       type="button"
@@ -463,7 +537,14 @@
                     title="Decrease project shell font size"
                     aria-label="Decrease project shell font size"
                   >A-</button>
-                  <span class="pane-font-level" data-pane-font-level="shell">15px</span>
+                  <input
+                    class="pane-font-level"
+                    type="text"
+                    inputmode="decimal"
+                    value="15px"
+                    data-pane-font-level="shell"
+                    aria-label="Enter shell font size"
+                  >
                   <button
                     class="pane-font-button pane-font-reset"
                     type="button"
@@ -536,7 +617,14 @@
                     title="Decrease scratch pad font size"
                     aria-label="Decrease scratch pad font size"
                   >A-</button>
-                  <span class="pane-font-level" data-pane-font-level="scratch">15px</span>
+                  <input
+                    class="pane-font-level"
+                    type="text"
+                    inputmode="decimal"
+                    value="15px"
+                    data-pane-font-level="scratch"
+                    aria-label="Enter scratch pad font size"
+                  >
                   <button
                     class="pane-font-button pane-font-reset"
                     type="button"
@@ -594,7 +682,14 @@
                     title="Decrease project status font size"
                     aria-label="Decrease project status font size"
                   >A-</button>
-                  <span class="pane-font-level" data-pane-font-level="status">15px</span>
+                  <input
+                    class="pane-font-level"
+                    type="text"
+                    inputmode="decimal"
+                    value="15px"
+                    data-pane-font-level="status"
+                    aria-label="Enter project status font size"
+                  >
                   <button
                     class="pane-font-button pane-font-reset"
                     type="button"
@@ -649,7 +744,14 @@
                 title="Decrease AI agent input font size"
                 aria-label="Decrease AI agent input font size"
               >A-</button>
-              <span class="pane-font-level" data-pane-font-level="input">15px</span>
+              <input
+                class="pane-font-level"
+                type="text"
+                inputmode="decimal"
+                value="15px"
+                data-pane-font-level="input"
+                aria-label="Enter agent input font size"
+              >
               <button
                 class="pane-font-button pane-font-reset"
                 type="button"

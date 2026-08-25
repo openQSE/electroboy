@@ -250,11 +250,23 @@
     }
 
     .pane-font-level {
+      width: 54px;
+      height: 26px;
       min-width: 44px;
+      padding: 0 4px;
+      border: 1px solid #364156;
+      border-radius: 6px;
+      background: #161d2b;
       text-align: center;
       color: #aab8cf;
+      font-family: inherit;
       font-size: calc(var(--font-size) - 2px);
       font-weight: 750;
+    }
+
+    .pane-font-level:focus {
+      border-color: #66d9e8;
+      outline: none;
     }
 
     .pane-body {
@@ -765,7 +777,14 @@
             title="Decrease pane font size"
             aria-label="Decrease pane font size"
           >A-</button>
-          <span id="paneFontLevel" class="pane-font-level">15px</span>
+          <input
+            id="paneFontLevel"
+            class="pane-font-level"
+            type="text"
+            inputmode="decimal"
+            value="15px"
+            aria-label="Enter pane font size"
+          >
           <button
             id="resetPaneFont"
             type="button"
@@ -946,10 +965,6 @@
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
-    const MIN_FONT_SIZE = 11;
-    const MAX_FONT_SIZE = 24;
-    const MIN_FONT_OFFSET = -6;
-    const MAX_FONT_OFFSET = 6;
     const fontPane = params.get("font_pane") || paneFontKeyForKind(PANE_KIND);
     let baseFontSize = storedBaseFontSize();
     let fontOffset = storedFontOffset();
@@ -1059,12 +1074,12 @@
         params.get("base_font_size") || params.get("font_size") || "",
       );
       if (Number.isFinite(requested) && requested > 0) {
-        return clampFontSize(requested);
+        return requested;
       }
       try {
         const stored = Number(window.localStorage.getItem(TERMINAL_FONT_STORAGE_KEY));
         if (Number.isFinite(stored) && stored > 0) {
-          return clampFontSize(stored);
+          return stored;
         }
       } catch (error) {
         return DEFAULT_FONT_SIZE;
@@ -1075,8 +1090,8 @@
     function storedFontOffset() {
       if (params.has("font_offset")) {
         const requested = Number(params.get("font_offset") || "");
-        if (Number.isFinite(requested)) {
-          return clampFontOffset(requested);
+        if (Number.isFinite(requested) && baseFontSize + requested > 0) {
+          return requested;
         }
       }
       return localStoredFontOffset();
@@ -1087,8 +1102,8 @@
         const stored = Number(
           window.localStorage.getItem(PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane),
         );
-        if (Number.isFinite(stored)) {
-          return clampFontOffset(stored);
+        if (Number.isFinite(stored) && baseFontSize + stored > 0) {
+          return stored;
         }
       } catch (error) {
         return 0;
@@ -1096,16 +1111,22 @@
       return 0;
     }
 
-    function clampFontSize(value) {
-      return Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(value)));
+    function fontSizeFromValue(value) {
+      const normalized = String(value ?? "")
+        .trim()
+        .replace(/px$/i, "")
+        .trim();
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
 
-    function clampFontOffset(value) {
-      return Math.max(MIN_FONT_OFFSET, Math.min(MAX_FONT_OFFSET, Math.round(value)));
+    function displayFontSize(value) {
+      return `${value}px`;
     }
 
     function effectiveFontSize() {
-      return clampFontSize(baseFontSize + fontOffset);
+      const value = baseFontSize + fontOffset;
+      return value > 0 ? value : baseFontSize;
     }
 
     function saveFontOffset() {
@@ -1140,20 +1161,72 @@
         window.requestAnimationFrame(fitTerminal);
       }
       paneFontControls.hidden = PANE_KIND === "artifact" || PANE_KIND === "agenda";
-      paneFontLevel.textContent = `${fontSize}px`;
+      if (document.activeElement !== paneFontLevel) {
+        paneFontLevel.value = displayFontSize(fontSize);
+      }
       paneFontLevel.title = fontOffset === 0
         ? "Global font size"
         : `Global ${fontOffset > 0 ? "+" : ""}${fontOffset}px`;
-      decreasePaneFont.disabled = fontOffset <= MIN_FONT_OFFSET;
+      decreasePaneFont.disabled = fontSize - 1 <= 0;
       resetPaneFont.disabled = fontOffset === 0;
-      increasePaneFont.disabled = fontOffset >= MAX_FONT_OFFSET;
+      increasePaneFont.disabled = false;
     }
 
     function changeFontSize(delta) {
-      fontOffset = clampFontOffset(fontOffset + delta);
+      const next = fontSizeFromValue(fontSize + delta);
+      if (next === null) {
+        return;
+      }
+      fontOffset = next - baseFontSize;
       saveFontOffset();
       applyFontSize();
       notifyFontOffsetChanged();
+    }
+
+    function setFontSize(value) {
+      const next = fontSizeFromValue(value);
+      if (next === null) {
+        return false;
+      }
+      fontOffset = next - baseFontSize;
+      saveFontOffset();
+      applyFontSize();
+      notifyFontOffsetChanged();
+      return true;
+    }
+
+    function bindFontSizeInput() {
+      let cancelBlurCommit = false;
+      const restore = () => {
+        paneFontLevel.value = displayFontSize(fontSize);
+      };
+      const commit = () => {
+        if (!setFontSize(paneFontLevel.value)) {
+          restore();
+        }
+      };
+      paneFontLevel.addEventListener("focus", () => paneFontLevel.select());
+      paneFontLevel.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          paneFontLevel.blur();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          cancelBlurCommit = true;
+          restore();
+          paneFontLevel.blur();
+        }
+      });
+      paneFontLevel.addEventListener("blur", () => {
+        if (cancelBlurCommit) {
+          cancelBlurCommit = false;
+          return;
+        }
+        commit();
+      });
     }
 
     function resetFontSize() {
@@ -3792,6 +3865,7 @@
     decreasePaneFont.addEventListener("click", () => changeFontSize(-1));
     resetPaneFont.addEventListener("click", resetFontSize);
     increasePaneFont.addEventListener("click", () => changeFontSize(1));
+    bindFontSizeInput();
     window.addEventListener("storage", (event) => {
       if (PANE_KIND === "scratch" && event.key === scratchPadStorageKey()) {
         const selectionStart = scratchPad.selectionStart;
@@ -3809,7 +3883,12 @@
       if (event.key === TERMINAL_FONT_STORAGE_KEY) {
         const nextBase = Number(event.newValue || "");
         if (Number.isFinite(nextBase) && nextBase > 0) {
-          baseFontSize = clampFontSize(nextBase);
+          baseFontSize = nextBase;
+          if (baseFontSize + fontOffset <= 0) {
+            fontOffset = 0;
+            saveFontOffset();
+            notifyFontOffsetChanged();
+          }
           applyFontSize();
         }
         return;

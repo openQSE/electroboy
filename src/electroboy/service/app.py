@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .. import __version__
 from ..models import utc_now
 from ..state_store import StateError
 from .context import BrowserContext, ContextStore
@@ -1877,6 +1878,7 @@ def health_payload(
     payload: dict[str, object] = {
         "status": "connected",
         "service": "electroboy",
+        "version": __version__,
         "root": str(Path(root).expanduser().resolve()),
         "state_root": str(resolved_state_root),
     }

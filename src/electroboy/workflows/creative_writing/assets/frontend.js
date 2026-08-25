@@ -1492,6 +1492,15 @@
     capabilities: ["creative-workspace"],
     layoutClass: "creative-workflow",
     splashImage: "__CREATIVE_SPLASH_IMAGE_ROUTE__",
+    help: {
+      summary:
+        "Develop long-form writing with a binder, visual planning tools, documents, and agents.",
+      features: [
+        "Organize folders and documents in the binder while preserving your writing context.",
+        "Plan scenes and milestones with corkboards, agendas, and calendars.",
+        "Assign agents to writing tasks and review their output beside the source material.",
+      ],
+    },
     rightPaneStorageKey: "electroboy.creativeRightPaneWidth",
     recentProjectFilter: (project) => project.kind === "creative",
     projectEndpoint,

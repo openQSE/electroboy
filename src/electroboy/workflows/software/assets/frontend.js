@@ -1489,6 +1489,15 @@
     stageDescriptions: STAGE_DESCRIPTIONS,
     artifactPreviews: ARTIFACT_PREVIEWS,
     splashImage: "__SPLASH_IMAGE_ROUTE__",
+    help: {
+      summary:
+        "Guide a software project through structured stages with agents and reviewable artifacts.",
+      features: [
+        "Move through requirements, design, implementation, testing, and validation.",
+        "Run and monitor multiple agent sessions while keeping project context visible.",
+        "Review, edit, navigate, and export project documents from the File pane.",
+      ],
+    },
     recentProjectFilter: (project) => project.kind !== "creative",
     activate(runtime) {
       bindRuntime(runtime);
