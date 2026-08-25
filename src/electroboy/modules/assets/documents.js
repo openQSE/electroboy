@@ -9,6 +9,7 @@
   ];
   const PANE_POPUP_FEATURES =
     "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
+  const documentNavigation = window.ElectroBoyDocumentNavigation.create();
   let runtimeApi = null;
   let runtimeState = null;
   let fileCatalogSync = null;
@@ -113,6 +114,8 @@
       canPop: true,
       canSwitchMode: artifactPaneSupportsModeSwitch(item),
       canExport: artifactPaneSupportsDocumentExport(item),
+      canGoBack: documentNavigation.canGoBack,
+      canGoForward: documentNavigation.canGoForward,
     };
   }
 
@@ -152,6 +155,8 @@
         },
         open: () => openDocumentFileBrowser(),
         new: () => openNewDocumentFileBrowser(),
+        back: () => navigateDocumentHistory("back"),
+        forward: () => navigateDocumentHistory("forward"),
         close: () => {
           const item = activeArtifactToolItem();
           if (item && item.kind === "document" && item.target) {
@@ -400,14 +405,17 @@
       }
       const data = event.data || {};
       if (data.type === "electroboy:document-link") {
-        openDocumentTarget(data.target || null, data.fragment || "");
+        followDocumentLink(event.source, data);
         return;
       }
       if (data.type !== "electroboy:document-file-action") {
         return;
       }
       if (data.action === "open") {
-        openDocumentTarget(data.target || null, data.fragment || "");
+        openDocumentTarget(
+          data.target || null,
+          data.location || data.fragment || "",
+        );
       } else if (data.action === "close") {
         closeDocumentTarget(data.target || null);
       }
@@ -541,12 +549,101 @@
       refreshStageActionPanel();
     }
 
-    function openDocumentTarget(target, fragment = "") {
+    function openDocumentTarget(target, navigationLocation = null) {
       if (!target) {
         return;
       }
       registerDocumentTarget(target);
-      showDocumentPreview(target, fragment);
+      showDocumentPreview(target, navigationLocation);
+    }
+
+    function artifactItemForFrameWindow(frameWindow) {
+      if (!frameWindow) {
+        return null;
+      }
+      return runtimeState.artifactPreviewItems.find((item) => {
+        const frame = artifactFrameForItem(item);
+        return frame && frame.contentWindow === frameWindow;
+      }) || null;
+    }
+
+    function navigationTargetForItem(item, fallbackTarget = null) {
+      if (item && item.kind === "document" && item.target) {
+        return item.target;
+      }
+      return fallbackTarget;
+    }
+
+    function currentDocumentNavigationEntry() {
+      const item = activeArtifactToolItem();
+      const target = navigationTargetForItem(item);
+      const frame = artifactFrameForItem(item);
+      return documentNavigation.frameEntry(frame, target);
+    }
+
+    function openDocumentNavigationEntry(entry) {
+      const normalized = window.ElectroBoyDocumentNavigation.entry(entry);
+      if (!normalized) {
+        return;
+      }
+      const existingTarget = runtimeState.openDocumentTargets.find(
+        (candidate) => documentTargetKey(candidate) === normalized.target.path,
+      );
+      const target = existingTarget || normalized.target;
+      registerDocumentTarget(target);
+
+      const item = activeArtifactToolItem();
+      const currentTarget = navigationTargetForItem(item);
+      const frame = artifactFrameForItem(item);
+      if (
+        item &&
+        !item.editing &&
+        currentTarget &&
+        documentTargetKey(currentTarget) === normalized.target.path &&
+        frame
+      ) {
+        item.fragment = normalized.location.fragment;
+        documentNavigation.restoreFrame(
+          frame,
+          normalized.target.path,
+          normalized.location,
+        );
+      } else {
+        showDocumentPreview(target, normalized.location);
+      }
+      dockedFilePaneTools?.refresh();
+    }
+
+    function followDocumentLink(frameWindow, data) {
+      const item = artifactItemForFrameWindow(frameWindow);
+      if (item) {
+        activateArtifactToolItem(item.id);
+      }
+      const fallbackTarget = navigationTargetForItem(
+        item,
+        data && data.source ? data.source.target : null,
+      );
+      const source = documentNavigation.entry(data && data.source, fallbackTarget)
+        || documentNavigation.frameEntry(artifactFrameForItem(item), fallbackTarget);
+      const destination = documentNavigation.destination(data);
+      if (!destination) {
+        return;
+      }
+      if (source) {
+        documentNavigation.record(source);
+      }
+      openDocumentNavigationEntry(destination);
+    }
+
+    function navigateDocumentHistory(direction) {
+      const current = currentDocumentNavigationEntry();
+      const destination = direction === "forward"
+        ? documentNavigation.goForward(current)
+        : documentNavigation.goBack(current);
+      if (destination) {
+        openDocumentNavigationEntry(destination);
+      }
+      dockedFilePaneTools?.refresh();
     }
 
     function selectOpenDocumentTarget(path) {
@@ -604,7 +701,11 @@
       return `${contextUrl(`${path}?embed=1`)}&zoom=${runtimeState.documentZoom}&version=${version}`;
     }
 
-    function documentPreviewUrlWithFragment(url, fragment = "") {
+    function documentPreviewUrlWithFragment(url, navigationLocation = null) {
+      const location = window.ElectroBoyDocumentNavigation.location(
+        navigationLocation,
+      );
+      const fragment = location.fragment;
       if (!fragment) {
         return url;
       }
@@ -675,7 +776,7 @@
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return documentPreviewUrlWithFragment(
           contextUrl(`/artifacts/document?${parameters.toString()}`),
-          item.fragment || "",
+          item.navigationLocation || item.fragment || "",
         );
       }
       return "";
@@ -785,7 +886,10 @@
               kind: "document",
               title: target.label || target.path || "Document",
               target,
-              fragment: options.fragment || "",
+              fragment: window.ElectroBoyDocumentNavigation.location(
+                options.navigationLocation,
+              ).fragment,
+              navigationLocation: options.navigationLocation || null,
             },
           ],
           { manual: true },
@@ -800,12 +904,12 @@
       }
     }
 
-    function showDocumentPreview(target, fragment = "") {
+    function showDocumentPreview(target, navigationLocation = null) {
       if (!target) {
         return;
       }
       rememberOpenDocumentTarget(target);
-      showArtifactPreview("document", { target, fragment });
+      showArtifactPreview("document", { target, navigationLocation });
       refreshDocumentTargetSwitchers();
     }
 
@@ -1001,6 +1105,18 @@
         markArtifactFrameLoading(frame);
         frame.addEventListener("load", () => {
           postArtifactEditorFontSize(frame);
+          if (
+            item.kind === "document" &&
+            item.target &&
+            item.navigationLocation
+          ) {
+            documentNavigation.restoreFrame(
+              frame,
+              item.target.path,
+              item.navigationLocation,
+            );
+            item.navigationLocation = null;
+          }
           try {
             frame.contentWindow.addEventListener("pointerdown", () => {
               activateArtifactToolItem(item.id);

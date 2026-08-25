@@ -2184,7 +2184,6 @@ def _document_link_script(relative_path: str) -> str:
         const rawHref = String(href || "").trim();
         if (
           !rawHref ||
-          rawHref.startsWith("#") ||
           /^[a-z][a-z0-9+.-]*:/i.test(rawHref) ||
           rawHref.startsWith("//")
         ) {
@@ -2198,7 +2197,11 @@ def _document_link_script(relative_path: str) -> str:
           ? pathAndQuery.slice(0, queryIndex)
           : pathAndQuery;
         if (!rawPath) {
-          return null;
+          return {
+            path: currentDocumentPath,
+            label: currentDocumentPath.replace(/\.md$/i, "") || currentDocumentPath,
+            fragment: decodeLinkPart(rawFragment),
+          };
         }
         const linkPath = decodeLinkPart(rawPath).replace(/\\/g, "/");
         const segments = linkPath.startsWith("/")
@@ -2231,6 +2234,13 @@ def _document_link_script(relative_path: str) -> str:
       function scrollToDocumentFragment(fragment) {
         if (!fragment) {
           window.scrollTo({ top: 0, behavior: "auto" });
+          const nextUrl = new URL(window.location.href);
+          nextUrl.hash = "";
+          window.history.replaceState(
+            null,
+            "",
+            `${nextUrl.pathname}${nextUrl.search}`,
+          );
           return;
         }
         const target = document.getElementById(fragment);
@@ -2239,6 +2249,41 @@ def _document_link_script(relative_path: str) -> str:
         }
         target.scrollIntoView({ block: "start" });
         window.history.replaceState(null, "", `#${encodeURIComponent(fragment)}`);
+      }
+
+      function currentDocumentLocation() {
+        const hash = String(window.location.hash || "").replace(/^#/, "");
+        return {
+          fragment: decodeLinkPart(hash),
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        };
+      }
+
+      function applyDocumentLocation(value) {
+        const location = value && typeof value === "object" ? value : {};
+        const hasScrollPosition =
+          Number.isFinite(location.scrollX) && Number.isFinite(location.scrollY);
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            if (!hasScrollPosition) {
+              scrollToDocumentFragment(String(location.fragment || ""));
+              return;
+            }
+            window.scrollTo({
+              left: Math.max(0, location.scrollX),
+              top: Math.max(0, location.scrollY),
+              behavior: "auto",
+            });
+            const nextUrl = new URL(window.location.href);
+            nextUrl.hash = String(location.fragment || "");
+            window.history.replaceState(
+              null,
+              "",
+              `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`,
+            );
+          });
+        });
       }
 
       document.addEventListener("click", (event) => {
@@ -2262,11 +2307,11 @@ def _document_link_script(relative_path: str) -> str:
           return;
         }
         event.preventDefault();
-        if (target.path === currentDocumentPath) {
-          scrollToDocumentFragment(target.fragment);
-          return;
-        }
         if (window.parent === window) {
+          if (target.path === currentDocumentPath) {
+            scrollToDocumentFragment(target.fragment);
+            return;
+          }
           const nextUrl = new URL(window.location.href);
           nextUrl.searchParams.set("path", target.path);
           nextUrl.searchParams.set("title", target.label);
@@ -2278,10 +2323,32 @@ def _document_link_script(relative_path: str) -> str:
           {
             type: "electroboy:document-link",
             target: { path: target.path, label: target.label },
+            source: {
+              target: {
+                path: currentDocumentPath,
+                label: currentDocumentPath.replace(/\.md$/i, "")
+                  || currentDocumentPath,
+              },
+              location: currentDocumentLocation(),
+            },
+            location: { fragment: target.fragment },
             fragment: target.fragment,
           },
           window.location.origin,
         );
+      });
+      window.addEventListener("message", (event) => {
+        if (event.origin !== window.location.origin) {
+          return;
+        }
+        const data = event.data || {};
+        if (
+          data.type !== "electroboy:document-location" ||
+          data.path !== currentDocumentPath
+        ) {
+          return;
+        }
+        applyDocumentLocation(data.location);
       });
     })();
   </script>

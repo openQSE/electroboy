@@ -73,6 +73,22 @@
       return button(label, action, "pane-tool-menu-button");
     }
 
+    const navigationBody = controller.addSection("navigation", "Navigation");
+    const navigationRow = document.createElement("div");
+    navigationRow.className = "pane-tool-navigation-row";
+    const back = button("←", () => {
+      runAction("back", () => {});
+    });
+    back.title = "Go back";
+    back.setAttribute("aria-label", "Go back");
+    const forward = button("→", () => {
+      runAction("forward", () => {});
+    });
+    forward.title = "Go forward";
+    forward.setAttribute("aria-label", "Go forward");
+    navigationRow.append(back, forward);
+    navigationBody.append(navigationRow);
+
     const findBody = controller.addSection("find", "Find");
     const findRow = document.createElement("div");
     findRow.className = "pane-tool-find-row";
@@ -401,6 +417,11 @@
       const current = target();
       const hasTarget = Boolean(current.kind);
       const canSearch = searchable();
+      const canNavigate = current.kind === "document" || current.kind === "requirements";
+      navigationBody.closest("details").hidden = !canNavigate;
+      back.disabled = typeof actions.back !== "function" || current.canGoBack !== true;
+      forward.disabled =
+        typeof actions.forward !== "function" || current.canGoForward !== true;
       findBody.closest("details").hidden = !canSearch;
       startAgent.hidden = current.kind !== "document" || !current.path;
       const isBoard = current.kind === "corkboard" || current.kind === "creative-corkboard";

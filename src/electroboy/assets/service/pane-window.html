@@ -895,6 +895,7 @@
   <script src="/assets/service/js/core/input-shortcut.js"></script>
   <script src="/assets/service/js/core/pane-sync.js"></script>
   <script src="/assets/service/js/core/pane-tools.js"></script>
+  <script src="/assets/service/js/modules/document-navigation.js"></script>
   <script src="/assets/service/js/modules/file-pane-tools.js"></script>
   <script src="/assets/service/js/modules/agenda-pane-tools.js"></script>
   <script>
@@ -921,6 +922,7 @@
     let artifactDocumentPath = params.get("document_path") || "";
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactDocumentFragment = "";
+    let artifactDocumentLocation = null;
     let artifactRoutePath = params.get("artifact_path") || "";
     let artifactRouteTitle = params.get("artifact_title") || "";
     let artifactFolderPath = params.get("folder_path") || "";
@@ -1028,6 +1030,7 @@
     let contentCatalogSync = null;
     let paneToolsController = null;
     let filePaneTools = null;
+    const paneDocumentNavigation = window.ElectroBoyDocumentNavigation.create();
     let directPaneActivationNotifier = null;
     let inputSyncQueue = Promise.resolve();
     let latestProgressState = { entries: [] };
@@ -1643,10 +1646,13 @@
       return "";
     }
 
-    function selectFileTarget(target, fragment = "") {
+    function selectFileTarget(target, navigationLocation = null) {
       if (!target || !target.path) {
         return;
       }
+      const normalizedLocation = window.ElectroBoyDocumentNavigation.location(
+        navigationLocation,
+      );
       const existingIndex = openFileTargets.findIndex(
         (file) => file.path === target.path,
       );
@@ -1662,7 +1668,10 @@
       artifactKind = "document";
       artifactDocumentPath = target.path;
       artifactDocumentTitle = target.label || target.path;
-      artifactDocumentFragment = String(fragment || "");
+      artifactDocumentFragment = normalizedLocation.fragment;
+      artifactDocumentLocation = navigationLocation === null
+        ? null
+        : normalizedLocation;
       artifactRoutePath = "";
       artifactRouteTitle = "";
       artifactEditing = false;
@@ -1679,6 +1688,85 @@
       });
       contentCatalogSync?.publish({ files: openFileTargets });
       reconnectArtifactStream();
+    }
+
+    function currentPaneDocumentTarget() {
+      if (artifactKind !== "document" || !artifactDocumentPath) {
+        return null;
+      }
+      return {
+        path: artifactDocumentPath,
+        label: artifactDocumentTitle || artifactDocumentPath,
+      };
+    }
+
+    function currentPaneDocumentNavigationEntry() {
+      return paneDocumentNavigation.frameEntry(
+        artifactFrame,
+        currentPaneDocumentTarget(),
+      );
+    }
+
+    function openPaneDocumentNavigationEntry(entry) {
+      const normalized = window.ElectroBoyDocumentNavigation.entry(entry);
+      if (!normalized) {
+        return;
+      }
+      const existingTarget = openFileTargets.find(
+        (file) => file.path === normalized.target.path,
+      );
+      const target = existingTarget || normalized.target;
+      if (
+        artifactKind === "document" &&
+        !artifactEditing &&
+        artifactDocumentPath === normalized.target.path
+      ) {
+        artifactDocumentFragment = normalized.location.fragment;
+        artifactDocumentLocation = null;
+        paneDocumentNavigation.restoreFrame(
+          artifactFrame,
+          normalized.target.path,
+          normalized.location,
+        );
+        filePaneTools?.refresh();
+        return;
+      }
+      selectFileTarget(target, normalized.location);
+    }
+
+    function followPaneDocumentLink(data) {
+      const fallbackTarget = currentPaneDocumentTarget()
+        || (data && data.source ? data.source.target : null);
+      const source = paneDocumentNavigation.entry(data && data.source, fallbackTarget)
+        || currentPaneDocumentNavigationEntry();
+      const destination = paneDocumentNavigation.destination(data);
+      if (!destination) {
+        return;
+      }
+      if (source) {
+        paneDocumentNavigation.record(source);
+      }
+      const previousPath = artifactDocumentPath;
+      openPaneDocumentNavigationEntry(destination);
+      if (destination.target.path !== previousPath) {
+        postDocumentFileAction(
+          "open",
+          destination.target,
+          destination.location.fragment,
+        );
+      }
+      filePaneTools?.refresh();
+    }
+
+    function navigatePaneDocumentHistory(direction) {
+      const current = currentPaneDocumentNavigationEntry();
+      const destination = direction === "forward"
+        ? paneDocumentNavigation.goForward(current)
+        : paneDocumentNavigation.goBack(current);
+      if (destination) {
+        openPaneDocumentNavigationEntry(destination);
+      }
+      filePaneTools?.refresh();
     }
 
     function notifyPaneArtifactChange(item) {
@@ -2891,6 +2979,8 @@
       artifactKind = kind || "empty";
       artifactDocumentPath = "";
       artifactDocumentTitle = "";
+      artifactDocumentFragment = "";
+      artifactDocumentLocation = null;
       artifactRoutePath = "";
       artifactRouteTitle = "";
       artifactFolderPath = "";
@@ -3677,6 +3767,18 @@
       artifactFrame.classList.remove("loading");
       bindArtifactFrameActivation();
       postArtifactEditorFontSize();
+      if (
+        artifactKind === "document" &&
+        artifactDocumentPath &&
+        artifactDocumentLocation
+      ) {
+        paneDocumentNavigation.restoreFrame(
+          artifactFrame,
+          artifactDocumentPath,
+          artifactDocumentLocation,
+        );
+        artifactDocumentLocation = null;
+      }
     });
     previewArtifactButton.addEventListener("click", () => setArtifactEditMode(false));
     editArtifactButton.addEventListener("click", () => setArtifactEditMode(true));
@@ -3753,13 +3855,7 @@
         data.target &&
         data.target.path
       ) {
-        const target = {
-          path: String(data.target.path),
-          label: String(data.target.label || data.target.path),
-        };
-        const fragment = String(data.fragment || "");
-        selectFileTarget(target, fragment);
-        postDocumentFileAction("open", target, fragment);
+        followPaneDocumentLink(data);
         return;
       }
       if (data.type === "electroboy-artifact-saved") {
@@ -3864,11 +3960,15 @@
           editing: artifactEditing,
           canClose: artifactKind === "document" && Boolean(artifactDocumentPath),
           canPop: params.get("popped") !== "1" && artifactKind !== "empty",
+          canGoBack: paneDocumentNavigation.canGoBack,
+          canGoForward: paneDocumentNavigation.canGoForward,
         }),
         actions: {
           startAgent: startPaneDocumentAgent,
           open: () => openPaneDocumentFileBrowser("document"),
           new: () => openPaneDocumentFileBrowser("document-new"),
+          back: () => navigatePaneDocumentHistory("back"),
+          forward: () => navigatePaneDocumentHistory("forward"),
           close: closePaneDocument,
           pop: popOutCurrentArtifact,
         },

@@ -63,6 +63,9 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
     assert not legacy_runtime.exists()
     assert (ROOT / "src/electroboy/modules/assets/agent-sessions.js").is_file()
     assert (ROOT / "src/electroboy/modules/assets/documents.js").is_file()
+    assert (
+        ROOT / "src/electroboy/modules/assets/document-navigation.js"
+    ).is_file()
     assert (ROOT / "src/electroboy/modules/assets/progress.js").is_file()
     assert (ROOT / "src/electroboy/modules/assets/project-shell.js").is_file()
     assert (ROOT / "src/electroboy/modules/assets/corkboard.js").is_file()

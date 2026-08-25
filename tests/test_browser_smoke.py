@@ -12,6 +12,7 @@ from electroboy.service import create_server
 from electroboy.service.workflow_config import WorkflowConfig, save_workflow_config
 
 CHROME = shutil.which("google-chrome") or shutil.which("chromium")
+NODE = shutil.which("node")
 
 
 def browser_dom(server: object, profile: Path) -> subprocess.CompletedProcess[str]:
@@ -63,6 +64,48 @@ def browser_file_dom(page: str, root: Path) -> subprocess.CompletedProcess[str]:
         timeout=30,
         check=False,
     )
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_document_navigation_controller_exposes_link_helpers() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/modules/assets/document-navigation.js"
+    )
+    script = """
+global.window = { location: { origin: "http://127.0.0.1" } };
+require(process.argv[1]);
+const navigation = window.ElectroBoyDocumentNavigation.create();
+for (const name of [
+  "destination",
+  "entry",
+  "frameEntry",
+  "location",
+  "restoreFrame",
+  "target",
+]) {
+  if (typeof navigation[name] !== "function") {
+    throw new Error(`missing navigation helper: ${name}`);
+  }
+}
+const destination = navigation.destination({
+  target: { path: "guide.md", label: "Guide" },
+  location: { fragment: "install" },
+});
+if (destination.target.path !== "guide.md") {
+  throw new Error("document link destination was not normalized");
+}
+"""
+
+    completed = subprocess.run(
+        [str(NODE), "-e", script, str(asset)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")

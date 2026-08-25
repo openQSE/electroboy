@@ -255,6 +255,17 @@
   gap: 4px;
 }
 
+.pane-tool-navigation-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.pane-tool-navigation-row button {
+  font-size: 18px;
+  line-height: 1;
+}
+
 .pane-tool-zoom-level {
   color: #aab8cf;
   font-size: var(--ui-small-font-size);

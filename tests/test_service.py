@@ -555,6 +555,10 @@ class ServiceTests(unittest.TestCase):
             frontend_bundles["pane-window"]["assets"],
         )
         self.assertIn(
+            "js/modules/document-navigation.js",
+            frontend_bundles["documents"]["assets"],
+        )
+        self.assertIn(
             "js/modules/file-pane-tools.js",
             frontend_bundles["documents"]["assets"],
         )
@@ -591,6 +595,11 @@ class ServiceTests(unittest.TestCase):
         pane_tools = read_service_text_asset("js/core/pane-tools.js")
         terminal_behavior = read_service_text_asset(
             "js/core/terminal-behavior.js"
+        )
+        document_navigation = read_service_text_asset(
+            "js/modules/document-navigation.js",
+            modules,
+            workflows,
         )
         documents = read_service_text_asset("js/modules/documents.js")
         file_pane_tools = read_service_text_asset(
@@ -891,6 +900,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function mountDockedPaneTools()", documents)
         self.assertIn("ElectroBoyPaneTools.create", documents)
         self.assertIn("ElectroBoyFilePaneTools.mount", documents)
+        self.assertIn("ElectroBoyDocumentNavigation.create", documents)
+        self.assertIn("function followDocumentLink(frameWindow, data)", documents)
+        self.assertIn("function navigateDocumentHistory(direction)", documents)
+        self.assertIn("runtimeState.openDocumentTargets.find(", documents)
+        self.assertIn("window.ElectroBoyDocumentNavigation =", document_navigation)
+        self.assertIn("const backEntries = [];", document_navigation)
+        self.assertIn("const forwardEntries = [];", document_navigation)
+        self.assertIn('type: "electroboy:document-location"', document_navigation)
         self.assertIn("electroboy.paneTools.docked.artifact", documents)
         self.assertIn(
             "runtimeState.manualArtifactPreview\n"
@@ -916,11 +933,16 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn(".pane-document-menu", shell_css)
         self.assertNotIn('exportFormat.className = "document-export-format"', documents)
         self.assertIn(
-            'function openDocumentTarget(target, fragment = "")',
+            "function openDocumentTarget(target, navigationLocation = null)",
             documents,
         )
         self.assertIn('data.type === "electroboy:document-link"', documents)
         self.assertIn('data.type === "electroboy:document-link"', pane_window)
+        self.assertIn('addSection("navigation", "Navigation")', file_pane_tools)
+        self.assertIn('const back = button("←"', file_pane_tools)
+        self.assertIn('const forward = button("→"', file_pane_tools)
+        self.assertIn('runAction("back"', file_pane_tools)
+        self.assertIn('runAction("forward"', file_pane_tools)
         self.assertIn("function popOutArtifactPreview(item)", documents)
         self.assertNotIn('popOutPane("artifact", item)', documents)
         self.assertIn("function popOutCurrentArtifact()", pane_window)
@@ -1551,6 +1573,10 @@ class ServiceTests(unittest.TestCase):
             workflows,
         )
         self.assertLess(
+            page.index("js/modules/document-navigation.js"),
+            page.index("js/modules/documents.js"),
+        )
+        self.assertLess(
             page.index("js/modules/documents.js"),
             page.index("js/core/runtime.js"),
         )
@@ -1923,6 +1949,15 @@ class ServiceTests(unittest.TestCase):
                     server,
                     "/assets/service/js/modules/file-pane-tools.js",
                 )
+                (
+                    navigation_status,
+                    navigation_body,
+                    navigation_type,
+                    _,
+                ) = request_bytes(
+                    server,
+                    "/assets/service/js/modules/document-navigation.js",
+                )
                 software_status, software_body, software_type, _software_headers = (
                     request_bytes(
                         server,
@@ -2005,6 +2040,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(file_tools_status, 200)
         self.assertEqual(file_tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyFilePaneTools", file_tools_body)
+        self.assertEqual(navigation_status, 200)
+        self.assertEqual(navigation_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"window.ElectroBoyDocumentNavigation", navigation_body)
         self.assertEqual(software_status, 200)
         self.assertEqual(software_type, "application/javascript; charset=utf-8")
         self.assertIn(b"Software engineering", software_body)
@@ -2099,7 +2137,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('/assets/service/js/core/pane-sync.js', page)
         self.assertIn('/assets/service/js/core/pane-tools.js', page)
         self.assertIn('/assets/service/css/pane-tools.css', page)
+        self.assertIn('/assets/service/js/modules/document-navigation.js', page)
         self.assertIn('/assets/service/js/modules/file-pane-tools.js', page)
+        self.assertLess(
+            page.index('/assets/service/js/modules/document-navigation.js'),
+            page.index('/assets/service/js/modules/file-pane-tools.js'),
+        )
         self.assertIn('paneParameters.set("embedded", "1")', page)
         self.assertIn('function initialPaneWorkspaceLayout()', page)
         self.assertIn('first: { type: "leaf", kind: "agent" }', page)
@@ -2726,6 +2769,9 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('const currentDocumentPath = "docs/guide.md";', page)
         self.assertIn('type: "electroboy:document-link"', page)
+        self.assertIn("location: currentDocumentLocation()", page)
+        self.assertIn('location: { fragment: target.fragment }', page)
+        self.assertIn('data.type !== "electroboy:document-location"', page)
         self.assertIn('window.parent.postMessage(', page)
 
     def test_document_target_renderer_handles_code_fences_and_mermaid(self) -> None:

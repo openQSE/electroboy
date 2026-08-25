@@ -157,7 +157,11 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             id="documents",
             label="Document Panes",
             owner="markdown_documents",
-            assets=("js/modules/documents.js", "js/modules/file-pane-tools.js"),
+            assets=(
+                "js/modules/document-navigation.js",
+                "js/modules/documents.js",
+                "js/modules/file-pane-tools.js",
+            ),
         ),
         FrontendBundle(
             id="binder",
