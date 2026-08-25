@@ -3750,15 +3750,6 @@
       return true;
     }
 
-    function resetPaneFontOffset(pane) {
-      if (!PANE_FONT_KEYS.includes(pane)) {
-        return;
-      }
-      paneFontOffsets[pane] = 0;
-      savePaneFontOffset(pane);
-      applyPaneFontSize(pane);
-    }
-
     function changeDocumentZoom(delta) {
       documentZoom = clampDocumentZoom(documentZoom + delta);
       saveDocumentZoom();
@@ -3837,10 +3828,6 @@
         level.title = offset === 0 ? "Global font size" : `Global ${offset > 0 ? "+" : ""}${offset}px`;
       }
       for (const button of document.querySelectorAll(`[data-pane-font="${pane}"]`)) {
-        if (button.dataset.paneFontReset) {
-          button.disabled = offset === 0;
-          continue;
-        }
         const delta = Number(button.dataset.paneFontDelta || "0");
         if (delta < 0) {
           button.disabled = fontSize + delta <= 0;
@@ -4734,7 +4721,9 @@
     }
 
     function setConnected() {
-      connection.textContent = connectionBadgeLabel();
+      const label = connectionBadgeLabel();
+      connection.textContent = label;
+      connection.title = label;
     }
 
     function connectionBadgeLabel() {
@@ -7432,11 +7421,6 @@
           button.dataset.paneFont || "",
           Number(button.dataset.paneFontDelta || "0"),
         );
-      });
-    });
-    document.querySelectorAll("[data-pane-font-reset]").forEach((button) => {
-      button.addEventListener("click", () => {
-        resetPaneFontOffset(button.dataset.paneFont || "");
       });
     });
     window.addEventListener("storage", (event) => {

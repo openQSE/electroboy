@@ -114,7 +114,8 @@ def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
     completed = browser_dom(server, tmp_path / "chrome-profile")
 
     assert completed.returncode == 0, completed.stdout
-    assert 'id="connection" class="connection">connected' in completed.stdout
+    assert 'id="connection" class="connection"' in completed.stdout
+    assert 'title="connected">connected</div>' in completed.stdout
     assert 'data-stage="requirements"' in completed.stdout
     assert 'id="sessionSwitcher"' in completed.stdout
     assert 'data-provider="electroboy' in completed.stdout

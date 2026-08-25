@@ -474,10 +474,7 @@
     }
 
     .help-launch {
-      position: absolute;
-      top: 9px;
-      right: 17px;
-      z-index: 14;
+      position: static;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -532,10 +529,26 @@
       z-index: 10;
       grid-column: 2;
       grid-row: 1;
-      padding: 8px 62px 4px 18px;
+      padding: 8px 18px 4px;
       border-bottom: 1px solid var(--border);
       background: var(--top-surface);
       overflow: visible;
+    }
+
+    .workflow-topbar {
+      position: absolute;
+      top: 8px;
+      right: 18px;
+      left: 18px;
+      z-index: 12;
+      display: grid;
+      grid-template-columns:
+        minmax(0, 1fr)
+        clamp(160px, 18vw, 280px)
+        38px;
+      gap: 14px;
+      align-items: center;
+      min-width: 0;
     }
 
     @media (max-width: 820px) {
@@ -690,15 +703,13 @@
     }
 
     .workflow-toolbar {
-      position: absolute;
-      top: 8px;
-      left: 18px;
-      z-index: 12;
+      position: static;
       display: flex;
       align-items: center;
       gap: 34px;
       min-width: 0;
-      max-width: calc(100% - 180px);
+      max-width: none;
+      overflow: hidden;
     }
 
     .workflow-toolbar .toolbar-control-group + .toolbar-control-group {
@@ -714,6 +725,16 @@
       transform: translateY(-50%);
       background: #b7c5d4;
       content: "";
+    }
+
+    @media (max-width: 1400px) {
+      .workflow-toolbar {
+        gap: 14px;
+      }
+
+      .workflow-toolbar .toolbar-control-group + .toolbar-control-group::before {
+        display: none;
+      }
     }
 
     .toolbar-control-group {
@@ -839,12 +860,24 @@
     }
 
     .connection {
-      position: absolute;
-      right: 18px;
-      top: 10px;
+      display: block;
+      min-width: 0;
+      height: calc(var(--ui-font-size) + 23px);
+      min-height: 34px;
+      overflow: hidden;
+      padding: 8px 12px;
+      border: 1px solid #9fb4c8;
+      border-radius: 8px;
+      background: var(--top-surface-strong);
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 45%) inset,
+        0 6px 16px rgb(15 43 70 / 7%);
       color: #264e66;
       font-size: var(--ui-font-size);
       font-weight: 400;
+      line-height: 1.1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .stage-graph {
@@ -2087,10 +2120,6 @@
       line-height: 1;
     }
 
-    .pane-font-reset {
-      min-width: 34px;
-    }
-
     .document-zoom-button:hover:not(:disabled) {
       border-color: #4e7f9d;
       background: #22314a;
@@ -2469,7 +2498,9 @@
     }
 
     .terminal-font-controls {
+      flex-shrink: 0;
       gap: 0;
+      min-width: 220px;
     }
 
     .terminal-font-button,
@@ -2554,8 +2585,11 @@
         padding: 0 16px 12px;
       }
 
-      .connection {
+      .workflow-topbar {
         right: 16px;
+        left: 16px;
+        grid-template-columns: minmax(0, 1fr) minmax(120px, 180px) 38px;
+        gap: 8px;
       }
 
       .stage-menu {

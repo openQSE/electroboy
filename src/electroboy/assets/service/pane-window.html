@@ -786,12 +786,6 @@
             aria-label="Enter pane font size"
           >
           <button
-            id="resetPaneFont"
-            type="button"
-            title="Reset pane font size"
-            aria-label="Reset pane font size"
-          >0</button>
-          <button
             id="increasePaneFont"
             type="button"
             title="Increase pane font size"
@@ -995,7 +989,6 @@
     const paneFontControls = document.getElementById("paneFontControls");
     const decreasePaneFont = document.getElementById("decreasePaneFont");
     const paneFontLevel = document.getElementById("paneFontLevel");
-    const resetPaneFont = document.getElementById("resetPaneFont");
     const increasePaneFont = document.getElementById("increasePaneFont");
     const artifactZoomControls = document.getElementById("artifactZoomControls");
     const decreaseArtifactZoom = document.getElementById("decreaseArtifactZoom");
@@ -1168,7 +1161,6 @@
         ? "Global font size"
         : `Global ${fontOffset > 0 ? "+" : ""}${fontOffset}px`;
       decreasePaneFont.disabled = fontSize - 1 <= 0;
-      resetPaneFont.disabled = fontOffset === 0;
       increasePaneFont.disabled = false;
     }
 
@@ -1227,13 +1219,6 @@
         }
         commit();
       });
-    }
-
-    function resetFontSize() {
-      fontOffset = 0;
-      saveFontOffset();
-      applyFontSize();
-      notifyFontOffsetChanged();
     }
 
     function titleForPane(kind) {
@@ -3863,7 +3848,6 @@
       });
     });
     decreasePaneFont.addEventListener("click", () => changeFontSize(-1));
-    resetPaneFont.addEventListener("click", resetFontSize);
     increasePaneFont.addEventListener("click", () => changeFontSize(1));
     bindFontSizeInput();
     window.addEventListener("storage", (event) => {

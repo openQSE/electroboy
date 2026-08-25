@@ -163,83 +163,88 @@
       aria-label="Resize workflow menu"
     ></div>
     <section class="workflow-pane" aria-label="Project workflow">
-      <div id="connection" class="connection"></div>
-      <button
-        id="showHelp"
-        class="help-launch"
-        type="button"
-        title="Help and About (F1)"
-        aria-label="Help and About"
-      >?</button>
-      <div class="workflow-toolbar" aria-label="Agent controls">
-        <div class="splash-control toolbar-control-group">
-          <span class="toolbar-control-label">Splash</span>
-          <button
-            id="showSplash"
-            class="toolbar-command-button"
-            type="button"
-            title="Show the ElectroBoy splash screen"
-            aria-label="Show the ElectroBoy splash screen"
+      <div class="workflow-topbar">
+        <div class="workflow-toolbar" aria-label="Agent controls">
+          <div class="splash-control toolbar-control-group">
+            <span class="toolbar-control-label">Splash</span>
+            <button
+              id="showSplash"
+              class="toolbar-command-button"
+              type="button"
+              title="Show the ElectroBoy splash screen"
+              aria-label="Show the ElectroBoy splash screen"
+            >
+              Show
+            </button>
+          </div>
+          <div
+            class="terminal-font-controls toolbar-control-group"
+            aria-label="UI font size"
           >
-            Show
-          </button>
+            <span class="toolbar-control-label">Text</span>
+            <button
+              id="decreaseTerminalFont"
+              class="terminal-font-button"
+              type="button"
+              title="Decrease font size"
+              aria-label="Decrease font size"
+            >
+              A-
+            </button>
+            <input
+              id="terminalFontValue"
+              class="terminal-font-value"
+              type="text"
+              inputmode="decimal"
+              value="15px"
+              aria-label="Enter interface font size"
+            >
+            <button
+              id="increaseTerminalFont"
+              class="terminal-font-button"
+              type="button"
+              title="Increase font size"
+              aria-label="Increase font size"
+            >
+              A+
+            </button>
+          </div>
+          <div class="session-control toolbar-control-group">
+            <label class="toolbar-control-label" for="sessionSwitcher">Agent</label>
+            <span
+              id="agentSessionIndicator"
+              class="agent-session-indicator"
+              aria-hidden="true"
+            ></span>
+            <select
+              id="sessionSwitcher"
+              class="session-switcher"
+              disabled
+              aria-label="Select Agent"
+            ></select>
+          </div>
+          <div class="shell-control toolbar-control-group">
+            <span class="toolbar-control-label">Shell</span>
+            <button
+              id="toggleProjectShellPane"
+              class="toolbar-command-button"
+              type="button"
+              disabled
+              title="Open or hide the project shell"
+              aria-label="Open or hide the project shell"
+            >
+              Shell
+            </button>
+          </div>
         </div>
-        <div class="terminal-font-controls toolbar-control-group" aria-label="UI font size">
-          <span class="toolbar-control-label">Text</span>
-          <button
-            id="decreaseTerminalFont"
-            class="terminal-font-button"
-            type="button"
-            title="Decrease font size"
-            aria-label="Decrease font size"
-          >
-            A-
-          </button>
-          <input
-            id="terminalFontValue"
-            class="terminal-font-value"
-            type="text"
-            inputmode="decimal"
-            value="15px"
-            aria-label="Enter interface font size"
-          >
-          <button
-            id="increaseTerminalFont"
-            class="terminal-font-button"
-            type="button"
-            title="Increase font size"
-            aria-label="Increase font size"
-          >
-            A+
-          </button>
-        </div>
-        <div class="session-control toolbar-control-group">
-          <label class="toolbar-control-label" for="sessionSwitcher">Agent</label>
-          <span
-            id="agentSessionIndicator"
-            class="agent-session-indicator"
-            aria-hidden="true"
-          ></span>
-          <select
-            id="sessionSwitcher"
-            class="session-switcher"
-            disabled
-            aria-label="Select Agent"
-          ></select>
-        </div>
-        <div class="shell-control toolbar-control-group">
-          <span class="toolbar-control-label">Shell</span>
-          <button
-            id="toggleProjectShellPane"
-            class="toolbar-command-button"
-            type="button"
-            disabled
-            title="Open or hide the project shell"
-            aria-label="Open or hide the project shell"
-          >
-            Shell
-          </button>
-        </div>
+        <div id="connection" class="connection"></div>
+        <button
+          id="showHelp"
+          class="help-launch"
+          type="button"
+          title="Help and About (F1)"
+          aria-label="Help and About"
+        >?</button>
       </div>
       <div class="stage-scroll">
         <div id="workflowStageGraph" class="stage-graph" aria-label="Project stages"></div>
@@ -351,14 +356,6 @@
                       data-pane-font-level="agent"
                       aria-label="Enter agent output font size"
                     >
-                    <button
-                      class="pane-font-button pane-font-reset"
-                      type="button"
-                      data-pane-font="agent"
-                      data-pane-font-reset="1"
-                      title="Reset agent output font size"
-                      aria-label="Reset agent output font size"
-                    >0</button>
                     <button
                       class="pane-font-button"
                       type="button"
@@ -472,14 +469,6 @@
                       aria-label="Enter progress font size"
                     >
                     <button
-                      class="pane-font-button pane-font-reset"
-                      type="button"
-                      data-pane-font="progress"
-                      data-pane-font-reset="1"
-                      title="Reset progress font size"
-                      aria-label="Reset progress font size"
-                    >0</button>
-                    <button
                       class="pane-font-button"
                       type="button"
                       data-pane-font="progress"
@@ -545,14 +534,6 @@
                     data-pane-font-level="shell"
                     aria-label="Enter shell font size"
                   >
-                  <button
-                    class="pane-font-button pane-font-reset"
-                    type="button"
-                    data-pane-font="shell"
-                    data-pane-font-reset="1"
-                    title="Reset project shell font size"
-                    aria-label="Reset project shell font size"
-                  >0</button>
                   <button
                     class="pane-font-button"
                     type="button"
@@ -626,14 +607,6 @@
                     aria-label="Enter scratch pad font size"
                   >
                   <button
-                    class="pane-font-button pane-font-reset"
-                    type="button"
-                    data-pane-font="scratch"
-                    data-pane-font-reset="1"
-                    title="Reset scratch pad font size"
-                    aria-label="Reset scratch pad font size"
-                  >0</button>
-                  <button
                     class="pane-font-button"
                     type="button"
                     data-pane-font="scratch"
@@ -691,14 +664,6 @@
                     aria-label="Enter project status font size"
                   >
                   <button
-                    class="pane-font-button pane-font-reset"
-                    type="button"
-                    data-pane-font="status"
-                    data-pane-font-reset="1"
-                    title="Reset project status font size"
-                    aria-label="Reset project status font size"
-                  >0</button>
-                  <button
                     class="pane-font-button"
                     type="button"
                     data-pane-font="status"
@@ -752,14 +717,6 @@
                 data-pane-font-level="input"
                 aria-label="Enter agent input font size"
               >
-              <button
-                class="pane-font-button pane-font-reset"
-                type="button"
-                data-pane-font="input"
-                data-pane-font-reset="1"
-                title="Reset AI agent input font size"
-                aria-label="Reset AI agent input font size"
-              >0</button>
               <button
                 class="pane-font-button"
                 type="button"
