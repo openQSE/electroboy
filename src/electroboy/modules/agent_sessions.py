@@ -249,10 +249,14 @@ def module() -> ServiceModule:
         ),
         handlers=_HANDLERS,
         assets=(
+            "css/input-history.css",
             "js/modules/agent-pane-tools.js",
+            "js/modules/input-history.js",
             "js/modules/agent-sessions.js",
         ),
         asset_package="electroboy.modules",
-        capabilities=frozenset({"terminal", "sse", "transcript-export"}),
+        capabilities=frozenset(
+            {"input-history", "terminal", "sse", "transcript-export"}
+        ),
         state_namespace="sessions",
     )

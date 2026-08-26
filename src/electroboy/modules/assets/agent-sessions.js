@@ -582,6 +582,7 @@
       if (!message.trim()) {
         return;
       }
+      runtimeApi.input.history.record(message);
       runtimeApi.elements.agentInput.value = "";
       publishAgentInputState();
       const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/message"), {
@@ -932,6 +933,7 @@
     capabilities: [
       "session-switching",
       "terminal-input",
+      "input-history",
       "session-export",
       "configurable-send-shortcut",
     ],

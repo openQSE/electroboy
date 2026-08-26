@@ -136,7 +136,9 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             label="Agent Sessions",
             owner="agent_sessions",
             assets=(
+                "css/input-history.css",
                 "js/modules/agent-pane-tools.js",
+                "js/modules/input-history.js",
                 "js/modules/agent-sessions.js",
             ),
         ),

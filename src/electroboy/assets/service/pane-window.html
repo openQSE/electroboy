@@ -10,6 +10,7 @@
   >
   <link rel="stylesheet" href="/assets/service/css/pane-tools.css">
   <link rel="stylesheet" href="/assets/service/css/agenda-pane-tools.css">
+  <link rel="stylesheet" href="/assets/service/css/input-history.css">
   <style>
     :root {
       --terminal: #10141f;
@@ -389,7 +390,7 @@
 
     .input-actions {
       display: grid;
-      grid-template-rows: repeat(3, 42px);
+      grid-template-rows: repeat(4, 42px);
       align-items: stretch;
       align-content: start;
       gap: 10px;
@@ -865,6 +866,13 @@
             <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
           </div>
           <div class="input-actions">
+            <button
+              id="showInputHistory"
+              type="button"
+              title="Show previous agent inputs"
+            >
+              History
+            </button>
             <button id="interruptAgent" class="input-interrupt" type="button">
               Interrupt
             </button>
@@ -905,6 +913,7 @@
   <script src="/assets/service/js/core/pane-layout-drag.js"></script>
   <script src="/assets/service/js/core/split-resize.js"></script>
   <script src="/assets/service/js/core/pane-workspace.js"></script>
+  <script src="/assets/service/js/modules/input-history.js"></script>
   <script src="/assets/service/js/core/input-shortcut.js"></script>
   <script src="/assets/service/js/core/pane-sync.js"></script>
   <script src="/assets/service/js/core/pane-tools.js"></script>
@@ -1007,6 +1016,7 @@
     const inputLayout = document.getElementById("inputLayout");
     const agentInput = document.getElementById("agentInput");
     const agentSendShortcut = document.getElementById("agentSendShortcut");
+    const showInputHistory = document.getElementById("showInputHistory");
     const paneContentControl = document.getElementById("paneContentControl");
     const paneContentLabel = document.getElementById("paneContentLabel");
     const contentSwitcher = document.getElementById("contentSwitcher");
@@ -1052,6 +1062,13 @@
     const shortcutController = EMBEDDED_PANE
       ? window.ElectroBoyInputShortcut.bindRecorder(agentSendShortcut)
       : { matches: () => false };
+    const inputHistory = window.ElectroBoyInputHistory
+      ? window.ElectroBoyInputHistory.create({
+          button: showInputHistory,
+          input: agentInput,
+        })
+      : Object.freeze({ record: () => 0 });
+    showInputHistory.hidden = !window.ElectroBoyInputHistory;
 
     applyFontSize();
 
@@ -3533,6 +3550,7 @@
       if (!message.trim()) {
         return;
       }
+      inputHistory.record(message);
       agentInput.value = "";
       publishAgentInputState();
       await fetch(contextUrl("/api/sessions/message"), {

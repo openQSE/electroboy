@@ -108,6 +108,46 @@ if (destination.target.path !== "guide.md") {
     assert completed.returncode == 0, completed.stderr
 
 
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_input_history_keeps_the_latest_two_thousand_entries() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/modules/assets/input-history.js"
+    )
+    script = """
+const values = new Map();
+global.window = {
+  localStorage: {
+    getItem: (key) => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, value),
+  },
+};
+require(process.argv[1]);
+const history = window.ElectroBoyInputHistory;
+for (let index = 0; index < 2005; index += 1) {
+  history.appendEntry(`entry-${index}`);
+}
+history.appendEntry("   ");
+const entries = history.loadEntries();
+if (history.MAX_ENTRIES !== 2000 || entries.length !== 2000) {
+  throw new Error(`unexpected history size: ${entries.length}`);
+}
+if (entries[0] !== "entry-5" || entries.at(-1) !== "entry-2004") {
+  throw new Error("history did not retain the latest entries");
+}
+"""
+
+    completed = subprocess.run(
+        [str(NODE), "-e", script, str(asset)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
     server = create_server(tmp_path / "service", port=0)
@@ -121,6 +161,8 @@ def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
     assert 'data-provider="electroboy' in completed.stdout
     assert 'data-pane-drag-handle="true"' in completed.stdout
     assert 'id="agentSendShortcut"' in completed.stdout
+    assert 'id="showInputHistory"' in completed.stdout
+    assert 'class="input-history-overlay"' in completed.stdout
     assert 'class="pane-drag-detach-target"' in completed.stdout
     assert ">Software Engineering</option>" in completed.stdout
     assert ">Creative Writing</option>" in completed.stdout

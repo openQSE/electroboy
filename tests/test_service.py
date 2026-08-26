@@ -524,6 +524,14 @@ class ServiceTests(unittest.TestCase):
             frontend_bundles["core-shell"]["assets"],
         )
         self.assertIn(
+            "js/modules/input-history.js",
+            frontend_bundles["agent-sessions"]["assets"],
+        )
+        self.assertIn(
+            "css/input-history.css",
+            frontend_bundles["agent-sessions"]["assets"],
+        )
+        self.assertIn(
             "js/core/pane-sync.js",
             frontend_bundles["core-shell"]["assets"],
         )
@@ -608,6 +616,9 @@ class ServiceTests(unittest.TestCase):
         )
         sessions = read_service_text_asset("js/modules/agent-sessions.js")
         input_shortcut = read_service_text_asset("js/core/input-shortcut.js")
+        input_history = read_service_text_asset(
+            "js/modules/input-history.js", modules, workflows
+        )
         pane_sync = read_service_text_asset("js/core/pane-sync.js")
         pane_tools = read_service_text_asset("js/core/pane-tools.js")
         pane_css = read_service_text_asset("css/pane-tools.css")
@@ -637,6 +648,9 @@ class ServiceTests(unittest.TestCase):
         app = read_service_text_asset("js/core/runtime.js")
         pane_window = read_service_text_asset("pane-window.html")
         shell_css = read_service_text_asset("css/shell.css")
+        input_history_css = read_service_text_asset(
+            "css/input-history.css", modules, workflows
+        )
 
         self.assertIn("bindRuntime(nextRuntime)", registry)
         self.assertIn("invokeWorkflow(id, action, ...args)", registry)
@@ -922,11 +936,23 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("terminate_agents: terminateAgents", app)
         self.assertIn("Deactivate will stop", app)
         self.assertIn("ElectroBoyInputShortcut.bindRecorder", sessions)
+        self.assertIn("runtimeApi.input.history.record(message);", sessions)
         self.assertIn("shortcutController.matches(event)", sessions)
         self.assertNotIn("isEnter && event.shiftKey", sessions)
         self.assertIn("function bindRecorder(button)", input_shortcut)
         self.assertIn("electroboy.agentSendShortcut.v1", input_shortcut)
         self.assertIn("Hover to record a new shortcut", input_shortcut)
+        self.assertIn("const MAX_ENTRIES = 2000;", input_history)
+        self.assertIn("entries.slice(-MAX_ENTRIES)", input_history)
+        self.assertIn("function create(options = {})", input_history)
+        self.assertIn("input.dispatchEvent(new Event(\"input\"", input_history)
+        self.assertIn('id="showInputHistory"', template)
+        self.assertIn("ElectroBoyInputHistory.create", app)
+        self.assertIn("history: agentInputHistory", app)
+        self.assertIn('id="showInputHistory"', pane_window)
+        self.assertIn("inputHistory.record(message);", pane_window)
+        self.assertIn(".input-history-card", input_history_css)
+        self.assertIn("overflow: auto;", input_history_css)
         self.assertIn("function connect(options = {})", pane_sync)
         self.assertIn("window.BroadcastChannel", pane_sync)
         self.assertNotIn("creative-writing", pane_sync)
@@ -1666,7 +1692,7 @@ class ServiceTests(unittest.TestCase):
         styles = read_service_text_asset("css/shell.css")
 
         self.assertIn("var(--input-pane-height, 220px)", styles)
-        self.assertIn("grid-template-rows: repeat(3, 42px);", styles)
+        self.assertIn("grid-template-rows: repeat(4, 42px);", styles)
         self.assertIn("gap: 10px;\n      align-content: start;", styles)
         self.assertIn("min-height: 42px;\n      height: 42px;", styles)
         self.assertNotIn("repeat(3, minmax(30px, auto))", styles)
@@ -2514,7 +2540,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="linkAgentFile" class="input-link"', PANE_WINDOW_HTML)
         self.assertIn("background: #3a1d1a;", PANE_WINDOW_HTML)
         self.assertIn("background: #12303b;", PANE_WINDOW_HTML)
-        self.assertIn("grid-template-rows: repeat(3, 42px);", PANE_WINDOW_HTML)
+        self.assertIn("grid-template-rows: repeat(4, 42px);", PANE_WINDOW_HTML)
         self.assertIn(".input-actions button {\n      height: 42px;", PANE_WINDOW_HTML)
         self.assertIn("align-content: start;\n      gap: 10px;", PANE_WINDOW_HTML)
         self.assertNotIn('id="sendAgentInput"', PANE_WINDOW_HTML)

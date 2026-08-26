@@ -79,6 +79,7 @@
     const inputPane = document.getElementById("inputPane");
     const agentInput = document.getElementById("agentInput");
     const agentSendShortcut = document.getElementById("agentSendShortcut");
+    const showInputHistory = document.getElementById("showInputHistory");
     const inputActionResizeHandle = document.getElementById("inputActionResizeHandle");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
     const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
@@ -5255,6 +5256,7 @@
         ["Agent input", "The only field that sends instructions to an agent."],
         ["Agent output", "A read-only live terminal view; select the agent above it."],
         ["Send shortcut", "Hover over its badge to record the key chord you prefer."],
+        ["History", "Restore one of the 2,000 most recently submitted agent inputs."],
         ["Interrupt", "Sends Escape to the selected agent."],
         ["Link file", "Insert a filesystem file reference into the agent input."],
         ["Pane controls", "Pop out, close, split, assign content, or open context tools."],
@@ -7584,6 +7586,14 @@
       });
     });
 
+    const agentInputHistory = window.ElectroBoyInputHistory
+      ? window.ElectroBoyInputHistory.create({
+          button: showInputHistory,
+          input: agentInput,
+        })
+      : Object.freeze({ record: () => 0 });
+    showInputHistory.hidden = !window.ElectroBoyInputHistory;
+
     const frontendRuntime = {
       elements: {
         creativeTree: null,
@@ -7768,6 +7778,7 @@
         set terminalInputQueue(value) { terminalInputQueue = value; },
       },
       input: {
+        history: agentInputHistory,
         sendShortcut: agentSendShortcut,
       },
       telemetry: frontendTelemetryRuntime,
