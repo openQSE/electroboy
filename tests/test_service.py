@@ -689,6 +689,10 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('subgroup: "project-meta-repositories"', software)
         self.assertIn('data-creative-control="recent-projects-menu"', creative)
         self.assertIn("creativeRecentProjectsExpanded = false", creative)
+        self.assertIn("async function openRecentProject(project)", creative)
+        self.assertNotIn("return runtimeApi.recent.open(project);", creative)
+        self.assertIn('contextUrl("/api/creative/project/open")', creative)
+        self.assertIn("event.stopPropagation();", creative)
         self.assertIn('navigation: "sidebar"', creative)
         self.assertIn(
             'defaultPaneLayout: { type: "leaf", kind: "empty" }',

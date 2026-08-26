@@ -207,8 +207,26 @@
     return runtimeApi.recent.label(project);
   }
 
-  function openRecentProject(project) {
-    return runtimeApi.recent.open(project);
+  async function openRecentProject(project) {
+    const path = String((project && project.path) || "").trim();
+    if (!path) {
+      return;
+    }
+    const response = await runtimeApi.http.fetch(contextUrl("/api/creative/project/open"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const payload = await response
+      .json()
+      .catch(() => ({ error: "project update failed" }));
+    if (!response.ok) {
+      throw new Error(payload.error || "project update failed");
+    }
+    recordProjectStatusMessage(
+      `${payload.status}: ${payload.activation_root || payload.active_project_root || path}`,
+    );
+    updateProjectState(payload);
   }
 
   function recordProjectStatusMessage(message) {
@@ -667,7 +685,8 @@
         button.textContent = basename(recent.path || recent.label || "Project");
         button.title = recent.path || recentProjectLabel(recent);
         button.disabled = Boolean(activationRoot);
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
           openRecentProject(recent).catch((error) => {
             appendOutput(`action failed: ${error}\n`, "error");
           });
