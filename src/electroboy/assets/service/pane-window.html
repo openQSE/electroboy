@@ -909,6 +909,7 @@
   <script src="/assets/service/js/core/pane-sync.js"></script>
   <script src="/assets/service/js/core/pane-tools.js"></script>
   <script src="/assets/service/js/modules/document-navigation.js"></script>
+  <script src="/assets/service/js/modules/agent-pane-tools.js"></script>
   <script src="/assets/service/js/modules/file-pane-tools.js"></script>
   <script src="/assets/service/js/modules/agenda-pane-tools.js"></script>
   <script>
@@ -1037,6 +1038,7 @@
     let sharedPaneSync = null;
     let contentCatalogSync = null;
     let paneToolsController = null;
+    let agentPaneTools = null;
     let filePaneTools = null;
     const paneDocumentNavigation = window.ElectroBoyDocumentNavigation.create();
     let directPaneActivationNotifier = null;
@@ -1615,6 +1617,7 @@
           "",
           true,
         );
+        refreshAgentPaneTools();
         return;
       }
       if (!agentSessions.some((session) => session.session_id === selectedSessionId)) {
@@ -1633,11 +1636,18 @@
         selectedSessionId,
         false,
       );
+      refreshAgentPaneTools();
     }
 
     function selectedAgentSession() {
       return agentSessions.find((session) => session.session_id === selectedSessionId)
         || null;
+    }
+
+    function refreshAgentPaneTools() {
+      if (agentPaneTools) {
+        agentPaneTools.refresh();
+      }
     }
 
     function renderFileSwitcher() {
@@ -1945,6 +1955,39 @@
       if (!popup) {
         throw new Error("popup was blocked by the browser");
       }
+    }
+
+    function popOutCurrentAgent() {
+      const popupUrl = new URL(window.location.href);
+      popupUrl.searchParams.delete("embedded");
+      popupUrl.searchParams.delete("pane_instance_id");
+      popupUrl.searchParams.set("popped", "1");
+      if (selectedSessionId) {
+        popupUrl.searchParams.set("session_id", selectedSessionId);
+      }
+      const popup = window.open(
+        `${popupUrl.pathname}${popupUrl.search}`,
+        `electroboy-agent-${selectedSessionId || contextId || "pane"}`,
+        "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,"
+          + "status=no,scrollbars=yes,resizable=yes",
+      );
+      if (!popup) {
+        throw new Error("popup was blocked by the browser");
+      }
+    }
+
+    function closeAgentPaneWindow() {
+      if (EMBEDDED_PANE && paneInstanceId && window.parent !== window) {
+        window.parent.postMessage(
+          {
+            type: "electroboy:pane-close",
+            paneInstanceId,
+          },
+          window.location.origin,
+        );
+        return;
+      }
+      window.close();
     }
 
     function closePaneDocument() {
@@ -3640,7 +3683,49 @@
     }
 
     async function interruptAgentSession() {
-      await fetch(contextUrl("/api/sessions/interrupt"), { method: "POST" });
+      const session = selectedAgentSession();
+      if (!session || session.status !== "running") {
+        return;
+      }
+      await fetch(contextUrl("/api/sessions/interrupt"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.session_id }),
+      });
+    }
+
+    async function terminateAgentSession() {
+      const session = selectedAgentSession();
+      if (!session) {
+        reportPaneError("select an agent session first");
+        return false;
+      }
+      const actionLabel = session.status === "running" ? "Terminate" : "Close";
+      if (!window.confirm(`${actionLabel} ${session.kind || "agent"} session?`)) {
+        return false;
+      }
+      const response = await fetch(contextUrl("/api/sessions/terminate"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.session_id }),
+      });
+      const payload = await response.json().catch(() => ({ error: "terminate failed" }));
+      if (!response.ok) {
+        reportPaneError(payload.error || "terminate failed");
+        return false;
+      }
+      closeAgentPaneEventStream(session.session_id);
+      agentSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      selectedSessionId = payload.selected_session_id || "";
+      pinnedAgentSessionId = PANE_KIND === "agent" ? selectedSessionId : pinnedAgentSessionId;
+      renderSessionSwitcher();
+      if (selectedAgentSession()) {
+        connectAgentStream();
+      } else if (PANE_KIND === "agent") {
+        resetTerminalOutput();
+      }
+      notifyPaneAgentSessionChange();
+      return true;
     }
 
     function insertTextAtCursor(text) {
@@ -3709,9 +3794,12 @@
       }
     }
 
-    function workspacePaneUrl(kind) {
+    function workspacePaneUrl(kind, item = null) {
       const paneParameters = new URLSearchParams(params);
       paneParameters.set("embedded", "1");
+      if (item && item.id) {
+        paneParameters.set("pane_instance_id", item.id);
+      }
       return `/pane/${encodeURIComponent(kind)}?${paneParameters.toString()}`;
     }
 
@@ -4045,6 +4133,31 @@
         },
       });
     }
+    if (PANE_KIND === "agent" && window.ElectroBoyAgentPaneTools) {
+      paneToolsTitle.textContent = "Agent tools";
+      agentPaneTools = window.ElectroBoyAgentPaneTools.mount({
+        controller: paneToolsController,
+        getSession: selectedAgentSession,
+        getTarget: () => ({
+          canPop: EMBEDDED_PANE && params.get("popped") !== "1",
+          canDock: !EMBEDDED_PANE && Boolean(window.opener),
+          canClosePane: EMBEDDED_PANE && Boolean(paneInstanceId),
+        }),
+        actions: {
+          export: exportCurrentPaneOutput,
+          interrupt: interruptAgentSession,
+          terminate: terminateAgentSession,
+          pop: popOutCurrentAgent,
+          dock: restorePoppedPane,
+          closePane: closeAgentPaneWindow,
+        },
+        controls: {
+          font: paneFontControls,
+          exportButton: exportPaneOutput,
+          dockButton: dockPane,
+        },
+      });
+    }
     if (PANE_KIND === "agenda" && window.ElectroBoyAgendaPaneTools) {
       paneBody.classList.add("agenda-pane");
       paneToolsTitle.textContent = "Agenda filters";
@@ -4065,7 +4178,7 @@
     }
     initializeContentSwitcher();
     exportPaneFormat.hidden = PANE_KIND !== "artifact";
-    exportPaneOutput.hidden = !canExportPaneOutput();
+    exportPaneOutput.hidden = Boolean(agentPaneTools) || !canExportPaneOutput();
     if (PANE_KIND === "agent") {
       refreshSessions()
         .catch(() => {})

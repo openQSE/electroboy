@@ -454,6 +454,11 @@ class ServiceTests(unittest.TestCase):
             entry["id"]: entry for entry in payload["frontend_bundles"]
         }
         self.assertIn("agent_sessions", modules)
+        agent_session_routes = {
+            (route["method"], route["path"])
+            for route in modules["agent_sessions"]["routes"]
+        }
+        self.assertIn(("POST", "/api/sessions/terminate"), agent_session_routes)
         self.assertIn("structured_documents", modules)
         self.assertIn("agenda", modules)
         self.assertIn("calendar", modules)
@@ -532,6 +537,15 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
+        self.assertIn("agent-sessions", frontend_bundles)
+        self.assertIn(
+            "js/modules/agent-pane-tools.js",
+            frontend_bundles["agent-sessions"]["assets"],
+        )
+        self.assertIn(
+            "js/modules/agent-sessions.js",
+            frontend_bundles["agent-sessions"]["assets"],
+        )
         self.assertIn("documents", frontend_bundles)
         self.assertIn("agenda", frontend_bundles)
         self.assertIn("calendar", frontend_bundles)
@@ -596,9 +610,11 @@ class ServiceTests(unittest.TestCase):
         input_shortcut = read_service_text_asset("js/core/input-shortcut.js")
         pane_sync = read_service_text_asset("js/core/pane-sync.js")
         pane_tools = read_service_text_asset("js/core/pane-tools.js")
+        pane_css = read_service_text_asset("css/pane-tools.css")
         terminal_behavior = read_service_text_asset(
             "js/core/terminal-behavior.js"
         )
+        agent_pane_tools = read_service_text_asset("js/modules/agent-pane-tools.js")
         document_navigation = read_service_text_asset(
             "js/modules/document-navigation.js",
             modules,
@@ -743,6 +759,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere;", shell_css)
         self.assertIn('id="terminalFontValue"', template)
         self.assertIn('data-pane-font-level="agent"', template)
+        self.assertIn('id="agentPaneToolsToggle"', template)
+        self.assertIn('id="agentPaneToolsShelf"', template)
+        self.assertIn('id="agentPaneToolsContent"', template)
         self.assertNotIn("data-pane-font-reset", template)
         self.assertIn("function renderHelp()", app)
         self.assertIn("function openHelp()", app)
@@ -752,6 +771,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function setPaneFontSize(pane, value)", app)
         self.assertNotIn("MAX_TERMINAL_FONT_SIZE", app)
         self.assertNotIn("MAX_PANE_FONT_OFFSET", app)
+        self.assertIn(".terminal-pane.pane-tools-open", shell_css)
+        self.assertIn(".pane-tool-font-row", pane_css)
+        self.assertIn(".pane-tool-menu-button.danger", pane_css)
         self.assertIn(".help-overlay", shell_css)
         self.assertIn('id="paneFontLevel"', pane_window)
         self.assertNotIn('id="resetPaneFont"', pane_window)
@@ -771,9 +793,12 @@ class ServiceTests(unittest.TestCase):
             sessions,
         )
         self.assertIn("function selectAgentSessionLocally", sessions)
+        self.assertIn("function mountAgentPaneTools(runtime)", sessions)
+        self.assertIn("window.ElectroBoyAgentPaneTools.mount", sessions)
         self.assertIn("function connectSessionEvents(sessionId, options = {})", sessions)
         self.assertIn("let agentEventStreamVersion = 0;", sessions)
         self.assertIn("const agentEventStreams = new Map();", sessions)
+        self.assertIn("let agentPaneTools = null;", sessions)
         self.assertIn("function ensureSessionEventStream(sessionId)", sessions)
         self.assertIn("function ensureRunningSessionStreams()", sessions)
         self.assertIn("appendAgentOutput(outputText, sessionId);", sessions)
@@ -798,6 +823,27 @@ class ServiceTests(unittest.TestCase):
             "body: JSON.stringify({ session_id: session.session_id })",
             sessions,
         )
+        self.assertIn('contextUrl("/api/sessions/terminate")', sessions)
+        self.assertIn("terminateActiveAgent", sessions)
+        self.assertIn("agentFontControls", app)
+        self.assertIn("agentPaneToolsShelf", app)
+        self.assertIn("closePane: closeMountedPane", app)
+        self.assertIn("popOutPane: popOutMountedPane", app)
+        self.assertIn("window.ElectroBoyAgentPaneTools", agent_pane_tools)
+        self.assertIn('controller.addSection("agent-view", "View")', agent_pane_tools)
+        self.assertIn(
+            'controller.addSection("agent-actions", "Actions")',
+            agent_pane_tools,
+        )
+        self.assertIn("Export transcript", agent_pane_tools)
+        self.assertIn('menu("Pane", "pane-tool-agent-pane-menu")', agent_pane_tools)
+        self.assertIn(
+            'menu("Agent", "pane-tool-agent-session-menu")',
+            agent_pane_tools,
+        )
+        self.assertIn("Terminate agent", agent_pane_tools)
+        self.assertIn('controls.font.classList.add("pane-tool-font-row")', agent_pane_tools)
+        self.assertIn("controls.exportButton.hidden = true", agent_pane_tools)
         self.assertIn("AGENT_OUTPUT_FLUSH_BUDGET_MS", app)
         self.assertIn("const agentTerminalContexts = new Map();", app)
         self.assertIn("function createAgentTerminalContext(sessionId = \"\")", app)
@@ -2021,6 +2067,12 @@ class ServiceTests(unittest.TestCase):
                     server,
                     "/assets/service/js/modules/file-pane-tools.js",
                 )
+                agent_tools_status, agent_tools_body, agent_tools_type, _ = (
+                    request_bytes(
+                        server,
+                        "/assets/service/js/modules/agent-pane-tools.js",
+                    )
+                )
                 (
                     navigation_status,
                     navigation_body,
@@ -2112,6 +2164,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(file_tools_status, 200)
         self.assertEqual(file_tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyFilePaneTools", file_tools_body)
+        self.assertEqual(agent_tools_status, 200)
+        self.assertEqual(agent_tools_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"window.ElectroBoyAgentPaneTools", agent_tools_body)
         self.assertEqual(navigation_status, 200)
         self.assertEqual(navigation_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyDocumentNavigation", navigation_body)
@@ -2210,12 +2265,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('/assets/service/js/core/pane-tools.js', page)
         self.assertIn('/assets/service/css/pane-tools.css', page)
         self.assertIn('/assets/service/js/modules/document-navigation.js', page)
+        self.assertIn('/assets/service/js/modules/agent-pane-tools.js', page)
         self.assertIn('/assets/service/js/modules/file-pane-tools.js', page)
         self.assertLess(
             page.index('/assets/service/js/modules/document-navigation.js'),
+            page.index('/assets/service/js/modules/agent-pane-tools.js'),
+        )
+        self.assertLess(
+            page.index('/assets/service/js/modules/agent-pane-tools.js'),
             page.index('/assets/service/js/modules/file-pane-tools.js'),
         )
         self.assertIn('paneParameters.set("embedded", "1")', page)
+        self.assertIn('paneParameters.set("pane_instance_id", item.id);', page)
+        self.assertIn('type: "electroboy:pane-close"', page)
         self.assertIn('function initialPaneWorkspaceLayout()', page)
         self.assertIn('first: { type: "leaf", kind: "agent" }', page)
         self.assertIn('second: { type: "leaf", kind: "input" }', page)
@@ -2223,6 +2285,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('function splitLeaf(', workspace)
         self.assertIn('function startCornerSplit(', workspace)
         self.assertIn('function startResize(', workspace)
+        self.assertIn("options.paneUrl(item.kind, item)", workspace)
+        self.assertIn("function handlePaneMessage(event)", workspace)
+        self.assertIn('data.type !== "electroboy:pane-close"', workspace)
         self.assertIn('function moveLeaf(', workspace)
         self.assertIn('item.kind = kind;', workspace)
         self.assertIn('const paneFrames = new Map();', workspace)
@@ -2341,7 +2406,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function exportMarkdown(url, suggestedName)", page)
         self.assertIn("function exportCurrentPaneOutput()", page)
         self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
-        self.assertIn("exportPaneOutput.hidden = !canExportPaneOutput();", page)
+        self.assertIn(
+            "exportPaneOutput.hidden = Boolean(agentPaneTools) || !canExportPaneOutput();",
+            page,
+        )
         self.assertIn("previewArtifactButton.hidden = isProviderView;", page)
         self.assertIn("editArtifactButton.hidden = isProviderView;", page)
         self.assertIn('artifactKind === "agenda"', page)
@@ -2378,6 +2446,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("queueAgentResize(cols, rows, terminalSessionId);", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/resize")', PANE_WINDOW_HTML)
         self.assertIn("session_id: resizeSessionId,", PANE_WINDOW_HTML)
+        self.assertIn("/assets/service/js/modules/agent-pane-tools.js", PANE_WINDOW_HTML)
+        self.assertIn("let agentPaneTools = null;", PANE_WINDOW_HTML)
+        self.assertIn("window.ElectroBoyAgentPaneTools.mount", PANE_WINDOW_HTML)
+        self.assertIn("function popOutCurrentAgent()", PANE_WINDOW_HTML)
+        self.assertIn("function closeAgentPaneWindow()", PANE_WINDOW_HTML)
+        self.assertIn("function terminateAgentSession()", PANE_WINDOW_HTML)
+        self.assertIn('contextUrl("/api/sessions/terminate")', PANE_WINDOW_HTML)
+        self.assertIn(
+            "body: JSON.stringify({ session_id: session.session_id })",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn('type: "electroboy:pane-close"', PANE_WINDOW_HTML)
         self.assertIn(".terminal-host .xterm {\n      width: 100%;", PANE_WINDOW_HTML)
         self.assertIn("function effectiveFontSize()", PANE_WINDOW_HTML)
         self.assertNotIn("function resetFontSize()", PANE_WINDOW_HTML)
@@ -6404,6 +6484,11 @@ class ServiceTests(unittest.TestCase):
                     f"/api/sessions/interrupt?context_id={context_id}",
                     {"session_id": second.session_id},
                 )
+                terminate_status, terminate_body, _ = post_json(
+                    server,
+                    f"/api/sessions/terminate?context_id={context_id}",
+                    {"session_id": second.session_id},
+                )
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -6413,6 +6498,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(key_status, HTTPStatus.OK)
         self.assertEqual(raw_status, HTTPStatus.OK)
         self.assertEqual(interrupt_status, HTTPStatus.OK)
+        self.assertEqual(terminate_status, HTTPStatus.OK)
+        terminate_payload = json.loads(terminate_body)
+        self.assertEqual(terminate_payload["closed_session_id"], second.session_id)
+        self.assertEqual(terminate_payload["selected_session_id"], first.session_id)
         self.assertEqual(first.sent, [])
         self.assertFalse(first.interrupted)
         self.assertEqual(
@@ -6424,6 +6513,7 @@ class ServiceTests(unittest.TestCase):
             ],
         )
         self.assertTrue(second.interrupted)
+        self.assertTrue(second.terminated)
 
     def test_project_shell_starts_in_active_project_without_agent_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -382,6 +382,37 @@
                 </div>
               </div>
               <div id="agentOutput" class="agent-output" aria-live="polite"></div>
+              <button
+                id="agentPaneToolsToggle"
+                class="pane-tools-toggle"
+                type="button"
+                aria-controls="agentPaneToolsShelf"
+                aria-expanded="false"
+                hidden
+              >Tools</button>
+              <aside
+                id="agentPaneToolsShelf"
+                class="pane-tools-shelf"
+                aria-label="Agent tools"
+                hidden
+              >
+                <div
+                  id="agentPaneToolsResizeHandle"
+                  class="pane-tools-resize-handle"
+                ></div>
+                <header class="pane-tools-header">
+                  <span>Agent tools</span>
+                  <button
+                    id="closeAgentPaneTools"
+                    type="button"
+                    aria-label="Close agent tools"
+                  >×</button>
+                </header>
+                <div
+                  id="agentPaneToolsContent"
+                  class="pane-tools-content"
+                ></div>
+              </aside>
             </section>
             <div
               id="artifactPaneResizeHandle"

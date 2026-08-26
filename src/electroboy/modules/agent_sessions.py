@@ -143,6 +143,22 @@ def _interrupt(request: RouteRequest) -> ServiceResponse:
     return JsonResponse({"status": "interrupted"})
 
 
+def _terminate(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id:
+            result = request.services.sessions.terminate_session(
+                request.context_id,
+                session_id,
+            )
+        else:
+            result = request.services.sessions.terminate_selected(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(result)
+
+
 def _resize(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
@@ -206,6 +222,7 @@ _HANDLERS = {
     "key": _key,
     "raw": _raw,
     "interrupt": _interrupt,
+    "terminate": _terminate,
     "resize": _resize,
     "events": _events,
     "export": _export,
@@ -225,12 +242,16 @@ def module() -> ServiceModule:
             route("POST", "/api/sessions/key", "agent_sessions", "key"),
             route("POST", "/api/sessions/raw", "agent_sessions", "raw"),
             route("POST", "/api/sessions/interrupt", "agent_sessions", "interrupt"),
+            route("POST", "/api/sessions/terminate", "agent_sessions", "terminate"),
             route("POST", "/api/sessions/resize", "agent_sessions", "resize"),
             route("GET", "/api/sessions/events", "agent_sessions", "events"),
             route("GET", "/api/sessions/export", "agent_sessions", "export"),
         ),
         handlers=_HANDLERS,
-        assets=("js/modules/agent-sessions.js",),
+        assets=(
+            "js/modules/agent-pane-tools.js",
+            "js/modules/agent-sessions.js",
+        ),
         asset_package="electroboy.modules",
         capabilities=frozenset({"terminal", "sse", "transcript-export"}),
         state_namespace="sessions",

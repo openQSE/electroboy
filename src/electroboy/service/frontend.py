@@ -135,7 +135,10 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             id="agent-sessions",
             label="Agent Sessions",
             owner="agent_sessions",
-            assets=("js/modules/agent-sessions.js",),
+            assets=(
+                "js/modules/agent-pane-tools.js",
+                "js/modules/agent-sessions.js",
+            ),
         ),
         FrontendBundle(
             id="agenda",
@@ -339,6 +342,12 @@ def _contributed_assets(
             )
     # Compatibility for direct asset reads in source checkouts and tests.
     return tuple(assets) + (
+        (
+            "js/modules/agent-pane-tools.js",
+            "electroboy.modules",
+            "assets",
+            "agent-pane-tools.js",
+        ),
         (
             "js/modules/agent-sessions.js",
             "electroboy.modules",

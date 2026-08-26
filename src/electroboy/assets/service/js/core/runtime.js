@@ -44,7 +44,19 @@
     const outputSplit = document.getElementById("outputSplit");
     const agentOutputPane = document.getElementById("agentOutputPane");
     const agentOutput = document.getElementById("agentOutput");
+    const agentFontControls = document.querySelector(
+      '[data-pane-font-controls="agent"]',
+    );
     const exportAgentOutput = document.getElementById("exportAgentOutput");
+    const agentPaneToolsToggle = document.getElementById("agentPaneToolsToggle");
+    const agentPaneToolsShelf = document.getElementById("agentPaneToolsShelf");
+    const agentPaneToolsResizeHandle = document.getElementById(
+      "agentPaneToolsResizeHandle",
+    );
+    const closeAgentPaneTools = document.getElementById("closeAgentPaneTools");
+    const agentPaneToolsContent = document.getElementById(
+      "agentPaneToolsContent",
+    );
     const outputResizeHandle = document.getElementById("outputResizeHandle");
     const progressOutputPane = document.getElementById("progressOutputPane");
     const progressOutput = document.getElementById("progressOutput");
@@ -7472,6 +7484,16 @@
       popOutPane(kind);
     }
 
+    function closeMountedPane(kind) {
+      const paneElement = PANE_LAYOUT_KINDS[kind]?.element;
+      const leafElement = paneElement?.closest(".pane-layout-leaf");
+      const leaf = paneLayoutLeafById(leafElement?.dataset.paneLayoutId || "")
+        || paneLayoutLeafByKind(kind);
+      if (leaf) {
+        closePaneLayoutLeaf(leaf.id);
+      }
+    }
+
     popoutAgentPane.addEventListener("click", () => popOutMountedPane("agent"));
     popoutProgressPane.addEventListener("click", () => popOutMountedPane("progress"));
     popoutProjectShellPane.addEventListener("click", () => popOutMountedPane("shell"));
@@ -7588,9 +7610,18 @@
         sessionSwitcher,
         agentSessionIndicator,
         insertFileLink,
+        agentOutputPane,
+        agentOutput,
+        agentFontControls,
         exportAgentOutput,
         interruptAgent,
         agentInput,
+        popoutAgentPane,
+        agentPaneToolsToggle,
+        agentPaneToolsShelf,
+        agentPaneToolsResizeHandle,
+        closeAgentPaneTools,
+        agentPaneToolsContent,
       },
       getState() {
         return {
@@ -7775,8 +7806,10 @@
         ensurePane: ensurePaneInLayout,
         assignArtifact: assignArtifactToPane,
         assignPane: assignPaneContent,
+        closePane: closeMountedPane,
         hasPane: (kind) => Boolean(paneLayoutLeafByKind(kind)),
         isPopped: (kind) => poppedPanes.has(kind),
+        popOutPane: popOutMountedPane,
         dockPane: dockPoppedPane,
         showProgressPane,
         applyStoredShellHeight: applyStoredProjectShellPaneHeight,

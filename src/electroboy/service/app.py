@@ -121,6 +121,7 @@ INDEX_HTML = "\n".join(
         INDEX_PAGE_HTML,
         read_service_text_asset("css/shell.css"),
         read_service_text_asset("js/core/registry.js"),
+        _optional_service_text_asset("js/modules/agent-pane-tools.js"),
         _optional_service_text_asset("js/modules/agent-sessions.js"),
         _optional_service_text_asset("js/modules/agenda.js"),
         _optional_service_text_asset("js/modules/calendar.js"),
@@ -1281,6 +1282,49 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             return self._session_by_id_locked(context, session_id)
+
+    def terminate_selected_session(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = self._selected_session_locked(context)
+        if session is None:
+            raise AgentSessionError("no agent session is selected")
+        return self._terminate_context_session(context_id, session)
+
+    def terminate_session(
+        self,
+        context_id: str,
+        session_id: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = self._session_by_id_locked(context, session_id)
+        return self._terminate_context_session(context_id, session)
+
+    def _terminate_context_session(
+        self,
+        context_id: str,
+        session: AgentSession,
+    ) -> dict[str, object]:
+        was_active = session.is_active()
+        terminated = self._terminate_sessions([session])
+        with self.lock:
+            context = self._context_locked(context_id)
+            self._clear_sessions_locked(context, [session])
+            selected_session = self._selected_session_locked(context)
+            return {
+                "context_id": context.context_id,
+                "closed_session_id": session.session_id,
+                "closed": True,
+                "terminated": terminated,
+                "was_active": was_active,
+                "selected_session_id": (
+                    selected_session.session_id
+                    if selected_session is not None
+                    else None
+                ),
+                "sessions": _session_payloads(context),
+            }
 
     def send_selected_session_message(self, context_id: str, message: str) -> None:
         session = self.selected_session(context_id)

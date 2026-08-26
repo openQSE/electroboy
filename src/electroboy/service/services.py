@@ -187,6 +187,10 @@ class SessionServices(Protocol):
 
     def terminate_kind(self, context_id: str, kind: str) -> None: ...
 
+    def terminate_session(self, context_id: str, session_id: str) -> dict[str, object]: ...
+
+    def terminate_selected(self, context_id: str) -> dict[str, object]: ...
+
     def payload(self, context_id: str) -> dict[str, object]: ...
 
     def select(self, context_id: str, session_id: str) -> dict[str, object]: ...
@@ -416,6 +420,14 @@ class ServiceRuntimeBackend(Protocol):
     def _terminate_requirements_session(self, context_id: str) -> None: ...
 
     def _terminate_design_session(self, context_id: str) -> None: ...
+
+    def terminate_session(
+        self,
+        context_id: str,
+        session_id: str,
+    ) -> dict[str, object]: ...
+
+    def terminate_selected_session(self, context_id: str) -> dict[str, object]: ...
 
     def session_payload(self, context_id: str) -> dict[str, object]: ...
 
@@ -827,6 +839,16 @@ class RuntimeSessionServices:
             self.runtime._terminate_design_session(context_id)
             return
         raise ValueError(f"unsupported workflow session kind: {kind}")
+
+    def terminate_session(
+        self,
+        context_id: str,
+        session_id: str,
+    ) -> dict[str, object]:
+        return self.runtime.terminate_session(context_id, session_id)
+
+    def terminate_selected(self, context_id: str) -> dict[str, object]:
+        return self.runtime.terminate_selected_session(context_id)
 
     def payload(self, context_id: str) -> dict[str, object]:
         return self.runtime.session_payload(context_id)

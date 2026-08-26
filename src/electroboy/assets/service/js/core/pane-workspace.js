@@ -376,7 +376,7 @@
       const frame = document.createElement("iframe");
       frame.className = "workspace-pane-frame";
       frame.title = `${kindMap.get(item.kind).label} pane`;
-      frame.src = options.paneUrl(item.kind);
+      frame.src = options.paneUrl(item.kind, item);
       paneFrames.set(item.id, { kind: item.kind, frame });
       return frame;
     }
@@ -546,10 +546,22 @@
       });
     }
 
+    function handlePaneMessage(event) {
+      if (event.origin !== global.location.origin) {
+        return;
+      }
+      const data = event.data || {};
+      if (data.type !== "electroboy:pane-close") {
+        return;
+      }
+      closeLeaf(String(data.paneInstanceId || ""));
+    }
+
     if (options.resetButton) {
       options.resetButton.addEventListener("click", resetLayout);
     }
     initializeDrag();
+    global.addEventListener("message", handlePaneMessage);
     render();
     return {
       reset: resetLayout,
@@ -558,6 +570,7 @@
       destroy() {
         if (cornerSplitCancel) cornerSplitCancel();
         if (dragController) dragController.destroy();
+        global.removeEventListener("message", handlePaneMessage);
       },
     };
   }

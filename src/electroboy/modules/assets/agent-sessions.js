@@ -8,6 +8,7 @@
   let agentEventStreamVersion = 0;
   const agentEventStreams = new Map();
   const inputDrafts = new Map();
+  let agentPaneTools = null;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -521,6 +522,9 @@
       runtimeApi.elements.interruptAgent.disabled = !sessionIsRunning(session);
       runtimeApi.elements.exportAgentOutput.disabled = !session;
       runtimeApi.elements.exportProgressOutput.disabled = !runtimeState.activationRoot;
+      if (agentPaneTools) {
+        agentPaneTools.refresh();
+      }
     }
 
     function setAgentRunning(kind, isRunning) {
@@ -772,10 +776,95 @@
       }
     }
 
+    async function terminateActiveAgent() {
+      const session = selectedSession();
+      if (!session) {
+        appendOutput("select an agent session first\n", "error");
+        return false;
+      }
+      const actionLabel = sessionIsRunning(session) ? "Terminate" : "Close";
+      if (!window.confirm(`${actionLabel} ${agentSessionDisplayLabel(session)}?`)) {
+        return false;
+      }
+      const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/terminate"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.session_id }),
+      });
+      const payload = await response.json().catch(() => ({ error: "terminate failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "terminate failed"}\n`, "error");
+        return false;
+      }
+      closeSessionEventStream(session.session_id);
+      if (Array.isArray(payload.sessions)) {
+        runtimeState.agentSessions = payload.sessions;
+      } else {
+        runtimeState.agentSessions = runtimeState.agentSessions.filter(
+          (candidate) => candidate.session_id !== session.session_id,
+        );
+      }
+      runtimeState.selectedSessionId = payload.selected_session_id || "";
+      syncOpenDocumentTargetsFromSessions();
+      renderSessionSwitcher();
+      updateAgentControls();
+      refreshProject();
+      return true;
+    }
+
+    function mountAgentPaneTools(runtime) {
+      const element = runtime.elements;
+      if (
+        !window.ElectroBoyPaneTools ||
+        !window.ElectroBoyAgentPaneTools ||
+        !element.agentOutputPane ||
+        !element.agentPaneToolsShelf ||
+        !element.agentPaneToolsContent ||
+        !element.agentPaneToolsToggle ||
+        !element.closeAgentPaneTools ||
+        !element.agentPaneToolsResizeHandle
+      ) {
+        return;
+      }
+      const controller = window.ElectroBoyPaneTools.create({
+        host: element.agentOutputPane,
+        shelf: element.agentPaneToolsShelf,
+        content: element.agentPaneToolsContent,
+        toggleButton: element.agentPaneToolsToggle,
+        closeButton: element.closeAgentPaneTools,
+        resizeHandle: element.agentPaneToolsResizeHandle,
+        storageKey: `electroboy.agentPaneTools.${runtimeState.contextId || "default"}`,
+        defaultOpen: false,
+        side: "right",
+        onResize: runtime.terminals.fitAll,
+      });
+      agentPaneTools = window.ElectroBoyAgentPaneTools.mount({
+        controller,
+        getSession: selectedSession,
+        getTarget: () => ({
+          canPop: !runtime.layout.isPopped("agent"),
+          canClosePane: runtime.layout.hasPane("agent"),
+        }),
+        actions: {
+          export: exportAgentSession,
+          interrupt: interruptActiveAgent,
+          terminate: terminateActiveAgent,
+          pop: () => runtime.layout.popOutPane("agent"),
+          closePane: () => runtime.layout.closePane("agent"),
+        },
+        controls: {
+          font: element.agentFontControls,
+          exportButton: element.exportAgentOutput,
+          popButton: element.popoutAgentPane,
+        },
+      });
+    }
+
 
   function mount(runtime) {
     bindRuntime(runtime);
     const element = runtime.elements;
+    mountAgentPaneTools(runtime);
     inputPaneSync = runtime.sharedPanes.connect("input", {
       snapshot: agentInputState,
       receive: (state) => {
@@ -879,6 +968,7 @@
       handleSlashCommandInput: (runtime, ...args) => invoke(runtime, handleSlashCommandInput, args),
       terminalKeyForInputEvent: (runtime, ...args) => invoke(runtime, terminalKeyForInputEvent, args),
       interruptActiveAgent: (runtime, ...args) => invoke(runtime, interruptActiveAgent, args),
+      terminateActiveAgent: (runtime, ...args) => invoke(runtime, terminateActiveAgent, args),
     },
     mount,
   });
