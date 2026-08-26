@@ -1179,10 +1179,15 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('invokeWorkflow("software"', app)
         self.assertNotIn('invokeWorkflow("creative-writing"', app)
         self.assertIn('invokeActiveWorkflowHook("projectChanged"', app)
-        self.assertIn(
-            "async function notifyCreativeAgentTargetSwitch()",
-            creative,
-        )
+        self.assertNotIn("async function notifyCreativeAgentTargetSwitch()", creative)
+        self.assertNotIn('contextUrl("/api/sessions/message")', creative)
+        self.assertIn("const explicitSessionId = String(options.sessionId", creative)
+        self.assertIn("choice = await chooseCreativeAgentSession({", creative)
+        self.assertIn("function creativeSessionCanContinue(session)", creative)
+        self.assertIn('String(session.status || "") !== "running"', creative)
+        self.assertIn("session.resumable !== false", creative)
+        self.assertIn(".filter(creativeSessionCanContinue)", creative)
+        self.assertIn("startNew: true,", documents)
         self.assertNotIn("function projectStageActions()", app)
         self.assertNotIn("function appendCreativeTreeEntry", app)
         self.assertNotIn("async function refreshServiceSessions()", app)
@@ -2530,12 +2535,26 @@ class ServiceTests(unittest.TestCase):
             "contextUrl(`/api/creative/agent/sessions?${query}`)",
             PANE_WINDOW_HTML,
         )
+        self.assertIn(
+            "? await choosePaneCreativeAgentSession(activeTarget)",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn(
+            "function paneCreativeSessionCanContinue(session)",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn("session.resumable !== false", PANE_WINDOW_HTML)
+        self.assertIn(
+            ".filter(paneCreativeSessionCanContinue)",
+            PANE_WINDOW_HTML,
+        )
         self.assertIn('scope: "document",', PANE_WINDOW_HTML)
         self.assertIn('session_id: choice.sessionId || "",', PANE_WINDOW_HTML)
         self.assertIn(
             'provider_session_id: choice.providerSessionId || "",',
             PANE_WINDOW_HTML,
         )
+        self.assertIn("return { startNew: true };", PANE_WINDOW_HTML)
         self.assertIn('placeholder="ElectroBoy id or Codex UUID"', PANE_WINDOW_HTML)
         self.assertIn('startAgent: startPaneDocumentAgent', PANE_WINDOW_HTML)
         self.assertIn("function refreshSessions()", PANE_WINDOW_HTML)
@@ -5363,6 +5382,43 @@ class ServiceTests(unittest.TestCase):
                 document.session_id: False,
             },
         )
+
+    def test_creative_agent_start_defaults_to_new_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.initialize_creative_workspace(context_id)
+
+            with (
+                mock.patch("electroboy.service.AgentSession.start"),
+                mock.patch(
+                    "electroboy.workflows.creative_writing.controller"
+                    ".codex_session_paths",
+                    return_value=frozenset(),
+                ),
+                mock.patch(
+                    "electroboy.workflows.creative_writing.controller"
+                    ".start_creative_session_tracking",
+                ),
+            ):
+                first, first_started = state.start_creative_writing_agent(
+                    context_id,
+                    scope="general",
+                )
+                first.process = mock.Mock()
+                first.process.poll.return_value = None
+                second, second_started = state.start_creative_writing_agent(
+                    context_id,
+                    scope="general",
+                )
+
+        self.assertTrue(first_started)
+        self.assertTrue(second_started)
+        self.assertNotEqual(first.session_id, second.session_id)
 
     def test_creative_document_agent_resumes_codex_provider_session(self) -> None:
         provider_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"

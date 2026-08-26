@@ -1372,6 +1372,7 @@
           scope: "document",
           documentPath,
           activeTarget: creativeDocumentTargetPayload(documentTarget),
+          startNew: true,
         },
       );
     }

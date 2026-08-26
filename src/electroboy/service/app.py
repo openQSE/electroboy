@@ -947,7 +947,7 @@ class ServiceState:
         scope: str = "",
         session_id: str | None = None,
         provider_session_id: str | None = None,
-        start_new: bool = False,
+        start_new: bool = True,
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("creative-writing").start_creative_writing_agent(
             context_id,

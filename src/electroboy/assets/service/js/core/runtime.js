@@ -354,7 +354,6 @@
     let creativeEditingType = "";
     let expandedCreativeFolders = new Set();
     let creativeScratchSaveTimer = null;
-    let creativeLastNotifiedTarget = "";
     let creativeProjectActionsExpanded = false;
     let creativeAgentActionsExpanded = false;
     let projectStatusMessages = [];
@@ -5578,7 +5577,6 @@
       creativeEditingPath = "";
       creativeEditingType = "";
       expandedCreativeFolders = new Set();
-      creativeLastNotifiedTarget = "";
       creativeTreePayload = null;
       restoredScratchContextId = "";
       projectStatusMessages = [];
@@ -5788,7 +5786,6 @@
         creativeEditingPath = "";
         creativeEditingType = "";
         expandedCreativeFolders = new Set();
-        creativeLastNotifiedTarget = "";
         creativeTreePayload = null;
         restoredScratchContextId = "";
       }
@@ -7288,7 +7285,6 @@
       creativeEditingPath = "";
       creativeEditingType = "";
       expandedCreativeFolders = new Set();
-      creativeLastNotifiedTarget = "";
       creativeTreePayload = null;
       recordProjectStatusMessage(`deactivated: ${previousProject}`);
       updateProjectState(payload);
@@ -7653,7 +7649,6 @@
           creativeActiveFolder,
           creativeEditingPath,
           creativeEditingType,
-          creativeLastNotifiedTarget,
           expandedCreativeFolders,
         };
       },
@@ -7675,9 +7670,6 @@
         }
         if (Object.hasOwn(patch, "creativeEditingType")) {
           creativeEditingType = patch.creativeEditingType;
-        }
-        if (Object.hasOwn(patch, "creativeLastNotifiedTarget")) {
-          creativeLastNotifiedTarget = patch.creativeLastNotifiedTarget;
         }
         if (Object.hasOwn(patch, "expandedCreativeFolders")) {
           expandedCreativeFolders = patch.expandedCreativeFolders;

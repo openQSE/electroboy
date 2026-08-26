@@ -93,7 +93,7 @@ def _start_agent(request: RouteRequest) -> ServiceResponse:
             scope=str(payload.get("scope") or ""),
             session_id=str(payload.get("session_id") or ""),
             provider_session_id=str(payload.get("provider_session_id") or ""),
-            start_new=bool(payload.get("start_new", False)),
+            start_new=bool(payload.get("start_new", True)),
         )
         result = {
             **request.services.contexts.project_payload(request.context_id),

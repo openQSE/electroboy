@@ -1337,6 +1337,13 @@
       return serviceId ? `service:${serviceId}` : "";
     }
 
+    function paneCreativeSessionCanContinue(session) {
+      return (
+        String(session.status || "") !== "running"
+        && session.resumable !== false
+      );
+    }
+
     function paneCreativeSessionChoice(value, customInput) {
       if (value === "custom") {
         const manualId = customInput.value.trim();
@@ -1465,7 +1472,9 @@
           </span>
         </span>
       `;
-      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      const sessions = Array.isArray(payload.sessions)
+        ? payload.sessions.filter(paneCreativeSessionCanContinue)
+        : [];
       heading.textContent = "Start document agent";
       summary.textContent = payload.document_path
         ? `Sessions scoped to ${payload.document_path}.`

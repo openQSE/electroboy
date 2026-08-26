@@ -15,7 +15,6 @@
   let creativeActiveFolder = "";
   let creativeEditingPath = "";
   let creativeEditingType = "";
-  let creativeLastNotifiedTarget = "";
   let expandedCreativeFolders = new Set();
   let restoredScratchContextId = "";
   let creativeScratchSaveTimer = null;
@@ -53,7 +52,6 @@
     creativeActiveFolder = state.creativeActiveFolder || "";
     creativeEditingPath = state.creativeEditingPath || "";
     creativeEditingType = state.creativeEditingType || "";
-    creativeLastNotifiedTarget = state.creativeLastNotifiedTarget || "";
     expandedCreativeFolders = state.expandedCreativeFolders instanceof Set
       ? state.expandedCreativeFolders
       : new Set(state.expandedCreativeFolders || []);
@@ -74,7 +72,6 @@
     creativeActiveFolder = "";
     creativeEditingPath = "";
     creativeEditingType = "";
-    creativeLastNotifiedTarget = "";
     expandedCreativeFolders = new Set();
     restoredScratchContextId = "";
     creativeProjectActionsExpanded = false;
@@ -92,7 +89,6 @@
         creativeActiveFolder: "",
         creativeEditingPath: "",
         creativeEditingType: "",
-        creativeLastNotifiedTarget: "",
         expandedCreativeFolders,
       });
     }
@@ -106,7 +102,6 @@
       creativeActiveFolder,
       creativeEditingPath,
       creativeEditingType,
-      creativeLastNotifiedTarget,
       expandedCreativeFolders,
     });
   }
@@ -471,16 +466,26 @@
         ? { type: "document", path: documentPath }
         : null
     );
+    const explicitSessionId = String(options.sessionId || "").trim();
+    const explicitProviderSessionId = String(options.providerSessionId || "").trim();
     let choice = null;
-    try {
-      choice = await chooseCreativeAgentSession({
-        scope,
-        documentPath,
-        activeTarget: target,
-      });
-    } catch (error) {
-      appendOutput(`${error.message || "session history failed"}\n`, "error");
-      return;
+    if (explicitSessionId || explicitProviderSessionId) {
+      choice = {
+        sessionId: explicitSessionId,
+        providerSessionId: explicitProviderSessionId,
+        startNew: false,
+      };
+    } else {
+      try {
+        choice = await chooseCreativeAgentSession({
+          scope,
+          documentPath,
+          activeTarget: target,
+        });
+      } catch (error) {
+        appendOutput(`${error.message || "session history failed"}\n`, "error");
+        return;
+      }
     }
     if (!choice) {
       return null;
@@ -529,12 +534,10 @@
     runtime.updateState({
       creativeActiveFolder: path,
       creativeActiveDocument: "",
-      creativeLastNotifiedTarget: "",
     });
     showCreativeCorkboard(path);
     renderCreativeTree();
     renderProjectStatus(runtime);
-    notifyCreativeAgentTargetSwitch();
   }
 
   function selectCorkboard(runtime, path, options = {}) {
@@ -552,7 +555,6 @@
     runtime.updateState({
       creativeActiveDocument: path,
       creativeActiveFolder: creativeParentPath(path),
-      creativeLastNotifiedTarget: "",
     });
     showCreativeCorkboard(path, {
       freeform: true,
@@ -560,7 +562,6 @@
     });
     renderCreativeTree();
     renderProjectStatus(runtime);
-    notifyCreativeAgentTargetSwitch();
   }
 
   function showDocument(runtime, path) {
@@ -591,20 +592,13 @@
     if (!path) {
       return;
     }
-    const state = runtime.getState();
     runtime.updateState({
       creativeActiveDocument: path,
       creativeActiveFolder: creativeParentPath(path),
-      creativeLastNotifiedTarget: options.notifyAgent === false
-        ? state.creativeLastNotifiedTarget
-        : "",
     });
     showDocument(runtime, path);
     renderCreativeTree();
     renderProjectStatus(runtime);
-    if (options.notifyAgent !== false) {
-      notifyCreativeAgentTargetSwitch();
-    }
   }
 
     function applyCreativeWorkspace() {
@@ -849,6 +843,13 @@
       return serviceId ? `service:${serviceId}` : "";
     }
 
+    function creativeSessionCanContinue(session) {
+      return (
+        String(session.status || "") !== "running"
+        && session.resumable !== false
+      );
+    }
+
     function creativeSessionOption(session, index) {
       const label = document.createElement("label");
       label.className = "ad-hoc-session-option";
@@ -953,7 +954,9 @@
           </span>
         </span>
       `;
-      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      const sessions = Array.isArray(payload.sessions)
+        ? payload.sessions.filter(creativeSessionCanContinue)
+        : [];
       heading.textContent = scope === "document"
         ? "Start document agent"
         : "Start creative agent";
@@ -1067,10 +1070,6 @@
       };
     }
 
-    function creativeTargetKey(target) {
-      return `${target.type || "none"}:${target.path || ""}`;
-    }
-
     function creativeTargetContextLines(target) {
       if (!target || target.type === "none") {
         return ["Active target: none"];
@@ -1101,34 +1100,6 @@
         "Use `electroboy corkboard folder` commands for notes and order.",
         "Create, delete, or rename files only when the writer explicitly asks.",
       ];
-    }
-
-    async function notifyCreativeAgentTargetSwitch() {
-      const target = activeCreativeTarget();
-      const targetKey = creativeTargetKey(target);
-      const session = creativeAgentSession();
-      if (
-        !creativeModeActive() ||
-        target.type === "none" ||
-        targetKey === creativeLastNotifiedTarget ||
-        !session ||
-        !session.interactive
-      ) {
-        return;
-      }
-      creativeLastNotifiedTarget = targetKey;
-      const message = [
-        "[ElectroBoy creative-writing context update]",
-        ...creativeTargetContextLines(target),
-        "The target is now displayed in the middle pane.",
-        "Do not modify it unless the writer asks.",
-        "[/ElectroBoy creative-writing context update]",
-      ].join("\n");
-      await fetch(contextUrl("/api/sessions/message"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: session.session_id, message }),
-      }).catch(() => {});
     }
 
     function creativePromptMessage(message) {
@@ -1535,9 +1506,7 @@
       creativeAgentSession: (runtime, ...args) => invoke(runtime, creativeAgentSession, args),
       creativeAgentRunning: (runtime, ...args) => invoke(runtime, creativeAgentRunning, args),
       activeCreativeTarget: (runtime, ...args) => invoke(runtime, activeCreativeTarget, args),
-      creativeTargetKey: (runtime, ...args) => invoke(runtime, creativeTargetKey, args),
       creativeTargetContextLines: (runtime, ...args) => invoke(runtime, creativeTargetContextLines, args),
-      notifyCreativeAgentTargetSwitch: (runtime, ...args) => invoke(runtime, notifyCreativeAgentTargetSwitch, args),
       creativePromptMessage: (runtime, ...args) => invoke(runtime, creativePromptMessage, args),
       preparePrompt: (runtime, ...args) => invoke(runtime, creativePromptMessage, args),
       loadCreativeScratchPad: (runtime, ...args) => invoke(runtime, loadCreativeScratchPad, args),

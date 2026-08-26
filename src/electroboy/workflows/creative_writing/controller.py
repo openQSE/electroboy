@@ -405,7 +405,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         scope: str = "",
         session_id: str | None = None,
         provider_session_id: str | None = None,
-        start_new: bool = False,
+        start_new: bool = True,
     ) -> tuple[AgentSession, bool]:
         requested_session_id = str(session_id or "").strip()
         requested_provider_session_id = str(provider_session_id or "").strip()
