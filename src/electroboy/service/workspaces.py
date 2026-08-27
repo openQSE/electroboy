@@ -355,6 +355,24 @@ class WorkspaceRegistry:
             self._save_locked()
             return record
 
+    def _record_matches_open_project(
+        self,
+        record: WorkspaceRecord,
+        identity: str,
+    ) -> bool:
+        context = self.context_store.get(record.workspace_id)
+        if context is None:
+            return False
+        roots = (
+            context.active_project_root,
+            context.activation_root,
+        )
+        return any(
+            str(Path(root).expanduser().resolve()) == identity
+            for root in roots
+            if root is not None
+        )
+
     def reserve_project(
         self,
         current_workspace_id: str,
@@ -375,13 +393,18 @@ class WorkspaceRegistry:
                     workflow_id=workflow_id,
                 ),
             )
+            matching_records = [
+                record
+                for record in self.records.values()
+                if record.status != "closed"
+                and record.workflow_id == workflow_id
+                and record.project_identity == identity
+            ]
             existing = next(
                 (
                     record
-                    for record in self.records.values()
-                    if record.status != "closed"
-                    and record.workflow_id == workflow_id
-                    and record.project_identity == identity
+                    for record in matching_records
+                    if self._record_matches_open_project(record, identity)
                 ),
                 None,
             )

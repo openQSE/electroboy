@@ -5890,21 +5890,30 @@
 
     function recentProjectActionsForWorkflow() {
       const entries = recentProjectsForWorkflow();
-      if (entries.length === 0) {
-        return [
-          {
-            label: "No recent projects",
-            title: "No projects have been opened in this service yet.",
-            disabled: true,
-          },
-        ];
-      }
-      return entries.map((recent) => ({
-        label: recentProjectLabel(recent),
-        title: recent.path || recentProjectLabel(recent),
-        disabled: Boolean(activationRoot),
-        run: () => openRecentProject(recent),
-      }));
+      const projectActions = entries.length === 0
+        ? [
+            {
+              label: "No recent projects",
+              title: "No projects have been opened in this service yet.",
+              disabled: true,
+            },
+          ]
+        : entries.map((recent) => ({
+            label: recentProjectLabel(recent),
+            title: recent.path || recentProjectLabel(recent),
+            disabled: Boolean(activationRoot),
+            run: () => openRecentProject(recent),
+          }));
+      return [
+        ...projectActions,
+        { separator: true },
+        {
+          label: "Clear list",
+          title: "Remove these recent projects from the list.",
+          disabled: entries.length === 0,
+          run: () => clearRecentProjects(entries),
+        },
+      ];
     }
 
     async function openRecentProject(recent) {
@@ -5914,6 +5923,31 @@
       }
       projectMode = "open";
       await applyProjectSelection(path);
+    }
+
+    async function clearRecentProjects(entries = recentProjectsForWorkflow()) {
+      const projects = (Array.isArray(entries) ? entries : [])
+        .map((recent) => ({
+          kind: String((recent && recent.kind) || "project"),
+          path: String((recent && recent.path) || "").trim(),
+        }))
+        .filter((recent) => recent.path);
+      if (projects.length === 0) {
+        return null;
+      }
+      const response = await fetch(contextUrl("/api/recent-projects/clear"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projects }),
+      });
+      const payload = await response.json().catch(() => ({
+        error: "recent projects update failed",
+      }));
+      if (!response.ok) {
+        throw new Error(payload.error || "recent projects update failed");
+      }
+      updateProjectState(payload);
+      return payload;
     }
 
     function projectStatusLine() {
@@ -6199,6 +6233,13 @@
 
     function renderStageActionList(container, actions) {
       for (const action of actions) {
+        if (action.separator) {
+          const separator = document.createElement("div");
+          separator.className = "stage-action-separator";
+          separator.setAttribute("role", "separator");
+          container.append(separator);
+          continue;
+        }
         if (action.subgroup) {
           container.append(stageActionSubgroup(action));
           continue;
@@ -7842,6 +7883,7 @@
         list: recentProjectsForWorkflow,
         label: recentProjectLabel,
         open: openRecentProject,
+        clear: clearRecentProjects,
         actions: recentProjectActionsForWorkflow,
       },
       browser: {

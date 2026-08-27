@@ -40,6 +40,40 @@ def save_recent_projects(service_root: Path | str, data: dict[str, object]) -> N
     )
 
 
+def _recent_project_key(entry: dict[str, object]) -> tuple[str, str]:
+    kind = str(entry.get("kind") or "project").strip()
+    if kind not in {"project", "meta", "creative"}:
+        kind = "project"
+    path = str(entry.get("path") or "").strip()
+    return kind, path
+
+
+def clear_recent_projects(
+    service_root: Path | str,
+    projects: list[dict[str, object]] | None = None,
+) -> None:
+    data = load_recent_projects(service_root)
+    if projects is None:
+        data["projects"] = []
+        save_recent_projects(service_root, data)
+        return
+    removals: set[tuple[str, str]] = set()
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        key = _recent_project_key(project)
+        if key[1]:
+            removals.add(key)
+    if not removals:
+        return
+    data["projects"] = [
+        entry
+        for entry in data.get("projects", [])
+        if not isinstance(entry, dict) or _recent_project_key(entry) not in removals
+    ]
+    save_recent_projects(service_root, data)
+
+
 def recent_project_entries(service_root: Path | str) -> list[dict[str, object]]:
     data = load_recent_projects(service_root)
     entries: list[dict[str, object]] = []

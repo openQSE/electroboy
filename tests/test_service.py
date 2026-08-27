@@ -459,6 +459,15 @@ class ServiceTests(unittest.TestCase):
             for route in modules["agent_sessions"]["routes"]
         }
         self.assertIn(("POST", "/api/sessions/terminate"), agent_session_routes)
+        self.assertIn("recent_projects", modules)
+        recent_project_routes = {
+            (route["method"], route["path"])
+            for route in modules["recent_projects"]["routes"]
+        }
+        self.assertIn(
+            ("POST", "/api/recent-projects/clear"),
+            recent_project_routes,
+        )
         self.assertIn("structured_documents", modules)
         self.assertIn("agenda", modules)
         self.assertIn("calendar", modules)
@@ -704,8 +713,24 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-creative-control="recent-projects-menu"', creative)
         self.assertIn("creativeRecentProjectsExpanded = false", creative)
         self.assertIn("async function openRecentProject(project)", creative)
+        self.assertIn("async function clearRecentProjects()", creative)
         self.assertNotIn("return runtimeApi.recent.open(project);", creative)
         self.assertIn('contextUrl("/api/creative/project/open")', creative)
+        self.assertIn('clearButton.textContent = "Clear list";', creative)
+        self.assertIn(
+            'separator.className = "stage-action-separator";',
+            creative,
+        )
+        self.assertIn("creativeRecentProjects.append(separator);", creative)
+        self.assertIn("button.disabled = Boolean(activeProjectRoot)", creative)
+        self.assertNotIn("button.disabled = Boolean(activationRoot)", creative)
+        self.assertIn(
+            "async function clearRecentProjects(entries = recentProjectsForWorkflow())",
+            app,
+        )
+        self.assertIn('contextUrl("/api/recent-projects/clear")', app)
+        self.assertIn("{ separator: true }", app)
+        self.assertIn("clear: clearRecentProjects", app)
         self.assertIn("event.stopPropagation();", creative)
         self.assertIn('navigation: "sidebar"', creative)
         self.assertIn(
@@ -1792,6 +1817,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNotNone(debug_match)
         self.assertEqual(debug_match.owner, "core")
         self.assertEqual(debug_match.handler_name, "frontend_debug")
+        clear_recent_match = dispatcher.match("POST", "/api/recent-projects/clear")
+        self.assertIsNotNone(clear_recent_match)
+        self.assertEqual(clear_recent_match.owner, "recent_projects")
+        self.assertEqual(clear_recent_match.handler_name, "clear")
 
     def test_all_registered_routes_have_executable_handlers(self) -> None:
         modules = build_module_registry()
@@ -3585,6 +3614,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("const STAGE_DESCRIPTIONS", runtime)
         self.assertNotIn(".creative-binder", core_styles)
         self.assertIn(".stage-action-subgroup-list[hidden]", core_styles)
+        self.assertIn(".stage-action-separator", core_styles)
         self.assertIn(
             ".stage-action-subgroup-trigger.expanded .stage-action-chevron::before",
             core_styles,
@@ -3891,6 +3921,70 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["activation_root"], str(meta_root.resolve()))
         self.assertIsNone(payload["active_project_root"])
 
+    def test_service_state_ignores_stale_project_workspace_on_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            stale_context_id = str(
+                state.create_context(workflow_id="software")["context_id"]
+            )
+            stale_context = state.contexts[stale_context_id]
+            state.workspace_registry.adopt_context(
+                stale_context,
+                name=project_root.name,
+                project_identity=str(project_root),
+            )
+            context_id = str(
+                state.create_context(workflow_id="software")["context_id"]
+            )
+
+            payload = state.open_project(context_id, str(project_root))
+
+        self.assertEqual(payload["status"], "opened")
+        self.assertEqual(payload["context_id"], context_id)
+        self.assertEqual(payload["workspace_id"], context_id)
+        self.assertEqual(
+            payload["active_project_root"],
+            str(project_root.resolve()),
+        )
+
+    def test_service_state_ignores_stale_creative_workspace_on_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            project_root.mkdir()
+
+            state = ServiceState(service_root)
+            stale_context_id = str(
+                state.create_context(workflow_id="creative-writing")["context_id"]
+            )
+            stale_context = state.contexts[stale_context_id]
+            state.workspace_registry.adopt_context(
+                stale_context,
+                name=project_root.name,
+                project_identity=str(project_root),
+            )
+            context_id = str(
+                state.create_context(workflow_id="creative-writing")["context_id"]
+            )
+
+            payload = state.open_creative_project(context_id, str(project_root))
+
+        self.assertEqual(payload["status"], "opened")
+        self.assertEqual(payload["context_id"], context_id)
+        self.assertEqual(payload["workspace_id"], context_id)
+        self.assertEqual(payload["project_mode"], "creative")
+        self.assertEqual(
+            payload["active_project_root"],
+            str(project_root.resolve()),
+        )
+
     def test_service_state_tracks_recent_projects(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -3929,6 +4023,57 @@ class ServiceTests(unittest.TestCase):
             registry_data["projects"][0]["path"],
             str(project_root.resolve()),
         )
+
+    def test_recent_project_clear_route_removes_requested_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            state_root = Path(tmp) / "state"
+            project_root = Path(tmp) / "project"
+            creative_root = Path(tmp) / "story"
+            meta_root = Path(tmp) / "openQSE"
+            root.mkdir()
+            state_root.mkdir()
+            try:
+                server = create_server(root, port=0, state_root=state_root)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            context_id = str(server.service_state.create_context()["context_id"])
+            server.service_state.create_project(context_id, str(project_root))
+            server.service_state.create_creative_project(
+                context_id,
+                str(creative_root),
+            )
+            server.service_state.create_meta_project(context_id, str(meta_root))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = post_json(
+                    server,
+                    f"/api/recent-projects/clear?context_id={context_id}",
+                    {
+                        "projects": [
+                            {
+                                "kind": "creative",
+                                "path": str(creative_root.resolve()),
+                            }
+                        ],
+                    },
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "application/json; charset=utf-8")
+        payload = json.loads(body)
+        recent = payload["recent_projects"]
+        recent_paths = [entry["path"] for entry in recent]
+        self.assertEqual(payload["status"], "cleared")
+        self.assertNotIn(str(creative_root.resolve()), recent_paths)
+        self.assertIn(str(project_root.resolve()), recent_paths)
+        self.assertIn(str(meta_root.resolve()), recent_paths)
 
     def test_service_state_initializes_creative_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

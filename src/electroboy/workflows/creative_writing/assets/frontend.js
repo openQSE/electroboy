@@ -229,6 +229,10 @@
     updateProjectState(payload);
   }
 
+  async function clearRecentProjects() {
+    await runtimeApi.recent.clear(recentProjectsForWorkflow());
+  }
+
   function recordProjectStatusMessage(message) {
     runtimeApi.project.recordStatus(message);
   }
@@ -676,23 +680,40 @@
         empty.textContent = "No recent projects";
         empty.disabled = true;
         creativeRecentProjects.append(empty);
-        return;
-      }
-      for (const recent of entries) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "stage-action-button";
-        button.textContent = basename(recent.path || recent.label || "Project");
-        button.title = recent.path || recentProjectLabel(recent);
-        button.disabled = Boolean(activationRoot);
-        button.addEventListener("click", (event) => {
-          event.stopPropagation();
-          openRecentProject(recent).catch((error) => {
-            appendOutput(`action failed: ${error}\n`, "error");
+      } else {
+        for (const recent of entries) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "stage-action-button";
+          button.textContent = basename(recent.path || recent.label || "Project");
+          button.title = recent.path || recentProjectLabel(recent);
+          button.disabled = Boolean(activeProjectRoot);
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            openRecentProject(recent).catch((error) => {
+              appendOutput(`action failed: ${error}\n`, "error");
+            });
           });
-        });
-        creativeRecentProjects.append(button);
+          creativeRecentProjects.append(button);
+        }
       }
+      const separator = document.createElement("div");
+      separator.className = "stage-action-separator";
+      separator.setAttribute("role", "separator");
+      creativeRecentProjects.append(separator);
+      const clearButton = document.createElement("button");
+      clearButton.type = "button";
+      clearButton.className = "stage-action-button";
+      clearButton.textContent = "Clear list";
+      clearButton.title = "Remove these recent projects from the list.";
+      clearButton.disabled = entries.length === 0;
+      clearButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        clearRecentProjects().catch((error) => {
+          appendOutput(`action failed: ${error}\n`, "error");
+        });
+      });
+      creativeRecentProjects.append(clearButton);
     }
 
     function updateCreativeActionGroup(actions, button, expanded) {

@@ -1238,6 +1238,16 @@
       opacity: 0.5;
     }
 
+    .stage-action-separator {
+      height: 1px;
+      margin: 6px 12px;
+      background: #d7e2ec;
+    }
+
+    .stage-action-subgroup-list .stage-action-separator {
+      margin-left: 18px;
+    }
+
     .stage-action-form {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
