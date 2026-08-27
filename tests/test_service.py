@@ -4648,6 +4648,13 @@ class ServiceTests(unittest.TestCase):
                         "participants": [{"id": "member:1", "label": "Ari"}],
                         "actions": [
                             {
+                                "id": "source",
+                                "label": "Source",
+                                "dispatch": "host",
+                                "always_visible": True,
+                                "payload": {"source_id": "source:1"},
+                            },
+                            {
                                 "id": "edit",
                                 "label": "Edit",
                                 "editor": True,
@@ -4699,6 +4706,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('element("div", "agenda-modal-overlay")', page)
         self.assertIn("async function invokeAction", page)
+        self.assertIn("function dispatchAgendaHostAction", page)
+        self.assertIn('type: "electroboy-agenda-action"', page)
+        self.assertIn('if (action.dispatch === "host")', page)
+        self.assertIn("!options.hideActions || action.always_visible", page)
         self.assertIn("async function openEditor", page)
         self.assertIn(
             'for (const key of ["workspace_id", "context_id", "connection_id", "lease_token"])',
@@ -4959,6 +4970,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function agendaStyleClass", tools)
         self.assertIn("paneRoot.dataset.agendaStyle = agendaStyleClass", tools)
         self.assertIn('post("set-style"', tools)
+        self.assertIn("function agendaActionHost()", tools)
+        self.assertIn('data.type !== "electroboy-agenda-action"', tools)
+        self.assertIn("host.postMessage(data, window.location.origin)", tools)
         self.assertIn(".agenda-tool-style-field", styles)
         self.assertIn(".agenda-pane .pane-tools-shelf", styles)
         self.assertIn('--agenda-tool-shelf-bg: #f8f3e9;', styles)

@@ -175,6 +175,7 @@ def module() -> ServiceModule:
                 "agenda-provider",
                 "agenda-filters",
                 "agenda-actions",
+                "agenda-host-actions",
                 "agenda-styles",
                 "agenda-modal-editor",
             }

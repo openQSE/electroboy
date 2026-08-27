@@ -208,14 +208,25 @@
       resultCount.textContent = count === 1 ? "Showing 1 item" : `Showing ${count} items`;
     }
 
+    function agendaActionHost() {
+      if (window.parent !== window) return window.parent;
+      if (window.opener && !window.opener.closed) return window.opener;
+      return null;
+    }
+
     function handleMessage(event) {
       if (event.origin !== window.location.origin || event.source !== frame.contentWindow) {
         return;
       }
       const data = event.data || {};
-      if (data.type !== "electroboy-agenda-state") return;
-      agendaState = data.state || {};
-      renderState();
+      if (data.type === "electroboy-agenda-state") {
+        agendaState = data.state || {};
+        renderState();
+        return;
+      }
+      if (data.type !== "electroboy-agenda-action") return;
+      const host = agendaActionHost();
+      if (host) host.postMessage(data, window.location.origin);
     }
 
     applyDates.addEventListener("click", () => {

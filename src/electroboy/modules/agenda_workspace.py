@@ -2074,7 +2074,24 @@ def render_agenda_html(
       return response.json();
     }}
 
+    function dispatchAgendaHostAction(item, action) {{
+      if (window.parent === window) return;
+      window.parent.postMessage({{
+        type: "electroboy-agenda-action",
+        provider: AGENDA_DATA.provider,
+        item_id: item.id,
+        action_id: action.id,
+        payload: action.payload && typeof action.payload === "object"
+          ? action.payload
+          : {{}},
+      }}, window.location.origin);
+    }}
+
     async function invokeAction(item, action) {{
+      if (action.dispatch === "host") {{
+        dispatchAgendaHostAction(item, action);
+        return;
+      }}
       if (action.editor) {{
         await openEditor(item, action);
         return;
@@ -2209,14 +2226,20 @@ def render_agenda_html(
       appendPeople(body, item);
       if (item.warning) body.append(element("div", "agenda-warning", item.warning.message || String(item.warning)));
       appendMetadata(body, item);
-      if (!options.hideActions && (item.actions || []).length) {{
+      const visibleActions = (item.actions || []).filter(
+        (action) => !options.hideActions || action.always_visible,
+      );
+      if (visibleActions.length) {{
         const actions = element("div", "agenda-actions");
-        for (const action of item.actions) {{
+        for (const action of visibleActions) {{
           const button = element("button", `item-action ${{action.style || ""}}`, action.label || action.id);
           button.type = "button";
           button.addEventListener("click", async () => {{
             button.disabled = true;
-            try {{ await invokeAction(item, action); }}
+            try {{
+              await invokeAction(item, action);
+              if (action.dispatch === "host") button.disabled = false;
+            }}
             catch (problem) {{ window.alert(problem.message); button.disabled = false; }}
           }});
           actions.append(button);
