@@ -2,9 +2,10 @@
   "use strict";
 
   const STORAGE_KEY = "electroboy.agentInputHistory.v1";
+  const SCOPED_STORAGE_PREFIX = `${STORAGE_KEY}.scoped.`;
   const MAX_ENTRIES = 2000;
   let controllerSequence = 0;
-  let memoryEntries = [];
+  const memoryEntriesByKey = new Map();
 
   function normalizedEntries(value) {
     const entries = Array.isArray(value)
@@ -17,17 +18,68 @@
       .slice(-MAX_ENTRIES);
   }
 
-  function loadEntries() {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) {
-        return memoryEntries.slice();
-      }
-      memoryEntries = normalizedEntries(JSON.parse(stored));
-    } catch (error) {
-      return memoryEntries.slice();
+  function storageKeyPart(value) {
+    return encodeURIComponent(String(value || "").trim());
+  }
+
+  function normalizedScope(value = {}) {
+    const scope = value && typeof value === "object" ? value : {};
+    const projectRoot = String(
+      scope.projectRoot || scope.project || scope.activationRoot || "",
+    ).trim();
+    const sessionId = String(
+      scope.sessionId || scope.providerSessionId || scope.localSessionId || "",
+    ).trim();
+    const aliases = [
+      scope.providerSessionId,
+      scope.localSessionId,
+      ...(Array.isArray(scope.aliases) ? scope.aliases : []),
+    ]
+      .map((alias) => String(alias || "").trim())
+      .filter((alias) => alias && alias !== sessionId);
+    return {
+      projectRoot,
+      sessionId,
+      aliases: Array.from(new Set(aliases)),
+    };
+  }
+
+  function storageKeyForScopePart(projectRoot, sessionId) {
+    return [
+      SCOPED_STORAGE_PREFIX,
+      storageKeyPart(projectRoot),
+      ":",
+      storageKeyPart(sessionId),
+    ].join("");
+  }
+
+  function storageKeysForScope(scope = {}) {
+    const normalized = normalizedScope(scope);
+    if (!normalized.projectRoot || !normalized.sessionId) {
+      return [STORAGE_KEY];
     }
-    return memoryEntries.slice();
+    const primary = storageKeyForScopePart(
+      normalized.projectRoot,
+      normalized.sessionId,
+    );
+    const aliases = normalized.aliases
+      .map((alias) => storageKeyForScopePart(normalized.projectRoot, alias))
+      .filter((key) => key !== primary);
+    return [primary, ...aliases];
+  }
+
+  function loadEntriesForKey(key) {
+    try {
+      const stored = window.localStorage.getItem(key);
+      if (!stored) {
+        return (memoryEntriesByKey.get(key) || []).slice();
+      }
+      const entries = normalizedEntries(JSON.parse(stored));
+      memoryEntriesByKey.set(key, entries);
+    } catch (error) {
+      return (memoryEntriesByKey.get(key) || []).slice();
+    }
+    return (memoryEntriesByKey.get(key) || []).slice();
   }
 
   function quotaExceeded(error) {
@@ -39,13 +91,13 @@
     );
   }
 
-  function saveEntries(entries) {
+  function saveEntriesForKey(key, entries) {
     const retained = normalizedEntries(entries);
     while (true) {
-      memoryEntries = retained.slice();
+      memoryEntriesByKey.set(key, retained.slice());
       try {
         window.localStorage.setItem(
-          STORAGE_KEY,
+          key,
           JSON.stringify({ version: 1, entries: retained }),
         );
         return retained.slice();
@@ -59,13 +111,42 @@
     }
   }
 
-  function appendEntry(value) {
-    if (typeof value !== "string" || !value.trim()) {
-      return loadEntries();
+  function removeEntriesForKey(key) {
+    memoryEntriesByKey.delete(key);
+    try {
+      if (typeof window.localStorage.removeItem === "function") {
+        window.localStorage.removeItem(key);
+      }
+    } catch (error) {
+      return;
     }
-    const entries = loadEntries();
+  }
+
+  function loadEntries(scope = {}) {
+    const keys = storageKeysForScope(scope);
+    const entries = [];
+    for (const key of keys) {
+      entries.push(...loadEntriesForKey(key));
+    }
+    return normalizedEntries(entries);
+  }
+
+  function saveEntries(entries, scope = {}) {
+    const keys = storageKeysForScope(scope);
+    const retained = saveEntriesForKey(keys[0], entries);
+    for (const aliasKey of keys.slice(1)) {
+      removeEntriesForKey(aliasKey);
+    }
+    return retained;
+  }
+
+  function appendEntry(value, scope = {}) {
+    if (typeof value !== "string" || !value.trim()) {
+      return loadEntries(scope);
+    }
+    const entries = loadEntries(scope);
     entries.push(value);
-    return saveEntries(entries.slice(-MAX_ENTRIES));
+    return saveEntries(entries.slice(-MAX_ENTRIES), scope);
   }
 
   function element(tagName, className = "", text = "") {
@@ -86,6 +167,9 @@
       throw new Error("input history requires an input and a button");
     }
 
+    const scopeProvider = typeof options.scope === "function"
+      ? options.scope
+      : () => options.scope || {};
     controllerSequence += 1;
     const dialogId = `electroboyInputHistory${controllerSequence}`;
     const titleId = `${dialogId}Title`;
@@ -131,6 +215,14 @@
 
     let previousFocus = null;
 
+    function currentScope() {
+      try {
+        return normalizedScope(scopeProvider());
+      } catch (error) {
+        return {};
+      }
+    }
+
     function restoreEntry(value) {
       input.value = value;
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -142,7 +234,7 @@
     }
 
     function render() {
-      const entries = loadEntries();
+      const entries = loadEntries(currentScope());
       list.replaceChildren();
       const newestFirst = entries.slice().reverse();
       for (const value of newestFirst) {
@@ -239,18 +331,19 @@
       close,
       open,
       record(value) {
-        const entries = appendEntry(value);
+        const entries = appendEntry(value, currentScope());
         if (!overlay.hidden) {
           render();
         }
         return entries.length;
       },
-      size: () => loadEntries().length,
+      size: () => loadEntries(currentScope()).length,
     });
   }
 
   window.ElectroBoyInputHistory = Object.freeze({
     MAX_ENTRIES,
+    SCOPED_STORAGE_PREFIX,
     STORAGE_KEY,
     appendEntry,
     create,

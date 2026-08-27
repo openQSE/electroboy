@@ -968,13 +968,34 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("electroboy.agentSendShortcut.v1", input_shortcut)
         self.assertIn("Hover to record a new shortcut", input_shortcut)
         self.assertIn("const MAX_ENTRIES = 2000;", input_history)
+        self.assertIn("SCOPED_STORAGE_PREFIX", input_history)
+        self.assertIn("function storageKeysForScope(scope = {})", input_history)
+        self.assertIn("scope.localSessionId", input_history)
+        self.assertIn("removeEntriesForKey(aliasKey)", input_history)
         self.assertIn("entries.slice(-MAX_ENTRIES)", input_history)
         self.assertIn("function create(options = {})", input_history)
         self.assertIn("input.dispatchEvent(new Event(\"input\"", input_history)
         self.assertIn('id="showInputHistory"', template)
+        self.assertLess(
+            template.index('id="showInputHistory"'),
+            template.index('id="interruptAgent"'),
+        )
         self.assertIn("ElectroBoyInputHistory.create", app)
+        self.assertIn("function agentInputHistoryScope()", app)
+        self.assertIn("scope: agentInputHistoryScope", app)
+        self.assertIn("metadata.provider_session_id", app)
+        self.assertIn(
+            'projectRoot: activeProjectRoot || activationRoot || serviceRoot || ""',
+            app,
+        )
         self.assertIn("history: agentInputHistory", app)
         self.assertIn('id="showInputHistory"', pane_window)
+        self.assertLess(
+            pane_window.index('id="showInputHistory"'),
+            pane_window.index('id="interruptAgent"'),
+        )
+        self.assertIn("function selectedInputHistoryScope()", pane_window)
+        self.assertIn("scope: selectedInputHistoryScope", pane_window)
         self.assertIn("inputHistory.record(message);", pane_window)
         self.assertIn(".input-history-card", input_history_css)
         self.assertIn("overflow: auto;", input_history_css)

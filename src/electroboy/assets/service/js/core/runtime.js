@@ -6024,6 +6024,25 @@
       return window.ElectroBoyFrontend.invokeModule("agent-sessions", "sessionMetadata", ...args);
     }
 
+    function agentInputHistoryScope() {
+      const session = agentSessions.find(
+        (candidate) => candidate.session_id === selectedSessionId,
+      ) || null;
+      const metadata = session && session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : {};
+      const providerSessionId = String(metadata.provider_session_id || "").trim();
+      const localSessionId = String(
+        (session && session.session_id) || selectedSessionId || "",
+      ).trim();
+      return {
+        projectRoot: activeProjectRoot || activationRoot || serviceRoot || "",
+        sessionId: providerSessionId || localSessionId,
+        providerSessionId,
+        localSessionId,
+      };
+    }
+
     function documentTargetKey(...args) {
       return window.ElectroBoyFrontend.invokeModule("documents", "documentTargetKey", ...args);
     }
@@ -7631,6 +7650,7 @@
       ? window.ElectroBoyInputHistory.create({
           button: showInputHistory,
           input: agentInput,
+          scope: agentInputHistoryScope,
         })
       : Object.freeze({ record: () => 0 });
     showInputHistory.hidden = !window.ElectroBoyInputHistory;

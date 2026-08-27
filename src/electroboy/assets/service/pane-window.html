@@ -1066,6 +1066,7 @@
       ? window.ElectroBoyInputHistory.create({
           button: showInputHistory,
           input: agentInput,
+          scope: selectedInputHistoryScope,
         })
       : Object.freeze({ record: () => 0 });
     showInputHistory.hidden = !window.ElectroBoyInputHistory;
@@ -1668,6 +1669,23 @@
     function selectedAgentSession() {
       return agentSessions.find((session) => session.session_id === selectedSessionId)
         || null;
+    }
+
+    function selectedInputHistoryScope() {
+      const session = selectedAgentSession();
+      const metadata = session && session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : {};
+      const providerSessionId = String(metadata.provider_session_id || "").trim();
+      const localSessionId = String(
+        (session && session.session_id) || selectedSessionId || "",
+      ).trim();
+      return {
+        projectRoot: activeProjectRoot || "",
+        sessionId: providerSessionId || localSessionId,
+        providerSessionId,
+        localSessionId,
+      };
     }
 
     function refreshAgentPaneTools() {
