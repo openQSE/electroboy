@@ -6,7 +6,7 @@ import html
 from http import HTTPStatus
 
 from electroboy.service.http import HtmlResponse, JsonResponse, ServiceResponse
-from electroboy.service.registry import ServiceModule
+from electroboy.service.registry import AgentRuleDefinition, ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import conflict, route
@@ -102,6 +102,30 @@ def _view(request: RouteRequest) -> HtmlResponse:
 
 _HANDLERS = {"editor": _editor, "save": _save, "view": _view}
 
+_STRUCTURED_DOCUMENT_RULES = AgentRuleDefinition(
+    id="structured-documents.source-of-truth",
+    label="Structured Document Sources",
+    priority=20,
+    content="""\
+The following rules are required when a document has a JSONL source and a
+generated Markdown companion.
+
+- Edit the JSONL file as the source of truth. Do not edit its generated
+  Markdown companion by hand.
+- Keep stable record identifiers in record fields rather than title text. Use
+  human-readable titles.
+- Preserve hierarchy with `parent_id` or `heading_level` instead of flattening
+  the outline.
+- Put prose, lists, tables, and Mermaid diagrams in Markdown-capable body
+  fields.
+- After changing a source, run `electroboy render-artifact <artifact>` to
+  validate the JSONL and regenerate the Markdown companion.
+- Inspect the existing records before editing. Preserve schema fields and
+  record identifiers that are unrelated to the requested change.
+
+These rules apply regardless of the agent role that performs the edit.""",
+)
+
 
 def module() -> ServiceModule:
     return ServiceModule(
@@ -140,5 +164,6 @@ def module() -> ServiceModule:
         ),
         handlers=_HANDLERS,
         capabilities=frozenset({"jsonl-source", "markdown-render", "schema-edit"}),
+        agent_rules=(_STRUCTURED_DOCUMENT_RULES,),
         state_namespace="structured_documents",
     )

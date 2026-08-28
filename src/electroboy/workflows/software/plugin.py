@@ -9,6 +9,7 @@ from electroboy.service.registry import (
     WorkflowDefinition,
     WorkflowStage,
 )
+from electroboy.workflows.software.agent_rules import SOFTWARE_AGENT_RULES
 from electroboy.workflows.software.controller import SoftwareWorkflowController
 from electroboy.workflows.software.domain import _stage_operations
 from electroboy.workflows.software.routes import HANDLERS, ROUTES
@@ -142,6 +143,7 @@ def workflow() -> WorkflowDefinition:
                 ("validation-report", "Validation Report"),
             )
         ),
+        agent_rules=SOFTWARE_AGENT_RULES,
         runtime_roles=(
             RuntimeRoleDefinition(
                 "artifact-author",

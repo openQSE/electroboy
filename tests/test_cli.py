@@ -579,6 +579,10 @@ class CliTests(unittest.TestCase):
             code, _stdout, stderr = self.run_cli(["--root", str(root), "requirements"])
             prompt_files = list((store.run_dir("run-1") / "messages").glob("*-prompt.md"))
             prompt = prompt_files[0].read_text(encoding="utf-8")
+            rules_path = (
+                root / ".electroboy" / "local" / "agent-rules" / "software.md"
+            )
+            rules = rules_path.read_text(encoding="utf-8")
 
         self.assertEqual(code, 0, stderr)
         self.assertIn(
@@ -599,6 +603,9 @@ class CliTests(unittest.TestCase):
             prompt,
         )
         self.assertIn("Read only these two files", prompt)
+        self.assertIn("Effective rules file:", prompt)
+        self.assertIn(".electroboy/local/agent-rules/software.md", prompt)
+        self.assertIn("docs/requirements.jsonl", rules)
         self.assertIn("Do not explore the working directory", prompt)
         self.assertIn(
             "Edit only docs/requirements.jsonl directly unless",
@@ -773,6 +780,8 @@ A-->B
         self.assertIn("Current ElectroBoy context:", prompt)
         self.assertIn(f"provider session id: {session_id}", prompt)
         self.assertIn("target artifact: docs/requirements.md", prompt)
+        self.assertIn("Effective rules file:", prompt)
+        self.assertIn(".electroboy/local/agent-rules/software.md", prompt)
         self.assertNotIn("Read only docs/requirements.md if it exists.", prompt)
         self.assertNotIn("Update only docs/requirements.md", prompt)
 

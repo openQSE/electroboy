@@ -16,6 +16,10 @@ from electroboy.adapters.codex_sessions import (
     codex_session_paths,
     codex_sessions_directory,
 )
+from electroboy.workflows.software.agent_rules import (
+    materialize_software_agent_rules,
+    prompt_with_software_agent_rules,
+)
 
 
 AD_HOC_CATALOG_RELATIVE_PATH = (
@@ -39,17 +43,28 @@ def ad_hoc_agent_command(
         "--sandbox",
         "workspace-write",
     ]
+    rules_path = materialize_software_agent_rules(root)
     if provider_session_id:
-        command.extend(["resume", provider_session_id])
+        command.extend(
+            [
+                "resume",
+                provider_session_id,
+                prompt_with_software_agent_rules(
+                    "Resume this ad-hoc session and wait for the operator's next "
+                    "instruction.",
+                    rules_path,
+                ),
+            ]
+        )
     else:
-        command.append(ad_hoc_agent_prompt())
+        command.append(ad_hoc_agent_prompt(rules_path))
     return command
 
 
-def ad_hoc_agent_prompt() -> str:
+def ad_hoc_agent_prompt(rules_path: str) -> str:
     """Keep an ad-hoc agent independent from the staged workflow."""
 
-    return "\n".join(
+    prompt = "\n".join(
         [
             _AD_HOC_PROMPT_PREFIX,
             "The active ElectroBoy workflow stage is irrelevant to this session.",
@@ -62,6 +77,7 @@ def ad_hoc_agent_prompt() -> str:
             "Wait for and then follow the operator's next instruction directly.",
         ]
     )
+    return prompt_with_software_agent_rules(prompt, rules_path)
 
 
 def ad_hoc_session_history(

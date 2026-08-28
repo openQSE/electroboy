@@ -24,6 +24,7 @@ from .http import (
     TextResponse,
 )
 from .registry import (
+    AgentRuleDefinition,
     CliCommandDefinition,
     DocumentSchemaDefinition,
     RouteDefinition,
@@ -45,6 +46,7 @@ from .services import (
 )
 
 __all__ = [
+    "AgentRuleDefinition",
     "AgendaProvider",
     "AgendaWorkflowController",
     "BinaryResponse",

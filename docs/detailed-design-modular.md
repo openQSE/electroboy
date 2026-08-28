@@ -1026,6 +1026,7 @@ The plugin contract should include:
 - static assets
 - optional CLI commands
 - optional document schemas
+- optional agent rules
 - optional runtime roles
 
 Plugins should run with the same local trust model as the project. The GUI

@@ -82,6 +82,25 @@ class DocumentSchemaDefinition:
 
 
 @dataclass(frozen=True)
+class AgentRuleDefinition:
+    """Agent-facing rule content contributed by a module or workflow."""
+
+    id: str
+    label: str
+    content: str
+    priority: int = 100
+    version: int = 1
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "priority": self.priority,
+            "version": self.version,
+        }
+
+
+@dataclass(frozen=True)
 class RuntimeRoleDefinition:
     """Agent runtime role metadata contributed by a plugin."""
 
@@ -135,6 +154,7 @@ class ServiceModule:
     capabilities: frozenset[str] = frozenset()
     commands: tuple[CliCommandDefinition, ...] = ()
     document_schemas: tuple[DocumentSchemaDefinition, ...] = ()
+    agent_rules: tuple[AgentRuleDefinition, ...] = ()
     runtime_roles: tuple[RuntimeRoleDefinition, ...] = ()
     state_namespace: str | None = None
     provider: str = "electroboy"
@@ -150,6 +170,7 @@ class ServiceModule:
             "capabilities": sorted(self.capabilities),
             "commands": [entry.payload() for entry in self.commands],
             "document_schemas": [entry.payload() for entry in self.document_schemas],
+            "agent_rules": [entry.payload() for entry in self.agent_rules],
             "runtime_roles": [entry.payload() for entry in self.runtime_roles],
             "state_namespace": self.state_namespace,
             "provider": self.provider,
@@ -212,6 +233,7 @@ class WorkflowDefinition:
     )
     commands: tuple[CliCommandDefinition, ...] = ()
     document_schemas: tuple[DocumentSchemaDefinition, ...] = ()
+    agent_rules: tuple[AgentRuleDefinition, ...] = ()
     runtime_roles: tuple[RuntimeRoleDefinition, ...] = ()
     provider: str = "electroboy"
     entry_point: str | None = None
@@ -232,6 +254,7 @@ class WorkflowDefinition:
             "routes": [route.payload() for route in self.routes],
             "commands": [entry.payload() for entry in self.commands],
             "document_schemas": [entry.payload() for entry in self.document_schemas],
+            "agent_rules": [entry.payload() for entry in self.agent_rules],
             "runtime_roles": [entry.payload() for entry in self.runtime_roles],
             "provider": self.provider,
             "entry_point": self.entry_point,
@@ -354,7 +377,12 @@ class WorkflowRegistry:
 def _validate_contribution_metadata(
     contribution: ServiceModule | WorkflowDefinition,
 ) -> None:
-    for field_name in ("commands", "document_schemas", "runtime_roles"):
+    for field_name in (
+        "commands",
+        "document_schemas",
+        "agent_rules",
+        "runtime_roles",
+    ):
         entries = getattr(contribution, field_name)
         identifiers = [entry.id.strip() for entry in entries]
         if any(not identifier for identifier in identifiers):
@@ -365,6 +393,10 @@ def _validate_contribution_metadata(
             raise ValueError(
                 f"{contribution.id} has duplicate {field_name} identifiers"
             )
+        if field_name == "agent_rules" and any(
+            not entry.content.strip() for entry in entries
+        ):
+            raise ValueError(f"{contribution.id} has empty agent rule content")
 
 
 def build_module_registry(

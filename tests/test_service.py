@@ -1768,6 +1768,20 @@ class ServiceTests(unittest.TestCase):
             "reviewer",
             {role["id"] for role in software["runtime_roles"]},
         )
+        self.assertIn(
+            "software.structured-artifacts",
+            {rule["id"] for rule in software["agent_rules"]},
+        )
+        self.assertNotIn("content", software["agent_rules"][0])
+        self.assertIn(
+            "structured-documents.source-of-truth",
+            {
+                rule["id"]
+                for rule in modules.get("structured_documents").payload()[
+                    "agent_rules"
+                ]
+            },
+        )
         self.assertEqual(
             creative["document_schemas"][0]["source_format"],
             "markdown",
@@ -6165,6 +6179,13 @@ class ServiceTests(unittest.TestCase):
             with mock.patch("electroboy.service.AgentSession.start"):
                 session, started = controller.start_ad_hoc_agent(context_id)
             payload = state.project_payload(context_id)
+            rules_created = (
+                project_root
+                / ".electroboy"
+                / "local"
+                / "agent-rules"
+                / "software.md"
+            ).is_file()
 
         self.assertTrue(started)
         self.assertEqual(session.kind, "ad-hoc")
@@ -6183,6 +6204,8 @@ class ServiceTests(unittest.TestCase):
             "Wait for and then follow the operator's next instruction",
             prompt,
         )
+        self.assertIn("Effective rules file:", prompt)
+        self.assertTrue(rules_created)
         self.assertNotIn("requirements", session.command[-1])
         self.assertNotIn("detailed-design", session.command[-1])
         self.assertEqual(payload["selected_session_id"], session.session_id)
@@ -6318,7 +6341,9 @@ class ServiceTests(unittest.TestCase):
             "Prototype the import service.",
         )
         self.assertTrue(started)
-        self.assertEqual(session.command[-2:], ["resume", provider_session_id])
+        self.assertEqual(session.command[-3:-1], ["resume", provider_session_id])
+        self.assertIn("Effective rules file:", session.command[-1])
+        self.assertIn("wait for the operator", session.command[-1])
         self.assertEqual(
             session.metadata["provider_session_id"],
             provider_session_id,

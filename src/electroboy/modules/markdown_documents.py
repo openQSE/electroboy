@@ -16,7 +16,7 @@ from electroboy.service.http import (
     StreamResponse,
     TextResponse,
 )
-from electroboy.service.registry import ServiceModule
+from electroboy.service.registry import AgentRuleDefinition, ServiceModule
 from electroboy.service.routes import RouteRequest
 
 from .common import route
@@ -154,6 +154,21 @@ _HANDLERS = {
     "events": _events,
 }
 
+_MARKDOWN_DOCUMENT_RULES = AgentRuleDefinition(
+    id="markdown-documents.naming",
+    label="Document Naming",
+    priority=10,
+    content="""\
+When the operator asks to create a document without naming it, recommend a
+conventional path before creating the file. Follow an established repository
+convention when one exists. Otherwise, use lowercase kebab-case Markdown names
+under `docs/`, such as `docs/error-recovery.md`.
+
+Preserve conventional project names such as `README.md`, `CHANGELOG.md`, and
+license files. Naming is a recommendation. Use the operator's requested name
+when they specify one.""",
+)
+
 
 def module() -> ServiceModule:
     return ServiceModule(
@@ -178,5 +193,6 @@ def module() -> ServiceModule:
         ),
         asset_package="electroboy.modules",
         capabilities=frozenset({"markdown-preview", "markdown-edit", "export"}),
+        agent_rules=(_MARKDOWN_DOCUMENT_RULES,),
         state_namespace="markdown_documents",
     )

@@ -79,6 +79,10 @@ from ...adapters.base import AgentInvocation, AgentResult
 from ...runtime import runtime_for_role
 from ...state_store import StateError, StateStore
 from ...upstream import IssueRecord, UpstreamError, load_issue_record
+from .agent_rules import (
+    materialize_software_agent_rules,
+    prompt_with_software_agent_rules,
+)
 
 
 STAGE_REQUIRED_FILES = {
@@ -7734,8 +7738,8 @@ def _authoring_prompt(store: StateStore, stage: str) -> str:
                 requirements_path,
                 update=True,
             ),
-            "Read only these two files unless the operator explicitly asks",
-            "otherwise.",
+            "Read only these two files plus the effective agent rules unless",
+            "the operator explicitly asks otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
             "Use JSONL records with Markdown-capable body fields for normal",
@@ -7762,8 +7766,8 @@ def _authoring_prompt(store: StateStore, stage: str) -> str:
                 design_path,
                 update=True,
             ),
-            "Read only these four files unless the operator explicitly asks",
-            "otherwise.",
+            "Read only these four files plus the effective agent rules unless",
+            "the operator explicitly asks otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
             "Use JSONL body fields for normal sections, tables, Mermaid",
@@ -7796,8 +7800,8 @@ def _authoring_prompt(store: StateStore, stage: str) -> str:
                 plan_path,
                 update=True,
             ),
-            "Read only these six files unless the operator explicitly asks",
-            "otherwise.",
+            "Read only these six files plus the effective agent rules unless",
+            "the operator explicitly asks otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
             "Use JSONL body fields for narrative details and keep each",
@@ -7836,8 +7840,8 @@ def _authoring_prompt(store: StateStore, stage: str) -> str:
                 test_plan_path,
                 update=True,
             ),
-            "Read only these eight files unless the operator explicitly asks",
-            "otherwise.",
+            "Read only these eight files plus the effective agent rules unless",
+            "the operator explicitly asks otherwise.",
             "Do not explore the working directory or inspect source code unless",
             "the operator explicitly asks you to.",
             "Focus on system tests, workflow checks, manual validation,",
@@ -8682,6 +8686,9 @@ def _invoke_agent_role(
         )
     if provider_session_id is None and not auto_resume_disabled:
         provider_session_id = _session_provider_session_id(session_record)
+    rules_path = materialize_software_agent_rules(store.root)
+    if rules_path not in context_paths:
+        context_paths = [*context_paths, rules_path]
     execution_context_paths = _execution_context_paths(store, context_paths)
     use_compact_resume_prompt = bool(
         session_stage
@@ -8709,6 +8716,10 @@ def _invoke_agent_role(
         )
     if not use_compact_resume_prompt:
         prompt = _prompt_with_feature_branch_guard(store, role, prompt)
+    prompt = prompt_with_software_agent_rules(
+        prompt,
+        _execution_context_paths(store, [rules_path])[0],
+    )
     output_schema = _agent_output_schema(role)
     if output_schema is not None:
         prompt = _prompt_with_output_contract(prompt)
