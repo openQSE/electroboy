@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 from http import HTTPStatus
 from pathlib import Path
 
@@ -115,17 +116,35 @@ def _export(request: RouteRequest) -> ServiceResponse:
 
 def _events(request: RouteRequest) -> ServiceResponse:
     params = request.params
-    artifact = str((params.get("artifact") or [""])[0]).strip()
     try:
         root = request.services.contexts.active_project_root(request.context_id)
-        path = _artifact_event_document_path(
-            root,
-            artifact,
-            str((params.get("path") or [""])[0]),
-        )
+        encoded_targets = str((params.get("targets") or [""])[0]).strip()
+        requested_targets = json.loads(encoded_targets) if encoded_targets else [
+            {
+                "artifact": str((params.get("artifact") or [""])[0]),
+                "path": str((params.get("path") or [""])[0]),
+            }
+        ]
+        if not isinstance(requested_targets, list) or not requested_targets:
+            raise ValueError("at least one artifact target is required")
+        targets: list[tuple[str, Path]] = []
+        seen: set[tuple[str, Path]] = set()
+        for target in requested_targets:
+            if not isinstance(target, dict):
+                raise ValueError("artifact targets must be objects")
+            artifact = str(target.get("artifact") or "").strip()
+            path = _artifact_event_document_path(
+                root,
+                artifact,
+                str(target.get("path") or ""),
+            )
+            key = (artifact, path)
+            if key not in seen:
+                seen.add(key)
+                targets.append(key)
     except Exception as error:
         return JsonResponse({"error": str(error)}, status=HTTPStatus.CONFLICT)
-    return StreamResponse(lambda: request.stream_artifact_events(artifact, path))
+    return StreamResponse(lambda: request.stream_artifact_events(targets))
 
 
 _HANDLERS = {

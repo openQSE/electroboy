@@ -6,7 +6,8 @@
   let inputPaneSync = null;
   let inputSyncQueue = Promise.resolve();
   let agentEventStreamVersion = 0;
-  const agentEventStreams = new Map();
+  let agentEventSource = null;
+  const agentEventLastIds = new Map();
   const inputDrafts = new Map();
   let agentPaneTools = null;
 
@@ -62,40 +63,35 @@
     runtimeApi.workflows.preparePrompt(...args);
 
   function closeSessionEventStream(sessionId) {
-    const stream = agentEventStreams.get(sessionId);
-    if (!stream) {
-      return;
-    }
-    stream.source.close();
-    agentEventStreams.delete(sessionId);
-    if (runtimeState.eventSource === stream.source) {
-      runtimeState.eventSource = null;
-    }
+    agentEventLastIds.delete(sessionId);
   }
 
   function replaceAgentEventSource(sessionId = "") {
-    agentEventStreamVersion += 1;
     if (sessionId) {
       closeSessionEventStream(sessionId);
       return agentEventStreamVersion;
     }
-    for (const streamSessionId of Array.from(agentEventStreams.keys())) {
-      closeSessionEventStream(streamSessionId);
+    agentEventStreamVersion += 1;
+    const previousSource = agentEventSource;
+    if (previousSource) {
+      previousSource.close();
+      agentEventSource = null;
     }
-    if (runtimeState.eventSource && typeof runtimeState.eventSource.close === "function") {
+    agentEventLastIds.clear();
+    if (
+      runtimeState.eventSource &&
+      runtimeState.eventSource !== previousSource &&
+      typeof runtimeState.eventSource.close === "function"
+    ) {
       runtimeState.eventSource.close();
-      runtimeState.eventSource = null;
     }
+    runtimeState.eventSource = null;
     return agentEventStreamVersion;
   }
 
-  function isCurrentSessionEventSource(sessionId, source, version) {
-    const stream = agentEventStreams.get(sessionId);
+  function isCurrentSessionEventSource(source, version) {
     return Boolean(
-      stream &&
-      stream.source === source &&
-      stream.version === version &&
-      version <= agentEventStreamVersion
+      agentEventSource === source && version === agentEventStreamVersion
     );
   }
 
@@ -136,34 +132,47 @@
     }
   }
 
-  function ensureSessionEventStream(sessionId) {
-    if (!sessionId || agentEventStreams.has(sessionId) || !runtimeState.contextId) {
+  function ensureAgentEventStream() {
+    if (agentEventSource || !runtimeState.contextId) {
       return;
     }
-    const source = runtimeApi.http.eventSource(
-      `/api/sessions/events?session_id=${encodeURIComponent(sessionId)}`,
-    );
+    if (
+      runtimeState.eventSource &&
+      typeof runtimeState.eventSource.close === "function"
+    ) {
+      runtimeState.eventSource.close();
+      runtimeState.eventSource = null;
+    }
     agentEventStreamVersion += 1;
     const version = agentEventStreamVersion;
-    agentEventStreams.set(sessionId, { source, version });
-    if (runtimeState.selectedSessionId === sessionId) {
-      runtimeState.eventSource = source;
-    }
+    const source = runtimeApi.http.eventSource("/api/sessions/events");
+    agentEventSource = source;
+    runtimeState.eventSource = source;
     source.addEventListener("agent-event", (event) => {
-      if (!isCurrentSessionEventSource(sessionId, source, version)) {
+      if (!isCurrentSessionEventSource(source, version)) {
         return;
       }
-      const payload = JSON.parse(event.data);
+      const message = JSON.parse(event.data);
+      const sessionId = String(message.session_id || "");
+      const payload = message.event;
+      if (!sessionId || !payload) {
+        return;
+      }
+      const eventId = Number(payload.id || 0);
+      if (eventId > 0 && eventId <= (agentEventLastIds.get(sessionId) || 0)) {
+        return;
+      }
+      if (eventId > 0) {
+        agentEventLastIds.set(sessionId, eventId);
+      }
       handleSessionEvent(sessionId, payload);
     });
     source.onerror = () => {};
   }
 
   function ensureRunningSessionStreams() {
-    for (const session of runtimeState.agentSessions) {
-      if (sessionIsRunning(session)) {
-        ensureSessionEventStream(session.session_id);
-      }
+    if (runtimeState.agentSessions.some(sessionIsRunning)) {
+      ensureAgentEventStream();
     }
   }
 
@@ -361,7 +370,7 @@
     function ensureSelectedSessionStream(options = {}) {
       if (
         !runtimeState.selectedSessionId ||
-        agentEventStreams.has(runtimeState.selectedSessionId)
+        agentEventSource
       ) {
         return;
       }
@@ -369,7 +378,7 @@
       window.setTimeout(() => {
         if (
           !runtimeState.selectedSessionId ||
-          agentEventStreams.has(runtimeState.selectedSessionId)
+          agentEventSource
         ) {
           return;
         }
@@ -501,9 +510,8 @@
       }
       runtimeState.activeAgentKind = session ? session.kind || "" : runtimeState.activeAgentKind;
       prepareTerminalStream(sessionId);
-      ensureSessionEventStream(sessionId);
-      const stream = agentEventStreams.get(sessionId);
-      runtimeState.eventSource = stream ? stream.source : null;
+      ensureAgentEventStream();
+      runtimeState.eventSource = agentEventSource;
     }
 
     function closeAgentEventStream() {

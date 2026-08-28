@@ -1030,7 +1030,7 @@
     let terminal = null;
     let terminalFit = null;
     const agentTerminalContexts = new Map();
-    const agentEventStreams = new Map();
+    const agentEventLastIds = new Map();
     let activeAgentTerminalSessionId = selectedSessionId || "";
     let terminalResizeObserver = null;
     let terminalWindowResizeListenerInstalled = false;
@@ -2943,40 +2943,24 @@
     }
 
     function closeAgentPaneEventStream(sessionId) {
-      const stream = agentEventStreams.get(sessionId);
-      if (!stream) {
-        return;
-      }
-      stream.source.close();
-      agentEventStreams.delete(sessionId);
-      if (eventSource === stream.source) {
-        eventSource = null;
-      }
+      agentEventLastIds.delete(sessionId);
     }
 
     function replacePaneEventSource(sessionId = "") {
-      terminalStreamVersion += 1;
-      if (PANE_KIND === "agent") {
-        if (sessionId) {
-          closeAgentPaneEventStream(sessionId);
-          return terminalStreamVersion;
-        }
-        for (const streamSessionId of Array.from(agentEventStreams.keys())) {
-          closeAgentPaneEventStream(streamSessionId);
-        }
+      if (PANE_KIND === "agent" && sessionId) {
+        closeAgentPaneEventStream(sessionId);
+        return terminalStreamVersion;
       }
+      terminalStreamVersion += 1;
       if (eventSource) {
         eventSource.close();
         eventSource = null;
       }
+      if (PANE_KIND === "agent") agentEventLastIds.clear();
       return terminalStreamVersion;
     }
 
-    function isCurrentPaneEventSource(source, version, sessionId = "") {
-      if (PANE_KIND === "agent") {
-        const stream = agentEventStreams.get(sessionId);
-        return Boolean(stream && stream.source === source && stream.version === version);
-      }
+    function isCurrentPaneEventSource(source, version) {
       return version === terminalStreamVersion && eventSource === source;
     }
 
@@ -2988,32 +2972,39 @@
         return;
       }
       const streamSessionId = selectedSessionId;
-      const existingStream = agentEventStreams.get(streamSessionId);
-      if (existingStream) {
-        eventSource = existingStream.source;
+      if (eventSource) {
         window.requestAnimationFrame(() => queueAgentResize(null, null, streamSessionId));
         return;
       }
       terminalStreamVersion += 1;
       const streamVersion = terminalStreamVersion;
       const source = new EventSource(
-        contextUrl(
-          `/api/sessions/events?session_id=${encodeURIComponent(streamSessionId)}`,
-        ),
+        contextUrl("/api/sessions/events"),
       );
       eventSource = source;
-      agentEventStreams.set(streamSessionId, { source, version: streamVersion });
       source.addEventListener("agent-event", (event) => {
-        if (!isCurrentPaneEventSource(source, streamVersion, streamSessionId)) {
+        if (!isCurrentPaneEventSource(source, streamVersion)) {
           return;
         }
-        const payload = JSON.parse(event.data);
+        const message = JSON.parse(event.data);
+        const sessionId = String(message.session_id || "");
+        const payload = message.event;
+        if (!sessionId || !payload) {
+          return;
+        }
+        const eventId = Number(payload.id || 0);
+        if (eventId > 0 && eventId <= (agentEventLastIds.get(sessionId) || 0)) {
+          return;
+        }
+        if (eventId > 0) {
+          agentEventLastIds.set(sessionId, eventId);
+        }
         if (payload.type === "output") {
-          queueTerminalOutput(payload.terminal || payload.text || "", streamSessionId);
+          queueTerminalOutput(payload.terminal || payload.text || "", sessionId);
         } else if (payload.type === "system" || payload.type === "error") {
           queueTerminalOutput(
             formatTerminalMessage(`${payload.text}\r\n`, payload.type),
-            streamSessionId,
+            sessionId,
           );
         } else if (payload.type === "completed") {
           queueTerminalOutput(
@@ -3021,7 +3012,7 @@
               `\r\nprocess exited with code ${payload.returncode}\r\n`,
               "system",
             ),
-            streamSessionId,
+            sessionId,
           );
         }
       });

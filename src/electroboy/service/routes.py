@@ -35,7 +35,12 @@ class RouteTransport(Protocol):
 
     def stream_session_events(self, session: AgentSession) -> None: ...
 
-    def stream_artifact_events(self, artifact: str, path: Path) -> None: ...
+    def stream_agent_events(self, context_id: str) -> None: ...
+
+    def stream_artifact_events(
+        self,
+        targets: list[tuple[str, Path]],
+    ) -> None: ...
 
     def stream_progress_events(
         self,
@@ -113,8 +118,14 @@ class RouteRequest:
     def stream_session_events(self, session: AgentSession) -> None:
         self.transport.stream_session_events(session)
 
-    def stream_artifact_events(self, artifact: str, path: Path) -> None:
-        self.transport.stream_artifact_events(artifact, path)
+    def stream_agent_events(self) -> None:
+        self.transport.stream_agent_events(self.context_id)
+
+    def stream_artifact_events(
+        self,
+        targets: list[tuple[str, Path]],
+    ) -> None:
+        self.transport.stream_artifact_events(targets)
 
     def stream_progress_events(
         self,

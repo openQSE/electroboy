@@ -2465,8 +2465,14 @@ def _handler_for(
         def stream_session_events(self, session: AgentSession) -> None:
             self._stream_session_events(session)
 
-        def stream_artifact_events(self, artifact: str, path: Path) -> None:
-            self._stream_artifact_events(artifact, path)
+        def stream_agent_events(self, context_id: str) -> None:
+            self._stream_agent_events(context_id)
+
+        def stream_artifact_events(
+            self,
+            targets: list[tuple[str, Path]],
+        ) -> None:
+            self._stream_artifact_events(targets)
 
         def stream_progress_events(
             self,
@@ -2725,18 +2731,84 @@ def _handler_for(
             except (BrokenPipeError, ConnectionError, OSError):
                 return
 
-        def _stream_artifact_events(self, artifact: str, document_path: Path) -> None:
+        def _stream_agent_events(self, context_id: str) -> None:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
             self.end_headers()
-            last_signature: dict[str, object] | None = None
-            event_id = 1
+            last_event_ids: dict[str, int] = {}
+            last_keep_alive = time.monotonic()
             try:
                 while True:
-                    signature = _file_signature(document_path)
-                    if signature != last_signature:
+                    with route_services.contexts.lock:
+                        try:
+                            context = route_services.contexts.require(context_id)
+                        except StateError:
+                            return
+                        sessions = route_services.sessions.for_context(context)
+                        selected_session_id = context.selected_session_id
+                    session_ids = {session.session_id for session in sessions}
+                    for session_id in last_event_ids.keys() - session_ids:
+                        last_event_ids.pop(session_id, None)
+                    streamable_sessions = [
+                        session
+                        for session in sessions
+                        if session.is_active()
+                        or session.session_id == selected_session_id
+                    ]
+                    emitted = False
+                    for session in streamable_sessions:
+                        session_id = session.session_id
+                        last_event_id = last_event_ids.get(session_id, 0)
+                        events = _limited_session_replay_events(
+                            session.events_after(last_event_id)
+                        )
+                        for event in events:
+                            payload = {
+                                "session_id": session_id,
+                                "event": event,
+                            }
+                            self.wfile.write(b"event: agent-event\n")
+                            self.wfile.write(
+                                (
+                                    f"data: {json.dumps(payload, sort_keys=True)}\n\n"
+                                ).encode("utf-8")
+                            )
+                            self.wfile.flush()
+                            last_event_ids[session_id] = int(event["id"])
+                            emitted = True
+                    now = time.monotonic()
+                    if emitted:
+                        last_keep_alive = now
+                    elif now - last_keep_alive >= 15:
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                        last_keep_alive = now
+                    time.sleep(0.1)
+            except (BrokenPipeError, ConnectionError, OSError):
+                return
+
+        def _stream_artifact_events(
+            self,
+            targets: list[tuple[str, Path]],
+        ) -> None:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            last_signatures: dict[tuple[str, Path], dict[str, object]] = {}
+            event_id = 1
+            last_keep_alive = time.monotonic()
+            try:
+                while True:
+                    emitted = False
+                    for artifact, document_path in targets:
+                        key = (artifact, document_path)
+                        signature = _file_signature(document_path)
+                        if signature == last_signatures.get(key):
+                            continue
                         payload = {
                             "artifact": artifact,
                             "path": str(document_path),
@@ -2751,10 +2823,15 @@ def _handler_for(
                         )
                         self.wfile.flush()
                         event_id += 1
-                        last_signature = signature
-                    else:
+                        last_signatures[key] = signature
+                        emitted = True
+                    now = time.monotonic()
+                    if emitted:
+                        last_keep_alive = now
+                    elif now - last_keep_alive >= 15:
                         self.wfile.write(b": keep-alive\n\n")
                         self.wfile.flush()
+                        last_keep_alive = now
                     time.sleep(0.75)
             except (BrokenPipeError, ConnectionError, OSError):
                 return

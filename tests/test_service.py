@@ -840,9 +840,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("window.ElectroBoyAgentPaneTools.mount", sessions)
         self.assertIn("function connectSessionEvents(sessionId, options = {})", sessions)
         self.assertIn("let agentEventStreamVersion = 0;", sessions)
-        self.assertIn("const agentEventStreams = new Map();", sessions)
+        self.assertIn("let agentEventSource = null;", sessions)
+        self.assertIn("const agentEventLastIds = new Map();", sessions)
         self.assertIn("let agentPaneTools = null;", sessions)
-        self.assertIn("function ensureSessionEventStream(sessionId)", sessions)
+        self.assertIn("function ensureAgentEventStream()", sessions)
+        self.assertIn('eventSource("/api/sessions/events")', sessions)
+        self.assertNotIn("/api/sessions/events?session_id=", sessions)
         self.assertIn("function ensureRunningSessionStreams()", sessions)
         self.assertIn("appendAgentOutput(outputText, sessionId);", sessions)
         self.assertIn("prepareTerminalStream(sessionId);", sessions)
@@ -915,11 +918,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("context.terminal.write(chunk)", app)
         self.assertIn("TERMINAL_OUTPUT_FLUSH_BUDGET_MS", pane_window)
         self.assertIn("const agentTerminalContexts = new Map();", pane_window)
-        self.assertIn("const agentEventStreams = new Map();", pane_window)
+        self.assertIn("const agentEventLastIds = new Map();", pane_window)
         self.assertIn("function flushTerminalOutputQueue(target = terminalOutputTarget())", pane_window)
         self.assertIn("function replacePaneEventSource(sessionId = \"\")", pane_window)
         self.assertIn("const streamSessionId = selectedSessionId;", pane_window)
-        self.assertIn("queueTerminalOutput(payload.terminal || payload.text || \"\", streamSessionId)", pane_window)
+        self.assertIn("queueTerminalOutput(payload.terminal || payload.text || \"\", sessionId)", pane_window)
+        self.assertIn('contextUrl("/api/sessions/events")', pane_window)
+        self.assertNotIn("/api/sessions/events?session_id=", pane_window)
         self.assertIn(
             "if (terminal) {\n        terminal.options.disableStdin = disableStdin;",
             pane_window,
@@ -1215,7 +1220,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("runtime.http.eventSource", project_shell)
         self.assertIn("runtimeApi.http.eventSource", sessions)
         self.assertNotIn("new EventSource(contextUrl", sessions)
-        self.assertIn("runtimeApi.http.rawEventSource(url)", documents)
+        self.assertIn("function artifactEventTarget(item)", documents)
+        self.assertIn('parameters.set("targets", JSON.stringify(targets))', documents)
+        self.assertIn("runtimeApi.http.rawEventSource(", documents)
         self.assertIn("async function startRequirementsAgent()", software)
         ad_hoc_start_offset = software.index("async function startAdHocAgent()")
         ad_hoc_start = software[
@@ -8135,6 +8142,126 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(present["size"], len("# Requirements\n"))
         self.assertIsInstance(present["mtime_ns"], int)
 
+    def test_agent_event_stream_is_multiplexed_within_one_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            first = server.service_state.create_context("connection-1")
+            second = server.service_state.create_context("connection-2")
+            first_session = AgentSession(
+                [sys.executable, "-c", "pass"],
+                root,
+                session_id="first-session",
+            )
+            second_session = AgentSession(
+                [sys.executable, "-c", "pass"],
+                root,
+                session_id="second-session",
+            )
+            first_session._append_event({"type": "system", "text": "first"})
+            second_session._append_event({"type": "system", "text": "second"})
+            with server.service_state.lock:
+                first_context = server.service_state._context_locked(
+                    str(first["workspace_id"])
+                )
+                first_context.ad_hoc_session = first_session
+                first_context.selected_session_id = first_session.session_id
+                second_context = server.service_state._context_locked(
+                    str(second["workspace_id"])
+                )
+                second_context.ad_hoc_session = second_session
+                second_context.selected_session_id = second_session.session_id
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            connection = http.client.HTTPConnection(
+                *server.server_address[:2],
+                timeout=2,
+            )
+
+            try:
+                connection.request(
+                    "GET",
+                    "/api/sessions/events?"
+                    + urlencode(
+                        {
+                            "workspace_id": first["workspace_id"],
+                            "connection_id": "connection-1",
+                            "lease_token": first["lease_token"],
+                        }
+                    ),
+                )
+                response = connection.getresponse()
+                payload = read_sse_payloads(response, 1)[0]
+            finally:
+                connection.close()
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["session_id"], "first-session")
+        self.assertEqual(payload["event"]["text"], "first")
+
+    def test_artifact_event_stream_watches_multiple_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            first_path = docs / "first.md"
+            second_path = docs / "second.md"
+            first_path.write_text("# First\n", encoding="utf-8")
+            second_path.write_text("# Second\n", encoding="utf-8")
+            StateStore(root).init_run(run_id="run-1")
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            workspace = server.service_state.create_context("connection-1")
+            server.service_state.open_project(
+                str(workspace["workspace_id"]),
+                str(root),
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            connection = http.client.HTTPConnection(
+                *server.server_address[:2],
+                timeout=2,
+            )
+            targets = [
+                {"artifact": "document", "path": "docs/first.md"},
+                {"artifact": "document", "path": "docs/second.md"},
+            ]
+
+            try:
+                connection.request(
+                    "GET",
+                    "/api/artifacts/events?"
+                    + urlencode(
+                        {
+                            "workspace_id": workspace["workspace_id"],
+                            "connection_id": "connection-1",
+                            "lease_token": workspace["lease_token"],
+                            "targets": json.dumps(targets),
+                        }
+                    ),
+                )
+                response = connection.getresponse()
+                payloads = read_sse_payloads(response, 2)
+            finally:
+                connection.close()
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            {payload["path"] for payload in payloads},
+            {str(first_path), str(second_path)},
+        )
+
     def test_agent_session_streams_output_and_accepts_messages(self) -> None:
         script = (
             "import sys\n"
@@ -8796,6 +8923,20 @@ def request(
     finally:
         connection.close()
     return response.status, body, content_type
+
+
+def read_sse_payloads(
+    response: http.client.HTTPResponse,
+    count: int,
+) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    while len(payloads) < count:
+        line = response.readline().decode("utf-8")
+        if not line:
+            raise AssertionError("SSE stream ended before the expected events arrived")
+        if line.startswith("data: "):
+            payloads.append(json.loads(line.removeprefix("data: ")))
+    return payloads
 
 
 def post_json(

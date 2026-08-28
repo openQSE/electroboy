@@ -184,16 +184,7 @@ def _resize(request: RouteRequest) -> ServiceResponse:
 
 
 def _events(request: RouteRequest) -> ServiceResponse:
-    try:
-        session = _selected_session(request)
-    except Exception as error:
-        return conflict(error)
-    if session is None:
-        return JsonResponse(
-            {"error": "no agent session is selected"},
-            status=HTTPStatus.CONFLICT,
-        )
-    return StreamResponse(lambda: request.stream_session_events(session))
+    return StreamResponse(request.stream_agent_events)
 
 
 def _export(request: RouteRequest) -> ServiceResponse:

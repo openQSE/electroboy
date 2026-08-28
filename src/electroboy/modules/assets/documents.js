@@ -1245,25 +1245,30 @@
       }
     }
 
-    function artifactEventUrl(item) {
+    function artifactEventTarget(item) {
       if (!item) {
-        return "";
+        return null;
       }
       if (item.kind === "requirements") {
-        return contextUrl("/api/artifacts/events?artifact=requirements");
+        return { artifact: "requirements", path: "" };
       }
-      const parameters = new URLSearchParams();
       if (item.kind === "document" && item.target) {
-        parameters.set("artifact", "document");
-        parameters.set("path", item.target.path);
-        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+        return { artifact: "document", path: item.target.path };
       }
       if (item.kind === "route" && item.path) {
-        parameters.set("artifact", "route");
-        parameters.set("path", item.path);
-        return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
+        return { artifact: "route", path: item.path };
       }
-      return "";
+      return null;
+    }
+
+    function artifactEventUrl(item) {
+      const target = artifactEventTarget(item);
+      if (!target) {
+        return "";
+      }
+      const parameters = new URLSearchParams();
+      parameters.set("targets", JSON.stringify([target]));
+      return contextUrl(`/api/artifacts/events?${parameters.toString()}`);
     }
 
     function connectArtifactEvents() {
@@ -1271,15 +1276,32 @@
       if (!runtimeState.contextId) {
         return;
       }
-      const urls = new Set(runtimeState.artifactPreviewItems.map(artifactEventUrl).filter(Boolean));
-      for (const url of urls) {
-        const source = runtimeApi.http.rawEventSource(url);
-        source.addEventListener("artifact-event", () => {
-          refreshArtifactPreview({ includeEditing: false });
-        });
-        source.onerror = () => {};
-        runtimeState.artifactEventSources.push(source);
+      const targets = [];
+      const seenTargets = new Set();
+      for (const item of runtimeState.artifactPreviewItems) {
+        const target = artifactEventTarget(item);
+        if (!target) {
+          continue;
+        }
+        const key = JSON.stringify(target);
+        if (!seenTargets.has(key)) {
+          seenTargets.add(key);
+          targets.push(target);
+        }
       }
+      if (!targets.length) {
+        return;
+      }
+      const parameters = new URLSearchParams();
+      parameters.set("targets", JSON.stringify(targets));
+      const source = runtimeApi.http.rawEventSource(
+        contextUrl(`/api/artifacts/events?${parameters.toString()}`),
+      );
+      source.addEventListener("artifact-event", () => {
+        refreshArtifactPreview({ includeEditing: false });
+      });
+      source.onerror = () => {};
+      runtimeState.artifactEventSources.push(source);
     }
 
     function closeArtifactEventStream() {
