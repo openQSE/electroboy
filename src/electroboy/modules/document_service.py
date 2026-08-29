@@ -2227,6 +2227,130 @@ def _rewrite_document_image_sources(
     return _DOCUMENT_IMAGE_SRC_RE.sub(replace, rendered)
 
 
+def external_link_html(url: str) -> tuple[str, HTTPStatus]:
+    raw_url = str(url or "").strip()
+    parts = urlsplit(raw_url)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+        return (
+            "<!doctype html><html><body>"
+            "<p>Unsupported external link.</p></body></html>",
+            HTTPStatus.BAD_REQUEST,
+        )
+    normalized_url = parts.geturl()
+    title = parts.netloc
+    escaped_url = html.escape(normalized_url, quote=True)
+    escaped_title = html.escape(title)
+    encoded_url = json.dumps(normalized_url).replace("<", "\\u003c")
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>External Link</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+    }}
+    * {{
+      box-sizing: border-box;
+    }}
+    body {{
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background: #111722;
+      color: #e8edf7;
+    }}
+    main {{
+      width: min(560px, calc(100vw - 32px));
+      border: 1px solid #2f3a4f;
+      border-radius: 8px;
+      background: #151d2b;
+      padding: 28px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
+    }}
+    .label {{
+      margin: 0 0 8px;
+      color: #98a6bd;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }}
+    h1 {{
+      margin: 0;
+      overflow-wrap: anywhere;
+      font-size: 22px;
+      line-height: 1.25;
+    }}
+    .url {{
+      margin: 16px 0 22px;
+      overflow-wrap: anywhere;
+      color: #b9c4d7;
+      font: 13px/1.5 "SFMono-Regular", Consolas, "Liberation Mono",
+        Menlo, monospace;
+    }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }}
+    a.button {{
+      display: inline-flex;
+      min-height: 36px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #5b8def;
+      border-radius: 6px;
+      background: #2f68d8;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 650;
+      padding: 7px 14px;
+      text-decoration: none;
+    }}
+    .hint {{
+      margin: 0;
+      color: #8d9ab1;
+      font-size: 13px;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <p class="label">External link</p>
+    <h1>{escaped_title}</h1>
+    <p class="url">{escaped_url}</p>
+    <div class="actions">
+      <a
+        class="button"
+        href="{escaped_url}"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-open
+      >Open in Browser</a>
+      <p class="hint">Use file navigation to return to the document.</p>
+    </div>
+  </main>
+  <script>
+    (() => {{
+      const externalUrl = {encoded_url};
+      const opener = document.querySelector("[data-open]");
+      opener?.addEventListener("click", (event) => {{
+        event.preventDefault();
+        window.open(externalUrl, "_blank", "noopener,noreferrer");
+      }});
+    }})();
+  </script>
+</body>
+</html>"""
+    return page, HTTPStatus.OK
+
+
 def _document_link_script(relative_path: str) -> str:
     encoded_path = json.dumps(relative_path, ensure_ascii=False).replace(
         "<", "\\u003c"
@@ -2402,6 +2526,14 @@ def _document_link_script(relative_path: str) -> str:
             window.location.assign(target.url);
             return;
           }
+          let openedExternally = false;
+          try {
+            openedExternally = Boolean(
+              window.open(target.url, "_blank", "noopener,noreferrer"),
+            );
+          } catch (error) {
+            openedExternally = false;
+          }
           window.parent.postMessage(
             {
               type: "electroboy:document-link",
@@ -2419,6 +2551,7 @@ def _document_link_script(relative_path: str) -> str:
                 location: currentDocumentLocation(),
               },
               location: {},
+              openedExternally,
             },
             window.location.origin,
           );

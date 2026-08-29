@@ -856,7 +856,7 @@
         id="artifactFrame"
         class="artifact-frame"
         title="Rendered pane content"
-        sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-same-origin"
         hidden
       ></iframe>
       <textarea id="scratchPad" class="scratch-pad" spellcheck="true" hidden></textarea>
@@ -1828,6 +1828,16 @@
         || currentPaneDocumentTarget();
     }
 
+    function externalLinkFrameUrl(target) {
+      const normalized = normalizedPaneDocumentNavigationTarget(target);
+      if (!normalized || !normalized.external || !normalized.url) {
+        return "";
+      }
+      const parameters = new URLSearchParams();
+      parameters.set("url", normalized.url);
+      return contextUrl(`/artifacts/external-link?${parameters.toString()}`);
+    }
+
     function currentPaneDocumentNavigationEntry() {
       return paneDocumentNavigation.frameEntry(
         artifactFrame,
@@ -1848,9 +1858,13 @@
         artifactDocumentFragment = "";
         artifactDocumentLocation = null;
         artifactEditing = false;
+        const url = externalLinkFrameUrl(normalized.target);
+        if (!url) {
+          return;
+        }
         artifactFrame.classList.add("loading");
         artifactFrame.removeAttribute("srcdoc");
-        artifactFrame.src = normalized.target.url;
+        artifactFrame.src = url;
         filePaneTools?.refresh();
         return;
       }
@@ -3415,7 +3429,7 @@
           artifactNavigationTarget,
         );
         if (navigationTarget && navigationTarget.external && navigationTarget.url) {
-          return navigationTarget.url;
+          return externalLinkFrameUrl(navigationTarget);
         }
         const parameters = new URLSearchParams();
         parameters.set("path", artifactDocumentPath);

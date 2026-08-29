@@ -328,6 +328,16 @@
       return `document:${documentTargetKey(normalized)}`;
     }
 
+    function externalLinkFrameUrl(target) {
+      const normalized = normalizedDocumentNavigationTarget(target);
+      if (!normalized || !normalized.external || !normalized.url) {
+        return "";
+      }
+      const parameters = new URLSearchParams();
+      parameters.set("url", normalized.url);
+      return contextUrl(`/artifacts/external-link?${parameters.toString()}`);
+    }
+
     function documentTargetForSession(session) {
       const metadata = sessionMetadata(session);
       const path = String(metadata.document_path || "").trim();
@@ -610,9 +620,13 @@
         item.fragment = "";
         item.navigationLocation = null;
         item.navigationTarget = normalized.target;
+        const url = externalLinkFrameUrl(normalized.target);
+        if (!url) {
+          return;
+        }
         if (frame) {
           markArtifactFrameLoading(frame);
-          frame.src = normalized.target.url;
+          frame.src = url;
         } else {
           renderArtifactPreviewItems();
         }
@@ -851,7 +865,7 @@
         ? normalizedDocumentNavigationTarget(item.navigationTarget)
         : null;
       if (navigationTarget && navigationTarget.external && navigationTarget.url) {
-        return navigationTarget.url;
+        return externalLinkFrameUrl(navigationTarget);
       }
       return artifactPreviewUrl(item);
     }
@@ -1151,7 +1165,7 @@
         frame.title = `${item.title} preview`;
         frame.setAttribute(
           "sandbox",
-          "allow-scripts allow-popups allow-modals allow-same-origin",
+          "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-same-origin",
         );
         frame.dataset.artifactId = item.id;
         markArtifactFrameLoading(frame);

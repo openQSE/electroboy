@@ -71,6 +71,7 @@ from electroboy.service import (  # noqa: E402
     create_server,
     creative_corkboard_html,
     document_target_html,
+    external_link_html,
     file_browser_window_html,
     frontend_debug,
     pane_window_html,
@@ -1112,7 +1113,13 @@ class ServiceTests(unittest.TestCase):
             documents,
         )
         self.assertIn("item.navigationTarget = normalized.target;", documents)
-        self.assertIn("frame.src = normalized.target.url;", documents)
+        self.assertIn("function externalLinkFrameUrl(target)", documents)
+        self.assertIn("frame.src = url;", documents)
+        self.assertIn("/artifacts/external-link", documents)
+        self.assertIn(
+            "allow-popups-to-escape-sandbox",
+            documents,
+        )
         self.assertIn("window.ElectroBoyDocumentNavigation =", document_navigation)
         self.assertIn(
             'const rawUrl = String(candidate.url || candidate.href || "").trim();',
@@ -1153,7 +1160,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data.type === "electroboy:document-link"', pane_window)
         self.assertIn("let artifactNavigationTarget = null;", pane_window)
         self.assertIn("function currentPaneNavigationTarget()", pane_window)
+        self.assertIn("function externalLinkFrameUrl(target)", pane_window)
         self.assertIn("artifactNavigationTarget = normalized.target;", pane_window)
+        self.assertIn(
+            "allow-popups-to-escape-sandbox",
+            pane_window,
+        )
         self.assertNotIn("document must be under the active project", documents)
         self.assertNotIn("document must be under the active project", pane_window)
         self.assertIn('addSection("navigation", "Navigation")', file_pane_tools)
@@ -2709,7 +2721,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("dockWorkspace.hidden = true", PANE_WINDOW_HTML)
         self.assertIn('if (kind === "input") return "AI agent input";', PANE_WINDOW_HTML)
         self.assertIn(
-            'sandbox="allow-scripts allow-popups allow-modals allow-same-origin"',
+            'sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox '
+            'allow-modals allow-same-origin"',
             page,
         )
         self.assertIn('contextUrl(`/artifacts/document?${parameters.toString()}`)', page)
@@ -3069,10 +3082,33 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('location: { fragment: target.fragment }', page)
         self.assertIn("function externalLinkTarget(href)", page)
         self.assertIn("window.location.assign(target.url);", page)
+        self.assertIn(
+            'window.open(target.url, "_blank", "noopener,noreferrer")',
+            page,
+        )
+        self.assertIn("openedExternally", page)
         self.assertIn("url.origin === window.location.origin", page)
         self.assertIn('data.type !== "electroboy:document-location"', page)
         self.assertIn('const absolutePath = linkPath.startsWith("/");', page)
         self.assertIn('window.parent.postMessage(', page)
+
+    def test_external_link_placeholder_uses_top_level_navigation(self) -> None:
+        page, status = external_link_html("https://example.com/docs?q=1#intro")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("<title>External Link</title>", page)
+        self.assertIn("example.com", page)
+        self.assertIn('href="https://example.com/docs?q=1#intro"', page)
+        self.assertIn('target="_blank"', page)
+        self.assertIn(
+            'window.open(externalUrl, "_blank", "noopener,noreferrer")',
+            page,
+        )
+
+    def test_external_link_placeholder_rejects_non_http_urls(self) -> None:
+        _, status = external_link_html("javascript:alert(1)")
+
+        self.assertEqual(status, HTTPStatus.BAD_REQUEST)
 
     def test_document_target_renderer_rewrites_local_image_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

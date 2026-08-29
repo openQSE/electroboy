@@ -27,6 +27,7 @@ from .document_service import (
     _document_zoom_from_params,
     _ensure_document_target,
     document_target_html,
+    external_link_html,
 )
 
 _DOCUMENT_ASSET_CONTEXT_KEYS = (
@@ -81,6 +82,13 @@ def _image(request: RouteRequest) -> ServiceResponse:
     except Exception as error:
         return TextResponse(str(error), status=HTTPStatus.CONFLICT)
     return BinaryResponse(data, content_type)
+
+
+def _external_link(request: RouteRequest) -> HtmlResponse:
+    params = request.params
+    url = str((params.get("url") or [""])[0])
+    page, status = external_link_html(url)
+    return HtmlResponse(page, status=status)
 
 
 def _export(request: RouteRequest) -> ServiceResponse:
@@ -149,6 +157,7 @@ def _events(request: RouteRequest) -> ServiceResponse:
 
 _HANDLERS = {
     "preview": _preview,
+    "external_link": _external_link,
     "image": _image,
     "export": _export,
     "events": _events,
@@ -176,6 +185,12 @@ def module() -> ServiceModule:
         label="Markdown Documents",
         routes=(
             route("GET", "/artifacts/document", "markdown_documents", "preview"),
+            route(
+                "GET",
+                "/artifacts/external-link",
+                "markdown_documents",
+                "external_link",
+            ),
             route(
                 "GET",
                 "/artifacts/document-image",
