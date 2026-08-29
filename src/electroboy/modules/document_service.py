@@ -2296,6 +2296,30 @@ def _document_link_script(relative_path: str) -> str:
         };
       }
 
+      function externalLinkTarget(href) {
+        const rawHref = String(href || "").trim();
+        if (!rawHref) {
+          return null;
+        }
+        let url;
+        try {
+          url = new URL(rawHref, window.location.href);
+        } catch (error) {
+          return null;
+        }
+        if (
+          (url.protocol !== "http:" && url.protocol !== "https:") ||
+          url.origin === window.location.origin
+        ) {
+          return null;
+        }
+        return {
+          url: url.href,
+          label: rawHref,
+          external: true,
+        };
+      }
+
       function scrollToDocumentFragment(fragment) {
         if (!fragment) {
           window.scrollTo({ top: 0, behavior: "auto" });
@@ -2367,11 +2391,39 @@ def _document_link_script(relative_path: str) -> str:
         if (!link || link.hasAttribute("download")) {
           return;
         }
-        const target = repositoryDocumentTarget(link.getAttribute("href"));
+        const href = link.getAttribute("href");
+        const target = repositoryDocumentTarget(href) || externalLinkTarget(href);
         if (!target) {
           return;
         }
         event.preventDefault();
+        if (target.external && target.url) {
+          if (window.parent === window) {
+            window.location.assign(target.url);
+            return;
+          }
+          window.parent.postMessage(
+            {
+              type: "electroboy:document-link",
+              target: {
+                url: target.url,
+                label: target.label,
+                external: true,
+              },
+              source: {
+                target: {
+                  path: currentDocumentPath,
+                  label: currentDocumentPath.replace(/\.md$/i, "")
+                    || currentDocumentPath,
+                },
+                location: currentDocumentLocation(),
+              },
+              location: {},
+            },
+            window.location.origin,
+          );
+          return;
+        }
         if (window.parent === window) {
           if (target.path === currentDocumentPath) {
             scrollToDocumentFragment(target.fragment);

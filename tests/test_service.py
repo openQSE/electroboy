@@ -1107,7 +1107,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function followDocumentLink(frameWindow, data)", documents)
         self.assertIn("function navigateDocumentHistory(direction)", documents)
         self.assertIn("runtimeState.openDocumentTargets.find(", documents)
+        self.assertIn(
+            "function documentNavigationTargetKey(target)",
+            documents,
+        )
+        self.assertIn("item.navigationTarget = normalized.target;", documents)
+        self.assertIn("frame.src = normalized.target.url;", documents)
         self.assertIn("window.ElectroBoyDocumentNavigation =", document_navigation)
+        self.assertIn(
+            'const rawUrl = String(candidate.url || candidate.href || "").trim();',
+            document_navigation,
+        )
         self.assertIn("const backEntries = [];", document_navigation)
         self.assertIn("const forwardEntries = [];", document_navigation)
         self.assertIn('type: "electroboy:document-location"', document_navigation)
@@ -1141,6 +1151,9 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('data.type === "electroboy:document-link"', documents)
         self.assertIn('data.type === "electroboy:document-link"', pane_window)
+        self.assertIn("let artifactNavigationTarget = null;", pane_window)
+        self.assertIn("function currentPaneNavigationTarget()", pane_window)
+        self.assertIn("artifactNavigationTarget = normalized.target;", pane_window)
         self.assertNotIn("document must be under the active project", documents)
         self.assertNotIn("document must be under the active project", pane_window)
         self.assertIn('addSection("navigation", "Navigation")', file_pane_tools)
@@ -3032,7 +3045,8 @@ class ServiceTests(unittest.TestCase):
                 "# Guide\n\n"
                 "## Installation Notes\n\n"
                 "[Jump](#installation-notes)\n\n"
-                "[API](../reference/api.md#authentication)\n",
+                "[API](../reference/api.md#authentication)\n"
+                "[Site](https://example.com/reference)\n",
                 encoding="utf-8",
             )
 
@@ -3045,10 +3059,17 @@ class ServiceTests(unittest.TestCase):
             '<a href="../reference/api.md#authentication">API</a>',
             page,
         )
+        self.assertIn(
+            '<a href="https://example.com/reference">Site</a>',
+            page,
+        )
         self.assertIn('const currentDocumentPath = "docs/guide.md";', page)
         self.assertIn('type: "electroboy:document-link"', page)
         self.assertIn("location: currentDocumentLocation()", page)
         self.assertIn('location: { fragment: target.fragment }', page)
+        self.assertIn("function externalLinkTarget(href)", page)
+        self.assertIn("window.location.assign(target.url);", page)
+        self.assertIn("url.origin === window.location.origin", page)
         self.assertIn('data.type !== "electroboy:document-location"', page)
         self.assertIn('const absolutePath = linkPath.startsWith("/");', page)
         self.assertIn('window.parent.postMessage(', page)

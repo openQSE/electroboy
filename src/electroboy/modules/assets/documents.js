@@ -308,6 +308,26 @@
       return String((target && (target.label || target.path)) || "Document");
     }
 
+    function normalizedDocumentNavigationTarget(target) {
+      return window.ElectroBoyDocumentNavigation.target(target);
+    }
+
+    function documentNavigationTargetIsExternal(target) {
+      const normalized = normalizedDocumentNavigationTarget(target);
+      return Boolean(normalized && normalized.external && normalized.url);
+    }
+
+    function documentNavigationTargetKey(target) {
+      const normalized = normalizedDocumentNavigationTarget(target);
+      if (!normalized) {
+        return "";
+      }
+      if (normalized.external && normalized.url) {
+        return `external:${normalized.url}`;
+      }
+      return `document:${documentTargetKey(normalized)}`;
+    }
+
     function documentTargetForSession(session) {
       const metadata = sessionMetadata(session);
       const path = String(metadata.document_path || "").trim();
@@ -561,10 +581,11 @@
     }
 
     function navigationTargetForItem(item, fallbackTarget = null) {
-      if (item && item.kind === "document" && item.target) {
-        return item.target;
+      if (item && item.kind === "document") {
+        return normalizedDocumentNavigationTarget(item.navigationTarget)
+          || normalizedDocumentNavigationTarget(item.target);
       }
-      return fallbackTarget;
+      return normalizedDocumentNavigationTarget(fallbackTarget);
     }
 
     function currentDocumentNavigationEntry() {
@@ -577,6 +598,25 @@
     function openDocumentNavigationEntry(entry) {
       const normalized = window.ElectroBoyDocumentNavigation.entry(entry);
       if (!normalized) {
+        return;
+      }
+      if (normalized.target.external && normalized.target.url) {
+        const item = activeArtifactToolItem();
+        const frame = artifactFrameForItem(item);
+        if (!item || item.kind !== "document") {
+          return;
+        }
+        item.editing = false;
+        item.fragment = "";
+        item.navigationLocation = null;
+        item.navigationTarget = normalized.target;
+        if (frame) {
+          markArtifactFrameLoading(frame);
+          frame.src = normalized.target.url;
+        } else {
+          renderArtifactPreviewItems();
+        }
+        dockedFilePaneTools?.refresh();
         return;
       }
       const existingTarget = runtimeState.openDocumentTargets.find(
@@ -592,9 +632,11 @@
         item &&
         !item.editing &&
         currentTarget &&
-        documentTargetKey(currentTarget) === normalized.target.path &&
+        documentNavigationTargetKey(currentTarget) ===
+          documentNavigationTargetKey(target) &&
         frame
       ) {
+        item.navigationTarget = target;
         item.fragment = normalized.location.fragment;
         documentNavigation.restoreFrame(
           frame,
@@ -798,6 +840,22 @@
       return contextUrl(`/artifacts/edit?${parameters.toString()}`);
     }
 
+    function artifactFrameUrl(item) {
+      if (!item) {
+        return "";
+      }
+      if (item.editing) {
+        return artifactEditUrl(item);
+      }
+      const navigationTarget = item.kind === "document"
+        ? normalizedDocumentNavigationTarget(item.navigationTarget)
+        : null;
+      if (navigationTarget && navigationTarget.external && navigationTarget.url) {
+        return navigationTarget.url;
+      }
+      return artifactPreviewUrl(item);
+    }
+
     function artifactPaneSupportsModeSwitch(item) {
       return item && !artifactPaneIsProviderView(item);
     }
@@ -879,6 +937,7 @@
               kind: "document",
               title: target.label || target.path || "Document",
               target,
+              navigationTarget: target,
               fragment: window.ElectroBoyDocumentNavigation.location(
                 options.navigationLocation,
               ).fragment,
@@ -1101,7 +1160,8 @@
           if (
             item.kind === "document" &&
             item.target &&
-            item.navigationLocation
+            item.navigationLocation &&
+            !documentNavigationTargetIsExternal(item.navigationTarget)
           ) {
             documentNavigation.restoreFrame(
               frame,
@@ -1121,7 +1181,7 @@
             dockedFilePaneTools?.refresh();
           }
         });
-        frame.src = item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
+        frame.src = artifactFrameUrl(item);
 
         section.append(header, frame);
         runtimeApi.elements.artifactPreviewStack.append(section);
@@ -1237,7 +1297,7 @@
         if (item && item.editing && !includeEditing) {
           continue;
         }
-        const url = item && item.editing ? artifactEditUrl(item) : artifactPreviewUrl(item);
+        const url = artifactFrameUrl(item);
         if (url) {
           markArtifactFrameLoading(frame);
           frame.src = url;

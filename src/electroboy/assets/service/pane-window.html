@@ -946,6 +946,7 @@
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactDocumentFragment = "";
     let artifactDocumentLocation = null;
+    let artifactNavigationTarget = null;
     let artifactRoutePath = params.get("artifact_path") || "";
     let artifactRouteTitle = params.get("artifact_title") || "";
     let artifactFolderPath = params.get("folder_path") || "";
@@ -1780,6 +1781,7 @@
       artifactKind = "document";
       artifactDocumentPath = target.path;
       artifactDocumentTitle = target.label || target.path;
+      artifactNavigationTarget = storedTarget;
       artifactDocumentFragment = normalizedLocation.fragment;
       artifactDocumentLocation = navigationLocation === null
         ? null
@@ -1812,10 +1814,24 @@
       };
     }
 
+    function normalizedPaneDocumentNavigationTarget(target) {
+      return window.ElectroBoyDocumentNavigation.target(target);
+    }
+
+    function paneDocumentNavigationTargetIsExternal(target) {
+      const normalized = normalizedPaneDocumentNavigationTarget(target);
+      return Boolean(normalized && normalized.external && normalized.url);
+    }
+
+    function currentPaneNavigationTarget() {
+      return normalizedPaneDocumentNavigationTarget(artifactNavigationTarget)
+        || currentPaneDocumentTarget();
+    }
+
     function currentPaneDocumentNavigationEntry() {
       return paneDocumentNavigation.frameEntry(
         artifactFrame,
-        currentPaneDocumentTarget(),
+        currentPaneNavigationTarget(),
       );
     }
 
@@ -1824,15 +1840,32 @@
       if (!normalized) {
         return;
       }
+      if (normalized.target.external && normalized.target.url) {
+        if (artifactKind !== "document") {
+          return;
+        }
+        artifactNavigationTarget = normalized.target;
+        artifactDocumentFragment = "";
+        artifactDocumentLocation = null;
+        artifactEditing = false;
+        artifactFrame.classList.add("loading");
+        artifactFrame.removeAttribute("srcdoc");
+        artifactFrame.src = normalized.target.url;
+        filePaneTools?.refresh();
+        return;
+      }
       const existingTarget = openFileTargets.find(
         (file) => file.path === normalized.target.path,
       );
       const target = existingTarget || normalized.target;
+      const currentTarget = currentPaneNavigationTarget();
       if (
         artifactKind === "document" &&
         !artifactEditing &&
-        artifactDocumentPath === normalized.target.path
+        currentTarget &&
+        currentTarget.path === normalized.target.path
       ) {
+        artifactNavigationTarget = target;
         artifactDocumentFragment = normalized.location.fragment;
         artifactDocumentLocation = null;
         paneDocumentNavigation.restoreFrame(
@@ -1847,7 +1880,7 @@
     }
 
     function followPaneDocumentLink(data) {
-      const fallbackTarget = currentPaneDocumentTarget()
+      const fallbackTarget = currentPaneNavigationTarget()
         || (data && data.source ? data.source.target : null);
       const source = paneDocumentNavigation.entry(data && data.source, fallbackTarget)
         || currentPaneDocumentNavigationEntry();
@@ -1860,7 +1893,10 @@
       }
       const previousPath = artifactDocumentPath;
       openPaneDocumentNavigationEntry(destination);
-      if (destination.target.path !== previousPath) {
+      if (
+        !destination.target.external &&
+        destination.target.path !== previousPath
+      ) {
         postDocumentFileAction(
           "open",
           destination.target,
@@ -3176,6 +3212,7 @@
       artifactDocumentTitle = "";
       artifactDocumentFragment = "";
       artifactDocumentLocation = null;
+      artifactNavigationTarget = null;
       artifactRoutePath = "";
       artifactRouteTitle = "";
       artifactFolderPath = "";
@@ -3374,6 +3411,12 @@
         return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${artifactZoom}&version=${artifactVersion}`;
       }
       if (artifactKind === "document" && artifactDocumentPath) {
+        const navigationTarget = normalizedPaneDocumentNavigationTarget(
+          artifactNavigationTarget,
+        );
+        if (navigationTarget && navigationTarget.external && navigationTarget.url) {
+          return navigationTarget.url;
+        }
         const parameters = new URLSearchParams();
         parameters.set("path", artifactDocumentPath);
         parameters.set("title", artifactDocumentTitle || artifactDocumentPath);
@@ -4011,7 +4054,8 @@
       if (
         artifactKind === "document" &&
         artifactDocumentPath &&
-        artifactDocumentLocation
+        artifactDocumentLocation &&
+        !paneDocumentNavigationTargetIsExternal(artifactNavigationTarget)
       ) {
         paneDocumentNavigation.restoreFrame(
           artifactFrame,
@@ -4098,8 +4142,7 @@
       if (
         data.type === "electroboy:document-link" &&
         PANE_KIND === "artifact" &&
-        data.target &&
-        data.target.path
+        data.target
       ) {
         followPaneDocumentLink(data);
         return;

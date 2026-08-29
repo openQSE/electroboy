@@ -6,13 +6,29 @@
   function target(value) {
     const candidate = value && typeof value === "object" ? value : {};
     const path = String(candidate.path || "").trim();
-    if (!path) {
+    if (path) {
+      return {
+        path,
+        label: String(candidate.label || path),
+      };
+    }
+    const rawUrl = String(candidate.url || candidate.href || "").trim();
+    if (!/^https?:\/\//i.test(rawUrl)) {
       return null;
     }
-    return {
-      path,
-      label: String(candidate.label || path),
-    };
+    try {
+      const url = new URL(rawUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return null;
+      }
+      return {
+        url: url.href,
+        label: String(candidate.label || rawUrl),
+        external: true,
+      };
+    } catch (error) {
+      return null;
+    }
   }
 
   function location(value) {

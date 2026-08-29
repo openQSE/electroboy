@@ -73,7 +73,12 @@ def test_document_navigation_controller_exposes_link_helpers() -> None:
         / "src/electroboy/modules/assets/document-navigation.js"
     )
     script = """
-global.window = { location: { origin: "http://127.0.0.1" } };
+global.window = {
+  location: {
+    href: "http://127.0.0.1/artifacts/document?path=guide.md",
+    origin: "http://127.0.0.1",
+  },
+};
 require(process.argv[1]);
 const navigation = window.ElectroBoyDocumentNavigation.create();
 for (const name of [
@@ -94,6 +99,27 @@ const destination = navigation.destination({
 });
 if (destination.target.path !== "guide.md") {
   throw new Error("document link destination was not normalized");
+}
+const external = navigation.destination({
+  target: { url: "https://example.com/reference?x=1#intro", label: "Example" },
+});
+if (
+  !external.target.external ||
+  external.target.url !== "https://example.com/reference?x=1#intro"
+) {
+  throw new Error("external link destination was not normalized");
+}
+if (navigation.target({ url: "mailto:team@example.com" }) !== null) {
+  throw new Error("non-http URL target was accepted");
+}
+navigation.record(destination);
+const back = navigation.goBack(external);
+if (!back || back.target.path !== "guide.md") {
+  throw new Error("document back history entry was not restored");
+}
+const forward = navigation.goForward(back);
+if (!forward || forward.target.url !== "https://example.com/reference?x=1#intro") {
+  throw new Error("external forward history entry was not restored");
 }
 """
 
