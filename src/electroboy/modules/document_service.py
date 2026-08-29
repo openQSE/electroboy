@@ -2858,7 +2858,64 @@ def _mermaid_script(rendered: str) -> str:
       font-size: 12px;
       font-weight: 750;
     }
+    .diagram-stage {
+      position: relative;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .sequence-header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 5;
+      height: 44px;
+      overflow: hidden;
+      border-bottom: 1px solid rgb(102 217 232 / 24%);
+      background: linear-gradient(
+        180deg,
+        rgb(21 27 41 / 96%),
+        rgb(16 20 31 / 84%)
+      );
+      pointer-events: none;
+    }
+    .sequence-header[hidden] {
+      display: none;
+    }
+    .sequence-header-track {
+      position: relative;
+      height: 100%;
+      min-width: 100%;
+    }
+    .sequence-header-actor {
+      position: absolute;
+      top: 7px;
+      left: 0;
+      display: flex;
+      height: 30px;
+      max-width: 240px;
+      min-width: 72px;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border: 1px solid #4e637e;
+      border-radius: 6px;
+      background: #202b3d;
+      color: var(--text);
+      box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.2;
+      padding: 0 10px;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .diagram-viewport {
+      position: absolute;
+      inset: 0;
       min-height: 0;
       height: 100%;
       width: 100%;
@@ -2907,8 +2964,13 @@ def _mermaid_script(rendered: str) -> str:
         <button id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
       </div>
     </header>
-    <section class="diagram-viewport">
-      <div id="diagramContent" class="diagram-content">${diagramHtml}</div>
+    <section class="diagram-stage">
+      <div id="sequenceHeader" class="sequence-header" hidden>
+        <div id="sequenceHeaderTrack" class="sequence-header-track"></div>
+      </div>
+      <div class="diagram-viewport">
+        <div id="diagramContent" class="diagram-content">${diagramHtml}</div>
+      </div>
     </section>
   </main>
   <script>
@@ -2930,6 +2992,9 @@ def _mermaid_script(rendered: str) -> str:
       const zoomOut = document.getElementById("zoomOut");
       const zoomReset = document.getElementById("zoomReset");
       const zoomIn = document.getElementById("zoomIn");
+      const sequenceHeader = document.getElementById("sequenceHeader");
+      const sequenceHeaderTrack = document.getElementById("sequenceHeaderTrack");
+      let sequenceHeaderActors = [];
 
       function contentBox(svg) {
         try {
@@ -2973,6 +3038,121 @@ def _mermaid_script(rendered: str) -> str:
         return { width, height };
       }
 
+      function sequenceActorLabel(element) {
+        const spans = Array.from(element.querySelectorAll("tspan"))
+          .map((span) => String(span.textContent || "").trim())
+          .filter(Boolean);
+        const text = spans.length > 0
+          ? spans.join(" ")
+          : String(element.textContent || "").trim();
+        return text.replace(/\\s+/g, " ");
+      }
+
+      function isSequenceDiagram(svg) {
+        return Boolean(
+          svg &&
+          (
+            svg.querySelector("text.actor") ||
+            svg.querySelector(".actor-line")
+          ),
+        );
+      }
+
+      function sequenceActorCandidates(svg) {
+        if (!isSequenceDiagram(svg)) {
+          return [];
+        }
+        return Array.from(svg.querySelectorAll("text.actor, .actor text"))
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              element,
+              label: sequenceActorLabel(element),
+              rect,
+            };
+          })
+          .filter((candidate) => (
+            candidate.label &&
+            candidate.rect.width > 0 &&
+            candidate.rect.height > 0
+          ));
+      }
+
+      function topSequenceActors(svg) {
+        const candidates = sequenceActorCandidates(svg);
+        if (candidates.length === 0) {
+          return [];
+        }
+        const top = Math.min(...candidates.map((candidate) => candidate.rect.top));
+        const maxHeight = Math.max(
+          ...candidates.map((candidate) => candidate.rect.height),
+        );
+        const topRow = candidates
+          .filter((candidate) => candidate.rect.top <= top + maxHeight * 1.6)
+          .sort((left, right) => {
+            const leftCenter = left.rect.left + left.rect.width / 2;
+            const rightCenter = right.rect.left + right.rect.width / 2;
+            return leftCenter - rightCenter;
+          });
+        const seen = new Set();
+        return topRow.filter((candidate) => {
+          const key = candidate.label.toLowerCase();
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
+          return true;
+        });
+      }
+
+      function clearSequenceHeader() {
+        sequenceHeaderActors = [];
+        sequenceHeaderTrack.replaceChildren();
+        sequenceHeader.hidden = true;
+      }
+
+      function buildSequenceHeader() {
+        const svg = content.querySelector("svg");
+        const actors = topSequenceActors(svg);
+        clearSequenceHeader();
+        if (actors.length === 0) {
+          return;
+        }
+        for (const actor of actors) {
+          const label = document.createElement("div");
+          label.className = "sequence-header-actor";
+          label.textContent = actor.label;
+          label.title = actor.label;
+          sequenceHeaderTrack.append(label);
+          sequenceHeaderActors.push({
+            source: actor.element,
+            label,
+          });
+        }
+        sequenceHeader.hidden = false;
+        syncSequenceHeader();
+      }
+
+      function syncSequenceHeader() {
+        if (sequenceHeader.hidden || sequenceHeaderActors.length === 0) {
+          return;
+        }
+        const viewportRect = viewport.getBoundingClientRect();
+        for (const actor of sequenceHeaderActors) {
+          const rect = actor.source.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) {
+            actor.label.hidden = true;
+            continue;
+          }
+          const centerX = rect.left - viewportRect.left + rect.width / 2;
+          const width = Math.max(72, Math.min(240, rect.width + 32));
+          actor.label.hidden = false;
+          actor.label.style.left = centerX + "px";
+          actor.label.style.width = width + "px";
+          actor.label.style.transform = "translateX(-50%)";
+        }
+      }
+
       function updateBaseSize() {
         if (!naturalWidth || !naturalHeight) {
           return;
@@ -3011,6 +3191,7 @@ def _mermaid_script(rendered: str) -> str:
         zoomLevel.textContent = Math.round(zoom * 100) + "%";
         zoomOut.disabled = zoom <= minimumZoom;
         zoomIn.disabled = zoom >= maximumZoom;
+        syncSequenceHeader();
       }
 
       function zoomTo(nextZoom, clientX = null, clientY = null) {
@@ -3042,6 +3223,7 @@ def _mermaid_script(rendered: str) -> str:
           viewport.scrollLeft += rect.left + rect.width * anchor.ratioX - anchor.x;
           viewport.scrollTop += rect.top + rect.height * anchor.ratioY - anchor.y;
         }
+        syncSequenceHeader();
       }
 
       function changeZoom(delta) {
@@ -3082,6 +3264,7 @@ def _mermaid_script(rendered: str) -> str:
         event.preventDefault();
         viewport.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
         viewport.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+        syncSequenceHeader();
       }
 
       function finishPan(event) {
@@ -3106,6 +3289,7 @@ def _mermaid_script(rendered: str) -> str:
           updateBaseSize();
         }
         applyZoom();
+        buildSequenceHeader();
       }
 
       function fitAfterLayout() {
@@ -3118,6 +3302,7 @@ def _mermaid_script(rendered: str) -> str:
       });
       zoomIn.addEventListener("click", () => changeZoom(zoomStep));
       viewport.addEventListener("wheel", handleWheelZoom, { passive: false });
+      viewport.addEventListener("scroll", syncSequenceHeader);
       viewport.addEventListener("pointerdown", startPan);
       viewport.addEventListener("pointermove", updatePan);
       viewport.addEventListener("pointerup", finishPan);

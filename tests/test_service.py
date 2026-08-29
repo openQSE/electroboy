@@ -3157,7 +3157,7 @@ class ServiceTests(unittest.TestCase):
                 "# Project\n\n"
                 "### Clone the repositories\n\n"
                 "```bash\nmkdir -p qhpc\ncd qhpc\n```\n\n"
-                "```mermaid\ngraph TD\n  A --> B\n```\n",
+                "```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n```\n",
                 encoding="utf-8",
             )
 
@@ -3169,7 +3169,7 @@ class ServiceTests(unittest.TestCase):
             page,
         )
         self.assertIn('<pre><code class="language-bash">mkdir -p qhpc', page)
-        self.assertIn('<div class="mermaid">graph TD', page)
+        self.assertIn('<div class="mermaid">sequenceDiagram', page)
         self.assertIn("mermaid@10", page)
         self.assertIn("function openMermaidPopup(diagram)", page)
         self.assertIn("URL.createObjectURL(new Blob", page)
@@ -3180,6 +3180,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("availableWidth / naturalWidth", page)
         self.assertIn('"viewBox"', page)
         self.assertIn('"preserveAspectRatio"', page)
+        self.assertIn('id="sequenceHeader"', page)
+        self.assertIn("function isSequenceDiagram(svg)", page)
+        self.assertIn("function buildSequenceHeader()", page)
+        self.assertIn("function syncSequenceHeader()", page)
+        self.assertIn('svg.querySelector("text.actor")', page)
+        self.assertIn('svg.querySelector(".actor-line")', page)
+        self.assertIn('querySelectorAll("text.actor, .actor text")', page)
+        self.assertIn('className = "sequence-header-actor"', page)
+        self.assertIn('actor.label.style.left = centerX + "px";', page)
         self.assertIn("window.requestAnimationFrame", page)
         self.assertIn("const wheelZoomFactor = 1.1;", page)
         self.assertIn("function zoomTo(nextZoom, clientX = null, clientY = null)", page)
@@ -3192,6 +3201,7 @@ class ServiceTests(unittest.TestCase):
             'viewport.addEventListener("wheel", handleWheelZoom, { passive: false });',
             page,
         )
+        self.assertIn('viewport.addEventListener("scroll", syncSequenceHeader);', page)
         self.assertIn('viewport.addEventListener("pointerdown", startPan);', page)
         self.assertIn('viewport.addEventListener("auxclick", (event) => {', page)
         self.assertIn('securityLevel: "strict"', page)
