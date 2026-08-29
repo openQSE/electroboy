@@ -3485,6 +3485,8 @@
         fit: nextFit,
         outputQueue: [],
         flushTimer: null,
+        writePending: false,
+        fitAfterWrite: false,
       };
       agentTerminalContexts.set(terminalSessionId, context);
       return context;
@@ -3913,12 +3915,20 @@
     function fitTerminal() {
       bumpFrontendDebugCounter("terminalFit.run");
       if (terminalFit && paneIsVisible(agentOutputPane)) {
-        try {
-          window.ElectroBoyTerminalBehavior.fit(terminal, terminalFit);
-        } catch (error) {
-          return;
+        const agentContext = currentAgentTerminalContext();
+        if (
+          agentContext &&
+          (agentContext.writePending || agentContext.outputQueue.length > 0)
+        ) {
+          agentContext.fitAfterWrite = true;
+        } else {
+          try {
+            window.ElectroBoyTerminalBehavior.fit(terminal, terminalFit);
+          } catch (error) {
+            return;
+          }
+          queueTerminalResize();
         }
-        queueTerminalResize();
       }
       if (paneIsVisible(progressOutputPane)) {
         window.ElectroBoyFrontend.invokeModule("progress", "fit");
@@ -3997,7 +4007,7 @@
 
     function appendOutput(text, className = "") {
       if (terminal) {
-        terminal.write(formatTerminalMessage(text, className));
+        writeTerminalOutput(terminal, formatTerminalMessage(text, className));
         return;
       }
       appendPlainOutput(text, className);
@@ -4013,8 +4023,29 @@
       agentOutput.scrollTop = agentOutput.scrollHeight;
     }
 
+    function writeTerminalOutput(terminalInstance, text, onCommitted = null) {
+      if (!terminalInstance || typeof terminalInstance.write !== "function") {
+        return false;
+      }
+      if (
+        window.ElectroBoyTerminalBehavior &&
+        typeof window.ElectroBoyTerminalBehavior.write === "function"
+      ) {
+        return window.ElectroBoyTerminalBehavior.write(
+          terminalInstance,
+          text,
+          onCommitted,
+        );
+      }
+      terminalInstance.write(text);
+      if (typeof onCommitted === "function") {
+        onCommitted();
+      }
+      return true;
+    }
+
     function scheduleAgentOutputFlush(context) {
-      if (!context || context.flushTimer !== null) {
+      if (!context || context.flushTimer !== null || context.writePending) {
         return;
       }
       context.flushTimer = window.setTimeout(
@@ -4028,7 +4059,14 @@
         return;
       }
       context.flushTimer = null;
+      if (context.writePending) {
+        return;
+      }
       if (context.outputQueue.length === 0) {
+        if (context.fitAfterWrite) {
+          context.fitAfterWrite = false;
+          scheduleFitTerminal();
+        }
         return;
       }
       const start = window.performance ? window.performance.now() : Date.now();
@@ -4060,9 +4098,20 @@
         }
       }
       if (chunk) {
-        context.terminal.write(chunk);
+        context.writePending = true;
+        writeTerminalOutput(context.terminal, chunk, () => {
+          context.writePending = false;
+          if (context.outputQueue.length > 0) {
+            scheduleAgentOutputFlush(context);
+            return;
+          }
+          if (context.fitAfterWrite) {
+            context.fitAfterWrite = false;
+            scheduleFitTerminal();
+          }
+        });
       }
-      if (context.outputQueue.length > 0) {
+      if (!context.writePending && context.outputQueue.length > 0) {
         scheduleAgentOutputFlush(context);
       }
     }
@@ -4071,7 +4120,15 @@
       if (!context) {
         return;
       }
+      if (
+        window.ElectroBoyTerminalBehavior &&
+        typeof window.ElectroBoyTerminalBehavior.clearWrites === "function"
+      ) {
+        window.ElectroBoyTerminalBehavior.clearWrites(context.terminal);
+      }
       context.outputQueue = [];
+      context.writePending = false;
+      context.fitAfterWrite = false;
       if (context.flushTimer !== null) {
         window.clearTimeout(context.flushTimer);
         context.flushTimer = null;

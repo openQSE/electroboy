@@ -2651,6 +2651,8 @@
         fit: nextFit,
         outputQueue: [],
         flushTimer: null,
+        writePending: false,
+        fitAfterWrite: false,
       };
       agentTerminalContexts.set(terminalSessionId, context);
       return context;
@@ -2709,6 +2711,16 @@
 
     function fitTerminal() {
       if (!terminalFit) {
+        return;
+      }
+      const agentContext = PANE_KIND === "agent"
+        ? activeAgentTerminalContext()
+        : null;
+      if (
+        agentContext &&
+        (agentContext.writePending || agentContext.outputQueue.length > 0)
+      ) {
+        agentContext.fitAfterWrite = true;
         return;
       }
       try {
@@ -2821,6 +2833,27 @@
       return text;
     }
 
+    function writeTerminalOutput(terminalInstance, text, onCommitted = null) {
+      if (!terminalInstance || typeof terminalInstance.write !== "function") {
+        return false;
+      }
+      if (
+        window.ElectroBoyTerminalBehavior &&
+        typeof window.ElectroBoyTerminalBehavior.write === "function"
+      ) {
+        return window.ElectroBoyTerminalBehavior.write(
+          terminalInstance,
+          text,
+          onCommitted,
+        );
+      }
+      terminalInstance.write(text);
+      if (typeof onCommitted === "function") {
+        onCommitted();
+      }
+      return true;
+    }
+
     function terminalOutputTarget(sessionId = "") {
       if (PANE_KIND !== "agent") {
         return {
@@ -2839,7 +2872,7 @@
     }
 
     function scheduleTerminalOutputFlush(target) {
-      if (!target || target.flushTimer !== null) {
+      if (!target || target.flushTimer !== null || target.writePending) {
         return;
       }
       const timer = window.setTimeout(() => flushTerminalOutputQueue(target), 0);
@@ -2859,7 +2892,14 @@
       } else {
         target.flushTimer = null;
       }
+      if (target.writePending) {
+        return;
+      }
       if (target.outputQueue.length === 0) {
+        if (target.fitAfterWrite) {
+          target.fitAfterWrite = false;
+          window.requestAnimationFrame(fitTerminal);
+        }
         return;
       }
       const start = window.performance ? window.performance.now() : Date.now();
@@ -2891,9 +2931,20 @@
         }
       }
       if (chunk) {
-        target.terminal.write(chunk);
+        target.writePending = true;
+        writeTerminalOutput(target.terminal, chunk, () => {
+          target.writePending = false;
+          if (target.outputQueue.length > 0) {
+            scheduleTerminalOutputFlush(target);
+            return;
+          }
+          if (target.fitAfterWrite) {
+            target.fitAfterWrite = false;
+            window.requestAnimationFrame(fitTerminal);
+          }
+        });
       }
-      if (target.outputQueue.length > 0) {
+      if (!target.writePending && target.outputQueue.length > 0) {
         scheduleTerminalOutputFlush(target);
       }
     }
@@ -2913,11 +2964,19 @@
       if (!target) {
         return;
       }
+      if (
+        window.ElectroBoyTerminalBehavior &&
+        typeof window.ElectroBoyTerminalBehavior.clearWrites === "function"
+      ) {
+        window.ElectroBoyTerminalBehavior.clearWrites(target.terminal);
+      }
       if (typeof target.setOutputQueue === "function") {
         target.setOutputQueue([]);
       } else {
         target.outputQueue = [];
       }
+      target.writePending = false;
+      target.fitAfterWrite = false;
       if (target.flushTimer !== null) {
         window.clearTimeout(target.flushTimer);
         if (typeof target.setFlushTimer === "function") {

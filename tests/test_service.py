@@ -43,11 +43,13 @@ from electroboy.service import (  # noqa: E402
     SESSION_ARTIFACT_LOCKS,
     ServiceState,
     TmuxAgentSession,
+    _agent_event_cursor_id,
     _agent_process_env,
     _artifact_event_document_path,
     _clean_terminal_output,
     _file_signature,
     _limited_session_replay_events,
+    _parse_agent_event_cursor,
     _progress_once_command,
     _progress_snapshot,
     _progress_snapshot_markdown,
@@ -909,13 +911,16 @@ class ServiceTests(unittest.TestCase):
             terminal_behavior,
         )
         self.assertIn("hideCursor(terminal);", terminal_behavior)
-        self.assertIn("{ fit, install, reset }", terminal_behavior)
+        self.assertIn("function write(terminal, text, callback = null)", terminal_behavior)
+        self.assertIn("restoreViewport(terminal, snapshot);", terminal_behavior)
+        self.assertIn("{ clearWrites, fit, install, reset, write }", terminal_behavior)
         self.assertIn(
             "ElectroBoyTerminalBehavior.install(nextTerminal, {\n"
             "        hideCursor: true,",
             app,
         )
-        self.assertIn("context.terminal.write(chunk)", app)
+        self.assertIn("writeTerminalOutput(context.terminal, chunk,", app)
+        self.assertIn("agentContext.fitAfterWrite = true;", app)
         self.assertIn("TERMINAL_OUTPUT_FLUSH_BUDGET_MS", pane_window)
         self.assertIn("const agentTerminalContexts = new Map();", pane_window)
         self.assertIn("const agentEventLastIds = new Map();", pane_window)
@@ -941,7 +946,8 @@ class ServiceTests(unittest.TestCase):
             "        hideCursor: true,",
             pane_window,
         )
-        self.assertIn("target.terminal.write(chunk)", pane_window)
+        self.assertIn("writeTerminalOutput(target.terminal, chunk,", pane_window)
+        self.assertIn("agentContext.fitAfterWrite = true;", pane_window)
         self.assertIn("function ensureTerminalResizeTracking()", pane_window)
         self.assertIn("window.addEventListener(\"resize\", fitTerminal);", pane_window)
         self.assertIn("session_id: resizeSessionId,", pane_window)
@@ -1027,7 +1033,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("navigator.clipboard.writeText", terminal_behavior)
         self.assertIn("terminal.registerMarker", terminal_behavior)
         self.assertIn("terminal.scrollToBottom()", terminal_behavior)
-        self.assertIn("terminal.scrollToLine(marker.line)", terminal_behavior)
+        self.assertIn("terminal.scrollToLine(snapshot.marker.line)", terminal_behavior)
         self.assertIn("terminal.parser.registerCsiHandler", terminal_behavior)
         self.assertIn(
             '(params) => params.length > 0 && params[0] === 3',
@@ -8439,6 +8445,23 @@ class ServiceTests(unittest.TestCase):
             sum(len(str(event.get("text") or "")) for event in limited[1:]),
             char_limit,
         )
+
+    def test_agent_event_cursor_round_trips_session_positions(self) -> None:
+        cursor_id = _agent_event_cursor_id(
+            {
+                "session-b": 12,
+                "session-a": "7",  # type: ignore[dict-item]
+                "": 9,
+                "invalid": "nope",  # type: ignore[dict-item]
+            }
+        )
+
+        self.assertEqual(cursor_id, '{"session-a":7,"session-b":12}')
+        self.assertEqual(
+            _parse_agent_event_cursor(cursor_id),
+            {"session-a": 7, "session-b": 12},
+        )
+        self.assertEqual(_parse_agent_event_cursor("not json"), {})
 
     def test_agent_session_resize_signals_process_group(self) -> None:
         session = AgentSession([sys.executable, "-c", "pass"], ROOT)

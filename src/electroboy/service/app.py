@@ -2254,6 +2254,43 @@ def _session_replay_event_chars(event: dict[str, object]) -> int:
     return max(len(text), len(terminal))
 
 
+def _agent_event_cursor_id(event_ids: dict[str, int]) -> str:
+    cursor: dict[str, int] = {}
+    for session_id, event_id in event_ids.items():
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            continue
+        try:
+            normalized_event_id = max(0, int(event_id))
+        except (TypeError, ValueError):
+            continue
+        cursor[normalized_session_id] = normalized_event_id
+    return json.dumps(cursor, separators=(",", ":"), sort_keys=True)
+
+
+def _parse_agent_event_cursor(header: str) -> dict[str, int]:
+    text = str(header or "").strip()
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    cursor: dict[str, int] = {}
+    for session_id, event_id in payload.items():
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            continue
+        try:
+            normalized_event_id = max(0, int(event_id))
+        except (TypeError, ValueError):
+            continue
+        cursor[normalized_session_id] = normalized_event_id
+    return cursor
+
+
 def workflow_payload(
     active_project_root: Path | str | None = None,
     workflow: WorkflowDefinition | None = None,
@@ -2737,7 +2774,9 @@ def _handler_for(
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
             self.end_headers()
-            last_event_ids: dict[str, int] = {}
+            last_event_ids = _parse_agent_event_cursor(
+                self.headers.get("Last-Event-ID", "")
+            )
             last_keep_alive = time.monotonic()
             try:
                 while True:
@@ -2769,6 +2808,9 @@ def _handler_for(
                                 "session_id": session_id,
                                 "event": event,
                             }
+                            last_event_ids[session_id] = int(event["id"])
+                            cursor_id = _agent_event_cursor_id(last_event_ids)
+                            self.wfile.write(f"id: {cursor_id}\n".encode())
                             self.wfile.write(b"event: agent-event\n")
                             self.wfile.write(
                                 (
@@ -2776,7 +2818,6 @@ def _handler_for(
                                 ).encode("utf-8")
                             )
                             self.wfile.flush()
-                            last_event_ids[session_id] = int(event["id"])
                             emitted = True
                     now = time.monotonic()
                     if emitted:
