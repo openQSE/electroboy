@@ -96,6 +96,30 @@ def render_mind_map_html(
       font-size: 12px;
       line-height: 1.2;
     }}
+    .mind-map-controls {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+    }}
+    .mind-map-control {{
+      min-height: 34px;
+      padding: 7px 10px;
+      border: 1px solid rgba(37, 99, 235, 0.25);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+      box-shadow: var(--node-shadow);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1;
+      backdrop-filter: blur(12px);
+    }}
+    .mind-map-control:hover {{
+      border-color: rgba(37, 99, 235, 0.45);
+      background: #ffffff;
+    }}
     #mindMapViewport {{
       position: fixed;
       inset: 0;
@@ -304,6 +328,8 @@ def render_mind_map_html(
     }}
     .mind-map-style-hud .mind-map-title,
     .mind-map-style-month-hud .mind-map-title,
+    .mind-map-style-hud .mind-map-control,
+    .mind-map-style-month-hud .mind-map-control,
     .mind-map-style-hud .mind-map-node,
     .mind-map-style-month-hud .mind-map-node {{
       background: rgba(4, 18, 24, 0.88);
@@ -315,14 +341,18 @@ def render_mind_map_html(
       stroke: rgba(45, 212, 191, 0.42);
     }}
     .mind-map-style-hud .mind-map-action,
-    .mind-map-style-month-hud .mind-map-action {{
+    .mind-map-style-month-hud .mind-map-action,
+    .mind-map-style-hud .mind-map-control,
+    .mind-map-style-month-hud .mind-map-control {{
       border-color: rgba(45, 212, 191, 0.34);
       background: rgba(45, 212, 191, 0.12);
       color: #d9fbff;
       box-shadow: 0 0 18px rgba(45, 212, 191, 0.12);
     }}
     .mind-map-style-hud .mind-map-action:hover,
-    .mind-map-style-month-hud .mind-map-action:hover {{
+    .mind-map-style-month-hud .mind-map-action:hover,
+    .mind-map-style-hud .mind-map-control:hover,
+    .mind-map-style-month-hud .mind-map-control:hover {{
       border-color: rgba(45, 212, 191, 0.58);
       background: rgba(45, 212, 191, 0.2);
     }}
@@ -362,6 +392,11 @@ def render_mind_map_html(
         <strong>{title}</strong>
         <span>{html.escape(str(payload.get("subtitle") or ""))}</span>
       </div>
+      <div class="mind-map-controls">
+        <button id="mindMapResetLayout" class="mind-map-control" type="button">
+          Reset layout
+        </button>
+      </div>
     </header>
     <div id="mindMapViewport">
       <div id="mindMapCanvas">
@@ -384,14 +419,15 @@ def render_mind_map_html(
     const CANVAS_BASE_WIDTH = 4200;
     const CANVAS_BASE_HEIGHT = 2800;
     const CANVAS_PADDING = 420;
-    const LAYOUT_VERSION = 3;
+    const LAYOUT_VERSION = 4;
     const NODE_DRAG_THRESHOLD = 4;
     const viewport = document.getElementById("mindMapViewport");
     const canvas = document.getElementById("mindMapCanvas");
     const nodeLayer = document.getElementById("mindMapNodes");
     const edgeLayer = document.getElementById("mindMapEdges");
+    const resetLayoutButton = document.getElementById("mindMapResetLayout");
     const expanded = new Set();
-    const manualPositions = new Map();
+    const manualOffsets = new Map();
     const measuredNodeHeights = new Map();
     const detailOpen = new Set();
     const stateKey = `electroboy:mind-map:${{MIND_MAP_DATA.provider || "default"}}:view`;
@@ -416,20 +452,20 @@ def render_mind_map_html(
           x: Number.isFinite(storedX) ? storedX : 0,
           y: Number.isFinite(storedY) ? storedY : 0,
         }};
-        manualPositions.clear();
+        manualOffsets.clear();
         if (Number(stored.layoutVersion) === LAYOUT_VERSION) {{
           Object.entries(stored.nodes || {{}}).forEach(([nodeId, point]) => {{
             const x = Number(point && point.x);
             const y = Number(point && point.y);
             if (Number.isFinite(x) && Number.isFinite(y)) {{
-              manualPositions.set(nodeId, {{ x, y }});
+              manualOffsets.set(nodeId, {{ x, y }});
             }}
           }});
         }}
       }} catch (_error) {{
         scale = 1;
         pan = {{ x: 0, y: 0 }};
-        manualPositions.clear();
+        manualOffsets.clear();
       }}
     }}
 
@@ -440,7 +476,7 @@ def render_mind_map_html(
         x: pan.x,
         y: pan.y,
         nodes: Object.fromEntries(
-          [...manualPositions.entries()].map(([nodeId, position]) => [
+          [...manualOffsets.entries()].map(([nodeId, position]) => [
             nodeId,
             {{ x: position.x, y: position.y }},
           ])
@@ -509,17 +545,35 @@ def render_mind_map_html(
       return Math.max(ownSpan, totalSpan(children.map((child) => subtreeSpan(child))));
     }}
 
-    function positionForNode(nodeId, autoPosition) {{
-      return manualPositions.get(nodeId) || autoPosition;
+    function offsetForNode(nodeId) {{
+      return manualOffsets.get(nodeId) || {{ x: 0, y: 0 }};
     }}
 
-    function placeNode(node, depth, centerY, positions, visibleIds) {{
+    function addOffsets(left, right) {{
+      return {{
+        x: left.x + right.x,
+        y: left.y + right.y,
+      }};
+    }}
+
+    function placeNode(
+      node,
+      depth,
+      centerY,
+      positions,
+      visibleIds,
+      inheritedOffset = {{ x: 0, y: 0 }}
+    ) {{
       const height = nodeHeight(node.id);
       const autoPosition = {{
         x: SOURCE_X + depth * COLUMN_GAP,
         y: Math.max(SOURCE_Y, centerY - height / 2),
       }};
-      positions.set(node.id, positionForNode(node.id, autoPosition));
+      const effectiveOffset = addOffsets(inheritedOffset, offsetForNode(node.id));
+      positions.set(node.id, {{
+        x: autoPosition.x + effectiveOffset.x,
+        y: autoPosition.y + effectiveOffset.y,
+      }});
       visibleIds.add(node.id);
 
       const childKinds = childKindsFor(node);
@@ -537,9 +591,32 @@ def render_mind_map_html(
           depth + 1,
           childCursor + childSpan / 2,
           positions,
-          visibleIds
+          visibleIds,
+          effectiveOffset
         );
         childCursor += childSpan + BRANCH_GAP;
+      }});
+    }}
+
+    function visibleSubtreeIds(rootNodeId, visibleIds) {{
+      const subtreeIds = [];
+      const visit = (nodeId) => {{
+        if (!visibleIds.has(nodeId)) return;
+        subtreeIds.push(nodeId);
+        const node = nodeById.get(nodeId);
+        if (!node || !expanded.has(nodeId)) return;
+        childrenFor(nodeId, childKindsFor(node)).forEach((child) => visit(child.id));
+      }};
+      visit(rootNodeId);
+      return subtreeIds;
+    }}
+
+    function shiftSubtree(positions, visibleIds, rootNodeId, dx, dy) {{
+      visibleSubtreeIds(rootNodeId, visibleIds).forEach((nodeId) => {{
+        const position = positions.get(nodeId);
+        if (!position) return;
+        position.x += dx;
+        position.y += dy;
       }});
     }}
 
@@ -557,7 +634,13 @@ def render_mind_map_html(
         let nextY = null;
         items.forEach((item) => {{
           if (nextY !== null && item.position.y < nextY) {{
-            item.position.y = nextY;
+            shiftSubtree(
+              positions,
+              visibleIds,
+              item.nodeId,
+              0,
+              nextY - item.position.y
+            );
           }}
           nextY = item.position.y + nodeHeight(item.nodeId) + BRANCH_GAP;
         }});
@@ -589,7 +672,13 @@ def render_mind_map_html(
             const next = items[nextIndex];
             if (!nodesOverlapHorizontally(current, next)) continue;
             if (next.position.y >= currentBottom) continue;
-            next.position.y = currentBottom;
+            shiftSubtree(
+              positions,
+              visibleIds,
+              next.nodeId,
+              0,
+              currentBottom - next.position.y
+            );
             changed = true;
           }}
         }}
@@ -747,16 +836,29 @@ def render_mind_map_html(
       }});
     }}
 
-    function startNodeDrag(event, node, position, element) {{
+    function applyRenderedLayout(layout) {{
+      resizeCanvasToLayout(layout);
+      nodeLayer.querySelectorAll(".mind-map-node").forEach((element) => {{
+        const nodeId = element.dataset.nodeId || "";
+        const position = layout.positions.get(nodeId);
+        if (!position) return;
+        element.style.left = `${{position.x}}px`;
+        element.style.top = `${{position.y}}px`;
+      }});
+      drawEdges(layout);
+    }}
+
+    function startNodeDrag(event, node, element) {{
       if (event.button !== 0) return;
       if (event.target && event.target.closest(".mind-map-action")) return;
+      const startOffset = offsetForNode(node.id);
       event.stopPropagation();
       nodeDrag = {{
         nodeId: node.id,
         pointerId: event.pointerId,
         startClientX: event.clientX,
         startClientY: event.clientY,
-        startPosition: {{ x: position.x, y: position.y }},
+        startOffset: {{ x: startOffset.x, y: startOffset.y }},
         element,
         moved: false,
       }};
@@ -775,14 +877,12 @@ def render_mind_map_html(
       if (!nodeDrag.moved && Math.hypot(clientDx, clientDy) < NODE_DRAG_THRESHOLD) return;
       event.preventDefault();
       nodeDrag.moved = true;
-      const nextPosition = {{
-        x: nodeDrag.startPosition.x + clientDx / scale,
-        y: nodeDrag.startPosition.y + clientDy / scale,
+      const nextOffset = {{
+        x: nodeDrag.startOffset.x + clientDx / scale,
+        y: nodeDrag.startOffset.y + clientDy / scale,
       }};
-      manualPositions.set(nodeDrag.nodeId, nextPosition);
-      nodeDrag.element.style.left = `${{nextPosition.x}}px`;
-      nodeDrag.element.style.top = `${{nextPosition.y}}px`;
-      drawEdges(displayedLayout());
+      manualOffsets.set(nodeDrag.nodeId, nextOffset);
+      applyRenderedLayout(displayedLayout());
     }}
 
     function finishNodeDrag(event) {{
@@ -862,7 +962,7 @@ def render_mind_map_html(
       if (detailOpen.has(node.id)) {{
         element.append(createNodeDetails(node));
       }}
-      element.addEventListener("pointerdown", (event) => startNodeDrag(event, node, position, element));
+      element.addEventListener("pointerdown", (event) => startNodeDrag(event, node, element));
       element.addEventListener("click", (event) => {{
         if (suppressNextNodeClickFor === node.id) {{
           event.preventDefault();
@@ -990,6 +1090,20 @@ def render_mind_map_html(
       saveView();
     }}
 
+    function resetLayout() {{
+      manualOffsets.clear();
+      scale = 1;
+      pan = {{ x: 0, y: 0 }};
+      localStorage.removeItem(stateKey);
+      applyTransform();
+      const layout = render();
+      if (layout.visibleIds.size > 0) {{
+        fitSourceColumn(layout);
+      }} else {{
+        saveView();
+      }}
+    }}
+
     function zoomAt(pointerX, pointerY, nextScale) {{
       const previousScale = scale;
       const worldX = (pointerX - pan.x) / previousScale;
@@ -1008,6 +1122,16 @@ def render_mind_map_html(
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;");
     }}
+
+    resetLayoutButton.addEventListener("pointerdown", (event) => {{
+      event.stopPropagation();
+    }});
+
+    resetLayoutButton.addEventListener("click", (event) => {{
+      event.preventDefault();
+      event.stopPropagation();
+      resetLayout();
+    }});
 
     viewport.addEventListener("wheel", (event) => {{
       event.preventDefault();
