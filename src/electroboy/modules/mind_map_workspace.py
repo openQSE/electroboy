@@ -590,6 +590,7 @@ def render_mind_map_html(
     function childKindsFor(node) {{
       if (node.kind === "source") return ["observation", "provider_event"];
       if (node.kind === "observation" || node.kind === "provider_event") return ["fact"];
+      if (node.kind === "fact") return ["fact"];
       return [];
     }}
 

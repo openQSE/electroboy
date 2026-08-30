@@ -621,6 +621,10 @@ class ServiceTests(unittest.TestCase):
             "js/modules/calendar.js",
             frontend_bundles["calendar"]["assets"],
         )
+        self.assertIn(
+            "js/modules/assignments.js",
+            frontend_bundles["assignments"]["assets"],
+        )
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
             ["software", "creative-writing"],
@@ -662,6 +666,7 @@ class ServiceTests(unittest.TestCase):
         binder = read_service_text_asset("js/modules/binder.js")
         corkboard = read_service_text_asset("js/modules/corkboard.js")
         agenda = read_service_text_asset("js/modules/agenda.js")
+        assignments = read_service_text_asset("js/modules/assignments.js")
         calendar = read_service_text_asset("js/modules/calendar.js")
         mind_map = read_service_text_asset("js/modules/mind-map.js")
         file_browser = read_service_text_asset("js/modules/file-browser.js")
@@ -759,6 +764,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('kind: "corkboard"', corkboard)
         self.assertIn('kind: "agenda"', agenda)
         self.assertIn('id: "agenda"', agenda)
+        self.assertIn('id: "assignments"', assignments)
+        self.assertIn('kind: "route"', assignments)
+        self.assertIn('runtime.layout.ensurePane(', assignments)
+        self.assertIn("const activate = options.activate !== false;", assignments)
+        self.assertIn("activateExisting: activate", assignments)
+        self.assertIn('runtime.layout.assignPane("assignments", item, "", {', assignments)
+        self.assertIn('targetPane || "agenda"', assignments)
         self.assertIn('kind: "calendar"', calendar)
         self.assertIn('id: "calendar"', calendar)
         self.assertIn("runtime.layout.assignWorkspacePane", calendar)
@@ -773,6 +785,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function artifactPaneIsCalendar(item)", documents)
         self.assertIn("function artifactPaneIsMindMap(item)", documents)
         self.assertIn("function artifactPaneIsProviderView(item)", documents)
+        self.assertIn(
+            'item && item.kind === "route" && item.providerView === true',
+            documents,
+        )
         self.assertIn("/artifacts/agenda", documents)
         self.assertIn("/artifacts/calendar", documents)
         self.assertIn("/artifacts/mind-map", documents)
@@ -782,6 +798,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("agenda_style", agenda.style);', documents)
         self.assertIn('parameters.set("calendar_style", calendar.style);', app)
         self.assertIn('parameters.set("mind_map_style", mindMap.style);', app)
+        self.assertIn('assignments: { label: "Assignments", element: null }', app)
+        self.assertIn("pane_layout: frontendDebugPaneLayoutPayload()", app)
         self.assertIn(
             'let artifactAgendaStyle = params.get("agenda_style") || "";',
             pane_window,
@@ -817,6 +835,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("ARTIFACT_HOST_ACTION_TYPES.has(data.type)", pane_window)
         self.assertIn("owner.postMessage(data, window.location.origin);", pane_window)
         self.assertIn('PANE_KIND === "calendar"', pane_window)
+        self.assertIn('if (kind === "assignments") return "Assignments";', pane_window)
+        self.assertIn('PANE_KIND === "assignments"', pane_window)
         self.assertIn(".ad-hoc-session-dialog", shell_css)
         self.assertIn('id="showHelp"', template)
         self.assertIn('id="helpOverlay"', template)
@@ -1409,7 +1429,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
         self.assertIn(
             '"agent",\n      "artifact",\n      "agenda",\n'
-            '      "calendar",\n      "mind-map",\n      "scratch",\n'
+            '      "assignments",\n      "calendar",\n'
+            '      "mind-map",\n      "scratch",\n'
             '      "status"',
             runtime,
         )
@@ -1596,7 +1617,12 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("const existing = paneLayoutLeafByKind(kind);", runtime)
         self.assertIn("setActivePaneLayoutLeaf(existing.id);", runtime)
-        self.assertIn("if (options.activateExisting !== false)", runtime)
+        self.assertIn("const shouldActivate = options.activate !== false;", runtime)
+        self.assertIn(
+            "if (shouldActivate && options.activateExisting !== false)",
+            runtime,
+        )
+        self.assertIn("refreshPaneLayoutVisibility();", runtime)
         self.assertIn("const manualChangeOptions = {", runtime)
         self.assertIn("ensureRequestedPanes: false,", runtime)
         self.assertIn("updateOutputSplit: false,", runtime)
@@ -5218,9 +5244,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const ROOT_GAP = 54;", page)
         self.assertIn("const BRANCH_GAP = 42;", page)
         self.assertIn("const NODE_CLEARANCE = 36;", page)
-        self.assertIn("const NODE_SLOT_HEIGHT = 188;", page)
+        self.assertIn("const NODE_SLOT_HEIGHT = 218;", page)
         self.assertIn("const CANVAS_PADDING = 420;", page)
-        self.assertIn("const LAYOUT_VERSION = 4;", page)
+        self.assertIn("const LAYOUT_VERSION = 5;", page)
         self.assertIn("const NODE_DRAG_THRESHOLD = 4;", page)
         self.assertIn('"levels": ["source", "observation", "fact"]', page)
         self.assertIn("event.button !== 1", page)
@@ -5230,6 +5256,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function resetLayout", page)
         self.assertIn("function subtreeSpan", page)
         self.assertIn("function placeNode", page)
+        self.assertIn('if (node.kind === "fact") return ["fact"];', page)
         self.assertIn("function resolveColumnCollisions", page)
         self.assertIn("function resolveLayoutCollisions", page)
         self.assertIn("function nodesOverlapHorizontally", page)

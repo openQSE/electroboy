@@ -124,6 +124,7 @@ INDEX_HTML = "\n".join(
         _optional_service_text_asset("js/modules/agent-pane-tools.js"),
         _optional_service_text_asset("js/modules/agent-sessions.js"),
         _optional_service_text_asset("js/modules/agenda.js"),
+        _optional_service_text_asset("js/modules/assignments.js"),
         _optional_service_text_asset("js/modules/calendar.js"),
         _optional_service_text_asset("js/modules/documents.js"),
         _optional_service_text_asset("js/modules/binder.js"),
@@ -2719,6 +2720,7 @@ def _handler_for(
             if kind not in {
                 "agent",
                 "agenda",
+                "assignments",
                 "artifact",
                 "calendar",
                 "mind-map",

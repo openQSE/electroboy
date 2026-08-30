@@ -1257,6 +1257,7 @@
         return "File";
       }
       if (kind === "agenda") return "Agenda";
+      if (kind === "assignments") return "Assignments";
       if (kind === "calendar") return "Calendar";
       if (kind === "mind-map") return "Mind Map";
       if (kind === "progress") return "Progress";
@@ -3658,6 +3659,7 @@
       const isProviderView = artifactKind === "corkboard" ||
         artifactKind === "creative-corkboard" ||
         artifactKind === "agenda" ||
+        PANE_KIND === "assignments" ||
         artifactKind === "calendar" ||
         artifactKind === "mind-map";
       const isEmpty = artifactKind === "empty";
@@ -4274,6 +4276,7 @@
           data.type === "electroboy:pane-set-content") &&
         (PANE_KIND === "artifact" ||
           PANE_KIND === "agenda" ||
+          PANE_KIND === "assignments" ||
           PANE_KIND === "calendar" ||
           PANE_KIND === "mind-map") &&
         (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
@@ -4438,6 +4441,7 @@
     else if (
       PANE_KIND === "artifact" ||
       PANE_KIND === "agenda" ||
+      PANE_KIND === "assignments" ||
       PANE_KIND === "calendar" ||
       PANE_KIND === "mind-map"
     ) {

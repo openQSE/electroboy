@@ -745,6 +745,9 @@
     }
 
     function artifactPaneIsProviderView(item) {
+      if (item && item.kind === "route" && item.providerView === true) {
+        return true;
+      }
       return artifactPaneIsCorkboard(item) ||
         artifactPaneIsAgenda(item) ||
         artifactPaneIsCalendar(item) ||

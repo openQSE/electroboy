@@ -22,6 +22,7 @@ _SOURCE_MODULE_FACTORIES = {
     "core": "electroboy.service.core_module:module",
     "agent_sessions": "electroboy.modules.agent_sessions:module",
     "agenda": "electroboy.modules.agenda:module",
+    "assignments": "electroboy.modules.assignments:module",
     "calendar": "electroboy.modules.calendar:module",
     "binder": "electroboy.modules.binder:module",
     "corkboard": "electroboy.modules.corkboard:module",
