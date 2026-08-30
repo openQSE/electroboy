@@ -135,6 +135,131 @@ if (!forward || forward.target.url !== "https://example.com/reference?x=1#intro"
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_terminal_behavior_locks_user_viewport_during_async_write() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/assets/service/js/core/terminal-behavior.js"
+    )
+    script = """
+global.window = {
+  clearTimeout,
+  setTimeout,
+};
+require(process.argv[1]);
+
+function fakeTerminal() {
+  const listeners = {};
+  const scrollHandlers = [];
+  let pendingWrite = null;
+  const terminal = {
+    buffer: {
+      active: {
+        baseY: 100,
+        cursorY: 0,
+        viewportY: 100,
+      },
+    },
+    element: {
+      addEventListener(name, handler) {
+        listeners[name] = handler;
+      },
+    },
+    scrollCalls: [],
+    registerMarker(offset) {
+      return {
+        disposed: false,
+        line: terminal.buffer.active.baseY +
+          terminal.buffer.active.cursorY +
+          offset,
+        dispose() {
+          this.disposed = true;
+        },
+      };
+    },
+    onScroll(handler) {
+      scrollHandlers.push(handler);
+      return { dispose() {} };
+    },
+    write(text, callback) {
+      pendingWrite = callback;
+    },
+    scrollToBottom() {
+      this.scrollCalls.push(["bottom"]);
+      this.buffer.active.viewportY = this.buffer.active.baseY;
+    },
+    scrollToLine(line) {
+      this.scrollCalls.push(["line", line]);
+      this.buffer.active.viewportY = line;
+    },
+    emit(name, event = {}) {
+      listeners[name]?.({
+        key: "",
+        ...event,
+      });
+    },
+    emitScroll(viewportY) {
+      this.buffer.active.viewportY = viewportY;
+      for (const handler of scrollHandlers) {
+        handler(viewportY);
+      }
+    },
+    completeWrite() {
+      const callback = pendingWrite;
+      pendingWrite = null;
+      callback();
+    },
+  };
+  return terminal;
+}
+
+const behavior = window.ElectroBoyTerminalBehavior;
+const terminal = fakeTerminal();
+behavior.install(terminal);
+let committed = false;
+behavior.write(terminal, "streamed output", () => {
+  committed = true;
+});
+terminal.emit("wheel");
+terminal.emitScroll(42);
+terminal.buffer.active.baseY = 108;
+terminal.buffer.active.viewportY = 108;
+terminal.completeWrite();
+
+if (!committed) {
+  throw new Error("write callback was not committed");
+}
+if (!terminal.scrollCalls.some((call) => call[0] === "line" && call[1] === 42)) {
+  throw new Error("user-selected historical viewport was not restored");
+}
+
+const bottomTerminal = fakeTerminal();
+bottomTerminal.buffer.active.viewportY = 40;
+behavior.install(bottomTerminal);
+bottomTerminal.emitScroll(40);
+behavior.write(bottomTerminal, "streamed output", () => {});
+bottomTerminal.emit("keydown", { key: "End" });
+bottomTerminal.buffer.active.baseY = 108;
+bottomTerminal.emitScroll(108);
+bottomTerminal.completeWrite();
+if (
+  bottomTerminal.scrollCalls.some((call) => call[0] === "line" && call[1] === 40)
+) {
+  throw new Error("stale historical viewport was restored after returning bottom");
+}
+"""
+
+    completed = subprocess.run(
+        [str(NODE), "-e", script, str(asset)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 def test_input_history_keeps_the_latest_two_thousand_entries() -> None:
     asset = (
         Path(__file__).resolve().parents[1]

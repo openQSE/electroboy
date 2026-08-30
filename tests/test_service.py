@@ -943,6 +943,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("hideCursor(terminal);", terminal_behavior)
         self.assertIn("function write(terminal, text, callback = null)", terminal_behavior)
+        self.assertIn("function refreshViewportLock(terminal", terminal_behavior)
+        self.assertIn("function restoreLockedViewport(terminal, state)", terminal_behavior)
+        self.assertIn("state.viewportScrollPending = true;", terminal_behavior)
+        self.assertIn("terminal.onScroll", terminal_behavior)
         self.assertIn("restoreViewport(terminal, snapshot);", terminal_behavior)
         self.assertIn("{ clearWrites, fit, install, reset, write }", terminal_behavior)
         self.assertIn(

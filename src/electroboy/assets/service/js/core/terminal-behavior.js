@@ -21,7 +21,10 @@
         queue: [],
         writing: false,
         generation: 0,
+        lockedViewport: null,
+        viewportLockRefreshTimer: null,
         viewportInteractionEpoch: 0,
+        viewportScrollPending: false,
         trackingInstalled: false,
       };
       terminalWriteStates.set(terminal, state);
@@ -32,26 +35,118 @@
   function noteViewportInteraction(terminal) {
     const state = writeStateFor(terminal);
     state.viewportInteractionEpoch += 1;
+    state.viewportScrollPending = true;
+    scheduleViewportLockRefresh(terminal, state);
+  }
+
+  function clearViewportLock(state) {
+    if (!state) {
+      return;
+    }
+    disposeViewportSnapshot(state.lockedViewport);
+    state.lockedViewport = null;
+  }
+
+  function replaceViewportLock(state, snapshot) {
+    if (!state) {
+      disposeViewportSnapshot(snapshot);
+      return null;
+    }
+    disposeViewportSnapshot(state.lockedViewport);
+    state.lockedViewport = snapshot;
+    return snapshot;
+  }
+
+  function lockedViewport(state) {
+    const snapshot = state ? state.lockedViewport : null;
+    if (
+      snapshot &&
+      snapshot.marker &&
+      typeof snapshot.marker.line === "number" &&
+      snapshot.marker.line < 0
+    ) {
+      clearViewportLock(state);
+      return null;
+    }
+    return snapshot && !snapshot.atBottom ? snapshot : null;
+  }
+
+  function refreshViewportLock(terminal, state = writeStateFor(terminal)) {
+    state.viewportScrollPending = false;
+    const snapshot = viewportSnapshot(terminal);
+    if (!snapshot) {
+      clearViewportLock(state);
+      return null;
+    }
+    if (snapshot.atBottom) {
+      disposeViewportSnapshot(snapshot);
+      clearViewportLock(state);
+      return null;
+    }
+    return replaceViewportLock(state, snapshot);
+  }
+
+  function scheduleViewportLockRefresh(terminal, state) {
+    if (
+      !state ||
+      state.viewportLockRefreshTimer !== null ||
+      typeof window.setTimeout !== "function"
+    ) {
+      return;
+    }
+    state.viewportLockRefreshTimer = window.setTimeout(() => {
+      state.viewportLockRefreshTimer = null;
+      if (state.viewportScrollPending) {
+        refreshViewportLock(terminal, state);
+      }
+    }, 0);
+  }
+
+  function clearViewportLockRefresh(state) {
+    if (!state || state.viewportLockRefreshTimer === null) {
+      return;
+    }
+    if (typeof window.clearTimeout === "function") {
+      window.clearTimeout(state.viewportLockRefreshTimer);
+    }
+    state.viewportLockRefreshTimer = null;
+  }
+
+  function handleViewportScroll(terminal, state) {
+    if (!state) {
+      return;
+    }
+    if (state.viewportLockRefreshTimer !== null) {
+      clearViewportLockRefresh(state);
+    }
+    if (state.viewportScrollPending || !state.writing) {
+      refreshViewportLock(terminal, state);
+    }
   }
 
   function installViewportTracking(terminal) {
     const state = writeStateFor(terminal);
-    if (state.trackingInstalled || !terminal.element) {
+    if (state.trackingInstalled) {
       return;
     }
     state.trackingInstalled = true;
-    for (const eventName of VIEWPORT_INTERACTION_EVENTS) {
-      terminal.element.addEventListener(
-        eventName,
-        () => noteViewportInteraction(terminal),
-        { passive: true },
-      );
-    }
-    terminal.element.addEventListener("keydown", (event) => {
-      if (VIEWPORT_SCROLL_KEYS.has(event.key)) {
-        noteViewportInteraction(terminal);
+    if (terminal.element) {
+      for (const eventName of VIEWPORT_INTERACTION_EVENTS) {
+        terminal.element.addEventListener(
+          eventName,
+          () => noteViewportInteraction(terminal),
+          { passive: true },
+        );
       }
-    });
+      terminal.element.addEventListener("keydown", (event) => {
+        if (VIEWPORT_SCROLL_KEYS.has(event.key)) {
+          noteViewportInteraction(terminal);
+        }
+      });
+    }
+    if (typeof terminal.onScroll === "function") {
+      terminal.onScroll(() => handleViewportScroll(terminal, state));
+    }
   }
 
   function activeBuffer(terminal) {
@@ -84,27 +179,40 @@
     };
   }
 
-  function restoreViewport(terminal, snapshot) {
+  function scrollToViewportSnapshot(terminal, snapshot) {
     if (!snapshot) {
       return;
     }
+    const buffer = activeBuffer(terminal);
+    if (!buffer) {
+      return;
+    }
+    if (snapshot.atBottom) {
+      terminal.scrollToBottom();
+    } else if (snapshot.marker && snapshot.marker.line >= 0) {
+      terminal.scrollToLine(snapshot.marker.line);
+    } else {
+      terminal.scrollToLine(
+        Math.max(0, buffer.baseY - snapshot.distanceFromBottom),
+      );
+    }
+  }
+
+  function restoreViewport(terminal, snapshot) {
     try {
-      const buffer = activeBuffer(terminal);
-      if (!buffer) {
-        return;
-      }
-      if (snapshot.atBottom) {
-        terminal.scrollToBottom();
-      } else if (snapshot.marker && snapshot.marker.line >= 0) {
-        terminal.scrollToLine(snapshot.marker.line);
-      } else {
-        terminal.scrollToLine(
-          Math.max(0, buffer.baseY - snapshot.distanceFromBottom),
-        );
-      }
+      scrollToViewportSnapshot(terminal, snapshot);
     } finally {
       disposeViewportSnapshot(snapshot);
     }
+  }
+
+  function restoreLockedViewport(terminal, state) {
+    const snapshot = lockedViewport(state);
+    if (!snapshot) {
+      return false;
+    }
+    scrollToViewportSnapshot(terminal, snapshot);
+    return true;
   }
 
   function flushWriteQueue(terminal, state) {
@@ -127,10 +235,19 @@
       state.writing = false;
       if (
         item.generation === state.generation &&
+        restoreLockedViewport(terminal, state)
+      ) {
+        disposeViewportSnapshot(snapshot);
+      } else if (
+        item.generation === state.generation &&
         interactionEpoch === state.viewportInteractionEpoch
       ) {
         restoreViewport(terminal, snapshot);
       } else {
+        if (state.viewportScrollPending) {
+          refreshViewportLock(terminal, state);
+          restoreLockedViewport(terminal, state);
+        }
         disposeViewportSnapshot(snapshot);
       }
       if (
@@ -177,6 +294,9 @@
     }
     state.queue = [];
     state.generation += 1;
+    state.viewportScrollPending = false;
+    clearViewportLockRefresh(state);
+    clearViewportLock(state);
   }
 
   function legacyCopy(text) {
@@ -267,7 +387,12 @@
       disposeViewportSnapshot(snapshot);
       throw error;
     }
-    restoreViewport(terminal, snapshot);
+    const state = writeStateFor(terminal);
+    if (restoreLockedViewport(terminal, state)) {
+      disposeViewportSnapshot(snapshot);
+    } else {
+      restoreViewport(terminal, snapshot);
+    }
     return true;
   }
 
