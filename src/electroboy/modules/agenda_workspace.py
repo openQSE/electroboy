@@ -163,9 +163,34 @@ def render_agenda_html(
       border-radius: 14px;
       background: var(--paper);
       box-shadow: 0 3px 12px rgba(54, 41, 30, .06);
+      --agenda-card-line: var(--line);
+      --agenda-card-soft: rgba(53, 106, 93, .07);
+      --agenda-card-label: var(--muted);
+      --agenda-card-value: var(--ink);
+      --agenda-review: #b7791f;
+      --agenda-review-soft: #fff4cf;
+      --agenda-review-border: rgba(183, 121, 31, .58);
+      --agenda-review-shadow: rgba(183, 121, 31, .24);
+      --agenda-review-glow: rgba(255, 209, 102, .36);
     }}
     .agenda-item.proposed, .agenda-item.suggested {{ border-left: 5px solid #8a6db0; }}
     .agenda-item.warning {{ border-left: 5px solid var(--warning); }}
+    .agenda-item.needs_review,
+    .agenda-item.needs-review {{
+      grid-template-columns: 132px minmax(0, 1fr);
+      border-color: rgba(183, 121, 31, .34);
+      border-left: 6px solid var(--agenda-review);
+      background:
+        linear-gradient(135deg, var(--agenda-review-soft), var(--paper) 48%);
+      box-shadow:
+        0 16px 36px rgba(183, 121, 31, .18),
+        0 0 0 1px rgba(183, 121, 31, .14);
+    }}
+    .agenda-item.needs_review .agenda-time,
+    .agenda-item.needs-review .agenda-time {{
+      background: rgba(255, 244, 207, .72);
+      color: #8a5510;
+    }}
     .agenda-time {{
       padding: 18px 14px;
       border-right: 1px solid var(--line);
@@ -185,7 +210,41 @@ def render_agenda_html(
       text-transform: uppercase;
       white-space: nowrap;
     }}
-    .agenda-description {{ margin: 7px 0 0; color: #5e554d; white-space: pre-wrap; }}
+    .agenda-description {{
+      margin: 7px 0 0;
+      color: #5e554d;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }}
+    .agenda-display-fields {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px 12px;
+      margin-top: 10px;
+    }}
+    .agenda-display-field {{
+      min-width: 0;
+      padding: 8px 9px;
+      border: 1px solid var(--agenda-card-line);
+      border-radius: 8px;
+      background: var(--agenda-card-soft);
+    }}
+    .agenda-display-field span {{
+      display: block;
+      color: var(--agenda-card-label);
+      font-size: 10px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }}
+    .agenda-display-field strong {{
+      display: block;
+      margin-top: 3px;
+      color: var(--agenda-card-value);
+      font-size: 13px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }}
     .agenda-badges, .agenda-people, .agenda-actions {{
       display: flex;
       align-items: center;
@@ -202,6 +261,56 @@ def render_agenda_html(
       padding: 4px 9px;
     }}
     .agenda-badge {{ background: #eee5f7; color: #634b7e; }}
+    .agenda-review {{
+      margin-top: 11px;
+      border: 1px solid rgba(183, 121, 31, .28);
+      border-radius: 9px;
+      background: var(--agenda-review-soft);
+      color: #72420b;
+      padding: 9px 11px;
+      font-size: 13px;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }}
+    .agenda-review-panel {{
+      display: grid;
+      gap: 10px;
+      margin: 2px 0 4px;
+      padding: 12px;
+      border: 1px solid rgba(183, 121, 31, .28);
+      border-radius: 10px;
+      background: var(--agenda-review-soft);
+      color: #72420b;
+    }}
+    .agenda-review-panel strong {{
+      color: #5f3507;
+      font-size: 13px;
+      text-transform: uppercase;
+    }}
+    .agenda-review-panel p {{
+      margin: 0;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }}
+    .agenda-review-fields {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px 12px;
+      margin: 0;
+    }}
+    .agenda-review-fields div {{ min-width: 0; }}
+    .agenda-review-fields dt {{
+      color: #7c4b0f;
+      font-size: 10px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }}
+    .agenda-review-fields dd {{
+      margin: 2px 0 0;
+      color: #4a2a06;
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }}
     .agenda-warning {{
       margin-top: 11px;
       border-radius: 9px;
@@ -233,6 +342,7 @@ def render_agenda_html(
       padding: 0 11px;
     }}
     .item-action.primary {{ border-color: var(--accent); background: var(--accent); color: white; }}
+    .item-action.review {{ border-color: #9a5b00; background: #9a5b00; color: white; }}
     .item-action.danger {{ border-color: #b96245; color: #8a3e27; }}
     .agenda-empty {{
       border: 1px dashed #cbbdad;
@@ -262,6 +372,16 @@ def render_agenda_html(
     .agenda-modal header {{ display: flex; justify-content: space-between; gap: 16px; padding: 19px 22px; border-bottom: 1px solid var(--line); }}
     .agenda-modal h2 {{ margin: 0; font: 22px Georgia, serif; }}
     .agenda-modal form {{ display: grid; gap: 14px; padding: 20px 22px 24px; }}
+    .agenda-modal .item-action.primary {{
+      border-color: #24594e;
+      background: #24594e;
+      color: white;
+    }}
+    .agenda-modal .item-action.review {{
+      border-color: #9a5b00;
+      background: #9a5b00;
+      color: white;
+    }}
     .editor-field {{ display: grid; gap: 5px; font-size: 13px; font-weight: 750; }}
     .editor-field input, .editor-field textarea, .editor-field select {{ border: 1px solid #bfb4a8; border-radius: 8px; padding: 9px 10px; background: white; color: var(--ink); }}
     .editor-error {{ color: #9b321f; min-height: 20px; }}
@@ -597,6 +717,15 @@ def render_agenda_html(
       border-radius: 8px;
       background: rgba(6, 28, 36, .9);
       box-shadow: var(--shadow);
+      --agenda-card-line: rgba(72, 213, 165, .2);
+      --agenda-card-soft: rgba(72, 213, 165, .08);
+      --agenda-card-label: #a8ffd7;
+      --agenda-card-value: #effff8;
+      --agenda-review: #ffd166;
+      --agenda-review-soft: rgba(255, 209, 102, .18);
+      --agenda-review-border: rgba(255, 209, 102, .64);
+      --agenda-review-shadow: rgba(255, 209, 102, .28);
+      --agenda-review-glow: rgba(255, 209, 102, .42);
       animation: agenda-radar-contact 3.4s ease-in-out infinite;
       animation-delay: calc(var(--agenda-index, 0) * 140ms);
     }}
@@ -638,6 +767,11 @@ def render_agenda_html(
       border-color: #48d5a5;
       background: #48d5a5;
       color: #06202a;
+    }}
+    body.agenda-style-radar .item-action.review {{
+      border-color: #ffd166;
+      background: #ffd166;
+      color: #211403;
     }}
     body.agenda-style-radar .agenda-warning {{
       border: 1px solid rgba(255, 210, 125, .3);
@@ -1310,6 +1444,15 @@ def render_agenda_html(
       box-shadow:
         0 18px 42px rgba(0, 0, 0, .3),
         inset 0 1px 0 rgba(255, 255, 255, .08);
+      --agenda-card-line: rgba(98, 230, 217, .2);
+      --agenda-card-soft: rgba(98, 230, 217, .08);
+      --agenda-card-label: #8bf7ee;
+      --agenda-card-value: #f2fffd;
+      --agenda-review: #ffd166;
+      --agenda-review-soft: rgba(255, 209, 102, .18);
+      --agenda-review-border: rgba(255, 209, 102, .64);
+      --agenda-review-shadow: rgba(255, 209, 102, .28);
+      --agenda-review-glow: rgba(255, 209, 102, .42);
       transform: translate(-50%, -50%) perspective(1200px) rotateX(1deg);
       transition: box-shadow .18s ease, transform .18s ease;
       pointer-events: auto;
@@ -1559,6 +1702,34 @@ def render_agenda_html(
       padding-bottom: 12px;
       border-bottom: 1px solid rgba(98, 230, 217, .18);
     }}
+    body.agenda-style-month-hud .month-hud-review-panel {{
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(255, 209, 102, .36);
+      border-radius: 8px;
+      background: rgba(255, 209, 102, .12);
+      color: #ffe0a3;
+    }}
+    body.agenda-style-month-hud .month-hud-review-panel strong {{
+      color: #ffd166;
+      font-size: 12px;
+      text-transform: uppercase;
+    }}
+    body.agenda-style-month-hud .month-hud-review-panel p {{
+      margin: 0;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }}
+    body.agenda-style-month-hud .month-hud-review-panel .agenda-review-fields {{
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }}
+    body.agenda-style-month-hud .month-hud-review-panel dt {{
+      color: #ffd166;
+    }}
+    body.agenda-style-month-hud .month-hud-review-panel dd {{
+      color: #fff5d2;
+    }}
     body.agenda-style-month-hud .month-hud-edit-kicker {{
       color: #8bf7ee;
       font-size: 12px;
@@ -1685,9 +1856,9 @@ def render_agenda_html(
     }}
     body.agenda-style-month-hud .month-hud-edit-actions .item-action.danger,
     body.agenda-style-month-hud .month-hud-confirm-actions .item-action.danger {{
-      border-color: rgba(255, 191, 117, .45);
-      background: rgba(255, 191, 117, .12);
-      color: #ffd5a1;
+      border-color: rgba(255, 103, 103, .54);
+      background: rgba(255, 103, 103, .14);
+      color: #ffd4d4;
     }}
     body.agenda-style-month-hud .month-hud-confirm-actions .item-action.danger {{
       border-color: #ff6767;
@@ -1717,10 +1888,10 @@ def render_agenda_html(
       color: #a9c9c5;
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-description {{
-      display: -webkit-box;
-      overflow: hidden;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
+      display: block;
+      overflow: visible;
+      -webkit-line-clamp: unset;
+      -webkit-box-orient: initial;
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-badge,
     body.agenda-style-month-hud .month-hud-branch .agenda-person {{
@@ -1745,6 +1916,11 @@ def render_agenda_html(
       border-color: #62e6d9;
       background: #2cc8b8;
       color: #051115;
+    }}
+    body.agenda-style-month-hud .month-hud-branch .item-action.review {{
+      border-color: #ffd166;
+      background: #ffd166;
+      color: #211403;
     }}
     body.agenda-style-month-hud .month-hud-empty {{
       position: absolute;
@@ -1915,6 +2091,15 @@ def render_agenda_html(
       box-shadow:
         0 18px 42px rgba(0, 0, 0, .3),
         inset 0 1px 0 rgba(255, 255, 255, .08);
+      --agenda-card-line: rgba(116, 229, 212, .2);
+      --agenda-card-soft: rgba(53, 222, 200, .08);
+      --agenda-card-label: #7af1dd;
+      --agenda-card-value: #f4fffb;
+      --agenda-review: #ffd166;
+      --agenda-review-soft: rgba(255, 209, 102, .18);
+      --agenda-review-border: rgba(255, 209, 102, .64);
+      --agenda-review-shadow: rgba(255, 209, 102, .28);
+      --agenda-review-glow: rgba(255, 209, 102, .42);
       transform: rotateX(.8deg);
     }}
     body.agenda-style-hud .agenda-item::before {{
@@ -1972,6 +2157,11 @@ def render_agenda_html(
       background: #1aa996;
       color: #061316;
     }}
+    body.agenda-style-hud .item-action.review {{
+      border-color: #ffd166;
+      background: #ffd166;
+      color: #211403;
+    }}
     body.agenda-style-hud .agenda-empty {{
       border-color: rgba(116, 229, 212, .32);
       background: rgba(7, 20, 25, .72);
@@ -1990,6 +2180,51 @@ def render_agenda_html(
       border-color: rgba(116, 229, 212, .28);
       background: rgba(5, 17, 22, .96);
       color: #eefcf8;
+    }}
+    body .agenda-item.needs_review,
+    body .agenda-item.needs-review {{
+      grid-template-columns: 132px minmax(0, 1fr);
+      border-color: var(--agenda-review-border);
+      border-left: 6px solid var(--agenda-review);
+      background:
+        linear-gradient(135deg, var(--agenda-review-soft), var(--paper) 50%);
+      box-shadow:
+        0 18px 42px var(--agenda-review-shadow),
+        0 0 0 1px var(--agenda-review-border),
+        0 0 34px var(--agenda-review-glow);
+    }}
+    body .agenda-item.needs_review .agenda-time,
+    body .agenda-item.needs-review .agenda-time {{
+      background: var(--agenda-review-soft);
+      color: var(--agenda-review);
+    }}
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs_review,
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs-review,
+    body.agenda-style-radar .agenda-item.needs_review,
+    body.agenda-style-radar .agenda-item.needs-review {{
+      grid-template-columns: 1fr;
+    }}
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs_review,
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs-review {{
+      border-color: var(--agenda-review-border);
+      border-left: 6px solid var(--agenda-review);
+      background:
+        linear-gradient(135deg, var(--agenda-review-soft), rgba(5, 17, 23, .92) 54%);
+      box-shadow:
+        0 18px 42px var(--agenda-review-shadow),
+        0 0 0 1px var(--agenda-review-border),
+        0 0 34px var(--agenda-review-glow),
+        inset 0 1px 0 rgba(255, 255, 255, .08);
+    }}
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs_review:hover,
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs-review:hover,
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs_review:focus-within,
+    body.agenda-style-month-hud .month-hud-branch .agenda-item.needs-review:focus-within {{
+      box-shadow:
+        0 24px 54px var(--agenda-review-shadow),
+        0 0 0 1px var(--agenda-review-border),
+        0 0 42px var(--agenda-review-glow),
+        inset 0 1px 0 rgba(255, 255, 255, .1);
     }}
     @media (max-width: 720px) {{
       .agenda-header {{ position: static; align-items: flex-start; flex-direction: column; }}
@@ -2185,12 +2420,24 @@ def render_agenda_html(
     function renderMonthHudFactCard(fact, index) {{
       const card = element("article", "month-hud-fact-card");
       card.style.setProperty("--fact-index", String(index));
+      const display = itemDisplay(fact);
       const top = element("div", "month-hud-fact-top");
       top.append(
         element("span", "month-hud-fact-type", monthHudFactLabel(fact.fact_type)),
         element("span", "month-hud-fact-status", monthHudFactLabel(fact.status)),
       );
-      card.append(top, element("h4", "", fact.title || "Untitled fact"));
+      card.append(top, element("h4", "", display.title || fact.title || "Untitled fact"));
+      const summary = String(display.summary || fact.summary || "").trim();
+      if (summary) card.append(element("div", "month-hud-fact-detail", summary));
+      for (const field of displayFieldsForItem(fact)) {{
+        card.append(
+          element(
+            "div",
+            "month-hud-fact-detail",
+            `${{field.label || "Detail"}}: ${{displayFieldValue(field)}}`,
+          ),
+        );
+      }}
       const details = [];
       if (fact.confidence != null) {{
         details.push(`${{Math.round(Number(fact.confidence) * 100)}}% confidence`);
@@ -2235,6 +2482,107 @@ def render_agenda_html(
       if (!parsed) return "No date";
       if (itemIsDateOnly(item)) return dateFormatter.format(parsed);
       return `${{dateFormatter.format(parsed)}} · ${{formatter.format(parsed)}}`;
+    }}
+
+    function itemDisplay(item) {{
+      return item && item.display && typeof item.display === "object"
+        ? item.display
+        : {{}};
+    }}
+
+    function itemReview(item) {{
+      if (item && item.review && typeof item.review === "object") return item.review;
+      const status = String(item?.status || "").toLowerCase();
+      if (status === "needs_review") {{
+        return {{ message: "Review this item before Better Planned relies on it." }};
+      }}
+      return null;
+    }}
+
+    function displaySummaryForItem(item) {{
+      const display = itemDisplay(item);
+      return String(display.summary || item.description || "").trim();
+    }}
+
+    function displayFieldsForItem(item) {{
+      const display = itemDisplay(item);
+      return Array.isArray(display.fields)
+        ? display.fields.filter((field) =>
+            field && typeof field === "object" && String(field.value || "").trim()
+          )
+        : [];
+    }}
+
+    function displayFieldValue(field) {{
+      const value = String(field.value || "").trim();
+      if (!value) return "";
+      if (field.kind === "date") {{
+        const parsed = agendaDateFromValue(value);
+        return parsed ? dateFormatter.format(parsed) : value;
+      }}
+      if (field.kind === "datetime") {{
+        const parsed = agendaDateFromValue(value);
+        return parsed
+          ? `${{dateFormatter.format(parsed)}} · ${{formatter.format(parsed)}}`
+          : value;
+      }}
+      return value;
+    }}
+
+    function appendDisplayFields(root, item) {{
+      const fields = displayFieldsForItem(item);
+      if (!fields.length) return;
+      const grid = element("div", "agenda-display-fields");
+      for (const field of fields) {{
+        const wrapper = element("div", "agenda-display-field");
+        wrapper.append(
+          element("span", "", field.label || "Detail"),
+          element("strong", "", displayFieldValue(field)),
+        );
+        grid.append(wrapper);
+      }}
+      root.append(grid);
+    }}
+
+    function visibleBadgesForItem(item) {{
+      const review = itemReview(item);
+      return (item.badges || []).filter((badge) => {{
+        const normalized = String(badge || "")
+          .trim()
+          .toLowerCase()
+          .replaceAll("_", " ");
+        return !(review && normalized === "needs review");
+      }});
+    }}
+
+    function createAgendaReviewPanel(item, className = "agenda-review-panel") {{
+      const review = itemReview(item);
+      if (!review) return null;
+      const panel = element("section", className);
+      panel.append(element("strong", "", review.label || "Needs review"));
+      panel.append(
+        element(
+          "p",
+          "",
+          review.message || "Review this item before Better Planned relies on it.",
+        ),
+      );
+      const summary = displaySummaryForItem(item);
+      if (summary) panel.append(element("p", "", summary));
+      const fields = displayFieldsForItem(item);
+      if (fields.length) {{
+        const list = element("dl", "agenda-review-fields");
+        for (const field of fields) {{
+          const wrapper = element("div");
+          wrapper.append(
+            element("dt", "", field.label || "Detail"),
+            element("dd", "", displayFieldValue(field)),
+          );
+          list.append(wrapper);
+        }}
+        panel.append(list);
+      }}
+      return panel;
     }}
 
     function appendPeople(root, item) {{
@@ -2333,6 +2681,8 @@ def render_agenda_html(
       const form = element("form");
       const error = element("div", "editor-error");
       error.setAttribute("role", "alert");
+      const reviewPanel = createAgendaReviewPanel(item);
+      if (reviewPanel) form.append(reviewPanel);
       for (const field of editor.fields || []) {{
         const label = element("label", "editor-field", field.label || field.id);
         let input;
@@ -2416,16 +2766,20 @@ def render_agenda_html(
       const article = element("article", `agenda-item ${{item.status || ""}}`);
       article.dataset.itemId = item.id;
       article.style.setProperty("--agenda-index", String(index));
+      const review = itemReview(item);
+      if (review) article.classList.add("needs-review");
       article.append(element("div", "agenda-time", itemTime(item)));
       const body = element("div", "agenda-item-body");
       const top = element("div", "agenda-item-top");
       top.append(element("h3", "", item.title), element("span", "agenda-kind", item.kind));
       body.append(top);
-      if (item.description) body.append(element("p", "agenda-description", item.description));
-      if ((item.badges || []).length || item.confidence != null) {{
+      const summary = displaySummaryForItem(item);
+      if (summary) body.append(element("p", "agenda-description", summary));
+      appendDisplayFields(body, item);
+      const badgesToRender = visibleBadgesForItem(item);
+      if (badgesToRender.length) {{
         const badges = element("div", "agenda-badges");
-        for (const badge of item.badges || []) badges.append(element("span", "agenda-badge", badge));
-        if (item.confidence != null) badges.append(element("span", "agenda-badge", `${{Math.round(item.confidence * 100)}}% confidence`));
+        for (const badge of badgesToRender) badges.append(element("span", "agenda-badge", badge));
         body.append(badges);
       }}
       appendPeople(body, item);
@@ -2439,7 +2793,8 @@ def render_agenda_html(
         for (const action of visibleActions) {{
           const button = element("button", `item-action ${{action.style || ""}}`, action.label || action.id);
           button.type = "button";
-          button.addEventListener("click", async () => {{
+          button.addEventListener("click", async (event) => {{
+            event.stopPropagation();
             button.disabled = true;
             try {{
               await invokeAction(item, action);
@@ -2707,6 +3062,7 @@ def render_agenda_html(
         element("div", "month-hud-edit-kicker", `${{itemTime(item)}} · ${{item.kind || "item"}}`),
         element("h2", "", item.title || "Untitled item"),
       );
+      const reviewPanel = createAgendaReviewPanel(item, "month-hud-review-panel");
 
       const title = element("input");
       title.name = "title";
@@ -2772,11 +3128,13 @@ def render_agenda_html(
       const actions = element("div", "month-hud-edit-actions");
       const discard = element("button", "item-action danger", "Discard");
       discard.type = "button";
+      const cancelEdit = element("button", "item-action", "Cancel");
+      cancelEdit.type = "button";
       const approve = element("button", "item-action primary", "Approve");
       approve.type = "button";
       const error = element("div", "editor-error");
       error.setAttribute("role", "alert");
-      actions.append(discard, approve);
+      actions.append(discard, cancelEdit, approve);
       let editorClosing = false;
       let discardConfirmation = null;
 
@@ -2846,6 +3204,7 @@ def render_agenda_html(
           ok.disabled = true;
           cancel.disabled = true;
           discard.disabled = true;
+          cancelEdit.disabled = true;
           approve.disabled = true;
           error.textContent = "";
           try {{
@@ -2856,6 +3215,7 @@ def render_agenda_html(
             ok.disabled = false;
             cancel.disabled = false;
             discard.disabled = false;
+            cancelEdit.disabled = false;
             approve.disabled = false;
             closeDiscardConfirmation();
           }}
@@ -2870,6 +3230,7 @@ def render_agenda_html(
         if (editorClosing || approve.disabled) return;
         approve.disabled = true;
         discard.disabled = true;
+        cancelEdit.disabled = true;
         error.textContent = "";
         try {{
           await callbacks.onApprove({{
@@ -2887,6 +3248,7 @@ def render_agenda_html(
           error.textContent = problem.message || "Could not save agenda card";
           approve.disabled = false;
           discard.disabled = false;
+          cancelEdit.disabled = false;
         }}
       }}
 
@@ -2900,12 +3262,17 @@ def render_agenda_html(
       discard.addEventListener("click", () => {{
         openDiscardConfirmation();
       }});
+      cancelEdit.addEventListener("click", () => {{
+        closeEditor();
+      }});
       layer.addEventListener("click", (event) => {{
         event.stopPropagation();
         if (editorClosing) return;
         if (event.target === layer) closeEditor();
       }});
-      form.append(header, grid, error, actions);
+      form.append(header);
+      if (reviewPanel) form.append(reviewPanel);
+      form.append(grid, error, actions);
       layer.append(form);
       host.append(layer);
       title.focus();

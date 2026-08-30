@@ -151,7 +151,7 @@ def render_mind_map_html(
     .mind-map-node {{
       position: absolute;
       box-sizing: border-box;
-      width: 250px;
+      width: 300px;
       min-height: 86px;
       padding: 12px;
       border: 1px solid var(--line);
@@ -185,6 +185,12 @@ def render_mind_map_html(
     .mind-map-node[data-kind="observation"],
     .mind-map-node[data-kind="provider_event"] {{ border-left-color: var(--observation); }}
     .mind-map-node[data-kind="fact"] {{ border-left-color: var(--fact); }}
+    .mind-map-node.needs-review {{
+      border-color: rgba(37, 99, 235, 0.48);
+      box-shadow:
+        0 18px 38px rgba(37, 99, 235, 0.16),
+        0 0 0 1px rgba(37, 99, 235, 0.12);
+    }}
     .mind-map-node__kind {{
       display: flex;
       justify-content: space-between;
@@ -207,6 +213,55 @@ def render_mind_map_html(
       flex-wrap: wrap;
       gap: 6px;
       margin-top: 10px;
+    }}
+    .mind-map-node__summary {{
+      margin-top: 10px;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 620;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }}
+    .mind-map-node__fields {{
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }}
+    .mind-map-node__field {{
+      min-width: 0;
+      padding: 7px 8px;
+      border: 1px solid rgba(37, 99, 235, 0.14);
+      border-radius: 7px;
+      background: rgba(37, 99, 235, 0.06);
+    }}
+    .mind-map-node__field span {{
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 780;
+      text-transform: uppercase;
+    }}
+    .mind-map-node__field strong {{
+      display: block;
+      margin-top: 3px;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }}
+    .mind-map-node__review {{
+      margin-top: 10px;
+      padding: 8px 9px;
+      border: 1px solid rgba(37, 99, 235, 0.2);
+      border-radius: 8px;
+      background: rgba(37, 99, 235, 0.08);
+      color: #1d4f8d;
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
     }}
     .mind-map-node__actions {{
       display: flex;
@@ -279,15 +334,16 @@ def render_mind_map_html(
     }}
     .mind-map-pill {{
       max-width: 100%;
-      overflow: hidden;
+      overflow: visible;
       padding: 3px 7px;
       border: 1px solid rgba(0, 0, 0, 0.08);
       border-radius: 999px;
       color: var(--muted);
       font-size: 11px;
       line-height: 1.1;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
+      text-overflow: clip;
+      white-space: normal;
     }}
     .mind-map-empty {{
       position: fixed;
@@ -339,6 +395,17 @@ def render_mind_map_html(
     .mind-map-style-hud .mind-map-edge,
     .mind-map-style-month-hud .mind-map-edge {{
       stroke: rgba(45, 212, 191, 0.42);
+    }}
+    .mind-map-style-hud .mind-map-node__field,
+    .mind-map-style-month-hud .mind-map-node__field {{
+      border-color: rgba(45, 212, 191, 0.22);
+      background: rgba(45, 212, 191, 0.08);
+    }}
+    .mind-map-style-hud .mind-map-node__review,
+    .mind-map-style-month-hud .mind-map-node__review {{
+      border-color: rgba(139, 216, 255, 0.34);
+      background: rgba(59, 130, 246, 0.17);
+      color: #d9f2ff;
     }}
     .mind-map-style-hud .mind-map-action,
     .mind-map-style-month-hud .mind-map-action,
@@ -409,17 +476,17 @@ def render_mind_map_html(
     const MIND_MAP_DATA = {encoded};
     const SOURCE_X = 80;
     const SOURCE_Y = 90;
-    const COLUMN_GAP = 360;
+    const COLUMN_GAP = 420;
     const ROOT_GAP = 54;
     const BRANCH_GAP = 42;
-    const NODE_WIDTH = 250;
+    const NODE_WIDTH = 300;
     const NODE_HEIGHT = 116;
     const NODE_CLEARANCE = 36;
-    const NODE_SLOT_HEIGHT = 188;
+    const NODE_SLOT_HEIGHT = 218;
     const CANVAS_BASE_WIDTH = 4200;
     const CANVAS_BASE_HEIGHT = 2800;
     const CANVAS_PADDING = 420;
-    const LAYOUT_VERSION = 4;
+    const LAYOUT_VERSION = 5;
     const NODE_DRAG_THRESHOLD = 4;
     const viewport = document.getElementById("mindMapViewport");
     const canvas = document.getElementById("mindMapCanvas");
@@ -430,6 +497,14 @@ def render_mind_map_html(
     const manualOffsets = new Map();
     const measuredNodeHeights = new Map();
     const detailOpen = new Set();
+    const mindMapDateFormatter = new Intl.DateTimeFormat(undefined, {{
+      dateStyle: "medium",
+      timeZone: "UTC",
+    }});
+    const mindMapDateTimeFormatter = new Intl.DateTimeFormat(undefined, {{
+      dateStyle: "medium",
+      timeStyle: "short",
+    }});
     const stateKey = `electroboy:mind-map:${{MIND_MAP_DATA.provider || "default"}}:view`;
     let scale = 1;
     let pan = {{ x: 0, y: 0 }};
@@ -734,6 +809,91 @@ def render_mind_map_html(
       return values;
     }}
 
+    function nodeDisplay(node) {{
+      return node && node.display && typeof node.display === "object"
+        ? node.display
+        : {{}};
+    }}
+
+    function nodeReview(node) {{
+      if (node && node.review && typeof node.review === "object") return node.review;
+      const status = String(node?.status || "").toLowerCase();
+      if (status === "needs_review") {{
+        return {{ message: "Review this item before Better Planned relies on it." }};
+      }}
+      return null;
+    }}
+
+    function mindMapDateFromValue(value) {{
+      if (!value) return null;
+      const text = String(value);
+      const parsed = /^\\d{{4}}-\\d{{2}}-\\d{{2}}$/.test(text)
+        ? new Date(`${{text}}T12:00:00Z`)
+        : new Date(text);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }}
+
+    function nodeDisplayFieldValue(field) {{
+      const value = String(field.value || "").trim();
+      if (!value) return "";
+      if (field.kind === "date") {{
+        const parsed = mindMapDateFromValue(value);
+        return parsed ? mindMapDateFormatter.format(parsed) : value;
+      }}
+      if (field.kind === "datetime") {{
+        const parsed = mindMapDateFromValue(value);
+        return parsed ? mindMapDateTimeFormatter.format(parsed) : value;
+      }}
+      return value;
+    }}
+
+    function nodeDisplayFields(node) {{
+      const display = nodeDisplay(node);
+      return Array.isArray(display.fields)
+        ? display.fields.filter((field) =>
+            field && typeof field === "object" && String(field.value || "").trim()
+          )
+        : [];
+    }}
+
+    function createNodeDisplay(node) {{
+      const display = nodeDisplay(node);
+      const summary = String(display.summary || node.description || node.summary || "").trim();
+      const fields = nodeDisplayFields(node);
+      const review = nodeReview(node);
+      if (!summary && !fields.length && !review) return null;
+      const root = document.createElement("div");
+      root.className = "mind-map-node__display";
+      if (summary) {{
+        const summaryNode = document.createElement("div");
+        summaryNode.className = "mind-map-node__summary";
+        summaryNode.textContent = summary;
+        root.append(summaryNode);
+      }}
+      if (fields.length) {{
+        const fieldRoot = document.createElement("div");
+        fieldRoot.className = "mind-map-node__fields";
+        fields.forEach((field) => {{
+          const wrapper = document.createElement("div");
+          wrapper.className = "mind-map-node__field";
+          const label = document.createElement("span");
+          label.textContent = field.label || "Detail";
+          const value = document.createElement("strong");
+          value.textContent = nodeDisplayFieldValue(field);
+          wrapper.append(label, value);
+          fieldRoot.append(wrapper);
+        }});
+        root.append(fieldRoot);
+      }}
+      if (review) {{
+        const reviewNode = document.createElement("div");
+        reviewNode.className = "mind-map-node__review";
+        reviewNode.textContent = review.message || "Needs review";
+        root.append(reviewNode);
+      }}
+      return root;
+    }}
+
     function nodeActions(node) {{
       const actions = Array.isArray(node.actions)
         ? node.actions.filter((action) =>
@@ -915,6 +1075,8 @@ def render_mind_map_html(
 
     function createNode(node, position) {{
       const element = document.createElement("article");
+      const display = nodeDisplay(node);
+      const review = nodeReview(node);
       element.className = "mind-map-node";
       element.dataset.nodeId = node.id;
       element.dataset.kind = node.kind || "";
@@ -923,16 +1085,19 @@ def render_mind_map_html(
       element.style.left = `${{position.x}}px`;
       element.style.top = `${{position.y}}px`;
       if (expanded.has(node.id)) element.classList.add("is-expanded");
+      if (review) element.classList.add("needs-review");
       element.innerHTML = `
         <div class="mind-map-node__kind">
           <span>${{escapeHtml(labelForKind(node))}}</span>
           <span>${{childrenFor(node.id).length ? "+" : ""}}</span>
         </div>
-        <div class="mind-map-node__title">${{escapeHtml(node.title || node.id)}}</div>
+        <div class="mind-map-node__title">${{escapeHtml(display.title || node.title || node.id)}}</div>
         <div class="mind-map-node__meta">
           ${{nodeMeta(node).map((value) => `<span class="mind-map-pill">${{escapeHtml(value)}}</span>`).join("")}}
         </div>
       `;
+      const displayBlock = createNodeDisplay(node);
+      if (displayBlock) element.append(displayBlock);
       const actions = nodeActions(node);
       if (actions.length) {{
         const actionRow = document.createElement("div");
