@@ -36,7 +36,11 @@
       editing: false,
       agenda: { provider, label, style },
     };
-    runtime.layout.assignPane("agenda", item);
+    const assign = options.replaceWorkspacePane &&
+        runtime.layout.assignWorkspacePane
+      ? runtime.layout.assignWorkspacePane
+      : runtime.layout.assignPane;
+    assign("agenda", item);
   }
 
   window.ElectroBoyFrontend.registerModule({

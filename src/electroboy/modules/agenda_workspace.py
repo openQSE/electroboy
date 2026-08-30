@@ -1256,6 +1256,14 @@ def render_agenda_html(
       animation: agenda-month-hud-branch-in .38s ease-out both;
       animation-delay: calc(var(--agenda-index, 0) * 54ms);
     }}
+    body.agenda-style-month-hud .month-hud-branch.debug-expanded {{
+      z-index: 18;
+    }}
+    body.agenda-style-month-hud .month-hud-branches:has(.debug-expanded) .month-hud-branch:not(.debug-expanded) .agenda-item {{
+      opacity: .34;
+      filter: saturate(.55) blur(.3px);
+      transform: translate(-50%, -50%) perspective(1200px) rotateX(1deg) scale(.98);
+    }}
     body.agenda-style-month-hud .month-hud-circuit {{
       position: absolute;
       inset: 0;
@@ -1327,30 +1335,44 @@ def render_agenda_html(
     }}
     body.agenda-style-month-hud .month-hud-fact-fanout {{
       position: absolute;
-      left: var(--branch-fact-left, var(--branch-card-left, 50%));
-      top: var(--branch-fact-top, var(--branch-card-top, 50%));
-      z-index: 11;
+      left: var(--branch-card-left, 50%);
+      top: var(--branch-card-top, 50%);
+      z-index: 16;
       display: grid;
       width: var(--branch-card-width, var(--month-hud-branch-width));
       max-width: calc(100% - 28px);
       gap: 8px;
       opacity: 0;
-      transform: translate(-50%, 8px) scale(.98);
-      transform-origin: top center;
+      transform:
+        translate(
+          -50%,
+          calc(-100% - (var(--branch-card-height, 136px) / 2) - 10px)
+        )
+        scale(.96);
+      transform-origin: bottom center;
       transition: opacity .24s ease, transform .28s cubic-bezier(.2, .8, .2, 1);
       pointer-events: none;
     }}
-    body.agenda-style-month-hud .month-hud-branch.facts-above .month-hud-fact-fanout {{
-      transform: translate(-50%, calc(-100% - 8px)) scale(.98);
-      transform-origin: bottom center;
+    body.agenda-style-month-hud .month-hud-fact-fanout::before {{
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -20px;
+      width: 1px;
+      height: 20px;
+      background: linear-gradient(180deg, transparent, rgba(255, 191, 117, .74));
+      box-shadow: 0 0 14px rgba(255, 191, 117, .34);
+      pointer-events: none;
     }}
     body.agenda-style-month-hud .month-hud-branch.debug-expanded .month-hud-fact-fanout {{
       opacity: 1;
-      transform: translate(-50%, 0) scale(1);
+      transform:
+        translate(
+          -50%,
+          calc(-100% - (var(--branch-card-height, 136px) / 2) - 10px)
+        )
+        scale(1);
       pointer-events: auto;
-    }}
-    body.agenda-style-month-hud .month-hud-branch.debug-expanded.facts-above .month-hud-fact-fanout {{
-      transform: translate(-50%, -100%) scale(1);
     }}
     body.agenda-style-month-hud .month-hud-fact-card {{
       display: grid;
@@ -1390,6 +1412,19 @@ def render_agenda_html(
       font-size: 11px;
       font-weight: 700;
       line-height: 1.3;
+    }}
+    body.agenda-style-month-hud .month-hud-fact-detail,
+    body.agenda-style-month-hud .month-hud-fact-empty {{
+      color: #d5ebe8;
+      font-size: 11px;
+      font-weight: 650;
+      line-height: 1.35;
+    }}
+    body.agenda-style-month-hud .month-hud-fact-empty {{
+      border: 1px dashed rgba(255, 191, 117, .28);
+      border-radius: 8px;
+      padding: 10px 11px;
+      background: rgba(7, 18, 23, .78);
     }}
     body.agenda-style-month-hud .month-hud.is-editing-card .month-hud-canvas {{
       opacity: .28;
@@ -2119,17 +2154,32 @@ def render_agenda_html(
       for (const fact of graph.facts || []) {{
         if (fact?.id) factsById.set(String(fact.id), fact);
       }}
-      for (const observation of graph.observations || []) {{
-        const facts = (observation.fact_ids || [])
+      const traceNodes = [
+        ...(graph.observations || []),
+        ...(graph.provider_events || []),
+      ];
+      for (const node of traceNodes) {{
+        const facts = (node.fact_ids || [])
           .map((factId) => factsById.get(String(factId)))
           .filter(Boolean);
-        factsByObservation.set(String(observation.id), facts);
+        factsByObservation.set(String(node.id), facts);
       }}
       return factsByObservation;
     }}
 
     function monthHudFactLabel(value) {{
       return String(value || "fact").replaceAll("_", " ");
+    }}
+
+    function monthHudProvenanceLabel(entry) {{
+      if (!entry || typeof entry !== "object") return "";
+      if (entry.source_title) return `source: ${{entry.source_title}}`;
+      if (entry.provider_event_id) {{
+        const provider = monthHudFactLabel(entry.provider || "provider");
+        return `${{provider}}: ${{entry.provider_event_id}}`;
+      }}
+      if (entry.observation_id) return `observation: ${{entry.observation_id}}`;
+      return monthHudFactLabel(entry.source_type || "");
     }}
 
     function renderMonthHudFactCard(fact, index) {{
@@ -2141,6 +2191,27 @@ def render_agenda_html(
         element("span", "month-hud-fact-status", monthHudFactLabel(fact.status)),
       );
       card.append(top, element("h4", "", fact.title || "Untitled fact"));
+      const details = [];
+      if (fact.confidence != null) {{
+        details.push(`${{Math.round(Number(fact.confidence) * 100)}}% confidence`);
+      }}
+      if ((fact.relationships || []).length) {{
+        details.push(
+          (fact.relationships || [])
+            .map((entry) => `${{entry.member_label || entry.member_id}} · ${{monthHudFactLabel(entry.relationship)}}`)
+            .join(", "),
+        );
+      }}
+      if (fact.assignment?.proposed_assignee_label) {{
+        details.push(`Proposed assignee: ${{fact.assignment.proposed_assignee_label}}`);
+      }}
+      const provenance = (fact.provenance || [])
+        .map(monthHudProvenanceLabel)
+        .filter(Boolean);
+      if (provenance.length) details.push(provenance.join(" · "));
+      for (const detail of details) {{
+        card.append(element("div", "month-hud-fact-detail", detail));
+      }}
       if ((fact.member_labels || []).length) {{
         card.append(
           element("div", "month-hud-fact-members", fact.member_labels.join(", ")),
@@ -2430,6 +2501,15 @@ def render_agenda_html(
         .filter(Boolean);
     }}
 
+    function agendaEditableKind(item) {{
+      const factType = String(item.anchor_fact_type || item.fact_type || "").trim();
+      if (factType === "commitment" || factType === "busy_block") return "event";
+      if (factType === "deadline") return "deadline";
+      if (factType === "task" || factType === "assignment_proposal") return "task";
+      const kind = String(item.kind || "").trim();
+      return ["event", "task", "deadline"].includes(kind) ? kind : "task";
+    }}
+
     function applyAgendaInlineDraft(item, draft) {{
       item.title = draft.title || item.title || "Untitled item";
       item.kind = draft.kind || item.kind || "item";
@@ -2635,8 +2715,8 @@ def render_agenda_html(
 
       const kind = monthHudSelect(
         "kind",
-        monthHudOptionValues(["event", "task", "note", "warning"], item.kind || "task"),
-        item.kind || "task",
+        monthHudOptionValues(["event", "task", "deadline"], agendaEditableKind(item)),
+        agendaEditableKind(item),
       );
 
       const status = monthHudSelect(
@@ -2890,6 +2970,7 @@ def render_agenda_html(
       renderControls();
       sectionsRoot.replaceChildren();
       const allItems = AGENDA_DATA.items || [];
+      const debugMode = Boolean(monthHudDebugGraph());
       const debugFactsByObservation = monthHudDebugFactsByObservation();
       let grouped = new Map();
 
@@ -3145,11 +3226,12 @@ def render_agenda_html(
         segment.style.setProperty("--circuit-angle", `${{Math.atan2(endY - startY, endX - startX)}}rad`);
       }}
 
-      function setBranchPosition(branch, centerX, centerY, cardLeft, cardTop, cardWidth, cardHeight, activeRadius, index) {{
-        branch.style.setProperty("--branch-card-left", `${{Math.round(cardLeft)}}px`);
-        branch.style.setProperty("--branch-card-top", `${{Math.round(cardTop)}}px`);
-        branch.style.setProperty("--branch-card-width", `${{cardWidth}}px`);
-        const circuit = branch.querySelector(".month-hud-circuit");
+    function setBranchPosition(branch, centerX, centerY, cardLeft, cardTop, cardWidth, cardHeight, activeRadius, index) {{
+      branch.style.setProperty("--branch-card-left", `${{Math.round(cardLeft)}}px`);
+      branch.style.setProperty("--branch-card-top", `${{Math.round(cardTop)}}px`);
+      branch.style.setProperty("--branch-card-width", `${{cardWidth}}px`);
+      branch.style.setProperty("--branch-card-height", `${{Math.round(cardHeight)}}px`);
+      const circuit = branch.querySelector(".month-hud-circuit");
         const first = circuit?.querySelector(".is-primary");
         const second = circuit?.querySelector(".is-secondary");
         if (!first || !second) return;
@@ -3241,12 +3323,6 @@ def render_agenda_html(
           const cardLeft = centerX - laneWidth / 2 + cardWidth / 2 + laneIndex * (cardWidth + gap);
           const cardOffset = activeRadius + laneGap + cardHeight / 2 + row * rowHeight;
           const cardTop = centerY + (aboveTimeline ? -cardOffset : cardOffset);
-          branch.style.setProperty("--branch-fact-left", `${{Math.round(cardLeft)}}px`);
-          branch.style.setProperty(
-            "--branch-fact-top",
-            `${{Math.round(cardTop + (aboveTimeline ? -1 : 1) * (cardHeight / 2 + 16))}}px`,
-          );
-          branch.classList.toggle("facts-above", aboveTimeline);
           setBranchPosition(branch, centerX, centerY, cardLeft, cardTop, cardWidth, cardHeight, activeRadius, index);
         }}
       }}
@@ -3283,7 +3359,7 @@ def render_agenda_html(
             );
             branch.style.setProperty("--agenda-index", String(index));
             const card = renderItem(item, index, {{ hideActions: true }});
-            if (debugFacts.length) {{
+            if (debugMode || item.debug_kind === "observation" || item.debug_kind === "provider_event") {{
               card.classList.add("month-hud-debug-card");
             }} else {{
               card.classList.add("month-hud-editable-card");
@@ -3292,17 +3368,21 @@ def render_agenda_html(
             card.setAttribute("role", "button");
             card.setAttribute(
               "aria-label",
-              debugFacts.length
+              debugMode
                 ? `Show facts for ${{item.title || "agenda item"}}`
                 : `Edit ${{item.title || "agenda item"}}`,
             );
             const factFanout = element("div", "month-hud-fact-fanout");
-            for (const [factIndex, fact] of debugFacts.entries()) {{
-              factFanout.append(renderMonthHudFactCard(fact, factIndex));
+            if (debugMode && !debugFacts.length) {{
+              factFanout.append(element("div", "month-hud-fact-empty", "No derived facts for this trace node."));
+            }} else {{
+              for (const [factIndex, fact] of debugFacts.entries()) {{
+                factFanout.append(renderMonthHudFactCard(fact, factIndex));
+              }}
             }}
             factFanout.addEventListener("click", (event) => event.stopPropagation());
             const toggleFactFanout = () => {{
-              if (!debugFacts.length) return false;
+              if (!debugMode) return false;
               const expanded = !branch.classList.contains("debug-expanded");
               for (const current of branchesRoot.querySelectorAll(".debug-expanded")) {{
                 if (current !== branch) current.classList.remove("debug-expanded");
@@ -3345,7 +3425,7 @@ def render_agenda_html(
               openCardEditor();
             }});
             branch.append(circuit, card);
-            if (debugFacts.length) branch.append(factFanout);
+            if (debugMode) branch.append(factFanout);
             branchesRoot.append(branch);
           }}
         }}

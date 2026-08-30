@@ -23,6 +23,11 @@ from .http import (
     StreamResponse,
     TextResponse,
 )
+from .mind_map import (
+    MindMapProvider,
+    MindMapWorkflowController,
+    normalize_mind_map_snapshot,
+)
 from .registry import (
     AgentRuleDefinition,
     CliCommandDefinition,
@@ -59,6 +64,8 @@ __all__ = [
     "DocumentSchemaDefinition",
     "HtmlResponse",
     "JsonResponse",
+    "MindMapProvider",
+    "MindMapWorkflowController",
     "ProjectFileServices",
     "RouteDefinition",
     "RouteHandler",
@@ -78,4 +85,5 @@ __all__ = [
     "normalize_agenda_snapshot",
     "normalize_board_snapshot",
     "normalize_calendar_snapshot",
+    "normalize_mind_map_snapshot",
 ]

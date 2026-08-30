@@ -367,11 +367,22 @@
       artifact: { label: "File", element: artifactPreviewPane },
       agenda: { label: "Agenda", element: null },
       calendar: { label: "Calendar", element: null },
+      "mind-map": { label: "Mind Map", element: null },
       shell: { label: "Shell", element: projectShellPane },
       scratch: { label: "Scratch", element: scratchPane },
       status: { label: "Status", element: projectStatusPane },
     };
-    const INSTANCE_PANE_LAYOUT_KINDS = new Set(["artifact", "agenda", "calendar"]);
+    const INSTANCE_PANE_LAYOUT_KINDS = new Set([
+      "artifact",
+      "agenda",
+      "calendar",
+      "mind-map",
+    ]);
+    const WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS = new Set([
+      "agenda",
+      "calendar",
+      "mind-map",
+    ]);
     const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress"]);
     const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
       "empty",
@@ -379,6 +390,7 @@
       "artifact",
       "agenda",
       "calendar",
+      "mind-map",
       "scratch",
       "status",
     ]);
@@ -523,8 +535,8 @@
           ? value.content
           : null;
         const kind = validKind && requestedKind === "artifact" &&
-            content?.kind === "agenda"
-          ? "agenda"
+            ["agenda", "calendar", "mind-map"].includes(content?.kind)
+          ? content.kind
           : validKind ? requestedKind : "empty";
         if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
           seenKinds.add(kind);
@@ -1779,6 +1791,9 @@
       if (kind === "calendar") {
         return Boolean(window.ElectroBoyFrontend?.module("calendar"));
       }
+      if (kind === "mind-map") {
+        return Boolean(window.ElectroBoyFrontend?.module("mind_map"));
+      }
       return true;
     }
 
@@ -2078,7 +2093,11 @@
       if (!item || typeof item !== "object") {
         return false;
       }
-      if (item.kind === "agenda" || item.kind === "calendar") {
+      if (
+        item.kind === "agenda" ||
+        item.kind === "calendar" ||
+        item.kind === "mind-map"
+      ) {
         return false;
       }
       if (item.kind === "corkboard" || item.kind === "creative-corkboard") {
@@ -2121,6 +2140,11 @@
           : null;
       }
       if (leaf.kind === "calendar") {
+        return leaf.content && typeof leaf.content === "object"
+          ? leaf.content
+          : null;
+      }
+      if (leaf.kind === "mind-map") {
         return leaf.content && typeof leaf.content === "object"
           ? leaf.content
           : null;
@@ -2457,6 +2481,8 @@
         refreshPaneLayoutInstanceFrames();
       } else if (kind === "calendar") {
         refreshPaneLayoutInstanceFrames();
+      } else if (kind === "mind-map") {
+        refreshPaneLayoutInstanceFrames();
       } else if (kind === "shell") {
         showProjectShellPane(true);
       }
@@ -2537,6 +2563,10 @@
         assignPaneContent("calendar", item, requestedLeafId);
         return;
       }
+      if (item && item.kind === "mind-map") {
+        assignPaneContent("mind-map", item, requestedLeafId);
+        return;
+      }
       assignPaneContent("artifact", item, requestedLeafId);
     }
 
@@ -2560,6 +2590,45 @@
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
       refreshPaneLayoutInstanceFrames();
+    }
+
+    function assignPaneLeafContent(leaf, kind, item) {
+      if (!leaf) {
+        return;
+      }
+      leaf.kind = kind;
+      leaf.content = clonePaneLayoutContent(item);
+      leaf.projectRoot = activeProjectRoot;
+      setActivePaneLayoutLeaf(leaf.id);
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
+    function assignWorkspacePaneContent(kind, item, requestedLeafId = "") {
+      if (!WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS.has(kind)) {
+        assignPaneContent(kind, item, requestedLeafId);
+        return;
+      }
+      let leaf = paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId);
+      if (leaf && WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)) {
+        assignPaneLeafContent(leaf, kind, item);
+        return;
+      }
+      leaf = paneLayoutLeafByKind(kind);
+      if (leaf) {
+        assignPaneLeafContent(leaf, kind, item);
+        return;
+      }
+      leaf = paneLayoutLeaves().find((candidate) =>
+        WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS.has(candidate.kind),
+      ) || null;
+      if (leaf) {
+        assignPaneLeafContent(leaf, kind, item);
+        return;
+      }
+      ensurePaneInLayout(kind, "agent", "row");
+      leaf = paneLayoutLeafByKind(kind);
+      assignPaneLeafContent(leaf, kind, item);
     }
 
     function handlePaneLayoutMessage(event) {
@@ -4932,6 +5001,15 @@
         }
         if (calendar.style) {
           parameters.set("calendar_style", calendar.style);
+        }
+      }
+      if (artifactItem && artifactItem.kind === "mind-map") {
+        const mindMap = artifactItem.mindMap || artifactItem.mind_map || {};
+        if (mindMap.provider) {
+          parameters.set("mind_map_provider", mindMap.provider);
+        }
+        if (mindMap.style) {
+          parameters.set("mind_map_style", mindMap.style);
         }
       }
       const fontPane = paneFontKeyForKind(kind);
@@ -7927,6 +8005,7 @@
         ensurePane: ensurePaneInLayout,
         assignArtifact: assignArtifactToPane,
         assignPane: assignPaneContent,
+        assignWorkspacePane: assignWorkspacePaneContent,
         closePane: closeMountedPane,
         hasPane: (kind) => Boolean(paneLayoutLeafByKind(kind)),
         isPopped: (kind) => poppedPanes.has(kind),

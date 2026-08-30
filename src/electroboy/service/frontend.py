@@ -159,6 +159,12 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             assets=("js/modules/calendar.js",),
         ),
         FrontendBundle(
+            id="mind-map",
+            label="Mind Map Pane",
+            owner="mind_map",
+            assets=("js/modules/mind-map.js",),
+        ),
+        FrontendBundle(
             id="documents",
             label="Document Panes",
             owner="markdown_documents",
@@ -373,6 +379,12 @@ def _contributed_assets(
             "electroboy.modules",
             "assets",
             "calendar.js",
+        ),
+        (
+            "js/modules/mind-map.js",
+            "electroboy.modules",
+            "assets",
+            "mind-map.js",
         ),
         (
             "css/agenda-pane-tools.css",

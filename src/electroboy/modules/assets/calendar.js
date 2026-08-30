@@ -71,7 +71,11 @@
         style,
       },
     };
-    runtime.layout.assignPane("calendar", item);
+    const assign = options.replaceWorkspacePane &&
+        runtime.layout.assignWorkspacePane
+      ? runtime.layout.assignWorkspacePane
+      : runtime.layout.assignPane;
+    assign("calendar", item);
   }
 
   window.ElectroBoyFrontend.registerModule({

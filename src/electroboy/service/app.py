@@ -2721,6 +2721,7 @@ def _handler_for(
                 "agenda",
                 "artifact",
                 "calendar",
+                "mind-map",
                 "progress",
                 "scratch",
                 "status",

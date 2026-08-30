@@ -46,6 +46,16 @@
       return leaf(kindMap.has(initialKind) ? initialKind : "empty");
     }
 
+    function hasNonEmptyLeaf(node) {
+      if (!node || typeof node !== "object") {
+        return false;
+      }
+      if (node.type === "leaf") {
+        return String(node.kind || "empty") !== "empty";
+      }
+      return hasNonEmptyLeaf(node.first) || hasNonEmptyLeaf(node.second);
+    }
+
     function normalize(node, seenKinds = new Set()) {
       if (!node || typeof node !== "object") {
         return null;
@@ -76,8 +86,14 @@
         return defaultLayout();
       }
       try {
-        return normalize(JSON.parse(global.localStorage.getItem(storageKey))) ||
-          defaultLayout();
+        const stored = normalize(JSON.parse(global.localStorage.getItem(storageKey)));
+        if (
+          stored &&
+          (hasNonEmptyLeaf(stored) || initialKind === "empty" || !kindMap.has(initialKind))
+        ) {
+          return stored;
+        }
+        return defaultLayout();
       } catch (error) {
         return defaultLayout();
       }

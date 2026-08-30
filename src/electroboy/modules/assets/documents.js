@@ -740,10 +740,15 @@
       return Boolean(item && item.kind === "calendar");
     }
 
+    function artifactPaneIsMindMap(item) {
+      return Boolean(item && item.kind === "mind-map");
+    }
+
     function artifactPaneIsProviderView(item) {
       return artifactPaneIsCorkboard(item) ||
         artifactPaneIsAgenda(item) ||
-        artifactPaneIsCalendar(item);
+        artifactPaneIsCalendar(item) ||
+        artifactPaneIsMindMap(item);
     }
 
     function artifactRouteUrl(path, version = runtimeState.artifactPreviewVersion) {
@@ -811,6 +816,15 @@
         parameters.set("embed", "1");
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/calendar?${parameters.toString()}`);
+      }
+      if (artifactPaneIsMindMap(item)) {
+        const mindMap = item.mindMap || item.mind_map || {};
+        const parameters = new URLSearchParams();
+        if (mindMap.provider) parameters.set("provider", mindMap.provider);
+        if (mindMap.style) parameters.set("style", mindMap.style);
+        parameters.set("embed", "1");
+        parameters.set("version", String(runtimeState.artifactPreviewVersion));
+        return contextUrl(`/artifacts/mind-map?${parameters.toString()}`);
       }
       if (item.kind === "route" && item.path) {
         return artifactRouteUrl(item.path);
@@ -1277,6 +1291,11 @@
         const agenda = item.agenda || {};
         if (agenda.provider) parameters.set("agenda_provider", agenda.provider);
         if (agenda.style) parameters.set("agenda_style", agenda.style);
+      }
+      if (artifactPaneIsMindMap(item)) {
+        const mindMap = item.mindMap || item.mind_map || {};
+        if (mindMap.provider) parameters.set("mind_map_provider", mindMap.provider);
+        if (mindMap.style) parameters.set("mind_map_style", mindMap.style);
       }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,

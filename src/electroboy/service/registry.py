@@ -27,6 +27,7 @@ _SOURCE_MODULE_FACTORIES = {
     "corkboard": "electroboy.modules.corkboard:module",
     "file_browser": "electroboy.modules.file_browser:module",
     "markdown_documents": "electroboy.modules.markdown_documents:module",
+    "mind_map": "electroboy.modules.mind_map:module",
     "progress": "electroboy.modules.progress:module",
     "project_shell": "electroboy.modules.project_shell:module",
     "recent_projects": "electroboy.modules.recent_projects:module",

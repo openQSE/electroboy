@@ -23,6 +23,7 @@ from electroboy import __version__  # noqa: E402
 from electroboy.cli import build_parser  # noqa: E402
 from electroboy.modules.agenda_workspace import render_agenda_html  # noqa: E402
 from electroboy.modules.calendar_workspace import render_calendar_html  # noqa: E402
+from electroboy.modules.mind_map_workspace import render_mind_map_html  # noqa: E402
 from electroboy.modules.creative_workspace import (  # noqa: E402
     render_corkboard_html,
 )
@@ -82,6 +83,7 @@ from electroboy.service import (  # noqa: E402
 )
 from electroboy.service.agenda import normalize_agenda_snapshot  # noqa: E402
 from electroboy.service.calendar import normalize_calendar_snapshot  # noqa: E402
+from electroboy.service.mind_map import normalize_mind_map_snapshot  # noqa: E402
 from electroboy.service.corkboard import (  # noqa: E402
     CorkboardWorkflowController,
     normalize_board_snapshot,
@@ -474,6 +476,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("structured_documents", modules)
         self.assertIn("agenda", modules)
         self.assertIn("calendar", modules)
+        self.assertIn("mind_map", modules)
         self.assertIn("corkboard", modules)
         agenda_routes = {
             (route["method"], route["path"])
@@ -493,6 +496,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(("GET", "/artifacts/calendar"), calendar_routes)
         self.assertIn(("GET", "/api/calendar"), calendar_routes)
         self.assertIn("calendar-provider", modules["calendar"]["capabilities"])
+        mind_map_routes = {
+            (route["method"], route["path"])
+            for route in modules["mind_map"]["routes"]
+        }
+        self.assertIn(("GET", "/artifacts/mind-map"), mind_map_routes)
+        self.assertIn(("GET", "/api/mind-map"), mind_map_routes)
+        self.assertIn("mind-map-provider", modules["mind_map"]["capabilities"])
         corkboard_routes = {
             (route["method"], route["path"])
             for route in modules["corkboard"]["routes"]
@@ -653,6 +663,7 @@ class ServiceTests(unittest.TestCase):
         corkboard = read_service_text_asset("js/modules/corkboard.js")
         agenda = read_service_text_asset("js/modules/agenda.js")
         calendar = read_service_text_asset("js/modules/calendar.js")
+        mind_map = read_service_text_asset("js/modules/mind-map.js")
         file_browser = read_service_text_asset("js/modules/file-browser.js")
         progress = read_service_text_asset("js/modules/progress.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
@@ -750,19 +761,27 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id: "agenda"', agenda)
         self.assertIn('kind: "calendar"', calendar)
         self.assertIn('id: "calendar"', calendar)
-        self.assertIn('runtime.layout.assignPane("calendar", item);', calendar)
+        self.assertIn("runtime.layout.assignWorkspacePane", calendar)
         self.assertIn("function calendarRange(source = {}, options = {})", calendar)
         self.assertIn("rangeStart: range.rangeStart", calendar)
         self.assertIn("const style = normalizeStyle(descriptor.style || options.style);", calendar)
+        self.assertIn('kind: "mind-map"', mind_map)
+        self.assertIn('id: "mind_map"', mind_map)
+        self.assertIn("runtime.layout.assignWorkspacePane", mind_map)
+        self.assertIn("const style = normalizeStyle(descriptor.style || options.style);", mind_map)
         self.assertIn("function artifactPaneIsAgenda(item)", documents)
         self.assertIn("function artifactPaneIsCalendar(item)", documents)
+        self.assertIn("function artifactPaneIsMindMap(item)", documents)
         self.assertIn("function artifactPaneIsProviderView(item)", documents)
         self.assertIn("/artifacts/agenda", documents)
         self.assertIn("/artifacts/calendar", documents)
+        self.assertIn("/artifacts/mind-map", documents)
         self.assertIn('parameters.set("style", agenda.style);', documents)
         self.assertIn('parameters.set("style", calendar.style);', documents)
+        self.assertIn('parameters.set("style", mindMap.style);', documents)
         self.assertIn('parameters.set("agenda_style", agenda.style);', documents)
         self.assertIn('parameters.set("calendar_style", calendar.style);', app)
+        self.assertIn('parameters.set("mind_map_style", mindMap.style);', app)
         self.assertIn(
             'let artifactAgendaStyle = params.get("agenda_style") || "";',
             pane_window,
@@ -771,9 +790,15 @@ class ServiceTests(unittest.TestCase):
             'let artifactCalendarProvider = params.get("calendar_provider") || "";',
             pane_window,
         )
+        self.assertIn(
+            'let artifactMindMapProvider = params.get("mind_map_provider") || "";',
+            pane_window,
+        )
         self.assertIn('parameters.set("style", artifactAgendaStyle);', pane_window)
         self.assertIn('parameters.set("agenda_style", agenda.style);', app)
         self.assertIn('calendar: { label: "Calendar", element: null }', app)
+        self.assertIn('"mind-map": { label: "Mind Map", element: null }', app)
+        self.assertIn('/artifacts/mind-map?${parameters.toString()}', pane_window)
         self.assertIn('/artifacts/calendar?${parameters.toString()}', pane_window)
         self.assertIn(
             "let artifactCalendarIdsExplicit = "
@@ -786,6 +811,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("range_start", artifactCalendarRangeStart);', pane_window)
         self.assertIn('parameters.set("style", artifactCalendarStyle);', pane_window)
         self.assertIn('data.type === "electroboy-calendar-month-change"', pane_window)
+        self.assertIn('"electroboy-agenda-action"', pane_window)
+        self.assertIn('"electroboy-mind-map-action"', pane_window)
+        self.assertIn("function forwardArtifactHostAction(event, data)", pane_window)
+        self.assertIn("ARTIFACT_HOST_ACTION_TYPES.has(data.type)", pane_window)
+        self.assertIn("owner.postMessage(data, window.location.origin);", pane_window)
         self.assertIn('PANE_KIND === "calendar"', pane_window)
         self.assertIn(".ad-hoc-session-dialog", shell_css)
         self.assertIn('id="showHelp"', template)
@@ -1619,6 +1649,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
         self.assertIn("assignArtifact: assignArtifactToPane", runtime)
         self.assertIn("assignPane: assignPaneContent", runtime)
+        self.assertIn("assignWorkspacePane: assignWorkspacePaneContent", runtime)
+        self.assertIn(
+            "function assignWorkspacePaneContent(kind, item, requestedLeafId = \"\")",
+            runtime,
+        )
         self.assertIn("function paneLayoutRequestedArtifact(leaf)", runtime)
         self.assertIn(
             'const content = value.content && typeof value.content === "object"',
@@ -1698,7 +1733,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("refreshPaneLayoutInstanceFrames();", assign_source)
         self.assertNotIn("renderPaneLayout();", assign_source)
         self.assertIn("runtimeApi.layout.assignArtifact(nextItems[0]);", documents)
-        self.assertIn('runtime.layout.assignPane("agenda", item);', agenda)
+        self.assertIn("runtime.layout.assignWorkspacePane", agenda)
         self.assertIn('kind === "agent" &&', workspace)
         self.assertIn(".pane-layout-leaf.active::before", styles)
         self.assertIn(
@@ -2366,6 +2401,11 @@ class ServiceTests(unittest.TestCase):
                     calendar_body,
                     calendar_content_type,
                 ) = request(server, "/pane/calendar")
+                (
+                    mind_map_status,
+                    mind_map_body,
+                    mind_map_content_type,
+                ) = request(server, "/pane/mind-map")
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -2380,6 +2420,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(calendar_status, 200)
         self.assertEqual(calendar_content_type, "text/html; charset=utf-8")
         self.assertIn('const PANE_KIND = "calendar";', calendar_body)
+        self.assertEqual(mind_map_status, 200)
+        self.assertEqual(mind_map_content_type, "text/html; charset=utf-8")
+        self.assertIn('const PANE_KIND = "mind-map";', mind_map_body)
 
     def test_pane_window_supports_persistent_split_workspaces(self) -> None:
         page = pane_window_html("agent")
@@ -2419,6 +2462,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('first: { type: "leaf", kind: "agent" }', page)
         self.assertIn('second: { type: "leaf", kind: "input" }', page)
         self.assertIn('initialLayout: initialPaneWorkspaceLayout()', page)
+        self.assertIn('{ id: "mind-map", label: "Mind Map" }', page)
+        self.assertIn("function hasNonEmptyLeaf(node)", workspace)
+        self.assertIn("return defaultLayout();", workspace)
         self.assertIn('function splitLeaf(', workspace)
         self.assertIn('function startCornerSplit(', workspace)
         self.assertIn('function startResize(', workspace)
@@ -4877,7 +4923,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("item.start_date || item.due_date || item.date", month_page)
         self.assertIn("function monthHudDebugGraph", month_page)
         self.assertIn("function monthHudDebugFactsByObservation", month_page)
+        self.assertIn("...(graph.provider_events || [])", month_page)
         self.assertIn("function renderMonthHudFactCard", month_page)
+        self.assertIn("function agendaEditableKind(item)", month_page)
         self.assertIn("@keyframes agenda-month-hud-idle", month_page)
         self.assertIn("@keyframes agenda-month-hud-branch-in", month_page)
         self.assertIn("@keyframes agenda-month-hud-card-focus", month_page)
@@ -4915,7 +4963,34 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("body.agenda-style-month-hud .month-hud-confirm-dialog", month_page)
         self.assertIn("body.agenda-style-month-hud .month-hud-fact-fanout", month_page)
+        self.assertIn("body.agenda-style-month-hud .month-hud-fact-detail", month_page)
         self.assertIn("body.agenda-style-month-hud .month-hud-fact-card", month_page)
+        self.assertIn(
+            "body.agenda-style-month-hud .month-hud-branch.debug-expanded",
+            month_page,
+        )
+        self.assertIn(
+            "body.agenda-style-month-hud .month-hud-branches:has(.debug-expanded)",
+            month_page,
+        )
+        self.assertIn("left: var(--branch-card-left, 50%);", month_page)
+        self.assertIn("top: var(--branch-card-top, 50%);", month_page)
+        self.assertIn("width: var(--branch-card-width, var(--month-hud-branch-width));", month_page)
+        self.assertIn(
+            'branch.style.setProperty("--branch-card-height"',
+            month_page,
+        )
+        self.assertIn(
+            "calc(-100% - (var(--branch-card-height, 136px) / 2) - 10px)",
+            month_page,
+        )
+        self.assertIn("transform-origin: bottom center;", month_page)
+        self.assertNotIn("translate(-50%, -50%) scale(1)", month_page)
+        self.assertNotIn("const preferredFactTop", month_page)
+        self.assertNotIn("facts-below-card", month_page)
+        self.assertNotIn("facts-left", month_page)
+        self.assertNotIn("facts-right", month_page)
+        self.assertNotIn("facts-below\"", month_page)
         self.assertIn("function openMonthHudCardEditor", month_page)
         self.assertIn("function applyAgendaInlineDraft", month_page)
         self.assertIn("function removeAgendaInlineItem", month_page)
@@ -5001,7 +5076,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('element("div", "month-hud-fact-fanout")', month_page)
         self.assertIn('element("select", "month-hud-edit-select")', month_page)
         self.assertIn('element("details", "month-hud-check-menu")', month_page)
+        self.assertIn(
+            'monthHudOptionValues(["event", "task", "deadline"], agendaEditableKind(item))',
+            month_page,
+        )
         self.assertIn('card.classList.add("month-hud-editable-card")', month_page)
+        self.assertIn('card.classList.add("month-hud-debug-card")', month_page)
+        self.assertIn("No derived facts for this trace node.", month_page)
         self.assertIn('root.classList.add("is-editing-card")', month_page)
         self.assertIn("form.noValidate = true;", month_page)
         self.assertIn('checkbox.type = "checkbox";', month_page)
@@ -5036,6 +5117,143 @@ class ServiceTests(unittest.TestCase):
             month_page,
         )
 
+    def test_mind_map_contract_renders_source_first_canvas(self) -> None:
+        snapshot = normalize_mind_map_snapshot(
+            {
+                "title": "Household Mind Map",
+                "subtitle": "Source traceability",
+                "levels": ["source", "observation", "fact"],
+                "sources": [
+                    {
+                        "id": "source:fall-calendar",
+                        "kind": "source",
+                        "title": "Fall calendar.pdf",
+                        "media_type": "application/pdf",
+                        "status": "observed",
+                        "observation_count": 1,
+                        "fact_count": 1,
+                        "details": {
+                            "record_type": "source",
+                            "source_table": "bp_ingestion.sources",
+                            "id": "fall-calendar",
+                        },
+                        "actions": [
+                            {
+                                "id": "source",
+                                "label": "View",
+                                "dispatch": "host",
+                                "payload": {
+                                    "source_id": "fall-calendar",
+                                    "filename": "Fall calendar.pdf",
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "observations": [
+                    {
+                        "id": "observation:labor-day",
+                        "kind": "observation",
+                        "title": "School closed for Labor Day",
+                        "observation_kind": "event",
+                        "confidence": 0.98,
+                        "member_labels": ["Jacob"],
+                        "details": {
+                            "record_type": "observation",
+                            "source_table": "bp_ingestion.observations",
+                            "kind": "event",
+                        },
+                    }
+                ],
+                "provider_events": [],
+                "facts": [
+                    {
+                        "id": "planning_fact:labor-day",
+                        "kind": "fact",
+                        "title": "School closed for Labor Day",
+                        "fact_type": "schedule_exception",
+                        "status": "candidate",
+                        "confidence": 0.92,
+                        "member_labels": ["Jacob"],
+                        "details": {
+                            "record_type": "planning_fact",
+                            "source_table": "bp_planning.planning_facts",
+                            "fact_type": "schedule_exception",
+                        },
+                    }
+                ],
+                "edges": [
+                    {
+                        "from": "source:fall-calendar",
+                        "to": "observation:labor-day",
+                        "relationship": "produced_observation",
+                    },
+                    {
+                        "from": "observation:labor-day",
+                        "to": "planning_fact:labor-day",
+                        "relationship": "produced_fact",
+                    },
+                ],
+            },
+            provider_id="fixture-mind-map",
+        )
+
+        page, status = render_mind_map_html(snapshot, style="month-hud")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(snapshot["provider"], "fixture-mind-map")
+        self.assertIn('<body class="mind-map-style-month-hud">', page)
+        self.assertIn('id="mindMapViewport"', page)
+        self.assertIn('id="mindMapCanvas"', page)
+        self.assertIn("function displayedLayout", page)
+        self.assertIn("const SOURCE_X = 80;", page)
+        self.assertIn("const ROOT_GAP = 54;", page)
+        self.assertIn("const BRANCH_GAP = 42;", page)
+        self.assertIn("const NODE_CLEARANCE = 36;", page)
+        self.assertIn("const NODE_SLOT_HEIGHT = 188;", page)
+        self.assertIn("const CANVAS_PADDING = 420;", page)
+        self.assertIn("const LAYOUT_VERSION = 3;", page)
+        self.assertIn("const NODE_DRAG_THRESHOLD = 4;", page)
+        self.assertIn('"levels": ["source", "observation", "fact"]', page)
+        self.assertIn("event.button !== 1", page)
+        self.assertIn("function zoomAt", page)
+        self.assertIn("function layoutHasVisibleNode", page)
+        self.assertIn("function fitSourceColumn", page)
+        self.assertIn("function subtreeSpan", page)
+        self.assertIn("function placeNode", page)
+        self.assertIn("function resolveColumnCollisions", page)
+        self.assertIn("function resolveLayoutCollisions", page)
+        self.assertIn("function nodesOverlapHorizontally", page)
+        self.assertIn("function nodeHeight", page)
+        self.assertIn("function nodeDetailEntries", page)
+        self.assertIn("function createNodeDetails", page)
+        self.assertIn("function toggleNodeDetails", page)
+        self.assertIn("function measureRenderedNodes", page)
+        self.assertIn("function scheduleMeasuredRender", page)
+        self.assertIn("function resizeCanvasToLayout", page)
+        self.assertIn("function startNodeDrag", page)
+        self.assertIn("function updateNodeDrag", page)
+        self.assertIn("function nodeActions", page)
+        self.assertIn("function dispatchMindMapHostAction", page)
+        self.assertIn('type: "electroboy-mind-map-action"', page)
+        self.assertIn('className = "mind-map-action"', page)
+        self.assertIn(".mind-map-node__actions", page)
+        self.assertIn("const manualPositions = new Map();", page)
+        self.assertIn("const measuredNodeHeights = new Map();", page)
+        self.assertIn("const detailOpen = new Set();", page)
+        self.assertIn("layoutVersion: LAYOUT_VERSION", page)
+        self.assertIn('nodes: Object.fromEntries(', page)
+        self.assertIn("element.dataset.nodeId = node.id;", page)
+        self.assertIn('if (node.kind === "observation") return "observation";', page)
+        self.assertIn('id: "__details"', page)
+        self.assertIn('"source_table": "bp_ingestion.observations"', page)
+        self.assertIn('"source_table": "bp_planning.planning_facts"', page)
+        self.assertIn('element.addEventListener("pointerdown"', page)
+        self.assertIn('window.addEventListener("pointermove", updateNodeDrag);', page)
+        self.assertIn("const worldX = (pointerX - pan.x) / previousScale;", page)
+        self.assertIn('"title": "Fall calendar.pdf"', page)
+        self.assertIn('"fact_type": "schedule_exception"', page)
+
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
         agenda = read_service_text_asset("js/modules/agenda.js")
@@ -5044,7 +5262,7 @@ class ServiceTests(unittest.TestCase):
         page = pane_window_html("agenda")
 
         self.assertIn('agenda: { label: "Agenda", element: null }', runtime)
-        self.assertIn('runtime.layout.assignPane("agenda", item);', agenda)
+        self.assertIn("runtime.layout.assignWorkspacePane", agenda)
         self.assertIn("function styles()", agenda)
         self.assertIn('Object.freeze({ id: "hud", label: "HUD" })', agenda)
         self.assertIn(
