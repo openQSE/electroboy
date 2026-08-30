@@ -986,6 +986,7 @@
     const TERMINAL_OUTPUT_FLUSH_CHARS = 65536;
     const ARTIFACT_HOST_ACTION_TYPES = new Set([
       "electroboy-agenda-action",
+      "electroboy-agenda-state",
       "electroboy-mind-map-action",
     ]);
     let artifactZoom = clampArtifactZoom(Number(params.get("document_zoom") || "100"));
@@ -1292,6 +1293,15 @@
         url.searchParams.set("session_id", selectedShellSessionId);
       }
       return `${url.pathname}${url.search}`;
+    }
+
+    function routeArtifactUrl(path) {
+      const url = new URL(path, window.location.origin);
+      url.searchParams.set("embed", "1");
+      url.searchParams.set("zoom", String(artifactZoom));
+      url.searchParams.set("version", String(artifactVersion));
+      const route = `${url.pathname}?${url.searchParams.toString()}`;
+      return contextUrl(route);
     }
 
     async function loadProjectPayload() {
@@ -3518,8 +3528,7 @@
         return `${url.pathname}${url.search}${url.hash}`;
       }
       if (artifactKind === "route" && artifactRoutePath) {
-        const routeUrl = contextUrl(`${artifactRoutePath}?embed=1`);
-        return `${routeUrl}&zoom=${artifactZoom}&version=${artifactVersion}`;
+        return routeArtifactUrl(artifactRoutePath);
       }
       if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
         if (!artifactCorkboardId) {

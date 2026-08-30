@@ -2263,6 +2263,62 @@ def render_agenda_html(
     const embeddedAgenda = new URLSearchParams(window.location.search).get("embed") === "1";
     document.body.classList.toggle("agenda-embedded", embeddedAgenda);
 
+    function telemetryEnabled() {{
+      const current = new URLSearchParams(window.location.search);
+      if (current.get("telemetry_page_id") || current.get("telemetry_tab_id")) {{
+        return true;
+      }}
+      return ["telemetry", "frontend_telemetry", "frontend_debug"].some((key) => {{
+        const value = String(current.get(key) || "").trim().toLowerCase();
+        return ["1", "true", "yes", "on"].includes(value);
+      }});
+    }}
+
+    function telemetryParam(key) {{
+      return new URLSearchParams(window.location.search).get(key) || "";
+    }}
+
+    function agendaStateCounts() {{
+      const counts = {{}};
+      for (const item of AGENDA_DATA.items || []) {{
+        const state = item.status || "unknown";
+        counts[state] = (counts[state] || 0) + 1;
+      }}
+      return counts;
+    }}
+
+    function emitAgendaTelemetry(eventName, details = {{}}) {{
+      if (!telemetryEnabled()) return;
+      const cards = [...document.querySelectorAll(".agenda-item")];
+      window.fetch("/api/frontend/debug", {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          better_planned: AGENDA_DATA.provider === "better-planned",
+          source: "agenda-renderer",
+          event: eventName,
+          created_at: new Date().toISOString(),
+          provider: AGENDA_DATA.provider,
+          style: AGENDA_DATA.style || "default",
+          item_count: (AGENDA_DATA.items || []).length,
+          rendered_card_count: cards.length,
+          section_count: (AGENDA_DATA.sections || []).length,
+          state_counts: agendaStateCounts(),
+          filters: selectedFilterValues(),
+          range: agendaRange(),
+          workspace_id: telemetryParam("workspace_id"),
+          context_id: telemetryParam("context_id"),
+          connection_id: telemetryParam("connection_id"),
+          telemetry_page_id: telemetryParam("telemetry_page_id"),
+          telemetry_tab_id: telemetryParam("telemetry_tab_id"),
+          ...details,
+        }}),
+        keepalive: true,
+      }}).catch(() => {{
+        // Diagnostic telemetry must never affect agenda rendering.
+      }});
+    }}
+
     function contextUrl(path) {{
       const url = new URL(path, window.location.origin);
       const current = new URLSearchParams(window.location.search);
@@ -3970,6 +4026,9 @@ def render_agenda_html(
       branchesRoot.replaceChildren();
       stage.setAttribute("aria-label", "Month timeline");
       scheduleMonthHudLayout();
+      window.setTimeout(() => {{
+        emitAgendaTelemetry("agenda.cards.rendered", {{ render_mode: "month-hud" }});
+      }}, 0);
     }}
 
     function renderAgenda() {{
@@ -3980,6 +4039,7 @@ def render_agenda_html(
       notifyAgendaHost();
       if (!(AGENDA_DATA.sections || []).length) {{
         sectionsRoot.append(element("section", "agenda-empty", AGENDA_DATA.empty_message || "Nothing is on the agenda."));
+        emitAgendaTelemetry("agenda.cards.rendered", {{ render_mode: "sectioned" }});
         return;
       }}
       for (const section of AGENDA_DATA.sections) {{
@@ -3992,6 +4052,7 @@ def render_agenda_html(
         container.append(heading, items);
         sectionsRoot.append(container);
       }}
+      emitAgendaTelemetry("agenda.cards.rendered", {{ render_mode: "sectioned" }});
     }}
 
     function renderSelectedAgendaStyle() {{
@@ -4046,6 +4107,10 @@ def render_agenda_html(
       }} else {{
         return;
       }}
+      emitAgendaTelemetry("agenda.command", {{
+        action: String(command.action || ""),
+        filter_id: String(command.filterId || ""),
+      }});
       window.location.assign(url);
     }}
 
@@ -4071,7 +4136,14 @@ def render_agenda_html(
     }}
 
     window.addEventListener("message", handleAgendaCommand);
-    if (!restoreStoredFilters()) renderSelectedAgendaStyle();
+    if (!restoreStoredFilters()) {{
+      emitAgendaTelemetry("agenda.snapshot.loaded", {{
+        render_mode: (AGENDA_DATA.style || "default") === "month-hud"
+          ? "month-hud"
+          : "sectioned",
+      }});
+      renderSelectedAgendaStyle();
+    }}
   </script>
 </body>
 </html>
