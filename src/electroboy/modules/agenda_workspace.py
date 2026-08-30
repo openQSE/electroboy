@@ -3657,13 +3657,26 @@ def render_agenda_html(
           return;
         }}
 
-        const cardWidth = branchCardWidth(width);
+        let cardWidth = branchCardWidth(width);
         const gap = compact ? 18 : 24;
         const margin = compact ? 18 : 34;
         const availableWidth = Math.max(cardWidth, width - margin * 2);
-        const columns = compact
+        let columns = compact
           ? 1
           : Math.max(1, Math.floor((availableWidth + gap) / (cardWidth + gap)));
+        if (!compact) {{
+          const balancedColumns = Math.max(1, Math.ceil(branches.length / 2));
+          if (branches.length > columns * 2 && balancedColumns > columns) {{
+            const minBalancedWidth = 204;
+            const balancedWidth = Math.floor(
+              (availableWidth - gap * (balancedColumns - 1)) / balancedColumns,
+            );
+            if (balancedWidth >= minBalancedWidth) {{
+              columns = balancedColumns;
+              cardWidth = Math.min(cardWidth, balancedWidth);
+            }}
+          }}
+        }}
         const cardHeights = branches.map((branch) => {{
           const card = branch.querySelector(".agenda-item");
           return card ? card.offsetHeight || 136 : 136;
