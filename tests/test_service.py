@@ -1405,7 +1405,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
         self.assertIn(
             '"agent",\n      "artifact",\n      "agenda",\n'
-            '      "calendar",\n      "scratch",\n      "status"',
+            '      "calendar",\n      "mind-map",\n      "scratch",\n'
+            '      "status"',
             runtime,
         )
         availability_start = runtime.index("function paneLayoutKindAvailable(")
@@ -1420,7 +1421,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('kind !== "artifact"', availability_source)
         self.assertNotIn("artifactPreviewItems.length", availability_source)
         self.assertIn("const duplicateSingleton =", runtime)
-        self.assertIn('content?.kind === "agenda"', runtime)
+        self.assertIn('["agenda", "calendar", "mind-map"].includes(content?.kind)', runtime)
+        self.assertIn('item.kind === "agenda"', runtime)
         self.assertIn('item.kind === "calendar"', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind)", runtime)
         self.assertIn("if (validKind && duplicateSingleton)", runtime)
@@ -1728,7 +1730,7 @@ class ServiceTests(unittest.TestCase):
             switch_source.index("await applyWorkflowMode();", switch_source.index("await restoreContext();")),
         )
         assign_start = runtime.index("function assignArtifactToPane(")
-        assign_end = runtime.index("function handlePaneLayoutMessage(", assign_start)
+        assign_end = runtime.index("function assignPaneLeafContent(", assign_start)
         assign_source = runtime[assign_start:assign_end]
         self.assertIn("refreshPaneLayoutInstanceFrames();", assign_source)
         self.assertNotIn("renderPaneLayout();", assign_source)

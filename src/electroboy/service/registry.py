@@ -127,13 +127,15 @@ class RouteDefinition:
     path: str
     owner: str
     handler_name: str
+    requires_workspace_lease: bool = True
 
-    def payload(self) -> dict[str, str]:
+    def payload(self) -> dict[str, object]:
         return {
             "method": self.method,
             "path": self.path,
             "owner": self.owner,
             "handler": self.handler_name,
+            "requires_workspace_lease": self.requires_workspace_lease,
         }
 
 

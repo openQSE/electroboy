@@ -144,6 +144,7 @@ class RouteMatch:
     path: str
     owner: str
     handler_name: str
+    requires_workspace_lease: bool
     handler: RouteHandler = field(repr=False, compare=False)
 
 
@@ -164,6 +165,7 @@ class RouteDispatcher:
             path=route.path,
             owner=route.owner,
             handler_name=route.handler_name,
+            requires_workspace_lease=route.requires_workspace_lease,
             handler=handler,
         )
 
@@ -183,7 +185,8 @@ class RouteDispatcher:
             "/api/workspaces/close",
         }
         if (
-            "workspace_id" in request.params
+            match.requires_workspace_lease
+            and "workspace_id" in request.params
             and request.workspace_id
             and request.path not in workspace_routes
         ):

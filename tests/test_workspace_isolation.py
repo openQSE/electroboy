@@ -10,6 +10,9 @@ from pathlib import Path
 from unittest import mock
 
 from electroboy.service import ServiceState, create_server
+from electroboy.service.http import JsonResponse
+from electroboy.service.registry import RouteDefinition
+from electroboy.service.routes import RouteDispatcher, RouteOperations, RouteRequest
 from electroboy.service.sessions import AgentSessionError
 from electroboy.service.workspaces import WorkspaceRegistry
 from electroboy.state_store import StateStore
@@ -37,6 +40,64 @@ class WorkspaceIsolationTests(unittest.TestCase):
             return response.status, body
         finally:
             connection.close()
+
+    def test_route_can_opt_out_of_workspace_lease_validation(self) -> None:
+        class RejectingWorkspaces:
+            def validate(self, *_args: object) -> None:
+                raise ValueError("workspace lease should not be validated")
+
+        class CapturingTransport:
+            response: object | None = None
+
+            def read_json_body(self) -> dict[str, object]:
+                return {}
+
+            def stream_session_events(self, _session: object) -> None:
+                raise AssertionError("unexpected stream")
+
+            def stream_agent_events(self, _context_id: str) -> None:
+                raise AssertionError("unexpected stream")
+
+            def stream_artifact_events(self, _targets: object) -> None:
+                raise AssertionError("unexpected stream")
+
+            def stream_progress_events(self, *_args: object) -> None:
+                raise AssertionError("unexpected stream")
+
+            def emit_response(self, response: object) -> None:
+                self.response = response
+
+        dispatcher = RouteDispatcher()
+        dispatcher.register(
+            RouteDefinition(
+                "POST",
+                "/api/workflow/recover",
+                "workflow",
+                "recover",
+                requires_workspace_lease=False,
+            ),
+            lambda _request: JsonResponse({"status": "recovered"}),
+        )
+        transport = CapturingTransport()
+        request = RouteRequest(
+            method="POST",
+            path="/api/workflow/recover",
+            query="workspace_id=workspace-1&connection_id=tab-a&lease_token=stale",
+            services=mock.Mock(workspaces=RejectingWorkspaces()),
+            config=mock.Mock(root=Path("."), state_root=Path(".")),
+            transport=transport,
+            operations=RouteOperations(
+                service_index_factory=lambda: "",
+                health_payload_factory=lambda: {},
+                frontend_asset_payload_factory=lambda: [],
+                file_browser_factory=lambda _path, _mode: "",
+            ),
+        )
+
+        self.assertTrue(dispatcher.dispatch(request))
+        self.assertIsInstance(transport.response, JsonResponse)
+        assert isinstance(transport.response, JsonResponse)
+        self.assertEqual(transport.response.payload, {"status": "recovered"})
 
     def test_workspace_routes_enforce_leases_and_switch_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
