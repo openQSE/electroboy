@@ -239,6 +239,7 @@
     let frontendDebugTickTimer = null;
     let frontendDebugLongTaskObserver = null;
     let frontendDebugLastError = "";
+    let frontendDebugLastPaneLayoutReconciliation = null;
     let frontendDebugBaseTitle = document.title || "ElectroBoy";
     let frontendDebugPaintMarker = null;
     let frontendDebugPaintSequence = 0;
@@ -1288,6 +1289,142 @@
       return paneLayoutLeaves().map((leaf) => leaf.kind);
     }
 
+    function paneLayoutLeafElementById(id) {
+      return Array.from(
+        outputWorkbench.querySelectorAll(".pane-layout-leaf"),
+      ).find((candidate) => candidate.dataset.paneLayoutId === id) || null;
+    }
+
+    function paneLayoutLeafShouldBeVisible(leaf, element = null) {
+      if (
+        !leaf ||
+        poppedPanes.has(leaf.kind) ||
+        poppedPaneLeafIds.has(leaf.id)
+      ) {
+        return false;
+      }
+      if (leaf.kind === "empty" || INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)) {
+        return true;
+      }
+      if (element && element.querySelector(".pane-layout-instance-frame")) {
+        return true;
+      }
+      const definition = PANE_LAYOUT_KINDS[leaf.kind];
+      return Boolean(definition && !definition.element?.hidden);
+    }
+
+    function paneLayoutLeafNeedsRender(leaf) {
+      if (!paneLayoutLeafShouldBeVisible(leaf)) {
+        return false;
+      }
+      const element = paneLayoutLeafElementById(leaf.id);
+      if (!element || element.hidden || element.closest("[hidden]")) {
+        return true;
+      }
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        rect.width <= 0 ||
+        rect.height <= 0
+      );
+    }
+
+    function paneLayoutDomKind(element) {
+      if (!element) {
+        return "missing";
+      }
+      if (element.classList.contains("pane-layout-split")) {
+        return "split";
+      }
+      if (element.classList.contains("pane-layout-leaf")) {
+        return "leaf";
+      }
+      return element.className ? String(element.className) : element.tagName;
+    }
+
+    function collectPaneLayoutMismatchReasons(
+      node = paneLayout,
+      element = outputWorkbench.firstElementChild,
+      path = "root",
+      reasons = [],
+    ) {
+      if (!node) {
+        if (element) {
+          reasons.push(`${path}:model-missing-dom-${paneLayoutDomKind(element)}`);
+        }
+        return reasons;
+      }
+      if (!element) {
+        reasons.push(`${path}:dom-missing-model-${node.type}`);
+        return reasons;
+      }
+      if (node.type === "split") {
+        if (!element.classList.contains("pane-layout-split")) {
+          reasons.push(`${path}:model-split-dom-${paneLayoutDomKind(element)}`);
+          return reasons;
+        }
+        collectPaneLayoutMismatchReasons(
+          node.first,
+          element.children[0],
+          `${path}.first`,
+          reasons,
+        );
+        collectPaneLayoutMismatchReasons(
+          node.second,
+          element.children[2],
+          `${path}.second`,
+          reasons,
+        );
+        return reasons;
+      }
+      if (!element.classList.contains("pane-layout-leaf")) {
+        reasons.push(`${path}:model-leaf-dom-${paneLayoutDomKind(element)}`);
+        return reasons;
+      }
+      if (element.dataset.paneLayoutId !== node.id) {
+        reasons.push(`${path}:leaf-id-mismatch`);
+      }
+      if (element.dataset.paneKind !== node.kind) {
+        reasons.push(`${path}:leaf-kind-mismatch`);
+      }
+      if (!paneLayoutLeafShouldBeVisible(node, element)) {
+        return reasons;
+      }
+      if (element.hidden || element.closest("[hidden]")) {
+        reasons.push(`${path}:visible-leaf-hidden`);
+        return reasons;
+      }
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      if (style.display === "none") {
+        reasons.push(`${path}:visible-leaf-display-none`);
+      }
+      if (style.visibility === "hidden") {
+        reasons.push(`${path}:visible-leaf-visibility-hidden`);
+      }
+      if (rect.width <= 0 || rect.height <= 0) {
+        reasons.push(`${path}:visible-leaf-zero-size`);
+      }
+      return reasons;
+    }
+
+    function paneLayoutConsistencyPayload() {
+      const root = outputWorkbench.firstElementChild;
+      const reasons = collectPaneLayoutMismatchReasons();
+      return {
+        consistent: reasons.length === 0,
+        reasons,
+        model_root_type: paneLayout?.type || "",
+        dom_root_kind: paneLayoutDomKind(root),
+        model_leaf_count: paneLayoutLeaves().length,
+        dom_leaf_count: outputWorkbench.querySelectorAll(
+          ".pane-layout-leaf",
+        ).length,
+      };
+    }
+
     function frontendDebugElementPayload(element) {
       if (!element) {
         return null;
@@ -1295,6 +1432,7 @@
       const rect = element.getBoundingClientRect();
       const style = window.getComputedStyle(element);
       return {
+        class_name: String(element.className || ""),
         hidden: Boolean(element.hidden),
         display: style.display,
         visibility: style.visibility,
@@ -1332,9 +1470,7 @@
       try {
         const root = outputWorkbench.firstElementChild;
         const leaves = paneLayoutLeaves().map((leaf) => {
-          const element = Array.from(
-            outputWorkbench.querySelectorAll(".pane-layout-leaf"),
-          ).find((candidate) => candidate.dataset.paneLayoutId === leaf.id);
+          const element = paneLayoutLeafElementById(leaf.id);
           const frame = element
             ? element.querySelector(".pane-layout-instance-frame")
             : null;
@@ -1366,6 +1502,8 @@
           root: frontendDebugElementPayload(root),
           active_leaf_id: activePaneLayoutLeafId,
           active_kind: paneLayoutLeafById(activePaneLayoutLeafId)?.kind || "",
+          consistency: paneLayoutConsistencyPayload(),
+          last_reconciliation: frontendDebugLastPaneLayoutReconciliation,
           popped_panes: Array.from(poppedPanes),
           popped_leaf_ids: Array.from(poppedPaneLeafIds),
           leaves,
@@ -2460,6 +2598,51 @@
       scheduleFitTerminal();
     }
 
+    function recordPaneLayoutReconciliation(reason, before, after, rendered) {
+      frontendDebugLastPaneLayoutReconciliation = {
+        reason,
+        rendered,
+        before_consistent: before.consistent,
+        before_reasons: before.reasons,
+        after_consistent: after.consistent,
+        after_reasons: after.reasons,
+        completed_at: new Date().toISOString(),
+      };
+    }
+
+    function reconcilePaneLayout(reason = "pane-layout") {
+      if (!paneLayout) {
+        return;
+      }
+      const before = paneLayoutConsistencyPayload();
+      if (!before.consistent) {
+        bumpFrontendDebugCounter("paneLayout.reconcileRender");
+        renderPaneLayout();
+        recordPaneLayoutReconciliation(
+          reason,
+          before,
+          paneLayoutConsistencyPayload(),
+          true,
+        );
+        return;
+      }
+      refreshPaneLayoutVisibility();
+      refreshPaneLayoutInstanceFrames();
+      const afterRefresh = paneLayoutConsistencyPayload();
+      if (!afterRefresh.consistent) {
+        bumpFrontendDebugCounter("paneLayout.reconcileRenderAfterRefresh");
+        renderPaneLayout();
+        recordPaneLayoutReconciliation(
+          reason,
+          afterRefresh,
+          paneLayoutConsistencyPayload(),
+          true,
+        );
+        return;
+      }
+      recordPaneLayoutReconciliation(reason, before, afterRefresh, false);
+    }
+
     function splitPaneLayoutLeaf(id, direction, ratio = 0.5, emptyFirst = false) {
       const leaf = paneLayoutLeafById(id);
       if (!leaf) {
@@ -2612,7 +2795,7 @@
           setActivePaneLayoutLeaf(existing.id);
           activatePaneLayoutKind(kind);
         } else {
-          refreshPaneLayoutVisibility();
+          reconcilePaneLayout(`ensurePaneInLayout:${kind}:existing`);
         }
         return;
       }
@@ -2726,8 +2909,7 @@
         setActivePaneLayoutLeaf(previousActiveLeafId);
       }
       savePaneLayout();
-      refreshPaneLayoutVisibility();
-      refreshPaneLayoutInstanceFrames();
+      reconcilePaneLayout(`assignPaneContent:${kind}`);
     }
 
     function assignPaneLeafContent(leaf, kind, item) {
@@ -8149,6 +8331,7 @@
         isPopped: (kind) => poppedPanes.has(kind),
         popOutPane: popOutMountedPane,
         dockPane: dockPoppedPane,
+        reconcile: reconcilePaneLayout,
         showProgressPane,
         applyStoredShellHeight: applyStoredProjectShellPaneHeight,
       },
