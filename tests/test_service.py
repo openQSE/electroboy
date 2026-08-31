@@ -798,6 +798,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("agenda_style", agenda.style);', documents)
         self.assertIn('parameters.set("calendar_style", calendar.style);', app)
         self.assertIn('parameters.set("mind_map_style", mindMap.style);', app)
+        self.assertIn(
+            'agenda_style: url.searchParams.get("agenda_style") || ""',
+            app,
+        )
+        self.assertIn(
+            'calendar_style: url.searchParams.get("calendar_style") || ""',
+            app,
+        )
+        self.assertIn(
+            'mind_map_style: url.searchParams.get("mind_map_style") || ""',
+            app,
+        )
         self.assertIn('assignments: { label: "Assignments", element: null }', app)
         self.assertIn("pane_layout: frontendDebugPaneLayoutPayload()", app)
         self.assertIn(
@@ -1699,7 +1711,10 @@ class ServiceTests(unittest.TestCase):
         change_kind_source = runtime[change_kind_start:change_kind_end]
         self.assertNotIn("leaf.content = null", change_kind_source)
         self.assertNotIn('leaf.projectRoot = ""', change_kind_source)
-        self.assertIn("function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)", runtime)
+        self.assertIn(
+            'function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, reason = "pane-layout")',
+            runtime,
+        )
         self.assertIn('"electroboy:pane-set-agent-session"', runtime)
         self.assertIn('"electroboy:pane-agent-session-change"', runtime)
         self.assertIn('"electroboy:pane-set-artifact"', runtime)
@@ -1762,8 +1777,11 @@ class ServiceTests(unittest.TestCase):
         assign_start = runtime.index("function assignArtifactToPane(")
         assign_end = runtime.index("function assignPaneLeafContent(", assign_start)
         assign_source = runtime[assign_start:assign_end]
+        self.assertIn("refreshPaneLayoutInstanceFrameForLeaf(", assign_source)
         self.assertIn("reconcilePaneLayout(`assignPaneContent:${kind}`);", assign_source)
         self.assertIn("function paneLayoutConsistencyPayload()", runtime)
+        self.assertIn("last_frame_refresh: frontendDebugLastPaneLayoutFrameRefresh", runtime)
+        self.assertIn("function refreshPaneLayoutInstanceFrameForLeaf(", runtime)
         self.assertIn("function reconcilePaneLayout(", runtime)
         self.assertIn("paneLayout.reconcileRender", runtime)
         self.assertIn("consistency: paneLayoutConsistencyPayload()", runtime)
@@ -5336,6 +5354,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('"documents",\n      "showArtifactPreviews"', agenda)
         self.assertIn('const PANE_KIND = "agenda";', page)
         self.assertIn("ElectroBoyAgendaPaneTools.mount", page)
+        self.assertIn("initialStyle: artifactAgendaStyle", page)
         self.assertNotIn(
             'PANE_KIND === "agenda" && window.ElectroBoyFilePaneTools',
             page,
@@ -5344,7 +5363,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('controller.addSection("agenda-filters", "Filters")', tools)
         self.assertIn('controller.addSection("agenda-date", "Date")', tools)
         self.assertIn("function agendaStyleClass", tools)
-        self.assertIn("paneRoot.dataset.agendaStyle = agendaStyleClass", tools)
+        self.assertIn("paneRoot.dataset.agendaStyle = nextStyle", tools)
+        self.assertIn("const initialStyle = agendaStyleClass(options.initialStyle)", tools)
+        self.assertIn("agenda.tools.mounted", tools)
+        self.assertIn("agenda.tools.style_applied", tools)
+        self.assertIn("agenda.tools.state_received", tools)
+        self.assertIn("agenda.tools.initial_style_mismatch", tools)
         self.assertIn('post("set-style"', tools)
         self.assertIn("function agendaActionHost()", tools)
         self.assertIn('data.type !== "electroboy-agenda-action"', tools)

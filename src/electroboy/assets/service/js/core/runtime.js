@@ -240,6 +240,7 @@
     let frontendDebugLongTaskObserver = null;
     let frontendDebugLastError = "";
     let frontendDebugLastPaneLayoutReconciliation = null;
+    let frontendDebugLastPaneLayoutFrameRefresh = null;
     let frontendDebugBaseTitle = document.title || "ElectroBoy";
     let frontendDebugPaintMarker = null;
     let frontendDebugPaintSequence = 0;
@@ -1455,8 +1456,11 @@
           artifact: url.searchParams.get("artifact") || "",
           artifact_path: url.searchParams.get("artifact_path") || "",
           agenda_provider: url.searchParams.get("agenda_provider") || "",
+          agenda_style: url.searchParams.get("agenda_style") || "",
           calendar_provider: url.searchParams.get("calendar_provider") || "",
+          calendar_style: url.searchParams.get("calendar_style") || "",
           mind_map_provider: url.searchParams.get("mind_map_provider") || "",
+          mind_map_style: url.searchParams.get("mind_map_style") || "",
           pane_instance_id: url.searchParams.get("pane_instance_id") || "",
           has_lease_token: url.searchParams.has("lease_token"),
           search_keys: Array.from(url.searchParams.keys()).sort(),
@@ -1504,6 +1508,7 @@
           active_kind: paneLayoutLeafById(activePaneLayoutLeafId)?.kind || "",
           consistency: paneLayoutConsistencyPayload(),
           last_reconciliation: frontendDebugLastPaneLayoutReconciliation,
+          last_frame_refresh: frontendDebugLastPaneLayoutFrameRefresh,
           popped_panes: Array.from(poppedPanes),
           popped_leaf_ids: Array.from(poppedPaneLeafIds),
           leaves,
@@ -2403,10 +2408,40 @@
       return `${url.pathname}${url.search}`;
     }
 
+    function paneLayoutContentSignature(leaf) {
+      try {
+        return JSON.stringify(paneLayoutRequestedContent(leaf) || null);
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function recordPaneLayoutFrameRefresh(reason, leaf, outcome, details = {}) {
+      frontendDebugLastPaneLayoutFrameRefresh = {
+        reason,
+        outcome,
+        leaf_id: leaf?.id || "",
+        kind: leaf?.kind || "",
+        content_kind: String(leaf?.content?.kind || ""),
+        content_path: String(leaf?.content?.path || ""),
+        completed_at: new Date().toISOString(),
+        ...details,
+      };
+      bumpFrontendDebugCounter(`paneLayout.frame.${outcome}`);
+      if (leaf?.kind) {
+        bumpFrontendDebugCounter(`paneLayout.frame.${outcome}.${leaf.kind}`);
+      }
+    }
+
+    function markPaneLayoutFrameContent(frame, leaf) {
+      frame.dataset.paneContentSignature = paneLayoutContentSignature(leaf);
+    }
+
     function buildPaneLayoutInstanceFrame(leaf) {
       const frame = document.createElement("iframe");
       frame.className = "pane-layout-instance-frame";
       frame.title = `${PANE_LAYOUT_KINDS[leaf.kind].label} pane`;
+      markPaneLayoutFrameContent(frame, leaf);
       frame.src = paneLayoutInstanceUrl(leaf);
       frame.addEventListener("load", () => {
         frame.dataset.paneLoaded = "1";
@@ -2417,7 +2452,7 @@
       return frame;
     }
 
-    function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl) {
+    function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, reason = "pane-layout") {
       if (
         (leaf.kind !== "agent" && !INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)) ||
         frame.dataset.paneLoaded !== "1" ||
@@ -2432,6 +2467,16 @@
           nextUrl.searchParams.get("context_id")
       ) {
         return false;
+      }
+      const nextSignature = paneLayoutContentSignature(leaf);
+      if (
+        currentUrl.href === nextUrl.href &&
+        frame.dataset.paneContentSignature === nextSignature
+      ) {
+        recordPaneLayoutFrameRefresh(reason, leaf, "unchanged", {
+          frame_pathname: currentUrl.pathname,
+        });
+        return true;
       }
       frame.contentWindow.postMessage(
         leaf.kind === "agent"
@@ -2451,10 +2496,54 @@
           },
         window.location.origin,
       );
+      frame.dataset.paneContentSignature = nextSignature;
+      recordPaneLayoutFrameRefresh(reason, leaf, "posted", {
+        frame_pathname: currentUrl.pathname,
+      });
       return true;
     }
 
-    function refreshPaneLayoutInstanceFrames() {
+    function setPaneLayoutFrameSource(frame, leaf, nextUrl, reason) {
+      frame.dataset.paneLoaded = "";
+      markPaneLayoutFrameContent(frame, leaf);
+      frame.src = nextUrl.href;
+      recordPaneLayoutFrameRefresh(reason, leaf, "reloaded", {
+        frame_pathname: nextUrl.pathname,
+      });
+    }
+
+    function refreshPaneLayoutInstanceFrameForLeaf(leaf, reason = "pane-layout") {
+      if (!paneLayout || !leaf) {
+        return false;
+      }
+      const element = paneLayoutLeafElementById(leaf.id);
+      const frame = element
+        ? element.querySelector(".pane-layout-instance-frame")
+        : null;
+      if (!element || !frame || !paneLayoutLeafShouldBeVisible(leaf, element)) {
+        recordPaneLayoutFrameRefresh(reason, leaf, "missing");
+        reconcilePaneLayout(`${reason}:missing-frame`);
+        return true;
+      }
+      refreshPaneLayoutVisibility();
+      const nextUrl = new URL(
+        paneLayoutInstanceUrl(leaf),
+        window.location.origin,
+      );
+      if (updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, reason)) {
+        return true;
+      }
+      if (frame.src !== nextUrl.href) {
+        setPaneLayoutFrameSource(frame, leaf, nextUrl, reason);
+        return true;
+      }
+      recordPaneLayoutFrameRefresh(reason, leaf, "unchanged", {
+        frame_pathname: nextUrl.pathname,
+      });
+      return true;
+    }
+
+    function refreshPaneLayoutInstanceFrames(reason = "pane-layout") {
       if (!paneLayout) {
         return;
       }
@@ -2470,12 +2559,11 @@
           paneLayoutInstanceUrl(leaf),
           window.location.origin,
         );
-        if (updateLoadedPaneLayoutFrame(frame, leaf, nextUrl)) {
+        if (updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, reason)) {
           continue;
         }
         if (frame.src !== nextUrl.href) {
-          frame.dataset.paneLoaded = "";
-          frame.src = nextUrl.href;
+          setPaneLayoutFrameSource(frame, leaf, nextUrl, reason);
         }
       }
     }
@@ -2627,7 +2715,7 @@
         return;
       }
       refreshPaneLayoutVisibility();
-      refreshPaneLayoutInstanceFrames();
+      refreshPaneLayoutInstanceFrames(reason);
       const afterRefresh = paneLayoutConsistencyPayload();
       if (!afterRefresh.consistent) {
         bumpFrontendDebugCounter("paneLayout.reconcileRenderAfterRefresh");
@@ -2909,7 +2997,9 @@
         setActivePaneLayoutLeaf(previousActiveLeafId);
       }
       savePaneLayout();
-      reconcilePaneLayout(`assignPaneContent:${kind}`);
+      if (!refreshPaneLayoutInstanceFrameForLeaf(leaf, `assignPaneContent:${kind}`)) {
+        reconcilePaneLayout(`assignPaneContent:${kind}`);
+      }
     }
 
     function assignPaneLeafContent(leaf, kind, item) {

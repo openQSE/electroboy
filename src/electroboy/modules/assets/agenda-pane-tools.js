@@ -33,13 +33,58 @@
     return style.replace(/[^a-z0-9-]+/g, "-") || "default";
   }
 
+  function telemetryEnabled() {
+    const current = new URLSearchParams(window.location.search);
+    if (current.get("telemetry_page_id") || current.get("telemetry_tab_id")) {
+      return true;
+    }
+    return ["telemetry", "frontend_telemetry", "frontend_debug"].some((key) => {
+      const value = String(current.get(key) || "").trim().toLowerCase();
+      return ["1", "true", "yes", "on"].includes(value);
+    });
+  }
+
+  function telemetryParam(key) {
+    return new URLSearchParams(window.location.search).get(key) || "";
+  }
+
   function mount(options) {
     const controller = options.controller;
     const frame = options.frame;
     const paneRoot = options.host
       || (frame && frame.closest(".pane-body"))
       || document.body;
-    let agendaState = null;
+    const initialStyleProvided = Boolean(String(options.initialStyle || "").trim());
+    const initialStyle = agendaStyleClass(options.initialStyle);
+    let agendaState = initialStyleProvided ? { style: initialStyle } : null;
+    let stateUpdateCount = 0;
+
+    function emitToolsTelemetry(eventName, details = {}) {
+      if (!telemetryEnabled()) return;
+      window.fetch("/api/frontend/debug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "agenda-pane-tools",
+          event: eventName,
+          created_at: new Date().toISOString(),
+          pane_kind: "agenda",
+          pane_instance_id: telemetryParam("pane_instance_id"),
+          workspace_id: telemetryParam("workspace_id"),
+          context_id: telemetryParam("context_id"),
+          connection_id: telemetryParam("connection_id"),
+          telemetry_page_id: telemetryParam("telemetry_page_id"),
+          telemetry_tab_id: telemetryParam("telemetry_tab_id"),
+          initial_style: initialStyleProvided ? initialStyle : "",
+          current_style: paneRoot.dataset.agendaStyle || "",
+          state_update_count: stateUpdateCount,
+          ...details,
+        }),
+        keepalive: true,
+      }).catch(() => {
+        // Diagnostic telemetry must never affect pane tools.
+      });
+    }
 
     const displayBody = controller.addSection("agenda-display", "Display");
     const styleLabel = element("label", "agenda-tool-style-field");
@@ -88,7 +133,17 @@
     resultsBody.append(resultCount, jumpToday, reset);
 
     function post(action, values = {}) {
-      if (!frame || !frame.contentWindow) return;
+      if (!frame || !frame.contentWindow) {
+        emitToolsTelemetry("agenda.tools.command_skipped", {
+          action,
+          reason: "missing_frame",
+        });
+        return;
+      }
+      emitToolsTelemetry("agenda.tools.command_posted", {
+        action,
+        request_reason: String(values.requestReason || ""),
+      });
       frame.contentWindow.postMessage({
         type: "electroboy-agenda-command",
         action,
@@ -167,10 +222,19 @@
       styleSelect.disabled = styles.length < 2;
     }
 
-    function applyAgendaStyle() {
-      paneRoot.dataset.agendaStyle = agendaStyleClass(
-        agendaState && agendaState.style,
+    function applyAgendaStyle(reason = "state") {
+      const previousStyle = paneRoot.dataset.agendaStyle || "";
+      const nextStyle = agendaStyleClass(
+        agendaState && agendaState.style || initialStyle,
       );
+      paneRoot.dataset.agendaStyle = nextStyle;
+      emitToolsTelemetry("agenda.tools.style_applied", {
+        reason,
+        previous_style: previousStyle,
+        next_style: nextStyle,
+        state_style: agendaStyleClass(agendaState && agendaState.style),
+        style_changed: previousStyle !== nextStyle,
+      });
     }
 
     function setRange(start, end) {
@@ -196,8 +260,8 @@
       }
     }
 
-    function renderState() {
-      applyAgendaStyle();
+    function renderState(reason = "state") {
+      applyAgendaStyle(reason);
       renderStyles();
       renderFilters();
       renderQuickDates();
@@ -220,8 +284,34 @@
       }
       const data = event.data || {};
       if (data.type === "electroboy-agenda-state") {
+        const previousStyle = agendaStyleClass(
+          agendaState && agendaState.style || initialStyle,
+        );
         agendaState = data.state || {};
-        renderState();
+        stateUpdateCount += 1;
+        const stateStyle = agendaStyleClass(agendaState.style);
+        emitToolsTelemetry("agenda.tools.state_received", {
+          previous_style: previousStyle,
+          state_style: stateStyle,
+          item_count: Number(agendaState.itemCount || 0),
+          filter_count: Array.isArray(agendaState.filters)
+            ? agendaState.filters.length
+            : 0,
+          style_count: Array.isArray(agendaState.styles)
+            ? agendaState.styles.length
+            : 0,
+        });
+        if (
+          initialStyleProvided &&
+          stateUpdateCount === 1 &&
+          previousStyle !== stateStyle
+        ) {
+          emitToolsTelemetry("agenda.tools.initial_style_mismatch", {
+            initial_style: initialStyle,
+            state_style: stateStyle,
+          });
+        }
+        renderState("state_received");
         return;
       }
       if (data.type !== "electroboy-agenda-action") return;
@@ -244,10 +334,17 @@
     }));
     jumpToday.addEventListener("click", () => post("jump-today"));
     reset.addEventListener("click", () => post("reset"));
-    frame.addEventListener("load", () => post("request-state"));
+    frame.addEventListener("load", () => post("request-state", {
+      requestReason: "frame_load",
+    }));
     window.addEventListener("message", handleMessage);
-    applyAgendaStyle();
-    post("request-state");
+    applyAgendaStyle("mount");
+    emitToolsTelemetry("agenda.tools.mounted", {
+      initial_style_provided: initialStyleProvided,
+      resolved_initial_style: paneRoot.dataset.agendaStyle || "",
+      has_frame: Boolean(frame && frame.contentWindow),
+    });
+    post("request-state", { requestReason: "mount" });
 
     return {
       refresh: () => post("request-state"),
