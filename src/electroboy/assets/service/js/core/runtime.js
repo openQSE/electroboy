@@ -184,8 +184,6 @@
     };
     const DEFAULT_DOCUMENT_ZOOM = 100;
     const DOCUMENT_ZOOM_STEP = 10;
-    const MIN_DOCUMENT_ZOOM = 70;
-    const MAX_DOCUMENT_ZOOM = 180;
     const MIN_INPUT_PANE_HEIGHT = 56;
     const MIN_INPUT_ACTIONS_WIDTH = 160;
     const MIN_AGENT_INPUT_WIDTH = 260;
@@ -3322,7 +3320,7 @@
         return DEFAULT_DOCUMENT_ZOOM;
       }
       const stepped = Math.round(value / DOCUMENT_ZOOM_STEP) * DOCUMENT_ZOOM_STEP;
-      return Math.max(MIN_DOCUMENT_ZOOM, Math.min(MAX_DOCUMENT_ZOOM, stepped));
+      return Math.max(DOCUMENT_ZOOM_STEP, stepped);
     }
 
     function storedNumber(key) {
@@ -4253,7 +4251,7 @@
     }
 
     function artifactEditorFontSize() {
-      return Math.max(11, Math.min(28, Math.round(16 * (documentZoom / 100))));
+      return Math.max(1, Math.round(16 * (documentZoom / 100)));
     }
 
     function applyTerminalFontSize() {
@@ -4335,10 +4333,10 @@
         level.textContent = `${documentZoom}%`;
       }
       for (const button of artifactPreviewStack.querySelectorAll("[data-zoom='out']")) {
-        button.disabled = documentZoom <= MIN_DOCUMENT_ZOOM;
+        button.disabled = documentZoom <= DOCUMENT_ZOOM_STEP;
       }
       for (const button of artifactPreviewStack.querySelectorAll("[data-zoom='in']")) {
-        button.disabled = documentZoom >= MAX_DOCUMENT_ZOOM;
+        button.disabled = false;
       }
       postArtifactEditorFontSize();
     }
@@ -5468,9 +5466,12 @@
 
     function popOutPaneLayoutLeaf(leaf) {
       const requestedContent = paneLayoutRequestedContent(leaf);
+      const popoutContent = leaf.kind === "artifact" && !requestedContent
+        ? artifactPreviewItems[0] || null
+        : requestedContent;
       popOutPane(
         leaf.kind,
-        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) ? requestedContent : null,
+        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) ? popoutContent : null,
         {
           leafId: leaf.id,
           sessionId: leaf.kind === "agent"

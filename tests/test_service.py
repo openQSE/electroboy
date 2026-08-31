@@ -1805,6 +1805,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const poppedPaneLeafIds = new Set();", runtime)
         self.assertIn("!poppedPaneLeafIds.has(node.id)", runtime)
         self.assertIn("function popOutPaneLayoutLeaf(leaf)", runtime)
+        self.assertIn(
+            'const popoutContent = leaf.kind === "artifact" && !requestedContent\n'
+            "        ? artifactPreviewItems[0] || null\n"
+            "        : requestedContent;",
+            runtime,
+        )
+        self.assertIn(
+            "INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) ? popoutContent : null",
+            runtime,
+        )
         self.assertIn("leafId: leaf.id,", runtime)
         self.assertIn("setPanePoppedOut(kind, true, popoutOptions.leafId);", runtime)
         self.assertIn(
@@ -3145,9 +3155,32 @@ class ServiceTests(unittest.TestCase):
             (root / "README.md").write_text("# Project\n", encoding="utf-8")
 
             page, status = document_target_html(root, "README.md", zoom_percent=130)
+            large_page, large_status = document_target_html(
+                root,
+                "README.md",
+                zoom_percent=250,
+            )
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("--doc-font-size: 20.80px;", page)
+        self.assertEqual(large_status, HTTPStatus.OK)
+        self.assertIn("--doc-font-size: 40.00px;", large_page)
+
+    def test_document_zoom_controls_have_no_upper_limit(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+        pane = PANE_WINDOW_HTML
+
+        self.assertNotIn("MAX_DOCUMENT_ZOOM", runtime)
+        self.assertNotIn("MAX_ARTIFACT_ZOOM", pane)
+        self.assertIn(
+            "return Math.max(DOCUMENT_ZOOM_STEP, stepped);",
+            runtime,
+        )
+        self.assertIn(
+            "return Math.max(ARTIFACT_ZOOM_STEP, stepped);",
+            pane,
+        )
+        self.assertIn("increaseArtifactZoom.disabled = false;", pane)
 
     def test_document_target_renderer_supports_repository_links(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3459,13 +3492,13 @@ class ServiceTests(unittest.TestCase):
                 "chapters/chapter-01.md",
                 title="Chapter 1",
                 rich_editor=True,
-                editor_font_size=20,
+                editor_font_size=48,
             )
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('"rich_editor": true', page)
-        self.assertIn('"editor_font_size": 20', page)
-        self.assertIn("--editor-font-size: 20px;", page)
+        self.assertIn('"editor_font_size": 48', page)
+        self.assertIn("--editor-font-size: 48px;", page)
         self.assertIn("RICH_EDITOR_ENABLED", page)
         self.assertIn("function applyEditorFontSize(value = editorFontSize)", page)
         self.assertIn('data.type === "electroboy-editor-font-size"', page)

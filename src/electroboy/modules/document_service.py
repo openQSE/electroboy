@@ -399,7 +399,7 @@ def markdown_document_html(
 
 def _clamp_document_zoom(value: int) -> int:
     stepped = int(((value + 5) // 10) * 10)
-    return max(70, min(180, stepped))
+    return max(10, stepped)
 
 
 def _document_zoom_from_params(params: dict[str, list[str]]) -> int:
@@ -415,7 +415,7 @@ def _clamp_artifact_editor_font_size(value: object) -> int:
         requested = int(value) if value is not None else 16
     except (TypeError, ValueError):
         requested = 16
-    return max(11, min(28, requested))
+    return max(1, requested)
 
 
 def _artifact_editor_font_size_from_params(params: dict[str, list[str]]) -> int:
@@ -1175,8 +1175,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     const LIST_FIELDS = new Set(EDIT_DATA.list_fields || []);
     const JSON_FIELDS = new Set(EDIT_DATA.json_fields || []);
     const RICH_EDITOR_ENABLED = Boolean(EDIT_DATA.rich_editor);
-    const MIN_EDITOR_FONT_SIZE = 11;
-    const MAX_EDITOR_FONT_SIZE = 28;
+    const MIN_EDITOR_FONT_SIZE = 1;
     const CORE_FIELDS = new Set([
       "schema_version",
       "artifact_type",
@@ -1316,10 +1315,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       if (!Number.isFinite(requested)) {{
         return 16;
       }}
-      return Math.max(
-        MIN_EDITOR_FONT_SIZE,
-        Math.min(MAX_EDITOR_FONT_SIZE, Math.round(requested)),
-      );
+      return Math.max(MIN_EDITOR_FONT_SIZE, Math.round(requested));
     }}
 
     function applyEditorFontSize(value = editorFontSize) {{

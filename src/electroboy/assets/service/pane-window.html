@@ -979,8 +979,6 @@
     let baseFontSize = storedBaseFontSize();
     let fontOffset = storedFontOffset();
     let fontSize = effectiveFontSize();
-    const MIN_ARTIFACT_ZOOM = 70;
-    const MAX_ARTIFACT_ZOOM = 180;
     const ARTIFACT_ZOOM_STEP = 10;
     const TERMINAL_OUTPUT_FLUSH_BUDGET_MS = 8;
     const TERMINAL_OUTPUT_FLUSH_CHARS = 65536;
@@ -2443,13 +2441,13 @@
         return 100;
       }
       const stepped = Math.round(value / ARTIFACT_ZOOM_STEP) * ARTIFACT_ZOOM_STEP;
-      return Math.max(MIN_ARTIFACT_ZOOM, Math.min(MAX_ARTIFACT_ZOOM, stepped));
+      return Math.max(ARTIFACT_ZOOM_STEP, stepped);
     }
 
     function applyArtifactZoom() {
       artifactZoomLevel.textContent = `${artifactZoom}%`;
-      decreaseArtifactZoom.disabled = artifactZoom <= MIN_ARTIFACT_ZOOM;
-      increaseArtifactZoom.disabled = artifactZoom >= MAX_ARTIFACT_ZOOM;
+      decreaseArtifactZoom.disabled = artifactZoom <= ARTIFACT_ZOOM_STEP;
+      increaseArtifactZoom.disabled = false;
     }
 
     function changeArtifactZoom(delta) {
@@ -2463,7 +2461,7 @@
     }
 
     function artifactEditorFontSize() {
-      return Math.max(11, Math.min(28, Math.round(16 * (artifactZoom / 100))));
+      return Math.max(1, Math.round(16 * (artifactZoom / 100)));
     }
 
     function postArtifactEditorFontSize() {
