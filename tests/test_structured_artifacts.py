@@ -21,7 +21,7 @@ from electroboy.structured_artifacts import (  # noqa: E402
 
 
 class StructuredArtifactTests(unittest.TestCase):
-    def test_render_design_preserves_markdown_body(self) -> None:
+    def test_render_design_uses_human_readable_heading(self) -> None:
         markdown = render_artifact_markdown(
             "design",
             [
@@ -40,7 +40,8 @@ class StructuredArtifactTests(unittest.TestCase):
             ],
         )
 
-        self.assertIn("## DES-001. Flow", markdown)
+        self.assertIn("## Flow", markdown)
+        self.assertNotIn("## DES-001. Flow", markdown)
         self.assertIn("```mermaid\nflowchart LR\nA-->B\n```", markdown)
         self.assertIn("- REQ-001", markdown)
 

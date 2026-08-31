@@ -295,6 +295,7 @@ def _render_design(records: list[dict[str, object]]) -> list[str]:
             heading_levels.get(id(record), 2),
             _record_title(record, record_type.title()),
             record,
+            include_record_id=False,
         )
         _append_body(lines, record)
         if record_type == "decision":
