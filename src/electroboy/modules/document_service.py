@@ -3061,8 +3061,14 @@ def _mermaid_script(rendered: str) -> str:
         return Array.from(svg.querySelectorAll("text.actor, .actor text"))
           .map((element) => {
             const rect = element.getBoundingClientRect();
+            const box = Array.from(element.parentElement?.children || [])
+              .find((candidate) => candidate.matches?.("rect.actor")) || null;
             return {
+              box,
               element,
+              fontSize: Number.parseFloat(
+                window.getComputedStyle(element).fontSize,
+              ) || 16,
               label: sequenceActorLabel(element),
               rect,
             };
@@ -3121,6 +3127,8 @@ def _mermaid_script(rendered: str) -> str:
           label.title = actor.label;
           sequenceHeaderTrack.append(label);
           sequenceHeaderActors.push({
+            sourceBox: actor.box,
+            sourceFontSize: actor.fontSize,
             source: actor.element,
             label,
           });
@@ -3129,24 +3137,72 @@ def _mermaid_script(rendered: str) -> str:
         syncSequenceHeader();
       }
 
+      function sequenceDiagramScale(svg) {
+        const rect = svg?.getBoundingClientRect();
+        return rect && rect.width > 0 && naturalWidth > 0
+          ? rect.width / naturalWidth
+          : zoom;
+      }
+
+      function sequenceHeaderMetrics(
+        sourceWidth,
+        sourceHeight,
+        fontSize,
+        scale,
+      ) {
+        const renderedWidth = Math.max(1, sourceWidth);
+        const renderedHeight = Math.max(1, sourceHeight);
+        return {
+          borderRadius: 6 * scale,
+          fontSize: Math.max(1, fontSize * scale),
+          headerHeight: renderedHeight + 14 * scale,
+          height: renderedHeight,
+          padding: 10 * scale,
+          top: 7 * scale,
+          width: renderedWidth,
+        };
+      }
+
       function syncSequenceHeader() {
         if (sequenceHeader.hidden || sequenceHeaderActors.length === 0) {
           return;
         }
         const viewportRect = viewport.getBoundingClientRect();
+        const svg = content.querySelector("svg");
+        const scale = sequenceDiagramScale(svg);
+        let headerHeight = 0;
         for (const actor of sequenceHeaderActors) {
-          const rect = actor.source.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0) {
+          const textRect = actor.source.getBoundingClientRect();
+          const boxRect = actor.sourceBox?.getBoundingClientRect();
+          const sourceRect = boxRect && boxRect.width > 0 && boxRect.height > 0
+            ? boxRect
+            : textRect;
+          if (sourceRect.width <= 0 || sourceRect.height <= 0) {
             actor.label.hidden = true;
             continue;
           }
-          const centerX = rect.left - viewportRect.left + rect.width / 2;
-          const width = Math.max(72, Math.min(240, rect.width + 32));
+          const centerX =
+            sourceRect.left - viewportRect.left + sourceRect.width / 2;
+          const metrics = sequenceHeaderMetrics(
+            sourceRect.width,
+            sourceRect.height,
+            actor.sourceFontSize,
+            scale,
+          );
+          headerHeight = Math.max(headerHeight, metrics.headerHeight);
           actor.label.hidden = false;
           actor.label.style.left = centerX + "px";
-          actor.label.style.width = width + "px";
+          actor.label.style.top = metrics.top + "px";
+          actor.label.style.width = metrics.width + "px";
+          actor.label.style.minWidth = metrics.width + "px";
+          actor.label.style.maxWidth = metrics.width + "px";
+          actor.label.style.height = metrics.height + "px";
+          actor.label.style.borderRadius = metrics.borderRadius + "px";
+          actor.label.style.fontSize = metrics.fontSize + "px";
+          actor.label.style.padding = "0 " + metrics.padding + "px";
           actor.label.style.transform = "translateX(-50%)";
         }
+        sequenceHeader.style.height = headerHeight + "px";
       }
 
       function updateBaseSize() {

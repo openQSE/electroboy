@@ -3321,7 +3321,23 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('svg.querySelector(".actor-line")', page)
         self.assertIn('querySelectorAll("text.actor, .actor text")', page)
         self.assertIn('className = "sequence-header-actor"', page)
+        self.assertIn('candidate.matches?.("rect.actor")', page)
+        self.assertIn("function sequenceDiagramScale(svg)", page)
+        self.assertIn("rect.width / naturalWidth", page)
+        self.assertIn("function sequenceHeaderMetrics(", page)
+        self.assertIn("fontSize: Math.max(1, fontSize * scale),", page)
+        self.assertIn("headerHeight: renderedHeight + 14 * scale,", page)
+        self.assertIn(
+            "const boxRect = actor.sourceBox?.getBoundingClientRect();",
+            page,
+        )
+        self.assertIn(
+            'sequenceHeader.style.height = headerHeight + "px";',
+            page,
+        )
         self.assertIn('actor.label.style.left = centerX + "px";', page)
+        self.assertIn('actor.label.style.fontSize = metrics.fontSize + "px";', page)
+        self.assertIn('actor.label.style.width = metrics.width + "px";', page)
         self.assertIn("window.requestAnimationFrame", page)
         self.assertIn("const wheelZoomFactor = 1.1;", page)
         self.assertIn("function zoomTo(nextZoom, clientX = null, clientY = null)", page)
