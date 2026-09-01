@@ -573,6 +573,216 @@ def test_browser_mind_map_expands_children_without_reserving_subtree_space(
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_mind_map_expands_nested_observation_to_assignment(
+    tmp_path: Path,
+) -> None:
+    page, _status = render_mind_map_html(
+        {
+            "provider": "nested-observation-test",
+            "title": "Nested observation test",
+            "sources": [
+                {"id": "source", "kind": "source", "title": "Source"}
+            ],
+            "observations": [
+                {"id": "event", "kind": "observation", "title": "Event"},
+                {
+                    "id": "presentation",
+                    "kind": "observation",
+                    "title": "Presentation",
+                },
+            ],
+            "provider_events": [],
+            "facts": [
+                {"id": "task", "kind": "fact", "title": "Attend"},
+                {
+                    "id": "assignment",
+                    "kind": "fact",
+                    "title": "Assign attendance",
+                },
+            ],
+            "edges": [
+                {
+                    "id": "source-event",
+                    "from": "source",
+                    "to": "event",
+                    "primary": True,
+                },
+                {
+                    "id": "presentation-part-of-event",
+                    "from": "presentation",
+                    "to": "event",
+                    "tree_from": "event",
+                    "tree_to": "presentation",
+                    "relationship": "part_of",
+                    "primary": True,
+                },
+                {
+                    "id": "presentation-task",
+                    "from": "presentation",
+                    "to": "task",
+                    "primary": True,
+                },
+                {
+                    "id": "task-assignment",
+                    "from": "task",
+                    "to": "assignment",
+                    "relationship": "proposes_assignment",
+                    "primary": True,
+                },
+            ],
+        }
+    )
+    probe = """
+<script>
+  const nestedNode = (nodeId) =>
+    document.querySelector(`[data-node-id="${nodeId}"]`);
+  nestedNode("source").click();
+  nestedNode("event").click();
+  nestedNode("presentation").click();
+  nestedNode("task").click();
+  const result = document.createElement("div");
+  result.id = "nestedObservationProbe";
+  result.dataset.rendered = [
+    "source",
+    "event",
+    "presentation",
+    "task",
+    "assignment",
+  ].filter((nodeId) => nestedNode(nodeId)).join(",");
+  document.body.append(result);
+</script>
+"""
+
+    completed = browser_file_dom(
+        page.replace("</body>", f"{probe}</body>"),
+        tmp_path,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="nestedObservationProbe" '
+        'data-rendered="source,event,presentation,task,assignment"></div>'
+        in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_mind_map_telemetry_describes_expansion_results(
+    tmp_path: Path,
+) -> None:
+    page, _status = render_mind_map_html(
+        {
+            "provider": "telemetry-test",
+            "title": "Telemetry test",
+            "sources": [
+                {"id": "source", "kind": "source", "title": "Source"}
+            ],
+            "observations": [
+                {"id": "observation-a", "kind": "observation", "title": "A"},
+                {"id": "observation-b", "kind": "observation", "title": "B"},
+            ],
+            "provider_events": [],
+            "facts": [],
+            "edges": [
+                {
+                    "id": "source-a",
+                    "from": "source",
+                    "to": "observation-a",
+                    "relationship": "produced_observation",
+                    "primary": True,
+                },
+                {
+                    "id": "source-b",
+                    "from": "source",
+                    "to": "observation-b",
+                    "relationship": "produced_observation",
+                    "primary": True,
+                },
+            ],
+        }
+    )
+    probe = """
+<script>
+  const telemetryEvents = [];
+  let telemetryRequestsInFlight = 0;
+  let maxTelemetryRequestsInFlight = 0;
+  telemetryEnabled = () => true;
+  window.fetch = (_url, options) => {
+    telemetryRequestsInFlight += 1;
+    maxTelemetryRequestsInFlight = Math.max(
+      maxTelemetryRequestsInFlight,
+      telemetryRequestsInFlight
+    );
+    telemetryEvents.push(JSON.parse(options.body));
+    return new Promise((resolve) => window.setTimeout(() => {
+      telemetryRequestsInFlight -= 1;
+      resolve({ ok: true });
+    }, 2));
+  };
+  emitGraphTelemetry(displayedLayout());
+  document.querySelector('[data-node-id="source"]').click();
+  window.setTimeout(() => {
+    const requested = telemetryEvents.find(
+      (event) => event.event === "mind_map.node.toggle.requested"
+    );
+    const completed = telemetryEvents.find(
+      (event) => event.event === "mind_map.node.toggle.completed"
+    );
+    const graphReceived = telemetryEvents.find(
+      (event) => event.event === "mind_map.graph.received"
+    );
+    const graphNodes = telemetryEvents.find(
+      (event) => event.event === "mind_map.graph.nodes"
+    );
+    const graphEdges = telemetryEvents.find(
+      (event) => event.event === "mind_map.graph.edges"
+    );
+    const result = document.createElement("div");
+    result.id = "mindMapTelemetryProbe";
+    result.dataset.requestedNode = requested.node.id;
+    result.dataset.expectedChildren = String(
+      requested.expected_children.total_count
+    );
+    result.dataset.completedNode = completed.node.id;
+    result.dataset.clickedLabel = requested.node.label;
+    result.dataset.addedNodes = String(completed.added_nodes.total_count);
+    result.dataset.graphNodes = String(graphNodes.total_count);
+    result.dataset.graphEdges = String(graphEdges.total_count);
+    result.dataset.sameGraph = String(
+      graphReceived.graph_instance_id === graphNodes.graph_instance_id &&
+      graphNodes.graph_instance_id === graphEdges.graph_instance_id
+    );
+    result.dataset.maxRequestsInFlight = String(maxTelemetryRequestsInFlight);
+    result.dataset.rendered = String(
+      completed.added_nodes.items.every((node) => node.rendered)
+    );
+    result.dataset.hasTitles = String(
+      telemetryEvents.some((event) => Object.hasOwn(event.node || {}, "title"))
+    );
+    document.body.append(result);
+  }, 100);
+</script>
+"""
+
+    completed = browser_file_dom(
+        page.replace("</body>", f"{probe}</body>"),
+        tmp_path,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="mindMapTelemetryProbe" data-requested-node="source" '
+        'data-expected-children="2" data-completed-node="source" '
+        'data-clicked-label="Source" data-added-nodes="2" '
+        'data-graph-nodes="3" data-graph-edges="2" '
+        'data-same-graph="true" data-max-requests-in-flight="1" '
+        'data-rendered="true" '
+        'data-has-titles="false"></div>'
+        in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_mind_map_full_mode_overlays_secondary_relationships(
     tmp_path: Path,
 ) -> None:

@@ -611,6 +611,224 @@ def render_mind_map_html(
     let graphMode = "clean";
     let selectedEdgeId = null;
     const hiddenFamilies = new Set();
+    const graphTelemetryId = (() => {{
+      try {{
+        return window.crypto.randomUUID();
+      }} catch (_error) {{
+        return `mind-map-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
+      }}
+    }})();
+
+    function telemetryEnabled() {{
+      let params;
+      try {{
+        params = new URLSearchParams(window.location.search);
+      }} catch (_error) {{
+        return false;
+      }}
+      if (params.get("telemetry_page_id") || params.get("telemetry_tab_id")) {{
+        return true;
+      }}
+      return ["telemetry", "frontend_telemetry", "frontend_debug"].some((key) => {{
+        const value = String(params.get(key) || "").trim().toLowerCase();
+        return ["1", "true", "yes", "on"].includes(value);
+      }});
+    }}
+
+    function telemetryParam(key) {{
+      try {{
+        return new URLSearchParams(window.location.search).get(key) || "";
+      }} catch (_error) {{
+        return "";
+      }}
+    }}
+
+    const mindMapTelemetryQueue = [];
+    let mindMapTelemetrySending = false;
+
+    async function drainMindMapTelemetryQueue() {{
+      if (mindMapTelemetrySending) return;
+      mindMapTelemetrySending = true;
+      try {{
+        while (mindMapTelemetryQueue.length) {{
+          const payload = mindMapTelemetryQueue.shift();
+          try {{
+            await window.fetch("/api/frontend/debug", {{
+              method: "POST",
+              headers: {{ "Content-Type": "application/json" }},
+              body: JSON.stringify(payload),
+            }});
+          }} catch (_error) {{
+            // Diagnostic telemetry must never affect Mind Map rendering.
+          }}
+        }}
+      }} finally {{
+        mindMapTelemetrySending = false;
+        if (mindMapTelemetryQueue.length) {{
+          void drainMindMapTelemetryQueue();
+        }}
+      }}
+    }}
+
+    function queueMindMapTelemetry(payload) {{
+      mindMapTelemetryQueue.push(payload);
+      void drainMindMapTelemetryQueue();
+    }}
+
+    function emitMindMapTelemetry(eventName, details = {{}}) {{
+      if (!telemetryEnabled()) return;
+      const payload = {{
+        source: "mind-map-renderer",
+        event: eventName,
+        created_at: new Date().toISOString(),
+        provider: String(MIND_MAP_DATA.provider || ""),
+        graph_mode: graphMode,
+        graph_instance_id: graphTelemetryId,
+        telemetry_page_id: telemetryParam("telemetry_page_id"),
+        telemetry_tab_id: telemetryParam("telemetry_tab_id"),
+        workspace_id: telemetryParam("workspace_id"),
+        context_id: telemetryParam("context_id"),
+        connection_id: telemetryParam("connection_id"),
+        ...details,
+      }};
+      queueMindMapTelemetry(payload);
+    }}
+
+    function telemetrySlice(values, limit = 120) {{
+      return {{
+        items: values.slice(0, limit),
+        omitted_count: Math.max(0, values.length - limit),
+        total_count: values.length,
+      }};
+    }}
+
+    function emitTelemetryChunks(eventName, values, chunkSize = 60) {{
+      const chunkCount = Math.max(1, Math.ceil(values.length / chunkSize));
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {{
+        emitMindMapTelemetry(eventName, {{
+          chunk_index: chunkIndex,
+          chunk_count: chunkCount,
+          total_count: values.length,
+          items: values.slice(
+            chunkIndex * chunkSize,
+            (chunkIndex + 1) * chunkSize
+          ),
+        }});
+      }}
+    }}
+
+    function telemetryNodeDescriptor(node) {{
+      const display = nodeDisplay(node);
+      return {{
+        id: String(node && node.id || ""),
+        label: String(display.title || node && node.title || node && node.id || "")
+          .slice(0, 160),
+        kind: String(node && node.kind || ""),
+        observation_kind: String(node && node.observation_kind || ""),
+        fact_type: String(node && node.fact_type || ""),
+        status: String(node && node.status || ""),
+      }};
+    }}
+
+    function telemetryEdgeDescriptor(edge) {{
+      return {{
+        id: String(edge && edge.id || ""),
+        from: String(edge && edge.from || ""),
+        to: String(edge && edge.to || ""),
+        tree_from: String(edge && (edge.tree_from || edge.from) || ""),
+        tree_to: String(edge && (edge.tree_to || edge.to) || ""),
+        relationship: String(edge && edge.relationship || ""),
+        family: String(edge && edge.family || ""),
+        primary: Boolean(edge && edge.primary),
+        selected_for_tree: Boolean(edge && primaryEdgeIds.has(edge.id)),
+      }};
+    }}
+
+    function telemetryNodeLayout(nodeId, layout) {{
+      const node = nodeById.get(nodeId) || {{ id: nodeId }};
+      const element = nodeLayer.querySelector(
+        `[data-node-id="${{CSS.escape(String(nodeId))}}"]`
+      );
+      const viewportRect = viewport.getBoundingClientRect();
+      const rect = element ? element.getBoundingClientRect() : null;
+      const position = layout.positions.get(nodeId);
+      return {{
+        ...telemetryNodeDescriptor(node),
+        depth: Number(layout.depthById.get(nodeId) ?? -1),
+        rendered: Boolean(element),
+        in_viewport: Boolean(rect &&
+          rect.right >= viewportRect.left &&
+          rect.bottom >= viewportRect.top &&
+          rect.left <= viewportRect.right &&
+          rect.top <= viewportRect.bottom),
+        world_position: position ? {{
+          x: Math.round(position.x),
+          y: Math.round(position.y),
+          height: Math.round(nodeHeight(nodeId)),
+        }} : null,
+        viewport_position: rect ? {{
+          x: Math.round(rect.left - viewportRect.left),
+          y: Math.round(rect.top - viewportRect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        }} : null,
+      }};
+    }}
+
+    function emitGraphTelemetry(layout) {{
+      const explicitPrimaryEdges = edges.filter((edge) => edge.primary);
+      const selectedEdges = edges.filter((edge) => primaryEdgeIds.has(edge.id));
+      const selectedTargets = new Set(
+        selectedEdges.map((edge) => edge.tree_to || edge.to)
+      );
+      const orphanNodes = nodes.filter((node) =>
+        node.kind !== "source" && !selectedTargets.has(node.id)
+      );
+      window.requestAnimationFrame(() => {{
+        emitMindMapTelemetry("mind_map.graph.received", {{
+          schema_version: Number(MIND_MAP_DATA.schema_version || 0),
+          node_counts: {{
+            total: nodes.length,
+            sources: (MIND_MAP_DATA.sources || []).length,
+            observations: (MIND_MAP_DATA.observations || []).length,
+            provider_events: (MIND_MAP_DATA.provider_events || []).length,
+            facts: (MIND_MAP_DATA.facts || []).length,
+          }},
+          edge_counts: {{
+            received: edges.length,
+            explicit_primary: explicitPrimaryEdges.length,
+            selected_for_tree: selectedEdges.length,
+            dropped_explicit_primary: explicitPrimaryEdges.filter(
+              (edge) => !primaryEdgeIds.has(edge.id)
+            ).length,
+          }},
+          orphan_nodes: telemetrySlice(
+            orphanNodes.map(telemetryNodeDescriptor)
+          ),
+          visible_nodes: telemetrySlice(
+            [...layout.visibleIds].map((nodeId) =>
+              telemetryNodeLayout(nodeId, layout)
+            )
+          ),
+          expanded_node_ids: [...expanded],
+          viewport: {{
+            width: viewport.clientWidth,
+            height: viewport.clientHeight,
+            scale,
+            pan_x: Math.round(pan.x),
+            pan_y: Math.round(pan.y),
+          }},
+        }});
+        emitTelemetryChunks(
+          "mind_map.graph.nodes",
+          nodes.map(telemetryNodeDescriptor)
+        );
+        emitTelemetryChunks(
+          "mind_map.graph.edges",
+          edges.map(telemetryEdgeDescriptor)
+        );
+      }});
+    }}
 
     function restoreView() {{
       try {{
@@ -749,7 +967,8 @@ def render_mind_map_html(
 
     function childKindsFor(node) {{
       if (node.kind === "source") return ["observation", "provider_event"];
-      if (node.kind === "observation" || node.kind === "provider_event") return ["fact"];
+      if (node.kind === "observation") return ["observation", "fact"];
+      if (node.kind === "provider_event") return ["fact"];
       if (node.kind === "fact") return ["fact"];
       return [];
     }}
@@ -945,6 +1164,8 @@ def render_mind_map_html(
       return {{
         positions,
         visibleIds: graph.visibleIds,
+        depthById: graph.depthById,
+        parentsById: graph.parentsById,
         visibleEdges: (graphMode === "full" ? edges : treeEdges).filter(
           (edge) => graph.visibleIds.has(edge.from) && graph.visibleIds.has(edge.to)
         ),
@@ -1337,13 +1558,69 @@ def render_mind_map_html(
     }}
 
     function toggleNode(node) {{
-      if (childrenFor(node.id).length === 0) return;
-      if (expanded.has(node.id)) {{
+      const childEdges = outgoing.get(node.id) || [];
+      if (childEdges.length === 0) {{
+        emitMindMapTelemetry("mind_map.node.toggle.ignored", {{
+          node: telemetryNodeDescriptor(node),
+          reason: "no_children",
+        }});
+        return;
+      }}
+      const before = collectVisibleGraph();
+      const wasExpanded = expanded.has(node.id);
+      emitMindMapTelemetry("mind_map.node.toggle.requested", {{
+        node: telemetryNodeDescriptor(node),
+        action: wasExpanded ? "collapse" : "expand",
+        expected_children: telemetrySlice(
+          childEdges.map((edge) => ({{
+            edge: telemetryEdgeDescriptor(edge),
+            node: telemetryNodeDescriptor(nodeById.get(edge.to) || {{ id: edge.to }}),
+          }}))
+        ),
+        visible_node_count_before: before.visibleIds.size,
+        expanded_node_ids_before: [...expanded],
+      }});
+      if (wasExpanded) {{
         expanded.delete(node.id);
       }} else {{
         expanded.add(node.id);
       }}
-      render();
+      const layout = render();
+      const addedIds = [...layout.visibleIds].filter(
+        (nodeId) => !before.visibleIds.has(nodeId)
+      );
+      const removedIds = [...before.visibleIds].filter(
+        (nodeId) => !layout.visibleIds.has(nodeId)
+      );
+      window.requestAnimationFrame(() => {{
+        emitMindMapTelemetry("mind_map.node.toggle.completed", {{
+          node: telemetryNodeDescriptor(node),
+          action: wasExpanded ? "collapse" : "expand",
+          expanded: expanded.has(node.id),
+          added_nodes: telemetrySlice(
+            addedIds.map((nodeId) => telemetryNodeLayout(nodeId, layout))
+          ),
+          removed_nodes: telemetrySlice(
+            removedIds.map((nodeId) => telemetryNodeDescriptor(
+              nodeById.get(nodeId) || {{ id: nodeId }}
+            ))
+          ),
+          visible_nodes: telemetrySlice(
+            [...layout.visibleIds].map((nodeId) =>
+              telemetryNodeLayout(nodeId, layout)
+            )
+          ),
+          visible_node_count_after: layout.visibleIds.size,
+          expanded_node_ids_after: [...expanded],
+          viewport: {{
+            width: viewport.clientWidth,
+            height: viewport.clientHeight,
+            scale,
+            pan_x: Math.round(pan.x),
+            pan_y: Math.round(pan.y),
+          }},
+        }});
+      }});
     }}
 
     function createNode(node, position) {{
@@ -1635,6 +1912,7 @@ def render_mind_map_html(
     if (!layoutHasVisibleNode(initialLayout)) {{
       fitSourceColumn(initialLayout);
     }}
+    emitGraphTelemetry(initialLayout);
   </script>
 </body>
 </html>""",
