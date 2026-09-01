@@ -478,15 +478,13 @@ def render_mind_map_html(
     const SOURCE_Y = 90;
     const COLUMN_GAP = 420;
     const ROOT_GAP = 54;
-    const BRANCH_GAP = 42;
+    const SIBLING_GAP = 24;
     const NODE_WIDTH = 300;
     const NODE_HEIGHT = 116;
-    const NODE_CLEARANCE = 36;
-    const NODE_SLOT_HEIGHT = 218;
     const CANVAS_BASE_WIDTH = 4200;
     const CANVAS_BASE_HEIGHT = 2800;
     const CANVAS_PADDING = 420;
-    const LAYOUT_VERSION = 5;
+    const LAYOUT_VERSION = 7;
     const NODE_DRAG_THRESHOLD = 4;
     const viewport = document.getElementById("mindMapViewport");
     const canvas = document.getElementById("mindMapCanvas");
@@ -572,7 +570,9 @@ def render_mind_map_html(
       ];
     }}
 
-    const nodeById = new Map(allNodes().map((node) => [node.id, node]));
+    const nodes = allNodes();
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
     const edges = MIND_MAP_DATA.edges || [];
     const outgoing = new Map();
     edges.forEach((edge) => {{
@@ -596,7 +596,7 @@ def render_mind_map_html(
 
     function totalSpan(spans) {{
       return spans.reduce(
-        (total, span, index) => total + span + (index === 0 ? 0 : BRANCH_GAP),
+        (total, span, index) => total + span + (index === 0 ? 0 : SIBLING_GAP),
         0
       );
     }}
@@ -604,80 +604,125 @@ def render_mind_map_html(
     function nodeHeight(nodeId) {{
       const measured = Number(measuredNodeHeights.get(nodeId));
       return Number.isFinite(measured) && measured > 0
-        ? Math.max(NODE_HEIGHT, measured)
+        ? measured
         : NODE_HEIGHT;
-    }}
-
-    function nodeSlotHeight(nodeId) {{
-      return Math.max(NODE_SLOT_HEIGHT, nodeHeight(nodeId) + NODE_CLEARANCE);
-    }}
-
-    function subtreeSpan(node) {{
-      const childKinds = childKindsFor(node);
-      const ownSpan = nodeSlotHeight(node.id);
-      if (!expanded.has(node.id) || childKinds.length === 0) return ownSpan;
-      const children = childrenFor(node.id, childKinds);
-      if (!children.length) return ownSpan;
-      return Math.max(ownSpan, totalSpan(children.map((child) => subtreeSpan(child))));
     }}
 
     function offsetForNode(nodeId) {{
       return manualOffsets.get(nodeId) || {{ x: 0, y: 0 }};
     }}
 
-    function addOffsets(left, right) {{
-      return {{
-        x: left.x + right.x,
-        y: left.y + right.y,
-      }};
+    function median(values) {{
+      if (!values.length) return null;
+      const sorted = [...values].sort((left, right) => left - right);
+      const middle = Math.floor(sorted.length / 2);
+      return sorted.length % 2
+        ? sorted[middle]
+        : (sorted[middle - 1] + sorted[middle]) / 2;
     }}
 
-    function placeNode(
-      node,
-      depth,
-      centerY,
-      positions,
-      visibleIds,
-      inheritedOffset = {{ x: 0, y: 0 }}
-    ) {{
-      const height = nodeHeight(node.id);
-      const autoPosition = {{
-        x: SOURCE_X + depth * COLUMN_GAP,
-        y: Math.max(SOURCE_Y, centerY - height / 2),
-      }};
-      const effectiveOffset = addOffsets(inheritedOffset, offsetForNode(node.id));
-      positions.set(node.id, {{
-        x: autoPosition.x + effectiveOffset.x,
-        y: autoPosition.y + effectiveOffset.y,
+    function collectVisibleGraph() {{
+      const visibleIds = new Set();
+      const depthById = new Map();
+      const parentsById = new Map();
+      const queue = [];
+      (MIND_MAP_DATA.sources || []).forEach((source) => {{
+        if (visibleIds.has(source.id)) return;
+        visibleIds.add(source.id);
+        depthById.set(source.id, 0);
+        queue.push(source.id);
       }});
-      visibleIds.add(node.id);
+      for (let cursor = 0; cursor < queue.length; cursor += 1) {{
+        const parentId = queue[cursor];
+        const parent = nodeById.get(parentId);
+        if (!parent || !expanded.has(parentId)) continue;
+        const parentDepth = Number(depthById.get(parentId) || 0);
+        childrenFor(parentId, childKindsFor(parent)).forEach((child) => {{
+          if (visibleIds.has(child.id)) return;
+          visibleIds.add(child.id);
+          depthById.set(child.id, parentDepth + 1);
+          queue.push(child.id);
+        }});
+      }}
+      edges.forEach((edge) => {{
+        if (!visibleIds.has(edge.from) || !visibleIds.has(edge.to)) return;
+        const parent = nodeById.get(edge.from);
+        const child = nodeById.get(edge.to);
+        if (!parent || !child || !childKindsFor(parent).includes(child.kind)) return;
+        if (!parentsById.has(child.id)) parentsById.set(child.id, new Set());
+        parentsById.get(child.id).add(parent.id);
+      }});
+      return {{ visibleIds, depthById, parentsById }};
+    }}
 
-      const childKinds = childKindsFor(node);
-      if (!expanded.has(node.id) || childKinds.length === 0) return;
-      const children = childrenFor(node.id, childKinds);
-      if (!children.length) return;
+    function positionVisibleNodes(graph) {{
+      const positions = new Map();
+      const inheritedXOffsets = new Map();
+      let sourceCursor = SOURCE_Y;
+      (MIND_MAP_DATA.sources || []).forEach((source) => {{
+        if (!graph.visibleIds.has(source.id)) return;
+        const height = nodeHeight(source.id);
+        const offset = offsetForNode(source.id);
+        positions.set(source.id, {{
+          x: SOURCE_X + offset.x,
+          y: sourceCursor + offset.y,
+        }});
+        inheritedXOffsets.set(source.id, offset.x);
+        sourceCursor += height + ROOT_GAP;
+      }});
 
-      const childSpans = children.map((child) => subtreeSpan(child));
-      const childrenSpan = totalSpan(childSpans);
-      let childCursor = centerY - childrenSpan / 2;
-      children.forEach((child, index) => {{
-        const childSpan = childSpans[index];
-        placeNode(
-          child,
-          depth + 1,
-          childCursor + childSpan / 2,
-          positions,
-          visibleIds,
-          effectiveOffset
+      const maxDepth = Math.max(0, ...graph.depthById.values());
+      for (let depth = 1; depth <= maxDepth; depth += 1) {{
+        const entries = [...graph.visibleIds]
+          .filter((nodeId) => graph.depthById.get(nodeId) === depth)
+          .map((nodeId) => {{
+            const parentIds = [...(graph.parentsById.get(nodeId) || [])]
+              .filter((parentId) => positions.has(parentId));
+            const parentCenters = parentIds.map((parentId) => {{
+              const parentPosition = positions.get(parentId);
+              return parentPosition.y + nodeHeight(parentId) / 2;
+            }});
+            const parentXOffsets = parentIds
+              .map((parentId) => inheritedXOffsets.get(parentId))
+              .filter((value) => Number.isFinite(value));
+            return {{
+              nodeId,
+              preferredCenter: median(parentCenters) ?? SOURCE_Y,
+              inheritedXOffset: median(parentXOffsets) ?? 0,
+              offset: offsetForNode(nodeId),
+            }};
+          }});
+        entries.sort((left, right) =>
+          left.preferredCenter - right.preferredCenter ||
+          Number(nodeOrder.get(left.nodeId) || 0) -
+            Number(nodeOrder.get(right.nodeId) || 0)
         );
-        childCursor += childSpan + BRANCH_GAP;
-      }});
+        const columnSpan = totalSpan(
+          entries.map((entry) => nodeHeight(entry.nodeId))
+        );
+        const columnCenter = median(
+          entries.map((entry) => entry.preferredCenter)
+        ) ?? SOURCE_Y;
+        let columnCursor = Math.max(SOURCE_Y, columnCenter - columnSpan / 2);
+        entries.forEach((entry) => {{
+          const effectiveXOffset = entry.inheritedXOffset + entry.offset.x;
+          positions.set(entry.nodeId, {{
+            x: SOURCE_X + depth * COLUMN_GAP + effectiveXOffset,
+            y: columnCursor + entry.offset.y,
+          }});
+          inheritedXOffsets.set(entry.nodeId, effectiveXOffset);
+          columnCursor += nodeHeight(entry.nodeId) + SIBLING_GAP;
+        }});
+      }}
+      return positions;
     }}
 
     function visibleSubtreeIds(rootNodeId, visibleIds) {{
       const subtreeIds = [];
+      const visited = new Set();
       const visit = (nodeId) => {{
-        if (!visibleIds.has(nodeId)) return;
+        if (!visibleIds.has(nodeId) || visited.has(nodeId)) return;
+        visited.add(nodeId);
         subtreeIds.push(nodeId);
         const node = nodeById.get(nodeId);
         if (!node || !expanded.has(nodeId)) return;
@@ -696,38 +741,10 @@ def render_mind_map_html(
       }});
     }}
 
-    function resolveColumnCollisions(positions, visibleIds) {{
-      const columns = new Map();
-      visibleIds.forEach((nodeId) => {{
-        const position = positions.get(nodeId);
-        if (!position) return;
-        const key = String(Math.round(position.x));
-        if (!columns.has(key)) columns.set(key, []);
-        columns.get(key).push({{ nodeId, position }});
-      }});
-      columns.forEach((items) => {{
-        items.sort((left, right) => left.position.y - right.position.y);
-        let nextY = null;
-        items.forEach((item) => {{
-          if (nextY !== null && item.position.y < nextY) {{
-            shiftSubtree(
-              positions,
-              visibleIds,
-              item.nodeId,
-              0,
-              nextY - item.position.y
-            );
-          }}
-          nextY = item.position.y + nodeHeight(item.nodeId) + BRANCH_GAP;
-        }});
-      }});
-    }}
-
     function nodesOverlapHorizontally(left, right) {{
-      const clearance = NODE_CLEARANCE / 2;
       return (
-        left.position.x < right.position.x + NODE_WIDTH + clearance &&
-        right.position.x < left.position.x + NODE_WIDTH + clearance
+        left.position.x < right.position.x + NODE_WIDTH &&
+        right.position.x < left.position.x + NODE_WIDTH
       );
     }}
 
@@ -742,8 +759,7 @@ def render_mind_map_html(
         );
         for (let index = 0; index < items.length; index += 1) {{
           const current = items[index];
-          const currentBottom =
-            current.position.y + nodeHeight(current.nodeId) + BRANCH_GAP;
+          const currentBottom = current.position.y + nodeHeight(current.nodeId);
           for (let nextIndex = index + 1; nextIndex < items.length; nextIndex += 1) {{
             const next = items[nextIndex];
             if (!nodesOverlapHorizontally(current, next)) continue;
@@ -753,7 +769,7 @@ def render_mind_map_html(
               visibleIds,
               next.nodeId,
               0,
-              currentBottom - next.position.y
+              currentBottom + SIBLING_GAP - next.position.y
             );
             changed = true;
           }}
@@ -763,21 +779,15 @@ def render_mind_map_html(
     }}
 
     function displayedLayout() {{
-      const positions = new Map();
-      const visibleIds = new Set();
-      const sourceNodes = MIND_MAP_DATA.sources || [];
-      let cursorY = SOURCE_Y;
-      sourceNodes.forEach((source) => {{
-        const sourceSpan = subtreeSpan(source);
-        placeNode(source, 0, cursorY + sourceSpan / 2, positions, visibleIds);
-        cursorY += sourceSpan + ROOT_GAP;
-      }});
-      resolveColumnCollisions(positions, visibleIds);
-      resolveLayoutCollisions(positions, visibleIds);
+      const graph = collectVisibleGraph();
+      const positions = positionVisibleNodes(graph);
+      resolveLayoutCollisions(positions, graph.visibleIds);
       return {{
         positions,
-        visibleIds,
-        visibleEdges: edges.filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)),
+        visibleIds: graph.visibleIds,
+        visibleEdges: edges.filter(
+          (edge) => graph.visibleIds.has(edge.from) && graph.visibleIds.has(edge.to)
+        ),
       }};
     }}
 

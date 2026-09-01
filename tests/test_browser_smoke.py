@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from electroboy.modules.creative_workspace import render_corkboard_html
+from electroboy.modules.mind_map_workspace import render_mind_map_html
 from electroboy.service import create_server
 from electroboy.service.workflow_config import WorkflowConfig, save_workflow_config
 
@@ -459,6 +460,116 @@ def test_browser_corkboard_uses_provider_default_grid_layout(tmp_path: Path) -> 
     assert '<option value="freeform">Freeform</option>' in completed.stdout
     assert 'id="autoOrganize"' in completed.stdout
     assert 'id="layoutControl" class="layout-control"' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_mind_map_expands_children_without_reserving_subtree_space(
+    tmp_path: Path,
+) -> None:
+    page, _status = render_mind_map_html(
+        {
+            "provider": "layout-test",
+            "title": "Layout test",
+            "sources": [
+                {"id": "source", "kind": "source", "title": "Source"}
+            ],
+            "observations": [
+                {"id": "observation-a", "kind": "observation", "title": "A"},
+                {"id": "observation-b", "kind": "observation", "title": "B"},
+                {"id": "observation-c", "kind": "observation", "title": "C"},
+            ],
+            "provider_events": [],
+            "facts": [
+                {"id": "fact-a", "kind": "fact", "title": "Fact A"},
+                {"id": "fact-b", "kind": "fact", "title": "Fact B"},
+                {"id": "fact-c", "kind": "fact", "title": "Fact C"},
+                {"id": "fact-d", "kind": "fact", "title": "Fact D"},
+                {"id": "fact-e", "kind": "fact", "title": "Fact E"},
+            ],
+            "edges": [
+                {"from": "source", "to": "observation-a"},
+                {"from": "source", "to": "observation-b"},
+                {"from": "source", "to": "observation-c"},
+                {"from": "observation-a", "to": "fact-a"},
+                {"from": "observation-a", "to": "fact-b"},
+                {"from": "observation-a", "to": "fact-c"},
+                {"from": "observation-b", "to": "fact-b"},
+                {"from": "observation-b", "to": "fact-c"},
+                {"from": "observation-b", "to": "fact-d"},
+                {"from": "fact-d", "to": "fact-e"},
+            ],
+        }
+    )
+    probe = """
+<script>
+  const mindMapNode = (nodeId) =>
+    document.querySelector(`[data-node-id="${nodeId}"]`);
+  const nodeTop = (nodeId) => Number.parseFloat(mindMapNode(nodeId).style.top);
+  const verticalGaps = (nodeIds) => nodeIds.slice(1).map((nodeId, index) => {
+    const previous = mindMapNode(nodeIds[index]);
+    return Math.round(
+      nodeTop(nodeId) - Number.parseFloat(previous.style.top) - previous.offsetHeight
+    );
+  });
+  mindMapNode("source").click();
+  render();
+  const observationIds = ["observation-a", "observation-b", "observation-c"];
+  const observationGaps = verticalGaps(observationIds);
+  const collapsedTop = nodeTop("observation-b");
+  mindMapNode("observation-a").click();
+  render();
+  const factGaps = verticalGaps(["fact-a", "fact-b", "fact-c"]);
+  mindMapNode("observation-b").click();
+  render();
+  const dagFactIds = ["fact-a", "fact-b", "fact-c", "fact-d"]
+    .sort((leftId, rightId) => nodeTop(leftId) - nodeTop(rightId));
+  const dagGaps = verticalGaps(dagFactIds);
+  mindMapNode("fact-d").click();
+  render();
+  const verticalSeparation = (leftId, rightId) => {
+    const left = mindMapNode(leftId);
+    const right = mindMapNode(rightId);
+    if (nodeTop(leftId) <= nodeTop(rightId)) {
+      return nodeTop(rightId) - nodeTop(leftId) - left.offsetHeight;
+    }
+    return nodeTop(leftId) - nodeTop(rightId) - right.offsetHeight;
+  };
+  const collisionGap = Math.round(Math.min(
+    ...["fact-a", "fact-b", "fact-c"].map((nodeId) =>
+      verticalSeparation("fact-d", nodeId)
+    )
+  ));
+  const nodeCenter = (nodeId) => {
+    const node = mindMapNode(nodeId);
+    return nodeTop(nodeId) + node.offsetHeight / 2;
+  };
+  const result = document.createElement("div");
+  result.id = "mindMapLayoutProbe";
+  result.dataset.collapsedStable = String(
+    Math.abs(nodeTop("observation-b") - collapsedTop) < 0.5
+  );
+  result.dataset.observationGaps = observationGaps.join(",");
+  result.dataset.factGaps = factGaps.join(",");
+  result.dataset.dagGaps = dagGaps.join(",");
+  result.dataset.collisionGap = String(collisionGap);
+  result.dataset.subtreeCentered = String(
+    Math.abs(nodeCenter("fact-d") - nodeCenter("fact-e")) < 0.5
+  );
+  document.body.append(result);
+</script>
+"""
+    page = page.replace("</body>", f"{probe}</body>")
+
+    completed = browser_file_dom(page, tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="mindMapLayoutProbe" data-collapsed-stable="true" '
+        'data-observation-gaps="24,24" data-fact-gaps="24,24" '
+        'data-dag-gaps="24,24,24" '
+        'data-collision-gap="24" data-subtree-centered="true"></div>'
+        in completed.stdout
+    )
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
