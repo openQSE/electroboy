@@ -4,8 +4,9 @@
 
 The Mind Map capability provides a lightweight planning surface for the
 software-engineering and creative-writing workflows. Users can build a graph
-manually, arrange ideas on an unbounded canvas, and connect concise planning
-nodes to detailed project documents.
+manually, arrange ideas on an unbounded canvas, and connect planning nodes to
+supporting project files. Node content may be as short or as long as the plan
+requires.
 
 ElectroBoy owns the reusable editor, storage format, and document integration.
 Workflows may expose the capability and provide defaults, but the map does not
@@ -20,8 +21,11 @@ read-only mode.
 - Reparent, detach, reorder, rename, move, and delete nodes.
 - Preserve a stable spatial layout while supporting explicit branch cleanup.
 - Collapse branches and focus on one area of a large plan.
+- Accept arbitrarily long node text without truncating stored content.
+- Offer compact and expanded node presentation for large maps.
 - Link nodes to project files, arbitrary filesystem files, and web URLs.
 - Create a Markdown document from a node and edit it without leaving the map.
+- Preview every file format supported by ElectroBoy, including text and images.
 - Store maps in portable, versioned files suitable for source control.
 - Reuse one renderer for editable maps and provider-backed projections.
 - Keep the module independent of software and creative workflow policy.
@@ -33,8 +37,10 @@ presentation mode, task scheduling, or a large template gallery. Rich text,
 arbitrary shapes, image attachments, AI-generated maps, and several competing
 layout engines are outside the initial scope.
 
-The map does not replace the File pane or create another document editor. It
-uses the existing document rendering and editing capability.
+Mind Map is its own selectable pane. It owns the canvas, map interaction, and
+linked-content overlay. The overlay delegates file rendering and editing to
+the existing ElectroBoy file capabilities so supported formats behave
+consistently in both panes.
 
 ## Existing Foundation
 
@@ -49,53 +55,70 @@ that contract by projecting its workflow records into a graph. This remains a
 valid provider-projection use case, but it is not a suitable persistent model
 for a user-authored planning map.
 
-The implementation separates two map modes behind a shared canvas:
+The generic Mind Map capability remains the shared base for both uses. The
+ElectroBoy editable map inherits its graph and canvas behavior from that base,
+then adds file persistence and mutation commands. Better Planned continues to
+use the provider projection without depending on editable-map code.
 
 ```text
-Mind Map canvas and interaction layer
-  |
-  +-- Editable map document
-  |     loads and saves a versioned map file
-  |     permits graph mutations
+Generic Mind Map capability
+  shared graph model, canvas, layout, pan, zoom, and relationship modes
   |
   +-- Provider projection
-        loads workflow-owned records
-        permits only declared provider actions
+  |     loads workflow-owned records
+  |     permits only declared provider actions
+  |     used by Better Planned
+  |
+  +-- ElectroBoy editable-map extension
+        loads and saves a versioned map file
+        adds node and link mutation commands
+        used by software and creative workflows
 ```
 
 ## Design Principles
 
-Planning should remain faster than formatting. A selected node exposes the
-few operations needed to continue thinking, while less frequent actions stay
-in the pane's context tools.
+Planning should remain faster than formatting. Keyboard shortcuts perform the
+common node operations, while the pane's context tools provide the same
+commands for pointer use.
 
 Spatial position carries meaning. Adding or editing a node must not cause the
 whole map to move. New nodes receive sensible initial positions, and users can
 request branch cleanup explicitly.
 
-Nodes summarize ideas. Detailed prose belongs in linked Markdown documents,
-which keeps the graph readable even when the plan grows.
+Node input has no content-length limit. Compact presentation keeps a large map
+readable, while in-place expansion shows the complete node text. Linked files
+remain useful for material that benefits from a dedicated renderer or editor.
 
-Content state and viewing state are distinct. Node identities, hierarchy,
-order, positions, and links belong in the map file. Selection, pan, zoom, and
-temporary focus belong to per-connection or browser view state.
+The map file stores information that defines the map and must survive wherever
+the file is opened. This includes node text, parent and child relationships,
+sibling order, node positions, and links. Temporary details about the current
+screen stay with that browser view. Examples include which node is focused,
+the current pan and zoom, and which nodes are temporarily expanded. Moving the
+camera therefore does not create a source-control change, while moving a node
+does.
 
 ## User Interface
 
 ### Pane Integration
 
-Mind Map is a reusable pane type available to both built-in workflows. Each
-workflow may add a launcher or suggested default location. The pane and its
-actions remain owned by the Mind Map module.
+Mind Map is a reusable, selectable pane type available to both built-in
+workflows. The left navigation places a `Mind Map` entry directly below
+`Corkboard`. Its actions open an existing map or create a new map. Opening or
+creating a map selects a Mind Map pane and loads that map into it.
 
-The pane context tools contain four sections.
+Each workflow may supply a suggested default location. The pane, actions, and
+storage behavior remain owned by the Mind Map module.
+
+The pane context tools mirror the keyboard commands. They provide a discoverable
+path to every operation without adding controls around the selected node.
 
 | Section | Actions |
 | --- | --- |
 | File | New, Open, Save As |
-| Node | Independent, Child, Sibling, Delete |
-| Link | File, Web, Create Document |
-| View | Zoom, Fit, Focus, Collapse All, Tidy Branch |
+| Edit | Undo, Redo |
+| Node | Independent, Child, Sibling, Edit, Delete |
+| Link | File, Web, Create Document, Remove Link |
+| View | Compact or expanded nodes, Zoom, Fit, Focus, Collapse All, Tidy Branch |
 
 The toolbar favors icons where their meaning is established. Every icon has a
 tooltip and accessible label.
@@ -105,18 +128,16 @@ tooltip and accessible label.
 Double-clicking empty canvas space creates an independent root node at that
 position. The node enters text-editing mode immediately.
 
-Selecting one node reveals compact add controls beside it. One control creates
-a child and the other creates a sibling. The controls disappear during text
-editing, canvas movement, or multi-selection.
-
-Keyboard operations provide the fastest creation path.
+Node creation is keyboard-driven. Selecting a node does not display a floating
+toolbar or add buttons around it. Context-tool actions provide the equivalent
+pointer-accessible operations without crowding the map.
 
 | Input | Operation |
 | --- | --- |
 | `Tab` | Add a child to the selected node |
 | `Enter` | Add a sibling and begin editing it |
 | `Shift+Enter` | Add an independent root near the selection |
-| `F2` | Edit the selected node title |
+| `F2` | Edit the selected node text |
 | `Delete` | Delete the selected node or subtree |
 | `Escape` | Finish editing or clear the selection |
 | `Ctrl+Z` / `Cmd+Z` | Undo |
@@ -127,10 +148,20 @@ is shown in help text.
 
 ### Selection and Editing
 
-A single click selects a node. Double-clicking the title or pressing `F2`
-starts inline editing. Pressing `Enter` while editing accepts the title, while
-`Shift+Enter` inserts a line break only if multiline titles are enabled in a
-future format version.
+A primary-button click gives a node focus. The focused node uses a distinctive
+high-contrast border and background treatment, supplemented by an outline or
+shadow so focus is not communicated by color alone. `Tab` and `Enter` create a
+child or sibling only while a node has focus and text editing is inactive.
+
+Double-clicking the text or pressing `F2` starts inline editing. Pressing
+`Enter` while editing accepts the content. `Shift+Enter` inserts a line break
+while editing; it creates an independent root only when editing is inactive.
+
+Node text is stored without a length limit. Compact mode displays approximately
+80 characters, wrapping them within the compact node width. Longer content is
+line-clamped and ends with an `… more` control. Activating it expands the node
+in place and increases its height until the complete wrapped text is visible.
+An `… less` control returns the node to compact presentation.
 
 Deletion of a leaf happens immediately and remains undoable. Deleting a node
 with descendants presents a confirmation that includes the number of affected
@@ -157,9 +188,12 @@ The canvas uses a transformed world coordinate system rather than a fixed
 document rectangle. Nodes store world coordinates. The renderer expands its
 interactive bounds as content moves and does not impose a user-visible edge.
 
-Pointer dragging on empty space pans the canvas. A wheel or trackpad gesture
-zooms around the pointer location. `Fit` frames all visible nodes, while
-`Center Selection` frames only the selected node or subtree.
+Holding the middle mouse button and dragging pans the canvas. Panning works
+over nodes, edges, and empty space, and it never moves or selects the item under
+the pointer. A primary-button drag moves a node.
+
+The mouse wheel zooms around the pointer location. `Fit` frames all visible
+nodes, while `Center Selection` frames only the focused node or subtree.
 
 Zoom has a practical renderer safety range rather than a font-size policy.
 The controls accept direct numeric input in addition to increment and decrement
@@ -178,10 +212,10 @@ visibility only and never alters hierarchy or positions.
 
 ### Link Types
 
-A node may have zero or more links. The initial interface recognizes these
-types:
+A node may have zero or more links. The interface recognizes these types:
 
-- `file` points to a file and may include a heading or fragment.
+- `file` points to any format supported by ElectroBoy and may include a heading
+  or fragment where that format supports navigation.
 - `url` points to an external web location.
 - `document` identifies the primary Markdown document for the node.
 
@@ -201,36 +235,41 @@ the graph and gains a primary document link.
 The operation follows this sequence:
 
 1. Choose or accept a suggested Markdown path.
-2. Create the file with the node title as its initial level-one heading.
+2. Derive an editable initial heading from the first non-empty line of node
+   text and create the file.
 3. Save the document path on the node.
 4. Show a document badge on the node.
-5. Open the document in the document-peek overlay.
+5. Open the document in the linked-content overlay.
 
 Software and creative workflows may suggest different directories. The module
 accepts the suggestion through a narrow public interface and never imports a
 workflow to determine the path.
 
-The node title and document heading are independent after creation. Renaming
-one does not silently rename or rewrite the other. A missing document produces
-a broken-link indicator and repair action without removing the map node.
+The node text and document heading are independent after creation. Editing one
+does not silently rename or rewrite the other. A missing document produces a
+broken-link indicator and repair action without removing the map node.
 
-### Document-Peek Overlay
+### Linked-Content Overlay
 
 Internal files open in a right-side overlay so the map remains visible. The
-overlay reuses the existing File pane renderer, editor, navigation history,
-font controls, and link handling through a public document capability.
+overlay supports the file formats already handled by ElectroBoy, including
+Markdown, plain text, JPEG, PNG, PDF, and DOCX. Each format uses its established
+renderer. Editing controls appear only for formats with editing support.
+
+The overlay reuses File pane navigation history, font controls, and link
+handling through public file and document capabilities.
 
 The overlay provides these actions:
 
-- Preview or edit the document.
-- Navigate backward and forward through followed document links.
-- Open the document in the File pane.
-- Pop the document into its own window.
+- Preview the linked file and edit it when its format supports editing.
+- Navigate backward and forward through followed links.
+- Open the file in the File pane.
+- Pop the file into its own window.
 - Close the overlay and return focus to the originating map node.
 
-The overlay remembers the document and scroll location while it remains open.
-Opening a document that already has a File pane buffer reuses that buffer's
-underlying document identity rather than creating a duplicate buffer.
+The overlay remembers the file and scroll location while it remains open.
+Opening a file that already has a File pane buffer reuses that buffer's
+underlying file identity rather than creating a duplicate buffer.
 
 External URLs open in a browser tab by default. Many sites prohibit embedding
 through content-security or frame restrictions, so external overlays cannot be
@@ -254,7 +293,7 @@ An illustrative document follows.
   "nodes": [
     {
       "id": "node-release",
-      "title": "Release 1.0",
+      "text": "Release 1.0",
       "parent_id": null,
       "order": 0,
       "x": 120,
@@ -269,7 +308,7 @@ An illustrative document follows.
     },
     {
       "id": "node-validation",
-      "title": "Validation",
+      "text": "Validation",
       "parent_id": "node-release",
       "order": 0,
       "x": 440,
@@ -289,11 +328,17 @@ The `relationships` collection is reserved for explicit cross-branch links.
 The initial UI may omit relationship creation while retaining forward schema
 compatibility.
 
-### View State
+### Map Data and Browser View
 
-View state uses the Mind Map module's namespaced state. Its key includes the
-browser connection and canonical map identity. It may contain pan, zoom,
-selection, focus, collapsed branches, and transient overlay state.
+The `.mindmap.json` file contains the shared map. It records node text,
+hierarchy, sibling order, durable positions, and links. Arbitrarily long node
+text is stored in full regardless of whether the node is compact or expanded
+on screen.
+
+The Mind Map module separately records how one browser is looking at the map.
+This browser-view record includes pan, zoom, focused node, compact or expanded
+nodes, collapsed branches, and transient overlay state. Its key includes the
+browser connection and canonical map identity.
 
 Durable node positions stay in the map file because they express the author's
 arrangement. Moving the viewport does not rewrite the file.
@@ -327,22 +372,30 @@ the visible coordinates.
 
 ### Ownership
 
-The reusable Mind Map module owns:
+The generic Mind Map capability owns:
+
+- The normalized graph contract used by provider projections.
+- Shared node and edge rendering.
+- Canvas layout, middle-button pan, wheel zoom, and relationship modes.
+- Read-only provider actions and capability declarations.
+
+The ElectroBoy editable-map extension owns:
 
 - Schema validation and migration.
 - File loading and atomic saving.
 - Editable-map routes.
-- The shared canvas and interaction controller.
+- Mutation commands and undo history.
+- Compact and expanded node presentation.
 - Mind Map pane actions and namespaced state.
-- The public adapter for provider projections.
 
-The shared document capability owns rendering and editing linked files. Core
-owns pane composition, connection identity, transport, and module discovery.
-Workflows own launch placement and optional path suggestions.
+Shared file and document capabilities own rendering and editing linked files.
+Core owns pane composition, connection identity, transport, and module
+discovery. Workflows own launch placement and optional path suggestions.
 
 Better Planned continues to own its relationship meanings, authorization, and
-source data. It provides normalized graph data without importing private Mind
-Map implementation details.
+source data. It provides normalized graph data to the generic Mind Map
+capability and does not import the editable extension. Existing clean and full
+relationship modes retain their behavior.
 
 ### Public Contracts
 
@@ -360,9 +413,10 @@ Node editing remains a client-side transaction until the next complete save.
 This keeps the server API small and ensures undo can treat related changes as
 one operation.
 
-Provider projection remains a read contract. The renderer receives a
-normalized generic graph plus declared capabilities. Mutation controls appear
-only when the loaded source advertises editable-document capabilities.
+Provider projection remains a read contract. The generic renderer receives a
+normalized graph plus declared capabilities. The editable extension activates
+mutation controls only for a file-backed ElectroBoy map. Provider-backed maps
+therefore cannot accidentally expose save or node-mutation operations.
 
 ### Dependency Direction
 
@@ -370,16 +424,16 @@ only when the loaded source advertises editable-document capabilities.
 workflow launcher
        |
        v
-Mind Map public action API
+ElectroBoy editable Mind Map API
        |
+       +--> generic Mind Map capability
        +--> map storage service
-       +--> shared canvas renderer
-       +--> document public action API
+       +--> file and document public action APIs
 
 Better Planned provider
        |
        v
-Mind Map projection protocol
+Generic Mind Map projection protocol
 ```
 
 The Mind Map module does not import Better Planned, software-engineering, or
@@ -427,7 +481,7 @@ offers a retry. Existing files are never overwritten without confirmation.
 
 All canvas actions have keyboard equivalents. Selection remains visible at all
 zoom levels, and focus is restored after overlays close. Nodes expose their
-title, hierarchy level, expansion state, and link badges to assistive
+text, hierarchy level, expansion state, and link badges to assistive
 technology.
 
 Arrow keys move selection between nearby nodes. An optional outline view may
@@ -437,7 +491,7 @@ difficult for screen-reader users.
 ## Security
 
 File and document links pass through the existing ElectroBoy file-access and
-rendering paths. User-provided titles and link labels are escaped before DOM
+rendering paths. User-provided node text and link labels are escaped before DOM
 insertion. URLs accept supported schemes only and external navigation uses
 safe opener behavior.
 
@@ -451,15 +505,19 @@ is advisory and does not grant additional filesystem access.
 - Create and open `.mindmap.json` files.
 - Add independent, child, and sibling nodes.
 - Rename, move, reparent, detach, and delete nodes.
-- Pan, zoom, fit, collapse, undo, and redo.
+- Support arbitrarily long node text with compact and expanded presentation.
+- Pan with middle-button drag and zoom with the wheel.
+- Fit, collapse, focus, undo, and redo.
 - Persist hierarchy, order, and positions safely.
-- Expose the pane in software and creative workflows.
+- Add Open and New under Mind Map below Corkboard in the left navigation.
+- Expose Mind Map as a selectable pane in software and creative workflows.
 
 ### Phase 2 — Documents and Links
 
-- Attach files and web URLs.
+- Attach supported files and web URLs.
 - Create a linked Markdown document.
-- Preview and edit internal files in the document-peek overlay.
+- Preview Markdown, text, image, PDF, and DOCX files in the content overlay.
+- Edit linked files where the existing file capability supports editing.
 - Reuse File pane buffers and navigation behavior.
 - Report and repair broken links.
 
@@ -478,12 +536,15 @@ revision conflicts, and linked-document creation. Module tests confirm that a
 core-only installation loads without either workflow package.
 
 Browser tests cover node creation shortcuts, pointer creation, inline editing,
-dragging, reparenting, cycle rejection, collapse counts, undo and redo, pan and
-zoom stability, save conflicts, and document overlay behavior.
+focused-node styling, long text, compact expansion, dragging, reparenting,
+cycle rejection, collapse counts, undo and redo. They also verify
+middle-button panning from every canvas target, wheel zoom stability, save
+conflicts, and linked-content overlay behavior.
 
 Composition tests run the software and creative workflows independently. A
 Better Planned test verifies that provider projections remain read-only and
-render through the shared canvas without exposing editable controls.
+render through the shared canvas without exposing editable controls. It also
+protects Better Planned clean and full relationship modes from regressions.
 
 Performance tests construct representative maps with hundreds and thousands
 of nodes. They measure initial rendering, pointer responsiveness, save payload
@@ -492,13 +553,19 @@ size, and whether hidden or off-screen branches create unnecessary DOM work.
 ## Acceptance Criteria
 
 - A user can create a useful plan without opening a menu after the first node.
+- A focused node has an unmistakable visual treatment.
+- `Tab` and `Enter` create a child and sibling without displaying node controls.
+- Middle-button dragging pans from any point and wheel movement zooms the map.
 - Independent clusters and hierarchical branches coexist on one canvas.
 - Editing one branch does not unexpectedly reposition another branch.
-- A node can create and reopen a Markdown document without losing map context.
+- Node input has no content-length limit and can expand to show all text.
+- A node can preview supported files without losing map context.
+- The left navigation can open or create a map below the Corkboard entry.
 - Pending edits survive ordinary pane switches and report failed saves clearly.
 - Two open views cannot silently overwrite one another.
 - The same Mind Map module works in software and creative workflows.
-- Better Planned continues to supply its graph through a provider boundary.
+- Better Planned continues to supply its graph through the unchanged generic
+  provider boundary and retains both relationship modes.
 - Optional workflows are absent from core and module imports.
 
 ## Open Questions
