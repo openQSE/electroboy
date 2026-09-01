@@ -120,6 +120,68 @@ def render_mind_map_html(
       border-color: rgba(37, 99, 235, 0.45);
       background: #ffffff;
     }}
+    .mind-map-control[aria-pressed="true"] {{
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #ffffff;
+    }}
+    .mind-map-legend {{
+      position: fixed;
+      z-index: 6;
+      top: 16px;
+      right: 18px;
+      width: min(300px, calc(100vw - 36px));
+      max-height: calc(100vh - 32px);
+      overflow: auto;
+      padding: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }}
+    .mind-map-legend h2 {{
+      margin: 0;
+      font-size: 13px;
+    }}
+    .mind-map-legend__count {{
+      margin: 5px 0 10px;
+      color: var(--muted);
+      font-size: 11px;
+    }}
+    .mind-map-legend__items {{ display: grid; gap: 5px; }}
+    .mind-map-legend__item {{
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 6px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      font-size: 11px;
+    }}
+    .mind-map-legend__item:hover {{ border-color: var(--line); }}
+    .mind-map-legend__item[aria-pressed="true"] {{ opacity: 0.42; }}
+    .mind-map-legend__swatch {{
+      display: block;
+      border-top: 3px solid var(--edge-color);
+    }}
+    .mind-map-legend__item[data-state="uncertain"] .mind-map-legend__swatch {{
+      border-top-style: dashed;
+    }}
+    .mind-map-relationship {{
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      font-size: 11px;
+      line-height: 1.4;
+    }}
+    .mind-map-relationship strong {{ display: block; margin-bottom: 4px; }}
     #mindMapViewport {{
       position: fixed;
       inset: 0;
@@ -142,7 +204,7 @@ def render_mind_map_html(
       width: 4200px;
       height: 2800px;
       overflow: visible;
-      pointer-events: none;
+      pointer-events: auto;
     }}
     #mindMapNodes {{
       position: absolute;
@@ -357,6 +419,21 @@ def render_mind_map_html(
       fill: none;
       stroke: rgba(37, 99, 235, 0.34);
       stroke-width: 2.5;
+      cursor: pointer;
+      pointer-events: stroke;
+    }}
+    .mind-map-edge[data-state="uncertain"],
+    .mind-map-edge[data-state="review"] {{
+      stroke-dasharray: 10 7;
+    }}
+    .mind-map-edge[data-state="historical"],
+    .mind-map-edge[data-state="superseded"] {{
+      stroke-dasharray: 3 7;
+      opacity: 0.58;
+    }}
+    .mind-map-edge.is-selected {{
+      stroke-width: 5;
+      filter: drop-shadow(0 0 4px currentColor);
     }}
     .mind-map-style-hud,
     .mind-map-style-month-hud {{
@@ -390,6 +467,12 @@ def render_mind_map_html(
     .mind-map-style-month-hud .mind-map-node {{
       background: rgba(4, 18, 24, 0.88);
       border-color: var(--line);
+      box-shadow: var(--node-shadow);
+    }}
+    .mind-map-style-hud .mind-map-legend,
+    .mind-map-style-month-hud .mind-map-legend {{
+      border-color: var(--line);
+      background: rgba(4, 18, 24, 0.9);
       box-shadow: var(--node-shadow);
     }}
     .mind-map-style-hud .mind-map-edge,
@@ -460,11 +543,21 @@ def render_mind_map_html(
         <span>{html.escape(str(payload.get("subtitle") or ""))}</span>
       </div>
       <div class="mind-map-controls">
+        <button id="mindMapCleanMode" class="mind-map-control" type="button"
+                aria-pressed="true">Clean</button>
+        <button id="mindMapFullMode" class="mind-map-control" type="button"
+                aria-pressed="false">Full</button>
         <button id="mindMapResetLayout" class="mind-map-control" type="button">
           Reset layout
         </button>
       </div>
     </header>
+    <aside id="mindMapLegend" class="mind-map-legend" aria-label="Relationship legend">
+      <h2>Relationships</h2>
+      <div id="mindMapLegendCount" class="mind-map-legend__count"></div>
+      <div id="mindMapLegendItems" class="mind-map-legend__items"></div>
+      <div id="mindMapRelationship" class="mind-map-relationship" hidden></div>
+    </aside>
     <div id="mindMapViewport">
       <div id="mindMapCanvas">
         <svg id="mindMapEdges" aria-hidden="true"></svg>
@@ -491,6 +584,11 @@ def render_mind_map_html(
     const nodeLayer = document.getElementById("mindMapNodes");
     const edgeLayer = document.getElementById("mindMapEdges");
     const resetLayoutButton = document.getElementById("mindMapResetLayout");
+    const cleanModeButton = document.getElementById("mindMapCleanMode");
+    const fullModeButton = document.getElementById("mindMapFullMode");
+    const legendCount = document.getElementById("mindMapLegendCount");
+    const legendItems = document.getElementById("mindMapLegendItems");
+    const relationshipPanel = document.getElementById("mindMapRelationship");
     const expanded = new Set();
     const manualOffsets = new Map();
     const measuredNodeHeights = new Map();
@@ -510,6 +608,9 @@ def render_mind_map_html(
     let nodeDrag = null;
     let suppressNextNodeClickFor = null;
     let pendingMeasuredRender = false;
+    let graphMode = "clean";
+    let selectedEdgeId = null;
+    const hiddenFamilies = new Set();
 
     function restoreView() {{
       try {{
@@ -525,6 +626,7 @@ def render_mind_map_html(
           x: Number.isFinite(storedX) ? storedX : 0,
           y: Number.isFinite(storedY) ? storedY : 0,
         }};
+        graphMode = stored.mode === "full" ? "full" : "clean";
         manualOffsets.clear();
         if (Number(stored.layoutVersion) === LAYOUT_VERSION) {{
           Object.entries(stored.nodes || {{}}).forEach(([nodeId, point]) => {{
@@ -548,6 +650,7 @@ def render_mind_map_html(
         scale,
         x: pan.x,
         y: pan.y,
+        mode: graphMode,
         nodes: Object.fromEntries(
           [...manualOffsets.entries()].map(([nodeId, position]) => [
             nodeId,
@@ -573,12 +676,69 @@ def render_mind_map_html(
     const nodes = allNodes();
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
-    const edges = MIND_MAP_DATA.edges || [];
-    const outgoing = new Map();
-    edges.forEach((edge) => {{
-      if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
-      outgoing.get(edge.from).push(edge);
-    }});
+    const edges = (MIND_MAP_DATA.edges || []).map((edge, index) => ({{
+      ...edge,
+      id: edge.id || `edge-${{index + 1}}`,
+      family: edge.family || "other",
+      state: edge.state || "active",
+      directed: edge.directed !== false,
+    }}));
+    const defaultRelationshipStyles = {{
+      provenance: {{ label: "Provenance", color: "#4DA3FF" }},
+      containment: {{ label: "Containment", color: "#22D3EE" }},
+      responsibility: {{ label: "Responsibility", color: "#FF9F43" }},
+      fulfillment: {{ label: "Fulfillment", color: "#4ADE80" }},
+      assignment: {{ label: "Assignment", color: "#C084FC" }},
+      dependency: {{ label: "Dependency", color: "#FACC15" }},
+      identity: {{ label: "Identity review", color: "#F472B6" }},
+      conflict: {{ label: "Conflict", color: "#FB7185" }},
+      historical: {{ label: "Historical", color: "#94A3B8" }},
+      other: {{ label: "Other", color: "#4DA3FF" }},
+    }};
+    const relationshipStyles = {{
+      ...defaultRelationshipStyles,
+      ...(MIND_MAP_DATA.relationship_styles || {{}}),
+    }};
+    const primaryEdgeIds = selectPrimaryEdgeIds(edges);
+    const treeEdges = edges
+      .filter((edge) => primaryEdgeIds.has(edge.id))
+      .map((edge) => ({{
+        ...edge,
+        from: edge.tree_from || edge.from,
+        to: edge.tree_to || edge.to,
+      }}));
+    const outgoing = edgeIndex(treeEdges);
+
+    function edgeIndex(indexedEdges) {{
+      const result = new Map();
+      indexedEdges.forEach((edge) => {{
+        if (!result.has(edge.from)) result.set(edge.from, []);
+        result.get(edge.from).push(edge);
+      }});
+      return result;
+    }}
+
+    function selectPrimaryEdgeIds(candidateEdges) {{
+      const result = new Set();
+      const selectedTargets = new Set();
+      candidateEdges.forEach((edge) => {{
+        const treeTarget = edge.tree_to || edge.to;
+        if (!edge.primary || selectedTargets.has(treeTarget)) return;
+        result.add(edge.id);
+        selectedTargets.add(treeTarget);
+      }});
+      candidateEdges.forEach((edge) => {{
+        const treeSource = edge.tree_from || edge.from;
+        const treeTarget = edge.tree_to || edge.to;
+        if (selectedTargets.has(treeTarget)) return;
+        const parent = nodeById.get(treeSource);
+        const child = nodeById.get(treeTarget);
+        if (!parent || !child || !childKindsFor(parent).includes(child.kind)) return;
+        result.add(edge.id);
+        selectedTargets.add(treeTarget);
+      }});
+      return result;
+    }}
 
     function childrenFor(nodeId, kinds = null) {{
       return (outgoing.get(nodeId) || [])
@@ -644,7 +804,7 @@ def render_mind_map_html(
           queue.push(child.id);
         }});
       }}
-      edges.forEach((edge) => {{
+      treeEdges.forEach((edge) => {{
         if (!visibleIds.has(edge.from) || !visibleIds.has(edge.to)) return;
         const parent = nodeById.get(edge.from);
         const child = nodeById.get(edge.to);
@@ -785,7 +945,7 @@ def render_mind_map_html(
       return {{
         positions,
         visibleIds: graph.visibleIds,
-        visibleEdges: edges.filter(
+        visibleEdges: (graphMode === "full" ? edges : treeEdges).filter(
           (edge) => graph.visibleIds.has(edge.from) && graph.visibleIds.has(edge.to)
         ),
       }};
@@ -996,15 +1156,117 @@ def render_mind_map_html(
 
     function drawEdges(layout) {{
       edgeLayer.replaceChildren();
-      layout.visibleEdges.forEach((edge) => {{
+      const definitions = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+      marker.setAttribute("id", "mindMapArrow");
+      marker.setAttribute("viewBox", "0 0 10 10");
+      marker.setAttribute("refX", "9");
+      marker.setAttribute("refY", "5");
+      marker.setAttribute("markerWidth", "7");
+      marker.setAttribute("markerHeight", "7");
+      marker.setAttribute("orient", "auto-start-reverse");
+      const arrow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+      arrow.setAttribute("fill", "context-stroke");
+      marker.append(arrow);
+      definitions.append(marker);
+      edgeLayer.append(definitions);
+      layout.visibleEdges
+        .filter((edge) => !hiddenFamilies.has(edge.family || "other"))
+        .forEach((edge) => {{
         const fromPosition = layout.positions.get(edge.from);
         const toPosition = layout.positions.get(edge.to);
         if (!fromPosition || !toPosition) return;
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("class", "mind-map-edge");
+        path.dataset.edgeId = edge.id;
+        path.dataset.state = edge.state || "active";
+        const style = relationshipStyle(edge);
+        path.style.stroke = style.color;
+        path.style.color = style.color;
+        if (edge.directed !== false) path.setAttribute("marker-end", "url(#mindMapArrow)");
+        if (edge.id === selectedEdgeId) path.classList.add("is-selected");
         path.setAttribute("d", edgePath(edge, fromPosition, toPosition));
+        path.setAttribute("tabindex", "0");
+        path.setAttribute("role", "button");
+        path.setAttribute("aria-label", relationshipLabel(edge));
+        path.addEventListener("click", (event) => {{
+          event.stopPropagation();
+          selectedEdgeId = edge.id;
+          render();
+        }});
+        path.addEventListener("keydown", (event) => {{
+          if (!["Enter", " "].includes(event.key)) return;
+          event.preventDefault();
+          selectedEdgeId = edge.id;
+          render();
+        }});
         edgeLayer.append(path);
       }});
+    }}
+
+    function relationshipStyle(edge) {{
+      return relationshipStyles[edge.family || "other"] || relationshipStyles.other;
+    }}
+
+    function relationshipLabel(edge) {{
+      const from = nodeById.get(edge.from);
+      const to = nodeById.get(edge.to);
+      return `${{from?.title || edge.from}} · ${{edge.relationship || "linked"}} · ${{to?.title || edge.to}}`;
+    }}
+
+    function renderLegend(layout) {{
+      cleanModeButton.setAttribute("aria-pressed", String(graphMode === "clean"));
+      fullModeButton.setAttribute("aria-pressed", String(graphMode === "full"));
+      const counts = new Map();
+      layout.visibleEdges.forEach((edge) => {{
+        const family = edge.family || "other";
+        counts.set(family, Number(counts.get(family) || 0) + 1);
+      }});
+      const visibleCount = layout.visibleEdges.filter(
+        (edge) => !hiddenFamilies.has(edge.family || "other")
+      ).length;
+      legendCount.textContent = `Displaying ${{visibleCount}} of ${{layout.visibleEdges.length}} relationships`;
+      legendItems.replaceChildren();
+      [...counts.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .forEach(([family, count]) => {{
+          const style = relationshipStyles[family] || relationshipStyles.other;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "mind-map-legend__item";
+          button.dataset.state = family === "historical" ? "historical" : "active";
+          button.setAttribute("aria-pressed", String(hiddenFamilies.has(family)));
+          const swatch = document.createElement("span");
+          swatch.className = "mind-map-legend__swatch";
+          swatch.style.setProperty("--edge-color", style.color);
+          const label = document.createElement("span");
+          label.textContent = style.label || family;
+          const countNode = document.createElement("span");
+          countNode.textContent = String(count);
+          button.append(swatch, label, countNode);
+          button.addEventListener("click", () => {{
+            if (hiddenFamilies.has(family)) hiddenFamilies.delete(family);
+            else hiddenFamilies.add(family);
+            render();
+          }});
+          legendItems.append(button);
+        }});
+      const selected = edges.find((edge) => edge.id === selectedEdgeId);
+      relationshipPanel.hidden = !selected;
+      relationshipPanel.replaceChildren();
+      if (selected) {{
+        const title = document.createElement("strong");
+        title.textContent = selected.relationship || "linked";
+        const summary = document.createElement("div");
+        summary.textContent = relationshipLabel(selected);
+        const details = document.createElement("div");
+        const confidence = selected.confidence === null || selected.confidence === undefined
+          ? ""
+          : ` · ${{Math.round(Number(selected.confidence) * 100)}}% confidence`;
+        details.textContent = `${{selected.origin || "provider"}} · ${{selected.state || "active"}}${{confidence}}`;
+        relationshipPanel.append(title, summary, details);
+      }}
     }}
 
     function applyRenderedLayout(layout) {{
@@ -1225,6 +1487,7 @@ def render_mind_map_html(
         empty.textContent = "No source traceability records";
         nodeLayer.append(empty);
       }}
+      renderLegend(layout);
       if (measureRenderedNodes()) scheduleMeasuredRender();
       return layout;
     }}
@@ -1307,6 +1570,23 @@ def render_mind_map_html(
       event.preventDefault();
       event.stopPropagation();
       resetLayout();
+    }});
+
+    [cleanModeButton, fullModeButton].forEach((button) => {{
+      button.addEventListener("pointerdown", (event) => event.stopPropagation());
+    }});
+
+    cleanModeButton.addEventListener("click", () => {{
+      graphMode = "clean";
+      selectedEdgeId = null;
+      saveView();
+      render();
+    }});
+
+    fullModeButton.addEventListener("click", () => {{
+      graphMode = "full";
+      saveView();
+      render();
     }});
 
     viewport.addEventListener("wheel", (event) => {{

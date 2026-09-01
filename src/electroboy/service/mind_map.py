@@ -99,11 +99,23 @@ def _normalize_edge(
         raise StateError(f"mind map edge references unknown node: {source_id}")
     if target_id not in node_ids:
         raise StateError(f"mind map edge references unknown node: {target_id}")
+    tree_source_id = str(entry.get("tree_from") or source_id).strip()
+    tree_target_id = str(entry.get("tree_to") or target_id).strip()
+    if tree_source_id not in node_ids or tree_target_id not in node_ids:
+        raise StateError("mind map primary projection references an unknown node")
     return {
         **entry,
+        "id": str(entry.get("id") or f"edge-{index + 1}"),
         "from": source_id,
         "to": target_id,
         "relationship": str(entry.get("relationship") or "linked").strip(),
+        "family": str(entry.get("family") or "other").strip().lower(),
+        "primary": bool(entry.get("primary", False)),
+        "directed": bool(entry.get("directed", True)),
+        "state": str(entry.get("state") or "active").strip().lower(),
+        "confidence": _normalize_confidence(entry.get("confidence")),
+        "tree_from": tree_source_id,
+        "tree_to": tree_target_id,
     }
 
 
@@ -154,10 +166,29 @@ def normalize_mind_map_snapshot(
     edges_value = payload.get("edges") or []
     if not isinstance(edges_value, list):
         raise StateError("mind map edges must be a list")
-    normalized["edges"] = [
+    normalized_edges = [
         _normalize_edge(entry, index=index, node_ids=node_ids)
         for index, entry in enumerate(edges_value)
     ]
+    edge_ids = [str(edge["id"]) for edge in normalized_edges]
+    if len(edge_ids) != len(set(edge_ids)):
+        raise StateError("mind map contains duplicate edge ids")
+    normalized["edges"] = normalized_edges
+    styles_value = payload.get("relationship_styles") or {}
+    if not isinstance(styles_value, dict):
+        raise StateError("mind map relationship_styles must be an object")
+    normalized["relationship_styles"] = {
+        str(family).strip().lower(): {
+            "label": str(
+                (style if isinstance(style, dict) else {}).get("label") or family
+            ).strip(),
+            "color": str(
+                (style if isinstance(style, dict) else {}).get("color") or "#4DA3FF"
+            ).strip(),
+        }
+        for family, style in styles_value.items()
+        if str(family).strip()
+    }
     capabilities = payload.get("capabilities") or []
     if not isinstance(capabilities, list):
         raise StateError("mind map capabilities must be a list")

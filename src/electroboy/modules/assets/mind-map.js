@@ -48,6 +48,7 @@
       "mind-map-provider",
       "mind-map-source-trace",
       "mind-map-pan-zoom",
+      "mind-map-relationship-modes",
       "mind-map-styles",
     ],
     actions: { show },

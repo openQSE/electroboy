@@ -503,6 +503,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(("GET", "/artifacts/mind-map"), mind_map_routes)
         self.assertIn(("GET", "/api/mind-map"), mind_map_routes)
         self.assertIn("mind-map-provider", modules["mind_map"]["capabilities"])
+        self.assertIn(
+            "mind-map-relationship-modes",
+            modules["mind_map"]["capabilities"],
+        )
         corkboard_routes = {
             (route["method"], route["path"])
             for route in modules["corkboard"]["routes"]
@@ -5287,9 +5291,13 @@ class ServiceTests(unittest.TestCase):
                 ],
                 "edges": [
                     {
+                        "id": "source-observation",
                         "from": "source:fall-calendar",
                         "to": "observation:labor-day",
                         "relationship": "produced_observation",
+                        "family": "provenance",
+                        "primary": True,
+                        "state": "active",
                     },
                     {
                         "from": "observation:labor-day",
@@ -5309,8 +5317,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="mindMapViewport"', page)
         self.assertIn('id="mindMapCanvas"', page)
         self.assertIn('id="mindMapResetLayout"', page)
+        self.assertIn('id="mindMapCleanMode"', page)
+        self.assertIn('id="mindMapFullMode"', page)
+        self.assertIn('id="mindMapLegend"', page)
         self.assertIn(".mind-map-control", page)
         self.assertIn("function displayedLayout", page)
+        self.assertIn("function selectPrimaryEdgeIds", page)
+        self.assertIn("function renderLegend", page)
+        self.assertIn("function relationshipStyle", page)
         self.assertIn("const SOURCE_X = 80;", page)
         self.assertIn("const ROOT_GAP = 54;", page)
         self.assertIn("const SIBLING_GAP = 24;", page)
@@ -5318,6 +5332,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const LAYOUT_VERSION = 7;", page)
         self.assertIn("const NODE_DRAG_THRESHOLD = 4;", page)
         self.assertIn('"levels": ["source", "observation", "fact"]', page)
+        self.assertIn('"family": "provenance"', page)
+        self.assertIn('"primary": true', page)
         self.assertIn("event.button !== 1", page)
         self.assertIn("function zoomAt", page)
         self.assertIn("function layoutHasVisibleNode", page)

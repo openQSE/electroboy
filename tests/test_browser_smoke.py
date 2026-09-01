@@ -573,6 +573,83 @@ def test_browser_mind_map_expands_children_without_reserving_subtree_space(
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_mind_map_full_mode_overlays_secondary_relationships(
+    tmp_path: Path,
+) -> None:
+    page, _status = render_mind_map_html(
+        {
+            "provider": "relationship-test",
+            "title": "Relationship test",
+            "sources": [{"id": "source", "kind": "source", "title": "Source"}],
+            "observations": [
+                {"id": "observation-a", "kind": "observation", "title": "A"},
+                {"id": "observation-b", "kind": "observation", "title": "B"},
+            ],
+            "provider_events": [],
+            "facts": [{"id": "fact", "kind": "fact", "title": "Fact"}],
+            "edges": [
+                {
+                    "id": "source-a",
+                    "from": "source",
+                    "to": "observation-a",
+                    "family": "provenance",
+                    "primary": True,
+                },
+                {
+                    "id": "source-b",
+                    "from": "source",
+                    "to": "observation-b",
+                    "family": "provenance",
+                    "primary": True,
+                },
+                {
+                    "id": "a-fact",
+                    "from": "observation-a",
+                    "to": "fact",
+                    "family": "provenance",
+                    "primary": True,
+                },
+                {
+                    "id": "b-fact",
+                    "from": "observation-b",
+                    "to": "fact",
+                    "relationship": "supports",
+                    "family": "provenance",
+                    "primary": False,
+                },
+            ],
+        }
+    )
+    probe = """
+<script>
+  document.querySelector('[data-node-id="source"]').click();
+  document.querySelector('[data-node-id="observation-a"]').click();
+  document.querySelector('[data-node-id="observation-b"]').click();
+  render();
+  const cleanPosition = document.querySelector('[data-node-id="fact"]').style.cssText;
+  const cleanEdges = document.querySelectorAll('.mind-map-edge').length;
+  document.getElementById('mindMapFullMode').click();
+  const fullPosition = document.querySelector('[data-node-id="fact"]').style.cssText;
+  const result = document.createElement('div');
+  result.id = 'mindMapModeProbe';
+  result.dataset.cleanEdges = String(cleanEdges);
+  result.dataset.fullEdges = String(document.querySelectorAll('.mind-map-edge').length);
+  result.dataset.stable = String(cleanPosition === fullPosition);
+  result.dataset.legend = document.getElementById('mindMapLegendCount').textContent;
+  document.body.append(result);
+</script>
+"""
+    completed = browser_file_dom(page.replace("</body>", f"{probe}</body>"), tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="mindMapModeProbe" data-clean-edges="3" data-full-edges="4" '
+        'data-stable="true" data-legend="Displaying 4 of 4 relationships"></div>'
+        in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_shell_has_clean_empty_workflow_state(tmp_path: Path) -> None:
     root = tmp_path / "core-service"
     save_workflow_config(root, WorkflowConfig(enabled_builtins=()))
