@@ -387,6 +387,20 @@
                       data-creative-control="start-agent">Start</button>
             </div>
           </div>
+          <div class="creative-section">
+            <button class="stage-action-stage" type="button" aria-expanded="false"
+                    data-creative-control="mind-map-menu">
+              <span class="stage-action-label">Mind Map</span>
+              <span class="stage-action-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="stage-action-list" role="group" hidden
+                 data-creative-control="mind-map-actions">
+              <button class="stage-action-button" type="button"
+                      data-creative-control="open-mind-map">Open</button>
+              <button class="stage-action-button" type="button"
+                      data-creative-control="new-mind-map">New</button>
+            </div>
+          </div>
           <div class="creative-tree" role="tree" data-creative-control="tree"></div>
         </div>
       </section>
@@ -405,6 +419,8 @@
     creativeAgentMenuButton = find("agent-menu");
     creativeAgentActions = find("agent-actions");
     creativeStartAgent = find("start-agent");
+    const mindMapMenu = find("mind-map-menu");
+    const mindMapActions = find("mind-map-actions");
     runtime.elements.creativeTree = find("tree");
 
     creativeProjectMenuButton.addEventListener("click", () => {
@@ -412,6 +428,17 @@
     });
     creativeAgentMenuButton.addEventListener("click", () => {
       toggleCreativeActionGroup("agent");
+    });
+    mindMapMenu.addEventListener("click", () => {
+      const expanded = mindMapMenu.getAttribute("aria-expanded") === "true";
+      mindMapMenu.setAttribute("aria-expanded", expanded ? "false" : "true");
+      mindMapActions.hidden = expanded;
+    });
+    find("open-mind-map").addEventListener("click", () => {
+      runtime.modules.invoke("mind_map", "openDocument");
+    });
+    find("new-mind-map").addEventListener("click", () => {
+      runtime.modules.invoke("mind_map", "newDocument");
     });
     creativeRecentProjectsButton.addEventListener("click", () => {
       toggleCreativeActionGroup("recent-projects");
@@ -1508,7 +1535,7 @@
         "Develop long-form writing with a binder, visual planning tools, documents, and agents.",
       features: [
         "Organize folders and documents in the binder while preserving your writing context.",
-        "Plan scenes and milestones with corkboards, agendas, and calendars.",
+        "Plan scenes and milestones with mind maps, corkboards, agendas, and calendars.",
         "Assign agents to writing tasks and review their output beside the source material.",
       ],
     },

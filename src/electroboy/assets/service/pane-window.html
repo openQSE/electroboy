@@ -10,6 +10,7 @@
   >
   <link rel="stylesheet" href="/assets/service/css/pane-tools.css">
   <link rel="stylesheet" href="/assets/service/css/agenda-pane-tools.css">
+  <link rel="stylesheet" href="/assets/service/css/mind-map-pane-tools.css">
   <link rel="stylesheet" href="/assets/service/css/input-history.css">
   <style>
     :root {
@@ -921,15 +922,16 @@
   <script src="/assets/service/js/modules/agent-pane-tools.js"></script>
   <script src="/assets/service/js/modules/file-pane-tools.js"></script>
   <script src="/assets/service/js/modules/agenda-pane-tools.js"></script>
+  <script src="/assets/service/js/modules/mind-map-pane-tools.js"></script>
   <script>
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
     const EMBEDDED_PANE = params.get("embedded") === "1";
     const paneInstanceId = params.get("pane_instance_id") || "";
-    const contextId = params.get("context_id") || "";
-    const workspaceId = params.get("workspace_id") || contextId;
-    const connectionId = params.get("connection_id") || "";
-    const leaseToken = params.get("lease_token") || "";
+    let contextId = params.get("context_id") || "";
+    let workspaceId = params.get("workspace_id") || contextId;
+    let connectionId = params.get("connection_id") || "";
+    let leaseToken = params.get("lease_token") || "";
     const telemetryPageId = params.get("telemetry_page_id") || "";
     const telemetryTabId = params.get("telemetry_tab_id") || "";
     let selectedSessionId = params.get("session_id") || "";
@@ -972,6 +974,7 @@
     let artifactMindMapProvider = params.get("mind_map_provider") || "";
     let artifactMindMapStyle = params.get("mind_map_style") ||
       params.get("style") || "";
+    let artifactMindMapPath = params.get("mind_map_path") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const DEFAULT_FONT_SIZE = 15;
@@ -1059,6 +1062,7 @@
     let paneToolsController = null;
     let agentPaneTools = null;
     let filePaneTools = null;
+    let mindMapPaneTools = null;
     const paneDocumentNavigation = window.ElectroBoyDocumentNavigation.create();
     let directPaneActivationNotifier = null;
     let inputSyncQueue = Promise.resolve();
@@ -1283,6 +1287,35 @@
         context.set("telemetry_tab_id", telemetryTabId);
       }
       return `${path}${separator}${context.toString()}`;
+    }
+
+    function applyPaneConnectionContext(data) {
+      contextId = String(data.contextId || data.workspaceId || contextId);
+      workspaceId = String(data.workspaceId || contextId);
+      connectionId = String(data.connectionId || connectionId);
+      leaseToken = String(data.leaseToken || "");
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("context_id", contextId);
+      nextUrl.searchParams.set("workspace_id", workspaceId);
+      nextUrl.searchParams.set("connection_id", connectionId);
+      if (leaseToken) {
+        nextUrl.searchParams.set("lease_token", leaseToken);
+      } else {
+        nextUrl.searchParams.delete("lease_token");
+      }
+      window.history.replaceState(null, "", nextUrl);
+      if (artifactKind === "mind-map" && artifactFrame.contentWindow) {
+        artifactFrame.contentWindow.postMessage(
+          {
+            type: "electroboy-mind-map-context",
+            workspaceId,
+            contextId,
+            connectionId,
+            leaseToken,
+          },
+          window.location.origin,
+        );
+      }
     }
 
     function shellContextUrl(path) {
@@ -3289,6 +3322,8 @@
       artifactCalendarStyle = "";
       artifactMindMapProvider = "";
       artifactMindMapStyle = "";
+      artifactMindMapPath = "";
+      if (mindMapPaneTools) mindMapPaneTools.setEditable(false);
       artifactEditing = false;
     }
 
@@ -3340,6 +3375,10 @@
         const mindMap = next.mindMap || next.mind_map || {};
         artifactMindMapProvider = String(mindMap.provider || "");
         artifactMindMapStyle = String(mindMap.style || "");
+        artifactMindMapPath = String(mindMap.path || "");
+        if (mindMapPaneTools) {
+          mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
+        }
       }
       syncArtifactUrlState();
       renderFileSwitcher();
@@ -3369,7 +3408,9 @@
       }
       if (artifactKind === "mind-map") {
         return {
-          id: `mind-map-${artifactMindMapProvider || "active"}`,
+          id: artifactMindMapPath
+            ? `mind-map-document-${artifactMindMapPath}`
+            : `mind-map-${artifactMindMapProvider || "active"}`,
           kind: "mind-map",
           title: artifactTargetTitle(),
           editing: false,
@@ -3377,6 +3418,8 @@
             provider: artifactMindMapProvider,
             label: artifactTargetTitle(),
             style: artifactMindMapStyle,
+            path: artifactMindMapPath,
+            editable: Boolean(artifactMindMapPath),
           },
         };
       }
@@ -3438,6 +3481,7 @@
         "calendar_style",
         "mind_map_provider",
         "mind_map_style",
+        "mind_map_path",
       ]) {
         nextUrl.searchParams.delete(key);
       }
@@ -3482,8 +3526,13 @@
         if (artifactCalendarStyle) {
           nextUrl.searchParams.set("calendar_style", artifactCalendarStyle);
         }
-      } else if (artifactKind === "mind-map" && artifactMindMapProvider) {
-        nextUrl.searchParams.set("mind_map_provider", artifactMindMapProvider);
+      } else if (artifactKind === "mind-map" && (artifactMindMapProvider || artifactMindMapPath)) {
+        if (artifactMindMapProvider) {
+          nextUrl.searchParams.set("mind_map_provider", artifactMindMapProvider);
+        }
+        if (artifactMindMapPath) {
+          nextUrl.searchParams.set("mind_map_path", artifactMindMapPath);
+        }
         if (artifactMindMapStyle) {
           nextUrl.searchParams.set("mind_map_style", artifactMindMapStyle);
         }
@@ -3591,6 +3640,9 @@
         }
         if (artifactMindMapStyle) {
           parameters.set("style", artifactMindMapStyle);
+        }
+        if (artifactMindMapPath) {
+          parameters.set("path", artifactMindMapPath);
         }
         parameters.set("embed", "1");
         parameters.set("version", String(artifactVersion));
@@ -4225,8 +4277,16 @@
       }
       const data = event.data || {};
       if (
+        data.type === "electroboy:pane-set-context" &&
+        (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
+      ) {
+        applyPaneConnectionContext(data);
+        return;
+      }
+      if (
         data.type === "electroboy-file-browser-select" &&
         data.mode === "link" &&
+        !data.selection_channel &&
         data.path
       ) {
         insertTextAtCursor(String(data.path));
@@ -4235,6 +4295,7 @@
       if (
         data.type === "electroboy-file-browser-select"
         && (data.mode === "document" || data.mode === "document-new")
+        && !data.selection_channel
         && data.path
       ) {
         try {
@@ -4418,6 +4479,17 @@
         frame: artifactFrame,
         initialStyle: artifactAgendaStyle,
       });
+    }
+    if (
+      PANE_KIND === "mind-map" && window.ElectroBoyMindMapPaneTools
+    ) {
+      paneBody.classList.add("mind-map-pane");
+      paneToolsTitle.textContent = "Mind Map tools";
+      mindMapPaneTools = window.ElectroBoyMindMapPaneTools.mount({
+        controller: paneToolsController,
+        frame: artifactFrame,
+      });
+      mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
     }
 
     paneTitle.textContent = titleForPane(PANE_KIND);

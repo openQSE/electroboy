@@ -2328,12 +2328,12 @@
       if (!item || typeof item !== "object") {
         return false;
       }
-      if (
-        item.kind === "agenda" ||
-        item.kind === "calendar" ||
-        item.kind === "mind-map"
-      ) {
+      if (item.kind === "agenda" || item.kind === "calendar") {
         return false;
+      }
+      if (item.kind === "mind-map") {
+        const mindMap = item.mindMap || item.mind_map || {};
+        return Boolean(mindMap.path);
       }
       if (item.kind === "corkboard" || item.kind === "creative-corkboard") {
         const board = item.board || item.folder || item.corkboard || {};
@@ -2435,18 +2435,64 @@
       frame.dataset.paneContentSignature = paneLayoutContentSignature(leaf);
     }
 
+    function paneLayoutContextSignature() {
+      return JSON.stringify({
+        workspaceId: contextId,
+        connectionId: currentBrowserTabId(),
+        leaseToken: workspaceLeaseToken,
+      });
+    }
+
+    function markPaneLayoutFrameContext(frame) {
+      frame.dataset.paneContextSignature = paneLayoutContextSignature();
+    }
+
+    function updatePaneLayoutFrameContext(frame, leaf) {
+      const signature = paneLayoutContextSignature();
+      if (frame.dataset.paneContextSignature === signature || !frame.contentWindow) {
+        return;
+      }
+      frame.contentWindow.postMessage(
+        {
+          type: "electroboy:pane-set-context",
+          paneInstanceId: leaf.id,
+          workspaceId: contextId,
+          contextId,
+          connectionId: currentBrowserTabId(),
+          leaseToken: workspaceLeaseToken,
+        },
+        window.location.origin,
+      );
+      frame.dataset.paneContextSignature = signature;
+    }
+
     function buildPaneLayoutInstanceFrame(leaf) {
-      const frame = document.createElement("iframe");
+      const existingLeaf = paneLayoutLeafElementById(leaf.id);
+      const reusableFrame = existingLeaf?.dataset.paneKind === leaf.kind
+        ? existingLeaf.querySelector(".pane-layout-instance-frame")
+        : null;
+      const frame = reusableFrame || document.createElement("iframe");
       frame.className = "pane-layout-instance-frame";
       frame.title = `${PANE_LAYOUT_KINDS[leaf.kind].label} pane`;
-      markPaneLayoutFrameContent(frame, leaf);
-      frame.src = paneLayoutInstanceUrl(leaf);
-      frame.addEventListener("load", () => {
-        frame.dataset.paneLoaded = "1";
-      });
-      frame.addEventListener("focus", () => {
-        setActivePaneLayoutLeaf(leaf.id);
-      });
+      if (reusableFrame) {
+        updatePaneLayoutFrameContext(frame, leaf);
+        const nextUrl = new URL(paneLayoutInstanceUrl(leaf), window.location.origin);
+        if (!updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, "renderPaneLayout")) {
+          if (frame.src !== nextUrl.href) {
+            setPaneLayoutFrameSource(frame, leaf, nextUrl, "renderPaneLayout");
+          }
+        }
+      } else {
+        markPaneLayoutFrameContent(frame, leaf);
+        markPaneLayoutFrameContext(frame);
+        frame.src = paneLayoutInstanceUrl(leaf);
+        frame.addEventListener("load", () => {
+          frame.dataset.paneLoaded = "1";
+        });
+        frame.addEventListener("focus", () => {
+          setActivePaneLayoutLeaf(leaf.id);
+        });
+      }
       return frame;
     }
 
@@ -2466,6 +2512,7 @@
       ) {
         return false;
       }
+      updatePaneLayoutFrameContext(frame, leaf);
       const nextSignature = paneLayoutContentSignature(leaf);
       if (
         currentUrl.href === nextUrl.href &&
@@ -2504,6 +2551,7 @@
     function setPaneLayoutFrameSource(frame, leaf, nextUrl, reason) {
       frame.dataset.paneLoaded = "";
       markPaneLayoutFrameContent(frame, leaf);
+      markPaneLayoutFrameContext(frame);
       frame.src = nextUrl.href;
       recordPaneLayoutFrameRefresh(reason, leaf, "reloaded", {
         frame_pathname: nextUrl.pathname,
@@ -5418,6 +5466,9 @@
         }
         if (mindMap.style) {
           parameters.set("mind_map_style", mindMap.style);
+        }
+        if (mindMap.path) {
+          parameters.set("mind_map_path", mindMap.path);
         }
       }
       const fontPane = paneFontKeyForKind(kind);

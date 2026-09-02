@@ -200,6 +200,7 @@
     validate: "Run validation commands and tests, then write the validation report.",
     document: "Update final project documentation after validation passes.",
     corkboard: "Open or create a project corkboard for tasks and working notes.",
+    "mind-map": "Open or create a planning mind map.",
   };
 
   const ARTIFACT_PREVIEWS = {
@@ -435,6 +436,22 @@
           title: "Create and open a new project corkboard.",
           disabled: !state.activeProjectRoot,
           run: newProjectCorkboard,
+        },
+      ];
+    }
+    if (stageId === "mind-map") {
+      return [
+        {
+          label: "Open",
+          title: "Open an existing project mind map.",
+          disabled: !state.activeProjectRoot,
+          run: () => runtime.modules.invoke("mind_map", "openDocument"),
+        },
+        {
+          label: "New",
+          title: "Create and open a new project mind map.",
+          disabled: !state.activeProjectRoot,
+          run: () => runtime.modules.invoke("mind_map", "newDocument"),
         },
       ];
     }
@@ -1484,7 +1501,7 @@
         second: { type: "leaf", kind: "status" },
       },
     },
-    sidecarStages: ["document", "corkboard"],
+    sidecarStages: ["document", "corkboard", "mind-map"],
     hiddenActionStages: ["document"],
     stageDescriptions: STAGE_DESCRIPTIONS,
     artifactPreviews: ARTIFACT_PREVIEWS,
@@ -1496,6 +1513,7 @@
         "Move through requirements, design, implementation, testing, and validation.",
         "Run and monitor multiple agent sessions while keeping project context visible.",
         "Review, edit, navigate, and export project documents from the File pane.",
+        "Plan project ideas in editable mind maps with linked files and documents.",
       ],
     },
     recentProjectFilter: (project) => project.kind !== "creative",

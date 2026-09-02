@@ -28,6 +28,7 @@ def workflow() -> WorkflowDefinition:
             "project_shell",
             "file_browser",
             "recent_projects",
+            "mind_map",
         ),
         stages=(
             WorkflowStage(

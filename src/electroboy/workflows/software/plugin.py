@@ -30,6 +30,7 @@ def workflow() -> WorkflowDefinition:
             "review_reports",
             "recent_projects",
             "corkboard",
+            "mind_map",
         ),
         stages=(
             WorkflowStage("project", "Project", None, next_stage="requirements"),
@@ -98,6 +99,12 @@ def workflow() -> WorkflowDefinition:
             WorkflowStage(
                 "corkboard",
                 "Corkboard",
+                None,
+                actions=("open", "new"),
+            ),
+            WorkflowStage(
+                "mind-map",
+                "Mind Map",
                 None,
                 actions=("open", "new"),
             ),

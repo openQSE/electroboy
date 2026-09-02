@@ -825,6 +825,7 @@
         const parameters = new URLSearchParams();
         if (mindMap.provider) parameters.set("provider", mindMap.provider);
         if (mindMap.style) parameters.set("style", mindMap.style);
+        if (mindMap.path) parameters.set("path", mindMap.path);
         parameters.set("embed", "1");
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return contextUrl(`/artifacts/mind-map?${parameters.toString()}`);
@@ -1299,6 +1300,7 @@
         const mindMap = item.mindMap || item.mind_map || {};
         if (mindMap.provider) parameters.set("mind_map_provider", mindMap.provider);
         if (mindMap.style) parameters.set("mind_map_style", mindMap.style);
+        if (mindMap.path) parameters.set("mind_map_path", mindMap.path);
       }
       const popup = window.open(
         `/pane/artifact?${parameters.toString()}`,

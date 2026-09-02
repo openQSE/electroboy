@@ -8,6 +8,10 @@ from pathlib import Path
 import pytest
 
 from electroboy.modules.creative_workspace import render_corkboard_html
+from electroboy.modules.editable_mind_map_workspace import (
+    render_editable_mind_map_html,
+)
+from electroboy.modules.mind_map_documents import empty_mind_map
 from electroboy.modules.mind_map_workspace import render_mind_map_html
 from electroboy.service import create_server
 from electroboy.service.workflow_config import WorkflowConfig, save_workflow_config
@@ -856,6 +860,219 @@ def test_browser_mind_map_full_mode_overlays_secondary_relationships(
         '<div id="mindMapModeProbe" data-clean-edges="3" data-full-edges="4" '
         'data-stable="true" data-legend="Displaying 4 of 4 relationships"></div>'
         in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_editable_mind_map_adds_child_and_zooms(tmp_path: Path) -> None:
+    document = empty_mind_map("Planning")
+    document["nodes"] = [
+        {
+            "id": "root",
+            "text": "A long planning node " * 12,
+            "parent_id": None,
+            "order": 0,
+            "x": 80,
+            "y": 80,
+            "links": [],
+        }
+    ]
+    page, _status = render_editable_mind_map_html(
+        {
+            "path": "/tmp/planning.mindmap.json",
+            "revision": "one",
+            "document": document,
+        },
+        context_id="workspace-one",
+        connection_id="connection-one",
+    )
+    probe = """
+<script>
+let autosaveUrl = '';
+window.fetch = async (url, options) => {
+  autosaveUrl = String(url);
+  const request = JSON.parse(options.body);
+  return {
+    ok: true,
+    json: async () => ({ revision: 'two', document: request.document }),
+  };
+};
+const first = document.querySelector('.node');
+const rootFontSize = getComputedStyle(first.querySelector('.node-text')).fontSize;
+first.click();
+const canvas = document.getElementById('canvas');
+canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+const editor = document.querySelector('.node textarea');
+const childGenerationFontSize = getComputedStyle(editor).fontSize;
+const randomBranchColor = document.querySelector('.node.focused').dataset.ownColor;
+editor.value = 'Committed child';
+editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+const doubleClickNode = document.querySelector('.node.focused');
+doubleClickNode.click();
+const firstClickPreservedNode = doubleClickNode.isConnected;
+doubleClickNode.dispatchEvent(
+  new MouseEvent('dblclick', { bubbles: true }),
+);
+const clickAwayEditor = document.querySelector('.node textarea');
+clickAwayEditor.value = 'Single-click commit';
+canvas.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true }));
+canvas.click();
+Array.from(document.querySelectorAll('.node')).find(
+  (node) => node.querySelector('.node-text')?.textContent === 'Single-click commit',
+).click();
+document.querySelector('[data-action="color-blue"]').click();
+canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+const grandchildEditor = document.querySelector('.node textarea');
+const grandchildGenerationFontSize = getComputedStyle(grandchildEditor).fontSize;
+grandchildEditor.value = 'Inherited grandchild';
+grandchildEditor.dispatchEvent(new KeyboardEvent('keydown', {
+  key: 'Enter', bubbles: true,
+}));
+const grandchild = document.querySelector('.node.focused');
+const grandchildInherits = grandchild.dataset.ownColor === 'default'
+  && grandchild.dataset.color === 'blue';
+Array.from(document.querySelectorAll('.node')).find(
+  (node) => node.querySelector('.node-text')?.textContent === 'Single-click commit',
+).click();
+window.dispatchEvent(new MessageEvent('message', {
+  origin: window.location.origin,
+  data: {
+    type: 'electroboy-mind-map-command',
+    action: 'font-size-set',
+    fontSize: 23.5,
+  },
+}));
+for (const action of ['font-size-increase', 'font-size-decrease']) {
+  window.dispatchEvent(new MessageEvent('message', {
+    origin: window.location.origin,
+    data: { type: 'electroboy-mind-map-command', action },
+  }));
+}
+document.querySelector('[data-action="focus"]').click();
+canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+window.setTimeout(() => {
+  let focused = document.querySelector('.node.focused');
+  const resizeHandle = focused.querySelector('.node-resize-handle');
+  resizeHandle.dispatchEvent(new PointerEvent('pointerdown', {
+    button: 0, pointerId: 71, clientX: 100, clientY: 100, bubbles: true,
+  }));
+  canvas.dispatchEvent(new PointerEvent('pointermove', {
+    button: 0, pointerId: 71, clientX: 160, clientY: 125, bubbles: true,
+  }));
+  canvas.dispatchEvent(new PointerEvent('pointerup', {
+    button: 0, pointerId: 71, clientX: 160, clientY: 125, bubbles: true,
+  }));
+  focused = document.querySelector('.node.focused');
+  document.querySelector('[data-action="link-web"]').click();
+  const result = document.createElement('div');
+  result.id = 'editableMindMapProbe';
+  result.dataset.nodes = String(document.querySelectorAll('.node').length);
+  result.dataset.editing = String(Boolean(document.querySelector('.node textarea')));
+  result.dataset.committed = focused.querySelector('.node-text').textContent;
+  result.dataset.color = focused.dataset.color;
+  result.dataset.ownColor = focused.dataset.ownColor;
+  result.dataset.fontSize = getComputedStyle(focused.querySelector('.node-text')).fontSize;
+  result.dataset.rootFontSize = rootFontSize;
+  result.dataset.childGenerationFontSize = childGenerationFontSize;
+  result.dataset.grandchildGenerationFontSize = grandchildGenerationFontSize;
+  result.dataset.randomBranchColor = String(randomBranchColor !== 'default');
+  result.dataset.grandchildInherits = String(grandchildInherits);
+  result.dataset.firstClickPreservedNode = String(firstClickPreservedNode);
+  result.dataset.focusPressed = document.querySelector('[data-action="focus"]')
+    .getAttribute('aria-pressed');
+  result.dataset.rootDimmed = String(document.querySelector('.node.root').classList.contains('dimmed'));
+  result.dataset.resizeHandle = String(Boolean(focused.querySelector('.node-resize-handle')));
+  result.dataset.resized = String(Number.parseFloat(focused.style.width) > 300);
+  result.dataset.styledDialog = String(document.getElementById('mindMapDialog').open);
+  document.getElementById('mindMapDialogCancel').click();
+  result.dataset.emptyDisplay = getComputedStyle(document.getElementById('empty')).display;
+  result.dataset.zoomed = String(Number(document.getElementById('zoomValue').value) > 100);
+  result.dataset.compact = String(Boolean(document.querySelector('.node-more')));
+  result.dataset.autosaved = String(autosaveUrl.includes('/api/mind-map/document?'));
+  document.body.append(result);
+}, 900);
+</script>
+"""
+    completed = browser_file_dom(page.replace("</body>", f"{probe}</body>"), tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="editableMindMapProbe" data-nodes="3" data-editing="false" '
+        'data-committed="Single-click commit" data-color="blue" data-own-color="blue" '
+        'data-font-size="23.5px" data-root-font-size="24px" '
+        'data-child-generation-font-size="21px" data-grandchild-generation-font-size="18px" '
+        'data-random-branch-color="true" data-grandchild-inherits="true" '
+        'data-first-click-preserved-node="true" '
+        'data-focus-pressed="true" '
+        'data-root-dimmed="true" data-resize-handle="true" data-resized="true" '
+        'data-styled-dialog="true" '
+        'data-empty-display="none" '
+        'data-zoomed="true" data-compact="true" data-autosaved="true"></div>'
+        in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_editable_mind_map_confirms_branch_delete(tmp_path: Path) -> None:
+    document = empty_mind_map("Planning")
+    document["nodes"] = [
+        {
+            "id": "root",
+            "text": "Root",
+            "parent_id": None,
+            "order": 0,
+            "x": 80,
+            "y": 80,
+            "links": [],
+        },
+        {
+            "id": "child",
+            "text": "Child",
+            "parent_id": "root",
+            "order": 0,
+            "x": 410,
+            "y": 80,
+            "links": [],
+        },
+    ]
+    page, _status = render_editable_mind_map_html(
+        {
+            "path": "/tmp/planning.mindmap.json",
+            "revision": "one",
+            "document": document,
+        },
+        context_id="workspace-one",
+        connection_id="connection-one",
+    )
+    probe = """
+<script>
+document.querySelector('.node.root').click();
+window.dispatchEvent(new MessageEvent('message', {
+  origin: window.location.origin,
+  data: { type: 'electroboy-mind-map-command', action: 'delete' },
+}));
+const dialog = document.getElementById('mindMapDialog');
+const warningOpen = dialog.open;
+const dangerStyle = dialog.classList.contains('danger');
+document.getElementById('mindMapDialogSubmit').click();
+window.setTimeout(() => {
+  const result = document.createElement('div');
+  result.id = 'mindMapDeleteProbe';
+  result.dataset.warningOpen = String(warningOpen);
+  result.dataset.dangerStyle = String(dangerStyle);
+  result.dataset.deleted = String(document.querySelectorAll('.node').length === 0);
+  result.dataset.dialogClosed = String(!dialog.open);
+  document.body.append(result);
+}, 0);
+</script>
+"""
+    completed = browser_file_dom(page.replace("</body>", f"{probe}</body>"), tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="mindMapDeleteProbe" data-warning-open="true" '
+        'data-danger-style="true" data-deleted="true" '
+        'data-dialog-closed="true"></div>' in completed.stdout
     )
 
 

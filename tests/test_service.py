@@ -24,6 +24,16 @@ from electroboy.cli import build_parser  # noqa: E402
 from electroboy.modules.agenda_workspace import render_agenda_html  # noqa: E402
 from electroboy.modules.calendar_workspace import render_calendar_html  # noqa: E402
 from electroboy.modules.mind_map_workspace import render_mind_map_html  # noqa: E402
+from electroboy.modules.editable_mind_map_workspace import (  # noqa: E402
+    render_editable_mind_map_html,
+)
+from electroboy.modules.mind_map_documents import (  # noqa: E402
+    empty_mind_map,
+    list_mind_maps,
+    load_mind_map,
+    normalize_mind_map,
+    save_mind_map,
+)
 from electroboy.modules.creative_workspace import (  # noqa: E402
     render_corkboard_html,
 )
@@ -502,7 +512,10 @@ class ServiceTests(unittest.TestCase):
         }
         self.assertIn(("GET", "/artifacts/mind-map"), mind_map_routes)
         self.assertIn(("GET", "/api/mind-map"), mind_map_routes)
+        self.assertIn(("GET", "/api/mind-map/documents"), mind_map_routes)
+        self.assertIn(("POST", "/api/mind-map/document"), mind_map_routes)
         self.assertIn("mind-map-provider", modules["mind_map"]["capabilities"])
+        self.assertIn("editable-mind-map", modules["mind_map"]["capabilities"])
         self.assertIn(
             "mind-map-relationship-modes",
             modules["mind_map"]["capabilities"],
@@ -535,6 +548,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
         self.assertIn("agent_sessions", workflows["software"]["modules"])
+        self.assertIn("mind_map", workflows["software"]["modules"])
+        self.assertIn("mind_map", workflows["creative-writing"]["modules"])
+        self.assertIn(
+            "mind-map",
+            {stage["id"] for stage in workflows["software"]["stages"]},
+        )
         self.assertIn("core-shell", frontend_bundles)
         self.assertIn("index.html", frontend_bundles["core-shell"]["assets"])
         self.assertIn(
@@ -673,6 +692,7 @@ class ServiceTests(unittest.TestCase):
         assignments = read_service_text_asset("js/modules/assignments.js")
         calendar = read_service_text_asset("js/modules/calendar.js")
         mind_map = read_service_text_asset("js/modules/mind-map.js")
+        mind_map_tools = read_service_text_asset("js/modules/mind-map-pane-tools.js")
         file_browser = read_service_text_asset("js/modules/file-browser.js")
         progress = read_service_text_asset("js/modules/progress.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
@@ -695,7 +715,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('kind: "scratch"', software)
         self.assertIn('kind: "status"', software)
         self.assertIn('if (stageId === "corkboard")', software)
-        self.assertIn('sidecarStages: ["document", "corkboard"]', software)
+        self.assertIn(
+            'sidecarStages: ["document", "corkboard", "mind-map"]', software
+        )
+        self.assertIn('if (stageId === "mind-map")', software)
+        self.assertIn('data-creative-control="mind-map-menu"', creative)
         self.assertIn('hiddenActionStages: ["document"]', software)
         self.assertIn("hiddenActionStages.has(stageId)", app)
         self.assertNotIn('if (stageId === "document")', app)
@@ -783,7 +807,38 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const style = normalizeStyle(descriptor.style || options.style);", calendar)
         self.assertIn('kind: "mind-map"', mind_map)
         self.assertIn('id: "mind_map"', mind_map)
+        self.assertIn("async function openDocument(runtime)", mind_map)
+        self.assertIn("async function newDocument(runtime)", mind_map)
         self.assertIn("runtime.layout.assignWorkspacePane", mind_map)
+        self.assertIn(
+            'className = "ad-hoc-session-dialog mind-map-picker-dialog"',
+            mind_map,
+        )
+        self.assertIn('label.className = "ad-hoc-session-option"', mind_map)
+        self.assertIn("ElectroBoyMindMapPaneTools", mind_map_tools)
+        self.assertIn("const ICONS = Object.freeze", mind_map_tools)
+        self.assertIn('class="mind-map-tool-icon"', mind_map_tools)
+        self.assertIn(
+            '["Open", "open", "Open mind map", "folder-open"]', mind_map_tools
+        )
+        self.assertIn(
+            '["Delete", "delete", "Delete selected node", "delete"]',
+            mind_map_tools,
+        )
+        self.assertIn(
+            "return controller.addSection(id, label, { open: false });",
+            mind_map_tools,
+        )
+        self.assertIn('section(controller, "mind-map-node", "Node")', mind_map_tools)
+        self.assertIn('section(controller, "mind-map-color", "Color")', mind_map_tools)
+        self.assertIn(
+            'section(controller, "mind-map-font", "Font size")', mind_map_tools
+        )
+        self.assertIn('post("font-size-set", { fontSize })', mind_map_tools)
+        self.assertIn('action === "focus"', mind_map_tools)
+        self.assertIn('String(Boolean(data.focusMode))', mind_map_tools)
+        self.assertIn("selection_channel: selectionChannel", mind_map_tools)
+        self.assertIn('send(action, { target: String(data.path) })', mind_map_tools)
         self.assertIn("const style = normalizeStyle(descriptor.style || options.style);", mind_map)
         self.assertIn("function artifactPaneIsAgenda(item)", documents)
         self.assertIn("function artifactPaneIsCalendar(item)", documents)
@@ -828,6 +883,7 @@ class ServiceTests(unittest.TestCase):
             'let artifactMindMapProvider = params.get("mind_map_provider") || "";',
             pane_window,
         )
+        self.assertIn("ElectroBoyMindMapPaneTools.mount", pane_window)
         self.assertIn('parameters.set("style", artifactAgendaStyle);', pane_window)
         self.assertIn('parameters.set("agenda_style", agenda.style);', app)
         self.assertIn('calendar: { label: "Calendar", element: null }', app)
@@ -1481,6 +1537,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('bumpFrontendDebugCounter("paneLayout.hydrateRender")', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
         self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
+        self.assertIn(
+            "const reusableFrame = existingLeaf?.dataset.paneKind === leaf.kind",
+            runtime,
+        )
+        self.assertIn(
+            'updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, "renderPaneLayout")',
+            runtime,
+        )
+        self.assertIn('type: "electroboy:pane-set-context"', runtime)
+        self.assertIn("frame.dataset.paneContextSignature", runtime)
         self.assertIn(
             '(node.kind === "agent" && Boolean(node.content?.sessionId))',
             runtime,
@@ -2770,6 +2836,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function openLinkFileBrowser()", PANE_WINDOW_HTML)
         self.assertIn('data.mode === "link"', PANE_WINDOW_HTML)
+        self.assertIn("!data.selection_channel", PANE_WINDOW_HTML)
         self.assertIn("async function startPaneDocumentAgent(target)", PANE_WINDOW_HTML)
         self.assertIn('project.project_mode === "creative"', PANE_WINDOW_HTML)
         self.assertIn('"/api/creative/agent/start"', PANE_WINDOW_HTML)
@@ -2895,15 +2962,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function toggleDirectory(entry)", page)
         self.assertIn("function renderBreadcrumbs()", page)
         self.assertIn("function moveSelection(delta)", page)
-        self.assertIn(
-            'new URLSearchParams(window.location.search).get("project_action")',
-            page,
-        )
+        self.assertIn("const SEARCH_PARAMETERS = new URLSearchParams", page)
+        self.assertIn('SEARCH_PARAMETERS.get("project_action")', page)
+        self.assertIn('SEARCH_PARAMETERS.get("selection_channel")', page)
         self.assertIn('event.key === "ArrowRight"', page)
         self.assertIn('event.key === "ArrowLeft"', page)
         self.assertIn("window.opener.postMessage", page)
         self.assertIn("electroboy-file-browser-select", page)
         self.assertIn("project_action: PROJECT_ACTION", page)
+        self.assertIn("selection_channel: SELECTION_CHANNEL", page)
         self.assertIn('PROJECT_ACTION === "meta-add"', page)
         self.assertIn("Add repository", page)
         self.assertIn("Activate", page)
@@ -3996,6 +4063,7 @@ class ServiceTests(unittest.TestCase):
                 "validate",
                 "document",
                 "corkboard",
+                "mind-map",
             ],
         )
         for stage, stage_operations in operations.items():
@@ -5332,6 +5400,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"mind_map.node.toggle.requested"', page)
         self.assertIn('"mind_map.node.toggle.completed"', page)
         self.assertIn("function renderLegend", page)
+
         self.assertIn("function relationshipStyle", page)
         self.assertIn("const SOURCE_X = 80;", page)
         self.assertIn("const ROOT_GAP = 54;", page)
@@ -5392,6 +5461,171 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const worldX = (pointerX - pan.x) / previousScale;", page)
         self.assertIn('"title": "Fall calendar.pdf"', page)
         self.assertIn('"fact_type": "schedule_exception"', page)
+
+    def test_editable_mind_map_documents_save_with_revision_protection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = ".electroboy/shared/mind-maps/launch.mindmap.json"
+            document = empty_mind_map("Launch plan")
+            document["nodes"] = [
+                {
+                    "id": "root",
+                    "text": "Launch plan",
+                    "parent_id": None,
+                    "order": 0,
+                    "x": 80,
+                    "y": 90,
+                    "color": "teal",
+                    "font_size": 22.5,
+                    "font_size_mode": "custom",
+                    "links": [{"type": "file", "target": "launch.md"}],
+                }
+            ]
+
+            created = save_mind_map(root, path, document, create=True)
+            loaded = load_mind_map(root, path)
+
+            self.assertEqual(loaded, created)
+            self.assertEqual(loaded["document"]["nodes"][0]["color"], "teal")
+            self.assertEqual(loaded["document"]["nodes"][0]["font_size"], 22.5)
+            self.assertEqual(
+                loaded["document"]["nodes"][0]["font_size_mode"], "custom"
+            )
+            self.assertEqual(loaded["document"]["nodes"][0]["width"], 260.0)
+            self.assertEqual(loaded["document"]["nodes"][0]["min_height"], 58.0)
+            self.assertEqual(list_mind_maps(root)[0]["title"], "Launch plan")
+            updated = dict(loaded["document"])
+            updated["title"] = "Updated launch plan"
+            saved = save_mind_map(
+                root,
+                path,
+                updated,
+                expected_revision=str(loaded["revision"]),
+            )
+            self.assertNotEqual(saved["revision"], loaded["revision"])
+            with self.assertRaisesRegex(StateError, "changed on disk"):
+                save_mind_map(
+                    root,
+                    path,
+                    updated,
+                    expected_revision=str(loaded["revision"]),
+                )
+
+    def test_editable_mind_map_rejects_parent_cycles(self) -> None:
+        with self.assertRaisesRegex(StateError, "parent cycle"):
+            normalize_mind_map(
+                {
+                    "nodes": [
+                        {"id": "one", "parent_id": "two"},
+                        {"id": "two", "parent_id": "one"},
+                    ]
+                }
+            )
+        with self.assertRaisesRegex(StateError, "unsupported URL"):
+            normalize_mind_map(
+                {
+                    "nodes": [
+                        {
+                            "id": "unsafe-link",
+                            "links": [
+                                {"type": "url", "target": "javascript:alert(1)"}
+                            ],
+                        }
+                    ]
+                }
+            )
+        with self.assertRaisesRegex(StateError, "invalid color"):
+            normalize_mind_map({"nodes": [{"id": "invalid", "color": "infrared"}]})
+        with self.assertRaisesRegex(StateError, "greater than zero"):
+            normalize_mind_map(
+                {
+                    "nodes": [
+                        {
+                            "id": "invalid",
+                            "font_size": 0,
+                            "font_size_mode": "custom",
+                        }
+                    ]
+                }
+            )
+        with self.assertRaisesRegex(StateError, "width and min_height"):
+            normalize_mind_map({"nodes": [{"id": "invalid", "width": 0}]})
+
+    def test_editable_mind_map_defaults_font_size_by_generation(self) -> None:
+        nodes = []
+        parent_id = None
+        for index in range(7):
+            node_id = f"generation-{index}"
+            node = {"id": node_id, "parent_id": parent_id}
+            if index == 0:
+                node["font_size"] = 16
+            nodes.append(node)
+            parent_id = node_id
+
+        normalized = normalize_mind_map({"nodes": nodes})
+
+        self.assertEqual(
+            [node["font_size"] for node in normalized["nodes"]],
+            [24.0, 21.0, 18.0, 15.0, 14.0, 14.0, 14.0],
+        )
+
+    def test_editable_mind_map_workspace_has_keyboard_canvas_and_links(self) -> None:
+        page, status = render_editable_mind_map_html(
+            {
+                "path": "/tmp/launch.mindmap.json",
+                "revision": "revision-one",
+                "document": empty_mind_map("Launch plan"),
+            },
+            context_id="workspace-one",
+            connection_id="connection-one",
+            lease_token="lease-one",
+        )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('aria-label="Mind map context tools"', page)
+        self.assertIn('data-action="child"', page)
+        self.assertIn('data-action="create-document"', page)
+        self.assertIn('event.key === "Tab"', page)
+        self.assertIn('event.key === "Enter" && event.shiftKey', page)
+        self.assertIn('event.button === 1', page)
+        self.assertIn("Math.exp(-event.deltaY", page)
+        self.assertIn("expected_revision: revision", page)
+        self.assertIn(
+            "workspace_id=workspace-one&amp;context_id=workspace-one&amp;"
+            "connection_id=connection-one&amp;lease_token=lease-one",
+            page.replace("&", "&amp;"),
+        )
+        self.assertIn("electroboy:editable-mind-map", page)
+        self.assertIn('.empty[hidden] { display: none; }', page)
+        self.assertIn('data-action="color-blue"', page)
+        self.assertIn("function resolvedNodeColor(node)", page)
+        self.assertIn("function initialNodeColor(parentId)", page)
+        self.assertIn("BRANCH_COLORS = Object.freeze", page)
+        self.assertIn('element.dataset.color = resolvedNodeColor(node);', page)
+        self.assertIn('"font-size-set": (data) => setNodeFontSize', page)
+        self.assertIn("selectedFontSize:", page)
+        self.assertIn("return new Set([selectedId]);", page)
+        self.assertIn('className = "node-resize-handle"', page)
+        self.assertIn('drag = { type: "resize"', page)
+        self.assertIn("ROOT_NODE_FONT_SIZE = 24", page)
+        self.assertIn("MINIMUM_NODE_FONT_SIZE = 14", page)
+        self.assertIn('node.font_size_mode = "custom"', page)
+        self.assertIn("useAutomaticNodeFontSize", page)
+        self.assertIn('id="mindMapDialog" class="mind-map-dialog"', page)
+        self.assertIn(".mind-map-dialog.danger", page)
+        self.assertIn("mindMapDialogSubmit.onclick = submit;", page)
+        self.assertIn('await chooseFile("document-new")', page)
+        self.assertIn('browseMode: type === "file" ? "link" : ""', page)
+        self.assertNotIn("prompt(", page)
+        self.assertNotIn("confirm(", page)
+        self.assertIn("commitEdit(node.id, editor)", page)
+        self.assertIn("const AUTOSAVE_DELAY_MS = 800;", page)
+        self.assertIn("save({ automatic: true })", page)
+        self.assertIn("const savingVersion = changeVersion;", page)
+        self.assertIn("pendingEditRender = true;", page)
+        self.assertIn('{ render: false, focus: false }', page)
+        self.assertIn('data.type === "electroboy-mind-map-context"', page)
+        self.assertIn('parameters.set("lease_token", String(data.leaseToken))', page)
 
     def test_agenda_uses_a_dedicated_pane_and_filter_tools(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")

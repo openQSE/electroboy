@@ -143,22 +143,24 @@ finally:
     expected_modules = (
         {"core"}
         if len(packages) == 1
-            else {
-                "agenda",
-                "agent_sessions",
-            "binder",
-            "calendar",
-            "corkboard",
-            "core",
-            "file_browser",
-            "markdown_documents",
-            "progress",
-            "project_shell",
-            "recent_projects",
-            "review_reports",
-            "structured_documents",
-        }
-    )
+                else {
+                    "agenda",
+                    "agent_sessions",
+                    "assignments",
+                    "binder",
+                    "calendar",
+                    "corkboard",
+                    "core",
+                    "file_browser",
+                    "markdown_documents",
+                    "mind_map",
+                    "progress",
+                    "project_shell",
+                    "recent_projects",
+                    "review_reports",
+                    "structured_documents",
+                }
+        )
     assert set(payload["modules"]) == expected_modules
     assert all(entry["provider"] for entry in payload["plugins"]["modules"])
     assert all(

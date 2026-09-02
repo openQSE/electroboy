@@ -1,0 +1,109 @@
+.mind-map-pane .mind-map-tool-button-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.mind-map-pane .mind-map-tool-button-group button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+}
+
+.mind-map-pane .mind-map-tool-icon-wrap {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.mind-map-pane .mind-map-tool-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.mind-map-pane .mind-map-tool-icon-only {
+  justify-content: center;
+  padding-inline: 4px;
+}
+
+.mind-map-pane .mind-map-tool-icon-only .mind-map-tool-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.mind-map-pane .mind-map-tool-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mind-map-pane .mind-map-tool-button-group button:focus-visible {
+  border-color: #66d9e8;
+  outline: 1px solid #66d9e8;
+}
+
+.mind-map-pane .mind-map-tool-font-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  gap: 4px;
+}
+
+.mind-map-pane .mind-map-tool-font-row button,
+.mind-map-pane .mind-map-tool-font-size {
+  width: 100%;
+  height: 30px;
+}
+
+.mind-map-pane .mind-map-tool-font-auto {
+  width: 100%;
+  margin-top: 5px;
+  text-align: left;
+}
+
+.mind-map-pane .mind-map-tool-font-size {
+  min-width: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mind-map-pane [data-mind-map-action^="color-"]::before {
+  display: block;
+  flex: 0 0 auto;
+  width: 0.72em;
+  height: 0.72em;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: #202c3e;
+  content: "";
+}
+
+.mind-map-pane [data-mind-map-action="color-violet"]::before { background: #694b91; }
+.mind-map-pane [data-mind-map-action="color-blue"]::before { background: #285f93; }
+.mind-map-pane [data-mind-map-action="color-teal"]::before { background: #256c72; }
+.mind-map-pane [data-mind-map-action="color-green"]::before { background: #356c49; }
+.mind-map-pane [data-mind-map-action="color-amber"]::before { background: #805c24; }
+.mind-map-pane [data-mind-map-action="color-rose"]::before { background: #814352; }
+
+.mind-map-pane [data-mind-map-action^="color-"][aria-pressed="true"] {
+  border-color: #66d9e8;
+  box-shadow: inset 0 0 0 1px #66d9e8;
+}
+
+.mind-map-pane [data-mind-map-action="focus"][aria-pressed="true"],
+.mind-map-pane [data-mind-map-action="font-size-auto"][aria-pressed="true"] {
+  border-color: #66d9e8;
+  background: #174050;
+  box-shadow: inset 0 0 0 1px #66d9e8;
+  color: #e9fbff;
+}
