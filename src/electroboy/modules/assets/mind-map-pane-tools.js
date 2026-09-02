@@ -206,6 +206,11 @@
       ["Collapse All", "collapse", "Collapse all branches", "collapse"],
       ["Tidy Branch", "tidy", "Tidy selected branch", "tidy"],
     ], post);
+    group(section(controller, "mind-map-layout", "Layout"), [
+      ["Local", "layout-local", "Move only branches whose nodes overlap"],
+      ["Freeform", "layout-freeform", "Preserve positions and allow overlap"],
+      ["Repack", "layout-repack", "Compact the complete affected tree"],
+    ], post);
     document.querySelectorAll("[data-mind-map-action]").forEach((control) => {
       controls.push(control);
     });
@@ -255,6 +260,12 @@
         if (action === "redo") control.disabled = !data.canRedo;
         if (action === "focus") {
           control.setAttribute("aria-pressed", String(Boolean(data.focusMode)));
+        }
+        if (action.startsWith("layout-")) {
+          control.setAttribute(
+            "aria-pressed",
+            String(action === `layout-${data.layoutMode || "local"}`),
+          );
         }
         if (action.startsWith("color-")) {
           control.setAttribute(

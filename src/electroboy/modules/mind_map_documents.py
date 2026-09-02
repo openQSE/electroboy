@@ -24,6 +24,7 @@ DEFAULT_NODE_MIN_HEIGHT = 58.0
 NODE_COLORS = frozenset(
     {"default", "violet", "blue", "teal", "green", "amber", "rose"}
 )
+NODE_SIDES = frozenset({"left", "right"})
 
 
 def _revision(content: bytes) -> str:
@@ -117,6 +118,9 @@ def normalize_mind_map(value: object) -> dict[str, object]:
         color = str(raw_node.get("color") or "default").strip().lower()
         if color not in NODE_COLORS:
             raise StateError(f"node {node_id} has an invalid color")
+        side = str(raw_node.get("side") or "").strip().lower()
+        if side and side not in NODE_SIDES:
+            raise StateError(f"node {node_id} has an invalid side")
         font_size_mode = str(raw_node.get("font_size_mode") or "auto").strip().lower()
         if font_size_mode not in {"auto", "custom"}:
             raise StateError(f"node {node_id} has an invalid font_size_mode")
@@ -155,6 +159,7 @@ def normalize_mind_map(value: object) -> dict[str, object]:
                     raw_node.get("y", 80.0), field=f"node {node_id} y"
                 ),
                 "color": color,
+                "side": side or None,
                 "font_size": font_size,
                 "font_size_mode": font_size_mode,
                 "width": width,
@@ -179,6 +184,18 @@ def normalize_mind_map(value: object) -> dict[str, object]:
             ancestor = parents.get(ancestor)
 
     nodes_by_id = {str(node["id"]): node for node in nodes}
+
+    for node in nodes:
+        parent_id = node["parent_id"]
+        if node["side"] is not None:
+            continue
+        if parent_id is None:
+            node["side"] = "right"
+            continue
+        parent = nodes_by_id[str(parent_id)]
+        node_center = float(node["x"]) + float(node["width"]) / 2
+        parent_center = float(parent["x"]) + float(parent["width"]) / 2
+        node["side"] = "left" if node_center < parent_center else "right"
 
     def fill_default_font_size(node_id: str) -> float:
         node = nodes_by_id[node_id]

@@ -101,7 +101,8 @@
 }
 
 .mind-map-pane [data-mind-map-action="focus"][aria-pressed="true"],
-.mind-map-pane [data-mind-map-action="font-size-auto"][aria-pressed="true"] {
+.mind-map-pane [data-mind-map-action="font-size-auto"][aria-pressed="true"],
+.mind-map-pane [data-mind-map-action^="layout-"][aria-pressed="true"] {
   border-color: #66d9e8;
   background: #174050;
   box-shadow: inset 0 0 0 1px #66d9e8;

@@ -1077,6 +1077,234 @@ window.setTimeout(() => {
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_editable_mind_map_drag_preserves_and_reparents(tmp_path: Path) -> None:
+    document = empty_mind_map("Planning")
+    document["nodes"] = [
+        {"id": "root", "text": "Root", "parent_id": None, "order": 0,
+         "x": 180, "y": 100, "links": []},
+        {"id": "child-a", "text": "Child A", "parent_id": "root", "order": 0,
+         "side": "right", "x": 470, "y": 100, "links": []},
+        {"id": "grandchild", "text": "Grandchild", "parent_id": "child-a",
+         "order": 0, "side": "right", "x": 760, "y": 100, "links": []},
+        {"id": "child-b", "text": "Child B", "parent_id": "root", "order": 1,
+         "side": "right", "x": 470, "y": 260, "links": []},
+        {"id": "far-branch", "text": "Far branch", "parent_id": "root",
+         "order": 2, "side": "left", "x": -250, "y": 760, "links": []},
+        {"id": "free-root", "text": "Free root", "parent_id": None, "order": 1,
+         "x": 180, "y": 390, "links": []},
+        {"id": "free-root-right", "text": "Free root right", "parent_id": None,
+         "order": 2, "x": 20, "y": 390, "links": []},
+    ]
+    page, _status = render_editable_mind_map_html(
+        {"path": "/tmp/planning.mindmap.json", "revision": "one", "document": document},
+        context_id="workspace-one",
+        connection_id="connection-one",
+    )
+    probe = """
+<script>
+window.fetch = async (_url, options) => ({
+  ok: true,
+  json: async () => ({ revision: 'two', document: JSON.parse(options.body).document }),
+});
+const canvas = document.getElementById('canvas');
+let pointerId = 100;
+function node(id) {
+  return document.querySelector(`[data-id="${CSS.escape(id)}"]`);
+}
+function startDrag(id, xRatio = .5) {
+  const element = node(id);
+  const rect = element.getBoundingClientRect();
+  const x = rect.left + rect.width * xRatio;
+  const y = rect.top + rect.height / 2;
+  pointerId += 1;
+  element.dispatchEvent(new PointerEvent('pointerdown', {
+    button: 0, pointerId, clientX: x, clientY: y, bubbles: true,
+  }));
+  return { x, y };
+}
+function moveDrag(x, y) {
+  canvas.dispatchEvent(new PointerEvent('pointermove', {
+    button: 0, pointerId, clientX: x, clientY: y, bubbles: true,
+  }));
+}
+function finishDrag(x, y) {
+  canvas.dispatchEvent(new PointerEvent('pointerup', {
+    button: 0, pointerId, clientX: x, clientY: y, bubbles: true,
+  }));
+}
+function mapHasNoNodeOverlap() {
+  const boxes = Array.from(document.querySelectorAll('.node')).map((element) => ({
+    left: Number.parseFloat(element.style.left),
+    top: Number.parseFloat(element.style.top),
+    right: Number.parseFloat(element.style.left) + element.offsetWidth,
+    bottom: Number.parseFloat(element.style.top) + element.offsetHeight,
+  }));
+  return boxes.every((box, index) => boxes.slice(index + 1).every((other) =>
+    box.right <= other.left || other.right <= box.left
+      || box.bottom <= other.top || other.bottom <= box.top));
+}
+
+const localLayoutInitiallyPressed = document.querySelector(
+  '[data-action="layout-local"]').getAttribute('aria-pressed') === 'true';
+document.querySelector('[data-action="layout-freeform"]').click();
+const freeformLayoutPressed = document.querySelector(
+  '[data-action="layout-freeform"]').getAttribute('aria-pressed') === 'true';
+document.querySelector('[data-action="layout-repack"]').click();
+const repackLayoutPressed = document.querySelector(
+  '[data-action="layout-repack"]').getAttribute('aria-pressed') === 'true';
+document.querySelector('[data-action="layout-local"]').click();
+const storedLayoutView = JSON.parse(localStorage.getItem(
+  'electroboy:editable-mind-map:/tmp/planning.mindmap.json:view'));
+const localLayoutPersisted = storedLayoutView.layoutMode === 'local';
+const farBranchPosition = {
+  x: node('far-branch').style.left,
+  y: node('far-branch').style.top,
+};
+
+const childStart = startDrag('child-a');
+moveDrag(childStart.x + 35, childStart.y - 80);
+finishDrag(childStart.x + 35, childStart.y - 80);
+const emptyMoveKeptParent = node('child-a').dataset.parentId === 'root';
+const rightBranchReflowed = node('grandchild').dataset.side === 'right'
+  && Number.parseFloat(node('grandchild').style.left)
+    > Number.parseFloat(node('child-a').style.left);
+
+const childPosition = {
+  x: node('child-a').style.left,
+  y: node('child-a').style.top,
+};
+startDrag('child-a');
+let targetRect = node('root').getBoundingClientRect();
+moveDrag(targetRect.right - 2, targetRect.top + targetRect.height / 2);
+const existingChildIntent = node('root').classList.contains('drop-child-right');
+finishDrag(targetRect.right - 2, targetRect.top + targetRect.height / 2);
+const existingChildNoop = node('child-a').style.left === childPosition.x
+  && node('child-a').style.top === childPosition.y
+  && node('child-a').dataset.parentId === 'root';
+
+startDrag('child-a');
+targetRect = node('root').getBoundingClientRect();
+const emptyLeftPosition = targetRect.left - 150;
+moveDrag(emptyLeftPosition, targetRect.top + targetRect.height / 2);
+const emptyFlipHadNoDropTarget = !node('root').classList.contains('drop-target');
+finishDrag(emptyLeftPosition, targetRect.top + targetRect.height / 2);
+const rootBranchFlipped = node('child-a').dataset.side === 'left'
+  && node('grandchild').dataset.side === 'left'
+  && Number.parseFloat(node('root').style.left)
+    > Number.parseFloat(node('child-a').style.left)
+  && Number.parseFloat(node('child-a').style.left)
+    > Number.parseFloat(node('grandchild').style.left);
+
+startDrag('free-root');
+targetRect = node('root').getBoundingClientRect();
+moveDrag(targetRect.left + 2, targetRect.top + targetRect.height / 2);
+const leftChildIntent = node('root').classList.contains('drop-child-left');
+finishDrag(targetRect.left + 2, targetRect.top + targetRect.height / 2);
+const leftChildAttached = node('free-root').dataset.parentId === 'root'
+  && node('free-root').dataset.side === 'left'
+  && Number.parseFloat(node('free-root').style.left)
+    < Number.parseFloat(node('root').style.left);
+
+startDrag('free-root-right', .95);
+targetRect = node('root').getBoundingClientRect();
+const pointerOutsideTarget = targetRect.right + 40;
+moveDrag(pointerOutsideTarget, targetRect.top + targetRect.height / 2);
+const rightChildIntent = node('root').classList.contains('drop-child-right');
+finishDrag(pointerOutsideTarget, targetRect.top + targetRect.height / 2);
+const rightChildAttached = node('free-root-right').dataset.parentId === 'root'
+  && node('free-root-right').dataset.side === 'right'
+  && Number.parseFloat(node('free-root-right').style.left)
+    > Number.parseFloat(node('root').style.left);
+
+startDrag('child-b');
+targetRect = node('child-a').getBoundingClientRect();
+moveDrag(targetRect.left + targetRect.width / 2, targetRect.top + 2);
+const siblingIntent = node('child-a').classList.contains('drop-sibling-before');
+finishDrag(targetRect.left + targetRect.width / 2, targetRect.top + 2);
+const siblingInsertedBefore = node('child-b').dataset.parentId === 'root'
+  && Number(node('child-b').dataset.order) < Number(node('child-a').dataset.order)
+  && Number.parseFloat(node('child-b').style.top)
+    < Number.parseFloat(node('child-a').style.top);
+const siblingReflowHasNoOverlap = mapHasNoNodeOverlap();
+const localLayoutPreservedFarBranch = node('far-branch').style.left
+  === farBranchPosition.x && node('far-branch').style.top === farBranchPosition.y;
+
+startDrag('child-b');
+targetRect = node('child-a').getBoundingClientRect();
+moveDrag(targetRect.left + targetRect.width / 2, targetRect.bottom - 2);
+const siblingAfterIntent = node('child-a').classList.contains('drop-sibling-after');
+finishDrag(targetRect.left + targetRect.width / 2, targetRect.bottom - 2);
+const siblingInsertedAfter = Number(node('child-b').dataset.order)
+  > Number(node('child-a').dataset.order)
+  && Number.parseFloat(node('child-b').style.top)
+    > Number.parseFloat(node('child-a').style.top);
+const leftEdgeCoordinates = document.querySelector('[data-target-id="free-root"]')
+  .getAttribute('d').match(/-?\\d+(?:\\.\\d+)?/g).map(Number);
+const leftConnectorFacesOutward = leftEdgeCoordinates[0] > leftEdgeCoordinates[6];
+
+node('root').click();
+canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+const automaticRootChildSide = document.querySelector('.node.focused').dataset.side;
+document.querySelector('.node textarea').dispatchEvent(new KeyboardEvent('keydown', {
+  key: 'Enter', bubbles: true,
+}));
+
+const result = document.createElement('div');
+result.id = 'mindMapDragProbe';
+result.dataset.localLayoutInitiallyPressed = String(localLayoutInitiallyPressed);
+result.dataset.freeformLayoutPressed = String(freeformLayoutPressed);
+result.dataset.repackLayoutPressed = String(repackLayoutPressed);
+result.dataset.localLayoutPersisted = String(localLayoutPersisted);
+result.dataset.localLayoutPreservedFarBranch = String(localLayoutPreservedFarBranch);
+result.dataset.emptyMoveKeptParent = String(emptyMoveKeptParent);
+result.dataset.rightBranchReflowed = String(rightBranchReflowed);
+result.dataset.existingChildIntent = String(existingChildIntent);
+result.dataset.existingChildNoop = String(existingChildNoop);
+result.dataset.emptyFlipHadNoDropTarget = String(emptyFlipHadNoDropTarget);
+result.dataset.rootBranchFlipped = String(rootBranchFlipped);
+result.dataset.leftChildIntent = String(leftChildIntent);
+result.dataset.leftChildAttached = String(leftChildAttached);
+result.dataset.rightChildIntent = String(rightChildIntent);
+result.dataset.rightChildAttached = String(rightChildAttached);
+result.dataset.nodeBasedDrop = String(pointerOutsideTarget > targetRect.right
+  && rightChildIntent);
+result.dataset.siblingIntent = String(siblingIntent);
+result.dataset.siblingInsertedBefore = String(siblingInsertedBefore);
+result.dataset.siblingReflowHasNoOverlap = String(siblingReflowHasNoOverlap);
+result.dataset.siblingAfterIntent = String(siblingAfterIntent);
+result.dataset.siblingInsertedAfter = String(siblingInsertedAfter);
+result.dataset.leftConnectorFacesOutward = String(leftConnectorFacesOutward);
+result.dataset.automaticRootChildSide = automaticRootChildSide;
+result.dataset.edges = String(document.querySelectorAll('.edge').length);
+document.body.append(result);
+</script>
+"""
+    completed = browser_file_dom(page.replace("</body>", f"{probe}</body>"), tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="mindMapDragProbe" data-local-layout-initially-pressed="true" '
+        'data-freeform-layout-pressed="true" data-repack-layout-pressed="true" '
+        'data-local-layout-persisted="true" '
+        'data-local-layout-preserved-far-branch="true" '
+        'data-empty-move-kept-parent="true" '
+        'data-right-branch-reflowed="true" data-existing-child-intent="true" '
+        'data-existing-child-noop="true" data-empty-flip-had-no-drop-target="true" '
+        'data-root-branch-flipped="true" '
+        'data-left-child-intent="true" '
+        'data-left-child-attached="true" data-right-child-intent="true" '
+        'data-right-child-attached="true" data-node-based-drop="true" '
+        'data-sibling-intent="true" '
+        'data-sibling-inserted-before="true" data-sibling-reflow-has-no-overlap="true" '
+        'data-sibling-after-intent="true" '
+        'data-sibling-inserted-after="true" '
+        'data-left-connector-faces-outward="true" '
+        'data-automatic-root-child-side="right" data-edges="7"></div>'
+        in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_shell_has_clean_empty_workflow_state(tmp_path: Path) -> None:
     root = tmp_path / "core-service"
     save_workflow_config(root, WorkflowConfig(enabled_builtins=()))

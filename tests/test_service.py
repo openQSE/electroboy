@@ -693,6 +693,9 @@ class ServiceTests(unittest.TestCase):
         calendar = read_service_text_asset("js/modules/calendar.js")
         mind_map = read_service_text_asset("js/modules/mind-map.js")
         mind_map_tools = read_service_text_asset("js/modules/mind-map-pane-tools.js")
+        mind_map_tools_css = read_service_text_asset(
+            "css/mind-map-pane-tools.css"
+        )
         file_browser = read_service_text_asset("js/modules/file-browser.js")
         progress = read_service_text_asset("js/modules/progress.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
@@ -831,12 +834,18 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('section(controller, "mind-map-node", "Node")', mind_map_tools)
         self.assertIn('section(controller, "mind-map-color", "Color")', mind_map_tools)
+        self.assertIn('section(controller, "mind-map-layout", "Layout")', mind_map_tools)
         self.assertIn(
             'section(controller, "mind-map-font", "Font size")', mind_map_tools
         )
         self.assertIn('post("font-size-set", { fontSize })', mind_map_tools)
         self.assertIn('action === "focus"', mind_map_tools)
         self.assertIn('String(Boolean(data.focusMode))', mind_map_tools)
+        self.assertIn('action.startsWith("layout-")', mind_map_tools)
+        self.assertIn(
+            '[data-mind-map-action^="layout-"][aria-pressed="true"]',
+            mind_map_tools_css,
+        )
         self.assertIn("selection_channel: selectionChannel", mind_map_tools)
         self.assertIn('send(action, { target: String(data.path) })', mind_map_tools)
         self.assertIn("const style = normalizeStyle(descriptor.style || options.style);", mind_map)
@@ -5475,6 +5484,7 @@ class ServiceTests(unittest.TestCase):
                     "order": 0,
                     "x": 80,
                     "y": 90,
+                    "side": "left",
                     "color": "teal",
                     "font_size": 22.5,
                     "font_size_mode": "custom",
@@ -5487,6 +5497,7 @@ class ServiceTests(unittest.TestCase):
 
             self.assertEqual(loaded, created)
             self.assertEqual(loaded["document"]["nodes"][0]["color"], "teal")
+            self.assertEqual(loaded["document"]["nodes"][0]["side"], "left")
             self.assertEqual(loaded["document"]["nodes"][0]["font_size"], 22.5)
             self.assertEqual(
                 loaded["document"]["nodes"][0]["font_size_mode"], "custom"
@@ -5536,6 +5547,8 @@ class ServiceTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(StateError, "invalid color"):
             normalize_mind_map({"nodes": [{"id": "invalid", "color": "infrared"}]})
+        with self.assertRaisesRegex(StateError, "invalid side"):
+            normalize_mind_map({"nodes": [{"id": "invalid", "side": "above"}]})
         with self.assertRaisesRegex(StateError, "greater than zero"):
             normalize_mind_map(
                 {
@@ -5567,6 +5580,22 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             [node["font_size"] for node in normalized["nodes"]],
             [24.0, 21.0, 18.0, 15.0, 14.0, 14.0, 14.0],
+        )
+
+    def test_editable_mind_map_infers_legacy_branch_side(self) -> None:
+        normalized = normalize_mind_map(
+            {
+                "nodes": [
+                    {"id": "root", "x": 400, "width": 260},
+                    {"id": "left", "parent_id": "root", "x": 60},
+                    {"id": "right", "parent_id": "root", "x": 740},
+                ]
+            }
+        )
+
+        self.assertEqual(
+            [node["side"] for node in normalized["nodes"]],
+            ["right", "left", "right"],
         )
 
     def test_editable_mind_map_workspace_has_keyboard_canvas_and_links(self) -> None:
@@ -5601,6 +5630,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function resolvedNodeColor(node)", page)
         self.assertIn("function initialNodeColor(parentId)", page)
         self.assertIn("BRANCH_COLORS = Object.freeze", page)
+        self.assertIn("function dropIntentForNode(draggedId, previousIntent", page)
+        self.assertIn("function applyNodeDrop(node, intent, before)", page)
+        self.assertIn("function reflowMovedRootBranch(node)", page)
+        self.assertIn("function reflowTree(root)", page)
+        self.assertIn("function resolveLocalOverlaps(parent)", page)
+        self.assertIn('let layoutMode = "local";', page)
+        self.assertIn('"layout-freeform": () => setLayoutMode("freeform")', page)
+        self.assertIn("const NODE_VERTICAL_SPACING = 20;", page)
+        self.assertIn('className: `drop-child-${side}`', page)
+        self.assertIn('label: `Sibling · ${placement}`', page)
         self.assertIn('element.dataset.color = resolvedNodeColor(node);', page)
         self.assertIn('"font-size-set": (data) => setNodeFontSize', page)
         self.assertIn("selectedFontSize:", page)

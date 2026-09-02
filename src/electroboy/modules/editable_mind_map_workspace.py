@@ -83,7 +83,23 @@ _PAGE = r"""<!doctype html>
     .node[data-color="rose"] { --node-border: #efa0b3; --node-background: #693744; }
     .node.focused { border-color: #64d8ff; box-shadow: 0 0 0 3px #64d8ff4d,
       0 8px 22px #02050a; }
-    .node.drop-target { border-color: #70eca9; box-shadow: 0 0 0 4px #70eca955; }
+    .node.drop-target { border-color: #70eca9; }
+    .node.drop-target::before { content: attr(data-drop-label); position: absolute;
+      z-index: 3; padding: .2rem .4rem; border: 1px solid #70eca9;
+      border-radius: 4px; background: #143c2b; color: #d9ffea; font-size: .7rem;
+      font-weight: 700; white-space: nowrap; pointer-events: none; }
+    .node.drop-child-left { box-shadow: inset 6px 0 #70eca9, 0 0 0 3px #70eca944; }
+    .node.drop-child-left::before { left: 0; top: 50%; transform: translate(-25%, -50%); }
+    .node.drop-child-right { box-shadow: inset -6px 0 #70eca9, 0 0 0 3px #70eca944; }
+    .node.drop-child-right::before { right: 0; top: 50%; transform: translate(25%, -50%); }
+    .node.drop-sibling-before { box-shadow: inset 0 6px #70eca9,
+      0 0 0 3px #70eca944; }
+    .node.drop-sibling-before::before { left: 50%; top: 0;
+      transform: translate(-50%, -50%); }
+    .node.drop-sibling-after { box-shadow: inset 0 -6px #70eca9,
+      0 0 0 3px #70eca944; }
+    .node.drop-sibling-after::before { left: 50%; bottom: 0;
+      transform: translate(-50%, 50%); }
     .node.dimmed { opacity: .22; }
     .node.dragging { opacity: .86; cursor: grabbing; pointer-events: none; }
     .node-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35;
@@ -199,6 +215,11 @@ _PAGE = r"""<!doctype html>
         <button data-action="fit">Fit</button><button data-action="focus">Focus</button>
         <button data-action="collapse">Collapse All</button><button data-action="tidy">Tidy Branch</button>
       </section>
+      <section class="tool-group"><strong>Layout</strong>
+        <button data-action="layout-local">Local</button>
+        <button data-action="layout-freeform">Freeform</button>
+        <button data-action="layout-repack">Repack</button>
+      </section>
     </nav>
     <section class="workspace">
       <div id="canvas" class="canvas" tabindex="0" role="tree"
@@ -275,6 +296,7 @@ _PAGE = r"""<!doctype html>
     let drag = null;
     let overlayLink = null;
     let pendingFilePicker = null;
+    let layoutMode = "local";
     const AUTOSAVE_DELAY_MS = 800;
     const ROOT_NODE_FONT_SIZE = 24;
     const NODE_GENERATION_FONT_STEP = 3;
@@ -284,6 +306,10 @@ _PAGE = r"""<!doctype html>
     const DEFAULT_NODE_MIN_HEIGHT = 58;
     const MINIMUM_NODE_WIDTH = 140;
     const MINIMUM_NODE_HEIGHT = 58;
+    const NODE_HORIZONTAL_GAP = 70;
+    const NODE_VERTICAL_GAP = 110;
+    const NODE_VERTICAL_SPACING = 20;
+    const SIBLING_DROP_GAP = 22;
     const BRANCH_COLORS = Object.freeze([
       "violet", "blue", "teal", "green", "amber", "rose",
     ]);
@@ -474,13 +500,24 @@ _PAGE = r"""<!doctype html>
       const choices = available.length ? available : BRANCH_COLORS;
       return choices[Math.floor(Math.random() * choices.length)];
     }
+    function nodeSide(node) {
+      if (node?.side === "left" || node?.side === "right") return node.side;
+      const parent = node?.parent_id ? nodeById(node.parent_id) : null;
+      if (!parent) return "right";
+      return node.x + nodeWidth(node) / 2 < parent.x + nodeWidth(parent) / 2
+        ? "left" : "right";
+    }
+    function initialChildSide(parent) {
+      return !parent || parent.parent_id === null ? "right" : nodeSide(parent);
+    }
     function setStatus(message, error = false) {
       status.textContent = message; status.classList.toggle("error", error);
     }
     function saveView() {
       try {
         localStorage.setItem(stateKey, JSON.stringify({ pan, zoom, selectedId, compact,
-          expanded: Array.from(expanded), collapsed: Array.from(collapsed), focusMode }));
+          expanded: Array.from(expanded), collapsed: Array.from(collapsed), focusMode,
+          layoutMode }));
       } catch (_error) { /* View persistence is optional. */ }
     }
     function restoreView() {
@@ -494,6 +531,9 @@ _PAGE = r"""<!doctype html>
         expanded = new Set(Array.isArray(stored.expanded) ? stored.expanded : []);
         collapsed = new Set(Array.isArray(stored.collapsed) ? stored.collapsed : []);
         focusMode = Boolean(stored.focusMode);
+        if (["local", "freeform", "repack"].includes(stored.layoutMode)) {
+          layoutMode = stored.layoutMode;
+        }
       } catch (_error) { /* Ignore invalid per-browser view state. */ }
     }
     function snapshot() { return JSON.stringify(documentState); }
@@ -529,14 +569,16 @@ _PAGE = r"""<!doctype html>
     function nextId() {
       return `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     }
-    function nextPosition(parent) {
+    function nextPosition(parent, side = "right") {
       if (!parent) {
         const roots = childrenOf(null);
         return { x: 80 + (roots.length % 3) * 310, y: 80 + Math.floor(roots.length / 3) * 150 };
       }
-      const siblings = childrenOf(parent.id);
-      return { x: parent.x + nodeWidth(parent) + 70,
-        y: parent.y + siblings.length * 110 };
+      const siblings = childrenOf(parent.id).filter((node) => nodeSide(node) === side);
+      return { x: side === "left"
+          ? parent.x - DEFAULT_NODE_WIDTH - NODE_HORIZONTAL_GAP
+          : parent.x + nodeWidth(parent) + NODE_HORIZONTAL_GAP,
+        y: parent.y + siblings.length * NODE_VERTICAL_GAP };
     }
     function addNode(kind) {
       const selected = nodeById(selectedId);
@@ -548,12 +590,16 @@ _PAGE = r"""<!doctype html>
         : kind === "sibling" ? selected.parent_id : null;
       const positionParent = kind === "child" ? selected
         : kind === "sibling" && selected.parent_id ? nodeById(selected.parent_id) : null;
-      const position = nextPosition(positionParent);
-      if (kind === "sibling") { position.x = selected.x; position.y = selected.y + 110; }
+      const side = kind === "child" ? initialChildSide(selected)
+        : kind === "sibling" ? nodeSide(selected) : "right";
+      const position = nextPosition(positionParent, side);
+      if (kind === "sibling") {
+        position.x = selected.x; position.y = selected.y + NODE_VERTICAL_GAP;
+      }
       if (kind === "root" && selected) { position.x = selected.x; position.y = selected.y + 130; }
       const node = { id: nextId(), text: "New idea", parent_id: parentId,
         order: childrenOf(parentId).length, x: position.x, y: position.y,
-        color: initialNodeColor(parentId), font_size: initialNodeFontSize(kind, selected),
+        side, color: initialNodeColor(parentId), font_size: initialNodeFontSize(kind, selected),
         font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH, min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
       documentState.nodes.push(node); selectedId = node.id; editingId = node.id; markDirty();
@@ -562,6 +608,264 @@ _PAGE = r"""<!doctype html>
     function descendants(id, result = new Set()) {
       childrenOf(id).forEach((child) => { result.add(child.id); descendants(child.id, result); });
       return result;
+    }
+    function branchPositions(id) {
+      const ids = descendants(id); ids.add(id);
+      return new Map(Array.from(ids).map((nodeId) => {
+        const node = nodeById(nodeId);
+        return [nodeId, { x: node.x, y: node.y }];
+      }));
+    }
+    function shiftBranch(id, x, y) {
+      const node = nodeById(id);
+      if (!node) return;
+      const dx = x - node.x; const dy = y - node.y;
+      const ids = descendants(id); ids.add(id);
+      ids.forEach((nodeId) => {
+        const branchNode = nodeById(nodeId);
+        branchNode.x += dx; branchNode.y += dy;
+      });
+    }
+    function reflowDescendants(parent, side) {
+      const children = childrenOf(parent.id);
+      const top = parent.y - ((children.length - 1) * NODE_VERTICAL_GAP) / 2;
+      children.forEach((child, index) => {
+        child.side = side;
+        child.x = side === "left"
+          ? parent.x - nodeWidth(child) - NODE_HORIZONTAL_GAP
+          : parent.x + nodeWidth(parent) + NODE_HORIZONTAL_GAP;
+        child.y = top + index * NODE_VERTICAL_GAP;
+        reflowDescendants(child, side);
+      });
+    }
+    function treeRoot(node) {
+      let root = node;
+      while (root?.parent_id) root = nodeById(root.parent_id);
+      return root;
+    }
+    function renderedNodeHeight(node) {
+      const element = nodesLayer.querySelector(
+        `[data-id="${CSS.escape(node.id)}"]`);
+      return element?.offsetHeight || nodeMinHeight(node);
+    }
+    function reflowTree(root) {
+      if (!root) return;
+      const heights = new Map();
+      function groupHeight(children) {
+        return children.reduce((height, child, index) => height
+          + branchHeight(child) + (index ? NODE_VERTICAL_SPACING : 0), 0);
+      }
+      function branchHeight(node) {
+        if (heights.has(node.id)) return heights.get(node.id);
+        const children = childrenOf(node.id);
+        const height = Math.max(renderedNodeHeight(node),
+          groupHeight(children.filter((child) => nodeSide(child) === "left")),
+          groupHeight(children.filter((child) => nodeSide(child) === "right")));
+        heights.set(node.id, height);
+        return height;
+      }
+      function arrangeChildren(parent, centerY) {
+        for (const side of ["left", "right"]) {
+          const children = childrenOf(parent.id)
+            .filter((child) => nodeSide(child) === side);
+          let top = centerY - groupHeight(children) / 2;
+          children.forEach((child) => {
+            const childHeight = branchHeight(child);
+            const childCenter = top + childHeight / 2;
+            child.x = side === "left"
+              ? parent.x - nodeWidth(child) - NODE_HORIZONTAL_GAP
+              : parent.x + nodeWidth(parent) + NODE_HORIZONTAL_GAP;
+            child.y = childCenter - renderedNodeHeight(child) / 2;
+            arrangeChildren(child, childCenter);
+            top += childHeight + NODE_VERTICAL_SPACING;
+          });
+        }
+      }
+      arrangeChildren(root, root.y + renderedNodeHeight(root) / 2);
+    }
+    function nodeRectangle(node) {
+      return { left: node.x, top: node.y, right: node.x + nodeWidth(node),
+        bottom: node.y + renderedNodeHeight(node) };
+    }
+    function localOverlapShift(fixedIds, movingIds) {
+      let required = 0;
+      fixedIds.forEach((fixedId) => {
+        const fixed = nodeRectangle(nodeById(fixedId));
+        movingIds.forEach((movingId) => {
+          const moving = nodeRectangle(nodeById(movingId));
+          const overlapsHorizontally = fixed.left < moving.right
+            && moving.left < fixed.right;
+          const overlapsVertically = fixed.top < moving.bottom
+            && moving.top < fixed.bottom;
+          if (overlapsHorizontally && overlapsVertically) {
+            required = Math.max(required,
+              fixed.bottom + NODE_VERTICAL_SPACING - moving.top);
+          }
+        });
+      });
+      return required;
+    }
+    function resolveLocalOverlaps(parent) {
+      if (!parent) return;
+      for (const child of childrenOf(parent.id)) resolveLocalOverlaps(child);
+      for (const side of ["left", "right"]) {
+        const settled = new Set();
+        for (const child of childrenOf(parent.id)
+          .filter((candidate) => nodeSide(candidate) === side)) {
+          const moving = descendants(child.id); moving.add(child.id);
+          for (let attempts = 0; attempts < documentState.nodes.length; attempts += 1) {
+            const shift = localOverlapShift(settled, moving);
+            if (shift <= 0) break;
+            shiftBranch(child.id, child.x, child.y + shift);
+          }
+          moving.forEach((id) => settled.add(id));
+        }
+      }
+    }
+    function applyLayoutMode(root) {
+      if (!root) return;
+      if (layoutMode === "repack") reflowTree(root);
+      else if (layoutMode === "local") resolveLocalOverlaps(root);
+    }
+    function reflowMovedRootBranch(node) {
+      const root = node?.parent_id ? nodeById(node.parent_id) : null;
+      if (!root || root.parent_id !== null) return;
+      const previousSide = nodeSide(node);
+      const side = node.x + nodeWidth(node) / 2
+        < root.x + nodeWidth(root) / 2 ? "left" : "right";
+      node.side = side;
+      reflowDescendants(node, side);
+      if (side !== previousSide) applyLayoutMode(root);
+    }
+    function normalizeSiblingOrder(parentId) {
+      childrenOf(parentId).forEach((node, index) => { node.order = index; });
+    }
+    function clearDropTarget() {
+      nodesLayer.querySelectorAll(".drop-target").forEach((element) => {
+        element.classList.remove("drop-target", "drop-child-left",
+          "drop-child-right", "drop-sibling-before", "drop-sibling-after");
+        delete element.dataset.dropLabel;
+      });
+    }
+    function dropIntentForNode(draggedId, previousIntent = null) {
+      const dragged = nodesLayer.querySelector(
+        `[data-id="${CSS.escape(draggedId)}"]`);
+      if (!dragged) return null;
+      const draggedRect = dragged.getBoundingClientRect();
+      const excluded = descendants(draggedId); excluded.add(draggedId);
+      const overlaps = Array.from(nodesLayer.querySelectorAll(".node"))
+        .filter((element) => !excluded.has(element.dataset.id))
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          const width = Math.min(draggedRect.right, rect.right)
+            - Math.max(draggedRect.left, rect.left);
+          const height = Math.min(draggedRect.bottom, rect.bottom)
+            - Math.max(draggedRect.top, rect.top);
+          return { element, rect, area: Math.max(0, width) * Math.max(0, height) };
+        })
+        .filter((overlap) => overlap.area > 0)
+        .sort((left, right) => right.area - left.area);
+      if (!overlaps.length) return null;
+
+      const { element, rect } = overlaps[0];
+      const horizontalDistance = (draggedRect.left + draggedRect.right
+        - rect.left - rect.right) / (draggedRect.width + rect.width);
+      const verticalDistance = (draggedRect.top + draggedRect.bottom
+        - rect.top - rect.bottom) / (draggedRect.height + rect.height);
+      if (Math.abs(Math.abs(horizontalDistance) - Math.abs(verticalDistance)) < .04
+          && previousIntent?.targetId === element.dataset.id) {
+        return previousIntent;
+      }
+      if (Math.abs(horizontalDistance) >= Math.abs(verticalDistance)) {
+        const side = horizontalDistance < 0 ? "left" : "right";
+        return { kind: "child", side, targetId: element.dataset.id,
+          className: `drop-child-${side}`, label: `Child · ${side}` };
+      }
+      const placement = verticalDistance < 0 ? "before" : "after";
+      return { kind: "sibling", placement, targetId: element.dataset.id,
+        className: `drop-sibling-${placement}`,
+        label: `Sibling · ${placement}` };
+    }
+    function showDropIntent(intent) {
+      clearDropTarget();
+      if (!intent) return;
+      const element = nodesLayer.querySelector(
+        `[data-id="${CSS.escape(intent.targetId)}"]`);
+      if (!element) return;
+      element.classList.add("drop-target", intent.className);
+      element.dataset.dropLabel = intent.label;
+    }
+    function applyNodeDrop(node, intent, before) {
+      const target = nodeById(intent.targetId);
+      if (!target) return false;
+      const previousRootId = treeRoot(node)?.id;
+      const proposedParentId = intent.kind === "child" ? target.id : target.parent_id;
+      if (proposedParentId === node.id || descendants(node.id).has(proposedParentId)) {
+        documentState = JSON.parse(before);
+        setStatus("A node cannot be attached to its descendant.", true);
+        return false;
+      }
+      const changesRootSide = intent.kind === "child"
+        && node.parent_id === target.id
+        && target.parent_id === null
+        && nodeSide(node) !== intent.side;
+      if (intent.kind === "child" && node.parent_id === target.id
+          && !changesRootSide) {
+        documentState = JSON.parse(before);
+        setStatus("This node is already a child of that node.");
+        return false;
+      }
+
+      const previousParentId = node.parent_id;
+      if (changesRootSide) {
+        node.side = intent.side;
+      } else {
+        const siblings = childrenOf(proposedParentId)
+          .filter((candidate) => candidate.id !== node.id);
+        node.parent_id = proposedParentId;
+        if (intent.kind === "child") {
+          node.side = intent.side;
+          siblings.push(node);
+        } else {
+          node.side = nodeSide(target);
+          const targetIndex = siblings.findIndex(
+            (candidate) => candidate.id === target.id);
+          siblings.splice(targetIndex + (intent.placement === "after" ? 1 : 0),
+            0, node);
+        }
+        siblings.forEach((candidate, index) => { candidate.order = index; });
+      }
+      if (previousParentId !== proposedParentId) normalizeSiblingOrder(previousParentId);
+      const parent = nodeById(proposedParentId);
+      if (node.color === "default" && parent?.parent_id === null) {
+        node.color = initialNodeColor(proposedParentId);
+      }
+
+      if (intent.kind === "child") {
+        const sameSideIndex = childrenOf(target.id)
+          .filter((candidate) => candidate.id !== node.id
+            && nodeSide(candidate) === intent.side).length;
+        const x = intent.side === "left"
+          ? target.x - nodeWidth(node) - NODE_HORIZONTAL_GAP
+          : target.x + nodeWidth(target) + NODE_HORIZONTAL_GAP;
+        shiftBranch(node.id, x, target.y + sameSideIndex * NODE_VERTICAL_GAP);
+        reflowDescendants(node, intent.side);
+      } else {
+        const y = intent.placement === "before"
+          ? target.y - nodeMinHeight(node) - SIBLING_DROP_GAP
+          : target.y + nodeMinHeight(target) + SIBLING_DROP_GAP;
+        shiftBranch(node.id, target.x, y);
+      }
+      const directRoot = node.parent_id ? nodeById(node.parent_id) : null;
+      if (directRoot?.parent_id === null) {
+        reflowDescendants(node, nodeSide(node));
+      }
+      const affectedRoots = new Set([previousRootId, treeRoot(node)?.id]);
+      affectedRoots.forEach((rootId) => {
+        const root = nodeById(rootId);
+        if (root?.parent_id === null) applyLayoutMode(root);
+      });
+      return true;
     }
     function hiddenNodeIds() {
       const hidden = new Set();
@@ -646,12 +950,19 @@ _PAGE = r"""<!doctype html>
           `[data-id="${CSS.escape(target.id)}"]`);
         const sourceWidth = sourceElement?.offsetWidth || nodeWidth(source);
         const sourceHeight = sourceElement?.offsetHeight || nodeMinHeight(source);
+        const targetWidth = targetElement?.offsetWidth || nodeWidth(target);
         const targetHeight = targetElement?.offsetHeight || nodeMinHeight(target);
-        const sx = source.x + sourceWidth; const sy = source.y + sourceHeight / 2;
-        const tx = target.x; const ty = target.y + targetHeight / 2;
+        const targetIsLeft = target.x + targetWidth / 2 < source.x + sourceWidth / 2;
+        const sx = targetIsLeft ? source.x : source.x + sourceWidth;
+        const sy = source.y + sourceHeight / 2;
+        const tx = targetIsLeft ? target.x + targetWidth : target.x;
+        const ty = target.y + targetHeight / 2;
+        const direction = targetIsLeft ? -1 : 1;
         const bend = Math.max(45, Math.abs(tx - sx) * .45);
-        line.setAttribute("d", `M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}`);
+        line.setAttribute("d", `M ${sx} ${sy} C ${sx + direction * bend} ${sy}, ${tx - direction * bend} ${ty}, ${tx} ${ty}`);
         line.setAttribute("class", "edge");
+        line.dataset.sourceId = source.id;
+        line.dataset.targetId = target.id;
         if (extra) line.setAttribute("stroke-dasharray", "7 5");
         edgesLayer.append(line);
       };
@@ -708,6 +1019,10 @@ _PAGE = r"""<!doctype html>
         .forEach((button) => { button.disabled = !selectedId; });
       document.querySelector('[data-action="focus"]')
         .setAttribute("aria-pressed", String(Boolean(focusMode && selectedId)));
+      document.querySelectorAll('[data-action^="layout-"]').forEach((button) => {
+        button.setAttribute("aria-pressed",
+          String(button.dataset.action === `layout-${layoutMode}`));
+      });
       document.title = `${dirty ? "*" : ""}${documentState.title} — Mind Map`;
       if (dirty && !status.classList.contains("error")) setStatus("Unsaved changes");
       if (window.parent !== window) window.parent.postMessage({
@@ -717,6 +1032,7 @@ _PAGE = r"""<!doctype html>
         selectedFontSize: selectedId ? nodeFontSize(nodeById(selectedId)) : ROOT_NODE_FONT_SIZE,
         selectedFontSizeMode: nodeById(selectedId)?.font_size_mode || "auto",
         focusMode: Boolean(focusMode && selectedId),
+        layoutMode,
         mapPath: path,
         canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length), dirty,
       }, window.location.origin);
@@ -738,7 +1054,11 @@ _PAGE = r"""<!doctype html>
       element.className = `node${node.parent_id === null ? " root" : ""}${node.id === selectedId ? " focused" : ""}`;
       const focusedBranch = focusNodeIds();
       if (focusedBranch && !focusedBranch.has(node.id)) element.classList.add("dimmed");
-      element.dataset.id = node.id; element.style.left = `${node.x}px`; element.style.top = `${node.y}px`;
+      element.dataset.id = node.id;
+      element.dataset.parentId = node.parent_id || "";
+      element.dataset.order = String(node.order);
+      element.dataset.side = nodeSide(node);
+      element.style.left = `${node.x}px`; element.style.top = `${node.y}px`;
       element.dataset.color = resolvedNodeColor(node);
       element.dataset.ownColor = node.color || "default";
       element.style.setProperty("--node-font-size",
@@ -800,10 +1120,17 @@ _PAGE = r"""<!doctype html>
         if (event.button !== 0 || editingId) return;
         event.preventDefault(); event.stopPropagation(); selectedId = node.id;
         updateSelectionPresentation();
-        const descendantPositions = new Map(Array.from(descendants(node.id)).map(
+        const rightDescendantIds = new Set();
+        childrenOf(node.id).filter((child) => nodeSide(child) === "right")
+          .forEach((child) => {
+            rightDescendantIds.add(child.id);
+            descendants(child.id, rightDescendantIds);
+          });
+        const descendantPositions = new Map(Array.from(rightDescendantIds).map(
           (id) => { const item = nodeById(id); return [id, { x: item.x, y: item.y }]; }));
         const followingIds = new Set();
-        childrenOf(node.parent_id).filter((item) => item.order > node.order)
+        childrenOf(node.parent_id).filter((item) => item.order > node.order
+          && nodeSide(item) === nodeSide(node))
           .forEach((item) => {
             followingIds.add(item.id);
             descendants(item.id, followingIds);
@@ -827,8 +1154,10 @@ _PAGE = r"""<!doctype html>
         event.stopPropagation(); selectedId = node.id;
         updateSelectionPresentation();
         drag = { type: "node", id: node.id, x: event.clientX, y: event.clientY,
-          startX: node.x, startY: node.y, before: snapshot(), moved: false };
-        element.setPointerCapture(event.pointerId);
+          startX: node.x, startY: node.y, before: snapshot(), moved: false,
+          branchPositions: branchPositions(node.id), dropIntent: null };
+        try { element.setPointerCapture(event.pointerId); }
+        catch (_error) { /* Synthetic and legacy pointer events may not capture. */ }
       });
       return element;
     }
@@ -876,22 +1205,32 @@ _PAGE = r"""<!doctype html>
       if (focusMode) focusSelected();
       render();
     }
+    function setLayoutMode(mode) {
+      if (!["local", "freeform", "repack"].includes(mode)) return;
+      layoutMode = mode;
+      saveView();
+      updateControlsAndState();
+    }
     function tidy() {
-      if (!documentState.nodes.length) return; checkpoint();
-      const root = nodeById(selectedId); let row = 0;
-      function arrange(parentId, depth) {
-        childrenOf(parentId).forEach((node) => {
-          node.x = 70 + depth * 330; node.y = 70 + row * 115; row += 1; arrange(node.id, depth + 1);
-        });
-      }
-      if (root) {
-        const baseX = root.x; const baseY = root.y;
-        function arrangeBranch(parentId, depth) {
-          childrenOf(parentId).forEach((node) => { node.x = baseX + depth * 330;
-            node.y = baseY + (++row) * 115; arrangeBranch(node.id, depth + 1); });
+      if (!documentState.nodes.length) return;
+      checkpoint();
+      function arrangeChildren(parent) {
+        for (const side of ["left", "right"]) {
+          const children = childrenOf(parent.id)
+            .filter((child) => nodeSide(child) === side);
+          const top = parent.y - ((children.length - 1) * NODE_VERTICAL_GAP) / 2;
+          children.forEach((child, index) => {
+            child.x = side === "left"
+              ? parent.x - nodeWidth(child) - NODE_HORIZONTAL_GAP
+              : parent.x + nodeWidth(parent) + NODE_HORIZONTAL_GAP;
+            child.y = top + index * NODE_VERTICAL_GAP;
+            arrangeChildren(child);
+          });
         }
-        arrangeBranch(root.id, 1);
-      } else arrange(null, 0);
+      }
+      const selected = nodeById(selectedId);
+      if (selected) arrangeChildren(selected);
+      else childrenOf(null).forEach(arrangeChildren);
       markDirty(); render(); fit();
     }
     function toggleCollapseAll() {
@@ -1080,7 +1419,10 @@ _PAGE = r"""<!doctype html>
       compact: () => { compact = true; render(); }, expand: () => { compact = false; render(); },
       "zoom-out": () => adjustZoom(zoom / 1.2), "zoom-in": () => adjustZoom(zoom * 1.2),
       fit, focus: toggleFocus,
-      collapse: toggleCollapseAll, tidy };
+      collapse: toggleCollapseAll, tidy,
+      "layout-local": () => setLayoutMode("local"),
+      "layout-freeform": () => setLayoutMode("freeform"),
+      "layout-repack": () => setLayoutMode("repack") };
     document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => {
       const action = actions[button.dataset.action]; if (action) Promise.resolve(action()).catch((error) => setStatus(error.message, true));
     }));
@@ -1156,7 +1498,7 @@ _PAGE = r"""<!doctype html>
       const rect = canvas.getBoundingClientRect(); checkpoint();
       const node = { id: nextId(), text: "New idea", parent_id: null,
         order: childrenOf(null).length, x: (event.clientX - rect.left - pan.x) / zoom,
-        y: (event.clientY - rect.top - pan.y) / zoom, color: "default",
+        y: (event.clientY - rect.top - pan.y) / zoom, side: "right", color: "default",
         font_size: ROOT_NODE_FONT_SIZE, font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH,
         min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
@@ -1210,35 +1552,33 @@ _PAGE = r"""<!doctype html>
         const dx = (event.clientX - drag.x) / zoom; const dy = (event.clientY - drag.y) / zoom;
         if (Math.abs(dx) + Math.abs(dy) <= 2 && !drag.moved) return;
         drag.moved = true;
-        node.x = drag.startX + dx; node.y = drag.startY + dy;
+        drag.branchPositions.forEach((position, nodeId) => {
+          const branchNode = nodeById(nodeId);
+          const branchElement = nodesLayer.querySelector(
+            `[data-id="${CSS.escape(nodeId)}"]`);
+          if (!branchNode || !branchElement) return;
+          branchNode.x = position.x + dx; branchNode.y = position.y + dy;
+          branchElement.style.left = `${branchNode.x}px`;
+          branchElement.style.top = `${branchNode.y}px`;
+        });
         const element = nodesLayer.querySelector(`[data-id="${CSS.escape(node.id)}"]`);
-        if (element) {
-          element.classList.add("dragging");
-          element.style.left = `${node.x}px`; element.style.top = `${node.y}px`;
-        }
+        if (element) element.classList.add("dragging");
         renderEdges(new Set(documentState.nodes.filter((candidate) => !hiddenNodeIds().has(candidate.id))
           .map((candidate) => candidate.id)));
-        nodesLayer.querySelectorAll(".drop-target").forEach((candidate) => candidate.classList.remove("drop-target"));
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".node");
-        if (target && target.dataset.id !== drag.id) target.classList.add("drop-target");
+        drag.dropIntent = dropIntentForNode(drag.id, drag.dropIntent);
+        showDropIntent(drag.dropIntent);
       }
     });
     canvas.addEventListener("pointerup", (event) => {
+      clearDropTarget();
       if (drag && drag.type === "resize" && drag.moved) {
         undoStack.push(drag.before); redoStack = []; markDirty(); render();
       } else if (drag && drag.type === "node" && drag.moved) {
         const node = nodeById(drag.id);
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".node");
-        const targetId = target && target.dataset.id !== drag.id ? target.dataset.id : null;
-        if (targetId && descendants(node.id).has(targetId)) {
-          documentState = JSON.parse(drag.before); setStatus("A node cannot be attached to its descendant.", true);
-        } else {
-          const previousParentId = node.parent_id;
-          node.parent_id = targetId;
-          node.order = childrenOf(targetId).filter((item) => item.id !== node.id).length;
-          if (targetId !== previousParentId && node.color === "default") {
-            node.color = initialNodeColor(targetId);
-          }
+        const changed = drag.dropIntent
+          ? applyNodeDrop(node, drag.dropIntent, drag.before) : true;
+        if (changed && !drag.dropIntent) reflowMovedRootBranch(node);
+        if (changed) {
           undoStack.push(drag.before); redoStack = [];
           markDirty();
         }

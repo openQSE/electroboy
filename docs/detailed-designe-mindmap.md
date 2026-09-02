@@ -119,6 +119,7 @@ path to every operation without adding controls around the selected node.
 | Node | Independent, Child, Sibling, Edit, Delete |
 | Link | File, Web, Create Document, Remove Link |
 | View | Compact or expanded nodes, Zoom, Fit, Focus, Collapse All, Tidy Branch |
+| Layout | Local overlap avoidance, Freeform, Repack |
 
 The toolbar favors icons where their meaning is established. Every icon has a
 tooltip and accessible label.
@@ -170,13 +171,46 @@ deleting them.
 
 ### Moving and Reparenting
 
-Dragging a node changes its durable position. Dragging it over another node
-shows a clear attachment target. Dropping on that target reparents the node and
-its descendants.
+Dragging a node across empty canvas changes the durable position of its branch
+without changing its parent, sibling order, or connector. Hierarchy changes
+only when the pointer overlaps a visible drop zone on another node.
 
-Dropping a branch on empty canvas detaches it and turns its top node into an
-independent root. Reparenting cannot create a cycle. A rejected drop restores
-the original position and gives a brief explanation.
+The left and right edges are child drop zones. They attach the branch as a
+child on the corresponding side of the target. Dropping a node on its current
+parent is a no-op unless a direct child of a root crosses to the root's other
+side. The top and bottom edges are sibling drop zones. They insert the branch
+immediately before or after the target under the target's parent. Each zone
+uses a distinct highlight and label while dragging.
+
+Drop-zone selection uses the overlap between the complete dragged-node and
+target-node rectangles. It does not use the mouse pointer as a hidden hotspot.
+The target edge intersected by the dragged node determines the pending action,
+so the visual placement and the highlighted result agree.
+
+Root nodes support children on both sides. New children start on the right.
+Dragging a direct child across its root changes the branch direction and
+reflows every descendant so the complete branch grows outward on the selected
+side. Sibling insertion adopts the target branch's direction. Connectors attach
+to the facing node edges for both left- and right-growing branches.
+
+Reparenting cannot create a cycle. A rejected or redundant drop restores the
+original position and gives a brief explanation. Making a branch independent
+requires an explicit operation; releasing it over empty canvas never detaches
+it implicitly.
+
+Layout behavior is selectable in the pane's context tools and is stored as
+browser view state rather than map content. `Local`, the default, separates
+only sibling branches whose node rectangles overlap. It moves the later branch
+by the minimum vertical distance needed to restore a small gutter, preserving
+the positions of branches that do not collide. Connector crossings and
+overlaps do not participate in this calculation.
+
+`Freeform` preserves exact node positions and permits node overlap. `Repack`
+compacts the complete affected root trees using each node's rendered height
+and the complete height of its descendants. Repack prevents adjacent sibling
+subtrees from overlapping and gives them a small, consistent vertical gutter.
+In all three modes, ordinary empty-canvas positioning and unrelated root trees
+remain untouched.
 
 New children and siblings are placed using a deterministic local layout. Their
 creation does not recalculate unrelated branches. `Tidy Branch` arranges the
@@ -311,6 +345,7 @@ An illustrative document follows.
       "text": "Validation",
       "parent_id": "node-release",
       "order": 0,
+      "side": "right",
       "x": 440,
       "y": 120,
       "links": []
@@ -322,7 +357,9 @@ An illustrative document follows.
 
 `parent_id` defines the branch hierarchy. Coordinates never determine
 parentage. `order` establishes sibling ordering independently from vertical
-position.
+position. `side` records whether a node grows to the left or right of its
+parent. Older files without `side` infer it from their saved coordinates when
+they are loaded.
 
 The `relationships` collection is reserved for explicit cross-branch links.
 The initial UI may omit relationship creation while retaining forward schema
