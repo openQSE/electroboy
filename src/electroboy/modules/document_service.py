@@ -2904,10 +2904,10 @@ def _mermaid_script(rendered: str) -> str:
       font-size: 12px;
       font-weight: 750;
       line-height: 1.2;
+      overflow-wrap: anywhere;
       padding: 0 10px;
       text-align: center;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      white-space: normal;
     }
     .diagram-viewport {
       position: absolute;
@@ -3023,7 +3023,7 @@ def _mermaid_script(rendered: str) -> str:
         }
         const viewBox = (svg.getAttribute("viewBox") || "")
           .trim()
-          .split(/\\s+/)
+          .split(/\\\\s+/)
           .map(Number);
         const width = viewBox.length === 4 && Number.isFinite(viewBox[2])
           ? viewBox[2]
@@ -3041,7 +3041,7 @@ def _mermaid_script(rendered: str) -> str:
         const text = spans.length > 0
           ? spans.join(" ")
           : String(element.textContent || "").trim();
-        return text.replace(/\\s+/g, " ");
+        return text.replace(/\\\\s+/g, " ");
       }
 
       function isSequenceDiagram(svg) {
