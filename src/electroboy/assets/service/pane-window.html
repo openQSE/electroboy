@@ -1707,10 +1707,9 @@
       updateSelectOptions(
         contentSwitcher,
         visibleSessions.map((session) => {
-          const status = session.status === "running" ? "running" : session.status || "done";
           return {
             value: session.session_id,
-            label: `${session.kind || "agent"} · ${status}`,
+            label: agentSessionDisplayLabel(session),
           };
         }),
         selectedSessionId,
@@ -1722,6 +1721,11 @@
     function selectedAgentSession() {
       return agentSessions.find((session) => session.session_id === selectedSessionId)
         || null;
+    }
+
+    function agentSessionDisplayLabel(session) {
+      const status = session.status === "running" ? "running" : session.status || "done";
+      return `${session.kind || "agent"} · ${status}`;
     }
 
     function selectedInputHistoryScope() {
@@ -4460,10 +4464,14 @@
           export: exportCurrentPaneOutput,
           interrupt: interruptAgentSession,
           terminate: terminateAgentSession,
+          focus: (_session, _target, sessionId) =>
+            selectAgentSession(String(sessionId || "")).then(() => "Session focused"),
           pop: popOutCurrentAgent,
           dock: restorePoppedPane,
           closePane: closeAgentPaneWindow,
         },
+        getSessions: () => agentSessions,
+        displayLabel: agentSessionDisplayLabel,
         controls: {
           font: paneFontControls,
           exportButton: exportPaneOutput,

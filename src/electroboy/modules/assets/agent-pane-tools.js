@@ -41,9 +41,26 @@
     const getTarget = typeof options.getTarget === "function"
       ? options.getTarget
       : () => ({});
+    const getSessions = typeof options.getSessions === "function"
+      ? options.getSessions
+      : () => [];
+    const displayLabel = typeof options.displayLabel === "function"
+      ? options.displayLabel
+      : (session) => `${session.kind || "agent"} · ${session.status || "done"}`;
 
     function session() {
       return getSession() || null;
+    }
+
+    function sessions() {
+      const value = getSessions();
+      return Array.isArray(value) ? value : [];
+    }
+
+    function runningSessions() {
+      return sessions().filter((candidate) =>
+        candidate && candidate.session_id && candidate.status === "running"
+      );
     }
 
     function target() {
@@ -88,6 +105,104 @@
       }
     }
 
+    function sessionLabel(candidate) {
+      return String(displayLabel(candidate) || candidate.session_id || "agent");
+    }
+
+    function chooseRunningSession() {
+      const choices = runningSessions();
+      if (choices.length === 0) {
+        setActionStatus("No running sessions", true);
+        return Promise.resolve("");
+      }
+      const dialog = document.createElement("dialog");
+      dialog.className = "agent-focus-session-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="agent-focus-session-form">
+          <header class="agent-focus-session-header">
+            <div>
+              <h2>Focus session</h2>
+              <p>Select a running agent session.</p>
+            </div>
+            <button
+              type="button"
+              class="agent-focus-session-close"
+              aria-label="Close"
+            >x</button>
+          </header>
+          <fieldset class="agent-focus-session-options">
+            <legend>Running sessions</legend>
+            <div class="agent-focus-session-list"></div>
+          </fieldset>
+          <footer class="agent-focus-session-footer">
+            <button type="button" class="agent-focus-session-cancel">Cancel</button>
+            <button type="submit" class="agent-focus-session-submit">Focus</button>
+          </footer>
+        </form>
+      `;
+      const list = dialog.querySelector(".agent-focus-session-list");
+      const currentSessionId = session()?.session_id || "";
+      choices.forEach((candidate, index) => {
+        const label = document.createElement("label");
+        label.className = "agent-focus-session-option";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "agent-focus-session";
+        input.value = String(candidate.session_id || "");
+        input.checked = currentSessionId
+          ? candidate.session_id === currentSessionId
+          : index === 0;
+        const copy = document.createElement("span");
+        copy.className = "agent-focus-session-option-copy";
+        const title = document.createElement("strong");
+        title.textContent = sessionLabel(candidate);
+        const details = document.createElement("span");
+        details.textContent = String(candidate.session_id || "");
+        copy.append(title, details);
+        label.append(input, copy);
+        list.append(label);
+      });
+      document.body.append(dialog);
+      return new Promise((resolve) => {
+        const finish = (sessionId) => {
+          dialog.close();
+          dialog.remove();
+          resolve(sessionId);
+        };
+        dialog.querySelector(".agent-focus-session-close").onclick = () => {
+          finish("");
+        };
+        dialog.querySelector(".agent-focus-session-cancel").onclick = () => {
+          finish("");
+        };
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish("");
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          const selected = dialog.querySelector(
+            'input[name="agent-focus-session"]:checked',
+          );
+          finish(selected ? selected.value : "");
+        };
+        dialog.showModal();
+      });
+    }
+
+    function focusRunningSession() {
+      chooseRunningSession()
+        .then((sessionId) => {
+          if (sessionId) {
+            runAction("focus", () => {}, sessionId);
+          }
+        })
+        .catch((error) => {
+          setActionStatus(actionErrorMessage(error), true);
+          refresh();
+        });
+    }
+
     const viewBody = controller.addSection("agent-view", "View");
     if (controls.font) {
       controls.font.hidden = false;
@@ -113,13 +228,14 @@
     paneMenu.list.append(pop, dock, closePane);
 
     const agentMenu = menu("Agent", "pane-tool-agent-session-menu");
+    const focus = menuButton("Focus session", focusRunningSession);
     const interrupt = menuButton("Interrupt", () => {
       runAction("interrupt", () => {});
     });
     const terminate = menuButton("Terminate agent", () => {
       runAction("terminate", () => {});
     }, "danger");
-    agentMenu.list.append(interrupt, terminate);
+    agentMenu.list.append(focus, interrupt, terminate);
 
     const actionStatus = document.createElement("div");
     actionStatus.className = "pane-tool-status";
@@ -140,12 +256,14 @@
       hideLegacyControls();
       const currentSession = session();
       const currentTarget = target();
+      const runningSessionCount = runningSessions().length;
       const hasSession = Boolean(currentSession);
       const isRunning = currentSession && currentSession.status === "running";
       const canPop = currentTarget.canPop !== false;
       const canDock = Boolean(currentTarget.canDock);
       const canClosePane = currentTarget.canClosePane !== false;
       exportButton.disabled = !hasSession;
+      focus.disabled = runningSessionCount === 0;
       interrupt.disabled = !isRunning;
       terminate.disabled = !hasSession;
       pop.hidden = !canPop;
@@ -153,8 +271,13 @@
       closePane.hidden = !canClosePane;
       const paneMenuVisible = !pop.hidden || !dock.hidden || !closePane.hidden;
       paneMenu.details.hidden = !paneMenuVisible;
-      agentMenu.details.hidden = !hasSession;
-      const hasControls = Boolean(controls.font) || hasSession || paneMenuVisible;
+      agentMenu.details.hidden = !hasSession && runningSessionCount === 0;
+      const hasControls = (
+        Boolean(controls.font) ||
+        hasSession ||
+        runningSessionCount > 0 ||
+        paneMenuVisible
+      );
       controller.setEnabled(hasControls);
     }
 

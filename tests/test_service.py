@@ -965,14 +965,13 @@ class ServiceTests(unittest.TestCase):
             "if (!session || (runningOnly && !sessionIsRunning(session)))",
             sessions,
         )
-        self.assertIn(
-            "ensureSelectedSessionStream({ runningOnly: false });",
-            sessions,
-        )
+        self.assertIn("focusAgentSessionPane(sessionId);", sessions)
         self.assertIn("function selectAgentSessionLocally", sessions)
         self.assertIn("function mountAgentPaneTools(runtime)", sessions)
         self.assertIn("window.ElectroBoyAgentPaneTools.mount", sessions)
         self.assertIn("function connectSessionEvents(sessionId, options = {})", sessions)
+        self.assertIn("function focusAgentSessionPane(sessionId)", sessions)
+        self.assertIn("runtimeApi.layout.focusAgentSession", sessions)
         self.assertIn("let agentEventStreamVersion = 0;", sessions)
         self.assertIn("let agentEventSource = null;", sessions)
         self.assertIn("const agentEventLastIds = new Map();", sessions)
@@ -1021,6 +1020,8 @@ class ServiceTests(unittest.TestCase):
             'menu("Agent", "pane-tool-agent-session-menu")',
             agent_pane_tools,
         )
+        self.assertIn("Focus session", agent_pane_tools)
+        self.assertIn("function chooseRunningSession()", agent_pane_tools)
         self.assertIn("Terminate agent", agent_pane_tools)
         self.assertIn('controls.font.classList.add("pane-tool-font-row")', agent_pane_tools)
         self.assertIn("controls.exportButton.hidden = true", agent_pane_tools)
@@ -1028,6 +1029,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const agentTerminalContexts = new Map();", app)
         self.assertIn("function createAgentTerminalContext(sessionId = \"\")", app)
         self.assertIn("function selectAgentTerminal(sessionId = \"\")", app)
+        self.assertIn("function focusAgentSessionPane(sessionId = \"\")", app)
+        self.assertIn("focusAgentSession: focusAgentSessionPane", app)
         self.assertIn("function flushAgentOutputQueue(context)", app)
         self.assertIn("function resetTerminalOutput(terminalInstance)", app)
         self.assertIn("reset: resetTerminalOutput", app)
@@ -1401,6 +1404,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/agents/ad-hoc/sessions")', software)
         self.assertIn("function ensureAdHocSessionDialog()", software)
         self.assertIn("provider_session_id: choice.providerSessionId", ad_hoc_start)
+        self.assertNotIn("Focus ad-hoc", software)
+        self.assertNotIn("runtimeApi.getState().adHocRunning", ad_hoc_start)
         self.assertIn("async function startGenericStageAgent(", software)
         self.assertIn("function bindRuntime(runtime)", software)
         self.assertIn("function bindRuntime(runtime)", creative)
@@ -6937,6 +6942,43 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "ad-hoc")
 
+    def test_service_state_starts_multiple_ad_hoc_agents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+
+            controller = state.workflow_controller("software")
+            with mock.patch("electroboy.service.AgentSession.start") as start:
+                first, first_started = controller.start_ad_hoc_agent(context_id)
+                second, second_started = controller.start_ad_hoc_agent(context_id)
+            payload = state.project_payload(context_id)
+            ad_hoc_sessions = state.contexts[context_id].ad_hoc_sessions
+
+        self.assertTrue(first_started)
+        self.assertTrue(second_started)
+        self.assertEqual(start.call_count, 2)
+        self.assertNotEqual(first.session_id, second.session_id)
+        self.assertEqual(
+            set(ad_hoc_sessions),
+            {first.session_id, second.session_id},
+        )
+        self.assertEqual(payload["selected_session_id"], second.session_id)
+        self.assertEqual(
+            [session["session_id"] for session in payload["sessions"]],
+            [first.session_id, second.session_id],
+        )
+        self.assertEqual(
+            [session["kind"] for session in payload["sessions"]],
+            ["ad-hoc", "ad-hoc"],
+        )
+
     def test_ad_hoc_history_lists_and_resumes_project_codex_sessions(self) -> None:
         provider_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"
         older_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd1"
@@ -7047,11 +7089,22 @@ class ServiceTests(unittest.TestCase):
             controller = state.workflow_controller("software")
             with mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
                 history = controller.ad_hoc_sessions(context_id)
-                with mock.patch("electroboy.service.AgentSession.start"):
+                with (
+                    mock.patch("electroboy.service.AgentSession.start") as start,
+                    mock.patch(
+                        "electroboy.service.sessions.AgentSession.is_active",
+                        return_value=True,
+                    ),
+                ):
                     session, started = controller.start_ad_hoc_agent(
                         context_id,
                         provider_session_id,
                     )
+                    duplicate, duplicate_started = controller.start_ad_hoc_agent(
+                        context_id,
+                        provider_session_id,
+                    )
+                    filtered_history = controller.ad_hoc_sessions(context_id)
             catalog = json.loads(
                 catalog_path.read_text(encoding="utf-8")
             )
@@ -7067,6 +7120,13 @@ class ServiceTests(unittest.TestCase):
             "Prototype the import service.",
         )
         self.assertTrue(started)
+        self.assertIs(duplicate, session)
+        self.assertFalse(duplicate_started)
+        self.assertEqual(start.call_count, 1)
+        self.assertEqual(
+            [entry["provider_session_id"] for entry in filtered_history["sessions"]],
+            [older_session_id],
+        )
         self.assertEqual(session.command[-3:-1], ["resume", provider_session_id])
         self.assertIn("Effective rules file:", session.command[-1])
         self.assertIn("wait for the operator", session.command[-1])

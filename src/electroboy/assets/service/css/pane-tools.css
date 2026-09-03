@@ -326,3 +326,138 @@
 .pane-tool-find-options .error {
   color: #ffb4a9;
 }
+
+.agent-focus-session-dialog {
+  width: min(640px, calc(100vw - 40px));
+  max-height: min(680px, calc(100vh - 40px));
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #364156;
+  border-radius: 8px;
+  background: #151b29;
+  color: var(--terminal-text);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 42%);
+}
+
+.agent-focus-session-dialog::backdrop {
+  background: rgb(0 0 0 / 56%);
+}
+
+.agent-focus-session-form {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(680px, calc(100vh - 40px));
+}
+
+.agent-focus-session-header,
+.agent-focus-session-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #1b2434;
+}
+
+.agent-focus-session-header {
+  border-bottom: 1px solid #364156;
+}
+
+.agent-focus-session-footer {
+  border-top: 1px solid #364156;
+}
+
+.agent-focus-session-header h2,
+.agent-focus-session-header p {
+  margin: 0;
+}
+
+.agent-focus-session-header h2 {
+  font-size: 1rem;
+}
+
+.agent-focus-session-header p {
+  color: #9fb0c8;
+  font-size: var(--ui-small-font-size);
+}
+
+.agent-focus-session-close {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: #c9d5e8;
+  cursor: pointer;
+  font: inherit;
+}
+
+.agent-focus-session-options {
+  min-height: 0;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  border: 0;
+}
+
+.agent-focus-session-options legend {
+  padding: 0;
+  color: #9fb0c8;
+  font-size: var(--ui-small-font-size);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.agent-focus-session-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.agent-focus-session-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px;
+  border: 1px solid #364156;
+  border-radius: 6px;
+  background: #1d2638;
+  cursor: pointer;
+}
+
+.agent-focus-session-option:has(input[type="radio"]:checked) {
+  border-color: #66d9e8;
+  background: #12303b;
+}
+
+.agent-focus-session-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.agent-focus-session-option-copy strong,
+.agent-focus-session-option-copy span {
+  overflow-wrap: anywhere;
+}
+
+.agent-focus-session-option-copy span {
+  color: #9fb0c8;
+  font-size: var(--ui-small-font-size);
+}
+
+.agent-focus-session-footer button {
+  min-height: 30px;
+  border: 1px solid #364156;
+  border-radius: 5px;
+  background: #1d2638;
+  color: var(--terminal-text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.agent-focus-session-submit {
+  border-color: #305e6f !important;
+  background: #12303b !important;
+  color: #d5f4ff !important;
+}

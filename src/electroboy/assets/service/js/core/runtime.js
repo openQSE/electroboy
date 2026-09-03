@@ -2392,6 +2392,56 @@
       return paneLayoutRequestedArtifact(leaf);
     }
 
+    function paneLayoutAgentSessionId(leaf) {
+      const content = paneLayoutRequestedContent(leaf);
+      return String(content?.sessionId || "");
+    }
+
+    function paneLayoutLeafByAgentSession(sessionId) {
+      const requestedSessionId = String(sessionId || "");
+      if (!requestedSessionId) {
+        return null;
+      }
+      return paneLayoutLeaves().find(
+        (leaf) => leaf.kind === "agent" &&
+          paneLayoutAgentSessionId(leaf) === requestedSessionId,
+      ) || null;
+    }
+
+    function focusAgentSessionPane(sessionId = "") {
+      const requestedSessionId = String(sessionId || selectedSessionId || "");
+      if (!paneLayout || !requestedSessionId) {
+        return false;
+      }
+      let leaf = paneLayoutLeafByAgentSession(requestedSessionId);
+      if (!leaf) {
+        leaf = paneLayoutLeaves().find(
+          (candidate) => candidate.kind === "agent" &&
+            !paneLayoutAgentSessionId(candidate),
+        ) || null;
+      }
+      if (!leaf) {
+        leaf = paneLayoutLeafByKind("agent");
+        if (leaf) {
+          leaf.content = { sessionId: requestedSessionId };
+          leaf.projectRoot = activeProjectRoot;
+          savePaneLayout();
+          renderPaneLayout();
+        }
+      }
+      if (!leaf) {
+        ensurePaneInLayout("agent", "agent", "row");
+        leaf = paneLayoutLeafByKind("agent");
+      }
+      if (!leaf) {
+        return false;
+      }
+      setActivePaneLayoutLeaf(leaf.id);
+      refreshPaneLayoutInstanceFrameForLeaf(leaf, "focusAgentSessionPane");
+      scheduleFitTerminal();
+      return true;
+    }
+
     function paneLayoutInstanceUrl(leaf) {
       const requestedContent = paneLayoutRequestedContent(leaf);
       const paneOptions = leaf.kind === "agent"
@@ -8465,6 +8515,7 @@
       },
       layout: {
         ensurePane: ensurePaneInLayout,
+        focusAgentSession: focusAgentSessionPane,
         assignArtifact: assignArtifactToPane,
         assignPane: assignPaneContent,
         assignWorkspacePane: assignWorkspacePaneContent,

@@ -1589,7 +1589,7 @@ class ServiceState:
                 *context.stage_sessions.values(),
                 *context.documentation_sessions.values(),
                 *context.creative_sessions.values(),
-                context.ad_hoc_session,
+                *context.ad_hoc_sessions.values(),
             ]
             if session is not None
         ]
@@ -1637,8 +1637,9 @@ class ServiceState:
             for key, creative_session in list(context.creative_sessions.items()):
                 if creative_session is session:
                     context.creative_sessions.pop(key, None)
-            if context.ad_hoc_session is session:
-                context.ad_hoc_session = None
+            for key, ad_hoc_session in list(context.ad_hoc_sessions.items()):
+                if ad_hoc_session is session:
+                    context.ad_hoc_sessions.pop(key, None)
             for shell_id, shell_session in list(
                 context.project_shell_sessions.items()
             ):
@@ -1704,7 +1705,7 @@ class ServiceState:
         elif session.kind == "creative-writing":
             context.creative_sessions[session.session_id] = session
         elif session.kind == "ad-hoc":
-            context.ad_hoc_session = session
+            context.ad_hoc_sessions[session.session_id] = session
         elif session.kind == "project-shell":
             context.project_shell_sessions[session.session_id] = session
         else:
@@ -1719,7 +1720,7 @@ class ServiceState:
             if session.kind in stage_ids:
                 context.stage_sessions[session.kind] = session
             else:
-                context.ad_hoc_session = session
+                context.ad_hoc_sessions[session.session_id] = session
 
     def _selected_session_locked(
         self,
@@ -1998,11 +1999,9 @@ def project_payload(
         active_root
         and any(session.is_active() for session in context.creative_sessions.values())
     )
-    ad_hoc_session = context.ad_hoc_session
     ad_hoc_running = bool(
         activation_root
-        and ad_hoc_session is not None
-        and ad_hoc_session.is_active()
+        and any(session.is_active() for session in context.ad_hoc_sessions.values())
     )
     project_shell_running = bool(
         active_root
@@ -2174,7 +2173,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         *context.stage_sessions.values(),
         *context.documentation_sessions.values(),
         *context.creative_sessions.values(),
-        context.ad_hoc_session,
+        *context.ad_hoc_sessions.values(),
     ]:
         if session is None:
             continue

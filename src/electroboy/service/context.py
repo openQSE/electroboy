@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, TypeVar, cast
+from typing import TypeVar, cast
 from uuid import uuid4
 
 from .sessions import AgentSession
-
 
 T = TypeVar("T")
 
@@ -160,15 +160,30 @@ class BrowserContext:
             sessions[session_id] = value
 
     @property
+    def ad_hoc_sessions(self) -> dict[str, AgentSession]:
+        state = self.module("agent_sessions")
+        sessions = self._value(state, "ad_hoc_sessions", dict)
+        legacy = state.pop("ad_hoc_session", None)
+        if legacy is not None:
+            session_id = str(getattr(legacy, "session_id", "__legacy__"))
+            sessions.setdefault(session_id, legacy)
+        return sessions
+
+    @ad_hoc_sessions.setter
+    def ad_hoc_sessions(self, value: dict[str, AgentSession]) -> None:
+        self.module("agent_sessions")["ad_hoc_sessions"] = value
+
+    @property
     def ad_hoc_session(self) -> AgentSession | None:
-        return cast(
-            AgentSession | None,
-            self.module("agent_sessions").get("ad_hoc_session"),
-        )
+        return next(reversed(self.ad_hoc_sessions.values()), None)
 
     @ad_hoc_session.setter
     def ad_hoc_session(self, value: AgentSession | None) -> None:
-        self.module("agent_sessions")["ad_hoc_session"] = value
+        sessions = self.ad_hoc_sessions
+        sessions.clear()
+        if value is not None:
+            session_id = str(getattr(value, "session_id", "__legacy__"))
+            sessions[session_id] = value
 
     @property
     def project_shell_session(self) -> AgentSession | None:

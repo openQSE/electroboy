@@ -117,6 +117,10 @@
     return runtimeApi.modules.invoke("agent-sessions", "renderSessionSwitcher");
   }
 
+  function selectAgentSession(sessionId) {
+    return runtimeApi.modules.invoke("agent-sessions", "selectAgentSession", sessionId);
+  }
+
   function setAgentRunning(kind, running) {
     return runtimeApi.modules.invoke("agent-sessions", "setAgentRunning", kind, running);
   }
@@ -375,10 +379,8 @@
         interactiveTitle: "Open an interactive coding agent session.",
       });
       actions.splice(3, 0, {
-        label: state.adHocRunning ? "Focus ad-hoc" : "Start ad-hoc",
-        title: state.adHocRunning
-          ? "Focus the running ad-hoc agent."
-          : "Start a plain interactive agent without staged workflow instructions.",
+        label: "Start ad-hoc",
+        title: "Start a plain interactive agent without staged workflow instructions.",
         disabled: !state.activeProjectRoot,
         run: action.startAdHocAgent,
       });
@@ -1186,16 +1188,14 @@
         return;
       }
       let choice = { providerSessionId: "" };
-      if (!runtimeApi.getState().adHocRunning) {
-        try {
-          choice = await chooseAdHocSession();
-        } catch (error) {
-          appendOutput(`${error.message || "session history failed"}\n`, "error");
-          return;
-        }
-        if (!choice) {
-          return;
-        }
+      try {
+        choice = await chooseAdHocSession();
+      } catch (error) {
+        appendOutput(`${error.message || "session history failed"}\n`, "error");
+        return;
+      }
+      if (!choice) {
+        return;
       }
       hideStageMenus();
       closeAgentEventStream();
@@ -1228,8 +1228,7 @@
       selectedSessionId = sessionId;
       runtimeApi.updateState({ selectedSessionId });
       renderSessionSwitcher();
-      connectSessionEvents(sessionId);
-      sendTerminalResize();
+      await selectAgentSession(sessionId);
     }
 
     async function runRequirementsAgent(endpoint, label, clearOutput = false) {

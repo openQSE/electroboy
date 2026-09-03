@@ -176,6 +176,21 @@
     }
   }
 
+  function focusAgentSessionPane(sessionId) {
+    const requestedSessionId = String(sessionId || runtimeState.selectedSessionId || "");
+    if (!requestedSessionId || !runtimeApi.layout) {
+      return false;
+    }
+    if (typeof runtimeApi.layout.focusAgentSession === "function") {
+      return runtimeApi.layout.focusAgentSession(requestedSessionId);
+    }
+    if (typeof runtimeApi.layout.ensurePane === "function") {
+      runtimeApi.layout.ensurePane("agent");
+      return true;
+    }
+    return false;
+  }
+
   function agentInputState() {
     return {
       sessionId: runtimeState.selectedSessionId || "",
@@ -348,7 +363,7 @@
       ensureSelectedSessionStream();
     }
 
-    function selectAgentSessionLocally(sessionId, sessions = null) {
+    function selectAgentSessionLocally(sessionId, sessions = null, options = {}) {
       if (Array.isArray(sessions)) {
         runtimeState.agentSessions = sessions;
       }
@@ -362,7 +377,15 @@
       if (documentTarget) {
         showDocumentPreview(documentTarget);
       }
-      connectSessionEvents(runtimeState.selectedSessionId);
+      const focusPane = options.focusPane !== false;
+      let paneFocused = false;
+      if (focusPane) {
+        paneFocused = focusAgentSessionPane(runtimeState.selectedSessionId);
+      }
+      connectSessionEvents(
+        runtimeState.selectedSessionId,
+        { ensurePane: focusPane && !paneFocused },
+      );
       updateAgentControls();
       sendTerminalResize();
     }
@@ -401,7 +424,10 @@
         return;
       }
       if (sessionId === runtimeState.selectedSessionId) {
-        ensureSelectedSessionStream({ runningOnly: false });
+        const paneFocused = focusAgentSessionPane(sessionId);
+        connectSessionEvents(sessionId, { ensurePane: !paneFocused });
+        updateAgentControls();
+        sendTerminalResize();
         return;
       }
       const previousSessionId = runtimeState.selectedSessionId || "";
@@ -860,7 +886,11 @@
           terminate: terminateActiveAgent,
           pop: () => runtime.layout.popOutPane("agent"),
           closePane: () => runtime.layout.closePane("agent"),
+          focus: (_session, _target, sessionId) =>
+            selectAgentSession(String(sessionId || "")).then(() => "Session focused"),
         },
+        getSessions: () => runtimeState.agentSessions,
+        displayLabel: agentSessionDisplayLabel,
         controls: {
           font: element.agentFontControls,
           exportButton: element.exportAgentOutput,

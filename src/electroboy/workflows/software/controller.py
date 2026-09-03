@@ -34,30 +34,30 @@ from .ad_hoc import (
 from .domain import (
     APPROVAL_WORKFLOW_STAGES,
     SESSION_ARTIFACT_LOCKS,
-    WORKFLOW_STAGES,
     WORKFLOW_STAGE_RESET_TARGETS,
+    WORKFLOW_STAGES,
     _active_workflow_stage,
+    _add_meta_repository,
     _bug_by_slug,
     _bug_record_label,
     _current_bug_record,
     _current_feature_record,
     _documentation_command,
     _ensure_collection_for_feature,
+    _existing_meta_context,
+    _existing_project_root,
     _feature_by_slug,
     _feature_collection_by_id,
     _feature_record_label,
     _force_reset_workflow_stage,
     _generic_stage_command,
     _generic_stage_config,
-    _add_meta_repository,
-    _existing_meta_context,
-    _existing_project_root,
     _is_meta_project_path,
     _load_work_item_registry,
     _meta_repository_payloads,
-    _remove_meta_repository,
     _record_design_complete,
     _record_requirements_complete,
+    _remove_meta_repository,
     _reopen_design_for_restart,
     _reopen_requirements_for_restart,
     _requirements_command,
@@ -66,10 +66,10 @@ from .domain import (
     _run_feature_start_context,
     _save_work_item_registry,
     _should_force_completed_requirements_approval,
-    _start_meta_repository,
     _stage_command,
     _stage_display_label,
     _stage_has_approvals,
+    _start_meta_repository,
     _upsert_bug_record,
     _upsert_feature_collection,
     _upsert_feature_record,
@@ -201,12 +201,24 @@ class SoftwareWorkflowController(BoundWorkflowController):
             command_root = self.services.contexts.command_root(context)
             if command_root is None:
                 raise AgentSessionError("activate a project first")
+            running_provider_session_ids: set[str] = set()
+            for session in context.ad_hoc_sessions.values():
+                metadata = getattr(session, "metadata", {}) or {}
+                provider_id = str(metadata.get("provider_session_id") or "")
+                provider_id = provider_id.strip().lower()
+                if provider_id and session.is_active():
+                    running_provider_session_ids.add(provider_id)
         return {
             "project_root": str(command_root),
-            "sessions": ad_hoc_session_history(
-                self.services.files.state_root,
-                command_root,
-            ),
+            "sessions": [
+                session
+                for session in ad_hoc_session_history(
+                    self.services.files.state_root,
+                    command_root,
+                )
+                if str(session.get("provider_session_id") or "").strip().lower()
+                not in running_provider_session_ids
+            ],
         }
 
     def start_ad_hoc_agent(
@@ -222,12 +234,15 @@ class SoftwareWorkflowController(BoundWorkflowController):
             command_root = self.services.contexts.command_root(context)
             if command_root is None:
                 raise AgentSessionError("activate a project first")
-            if (
-                context.ad_hoc_session is not None
-                and context.ad_hoc_session.is_active()
-            ):
-                context.selected_session_id = context.ad_hoc_session.session_id
-                return context.ad_hoc_session, False
+            if requested_session_id:
+                for session in context.ad_hoc_sessions.values():
+                    metadata = getattr(session, "metadata", {}) or {}
+                    provider_id = str(
+                        metadata.get("provider_session_id") or ""
+                    ).strip().lower()
+                    if provider_id == requested_session_id and session.is_active():
+                        context.selected_session_id = session.session_id
+                        return session, False
 
         provider_session = None
         known_provider_paths: frozenset[Path] = frozenset()
@@ -262,12 +277,18 @@ class SoftwareWorkflowController(BoundWorkflowController):
             current_root = self.services.contexts.command_root(context)
             if current_root != command_root:
                 raise AgentSessionError("active project changed while starting ad-hoc")
-            if (
-                context.ad_hoc_session is not None
-                and context.ad_hoc_session.is_active()
-            ):
-                context.selected_session_id = context.ad_hoc_session.session_id
-                return context.ad_hoc_session, False
+            if requested_session_id:
+                for active_session in context.ad_hoc_sessions.values():
+                    metadata = getattr(active_session, "metadata", {}) or {}
+                    provider_id = str(
+                        metadata.get("provider_session_id") or ""
+                    ).strip().lower()
+                    if (
+                        provider_id == requested_session_id
+                        and active_session.is_active()
+                    ):
+                        context.selected_session_id = active_session.session_id
+                        return active_session, False
             session = AgentSession(
                 command=ad_hoc_agent_command(
                     command_root,
@@ -280,7 +301,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 metadata=metadata,
             )
             session = self.services.sessions.prepare(context, session)
-            context.ad_hoc_session = session
+            context.ad_hoc_sessions[session.session_id] = session
             context.selected_session_id = session.session_id
             self.services.sessions.record(context, session)
         try:
@@ -288,8 +309,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
         except Exception:
             with self.services.contexts.lock:
                 context = self.services.contexts.require(context_id)
-                if context.ad_hoc_session is session:
-                    context.ad_hoc_session = None
+                if context.ad_hoc_sessions.get(session.session_id) is session:
+                    context.ad_hoc_sessions.pop(session.session_id, None)
                     if context.selected_session_id == session.session_id:
                         context.selected_session_id = None
             raise
@@ -744,8 +765,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
             requirements_started = context.requirements_started
         self.services.sessions.terminate_kind(context_id, "requirements")
         _record_requirements_complete(project_root, skipped=skip_approval)
-        from .cli import _cmd_stage, _stage_args
         from electroboy.gates import GateEngine
+
+        from .cli import _cmd_stage, _stage_args
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -1185,8 +1207,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
             needs_design_review_completion = context.workflow_stage == "design-review"
         if session is not None and session.is_active():
             session.terminate()
-        from .cli import _cmd_stage, _stage_args
         from electroboy.gates import GateEngine
+
+        from .cli import _cmd_stage, _stage_args
 
         stdout = io.StringIO()
         stderr = io.StringIO()
