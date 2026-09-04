@@ -76,7 +76,7 @@ class AgentSession:
         backend: str = "pty",
         on_status_changed: Callable[["AgentSession"], None] | None = None,
         session_id: str | None = None,
-        controlling_terminal: bool = False,
+        controlling_terminal: bool = True,
     ) -> None:
         self.session_id = session_id or uuid4().hex
         self.command = command
@@ -153,6 +153,9 @@ class AgentSession:
         _set_terminal_size(slave_fd, self.columns, self.rows)
         popen_kwargs: dict[str, Any] = {
             "args": (
+                # Full-screen clients can query /dev/tty instead of stdio for
+                # their layout. Make that device the browser-managed PTY so
+                # its dimensions follow the output pane.
                 _controlling_terminal_command(self.command)
                 if self.controlling_terminal
                 else self.command
@@ -448,7 +451,7 @@ class TmuxAgentSession(AgentSession):
         on_status_changed: Callable[["AgentSession"], None] | None = None,
         session_id: str | None = None,
         tmux_name: str | None = None,
-        controlling_terminal: bool = False,
+        controlling_terminal: bool = True,
     ) -> None:
         super().__init__(
             command,

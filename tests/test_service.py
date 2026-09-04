@@ -9122,18 +9122,25 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(session.columns, MIN_TERMINAL_COLUMNS)
         self.assertEqual(session.rows, MIN_TERMINAL_ROWS)
 
-    def test_agent_session_can_claim_pty_as_controlling_terminal(self) -> None:
+    def test_agent_session_uses_resizable_pty_as_controlling_terminal(self) -> None:
         script = (
             "import os\n"
+            "import signal\n"
             "descriptor = os.open('/dev/tty', os.O_RDWR)\n"
-            "os.close(descriptor)\n"
             "assert os.tcgetpgrp(0) == os.getpgrp()\n"
+            "print('initial-size:' + repr(os.get_terminal_size(descriptor)), flush=True)\n"
+            "def resized(*_args):\n"
+            "    print('resized:' + repr(os.get_terminal_size(descriptor)), flush=True)\n"
+            "    raise SystemExit(0)\n"
+            "signal.signal(signal.SIGWINCH, resized)\n"
             "print('controlling-terminal-ready', flush=True)\n"
+            "signal.pause()\n"
         )
         session = AgentSession(
             [sys.executable, "-c", script],
             ROOT,
-            controlling_terminal=True,
+            columns=137,
+            rows=41,
         )
         try:
             try:
@@ -9145,7 +9152,14 @@ class ServiceTests(unittest.TestCase):
                 session,
                 "controlling-terminal-ready",
             )
+            self.assertIn(
+                "initial-size:os.terminal_size(columns=137, lines=41)",
+                output,
+            )
             self.assertIn("controlling-terminal-ready", output)
+            session.resize(149, 47)
+            output = wait_for_output(self, session, "resized:")
+            self.assertIn("resized:os.terminal_size(columns=149, lines=47)", output)
             wait_for_exit(self, session)
         finally:
             if session.is_active():
