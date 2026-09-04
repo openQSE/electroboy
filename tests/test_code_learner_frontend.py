@@ -39,11 +39,17 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "electroboy-code-learner-question" in frontend
     assert "preparePrompt" in frontend
     assert 'contextUrl("/api/code-learner/walkthrough")' in frontend
+    assert 'data-code-learner-control="project-menu"' in frontend
+    assert '<span class="stage-action-label">Project</span>' in frontend
+    assert '<span class="stage-action-label">Learn</span>' in frontend
+    assert '<span class="stage-action-label">Outline</span>' in frontend
+    assert 'data-code-learner-control="initialize"' in frontend
+    assert "generateCourse({ mode: \"module\", target })" in frontend
     assert ".code-learner-pane-grid" in stylesheet
     assert ".tok-keyword" in stylesheet
 
 
-def test_code_learner_navigation_uses_shared_shell_palette() -> None:
+def test_code_learner_navigation_uses_shared_shell_menu_treatment() -> None:
     modules = build_module_registry()
     workflows = build_workflow_registry(modules, (code_learner_workflow(),))
     stylesheet = read_service_text_asset(
@@ -53,10 +59,11 @@ def test_code_learner_navigation_uses_shared_shell_palette() -> None:
     )
 
     assert ".code-learner-workflow .workflow-pane" not in stylesheet
-    assert "var(--blue-surface-hover)" in stylesheet
+    assert "var(--active)" in stylesheet
+    assert "var(--active-soft)" in stylesheet
     assert "var(--border)" in stylesheet
     assert "var(--disabled)" in stylesheet
-    assert "border-radius: 999px;" in stylesheet
+    assert ".code-learner-mode-grid" not in stylesheet
 
 
 def test_pane_window_loads_installed_workflow_assets_for_code_learner() -> None:

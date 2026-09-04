@@ -27,7 +27,7 @@ def workflow() -> WorkflowDefinition:
         stages=(
             WorkflowStage(
                 "project",
-                "Repository",
+                "Project",
                 None,
                 actions=("open", "close"),
                 next_stage="course",

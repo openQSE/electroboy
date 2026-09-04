@@ -19,66 +19,12 @@
   padding-top: 0;
 }
 
-.code-learner-section-title {
-  margin: 12px 8px 4px;
-  color: #48627a;
-  font-size: var(--ui-small-font-size);
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
 .code-learner-recent,
-.code-learner-outline {
+.code-learner-outline,
+.code-learner-module-list {
   display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.code-learner-mode-grid {
-  display: grid;
-  grid-template-columns: 1fr;
   gap: 4px;
   min-width: 0;
-}
-
-.code-learner-mode-grid label {
-  display: grid;
-  min-width: 0;
-}
-
-.code-learner-mode-grid input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.code-learner-mode-grid span {
-  display: grid;
-  align-items: center;
-  min-height: 40px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: #304a63;
-  font: inherit;
-  font-size: var(--ui-menu-font-size);
-  font-weight: 400;
-  padding: 0 12px 0 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.code-learner-mode-grid label:hover span {
-  background: var(--blue-surface-hover);
-  color: #172a3d;
-}
-
-.code-learner-mode-grid input:checked + span {
-  background: #c2dfe5;
-  color: #164f5a;
-  font-weight: 400;
 }
 
 .code-learner-field {
@@ -128,12 +74,24 @@
   color: var(--error);
 }
 
+.code-learner-nav .stage-action-stage.active,
+.code-learner-nav .stage-action-button.active,
+.code-learner-nav .stage-action-subgroup-trigger.active {
+  border: 1px solid var(--active);
+  background: var(--active-soft);
+  color: #0b5f58;
+  box-shadow: none;
+}
+
+.code-learner-nav .stage-action-stage.active:hover:not(:disabled),
+.code-learner-nav .stage-action-button.active:hover:not(:disabled),
+.code-learner-nav .stage-action-subgroup-trigger.active:hover:not(:disabled) {
+  background: var(--active-soft);
+  color: #0b5f58;
+}
+
 .code-learner-step-button.active {
-  background: #1f3f5f;
-  color: #ffffff;
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 16%) inset,
-    0 8px 18px rgb(18 48 78 / 14%);
+  font-weight: 650;
 }
 
 .code-learner-pane-host {

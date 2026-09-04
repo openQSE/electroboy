@@ -44,6 +44,15 @@
   let learnerContext = null;
   let nav = {};
   let courseMode = "architecture";
+  const navigationExpanded = {
+    project: true,
+    learn: true,
+    recent: false,
+    module: false,
+    function: false,
+    outline: true,
+  };
+  let selectedModuleTarget = "";
 
   function emptyLearnerState() {
     return {
@@ -94,9 +103,6 @@
     renderNavigationState();
     if (payload && (payload.active_project_root || payload.activation_root)) {
       openLearnerPane({ activate: false, refresh: true });
-      initializeCodeLearner().catch((error) => {
-        setStatus(error.message || String(error), "error");
-      });
     }
     return true;
   }
@@ -111,11 +117,7 @@
       "",
       { targetPane: "agent", direction: "row", ratio: 0.66, activate: true },
     );
-    if (activeProjectRoot || activationRoot) {
-      initializeCodeLearner().catch((error) => {
-        setStatus(error.message || String(error), "error");
-      });
-    } else {
+    if (!(activeProjectRoot || activationRoot)) {
       learnerState = emptyLearnerState();
       renderNavigationState();
     }
@@ -133,92 +135,160 @@
     container.innerHTML = `
       <section class="code-learner-nav" aria-label="Code Learner">
         <div class="code-learner-section">
-          <div class="code-learner-section-title">Repository</div>
-          <button class="stage-action-button primary" type="button"
-                  data-code-learner-control="open">Open</button>
-          <button class="stage-action-button" type="button"
-                  data-code-learner-control="workspace">Workspace</button>
-          <button class="stage-action-button" type="button"
-                  data-code-learner-control="close">Close</button>
-          <div class="code-learner-recent"
-               data-code-learner-control="recent"></div>
+          <button class="stage-action-stage" type="button" aria-expanded="false"
+                  data-code-learner-control="project-menu">
+            <span class="stage-action-label">Project</span>
+            <span class="stage-action-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="stage-action-list" role="group" hidden
+               data-code-learner-control="project-actions">
+            <button class="stage-action-button" type="button"
+                    data-code-learner-control="workspace">Workspace</button>
+            <div class="stage-action-subgroup">
+              <button class="stage-action-subgroup-trigger" type="button"
+                      aria-expanded="false"
+                      title="Open a recently used project."
+                      data-code-learner-control="recent-projects-menu">
+                <span class="stage-action-label">Recent projects</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="stage-action-subgroup-list" role="group" hidden
+                   data-code-learner-control="recent"></div>
+            </div>
+            <button class="stage-action-button" type="button" disabled
+                    data-code-learner-control="close">Deactivate</button>
+          </div>
         </div>
         <form class="code-learner-section code-learner-course-form"
               data-code-learner-control="course-form">
-          <div class="code-learner-section-title">Course</div>
-          <div class="code-learner-mode-grid" role="radiogroup">
-            <label>
-              <input type="radio" name="code-learner-mode"
-                     value="architecture" checked>
-              <span>Architecture</span>
+          <button class="stage-action-stage" type="button" aria-expanded="false"
+                  data-code-learner-control="learn-menu">
+            <span class="stage-action-label">Learn</span>
+            <span class="stage-action-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="stage-action-list" role="group" hidden
+               data-code-learner-control="learn-actions">
+            <button class="stage-action-button primary" type="button"
+                    data-code-learner-control="initialize">Initialize</button>
+            <button class="stage-action-button code-learner-mode-action"
+                    type="button" disabled
+                    data-code-learner-control="architecture">Architecture</button>
+            <div class="stage-action-subgroup">
+              <button class="stage-action-subgroup-trigger" type="button"
+                      aria-expanded="false" disabled
+                      data-code-learner-control="module-menu">
+                <span class="stage-action-label">Module</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="stage-action-subgroup-list" role="group" hidden
+                   data-code-learner-control="module-actions">
+                <div class="code-learner-module-list"
+                     data-code-learner-control="module-list"></div>
+              </div>
+            </div>
+            <div class="stage-action-subgroup">
+              <button class="stage-action-subgroup-trigger" type="button"
+                      aria-expanded="false" disabled
+                      data-code-learner-control="function-menu">
+                <span class="stage-action-label">Function</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="stage-action-subgroup-list" role="group" hidden
+                   data-code-learner-control="function-actions">
+                <label class="code-learner-field"
+                       data-code-learner-control="function-field">
+                  <span>Symbol</span>
+                  <input type="text" list="code-learner-symbols"
+                         autocomplete="off" spellcheck="false" disabled
+                         data-code-learner-control="function">
+                  <datalist id="code-learner-symbols"
+                            data-code-learner-control="symbols"></datalist>
+                </label>
+                <button class="stage-action-button" type="submit" disabled
+                        data-code-learner-control="function-start">Start</button>
+              </div>
+            </div>
+            <label class="code-learner-field">
+              <span>Level</span>
+              <input type="text" autocomplete="off" disabled
+                     data-code-learner-control="audience"
+                     placeholder="Optional">
             </label>
-            <label>
-              <input type="radio" name="code-learner-mode" value="module">
-              <span>Module</span>
-            </label>
-            <label>
-              <input type="radio" name="code-learner-mode" value="function">
-              <span>Function</span>
-            </label>
+            <button class="stage-action-button" type="button" disabled
+                    data-code-learner-control="start-agent">Start tutor</button>
+            <div class="code-learner-status"
+                 data-code-learner-control="status"></div>
           </div>
-          <label class="code-learner-field" data-code-learner-control="module-field">
-            <span>Module</span>
-            <select data-code-learner-control="module"></select>
-          </label>
-          <label class="code-learner-field" data-code-learner-control="function-field">
-            <span>Function</span>
-            <input type="text" list="code-learner-symbols"
-                   autocomplete="off" spellcheck="false"
-                   data-code-learner-control="function">
-            <datalist id="code-learner-symbols"
-                      data-code-learner-control="symbols"></datalist>
-          </label>
-          <label class="code-learner-field">
-            <span>Level</span>
-            <input type="text" autocomplete="off"
-                   data-code-learner-control="audience"
-                   placeholder="Optional">
-          </label>
-          <button class="stage-action-button primary" type="submit"
-                  data-code-learner-control="generate">Generate</button>
-          <button class="stage-action-button" type="button"
-                  data-code-learner-control="start-agent">Start tutor</button>
-          <div class="code-learner-status"
-               data-code-learner-control="status"></div>
         </form>
         <div class="code-learner-section">
-          <div class="code-learner-section-title">Outline</div>
-          <div class="code-learner-outline"
-               data-code-learner-control="outline"></div>
+          <button class="stage-action-stage" type="button" aria-expanded="false"
+                  data-code-learner-control="outline-menu">
+            <span class="stage-action-label">Outline</span>
+            <span class="stage-action-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="stage-action-list" role="group" hidden
+               data-code-learner-control="outline-actions">
+            <div class="code-learner-outline"
+                 data-code-learner-control="outline"></div>
+          </div>
         </div>
       </section>
     `;
     nav = {
-      open: control(container, "open"),
+      projectMenu: control(container, "project-menu"),
+      projectActions: control(container, "project-actions"),
       workspace: control(container, "workspace"),
+      recentMenu: control(container, "recent-projects-menu"),
       close: control(container, "close"),
       recent: control(container, "recent"),
       form: control(container, "course-form"),
-      moduleField: control(container, "module-field"),
-      module: control(container, "module"),
+      learnMenu: control(container, "learn-menu"),
+      learnActions: control(container, "learn-actions"),
+      initialize: control(container, "initialize"),
+      architecture: control(container, "architecture"),
+      moduleMenu: control(container, "module-menu"),
+      moduleActions: control(container, "module-actions"),
+      moduleList: control(container, "module-list"),
+      functionMenu: control(container, "function-menu"),
+      functionActions: control(container, "function-actions"),
       functionField: control(container, "function-field"),
       function: control(container, "function"),
+      functionStart: control(container, "function-start"),
       symbols: control(container, "symbols"),
       audience: control(container, "audience"),
-      generate: control(container, "generate"),
       startAgent: control(container, "start-agent"),
       status: control(container, "status"),
+      outlineMenu: control(container, "outline-menu"),
+      outlineActions: control(container, "outline-actions"),
       outline: control(container, "outline"),
     };
-    nav.open.addEventListener("click", () => {
-      runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);
-    });
+    nav.projectMenu.addEventListener("click", () => toggleNavigationGroup("project"));
+    nav.learnMenu.addEventListener("click", () => toggleNavigationGroup("learn"));
+    nav.outlineMenu.addEventListener("click", () => toggleNavigationGroup("outline"));
+    nav.recentMenu.addEventListener(
+      "click",
+      () => toggleNavigationGroup("recent"),
+    );
+    nav.moduleMenu.addEventListener("click", () => toggleNavigationGroup("module"));
+    nav.functionMenu.addEventListener(
+      "click",
+      () => toggleNavigationGroup("function"),
+    );
     nav.workspace.addEventListener("click", () => runtime.workspaces.openSelector());
     nav.close.addEventListener("click", () => runtime.project.deactivate());
-    nav.form.addEventListener("change", syncCourseControls);
+    nav.initialize.addEventListener("click", () => {
+      initializeCodeLearner().catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+    });
+    nav.architecture.addEventListener("click", () => {
+      generateCourse({ mode: "architecture" }).catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+    });
     nav.form.addEventListener("submit", (event) => {
       event.preventDefault();
-      generateCourse().catch((error) => {
+      generateCourse({ mode: "function" }).catch((error) => {
         setStatus(error.message || String(error), "error");
       });
     });
@@ -227,7 +297,11 @@
         setStatus(error.message || String(error), "error");
       });
     });
-    nav.function.addEventListener("input", debounce(loadMatchingSymbols, 160));
+    const debouncedSymbolLoad = debounce(loadMatchingSymbols, 160);
+    nav.function.addEventListener("input", () => {
+      renderNavigationState();
+      debouncedSymbolLoad();
+    });
     renderNavigationState();
   }
 
@@ -240,12 +314,18 @@
     return container.querySelector(`[data-code-learner-control="${name}"]`);
   }
 
-  function syncCourseControls() {
-    const checked = nav.form
-      ? nav.form.querySelector('input[name="code-learner-mode"]:checked')
-      : null;
-    courseMode = checked ? checked.value : courseMode;
+  function toggleNavigationGroup(group) {
+    navigationExpanded[group] = !navigationExpanded[group];
     renderNavigationState();
+  }
+
+  function applyNavigationGroup(button, list, expanded) {
+    if (!button || !list) {
+      return;
+    }
+    button.classList.toggle("expanded", expanded);
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    list.hidden = !expanded;
   }
 
   function renderNavigationState() {
@@ -253,32 +333,63 @@
       return;
     }
     const hasProject = Boolean(activeProjectRoot || activationRoot);
+    const walkthrough = learnerState.currentWalkthrough;
+    const initialized = learnerInitialized();
     const modules = learnerModules();
     const symbols = learnerSymbols();
-    nav.open.disabled = Boolean(activationRoot);
-    nav.close.disabled = !Boolean(activationRoot);
-    nav.generate.disabled = !hasProject;
-    nav.startAgent.disabled = !hasProject || !learnerState.currentWalkthrough;
-    nav.moduleField.hidden = courseMode !== "module";
-    nav.functionField.hidden = courseMode !== "function";
-    replaceOptions(
-      nav.module,
-      modules.length
-        ? modules.map((module) => ({
-            value: String(module.path || ""),
-            label: moduleLabel(module),
-          }))
-        : [{ value: "", label: "No modules" }],
+    const activeMode = walkthrough ? walkthrough.learning_mode : courseMode;
+    applyNavigationGroup(nav.projectMenu, nav.projectActions, navigationExpanded.project);
+    applyNavigationGroup(nav.learnMenu, nav.learnActions, navigationExpanded.learn);
+    applyNavigationGroup(
+      nav.recentMenu,
+      nav.recent,
+      navigationExpanded.recent,
     );
-    nav.module.disabled = !modules.length;
+    applyNavigationGroup(
+      nav.moduleMenu,
+      nav.moduleActions,
+      navigationExpanded.module,
+    );
+    applyNavigationGroup(
+      nav.functionMenu,
+      nav.functionActions,
+      navigationExpanded.function,
+    );
+    applyNavigationGroup(nav.outlineMenu, nav.outlineActions, navigationExpanded.outline);
+    nav.projectMenu.classList.toggle("active", hasProject && !walkthrough);
+    nav.learnMenu.classList.toggle("active", Boolean(walkthrough));
+    nav.outlineMenu.classList.remove("active");
+    nav.close.disabled = !Boolean(activationRoot);
+    nav.initialize.disabled = !hasProject;
+    nav.architecture.disabled = !initialized;
+    nav.architecture.classList.toggle("active", activeMode === "architecture");
+    nav.moduleMenu.disabled = !initialized;
+    nav.moduleMenu.classList.toggle("active", activeMode === "module");
+    nav.functionMenu.disabled = !initialized;
+    nav.functionMenu.classList.toggle("active", activeMode === "function");
+    nav.function.disabled = !initialized;
+    nav.functionStart.disabled = !initialized || !nav.function.value.trim();
+    nav.audience.disabled = !initialized;
+    nav.startAgent.disabled = !hasProject || !walkthrough;
+    renderModuleList(modules, initialized);
     renderSymbolOptions(symbols);
     renderRecentProjects();
     renderOutline();
     if (!hasProject) {
-      setStatus("No repository open.");
-    } else if (!learnerState.currentWalkthrough) {
-      setStatus(`Repository: ${basename(activeProjectRoot || activationRoot)}`);
+      setStatus("No project active.");
+    } else if (!initialized) {
+      setStatus("Initialize learning context.");
+    } else if (!walkthrough) {
+      setStatus(`Project: ${basename(activeProjectRoot || activationRoot)}`);
     }
+  }
+
+  function learnerInitialized() {
+    return Boolean(
+      learnerState.analysis ||
+      learnerState.currentWalkthrough ||
+      learnerState.walkthroughs.length,
+    );
   }
 
   function renderRecentProjects() {
@@ -344,19 +455,51 @@
     }
   }
 
-  function replaceOptions(select, options) {
-    const signature = JSON.stringify(options);
-    if (select.dataset.options === signature) {
+  function renderModuleList(modules, initialized) {
+    if (!nav.moduleList) {
       return;
     }
-    select.replaceChildren();
-    for (const option of options) {
-      const element = document.createElement("option");
-      element.value = option.value;
-      element.textContent = option.label;
-      select.append(element);
+    const signature = JSON.stringify({
+      initialized,
+      selectedModuleTarget,
+      modules: modules.map((module) => [module.path, module.file_count]),
+    });
+    if (nav.moduleList.dataset.signature === signature) {
+      return;
     }
-    select.dataset.options = signature;
+    nav.moduleList.replaceChildren();
+    if (!initialized) {
+      nav.moduleList.append(disabledAction("Initialize first"));
+    } else if (modules.length === 0) {
+      nav.moduleList.append(disabledAction("No modules"));
+    } else {
+      for (const module of modules) {
+        const target = String(module.path || "");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "stage-action-button code-learner-module-option";
+        button.textContent = moduleLabel(module);
+        button.title = target;
+        button.classList.toggle("active", selectedModuleTarget === target);
+        button.addEventListener("click", () => {
+          selectedModuleTarget = target;
+          generateCourse({ mode: "module", target }).catch((error) => {
+            setStatus(error.message || String(error), "error");
+          });
+        });
+        nav.moduleList.append(button);
+      }
+    }
+    nav.moduleList.dataset.signature = signature;
+  }
+
+  function disabledAction(label) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "stage-action-button";
+    button.disabled = true;
+    button.textContent = label;
+    return button;
   }
 
   function renderSymbolOptions(symbols) {
@@ -423,35 +566,48 @@
     applyLearnerPayload(payload.code_learner || {});
     renderNavigationState();
     openLearnerPane({ activate: false, refresh: true });
+    const analysis = learnerState.analysis || {};
+    const moduleCount = Array.isArray(analysis.modules) ? analysis.modules.length : 0;
+    const symbolCount = Array.isArray(analysis.symbols) ? analysis.symbols.length : 0;
+    setStatus(`Initialized: ${moduleCount} modules, ${symbolCount} symbols.`);
   }
 
-  async function generateCourse() {
+  async function generateCourse(options = {}) {
     if (!activeProjectRoot && !activationRoot) {
-      setStatus("Open a repository first.", "error");
+      setStatus("Activate a project first.", "error");
       return;
     }
-    syncCourseControls();
-    const target = courseTarget();
-    if (courseMode !== "architecture" && !target) {
-      setStatus(`${modeLabel(courseMode)} target required.`, "error");
+    if (!learnerInitialized()) {
+      setStatus("Initialize learning context first.", "error");
       return;
     }
-    nav.generate.disabled = true;
-    setStatus(`Generating ${modeLabel(courseMode)} course...`);
+    const mode = normalizeCourseMode(options.mode || courseMode);
+    courseMode = mode;
+    const target = Object.hasOwn(options, "target") ? options.target : courseTarget(mode);
+    if (mode === "module") {
+      selectedModuleTarget = String(target || "");
+    }
+    if (mode !== "architecture" && !target) {
+      setStatus(`${modeLabel(mode)} target required.`, "error");
+      return;
+    }
+    setGenerating(true);
+    setStatus(`Generating ${modeLabel(mode)} course...`);
     const response = await runtimeApi.http.fetch(
       contextUrl("/api/code-learner/walkthrough"),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          learning_mode: courseMode,
+          learning_mode: mode,
           target,
           intended_audience: nav.audience.value.trim(),
         }),
       },
-    );
+    ).finally(() => {
+      setGenerating(false);
+    });
     const payload = await response.json().catch(() => ({ error: "generation failed" }));
-    nav.generate.disabled = false;
     if (!response.ok) {
       throw new Error(payload.error || "generation failed");
     }
@@ -461,14 +617,33 @@
     setStatus(`Ready: ${payload.walkthrough.title || "course"}`);
   }
 
-  function courseTarget() {
-    if (courseMode === "module") {
-      return nav.module.value || "";
+  function setGenerating(isGenerating) {
+    if (!nav.learnActions) {
+      return;
     }
-    if (courseMode === "function") {
+    const hasProject = Boolean(activeProjectRoot || activationRoot);
+    const initialized = learnerInitialized();
+    nav.initialize.disabled = isGenerating || !hasProject;
+    nav.architecture.disabled = isGenerating || !initialized;
+    nav.moduleMenu.disabled = isGenerating || !initialized;
+    nav.functionMenu.disabled = isGenerating || !initialized;
+    nav.functionStart.disabled =
+      isGenerating || !initialized || !nav.function.value.trim();
+  }
+
+  function courseTarget(mode = courseMode) {
+    if (mode === "module") {
+      return selectedModuleTarget;
+    }
+    if (mode === "function") {
       return nav.function.value.trim();
     }
     return "";
+  }
+
+  function normalizeCourseMode(mode) {
+    const normalized = String(mode || "").toLowerCase();
+    return Object.hasOwn(MODE_LABELS, normalized) ? normalized : "architecture";
   }
 
   async function selectStep(stepId) {
@@ -566,21 +741,38 @@
     if (!payload || typeof payload !== "object") {
       return;
     }
-    if (payload.analysis) {
+    if (Object.hasOwn(payload, "state_path") && !Object.hasOwn(payload, "analysis")) {
+      learnerState.analysis = null;
+    }
+    if (Object.hasOwn(payload, "analysis")) {
       learnerState.analysis = payload.analysis;
     }
     if (Array.isArray(payload.walkthroughs)) {
       learnerState.walkthroughs = payload.walkthroughs;
     }
-    if (payload.current_walkthrough) {
-      learnerState.currentWalkthrough = payload.current_walkthrough;
+    if (Object.hasOwn(payload, "current_walkthrough")) {
+      learnerState.currentWalkthrough = payload.current_walkthrough || null;
     }
-    if (payload.walkthrough) {
-      learnerState.currentWalkthrough = payload.walkthrough;
+    if (Object.hasOwn(payload, "walkthrough")) {
+      learnerState.currentWalkthrough = payload.walkthrough || null;
     }
-    if (payload.source) {
+    syncCourseTargetFromWalkthrough();
+    if (Object.hasOwn(payload, "source")) {
       learnerState.source = payload.source;
-      learnerContext = contextFromState();
+      learnerContext = payload.source ? contextFromState() : null;
+    }
+  }
+
+  function syncCourseTargetFromWalkthrough() {
+    const walkthrough = learnerState.currentWalkthrough;
+    if (!walkthrough) {
+      return;
+    }
+    courseMode = normalizeCourseMode(walkthrough.learning_mode);
+    if (courseMode === "module") {
+      selectedModuleTarget = String(walkthrough.mode_target || "");
+    } else if (courseMode === "function" && nav.function && !nav.function.value) {
+      nav.function.value = String(walkthrough.mode_target || "");
     }
   }
 
@@ -717,7 +909,7 @@
     const walkthrough = learnerState.currentWalkthrough;
     const lines = [];
     if (activeProjectRoot) {
-      lines.push(`Repository: ${activeProjectRoot}`);
+      lines.push(`Project: ${activeProjectRoot}`);
     }
     if (walkthrough) {
       lines.push(`Course: ${walkthrough.title}`);
@@ -727,7 +919,7 @@
         lines.push(`Step: ${currentStepPosition(walkthrough, step.id)} ${step.title}`);
       }
     }
-    runtime.project.renderStatus(lines.length ? lines : ["No repository open."]);
+    runtime.project.renderStatus(lines.length ? lines : ["No project active."]);
   }
 
   function setStatus(message, kind = "") {
@@ -1237,9 +1429,9 @@
       layoutClass: "code-learner-workflow",
       help: {
         summary:
-          "Explore a repository through generated architecture, module, and function lessons.",
+          "Explore a project through generated architecture, module, and function lessons.",
         features: [
-          "Generate source-linked course steps from a repository scan.",
+          "Generate source-linked course steps from a project scan.",
           "Select module and function targets for focused explanations.",
           "Keep learner questions grounded in the currently visible source range.",
         ],
