@@ -139,8 +139,12 @@ INDEX_HTML = "\n".join(
 PANE_WINDOW_HTML = read_service_text_asset("pane-window.html")
 
 
-def pane_window_html(kind: str) -> str:
-    return PANE_WINDOW_HTML.replace("__PANE_KIND__", json.dumps(kind))
+def pane_window_html(
+    kind: str,
+    workflow_registry: WorkflowRegistry | None = None,
+) -> str:
+    page = render_service_index(PANE_WINDOW_HTML, None, workflow_registry)
+    return page.replace("__PANE_KIND__", json.dumps(kind))
 
 
 FILE_BROWSER_WINDOW_HTML = read_service_text_asset("file-browser.html")
@@ -2731,6 +2735,7 @@ def _handler_for(
                 "assignments",
                 "artifact",
                 "calendar",
+                "code-learner",
                 "mind-map",
                 "progress",
                 "scratch",
@@ -2744,7 +2749,7 @@ def _handler_for(
                 )
                 return
             self._send_text(
-                pane_window_html(kind),
+                pane_window_html(kind, config.workflow_registry),
                 "text/html; charset=utf-8",
             )
 

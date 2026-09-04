@@ -368,6 +368,7 @@
       agenda: { label: "Agenda", element: null },
       assignments: { label: "Assignments", element: null },
       calendar: { label: "Calendar", element: null },
+      "code-learner": { label: "Code Learner", element: null },
       "mind-map": { label: "Mind Map", element: null },
       shell: { label: "Shell", element: projectShellPane },
       scratch: { label: "Scratch", element: scratchPane },
@@ -378,6 +379,7 @@
       "agenda",
       "assignments",
       "calendar",
+      "code-learner",
       "mind-map",
     ]);
     const WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS = new Set([
@@ -393,6 +395,7 @@
       "agenda",
       "assignments",
       "calendar",
+      "code-learner",
       "mind-map",
       "scratch",
       "status",

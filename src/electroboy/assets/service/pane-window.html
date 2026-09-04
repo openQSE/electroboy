@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/assets/service/css/agenda-pane-tools.css">
   <link rel="stylesheet" href="/assets/service/css/mind-map-pane-tools.css">
   <link rel="stylesheet" href="/assets/service/css/input-history.css">
+  <!-- __ELECTROBOY_CONTRIBUTION_STYLES__ -->
   <style>
     :root {
       --terminal: #10141f;
@@ -923,6 +924,8 @@
   <script src="/assets/service/js/modules/file-pane-tools.js"></script>
   <script src="/assets/service/js/modules/agenda-pane-tools.js"></script>
   <script src="/assets/service/js/modules/mind-map-pane-tools.js"></script>
+  <script src="/assets/service/js/core/registry.js"></script>
+  <!-- __ELECTROBOY_CONTRIBUTION_SCRIPTS__ -->
   <script>
     const PANE_KIND = __PANE_KIND__;
     const params = new URLSearchParams(window.location.search);
@@ -1262,6 +1265,7 @@
       if (kind === "agenda") return "Agenda";
       if (kind === "assignments") return "Assignments";
       if (kind === "calendar") return "Calendar";
+      if (kind === "code-learner") return "Code Learner";
       if (kind === "mind-map") return "Mind Map";
       if (kind === "progress") return "Progress";
       if (kind === "scratch") return "Scratch pad";
@@ -4139,6 +4143,7 @@
           { id: "artifact", label: "File" },
           { id: "agenda", label: "Agenda" },
           { id: "calendar", label: "Calendar" },
+          { id: "code-learner", label: "Code Learner" },
           { id: "mind-map", label: "Mind Map" },
           { id: "shell", label: "Shell" },
           { id: "scratch", label: "Scratch" },
@@ -4539,6 +4544,23 @@
     else if (PANE_KIND === "status") showStatus();
     else if (PANE_KIND === "input") showInput();
     else if (PANE_KIND === "shell") connectShellStream();
+    else if (
+      PANE_KIND === "code-learner" &&
+      window.ElectroBoyCodeLearnerPane
+    ) {
+      window.ElectroBoyCodeLearnerPane.mount({
+        host: paneContentSurface,
+        contextUrl,
+        paneInstanceId,
+        postMessage: (message) => {
+          if (window.parent !== window) {
+            window.parent.postMessage(message, window.location.origin);
+          } else if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(message, window.location.origin);
+          }
+        },
+      });
+    }
 
     window.addEventListener("beforeunload", () => {
       stopDisposableShell();
