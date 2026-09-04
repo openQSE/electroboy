@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from electroboy.adapters.base import AgentInvocation
@@ -10,10 +13,38 @@ from electroboy.runtime import runtime_for_role
 from .domain import CodeLearnerError
 
 CODE_LEARNER_INITIALIZE_ROLE = "code_learner_initialize"
+ProgressCallback = Callable[[dict[str, object]], None]
 
 
-def code_learner_initialize_prompt(root: Path | str) -> str:
+def code_learner_initialize_prompt(
+    root: Path | str,
+    progress_path: str | None = None,
+) -> str:
     repository_root = Path(root).expanduser().resolve()
+    state_directory_rule = (
+        "  site-packages, except for the progress file explicitly named below."
+        if progress_path
+        else "  site-packages."
+    )
+    progress_rules = ""
+    if progress_path:
+        progress_rules = f"""
+
+Progress reporting:
+- Append progress updates to this repository-relative JSONL file:
+  {progress_path}
+- The progress file is the only file you may create or modify while planning.
+- Append one JSON object per line with this shape:
+  {{"record_type":"progress","phase":"repository_survey","percent":5,"message":"Scanning project layout"}}
+- Use integer percent values from 0 to 99 while work is in progress. Do not
+  report 100 percent until the final course JSONL is ready.
+- Emit progress at these approximate milestones when applicable:
+  2 setup, 8 repository_survey, 15 source_map, 25 architecture,
+  40 module_map, 55 module_lessons, 70 function_index,
+  85 function_lessons, 94 validation, 98 final_output.
+- Keep messages brief, factual, and user-safe for display.
+- Do not include progress records in the final answer.
+"""
     return f"""You are the ElectroBoy Code Learner course planner.
 
 Your task is to inspect this repository directly and generate structured
@@ -32,10 +63,11 @@ Operating rules:
   without modifying repository state.
 - Ignore generated/cache/vendor/state directories such as .git, .electroboy,
   node_modules, dist, build, __pycache__, .pytest_cache, .venv, vendor, and
-  site-packages.
+{state_directory_rule}
 - Prefer evidence from source files over guesses.
 - Every important claim must include source references.
 - If you are uncertain, emit a diagnostic record instead of inventing facts.
+{progress_rules}
 
 Output format:
 - Return ONLY JSONL.
@@ -192,21 +224,132 @@ Quality bar:
 """.strip()
 
 
-def generate_code_learner_course_corpus_jsonl(root: Path | str) -> str:
+class _ProgressFileMonitor:
+    """Poll a progress JSONL file while the planner subprocess is running."""
+
+    def __init__(
+        self,
+        path: Path,
+        callback: ProgressCallback | None,
+        interval: float = 1.0,
+    ) -> None:
+        self.path = path
+        self.callback = callback
+        self.interval = interval
+        self._offset = 0
+        self._buffer = ""
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self.callback is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("", encoding="utf-8")
+        self._thread = threading.Thread(
+            target=self._run,
+            name="code-learner-progress-monitor",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        if self.callback is None:
+            return
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(0.2, self.interval * 2))
+        self._read_available()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            self._read_available()
+
+    def _read_available(self) -> None:
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            return
+        if size < self._offset:
+            self._offset = 0
+            self._buffer = ""
+        try:
+            with self.path.open("r", encoding="utf-8") as stream:
+                stream.seek(self._offset)
+                chunk = stream.read()
+                self._offset = stream.tell()
+        except OSError:
+            return
+        if not chunk:
+            return
+        self._buffer += chunk
+        complete = self._buffer.endswith("\n")
+        lines = self._buffer.split("\n")
+        self._buffer = "" if complete else lines.pop()
+        for line in lines:
+            self._emit(line)
+
+    def _emit(self, line: str) -> None:
+        stripped = line.strip()
+        if not stripped:
+            return
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(payload, dict):
+            return
+        record_type = str(payload.get("record_type") or payload.get("type") or "")
+        if record_type != "progress":
+            return
+        if self.callback is None:
+            return
+        try:
+            self.callback(dict(payload))
+        except Exception:
+            return
+
+
+def generate_code_learner_course_corpus_jsonl(
+    root: Path | str,
+    *,
+    progress_path: str | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> str:
     """Ask the configured AI runtime to generate the Code Learner corpus."""
 
     repository_root = Path(root).expanduser().resolve()
+    progress_file = (
+        _resolve_progress_path(repository_root, progress_path)
+        if progress_path
+        else None
+    )
+    monitor = (
+        _ProgressFileMonitor(progress_file, progress_callback)
+        if progress_file is not None
+        else None
+    )
     runtime = runtime_for_role(
         CODE_LEARNER_INITIALIZE_ROLE,
         repository_root,
         execution_root=repository_root,
     )
-    result = runtime.invoke(
-        AgentInvocation(
-            role=CODE_LEARNER_INITIALIZE_ROLE,
-            prompt=code_learner_initialize_prompt(repository_root),
+    if monitor is not None:
+        monitor.start()
+    try:
+        result = runtime.invoke(
+            AgentInvocation(
+                role=CODE_LEARNER_INITIALIZE_ROLE,
+                prompt=code_learner_initialize_prompt(
+                    repository_root,
+                    progress_path=progress_path,
+                ),
+                progress_path=progress_path,
+            )
         )
-    )
+    finally:
+        if monitor is not None:
+            monitor.stop()
     if not result.ok:
         raise CodeLearnerError(
             result.error or result.final_message or "AI course initialization failed"
@@ -215,3 +358,10 @@ def generate_code_learner_course_corpus_jsonl(root: Path | str) -> str:
     if not output:
         raise CodeLearnerError("AI course initialization returned no JSONL")
     return output
+
+
+def _resolve_progress_path(root: Path, progress_path: str | None) -> Path:
+    requested = Path(str(progress_path or ""))
+    if requested.is_absolute():
+        return requested
+    return root / requested

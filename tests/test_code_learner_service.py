@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -27,7 +29,22 @@ from electroboy.workflows.code_learner.plugin import (  # noqa: E402
 )
 from electroboy.workflows.code_learner.planner import (  # noqa: E402
     code_learner_initialize_prompt,
+    generate_code_learner_course_corpus_jsonl,
 )
+
+
+def _wait_for_status(
+    controller: CodeLearnerWorkflowController,
+    context_id: str,
+    expected: str,
+    timeout: float = 2.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    payload = controller.initialization_status(context_id)
+    while payload["status"] != expected and time.monotonic() < deadline:
+        time.sleep(0.02)
+        payload = controller.initialization_status(context_id)
+    return payload
 
 
 class CodeLearnerServiceTests(unittest.TestCase):
@@ -50,6 +67,9 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertIsNotNone(
             dispatcher.match("POST", "/api/code-learner/question")
         )
+        self.assertIsNotNone(
+            dispatcher.match("GET", "/api/code-learner/init/status")
+        )
 
     def test_controller_opens_repo_and_prepares_walkthrough_question(
         self,
@@ -70,12 +90,10 @@ class CodeLearnerServiceTests(unittest.TestCase):
             controller = state.workflow_controller("code-learner")
 
             opened = controller.open_project(context_id, str(source_root))
-            with mock.patch(
-                "electroboy.workflows.code_learner.controller."
-                "generate_code_learner_course_corpus_jsonl",
-                return_value=self._sample_course_jsonl(),
-            ) as planner:
-                initialized = controller.initialize(context_id)
+            initialized = controller.initialize_from_jsonl(
+                context_id,
+                self._sample_course_jsonl(),
+            )
             modules = controller.modules(context_id)
             symbols = controller.symbols(context_id, "orchestrate")
             course = controller.create_walkthrough(
@@ -104,8 +122,8 @@ class CodeLearnerServiceTests(unittest.TestCase):
             recent[0]["kind"],
             "code-learner",
         )
-        planner.assert_called_once_with(source_root)
         self.assertEqual(initialized["status"], "initialized")
+        self.assertEqual(initialized["initialization"]["status"], "initialized")
         self.assertIn("analysis", initialized["code_learner"])
         self.assertIn("corpus", initialized["code_learner"])
         self.assertTrue(
@@ -175,16 +193,79 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertIn("src/app.py:10-20", command[-1])
 
     def test_initialize_prompt_requests_ai_inferred_jsonl_corpus(self) -> None:
-        prompt = code_learner_initialize_prompt(Path("/repo"))
+        prompt = code_learner_initialize_prompt(
+            Path("/repo"),
+            progress_path=".electroboy/code-learner/initialize-progress.jsonl",
+        )
 
         self.assertIn("Return ONLY JSONL", prompt)
         self.assertIn('field name "record_type"', prompt)
         self.assertIn("precomputed module", prompt)
         self.assertIn("module boundaries must come from your understanding", prompt)
+        self.assertIn("Progress reporting", prompt)
+        self.assertIn('"record_type":"progress"', prompt)
+        self.assertIn("percent", prompt)
         self.assertIn('record_type: "module"', prompt)
         self.assertIn('record_type: "function_lesson"', prompt)
 
-    def test_initialize_rejects_failed_ai_planner(self) -> None:
+    def test_initialize_is_single_flight_and_reports_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+            started = threading.Event()
+            release = threading.Event()
+
+            def planner(
+                root: Path,
+                *,
+                progress_path: str | None = None,
+                progress_callback=None,
+            ) -> str:
+                started.set()
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "record_type": "progress",
+                            "phase": "architecture",
+                            "percent": 25,
+                            "message": "Drafting architecture",
+                        }
+                    )
+                release.wait(timeout=2)
+                return self._sample_course_jsonl()
+
+            with mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "generate_code_learner_course_corpus_jsonl",
+                side_effect=planner,
+            ) as generate:
+                first = controller.initialize(context_id)
+                self.assertTrue(started.wait(timeout=2))
+                second = controller.initialize(context_id)
+                status = controller.initialization_status(context_id)
+                release.set()
+                completed = controller.wait_for_initialization(context_id, timeout=2)
+
+            self.assertEqual(first["status"], "initializing")
+            self.assertEqual(second["status"], "initializing")
+            self.assertEqual(status["initialization"]["percent"], 25)
+            self.assertEqual(completed["status"], "initialized")
+            self.assertIn("analysis", completed["code_learner"])
+            generate.assert_called_once()
+
+    def test_initialize_reports_failed_ai_planner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             source_root = self._sample_repo(Path(tmp))
@@ -212,8 +293,50 @@ class CodeLearnerServiceTests(unittest.TestCase):
                 )
                 runtime_for_role.return_value = runtime
 
-                with self.assertRaisesRegex(Exception, "planner failed"):
-                    controller.initialize(context_id)
+                started = controller.initialize(context_id)
+                failed = _wait_for_status(controller, context_id, "failed")
+
+        self.assertEqual(started["status"], "initializing")
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("planner failed", failed["initialization"]["error"])
+
+    def test_planner_monitors_progress_jsonl_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = self._sample_repo(Path(tmp))
+            progress_events: list[dict[str, object]] = []
+
+            def invoke(invocation):
+                progress_path = source_root / str(invocation.progress_path)
+                progress_path.parent.mkdir(parents=True, exist_ok=True)
+                progress_path.write_text(
+                    json.dumps(
+                        {
+                            "record_type": "progress",
+                            "phase": "module_map",
+                            "percent": 40,
+                            "message": "Inferring modules",
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return AgentResult(ok=True, final_message=self._sample_course_jsonl())
+
+            runtime = mock.Mock()
+            runtime.invoke.side_effect = invoke
+            with mock.patch(
+                "electroboy.workflows.code_learner.planner.runtime_for_role",
+                return_value=runtime,
+            ):
+                corpus = generate_code_learner_course_corpus_jsonl(
+                    source_root,
+                    progress_path=".electroboy/code-learner/initialize-progress.jsonl",
+                    progress_callback=progress_events.append,
+                )
+
+        self.assertIn('"course_manifest"', corpus)
+        self.assertEqual(progress_events[0]["phase"], "module_map")
+        self.assertEqual(progress_events[0]["percent"], 40)
 
     def _sample_repo(self, parent: Path) -> Path:
         root = parent / "repo"

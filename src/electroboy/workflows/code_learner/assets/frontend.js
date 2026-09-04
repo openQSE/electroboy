@@ -44,6 +44,9 @@
   let learnerContext = null;
   let nav = {};
   let courseMode = "architecture";
+  let initializationState = null;
+  let initializationPollTimer = null;
+  const INITIALIZATION_POLL_INTERVAL_MS = 1500;
   const navigationExpanded = {
     project: true,
     learn: true,
@@ -225,6 +228,15 @@
                     data-code-learner-control="start-agent">Start tutor</button>
             <div class="code-learner-status"
                  data-code-learner-control="status"></div>
+            <div class="code-learner-progress" hidden
+                 data-code-learner-control="init-progress">
+              <div class="code-learner-progress-track">
+                <div class="code-learner-progress-fill"
+                     data-code-learner-control="init-progress-fill"></div>
+              </div>
+              <div class="code-learner-progress-meta"
+                   data-code-learner-control="init-progress-meta"></div>
+            </div>
           </div>
         </form>
         <div class="code-learner-section">
@@ -267,6 +279,9 @@
       audience: control(container, "audience"),
       startAgent: control(container, "start-agent"),
       status: control(container, "status"),
+      initProgress: control(container, "init-progress"),
+      initProgressFill: control(container, "init-progress-fill"),
+      initProgressMeta: control(container, "init-progress-meta"),
       outlineMenu: control(container, "outline-menu"),
       outlineActions: control(container, "outline-actions"),
       outline: control(container, "outline"),
@@ -365,6 +380,7 @@
     const hasProject = Boolean(activeProjectRoot || activationRoot);
     const walkthrough = learnerState.currentWalkthrough;
     const initialized = learnerInitialized();
+    const initializing = initializationRunning();
     const modules = learnerModules();
     const symbols = learnerSymbols();
     applyNavigationGroup(nav.projectMenu, nav.projectActions, navigationExpanded.project);
@@ -396,24 +412,28 @@
       activeNavigationGroup === "outline" && Boolean(walkthrough),
     );
     nav.close.disabled = !Boolean(activationRoot);
-    nav.initialize.disabled = !hasProject;
-    nav.architecture.disabled = !initialized;
-    nav.moduleMenu.disabled = !initialized;
-    nav.module.disabled = !initialized || modules.length === 0;
+    nav.initialize.disabled = !hasProject || initializing;
+    nav.architecture.disabled = initializing || !initialized;
+    nav.moduleMenu.disabled = initializing || !initialized;
+    nav.module.disabled = initializing || !initialized || modules.length === 0;
     nav.moduleStart.disabled =
-      !initialized || modules.length === 0 || !nav.module.value.trim();
-    nav.functionMenu.disabled = !initialized;
-    nav.function.disabled = !initialized;
-    nav.functionStart.disabled = !initialized || !nav.function.value.trim();
-    nav.audience.disabled = !initialized;
-    nav.startAgent.disabled = !hasProject || !walkthrough;
+      initializing || !initialized || modules.length === 0 || !nav.module.value.trim();
+    nav.functionMenu.disabled = initializing || !initialized;
+    nav.function.disabled = initializing || !initialized;
+    nav.functionStart.disabled =
+      initializing || !initialized || !nav.function.value.trim();
+    nav.audience.disabled = initializing || !initialized;
+    nav.startAgent.disabled = initializing || !hasProject || !walkthrough;
     nav.outlineMenu.disabled = !Boolean(walkthrough);
+    renderInitializationProgress();
     renderModuleOptions(modules, initialized);
     renderSymbolOptions(symbols);
     renderRecentProjects();
     renderOutline();
     if (!hasProject) {
       setStatus("No project active.");
+    } else if (initializing) {
+      setStatus(formatInitializationStatus(initializationState));
     } else if (!initialized) {
       setStatus("Initialize learning context.");
     } else if (!walkthrough) {
@@ -427,6 +447,77 @@
       learnerState.currentWalkthrough ||
       learnerState.walkthroughs.length,
     );
+  }
+
+  function initializationRunning() {
+    const status = initializationState && initializationState.status;
+    return status === "queued" || status === "running";
+  }
+
+  function initializationFailed() {
+    return initializationState && initializationState.status === "failed";
+  }
+
+  function applyInitializationPayload(payload) {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+    if (payload.initialization && typeof payload.initialization === "object") {
+      initializationState = payload.initialization;
+    }
+    if (payload.code_learner) {
+      applyLearnerPayload(payload.code_learner);
+    }
+  }
+
+  function formatInitializationStatus(initialization) {
+    if (!initialization) {
+      return "Initializing AI course material...";
+    }
+    const percent = Number(initialization.percent || 0);
+    const message = String(initialization.message || "Initializing AI course material.");
+    const elapsed = formatDuration(initialization.elapsed_seconds);
+    const remaining = formatDuration(initialization.estimated_remaining_seconds);
+    const timing = [];
+    if (elapsed) {
+      timing.push(`${elapsed} elapsed`);
+    }
+    if (remaining) {
+      timing.push(`about ${remaining} left`);
+    }
+    const suffix = timing.length ? ` (${timing.join(", ")})` : "";
+    return `${percent}% ${message}${suffix}`;
+  }
+
+  function renderInitializationProgress() {
+    if (!nav.initProgress || !nav.initProgressFill || !nav.initProgressMeta) {
+      return;
+    }
+    const show = initializationRunning() || initializationFailed();
+    nav.initProgress.hidden = !show;
+    if (!show) {
+      nav.initProgressFill.style.width = "0%";
+      nav.initProgressMeta.textContent = "";
+      return;
+    }
+    const percent = Math.max(0, Math.min(100, Number(initializationState.percent || 0)));
+    nav.initProgressFill.style.width = `${percent}%`;
+    nav.initProgressMeta.textContent = initializationFailed()
+      ? String(initializationState.error || initializationState.message || "Initialization failed.")
+      : formatInitializationStatus(initializationState);
+  }
+
+  function formatDuration(value) {
+    const seconds = Number(value || 0);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return "";
+    }
+    if (seconds < 60) {
+      return `${Math.round(seconds)}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainder = Math.round(seconds % 60);
+    return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
   }
 
   function renderRecentProjects() {
@@ -599,25 +690,108 @@
     if (!contextId || !(activeProjectRoot || activationRoot)) {
       return;
     }
+    if (initializationRunning()) {
+      pollInitializationStatus({ immediate: true }).catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+      return;
+    }
     setStatus("Initializing AI course material...");
     setGenerating(true);
-    const response = await runtimeApi.http.fetch(
-      contextUrl("/api/code-learner/init"),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      },
-    ).finally(() => {
+    let payload = null;
+    try {
+      const response = await runtimeApi.http.fetch(
+        contextUrl("/api/code-learner/init"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      payload = await response.json().catch(() => ({ error: "load failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || "load failed");
+      }
+    } catch (error) {
       setGenerating(false);
-    });
-    const payload = await response.json().catch(() => ({ error: "load failed" }));
-    if (!response.ok) {
-      throw new Error(payload.error || "load failed");
+      throw error;
     }
-    applyLearnerPayload(payload.code_learner || {});
+    applyInitializationPayload(payload);
     renderNavigationState();
-    openLearnerPane({ activate: false, refresh: true });
+    if (payload.status === "initialized") {
+      setGenerating(false);
+      openLearnerPane({ activate: false, refresh: true });
+      setInitializedStatus();
+      return;
+    }
+    if (payload.status === "failed") {
+      setGenerating(false);
+      setStatus(payload.initialization.error || "Initialization failed.", "error");
+      return;
+    }
+    scheduleInitializationPoll();
+    setStatus(formatInitializationStatus(initializationState));
+  }
+
+  async function pollInitializationStatus(options = {}) {
+    if (!contextId || !(activeProjectRoot || activationRoot)) {
+      stopInitializationPolling();
+      return;
+    }
+    if (options.immediate) {
+      stopInitializationPolling();
+    }
+    const response = await runtimeApi.http.fetch(
+      contextUrl("/api/code-learner/init/status"),
+      { cache: "no-store" },
+    );
+    const payload = await response.json().catch(() => ({ error: "status failed" }));
+    if (!response.ok) {
+      stopInitializationPolling();
+      setGenerating(false);
+      throw new Error(payload.error || "status failed");
+    }
+    applyInitializationPayload(payload);
+    renderNavigationState();
+    if (payload.status === "initialized") {
+      stopInitializationPolling();
+      setGenerating(false);
+      openLearnerPane({ activate: false, refresh: true });
+      setInitializedStatus();
+    } else if (payload.status === "failed") {
+      stopInitializationPolling();
+      setGenerating(false);
+      setStatus(payload.initialization.error || "Initialization failed.", "error");
+    } else if (payload.status === "initializing") {
+      setGenerating(true);
+      scheduleInitializationPoll();
+    } else {
+      stopInitializationPolling();
+      setGenerating(false);
+    }
+  }
+
+  function scheduleInitializationPoll() {
+    if (initializationPollTimer !== null) {
+      return;
+    }
+    initializationPollTimer = window.setTimeout(() => {
+      initializationPollTimer = null;
+      pollInitializationStatus().catch((error) => {
+        setGenerating(false);
+        setStatus(error.message || String(error), "error");
+      });
+    }, INITIALIZATION_POLL_INTERVAL_MS);
+  }
+
+  function stopInitializationPolling() {
+    if (initializationPollTimer !== null) {
+      window.clearTimeout(initializationPollTimer);
+      initializationPollTimer = null;
+    }
+  }
+
+  function setInitializedStatus() {
     const analysis = learnerState.analysis || {};
     const moduleCount = Array.isArray(analysis.modules) ? analysis.modules.length : 0;
     const symbolCount = Array.isArray(analysis.symbols) ? analysis.symbols.length : 0;
@@ -675,16 +849,20 @@
     }
     const hasProject = Boolean(activeProjectRoot || activationRoot);
     const initialized = learnerInitialized();
+    const busy = isGenerating || initializationRunning();
     const modules = learnerModules();
-    nav.initialize.disabled = isGenerating || !hasProject;
-    nav.architecture.disabled = isGenerating || !initialized;
-    nav.moduleMenu.disabled = isGenerating || !initialized;
-    nav.module.disabled = isGenerating || !initialized || modules.length === 0;
-    nav.functionMenu.disabled = isGenerating || !initialized;
+    nav.initialize.disabled = busy || !hasProject;
+    nav.architecture.disabled = busy || !initialized;
+    nav.moduleMenu.disabled = busy || !initialized;
+    nav.module.disabled = busy || !initialized || modules.length === 0;
+    nav.functionMenu.disabled = busy || !initialized;
+    nav.function.disabled = busy || !initialized;
+    nav.audience.disabled = busy || !initialized;
+    nav.startAgent.disabled = busy || !hasProject || !learnerState.currentWalkthrough;
     nav.moduleStart.disabled =
-      isGenerating || !initialized || modules.length === 0 || !nav.module.value.trim();
+      busy || !initialized || modules.length === 0 || !nav.module.value.trim();
     nav.functionStart.disabled =
-      isGenerating || !initialized || !nav.function.value.trim();
+      busy || !initialized || !nav.function.value.trim();
   }
 
   function courseTarget(mode = courseMode) {
@@ -1061,6 +1239,7 @@
       walkthrough: null,
       source: null,
       analysis: null,
+      initialization: null,
       busy: false,
       error: "",
       selectedStartLine: null,
@@ -1078,14 +1257,16 @@
     state.error = "";
     renderPane(state);
     try {
-      const response = await fetch(state.contextUrl("/api/code-learner/init"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      const response = await fetch(
+        state.contextUrl("/api/code-learner/init/status"),
+        { cache: "no-store" },
+      );
       const payload = await response.json().catch(() => ({ error: "load failed" }));
       if (!response.ok) {
         throw new Error(payload.error || "load failed");
+      }
+      if (payload.initialization) {
+        state.initialization = payload.initialization;
       }
       applyPanePayload(state, payload.code_learner || payload);
     } catch (error) {
@@ -1103,6 +1284,9 @@
     }
     if (payload.analysis) {
       state.analysis = payload.analysis;
+    }
+    if (payload.initialization) {
+      state.initialization = payload.initialization;
     }
     if (payload.current_walkthrough) {
       state.walkthrough = payload.current_walkthrough;
@@ -1155,6 +1339,9 @@
     if (state.error) {
       return state.error;
     }
+    if (paneInitializationRunning(state)) {
+      return formatInitializationStatus(state.initialization);
+    }
     const step = currentPaneStep(state);
     if (!state.walkthrough || !step) {
       return "No course";
@@ -1166,6 +1353,11 @@
     return currentStepForWalkthrough(state.walkthrough);
   }
 
+  function paneInitializationRunning(state) {
+    const status = state.initialization && state.initialization.status;
+    return status === "queued" || status === "running";
+  }
+
   function renderPaneSource(state) {
     const source = state.source || {};
     const lines = Array.isArray(source.lines) ? source.lines : [];
@@ -1174,6 +1366,9 @@
     }
     if (state.error) {
       return `<div class="code-learner-empty">${escapeHtml(state.error)}</div>`;
+    }
+    if (paneInitializationRunning(state)) {
+      return `<div class="code-learner-empty">${escapeHtml(formatInitializationStatus(state.initialization))}</div>`;
     }
     if (!lines.length) {
       return `<div class="code-learner-empty">No source selected</div>`;
@@ -1214,7 +1409,7 @@
     if (!state.walkthrough || !step) {
       return `
         <div class="code-learner-empty">
-          <strong>No course loaded</strong>
+          <strong>${escapeHtml(paneInitializationRunning(state) ? "Initializing" : "No course loaded")}</strong>
           <button type="button" data-code-learner-pane="refresh">Refresh</button>
         </div>
       `;

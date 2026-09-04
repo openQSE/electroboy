@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import threading
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+from electroboy.models import utc_now
 from electroboy.service.recent_projects import remember_recent_project
 from electroboy.service.sessions import AgentSession
 from electroboy.service.services import ServiceServices
@@ -25,6 +30,126 @@ from .domain import (
     resolve_symbol,
 )
 from .planner import generate_code_learner_course_corpus_jsonl
+
+_INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running"})
+
+
+@dataclass
+class _InitializationJob:
+    """In-memory status for one Code Learner course initialization."""
+
+    root: Path
+    job_id: str = field(default_factory=lambda: uuid4().hex)
+    status: str = "queued"
+    phase: str = "queued"
+    percent: int = 0
+    message: str = "Queued AI course initialization."
+    started_at: str = field(default_factory=utc_now)
+    updated_at: str = field(default_factory=utc_now)
+    last_progress_at: str = ""
+    error: str = ""
+    started_monotonic: float = field(default_factory=time.monotonic)
+    thread: threading.Thread | None = field(default=None, repr=False)
+    lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
+
+    def is_running(self) -> bool:
+        with self.lock:
+            return self.status in _INITIALIZATION_RUNNING_STATUSES
+
+    def update(
+        self,
+        *,
+        status: str | None = None,
+        phase: str | None = None,
+        percent: int | None = None,
+        message: str | None = None,
+        error: str | None = None,
+        progress: bool = False,
+    ) -> None:
+        with self.lock:
+            if status is not None:
+                self.status = status
+            if phase is not None:
+                self.phase = phase
+            if percent is not None:
+                self.percent = max(self.percent, _bounded_percent(percent))
+            if message is not None:
+                self.message = message
+            if error is not None:
+                self.error = error
+            self.updated_at = utc_now()
+            if progress:
+                self.last_progress_at = self.updated_at
+
+    def snapshot(self) -> dict[str, object]:
+        with self.lock:
+            elapsed = max(0, int(time.monotonic() - self.started_monotonic))
+            percent = _bounded_percent(self.percent)
+            remaining = _estimated_remaining_seconds(elapsed, percent)
+            return {
+                "job_id": self.job_id,
+                "status": self.status,
+                "phase": self.phase,
+                "percent": percent,
+                "message": self.message,
+                "started_at": self.started_at,
+                "updated_at": self.updated_at,
+                "last_progress_at": self.last_progress_at,
+                "elapsed_seconds": elapsed,
+                "estimated_remaining_seconds": remaining,
+                "error": self.error,
+                "progress_path": str(
+                    CodeLearnerStore(self.root).initialization_progress_path
+                ),
+            }
+
+
+def _bounded_percent(value: object) -> int:
+    try:
+        percent = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(100, percent))
+
+
+def _estimated_remaining_seconds(elapsed: int, percent: int) -> int | None:
+    if percent <= 0 or percent >= 100:
+        return None
+    return max(0, int(elapsed * ((100 - percent) / percent)))
+
+
+def _idle_initialization_snapshot(root: Path) -> dict[str, object]:
+    return {
+        "job_id": "",
+        "status": "idle",
+        "phase": "idle",
+        "percent": 0,
+        "message": "Initialize Code Learner to generate AI course material.",
+        "started_at": "",
+        "updated_at": "",
+        "last_progress_at": "",
+        "elapsed_seconds": 0,
+        "estimated_remaining_seconds": None,
+        "error": "",
+        "progress_path": str(CodeLearnerStore(root).initialization_progress_path),
+    }
+
+
+def _completed_initialization_snapshot(root: Path) -> dict[str, object]:
+    return {
+        "job_id": "",
+        "status": "initialized",
+        "phase": "complete",
+        "percent": 100,
+        "message": "AI course material is ready.",
+        "started_at": "",
+        "updated_at": utc_now(),
+        "last_progress_at": "",
+        "elapsed_seconds": 0,
+        "estimated_remaining_seconds": None,
+        "error": "",
+        "progress_path": str(CodeLearnerStore(root).initialization_progress_path),
+    }
 
 
 def _existing_project_root(path: str) -> Path:
@@ -132,6 +257,8 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def __init__(self, services: ServiceServices) -> None:
         super().__init__(services)
+        self._initialization_lock = threading.RLock()
+        self._initialization_jobs: dict[str, _InitializationJob] = {}
 
     def _reserve_project_workspace(
         self,
@@ -199,8 +326,37 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def initialize(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        corpus_jsonl = generate_code_learner_course_corpus_jsonl(root)
-        return self._initialize_from_corpus_jsonl(context_id, root, corpus_jsonl)
+        if CodeLearnerStore(root).corpus_analysis() is not None:
+            return self._initialization_payload(context_id, root)
+        with self._initialization_lock:
+            job = self._initialization_jobs.get(str(root))
+            if job is None or not job.is_running():
+                job = _InitializationJob(root=root)
+                thread = threading.Thread(
+                    target=self._run_initialization_job,
+                    args=(root, job),
+                    name=f"code-learner-init-{job.job_id[:8]}",
+                    daemon=True,
+                )
+                job.thread = thread
+                self._initialization_jobs[str(root)] = job
+                thread.start()
+        return self._initialization_payload(context_id, root)
+
+    def initialization_status(self, context_id: str) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        return self._initialization_payload(context_id, root)
+
+    def wait_for_initialization(
+        self,
+        context_id: str,
+        timeout: float | None = None,
+    ) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        job = self._initialization_job(root)
+        if job is not None and job.thread is not None:
+            job.thread.join(timeout=timeout)
+        return self._initialization_payload(context_id, root)
 
     def initialize_from_jsonl(
         self,
@@ -216,14 +372,112 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root: Path,
         corpus_jsonl: str,
     ) -> dict[str, object]:
-        store = CodeLearnerStore(root)
-        store.save_corpus_jsonl(corpus_jsonl)
-        architecture = create_walkthrough(root, learning_mode="architecture")
-        store.save_walkthrough(architecture)
+        self._save_initialized_corpus(root, corpus_jsonl)
         state = self._state_payload(root)
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "initialized",
+            "initialization": _completed_initialization_snapshot(root),
+            "code_learner": state,
+        }
+
+    def _save_initialized_corpus(self, root: Path, corpus_jsonl: str) -> None:
+        store = CodeLearnerStore(root)
+        store.save_corpus_jsonl(corpus_jsonl)
+        architecture = create_walkthrough(root, learning_mode="architecture")
+        store.save_walkthrough(architecture)
+
+    def _run_initialization_job(
+        self,
+        root: Path,
+        job: _InitializationJob,
+    ) -> None:
+        store = CodeLearnerStore(root)
+        progress_path = store.initialization_progress_relative_path.as_posix()
+        job.update(
+            status="running",
+            phase="setup",
+            percent=1,
+            message="Starting AI course initialization.",
+        )
+        try:
+            corpus_jsonl = generate_code_learner_course_corpus_jsonl(
+                root,
+                progress_path=progress_path,
+                progress_callback=lambda record: self._record_initialization_progress(
+                    job,
+                    record,
+                ),
+            )
+            job.update(
+                phase="formalizing",
+                percent=98,
+                message="Formalizing AI course material.",
+            )
+            self._save_initialized_corpus(root, corpus_jsonl)
+            job.update(
+                status="initialized",
+                phase="complete",
+                percent=100,
+                message="AI course material is ready.",
+            )
+        except Exception as error:
+            message = str(error)
+            job.update(
+                status="failed",
+                phase="failed",
+                message=message,
+                error=message,
+            )
+
+    def _record_initialization_progress(
+        self,
+        job: _InitializationJob,
+        record: dict[str, object],
+    ) -> None:
+        phase = str(record.get("phase") or job.phase or "running").strip()
+        message = str(record.get("message") or phase).strip()
+        percent = record.get("percent")
+        job.update(
+            status="running",
+            phase=phase or "running",
+            percent=_bounded_percent(percent),
+            message=message or "Initializing AI course material.",
+            progress=True,
+        )
+
+    def _initialization_job(self, root: Path) -> _InitializationJob | None:
+        with self._initialization_lock:
+            return self._initialization_jobs.get(str(root))
+
+    def _initialization_payload(
+        self,
+        context_id: str,
+        root: Path,
+    ) -> dict[str, object]:
+        job = self._initialization_job(root)
+        state = self._state_payload(root)
+        initialized = "analysis" in state
+        if job is not None and job.is_running():
+            status = "initializing"
+            initialization = job.snapshot()
+        elif job is not None and str(job.snapshot().get("status")) == "failed":
+            status = "failed"
+            initialization = job.snapshot()
+        elif initialized:
+            status = "initialized"
+            initialization = (
+                job.snapshot()
+                if job is not None
+                else _completed_initialization_snapshot(root)
+            )
+        else:
+            status = "uninitialized"
+            initialization = _idle_initialization_snapshot(root)
+        return {
+            **self.services.contexts.project_payload(context_id),
+            "status": status,
+            "initialization": initialization,
             "code_learner": state,
         }
 

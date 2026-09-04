@@ -59,6 +59,12 @@ def _initialize(request: RouteRequest) -> ServiceResponse:
     return _workflow_action(lambda: _controller(request).initialize(request.context_id))
 
 
+def _initialization_status(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).initialization_status(request.context_id)
+    )
+
+
 def _analysis(request: RouteRequest) -> ServiceResponse:
     return _workflow_action(lambda: _controller(request).analysis(request.context_id))
 
@@ -180,6 +186,7 @@ def _optional_query_int(request: RouteRequest, name: str) -> int | None:
 ROUTES = (
     _route("POST", "/api/code-learner/project/open", "open_project"),
     _route("POST", "/api/code-learner/init", "initialize"),
+    _route("GET", "/api/code-learner/init/status", "initialization_status"),
     _route("GET", "/api/code-learner/analysis", "analysis"),
     _route("GET", "/api/code-learner/source", "source"),
     _route("GET", "/api/code-learner/modules", "modules"),
@@ -194,6 +201,7 @@ ROUTES = (
 HANDLERS: dict[str, RouteHandler] = {
     "open_project": _open_project,
     "initialize": _initialize,
+    "initialization_status": _initialization_status,
     "analysis": _analysis,
     "source": _source,
     "modules": _modules,

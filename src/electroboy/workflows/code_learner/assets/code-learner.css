@@ -81,6 +81,41 @@
   color: var(--error);
 }
 
+.code-learner-progress {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 8px 4px 18px;
+}
+
+.code-learner-progress[hidden] {
+  display: none;
+}
+
+.code-learner-progress-track {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--disabled);
+}
+
+.code-learner-progress-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--active);
+  transition: width 180ms ease;
+}
+
+.code-learner-progress-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #48627a;
+  font-size: var(--ui-small-font-size);
+  line-height: 1.3;
+}
+
 .code-learner-pane-host {
   width: 100%;
   height: 100%;

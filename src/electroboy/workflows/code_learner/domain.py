@@ -23,6 +23,9 @@ LEARNER_STATE_RELATIVE_PATH = (
 LEARNER_CORPUS_RELATIVE_PATH = (
     Path(".electroboy") / "code-learner" / "course-corpus.jsonl"
 )
+LEARNER_INIT_PROGRESS_RELATIVE_PATH = (
+    Path(".electroboy") / "code-learner" / "initialize-progress.jsonl"
+)
 COURSE_CORPUS_SCHEMA_VERSION = 1
 SUPPORTED_LEARNING_MODES = frozenset({"architecture", "module", "function"})
 COURSE_CORPUS_RECORD_TYPES = frozenset(
@@ -36,6 +39,7 @@ COURSE_CORPUS_RECORD_TYPES = frozenset(
         "diagnostic",
     }
 )
+IGNORED_COURSE_CORPUS_RECORD_TYPES = frozenset({"progress"})
 SOURCE_FILE_LIMIT = 500
 SYMBOL_FILE_LIMIT = 300
 MAX_SOURCE_BYTES = 2_000_000
@@ -550,6 +554,12 @@ class CodeLearnerStore:
         self.root = Path(root).expanduser().resolve()
         self.path = self.root / LEARNER_STATE_RELATIVE_PATH
         self.corpus_path = self.root / LEARNER_CORPUS_RELATIVE_PATH
+        self.initialization_progress_path = (
+            self.root / LEARNER_INIT_PROGRESS_RELATIVE_PATH
+        )
+        self.initialization_progress_relative_path = (
+            LEARNER_INIT_PROGRESS_RELATIVE_PATH
+        )
 
     def load_corpus_records(self) -> list[dict[str, object]]:
         """Load the AI-generated JSONL learning corpus for this repository."""
@@ -717,6 +727,8 @@ def parse_course_corpus_jsonl(text: str) -> list[dict[str, object]]:
                 f"course corpus line {line_number} is missing record_type"
             )
         if record_type not in COURSE_CORPUS_RECORD_TYPES:
+            if record_type in IGNORED_COURSE_CORPUS_RECORD_TYPES:
+                continue
             raise CodeLearnerError(
                 f"course corpus line {line_number} has unknown record_type: "
                 f"{record_type}"
