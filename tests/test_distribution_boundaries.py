@@ -16,6 +16,7 @@ PACKAGE_DIRS = (
     "electroboy-modules",
     "electroboy-workflow-software",
     "electroboy-workflow-creative-writing",
+    "electroboy-workflow-code-learner",
 )
 CHROME = shutil.which("google-chrome") or shutil.which("chromium")
 
@@ -97,6 +98,14 @@ def production_wheels(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Pat
                 "electroboy-workflow-creative-writing",
             ),
             ["creative-writing"],
+        ),
+        (
+            (
+                "electroboy-core",
+                "electroboy-modules",
+                "electroboy-workflow-code-learner",
+            ),
+            ["code-learner"],
         ),
     ],
 )
@@ -308,6 +317,97 @@ finally:
     assert payload["created"]["project_mode"] == "creative"
 
 
+def test_code_learner_only_wheels_open_a_source_repository(
+    production_wheels: dict[str, Path],
+    tmp_path: Path,
+) -> None:
+    site_dir = tmp_path / "code-learner-site"
+    install_packages(
+        site_dir,
+        production_wheels,
+        (
+            "electroboy-core",
+            "electroboy-modules",
+            "electroboy-workflow-code-learner",
+        ),
+    )
+    script = r"""
+import json
+import sys
+import threading
+import urllib.request
+from pathlib import Path
+from electroboy.service.app import create_server
+
+root = Path(sys.argv[1])
+project = Path(sys.argv[2])
+package = project / "src" / "sample"
+package.mkdir(parents=True)
+(project / "README.md").write_text("# Sample\n", encoding="utf-8")
+(package / "main.py").write_text(
+    "def helper(value):\n    return str(value)\n\n"
+    "def orchestrate(value):\n    return helper(value).upper()\n",
+    encoding="utf-8",
+)
+server = create_server(root, port=0)
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+base = f"http://127.0.0.1:{server.server_address[1]}"
+
+def post(path, payload=None):
+    request = urllib.request.Request(
+        base + path,
+        data=json.dumps(payload or {}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read())
+
+try:
+    context = post("/api/contexts")
+    opened = post(
+        f"/api/code-learner/project/open?context_id={context['context_id']}",
+        {"path": str(project)},
+    )
+    course = post(
+        f"/api/code-learner/walkthrough?context_id={opened['context_id']}",
+        {"learning_mode": "Function", "target": "orchestrate"},
+    )
+    print(json.dumps({"context": context, "opened": opened, "course": course}))
+finally:
+    server.shutdown()
+    thread.join(timeout=2)
+    server.server_close()
+"""
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(site_dir)
+    environment["PYTHONNOUSERSITE"] = "1"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            script,
+            str(tmp_path / "code-learner-service-root"),
+            str(tmp_path / "source-repo"),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout
+    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert payload["context"]["workflow_id"] == "code-learner"
+    assert payload["opened"]["status"] == "opened"
+    assert payload["opened"]["project_mode"] == "code-learner"
+    assert payload["course"]["walkthrough"]["learning_mode"] == "function"
+
+
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 @pytest.mark.parametrize(
     ("packages", "present", "absent", "workflow_asset"),
@@ -337,6 +437,16 @@ finally:
             'class="creative-binder"',
             'data-stage="requirements"',
             "js/workflows/creative-writing.js",
+        ),
+        (
+            (
+                "electroboy-core",
+                "electroboy-modules",
+                "electroboy-workflow-code-learner",
+            ),
+            'class="code-learner-nav"',
+            'data-stage="requirements"',
+            "js/workflows/code-learner.js",
         ),
     ],
 )

@@ -18,6 +18,10 @@ def test_standard_distribution_registers_built_in_contributions() -> None:
         'creative-writing = '
         '"electroboy.workflows.creative_writing.plugin:workflow"'
     ) in project
+    assert (
+        'code-learner = '
+        '"electroboy.workflows.code_learner.plugin:workflow"'
+    ) in project
 
 
 def test_production_distributions_have_independent_manifests() -> None:
@@ -29,6 +33,9 @@ def test_production_distributions_have_independent_manifests() -> None:
         ),
         "electroboy-workflow-creative-writing": (
             "electroboy.workflows.creative_writing.plugin:workflow"
+        ),
+        "electroboy-workflow-code-learner": (
+            "electroboy.workflows.code_learner.plugin:workflow"
         ),
     }
 
@@ -84,6 +91,12 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
         ROOT
         / "src/electroboy/workflows/creative_writing/assets/creative-writing.css"
     ).is_file()
+    assert (
+        ROOT / "src/electroboy/workflows/code_learner/assets/frontend.js"
+    ).is_file()
+    assert (
+        ROOT / "src/electroboy/workflows/code_learner/assets/code-learner.css"
+    ).is_file()
     legacy_asset = ROOT / "src/electroboy/assets/service/js/workflows/software.js"
     assert not legacy_asset.exists()
 
@@ -101,12 +114,17 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
         ROOT / "packages/electroboy-workflow-software/pyproject.toml"
     ).read_text(encoding="utf-8")
     assert '"assets/*.css"' in software_manifest
+    code_learner_manifest = (
+        ROOT / "packages/electroboy-workflow-code-learner/pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert '"assets/*.css"' in code_learner_manifest
 
 
 def test_workflow_controllers_do_not_import_service_app() -> None:
     controllers = (
         ROOT / "src/electroboy/workflows/software/controller.py",
         ROOT / "src/electroboy/workflows/creative_writing/controller.py",
+        ROOT / "src/electroboy/workflows/code_learner/controller.py",
     )
 
     for controller in controllers:
@@ -159,5 +177,6 @@ def test_service_app_has_no_optional_package_imports() -> None:
         module.startswith("electroboy.modules")
         or module.startswith("electroboy.workflows.software")
         or module.startswith("electroboy.workflows.creative_writing")
+        or module.startswith("electroboy.workflows.code_learner")
         for module in imported_modules
     )

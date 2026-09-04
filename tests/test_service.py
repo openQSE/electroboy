@@ -275,6 +275,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["root"], str(root.resolve()))
         self.assertIn("agent_sessions", payload["modules"])
         self.assertIn("software", payload["workflows"])
+        self.assertIn("code-learner", payload["workflows"])
 
         self.assertIn("core-shell", payload["frontend_bundles"])
         module_plugins = {
@@ -292,6 +293,11 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             workflow_plugins["software"]["entry_point"],
             "electroboy.workflows.software.plugin:workflow",
+        )
+        self.assertTrue(workflow_plugins["code-learner"]["provider"])
+        self.assertEqual(
+            workflow_plugins["code-learner"]["entry_point"],
+            "electroboy.workflows.code_learner.plugin:workflow",
         )
 
     def test_frontend_debug_endpoint_records_jsonl(self) -> None:
@@ -547,12 +553,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("frontend_debug", core_handlers)
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
+        self.assertIn("code-learner", workflows)
         self.assertIn("agent_sessions", workflows["software"]["modules"])
         self.assertIn("mind_map", workflows["software"]["modules"])
         self.assertIn("mind_map", workflows["creative-writing"]["modules"])
+        self.assertIn("agent_sessions", workflows["code-learner"]["modules"])
+        self.assertIn("file_browser", workflows["code-learner"]["modules"])
         self.assertIn(
             "mind-map",
             {stage["id"] for stage in workflows["software"]["stages"]},
+        )
+        self.assertEqual(
+            {stage["id"] for stage in workflows["code-learner"]["stages"]},
+            {"project", "course"},
         )
         self.assertIn("core-shell", frontend_bundles)
         self.assertIn("index.html", frontend_bundles["core-shell"]["assets"])
@@ -590,6 +603,15 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
+        self.assertIn("code-learner-workflow", frontend_bundles)
+        self.assertIn(
+            "js/workflows/code-learner.js",
+            frontend_bundles["code-learner-workflow"]["assets"],
+        )
+        self.assertIn(
+            "css/workflows/code-learner.css",
+            frontend_bundles["code-learner-workflow"]["assets"],
+        )
         self.assertIn("agent-sessions", frontend_bundles)
         self.assertIn(
             "js/modules/agent-pane-tools.js",
@@ -650,7 +672,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
-            ["software", "creative-writing"],
+            ["software", "creative-writing", "code-learner"],
         )
 
     def test_frontend_contributions_own_workflow_and_module_behavior(self) -> None:
@@ -1513,13 +1535,18 @@ class ServiceTests(unittest.TestCase):
             runtime,
         )
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
-        self.assertIn(
-            '"agent",\n      "artifact",\n      "agenda",\n'
-            '      "assignments",\n      "calendar",\n'
-            '      "mind-map",\n      "scratch",\n'
-            '      "status"',
-            runtime,
-        )
+        for pane_kind in (
+            "agent",
+            "artifact",
+            "agenda",
+            "assignments",
+            "calendar",
+            "code-learner",
+            "mind-map",
+            "scratch",
+            "status",
+        ):
+            self.assertIn(f'"{pane_kind}",', runtime)
         availability_start = runtime.index("function paneLayoutKindAvailable(")
         availability_end = runtime.index(
             "function markPaneLayoutControl(",
@@ -1969,6 +1996,7 @@ class ServiceTests(unittest.TestCase):
         workflows = build_workflow_registry(modules)
         software = workflows.get("software").payload()
         creative = workflows.get("creative-writing").payload()
+        code_learner = workflows.get("code-learner").payload()
 
         self.assertIn(
             "implementation-plan",
@@ -2000,6 +2028,14 @@ class ServiceTests(unittest.TestCase):
             creative["document_schemas"][0]["source_format"],
             "markdown",
         )
+        self.assertIn(
+            "code-tutor",
+            {role["id"] for role in code_learner["runtime_roles"]},
+        )
+        self.assertEqual(
+            [stage["id"] for stage in code_learner["stages"]],
+            ["project", "course"],
+        )
 
         page = render_service_index(
             read_service_text_asset("index.html"),
@@ -2019,6 +2055,10 @@ class ServiceTests(unittest.TestCase):
             page.index("js/core/runtime.js"),
         )
         self.assertLess(
+            page.index("js/workflows/code-learner.js"),
+            page.index("js/core/runtime.js"),
+        )
+        self.assertLess(
             page.index("js/core/pane-layout-drag.js"),
             page.index("js/core/runtime.js"),
         )
@@ -2028,6 +2068,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("css/workflows/software.css", page)
         self.assertIn("css/workflows/creative-writing.css", page)
+        self.assertIn("css/workflows/code-learner.css", page)
 
         empty_modules = build_module_registry(())
         empty_workflows = build_workflow_registry(empty_modules, ())
@@ -2038,8 +2079,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertNotIn("js/workflows/software.js", core_page)
         self.assertNotIn("js/workflows/creative-writing.js", core_page)
+        self.assertNotIn("js/workflows/code-learner.js", core_page)
         self.assertNotIn("css/workflows/software.css", core_page)
         self.assertNotIn("css/workflows/creative-writing.css", core_page)
+        self.assertNotIn("css/workflows/code-learner.css", core_page)
         self.assertNotIn('data-stage="requirements"', core_page)
         self.assertNotIn("Creative writing", core_page)
 
@@ -2426,6 +2469,24 @@ class ServiceTests(unittest.TestCase):
                         "/assets/service/css/workflows/creative-writing.css",
                     )
                 )
+                (
+                    code_learner_status,
+                    code_learner_body,
+                    code_learner_type,
+                    _code_learner_headers,
+                ) = request_bytes(
+                    server,
+                    "/assets/service/js/workflows/code-learner.js",
+                )
+                (
+                    code_learner_css_status,
+                    code_learner_css_body,
+                    code_learner_css_type,
+                    _,
+                ) = request_bytes(
+                    server,
+                    "/assets/service/css/workflows/code-learner.css",
+                )
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -2503,6 +2564,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(creative_css_status, 200)
         self.assertEqual(creative_css_type, "text/css; charset=utf-8")
         self.assertIn(b".creative-binder", creative_css_body)
+        self.assertEqual(code_learner_status, 200)
+        self.assertEqual(
+            code_learner_type,
+            "application/javascript; charset=utf-8",
+        )
+        self.assertIn(b'const WORKFLOW_ID = "code-learner"', code_learner_body)
+        self.assertEqual(code_learner_css_status, 200)
+        self.assertEqual(code_learner_css_type, "text/css; charset=utf-8")
+        self.assertIn(b".code-learner-pane", code_learner_css_body)
 
     def test_creative_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3943,6 +4013,9 @@ class ServiceTests(unittest.TestCase):
         creative = read_service_text_asset(
             "js/workflows/creative-writing.js", modules, workflows
         )
+        code_learner = read_service_text_asset(
+            "js/workflows/code-learner.js", modules, workflows
+        )
         core_styles = read_service_text_asset("css/shell.css")
 
         self.assertIn('fetch("/api/health"', runtime)
@@ -3978,6 +4051,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-creative-control="project-menu"', creative)
         self.assertIn("function renderNavigation(container, runtime)", creative)
         self.assertIn('navigation: "sidebar"', creative)
+        self.assertIn('const WORKFLOW_ID = "code-learner"', code_learner)
+        self.assertIn("function renderNavigation(container, runtime)", code_learner)
+        self.assertIn('kind: "code-learner"', code_learner)
 
         self.assertIn('id="projectPanel"', template)
         self.assertIn('id="fileBrowser"', template)

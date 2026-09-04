@@ -42,6 +42,7 @@ structured_documents = "electroboy.modules.structured_documents:module"
 [project.entry-points."electroboy.workflows"]
 software = "electroboy.workflows.software.plugin:workflow"
 creative-writing = "electroboy.workflows.creative_writing.plugin:workflow"
+code-learner = "electroboy.workflows.code_learner.plugin:workflow"
 
 [project.entry-points."electroboy.cli"]
 software = "electroboy.workflows.software.cli:command_provider"
@@ -60,6 +61,7 @@ electroboy = [
 "electroboy.modules" = ["assets/*.js", "assets/*.css"]
 "electroboy.workflows.software" = ["assets/*.js", "assets/*.css"]
 "electroboy.workflows.creative_writing" = ["assets/*.js", "assets/*.css"]
+"electroboy.workflows.code_learner" = ["assets/*.js", "assets/*.css"]
 
 [tool.black]
 line-length = 88

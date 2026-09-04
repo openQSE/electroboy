@@ -11,6 +11,8 @@ distributions from this directory:
   and frontend bundle.
 - `electroboy-workflow-creative-writing` provides the creative-writing
   controller and frontend bundle.
+- `electroboy-workflow-code-learner` provides the source walkthrough
+  controller and frontend bundle.
 
 Each optional distribution registers its contributions with Python entry
 points. The core imports a workflow or module only after discovering its entry
@@ -25,4 +27,6 @@ python -m pip wheel --no-deps --wheel-dir dist \
   packages/electroboy-workflow-software
 python -m pip wheel --no-deps --wheel-dir dist \
   packages/electroboy-workflow-creative-writing
+python -m pip wheel --no-deps --wheel-dir dist \
+  packages/electroboy-workflow-code-learner
 ```

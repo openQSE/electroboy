@@ -39,6 +39,7 @@ _SOURCE_MODULE_FACTORIES = {
 _SOURCE_WORKFLOW_FACTORIES = {
     "software": "electroboy.workflows.software.plugin:workflow",
     "creative-writing": "electroboy.workflows.creative_writing.plugin:workflow",
+    "code-learner": "electroboy.workflows.code_learner.plugin:workflow",
 }
 
 

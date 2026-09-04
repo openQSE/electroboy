@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "electroboy-workflow-code-learner"
+version = "0.1.0"
+description = "Code-learning workflow for ElectroBoy."
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = [
+  "electroboy-core==0.1.0",
+  "electroboy-modules==0.1.0",
+]
+
+[project.entry-points."electroboy.workflows"]
+code-learner = "electroboy.workflows.code_learner.plugin:workflow"
+
+[tool.setuptools]
+package-dir = { "" = "../../src" }
+packages = ["electroboy.workflows.code_learner"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+"electroboy.workflows.code_learner" = ["assets/*.js", "assets/*.css"]
