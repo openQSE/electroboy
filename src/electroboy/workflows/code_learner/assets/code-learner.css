@@ -1,33 +1,29 @@
-.code-learner-workflow .workflow-pane {
-  background: #111418;
-}
-
 .code-learner-nav,
 .code-learner-section,
 .code-learner-course-form {
   display: grid;
-  gap: 8px;
+  gap: 2px;
   min-width: 0;
 }
 
 .code-learner-nav {
   align-content: start;
+  color: #1d3348;
 }
 
 .code-learner-section {
-  border-top: 1px solid #303946;
-  padding-top: 10px;
+  padding-top: 4px;
 }
 
 .code-learner-section:first-child {
-  border-top: 0;
   padding-top: 0;
 }
 
 .code-learner-section-title {
-  color: #9facb8;
-  font-size: 11px;
-  font-weight: 750;
+  margin: 12px 8px 4px;
+  color: #48627a;
+  font-size: var(--ui-small-font-size);
+  font-weight: 400;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -41,8 +37,9 @@
 
 .code-learner-mode-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 4px;
+  min-width: 0;
 }
 
 .code-learner-mode-grid label {
@@ -58,35 +55,43 @@
 
 .code-learner-mode-grid span {
   display: grid;
-  min-height: 30px;
-  place-items: center;
+  align-items: center;
+  min-height: 40px;
   overflow: hidden;
-  border: 1px solid #303946;
-  border-radius: 6px;
-  background: #171d25;
-  color: #c8d2dc;
-  font-size: 12px;
-  font-weight: 650;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #304a63;
+  font: inherit;
+  font-size: var(--ui-menu-font-size);
+  font-weight: 400;
+  padding: 0 12px 0 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.code-learner-mode-grid label:hover span {
+  background: var(--blue-surface-hover);
+  color: #172a3d;
+}
+
 .code-learner-mode-grid input:checked + span {
-  border-color: #5ab8ab;
-  background: #16342f;
-  color: #edfdf9;
+  background: #c2dfe5;
+  color: #164f5a;
+  font-weight: 400;
 }
 
 .code-learner-field {
   display: grid;
   gap: 4px;
   min-width: 0;
+  padding: 4px 8px 6px 18px;
 }
 
 .code-learner-field span {
-  color: #9facb8;
-  font-size: 11px;
-  font-weight: 750;
+  color: #48627a;
+  font-size: var(--ui-small-font-size);
+  font-weight: 400;
   text-transform: uppercase;
 }
 
@@ -95,30 +100,40 @@
   width: 100%;
   min-width: 0;
   min-height: 32px;
-  border: 1px solid #303946;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #0f141a;
-  color: #e6edf2;
+  background: var(--panel);
+  color: #1d3348;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ui-small-font-size);
   padding: 0 8px;
+}
+
+.code-learner-field input:disabled,
+.code-learner-field select:disabled {
+  background: var(--disabled);
+  color: #7d91a4;
 }
 
 .code-learner-status {
   min-height: 18px;
   overflow-wrap: anywhere;
-  color: #9facb8;
-  font-size: 12px;
+  color: #48627a;
+  font-size: var(--ui-small-font-size);
+  line-height: 1.35;
+  padding: 2px 8px 0 18px;
 }
 
 .code-learner-status[data-kind="error"] {
-  color: #ffb1a8;
+  color: var(--error);
 }
 
 .code-learner-step-button.active {
-  border-color: #d89a31;
-  background: #302616;
-  color: #ffe7b7;
+  background: #1f3f5f;
+  color: #ffffff;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 16%) inset,
+    0 8px 18px rgb(18 48 78 / 14%);
 }
 
 .code-learner-pane-host {

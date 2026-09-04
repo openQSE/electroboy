@@ -43,6 +43,22 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert ".tok-keyword" in stylesheet
 
 
+def test_code_learner_navigation_uses_shared_shell_palette() -> None:
+    modules = build_module_registry()
+    workflows = build_workflow_registry(modules, (code_learner_workflow(),))
+    stylesheet = read_service_text_asset(
+        "css/workflows/code-learner.css",
+        modules,
+        workflows,
+    )
+
+    assert ".code-learner-workflow .workflow-pane" not in stylesheet
+    assert "var(--blue-surface-hover)" in stylesheet
+    assert "var(--border)" in stylesheet
+    assert "var(--disabled)" in stylesheet
+    assert "border-radius: 999px;" in stylesheet
+
+
 def test_pane_window_loads_installed_workflow_assets_for_code_learner() -> None:
     modules = build_module_registry()
     workflows = build_workflow_registry(modules, (code_learner_workflow(),))
