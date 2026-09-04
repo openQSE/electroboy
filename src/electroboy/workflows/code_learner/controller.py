@@ -17,13 +17,14 @@ from .domain import (
     CodeLearnerStore,
     SourceAdapter,
     Walkthrough,
-    analyze_repository,
+    RepositoryAnalysis,
     build_learner_context,
     create_walkthrough,
     learner_prompt,
     learner_question_payload,
     resolve_symbol,
 )
+from .planner import generate_code_learner_course_corpus_jsonl
 
 
 def _existing_project_root(path: str) -> Path:
@@ -64,6 +65,17 @@ def _walkthrough_source_payload(
         reference.file_path,
         start_line=reference.start_line,
         end_line=reference.end_line,
+    )
+
+
+def _empty_analysis(root: Path) -> RepositoryAnalysis:
+    return RepositoryAnalysis(
+        source_root=str(root),
+        source_files=(),
+        language_counts={},
+        modules=(),
+        symbols=(),
+        truncated=False,
     )
 
 
@@ -187,18 +199,40 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def initialize(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        corpus_jsonl = generate_code_learner_course_corpus_jsonl(root)
+        return self._initialize_from_corpus_jsonl(context_id, root, corpus_jsonl)
+
+    def initialize_from_jsonl(
+        self,
+        context_id: str,
+        corpus_jsonl: str,
+    ) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        return self._initialize_from_corpus_jsonl(context_id, root, corpus_jsonl)
+
+    def _initialize_from_corpus_jsonl(
+        self,
+        context_id: str,
+        root: Path,
+        corpus_jsonl: str,
+    ) -> dict[str, object]:
+        store = CodeLearnerStore(root)
+        store.save_corpus_jsonl(corpus_jsonl)
+        architecture = create_walkthrough(root, learning_mode="architecture")
+        store.save_walkthrough(architecture)
         state = self._state_payload(root)
-        state["analysis"] = analyze_repository(root).to_dict()
         return {
             **self.services.contexts.project_payload(context_id),
+            "status": "initialized",
             "code_learner": state,
         }
 
     def analysis(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        analysis = CodeLearnerStore(root).corpus_analysis()
         return {
-            "status": "analyzed",
-            "analysis": analyze_repository(root).to_dict(),
+            "status": "analyzed" if analysis is not None else "uninitialized",
+            "analysis": (analysis or _empty_analysis(root)).to_dict(),
         }
 
     def source_file(
@@ -222,7 +256,8 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         }
 
     def modules(self, context_id: str) -> dict[str, object]:
-        analysis = analyze_repository(self._active_project_root(context_id))
+        root = self._active_project_root(context_id)
+        analysis = CodeLearnerStore(root).corpus_analysis() or _empty_analysis(root)
         return {
             "status": "listed",
             "modules": list(analysis.to_dict()["modules"]),
@@ -230,7 +265,8 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         }
 
     def symbols(self, context_id: str, query: str = "") -> dict[str, object]:
-        analysis = analyze_repository(self._active_project_root(context_id))
+        root = self._active_project_root(context_id)
+        analysis = CodeLearnerStore(root).corpus_analysis() or _empty_analysis(root)
         symbols = list(analysis.symbols)
         requested = query.strip().lower()
         if requested:
@@ -405,6 +441,12 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             "current_walkthrough_id": current.id if current else "",
             "current_walkthrough": current.to_dict() if current else None,
         }
+        analysis = store.corpus_analysis()
+        if analysis is not None:
+            payload["analysis"] = analysis.to_dict()
+        corpus = store.course_corpus_payload()
+        if corpus is not None:
+            payload["corpus"] = corpus
         try:
             payload["source"] = _walkthrough_source_payload(root, current)
         except CodeLearnerError as error:

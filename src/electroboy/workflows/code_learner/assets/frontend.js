@@ -599,10 +599,17 @@
     if (!contextId || !(activeProjectRoot || activationRoot)) {
       return;
     }
-    const response = await runtimeApi.http.fetch(contextUrl("/api/code-learner/init"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+    setStatus("Initializing AI course material...");
+    setGenerating(true);
+    const response = await runtimeApi.http.fetch(
+      contextUrl("/api/code-learner/init"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    ).finally(() => {
+      setGenerating(false);
     });
     const payload = await response.json().catch(() => ({ error: "load failed" }));
     if (!response.ok) {
@@ -614,7 +621,7 @@
     const analysis = learnerState.analysis || {};
     const moduleCount = Array.isArray(analysis.modules) ? analysis.modules.length : 0;
     const symbolCount = Array.isArray(analysis.symbols) ? analysis.symbols.length : 0;
-    setStatus(`Initialized: ${moduleCount} modules, ${symbolCount} symbols.`);
+    setStatus(`AI course initialized: ${moduleCount} modules, ${symbolCount} symbols.`);
   }
 
   async function generateCourse(options = {}) {

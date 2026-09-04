@@ -20,7 +20,22 @@ WORKFLOW_ID = "code-learner"
 LEARNER_STATE_RELATIVE_PATH = (
     Path(".electroboy") / "code-learner" / "walkthroughs.json"
 )
+LEARNER_CORPUS_RELATIVE_PATH = (
+    Path(".electroboy") / "code-learner" / "course-corpus.jsonl"
+)
+COURSE_CORPUS_SCHEMA_VERSION = 1
 SUPPORTED_LEARNING_MODES = frozenset({"architecture", "module", "function"})
+COURSE_CORPUS_RECORD_TYPES = frozenset(
+    {
+        "course_manifest",
+        "architecture_step",
+        "module",
+        "module_step",
+        "function_index_entry",
+        "function_lesson",
+        "diagnostic",
+    }
+)
 SOURCE_FILE_LIMIT = 500
 SYMBOL_FILE_LIMIT = 300
 MAX_SOURCE_BYTES = 2_000_000
@@ -534,6 +549,49 @@ class CodeLearnerStore:
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root).expanduser().resolve()
         self.path = self.root / LEARNER_STATE_RELATIVE_PATH
+        self.corpus_path = self.root / LEARNER_CORPUS_RELATIVE_PATH
+
+    def load_corpus_records(self) -> list[dict[str, object]]:
+        """Load the AI-generated JSONL learning corpus for this repository."""
+
+        if not self.corpus_path.exists():
+            return []
+        return parse_course_corpus_jsonl(
+            self.corpus_path.read_text(encoding="utf-8"),
+        )
+
+    def save_corpus_jsonl(self, text: str) -> list[dict[str, object]]:
+        """Validate and persist raw AI JSONL course material."""
+
+        records = parse_course_corpus_jsonl(text)
+        self.save_corpus_records(records)
+        return records
+
+    def save_corpus_records(self, records: list[dict[str, object]]) -> None:
+        if not records:
+            raise CodeLearnerError("AI course corpus is empty")
+        self.corpus_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.corpus_path.with_suffix(
+            f"{self.corpus_path.suffix}.{uuid4().hex}.tmp"
+        )
+        temporary.write_text(
+            "\n".join(json.dumps(record, sort_keys=True) for record in records)
+            + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, self.corpus_path)
+
+    def course_corpus_payload(self) -> dict[str, object] | None:
+        records = self.load_corpus_records()
+        if not records:
+            return None
+        return course_corpus_payload(records)
+
+    def corpus_analysis(self) -> RepositoryAnalysis | None:
+        records = self.load_corpus_records()
+        if not records:
+            return None
+        return analysis_from_course_corpus(self.root, records)
 
     def load(self) -> dict[str, object]:
         if not self.path.exists():
@@ -637,6 +695,88 @@ class CodeLearnerStore:
         os.replace(temporary, self.path)
 
 
+def parse_course_corpus_jsonl(text: str) -> list[dict[str, object]]:
+    """Validate AI-produced JSONL records for a Code Learner corpus."""
+
+    records: list[dict[str, object]] = []
+    for line_number, line in enumerate(_course_corpus_lines(text), start=1):
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise CodeLearnerError(
+                f"course corpus line {line_number} is not valid JSON: {error.msg}"
+            ) from error
+        if not isinstance(payload, dict):
+            raise CodeLearnerError(
+                f"course corpus line {line_number} must be a JSON object"
+            )
+        record = dict(payload)
+        record_type = _record_type(record)
+        if not record_type:
+            raise CodeLearnerError(
+                f"course corpus line {line_number} is missing record_type"
+            )
+        if record_type not in COURSE_CORPUS_RECORD_TYPES:
+            raise CodeLearnerError(
+                f"course corpus line {line_number} has unknown record_type: "
+                f"{record_type}"
+            )
+        record["record_type"] = record_type
+        records.append(record)
+    if not records:
+        raise CodeLearnerError("AI course corpus is empty")
+    if not any(_record_type(record) == "course_manifest" for record in records):
+        raise CodeLearnerError("AI course corpus is missing course_manifest")
+    return records
+
+
+def course_corpus_payload(records: list[dict[str, object]]) -> dict[str, object]:
+    """Return a compact browser payload for an AI-generated learning corpus."""
+
+    manifest = next(
+        (record for record in records if _record_type(record) == "course_manifest"),
+        {},
+    )
+    diagnostics = [
+        record for record in records if _record_type(record) == "diagnostic"
+    ]
+    return {
+        "schema_version": COURSE_CORPUS_SCHEMA_VERSION,
+        "record_count": len(records),
+        "manifest": dict(manifest),
+        "diagnostics": diagnostics,
+        "architecture_step_count": _record_count(records, "architecture_step"),
+        "module_count": _record_count(records, "module"),
+        "module_step_count": _record_count(records, "module_step"),
+        "function_index_count": _record_count(records, "function_index_entry"),
+        "function_lesson_count": _record_count(records, "function_lesson"),
+    }
+
+
+def analysis_from_course_corpus(
+    root: Path | str,
+    records: list[dict[str, object]],
+) -> RepositoryAnalysis:
+    """Build the UI's analysis payload from AI-inferred corpus records."""
+
+    adapter = SourceAdapter(root)
+    source_files = _course_corpus_source_files(records)
+    language_counts: dict[str, int] = {}
+    for source_file in source_files:
+        language = language_for_path(source_file)
+        language_counts[language] = language_counts.get(language, 0) + 1
+    modules = tuple(_course_corpus_modules(records))
+    symbols = tuple(_course_corpus_symbols(records))
+    return RepositoryAnalysis(
+        source_root=str(adapter.root),
+        source_files=tuple(source_files),
+        language_counts=language_counts,
+        modules=modules,
+        symbols=symbols,
+        truncated=False,
+    )
+
+
 def normalize_learning_mode(mode: str) -> str:
     normalized = str(mode or "").strip().lower().replace("_", "-")
     aliases = {
@@ -657,6 +797,204 @@ def normalize_learning_mode(mode: str) -> str:
 def language_for_path(path: str | Path) -> str:
     suffix = Path(str(path)).suffix.lower()
     return LANGUAGE_BY_EXTENSION.get(suffix, "plain")
+
+
+def _course_corpus_lines(text: str):
+    lines = text.splitlines()
+    fenced: list[str] = []
+    in_fence = False
+    saw_fence = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            saw_fence = True
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            fenced.append(line)
+    source = fenced if saw_fence and fenced else lines
+    for line in source:
+        stripped = line.strip()
+        if stripped:
+            yield stripped
+
+
+def _record_type(record: dict[str, object]) -> str:
+    return str(record.get("record_type") or record.get("type") or "").strip()
+
+
+def _record_count(records: list[dict[str, object]], record_type: str) -> int:
+    return sum(1 for record in records if _record_type(record) == record_type)
+
+
+def _text_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return "\n".join(f"- {_text_value(item)}" for item in value if _text_value(item))
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True)
+    return str(value).strip()
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [
+            str(item).strip()
+            for item in value
+            if str(item).strip()
+        ]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _course_corpus_source_references(
+    record: dict[str, object],
+    *,
+    kind: str | None = None,
+) -> list[SourceReference]:
+    references: list[SourceReference] = []
+    raw_refs = record.get("source_refs")
+    if isinstance(raw_refs, list):
+        for raw in raw_refs:
+            if not isinstance(raw, dict):
+                continue
+            reference = _source_reference_from_payload(
+                raw,
+                kind=kind or _record_type(record),
+                fallback_symbol=str(record.get("symbol") or ""),
+                fallback_label=str(record.get("title") or record.get("name") or ""),
+            )
+            if reference is not None:
+                references.append(reference)
+    if references:
+        return references
+    fallback_path = ""
+    if _record_type(record) == "function_index_entry":
+        fallback_path = str(record.get("path") or record.get("file_path") or "")
+    if not fallback_path:
+        return []
+    start = int(record.get("start_line") or 1)
+    end = int(record.get("end_line") or start)
+    return [
+        SourceReference(
+            file_path=fallback_path,
+            start_line=start,
+            end_line=end,
+            symbol=str(record.get("symbol") or ""),
+            label=str(record.get("display_name") or record.get("symbol") or ""),
+            kind=kind or _record_type(record),
+        ).normalized()
+    ]
+
+
+def _source_reference_from_payload(
+    payload: dict[str, object],
+    *,
+    kind: str,
+    fallback_symbol: str = "",
+    fallback_label: str = "",
+) -> SourceReference | None:
+    path = str(payload.get("path") or payload.get("file_path") or "").strip()
+    if not path:
+        return None
+    start = int(payload.get("start_line") or 1)
+    end = int(payload.get("end_line") or start)
+    return SourceReference(
+        file_path=path,
+        start_line=start,
+        end_line=end,
+        symbol=str(payload.get("symbol") or fallback_symbol or ""),
+        label=str(payload.get("label") or payload.get("reason") or fallback_label or ""),
+        kind=kind,
+    ).normalized()
+
+
+def _course_corpus_source_files(records: list[dict[str, object]]) -> list[str]:
+    files: list[str] = []
+    for record in records:
+        for path in _string_list(record.get("primary_files")):
+            files.append(path)
+        for reference in _course_corpus_source_references(record):
+            files.append(reference.file_path)
+    return _unique(files)
+
+
+def _course_corpus_modules(records: list[dict[str, object]]) -> list[dict[str, object]]:
+    modules: list[dict[str, object]] = []
+    for record in records:
+        if _record_type(record) != "module":
+            continue
+        module_id = str(record.get("id") or "").strip()
+        if not module_id:
+            continue
+        name = str(record.get("name") or record.get("label") or module_id).strip()
+        primary_files = _string_list(record.get("primary_files"))
+        if not primary_files:
+            primary_files = [
+                reference.file_path
+                for reference in _course_corpus_source_references(record, kind="module")
+            ]
+        primary_files = _unique(primary_files)
+        language_counts: dict[str, int] = {}
+        for relative_path in primary_files:
+            language = language_for_path(relative_path)
+            language_counts[language] = language_counts.get(language, 0) + 1
+        modules.append(
+            {
+                "id": module_id,
+                "path": module_id,
+                "label": name,
+                "name": name,
+                "purpose": _text_value(record.get("purpose")),
+                "responsibilities": _string_list(record.get("responsibilities")),
+                "public_interfaces": _string_list(record.get("public_interfaces")),
+                "depends_on_module_ids": _string_list(
+                    record.get("depends_on_module_ids")
+                ),
+                "used_by_module_ids": _string_list(record.get("used_by_module_ids")),
+                "primary_files": primary_files,
+                "file_count": len(primary_files),
+                "language_counts": language_counts,
+                "confidence": _confidence(record),
+            }
+        )
+    return modules
+
+
+def _course_corpus_symbols(records: list[dict[str, object]]) -> list[SymbolCandidate]:
+    symbols: list[SymbolCandidate] = []
+    for record in records:
+        if _record_type(record) != "function_index_entry":
+            continue
+        symbol = str(record.get("symbol") or record.get("display_name") or "").strip()
+        if not symbol:
+            continue
+        references = _course_corpus_source_references(
+            record,
+            kind=str(record.get("kind") or "function"),
+        )
+        if not references:
+            continue
+        reference = references[0]
+        symbols.append(
+            SymbolCandidate(
+                name=symbol.split(".")[-1],
+                qualified_name=symbol,
+                kind=str(record.get("kind") or "function"),
+                file_path=reference.file_path,
+                start_line=reference.start_line,
+                end_line=reference.end_line,
+                calls=tuple(_string_list(record.get("known_callees"))),
+            )
+        )
+    return sorted(
+        symbols,
+        key=lambda item: (item.file_path, item.start_line, item.qualified_name),
+    )
 
 
 def analyze_repository(root: Path | str) -> RepositoryAnalysis:
@@ -687,24 +1025,25 @@ def create_walkthrough(
 ) -> Walkthrough:
     mode = normalize_learning_mode(learning_mode)
     adapter = SourceAdapter(root)
-    analysis = analyze_repository(adapter.root)
+    records = CodeLearnerStore(adapter.root).load_corpus_records()
+    if not records:
+        raise CodeLearnerError(
+            "initialize Code Learner before generating a course"
+        )
     if mode == "architecture":
-        draft = _architecture_steps(analysis)
-        title = f"Architecture Tour: {adapter.root.name}"
+        draft = _architecture_steps_from_corpus(records)
+        title = _architecture_title(adapter, records)
         mode_target = ""
     elif mode == "module":
-        mode_target = _resolve_module_target(adapter, analysis, target)
-        draft = _module_steps(adapter, analysis, mode_target)
-        title = f"Module Deep Dive: {mode_target}"
+        module = _course_corpus_module_for_target(records, target)
+        mode_target = str(module.get("id") or target).strip()
+        draft = _module_steps_from_corpus(records, module)
+        title = f"Module Deep Dive: {module.get('name') or mode_target}"
     else:
-        resolution = resolve_symbol(analysis, target)
-        if resolution.status == "ambiguous":
-            raise CodeLearnerError("function target is ambiguous")
-        if resolution.symbol is None:
-            raise CodeLearnerError("function target was not found")
-        mode_target = resolution.symbol.qualified_name
-        draft = _function_steps(adapter, analysis, resolution.symbol)
-        title = f"Function Deep Dive: {mode_target}"
+        lesson = _function_lesson_for_target(records, target)
+        mode_target = str(lesson.get("symbol") or target).strip()
+        draft = _function_steps_from_corpus(records, lesson)
+        title = f"Function Deep Dive: {lesson.get('display_name') or mode_target}"
     return formalize_walkthrough(
         adapter,
         title=title,
@@ -1187,6 +1526,279 @@ def _javascript_call_names(lines: list[str]) -> set[str]:
             if name not in keywords:
                 calls.add(name)
     return calls
+
+
+def _architecture_steps_from_corpus(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    manifest = _course_corpus_manifest(records)
+    requested_ids = _string_list(manifest.get("architecture_step_ids"))
+    architecture_records = _ordered_course_records(
+        records,
+        "architecture_step",
+        requested_ids,
+    )
+    if not architecture_records:
+        raise CodeLearnerError("AI course corpus has no architecture steps")
+    return [
+        _course_step_from_record(record, "architecture", index)
+        for index, record in enumerate(architecture_records, start=1)
+    ]
+
+
+def _module_steps_from_corpus(
+    records: list[dict[str, object]],
+    module: dict[str, object],
+) -> list[dict[str, object]]:
+    module_id = str(module.get("id") or "").strip()
+    module_records = [
+        record
+        for record in records
+        if _record_type(record) == "module_step"
+        and str(record.get("module_id") or "").strip() == module_id
+    ]
+    if not module_records:
+        module_records = [module]
+    return [
+        _course_step_from_record(record, "module", index)
+        for index, record in enumerate(module_records, start=1)
+    ]
+
+
+def _function_steps_from_corpus(
+    records: list[dict[str, object]],
+    lesson: dict[str, object],
+) -> list[dict[str, object]]:
+    references = _course_corpus_source_references(lesson, kind="function")
+    if not references:
+        index_entry = _function_index_for_target(
+            records,
+            str(lesson.get("symbol") or ""),
+        )
+        if index_entry is not None:
+            references = _course_corpus_source_references(index_entry, kind="function")
+    if not references:
+        raise CodeLearnerError(
+            f"function lesson has no source references: {lesson.get('symbol')}"
+        )
+    sections = [
+        (
+            "purpose",
+            str(lesson.get("title") or "Purpose and Shape"),
+            [
+                _text_value(lesson.get("summary")),
+                _text_value(lesson.get("body")),
+            ],
+        ),
+        (
+            "call-flow",
+            "Call Tree",
+            [_text_value(lesson.get("call_flow"))],
+        ),
+        (
+            "inputs-outputs",
+            "Inputs and Outputs",
+            [
+                _section_with_label("Inputs", lesson.get("inputs")),
+                _section_with_label("Outputs", lesson.get("outputs")),
+            ],
+        ),
+        (
+            "effects-errors",
+            "Side Effects and Error Paths",
+            [
+                _section_with_label("Side effects", lesson.get("side_effects")),
+                _section_with_label("Error paths", lesson.get("error_paths")),
+            ],
+        ),
+    ]
+    symbol = _stable_id(str(lesson.get("symbol") or "function"))
+    steps: list[dict[str, object]] = []
+    secondary = [reference.to_dict() for reference in references[1:]]
+    for index, (section_id, title, parts) in enumerate(sections, start=1):
+        explanation = "\n\n".join(part for part in parts if part)
+        if not explanation:
+            continue
+        steps.append(
+            {
+                "id": f"function.{symbol}.{section_id}",
+                "title": title,
+                "explanation": explanation,
+                "primary_reference": references[0],
+                "secondary_references": secondary,
+                "confidence": _confidence(lesson),
+            }
+        )
+    if not steps:
+        steps.append(_course_step_from_record(lesson, "function", 1))
+    return steps
+
+
+def _course_step_from_record(
+    record: dict[str, object],
+    kind: str,
+    index: int,
+) -> dict[str, object]:
+    references = _course_corpus_source_references(record, kind=kind)
+    if not references:
+        raise CodeLearnerError(
+            f"{kind} course record has no source references: "
+            f"{record.get('id') or record.get('title') or record.get('name')}"
+        )
+    return {
+        "id": str(record.get("id") or f"{kind}-{index:03d}"),
+        "title": str(
+            record.get("title")
+            or record.get("name")
+            or record.get("display_name")
+            or f"Step {index}"
+        ),
+        "explanation": _course_record_explanation(record),
+        "primary_reference": references[0],
+        "secondary_references": [reference.to_dict() for reference in references[1:]],
+        "confidence": _confidence(record),
+    }
+
+
+def _course_record_explanation(record: dict[str, object]) -> str:
+    parts = [
+        _text_value(record.get("summary")),
+        _text_value(record.get("body")),
+        _section_with_label("Purpose", record.get("purpose")),
+        _section_with_label("Responsibilities", record.get("responsibilities")),
+        _section_with_label("Public interfaces", record.get("public_interfaces")),
+    ]
+    explanation = "\n\n".join(part for part in parts if part)
+    if explanation:
+        return explanation
+    return _text_value(record.get("message"))
+
+
+def _section_with_label(label: str, value: object) -> str:
+    text = _text_value(value)
+    if not text:
+        return ""
+    return f"{label}: {text}"
+
+
+def _course_corpus_manifest(records: list[dict[str, object]]) -> dict[str, object]:
+    return next(
+        (record for record in records if _record_type(record) == "course_manifest"),
+        {},
+    )
+
+
+def _ordered_course_records(
+    records: list[dict[str, object]],
+    record_type: str,
+    requested_ids: list[str],
+) -> list[dict[str, object]]:
+    candidates = [
+        record for record in records if _record_type(record) == record_type
+    ]
+    if not requested_ids:
+        return candidates
+    by_id = {str(record.get("id") or ""): record for record in candidates}
+    ordered = [
+        by_id[record_id]
+        for record_id in requested_ids
+        if record_id in by_id
+    ]
+    remaining = [
+        record for record in candidates if record not in ordered
+    ]
+    return [*ordered, *remaining]
+
+
+def _course_corpus_module_for_target(
+    records: list[dict[str, object]],
+    target: str,
+) -> dict[str, object]:
+    requested = str(target or "").strip().lower()
+    if not requested:
+        raise CodeLearnerError("module target required")
+    for module in _course_corpus_modules(records):
+        values = {
+            str(module.get("id") or "").strip().lower(),
+            str(module.get("path") or "").strip().lower(),
+            str(module.get("label") or "").strip().lower(),
+            str(module.get("name") or "").strip().lower(),
+        }
+        if requested in values:
+            return module
+    raise CodeLearnerError(f"module target was not found: {target}")
+
+
+def _function_lesson_for_target(
+    records: list[dict[str, object]],
+    target: str,
+) -> dict[str, object]:
+    requested = str(target or "").strip().lower()
+    if not requested:
+        raise CodeLearnerError("function target required")
+    matches = [
+        record
+        for record in records
+        if _record_type(record) == "function_lesson"
+        and _function_record_matches(record, requested)
+    ]
+    if len(matches) > 1:
+        raise CodeLearnerError(f"function target is ambiguous: {target}")
+    if matches:
+        return matches[0]
+    raise CodeLearnerError(
+        "function lesson was not generated during initialization: "
+        f"{target}"
+    )
+
+
+def _function_index_for_target(
+    records: list[dict[str, object]],
+    target: str,
+) -> dict[str, object] | None:
+    requested = str(target or "").strip().lower()
+    if not requested:
+        return None
+    for record in records:
+        if _record_type(record) == "function_index_entry" and _function_record_matches(
+            record,
+            requested,
+        ):
+            return record
+    return None
+
+
+def _function_record_matches(record: dict[str, object], requested: str) -> bool:
+    values = [
+        str(record.get("symbol") or ""),
+        str(record.get("display_name") or ""),
+    ]
+    return any(
+        value.strip().lower() == requested
+        or value.strip().lower().endswith(f".{requested}")
+        for value in values
+    )
+
+
+def _architecture_title(
+    adapter: SourceAdapter,
+    records: list[dict[str, object]],
+) -> str:
+    manifest = _course_corpus_manifest(records)
+    name = str(manifest.get("repository_name") or adapter.root.name).strip()
+    return f"Architecture Tour: {name}"
+
+
+def _confidence(record: dict[str, object]) -> float | None:
+    value = record.get("confidence")
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _stable_id(value: str) -> str:
+    text = re.sub(r"[^a-z0-9]+", ".", value.lower()).strip(".")
+    return text or "item"
 
 
 def _architecture_steps(analysis: RepositoryAnalysis) -> list[dict[str, object]]:

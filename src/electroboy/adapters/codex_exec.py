@@ -33,6 +33,8 @@ class CodexExecRuntime(GenericCliRuntime):
         "validation-review",
         "documentation_review",
         "documentation-review",
+        "code_learner_initialize",
+        "code-learner-initialize",
     }
 
     def __init__(self, config: RuntimeConfig, root: Path | str = ".") -> None:

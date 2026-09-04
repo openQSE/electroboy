@@ -349,6 +349,113 @@ package.mkdir(parents=True)
     "def orchestrate(value):\n    return helper(value).upper()\n",
     encoding="utf-8",
 )
+corpus_dir = project / ".electroboy" / "code-learner"
+corpus_dir.mkdir(parents=True)
+(corpus_dir / "course-corpus.jsonl").write_text(
+    "\n".join(
+        json.dumps(record)
+        for record in [
+            {
+                "record_type": "course_manifest",
+                "schema_version": 1,
+                "repository_name": "Sample",
+                "repository_purpose": "Demonstrate orchestration.",
+                "primary_languages": ["python"],
+                "architecture_step_ids": ["architecture.purpose"],
+                "module_ids": ["module.sample"],
+                "function_index_count": 1,
+                "confidence": 0.9,
+            },
+            {
+                "record_type": "architecture_step",
+                "id": "architecture.purpose",
+                "title": "Project Purpose",
+                "summary": "AI-generated architecture summary.",
+                "body": "The repository exposes a helper-backed orchestration flow.",
+                "source_refs": [
+                    {
+                        "path": "README.md",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "reason": "Project introduction.",
+                    }
+                ],
+                "related_module_ids": ["module.sample"],
+                "confidence": 0.9,
+            },
+            {
+                "record_type": "module",
+                "id": "module.sample",
+                "name": "Sample Flow",
+                "purpose": "Owns helper conversion and orchestration.",
+                "responsibilities": ["convert values", "format outputs"],
+                "primary_files": ["src/sample/main.py"],
+                "public_interfaces": ["orchestrate"],
+                "depends_on_module_ids": [],
+                "used_by_module_ids": [],
+                "source_refs": [
+                    {
+                        "path": "src/sample/main.py",
+                        "start_line": 1,
+                        "end_line": 5,
+                        "reason": "Module implementation.",
+                    }
+                ],
+                "confidence": 0.9,
+            },
+            {
+                "record_type": "function_index_entry",
+                "symbol": "orchestrate",
+                "display_name": "orchestrate",
+                "kind": "function",
+                "module_id": "module.sample",
+                "path": "src/sample/main.py",
+                "start_line": 4,
+                "end_line": 5,
+                "purpose": "Coordinate helper output formatting.",
+                "why_important": "It is the main behavior in the sample.",
+                "known_callers": [],
+                "known_callees": ["helper"],
+                "source_refs": [
+                    {
+                        "path": "src/sample/main.py",
+                        "start_line": 4,
+                        "end_line": 5,
+                        "symbol": "orchestrate",
+                        "reason": "Function definition.",
+                    }
+                ],
+                "confidence": 0.91,
+            },
+            {
+                "record_type": "function_lesson",
+                "symbol": "orchestrate",
+                "display_name": "orchestrate",
+                "title": "Purpose and Shape",
+                "summary": "AI-generated function summary.",
+                "body": "It converts the value with helper and uppercases the result.",
+                "call_flow": "orchestrate calls helper, then upper.",
+                "inputs": ["value"],
+                "outputs": ["uppercase string"],
+                "side_effects": [],
+                "error_paths": [],
+                "source_refs": [
+                    {
+                        "path": "src/sample/main.py",
+                        "start_line": 4,
+                        "end_line": 5,
+                        "symbol": "orchestrate",
+                        "reason": "Function implementation.",
+                    }
+                ],
+                "related_symbols": ["helper"],
+                "confidence": 0.9,
+            },
+        ]
+    )
+    + "\n",
+    encoding="utf-8",
+)
 server = create_server(root, port=0)
 thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()

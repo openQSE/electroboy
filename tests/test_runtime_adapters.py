@@ -80,9 +80,13 @@ class RuntimeAdapterTests(unittest.TestCase):
         )
 
         review = runtime._command(AgentInvocation(role="code_review", prompt="p"))
+        code_learner = runtime._command(
+            AgentInvocation(role="code_learner_initialize", prompt="p")
+        )
         coding = runtime._command(AgentInvocation(role="coding", prompt="p"))
 
         self.assertEqual(review[-2:], ["--sandbox", "read-only"])
+        self.assertEqual(code_learner[-2:], ["--sandbox", "read-only"])
         self.assertEqual(coding[-2:], ["--sandbox", "workspace-write"])
 
     def test_codex_exec_uses_writable_sandbox_for_progress_file(self) -> None:
