@@ -183,8 +183,14 @@
               </button>
               <div class="stage-action-subgroup-list" role="group" hidden
                    data-code-learner-control="module-actions">
-                <div class="code-learner-module-list"
-                     data-code-learner-control="module-list"></div>
+                <label class="code-learner-field"
+                       data-code-learner-control="module-field">
+                  <span>Module</span>
+                  <select disabled
+                          data-code-learner-control="module"></select>
+                </label>
+                <button class="stage-action-button" type="button" disabled
+                        data-code-learner-control="module-start">Start</button>
               </div>
             </div>
             <div class="stage-action-subgroup">
@@ -249,7 +255,9 @@
       architecture: control(container, "architecture"),
       moduleMenu: control(container, "module-menu"),
       moduleActions: control(container, "module-actions"),
-      moduleList: control(container, "module-list"),
+      moduleField: control(container, "module-field"),
+      module: control(container, "module"),
+      moduleStart: control(container, "module-start"),
       functionMenu: control(container, "function-menu"),
       functionActions: control(container, "function-actions"),
       functionField: control(container, "function-field"),
@@ -296,6 +304,11 @@
         setStatus(error.message || String(error), "error");
       });
     });
+    nav.moduleStart.addEventListener("click", () => {
+      generateCourse({ mode: "module" }).catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+    });
     nav.form.addEventListener("submit", (event) => {
       event.preventDefault();
       generateCourse({ mode: "function" }).catch((error) => {
@@ -311,6 +324,10 @@
     nav.function.addEventListener("input", () => {
       renderNavigationState();
       debouncedSymbolLoad();
+    });
+    nav.module.addEventListener("change", () => {
+      selectedModuleTarget = nav.module.value.trim();
+      renderNavigationState();
     });
     renderNavigationState();
   }
@@ -360,27 +377,38 @@
     applyNavigationGroup(
       nav.moduleMenu,
       nav.moduleActions,
-      navigationExpanded.module,
+      initialized && navigationExpanded.module,
     );
     applyNavigationGroup(
       nav.functionMenu,
       nav.functionActions,
-      navigationExpanded.function,
+      initialized && navigationExpanded.function,
     );
-    applyNavigationGroup(nav.outlineMenu, nav.outlineActions, navigationExpanded.outline);
+    applyNavigationGroup(
+      nav.outlineMenu,
+      nav.outlineActions,
+      Boolean(walkthrough) && navigationExpanded.outline,
+    );
     nav.projectMenu.classList.toggle("active", activeNavigationGroup === "project");
     nav.learnMenu.classList.toggle("active", activeNavigationGroup === "learn");
-    nav.outlineMenu.classList.toggle("active", activeNavigationGroup === "outline");
+    nav.outlineMenu.classList.toggle(
+      "active",
+      activeNavigationGroup === "outline" && Boolean(walkthrough),
+    );
     nav.close.disabled = !Boolean(activationRoot);
     nav.initialize.disabled = !hasProject;
     nav.architecture.disabled = !initialized;
     nav.moduleMenu.disabled = !initialized;
+    nav.module.disabled = !initialized || modules.length === 0;
+    nav.moduleStart.disabled =
+      !initialized || modules.length === 0 || !nav.module.value.trim();
     nav.functionMenu.disabled = !initialized;
     nav.function.disabled = !initialized;
     nav.functionStart.disabled = !initialized || !nav.function.value.trim();
     nav.audience.disabled = !initialized;
     nav.startAgent.disabled = !hasProject || !walkthrough;
-    renderModuleList(modules, initialized);
+    nav.outlineMenu.disabled = !Boolean(walkthrough);
+    renderModuleOptions(modules, initialized);
     renderSymbolOptions(symbols);
     renderRecentProjects();
     renderOutline();
@@ -466,8 +494,8 @@
     }
   }
 
-  function renderModuleList(modules, initialized) {
-    if (!nav.moduleList) {
+  function renderModuleOptions(modules, initialized) {
+    if (!nav.module) {
       return;
     }
     const signature = JSON.stringify({
@@ -475,35 +503,28 @@
       selectedModuleTarget,
       modules: modules.map((module) => [module.path, module.file_count]),
     });
-    if (nav.moduleList.dataset.signature === signature) {
+    if (nav.module.dataset.signature === signature) {
       return;
     }
-    nav.moduleList.replaceChildren();
+    nav.module.replaceChildren();
     if (!initialized) {
-      nav.moduleList.append(disabledAction("Initialize first"));
+      nav.module.append(moduleOption("", "Initialize first"));
     } else if (modules.length === 0) {
-      nav.moduleList.append(disabledAction("No modules"));
+      nav.module.append(moduleOption("", "No modules"));
     } else {
+      nav.module.append(moduleOption("", "Select module"));
       for (const module of modules) {
         const target = String(module.path || "");
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "stage-action-button code-learner-module-option";
-        button.textContent = moduleLabel(module);
-        button.title = target;
-        if (selectedModuleTarget === target) {
-          button.setAttribute("aria-current", "true");
-        }
-        button.addEventListener("click", () => {
-          selectedModuleTarget = target;
-          generateCourse({ mode: "module", target }).catch((error) => {
-            setStatus(error.message || String(error), "error");
-          });
-        });
-        nav.moduleList.append(button);
+        nav.module.append(moduleOption(target, moduleLabel(module)));
       }
     }
-    nav.moduleList.dataset.signature = signature;
+    selectedModuleTarget = moduleTargetExists(selectedModuleTarget, modules)
+      ? selectedModuleTarget
+      : "";
+    nav.module.value = selectedModuleTarget;
+    nav.module.dataset.signature = signature;
+    nav.moduleStart.disabled =
+      !initialized || modules.length === 0 || !nav.module.value.trim();
   }
 
   function disabledAction(label) {
@@ -513,6 +534,17 @@
     button.disabled = true;
     button.textContent = label;
     return button;
+  }
+
+  function moduleOption(value, label) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }
+
+  function moduleTargetExists(target, modules) {
+    return modules.some((module) => String(module.path || "") === target);
   }
 
   function renderSymbolOptions(symbols) {
@@ -636,10 +668,14 @@
     }
     const hasProject = Boolean(activeProjectRoot || activationRoot);
     const initialized = learnerInitialized();
+    const modules = learnerModules();
     nav.initialize.disabled = isGenerating || !hasProject;
     nav.architecture.disabled = isGenerating || !initialized;
     nav.moduleMenu.disabled = isGenerating || !initialized;
+    nav.module.disabled = isGenerating || !initialized || modules.length === 0;
     nav.functionMenu.disabled = isGenerating || !initialized;
+    nav.moduleStart.disabled =
+      isGenerating || !initialized || modules.length === 0 || !nav.module.value.trim();
     nav.functionStart.disabled =
       isGenerating || !initialized || !nav.function.value.trim();
   }

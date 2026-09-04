@@ -20,11 +20,18 @@
 }
 
 .code-learner-recent,
-.code-learner-outline,
-.code-learner-module-list {
+.code-learner-outline {
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+.code-learner-nav .stage-action-subgroup-trigger:hover:disabled,
+.code-learner-nav .stage-action-subgroup-trigger:disabled {
+  background: transparent;
+  color: #7d91a4;
+  cursor: default;
+  opacity: 0.5;
 }
 
 .code-learner-field {
