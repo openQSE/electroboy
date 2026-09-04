@@ -1004,7 +1004,7 @@ def _module_candidates(
             continue
         module_path = parts[0]
         if module_path == "src" and len(parts) > 2:
-            module_path = "/".join(parts[:3])
+            module_path = "/".join(parts[:3] if len(parts) > 3 else parts[:2])
         entry = grouped.setdefault(
             module_path,
             {

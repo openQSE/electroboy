@@ -1589,6 +1589,7 @@ class ServiceState:
                 *context.stage_sessions.values(),
                 *context.documentation_sessions.values(),
                 *context.creative_sessions.values(),
+                *context.code_learner_sessions.values(),
                 *context.ad_hoc_sessions.values(),
             ]
             if session is not None
@@ -1637,6 +1638,11 @@ class ServiceState:
             for key, creative_session in list(context.creative_sessions.items()):
                 if creative_session is session:
                     context.creative_sessions.pop(key, None)
+            for key, code_learner_session in list(
+                context.code_learner_sessions.items()
+            ):
+                if code_learner_session is session:
+                    context.code_learner_sessions.pop(key, None)
             for key, ad_hoc_session in list(context.ad_hoc_sessions.items()):
                 if ad_hoc_session is session:
                     context.ad_hoc_sessions.pop(key, None)
@@ -1704,6 +1710,8 @@ class ServiceState:
             context.documentation_sessions[session_key] = session
         elif session.kind == "creative-writing":
             context.creative_sessions[session.session_id] = session
+        elif session.kind == "code-learner":
+            context.code_learner_sessions[session.session_id] = session
         elif session.kind == "ad-hoc":
             context.ad_hoc_sessions[session.session_id] = session
         elif session.kind == "project-shell":
@@ -2173,6 +2181,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         *context.stage_sessions.values(),
         *context.documentation_sessions.values(),
         *context.creative_sessions.values(),
+        *context.code_learner_sessions.values(),
         *context.ad_hoc_sessions.values(),
     ]:
         if session is None:

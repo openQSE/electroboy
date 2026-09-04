@@ -160,6 +160,14 @@ class BrowserContext:
             sessions[session_id] = value
 
     @property
+    def code_learner_sessions(self) -> dict[str, AgentSession]:
+        return self._value(self.workflow("code-learner"), "sessions", dict)
+
+    @code_learner_sessions.setter
+    def code_learner_sessions(self, value: dict[str, AgentSession]) -> None:
+        self.workflow("code-learner")["sessions"] = value
+
+    @property
     def ad_hoc_sessions(self) -> dict[str, AgentSession]:
         state = self.module("agent_sessions")
         sessions = self._value(state, "ad_hoc_sessions", dict)
