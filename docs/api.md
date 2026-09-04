@@ -166,14 +166,18 @@ inactive until later GUI work wires them up. The requirements agent uses
 `POST /api/agents/requirements/message?workspace_id=<id>`,
 `POST /api/agents/requirements/interrupt?workspace_id=<id>`,
 `POST /api/agents/requirements/resize?workspace_id=<id>`, and
-`GET /api/agents/requirements/events?workspace_id=<id>`. The event stream is
-Server-Sent Events and carries raw terminal output for the browser's xterm
-renderer plus cleaned text fallback output for non-terminal clients. The browser
-keeps a normal textarea composer at the bottom; `Enter` inserts a newline and
-`Shift+Enter` sends the composed message to the requirements agent as terminal
-input, ending with a carriage-return Enter key. Multiline composer content is
-sent through bracketed paste before the submit Enter. The interrupt endpoint
-sends an Escape key to the PTY, matching Codex's interactive interrupt control.
+`GET /api/agents/requirements/events?workspace_id=<id>`. The endpoint remains
+an SSE stream for API clients. Browser tabs subscribe through `GET /api/live`,
+which upgrades to one shared WebSocket and multiplexes registered event streams
+by subscription ID. Events retain their workspace and agent session IDs. This
+keeps long-lived streams out of the browser HTTP connection pool. The stream
+carries raw terminal output for the browser's xterm renderer plus cleaned text
+fallback output for non-terminal clients. The browser keeps a normal textarea
+composer at the bottom; `Enter` inserts a newline and `Shift+Enter` sends the
+composed message to the requirements agent as terminal input, ending with a
+carriage-return Enter key. Multiline composer content is sent through bracketed
+paste before the submit Enter. The interrupt endpoint sends an Escape key to
+the PTY, matching Codex's interactive interrupt control.
 
 The software workflow exposes project-scoped ad-hoc session history through
 `GET /api/agents/ad-hoc/sessions?context_id=<id>`. The response lists resumable

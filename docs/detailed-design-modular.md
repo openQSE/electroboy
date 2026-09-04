@@ -166,7 +166,7 @@ contexts isolated.
 ```text
 Browser
   |
-  | HTTP + SSE
+  | HTTP + shared WebSocket
   v
 Service Core
   |
@@ -217,7 +217,7 @@ frontend assets.
 ```text
 electroboy-core
   backend: service runtime, contexts, route registry, sessions, static assets
-  frontend: shell, toolbar, side sheet, panes, fetch/SSE helpers
+  frontend: shell, toolbar, side sheet, panes, fetch/live-event helpers
 
 electroboy-module-documents
   backend: Markdown and structured document APIs
@@ -402,7 +402,9 @@ class Route:
 ```
 
 The request handler becomes generic. It parses the request, finds a route, and
-sends the returned response. SSE routes can use a streaming response object.
+sends the returned response. Modules retain ownership of their SSE route and
+streaming response. Core can relay those registered streams through the shared
+browser WebSocket without coupling the transport to module behavior.
 
 ### Asset Server
 
@@ -690,7 +692,7 @@ The frontend core owns only shared shell behavior:
 - left side sheet container
 - pane creation, resizing, splitting, and pop-out windows
 - active agent selector
-- shared fetch, SSE, and error handling
+- shared fetch, WebSocket event streaming, and error handling
 - common status and progress presentation
 
 Frontend modules own reusable panes and controls:
@@ -1048,7 +1050,7 @@ Core tests:
 - route registry dispatch
 - request parsing
 - response rendering
-- SSE stream helpers
+- shared WebSocket transport and SSE relay helpers
 - context creation and isolation
 - session manager lifecycle
 

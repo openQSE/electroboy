@@ -910,6 +910,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="/assets/service/js/core/live-transport.js"></script>
   <script src="/assets/service/js/core/terminal-behavior.js"></script>
   <script src="/assets/service/js/core/pane-layout-drag.js"></script>
   <script src="/assets/service/js/core/split-resize.js"></script>
@@ -3161,7 +3162,7 @@
       }
       terminalStreamVersion += 1;
       const streamVersion = terminalStreamVersion;
-      const source = new EventSource(
+      const source = window.ElectroBoyLiveTransport.eventSource(
         contextUrl("/api/sessions/events"),
       );
       eventSource = source;
@@ -3211,7 +3212,9 @@
         return;
       }
       const streamVersion = replacePaneEventSource();
-      const source = new EventSource(contextUrl("/api/progress/events"));
+      const source = window.ElectroBoyLiveTransport.eventSource(
+        contextUrl("/api/progress/events"),
+      );
       eventSource = source;
       source.addEventListener("progress-event", (event) => {
         if (!isCurrentPaneEventSource(source, streamVersion)) {
@@ -3240,7 +3243,9 @@
         terminal.write("\x1b[31mno active context\x1b[0m\r\n");
         return;
       }
-      const source = new EventSource(shellContextUrl("/api/shell/events"));
+      const source = window.ElectroBoyLiveTransport.eventSource(
+        shellContextUrl("/api/shell/events"),
+      );
       eventSource = source;
       source.addEventListener("agent-event", (event) => {
         if (!isCurrentPaneEventSource(source, streamVersion)) {
@@ -3752,7 +3757,7 @@
       if (!eventUrl) {
         return;
       }
-      artifactEventSource = new EventSource(eventUrl);
+      artifactEventSource = window.ElectroBoyLiveTransport.eventSource(eventUrl);
       artifactEventSource.addEventListener("artifact-event", refreshArtifact);
       artifactEventSource.onerror = () => {};
       if (filePaneTools) filePaneTools.refresh();

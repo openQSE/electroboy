@@ -1618,13 +1618,13 @@
 
     function createDebugEventSourceForUrl(url) {
       if (!frontendTelemetryEnabled) {
-        return new EventSource(url);
+        return window.ElectroBoyLiveTransport.eventSource(url);
       }
       bumpFrontendDebugCounter("eventSource.created");
       frontendDebugEventSourceSequence += 1;
       const sourceId = frontendDebugEventSourceSequence;
       const request = frontendDebugRequestDescription(url);
-      const source = new EventSource(url);
+      const source = window.ElectroBoyLiveTransport.eventSource(url);
       const nativeAddEventListener = source.addEventListener.bind(source);
       recordFrontendDebugNetworkEvent({
         type: "event-source-created",

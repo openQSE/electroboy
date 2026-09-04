@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import re
@@ -43,6 +45,15 @@ from .http import (
     StreamResponse,
     TextResponse,
 )
+from .live_transport import (
+    LiveTransportSession,
+    WebSocketConnection,
+    configure_websocket_socket,
+    validate_websocket_origin,
+    websocket_accept_value,
+    websocket_server_address,
+    websocket_upgrade_requested,
+)
 from .progress_events import progress_issue_events
 from .recent_projects import (
     recent_project_entries as _recent_project_entries,
@@ -56,6 +67,7 @@ from .registry import (
     installed_workflow_factories,
 )
 from .routes import RouteOperations, RouteRequest, build_route_dispatcher
+from .services import build_service_services
 from .sessions import (
     SESSION_BACKEND_PTY,
     SESSION_BACKEND_TMUX,
@@ -68,7 +80,6 @@ from .sessions import (
     _subprocess_output_text,
     _tmux_has_session,
 )
-from .services import build_service_services
 from .workflow_config import (
     configured_workflows,
     workflow_config_payload,
@@ -2562,6 +2573,9 @@ def _handler_for(
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
+            if path == "/api/live":
+                self._serve_live_websocket()
+                return
             if self._dispatch_registered_route("GET", path, parsed.query):
                 return
             if path == SPLASH_IMAGE_ROUTE:
@@ -2637,6 +2651,56 @@ def _handler_for(
 
         def log_message(self, format: str, *args: Any) -> None:
             return
+
+        def _serve_live_websocket(self) -> None:
+            if not websocket_upgrade_requested(self.headers):
+                self._send_json(
+                    {"error": "WebSocket upgrade required"},
+                    status=HTTPStatus.UPGRADE_REQUIRED,
+                )
+                return
+            key = self.headers.get("Sec-WebSocket-Key", "").strip()
+            version = self.headers.get("Sec-WebSocket-Version", "").strip()
+            host = self.headers.get("Host", "").strip()
+            origin = self.headers.get("Origin", "").strip()
+            try:
+                decoded_key = base64.b64decode(key, validate=True)
+            except (ValueError, binascii.Error):
+                decoded_key = b""
+            if len(decoded_key) != 16 or version != "13":
+                self._send_json(
+                    {"error": "invalid WebSocket handshake"},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not validate_websocket_origin(origin, host):
+                self._send_json(
+                    {"error": "WebSocket origin is not allowed"},
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return
+            accept = websocket_accept_value(key)
+            self.wfile.write(
+                (
+                    "HTTP/1.1 101 Switching Protocols\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    f"Sec-WebSocket-Accept: {accept}\r\n"
+                    "\r\n"
+                ).encode("ascii")
+            )
+            self.wfile.flush()
+            configure_websocket_socket(self.connection)
+            websocket = WebSocketConnection(self.rfile, self.wfile)
+            server_address = websocket_server_address(self.server.server_address)
+            session = LiveTransportSession(
+                websocket,
+                server_address,
+                lambda route_path: (
+                    route_dispatcher.match("GET", route_path) is not None
+                ),
+            )
+            session.run()
 
         def _dispatch_registered_route(
             self,

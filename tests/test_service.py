@@ -1626,7 +1626,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function applyFrontendTelemetryUrlPreference()", runtime)
         self.assertIn("if (!frontendTelemetryEnabled) {\n        return;\n      }", runtime)
         self.assertIn("if (!frontendTelemetryEnabled) {\n        return false;\n      }", runtime)
-        self.assertIn("return new EventSource(url);", runtime)
+        self.assertIn(
+            "return window.ElectroBoyLiveTransport.eventSource(url);",
+            runtime,
+        )
         self.assertIn("function stopFrontendDebugDiagnostics()", runtime)
         self.assertIn("frontendDebugRafPulseActive = false;", runtime)
         self.assertIn("telemetry: frontendTelemetryRuntime,", runtime)
