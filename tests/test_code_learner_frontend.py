@@ -45,6 +45,13 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert '<span class="stage-action-label">Outline</span>' in frontend
     assert 'data-code-learner-control="initialize"' in frontend
     assert "generateCourse({ mode: \"module\", target })" in frontend
+    assert 'let activeNavigationGroup = "project";' in frontend
+    assert 'activeNavigationGroup === "project"' in frontend
+    assert 'activeNavigationGroup === "learn"' in frontend
+    assert 'activeNavigationGroup === "outline"' in frontend
+    assert 'button.classList.toggle("active"' not in frontend
+    assert 'setAttribute("aria-current", "step")' in frontend
+    assert 'setAttribute("aria-current", "true")' in frontend
     assert ".code-learner-pane-grid" in stylesheet
     assert ".tok-keyword" in stylesheet
 
@@ -59,8 +66,9 @@ def test_code_learner_navigation_uses_shared_shell_menu_treatment() -> None:
     )
 
     assert ".code-learner-workflow .workflow-pane" not in stylesheet
-    assert "var(--active)" in stylesheet
-    assert "var(--active-soft)" in stylesheet
+    assert "var(--active)" not in stylesheet
+    assert "var(--active-soft)" not in stylesheet
+    assert ".code-learner-step-button.active" not in stylesheet
     assert "var(--border)" in stylesheet
     assert "var(--disabled)" in stylesheet
     assert ".code-learner-mode-grid" not in stylesheet

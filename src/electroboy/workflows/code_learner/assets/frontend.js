@@ -52,6 +52,7 @@
     function: false,
     outline: true,
   };
+  let activeNavigationGroup = "project";
   let selectedModuleTarget = "";
 
   function emptyLearnerState() {
@@ -262,9 +263,18 @@
       outlineActions: control(container, "outline-actions"),
       outline: control(container, "outline"),
     };
-    nav.projectMenu.addEventListener("click", () => toggleNavigationGroup("project"));
-    nav.learnMenu.addEventListener("click", () => toggleNavigationGroup("learn"));
-    nav.outlineMenu.addEventListener("click", () => toggleNavigationGroup("outline"));
+    nav.projectMenu.addEventListener(
+      "click",
+      () => toggleNavigationGroup("project", true),
+    );
+    nav.learnMenu.addEventListener(
+      "click",
+      () => toggleNavigationGroup("learn", true),
+    );
+    nav.outlineMenu.addEventListener(
+      "click",
+      () => toggleNavigationGroup("outline", true),
+    );
     nav.recentMenu.addEventListener(
       "click",
       () => toggleNavigationGroup("recent"),
@@ -314,7 +324,10 @@
     return container.querySelector(`[data-code-learner-control="${name}"]`);
   }
 
-  function toggleNavigationGroup(group) {
+  function toggleNavigationGroup(group, activate = false) {
+    if (activate) {
+      activeNavigationGroup = group;
+    }
     navigationExpanded[group] = !navigationExpanded[group];
     renderNavigationState();
   }
@@ -337,7 +350,6 @@
     const initialized = learnerInitialized();
     const modules = learnerModules();
     const symbols = learnerSymbols();
-    const activeMode = walkthrough ? walkthrough.learning_mode : courseMode;
     applyNavigationGroup(nav.projectMenu, nav.projectActions, navigationExpanded.project);
     applyNavigationGroup(nav.learnMenu, nav.learnActions, navigationExpanded.learn);
     applyNavigationGroup(
@@ -356,17 +368,14 @@
       navigationExpanded.function,
     );
     applyNavigationGroup(nav.outlineMenu, nav.outlineActions, navigationExpanded.outline);
-    nav.projectMenu.classList.toggle("active", hasProject && !walkthrough);
-    nav.learnMenu.classList.toggle("active", Boolean(walkthrough));
-    nav.outlineMenu.classList.remove("active");
+    nav.projectMenu.classList.toggle("active", activeNavigationGroup === "project");
+    nav.learnMenu.classList.toggle("active", activeNavigationGroup === "learn");
+    nav.outlineMenu.classList.toggle("active", activeNavigationGroup === "outline");
     nav.close.disabled = !Boolean(activationRoot);
     nav.initialize.disabled = !hasProject;
     nav.architecture.disabled = !initialized;
-    nav.architecture.classList.toggle("active", activeMode === "architecture");
     nav.moduleMenu.disabled = !initialized;
-    nav.moduleMenu.classList.toggle("active", activeMode === "module");
     nav.functionMenu.disabled = !initialized;
-    nav.functionMenu.classList.toggle("active", activeMode === "function");
     nav.function.disabled = !initialized;
     nav.functionStart.disabled = !initialized || !nav.function.value.trim();
     nav.audience.disabled = !initialized;
@@ -445,7 +454,9 @@
       button.className = "stage-action-button code-learner-step-button";
       button.textContent = step.title || step.id;
       button.title = referenceLabel(step.primary_reference);
-      button.classList.toggle("active", step.id === walkthrough.current_step_id);
+      if (step.id === walkthrough.current_step_id) {
+        button.setAttribute("aria-current", "step");
+      }
       button.addEventListener("click", () => {
         selectStep(step.id).catch((error) => {
           setStatus(error.message || String(error), "error");
@@ -480,7 +491,9 @@
         button.className = "stage-action-button code-learner-module-option";
         button.textContent = moduleLabel(module);
         button.title = target;
-        button.classList.toggle("active", selectedModuleTarget === target);
+        if (selectedModuleTarget === target) {
+          button.setAttribute("aria-current", "true");
+        }
         button.addEventListener("click", () => {
           selectedModuleTarget = target;
           generateCourse({ mode: "module", target }).catch((error) => {
