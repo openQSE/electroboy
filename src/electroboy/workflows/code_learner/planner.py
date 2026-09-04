@@ -19,11 +19,13 @@ ProgressCallback = Callable[[dict[str, object]], None]
 def code_learner_initialize_prompt(
     root: Path | str,
     progress_path: str | None = None,
+    checkpoint_path: str | None = None,
 ) -> str:
     repository_root = Path(root).expanduser().resolve()
+    writable_state_files = [path for path in [progress_path, checkpoint_path] if path]
     state_directory_rule = (
-        "  site-packages, except for the progress file explicitly named below."
-        if progress_path
+        "  site-packages, except for the workflow state files explicitly named below."
+        if writable_state_files
         else "  site-packages."
     )
     progress_rules = ""
@@ -33,9 +35,19 @@ def code_learner_initialize_prompt(
 Progress reporting:
 - Append progress updates to this repository-relative JSONL file:
   {progress_path}
-- The progress file is the only file you may create or modify while planning.
+- Only create or modify the progress file and, when named below, the durable
+  checkpoint while planning.
 - Append one JSON object per line with this shape:
   {{"record_type":"progress","phase":"repository_survey","percent":5,"message":"Scanning project layout"}}
+- Append an update before each meaningful inspection or planning step, using
+  the message to identify the file, module, subsystem, or course section being
+  examined. These messages are the learner-visible activity transcript.
+- While actively working, never let more than about five seconds pass without
+  appending an update. If one operation takes longer, append a heartbeat using
+  the current phase and percent, and say which file, symbol, subsystem, or
+  course section is still being examined.
+- Append an update immediately when a major discovery is made or the work
+  changes phase; do not wait for the next five-second heartbeat.
 - Use integer percent values from 0 to 99 while work is in progress. Do not
   report 100 percent until the final course JSONL is ready.
 - Emit progress at these approximate milestones when applicable:
@@ -43,7 +55,34 @@ Progress reporting:
   40 module_map, 55 module_lessons, 70 function_index,
   85 function_lessons, 94 validation, 98 final_output.
 - Keep messages brief, factual, and user-safe for display.
+- Report actions and observations, not private chain-of-thought or hidden
+  reasoning.
 - Do not include progress records in the final answer.
+"""
+    checkpoint_rules = ""
+    if checkpoint_path:
+        checkpoint_file = _resolve_state_path(repository_root, checkpoint_path)
+        checkpoint_state = (
+            "An existing checkpoint is present. Read it before inspecting other files, "
+            "reuse findings whose source references still verify, and continue from its "
+            "remaining-work section."
+            if checkpoint_file.is_file()
+            else "No checkpoint exists yet. Create it before beginning the repository survey."
+        )
+        checkpoint_rules = f"""
+
+Durable checkpoint:
+- Markdown checkpoint: {checkpoint_path}
+- {checkpoint_state}
+- Keep the checkpoint concise and current. Update it after every major
+  discovery and after completing each course section.
+- Record the repository purpose, architecture and data flow, inspected files,
+  inferred modules, important symbols, source references, completed sections,
+  unresolved questions, and remaining work.
+- Use repository-relative `path:line-line` source references so cached claims
+  can be revalidated after an interruption.
+- Replace stale conclusions when source evidence disagrees with the checkpoint.
+- The checkpoint is working state, not part of the final JSONL response.
 """
     return f"""You are the ElectroBoy Code Learner course planner.
 
@@ -57,7 +96,7 @@ Repository root:
 Operating rules:
 - Read the codebase yourself.
 - Use only read-only inspection commands.
-- Do not modify files.
+- Do not modify files except the workflow state files explicitly named below.
 - Do not create commits.
 - Do not run tests unless they are necessary for understanding and safe to run
   without modifying repository state.
@@ -68,6 +107,7 @@ Operating rules:
 - Every important claim must include source references.
 - If you are uncertain, emit a diagnostic record instead of inventing facts.
 {progress_rules}
+{checkpoint_rules}
 
 Output format:
 - Return ONLY JSONL.
@@ -314,13 +354,14 @@ def generate_code_learner_course_corpus_jsonl(
     root: Path | str,
     *,
     progress_path: str | None = None,
+    checkpoint_path: str | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> str:
     """Ask the configured AI runtime to generate the Code Learner corpus."""
 
     repository_root = Path(root).expanduser().resolve()
     progress_file = (
-        _resolve_progress_path(repository_root, progress_path)
+        _resolve_state_path(repository_root, progress_path)
         if progress_path
         else None
     )
@@ -343,6 +384,7 @@ def generate_code_learner_course_corpus_jsonl(
                 prompt=code_learner_initialize_prompt(
                     repository_root,
                     progress_path=progress_path,
+                    checkpoint_path=checkpoint_path,
                 ),
                 progress_path=progress_path,
             )
@@ -360,8 +402,8 @@ def generate_code_learner_course_corpus_jsonl(
     return output
 
 
-def _resolve_progress_path(root: Path, progress_path: str | None) -> Path:
-    requested = Path(str(progress_path or ""))
+def _resolve_state_path(root: Path, state_path: str | None) -> Path:
+    requested = Path(str(state_path or ""))
     if requested.is_absolute():
         return requested
     return root / requested

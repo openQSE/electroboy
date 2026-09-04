@@ -559,6 +559,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("mind_map", workflows["creative-writing"]["modules"])
         self.assertIn("agent_sessions", workflows["code-learner"]["modules"])
         self.assertIn("file_browser", workflows["code-learner"]["modules"])
+        self.assertIn("progress", workflows["code-learner"]["modules"])
         self.assertIn(
             "mind-map",
             {stage["id"] for stage in workflows["software"]["stages"]},
@@ -1378,6 +1379,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("_runtime", file_browser)
         self.assertIn("function connectProgressEvents(runtime, options = {})", progress)
         self.assertIn("runtime.layout.showProgressPane(true, options)", progress)
+        self.assertIn("function renderProgressStateIncrementally(", progress)
+        self.assertIn("progressStateExtends(latestProgressState, nextState)", progress)
         self.assertIn("async function startProjectShell(runtime)", project_shell)
         self.assertIn(
             'window.open("", popupName, SHELL_POPUP_FEATURES)',

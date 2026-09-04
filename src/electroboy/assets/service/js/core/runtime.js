@@ -173,7 +173,15 @@
       { label: "API", path: "docs/api.md" },
     ];
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
-    const PANE_FONT_KEYS = ["agent", "progress", "shell", "input", "scratch", "status"];
+    const PANE_FONT_KEYS = [
+      "agent",
+      "code-learner",
+      "progress",
+      "shell",
+      "input",
+      "scratch",
+      "status",
+    ];
     const PANE_FONT_CSS_PROPERTIES = {
       agent: "--agent-output-font-size",
       progress: "--progress-output-font-size",
@@ -2367,27 +2375,9 @@
     }
 
     function paneLayoutRequestedContent(leaf) {
-      if (leaf.kind === "agent") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "agenda") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "assignments") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "calendar") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "mind-map") {
+      if (leaf.kind === "agent" || (
+        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) && leaf.kind !== "artifact"
+      )) {
         return leaf.content && typeof leaf.content === "object"
           ? leaf.content
           : null;
@@ -3157,6 +3147,13 @@
         return;
       }
       if (
+        message.type === "electroboy:pane-pop" &&
+        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)
+      ) {
+        popOutPaneLayoutLeaf(leaf);
+        return;
+      }
+      if (
         message.type === "electroboy:pane-agent-session-change" &&
         leaf.kind === "agent"
       ) {
@@ -3397,6 +3394,7 @@
     }
 
     function paneFontKeyForKind(kind) {
+      if (kind === "code-learner") return "code-learner";
       if (kind === "shell") return "shell";
       if (kind === "progress") return "progress";
       if (kind === "input") return "input";
@@ -5449,6 +5447,9 @@
       if (paneSessionId) {
         parameters.set("session_id", paneSessionId);
       }
+      if (options.popped) {
+        parameters.set("popped", "1");
+      }
       const artifactItem = requestedArtifactItem === undefined
         ? artifactPreviewItems[0] || null
         : requestedArtifactItem;
@@ -5595,6 +5596,7 @@
         sessionId: kind === "agent"
           ? String(options.sessionId || selectedSessionId || "")
           : "",
+        popped: true,
       };
       const popoutKey = poppedPaneKey(kind, popoutOptions);
       const popup = window.open(

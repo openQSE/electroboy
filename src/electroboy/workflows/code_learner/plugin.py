@@ -21,6 +21,7 @@ def workflow() -> WorkflowDefinition:
             "core",
             "agent_sessions",
             "file_browser",
+            "progress",
             "project_shell",
             "recent_projects",
         ),

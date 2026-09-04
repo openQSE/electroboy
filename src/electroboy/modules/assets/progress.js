@@ -55,12 +55,7 @@
       return;
     }
     initializeProgressTerminal(runtime);
-    latestProgressState = {
-      entries: state.entries.map((entry) => ({
-        text: String(entry.text || ""),
-        className: entry.className || "",
-      })),
-    };
+    latestProgressState = normalizedProgressState(state);
     clearProgressOutput(runtime);
     latestProgressState.entries.forEach((entry) => {
       appendProgressOutput(runtime, entry.text, entry.className);
@@ -68,6 +63,56 @@
     if (publish && paneSync) {
       paneSync.publish(latestProgressState);
     }
+  }
+
+  function normalizedProgressState(state) {
+    return {
+      entries: state.entries.map((entry) => ({
+        text: String(entry.text || ""),
+        className: entry.className || "",
+      })),
+    };
+  }
+
+  function progressEntryMatches(left, right) {
+    return left.text === right.text && left.className === right.className;
+  }
+
+  function progressStateExtends(current, next) {
+    if (next.entries.length < current.entries.length) {
+      return false;
+    }
+    return current.entries.every((entry, index) => (
+      progressEntryMatches(entry, next.entries[index])
+    ));
+  }
+
+  function renderProgressStateIncrementally(runtime, state, publish = false) {
+    if (!state || !Array.isArray(state.entries)) {
+      return;
+    }
+    const nextState = normalizedProgressState(state);
+    if (!progressStateExtends(latestProgressState, nextState)) {
+      renderProgressState(runtime, nextState, publish);
+      return;
+    }
+    const additions = nextState.entries.slice(latestProgressState.entries.length);
+    if (!additions.length) {
+      return;
+    }
+    initializeProgressTerminal(runtime);
+    additions.forEach((entry) => {
+      appendProgressOutput(runtime, entry.text, entry.className);
+    });
+    latestProgressState = nextState;
+    if (publish && paneSync) {
+      paneSync.publish(latestProgressState);
+    }
+  }
+
+  function showProgressSnapshot(runtime, state, options = {}) {
+    runtime.layout.showProgressPane(true, options);
+    renderProgressStateIncrementally(runtime, state, true);
   }
 
   function connectProgressEvents(runtime, options = {}) {
@@ -123,7 +168,7 @@
   function mount(runtime) {
     paneSync = runtime.sharedPanes.connect("progress", {
       snapshot: () => latestProgressState,
-      receive: (state) => renderProgressState(runtime, state),
+      receive: (state) => renderProgressStateIncrementally(runtime, state),
     });
     window.addEventListener("pagehide", () => paneSync.close(), { once: true });
     runtime.elements.exportProgressOutput.addEventListener("click", () => {
@@ -142,6 +187,7 @@
       exportProgressLog,
       appendProgressOutput,
       clearProgressOutput,
+      showProgressSnapshot,
       connectProgressEvents,
       closeProgressEventStream: () => closeProgressEventStream(),
       terminal: () => terminal,

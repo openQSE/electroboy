@@ -51,6 +51,7 @@
     project: true,
     learn: true,
     recent: false,
+    architecture: false,
     module: false,
     function: false,
     outline: true,
@@ -147,6 +148,8 @@
           <div class="stage-action-list" role="group" hidden
                data-code-learner-control="project-actions">
             <button class="stage-action-button" type="button"
+                    data-code-learner-control="open-project">Open</button>
+            <button class="stage-action-button" type="button"
                     data-code-learner-control="workspace">Workspace</button>
             <div class="stage-action-subgroup">
               <button class="stage-action-subgroup-trigger" type="button"
@@ -174,9 +177,19 @@
                data-code-learner-control="learn-actions">
             <button class="stage-action-button primary" type="button"
                     data-code-learner-control="initialize">Initialize</button>
-            <button class="stage-action-button code-learner-mode-action"
-                    type="button" disabled
-                    data-code-learner-control="architecture">Architecture</button>
+            <div class="stage-action-subgroup">
+              <button class="stage-action-subgroup-trigger" type="button"
+                      aria-expanded="false" disabled
+                      data-code-learner-control="architecture-menu">
+                <span class="stage-action-label">Architecture</span>
+                <span class="stage-action-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="stage-action-subgroup-list" role="group" hidden
+                   data-code-learner-control="architecture-actions">
+                <button class="stage-action-button primary" type="button" disabled
+                        data-code-learner-control="architecture-start">Start lesson</button>
+              </div>
+            </div>
             <div class="stage-action-subgroup">
               <button class="stage-action-subgroup-trigger" type="button"
                       aria-expanded="false" disabled
@@ -256,6 +269,7 @@
     nav = {
       projectMenu: control(container, "project-menu"),
       projectActions: control(container, "project-actions"),
+      openProject: control(container, "open-project"),
       workspace: control(container, "workspace"),
       recentMenu: control(container, "recent-projects-menu"),
       close: control(container, "close"),
@@ -264,7 +278,9 @@
       learnMenu: control(container, "learn-menu"),
       learnActions: control(container, "learn-actions"),
       initialize: control(container, "initialize"),
-      architecture: control(container, "architecture"),
+      architectureMenu: control(container, "architecture-menu"),
+      architectureActions: control(container, "architecture-actions"),
+      architectureStart: control(container, "architecture-start"),
       moduleMenu: control(container, "module-menu"),
       moduleActions: control(container, "module-actions"),
       moduleField: control(container, "module-field"),
@@ -302,11 +318,18 @@
       "click",
       () => toggleNavigationGroup("recent"),
     );
+    nav.architectureMenu.addEventListener(
+      "click",
+      () => toggleNavigationGroup("architecture"),
+    );
     nav.moduleMenu.addEventListener("click", () => toggleNavigationGroup("module"));
     nav.functionMenu.addEventListener(
       "click",
       () => toggleNavigationGroup("function"),
     );
+    nav.openProject.addEventListener("click", () => {
+      runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);
+    });
     nav.workspace.addEventListener("click", () => runtime.workspaces.openSelector());
     nav.close.addEventListener("click", () => runtime.project.deactivate());
     nav.initialize.addEventListener("click", () => {
@@ -314,7 +337,7 @@
         setStatus(error.message || String(error), "error");
       });
     });
-    nav.architecture.addEventListener("click", () => {
+    nav.architectureStart.addEventListener("click", () => {
       generateCourse({ mode: "architecture" }).catch((error) => {
         setStatus(error.message || String(error), "error");
       });
@@ -391,6 +414,11 @@
       navigationExpanded.recent,
     );
     applyNavigationGroup(
+      nav.architectureMenu,
+      nav.architectureActions,
+      initialized && navigationExpanded.architecture,
+    );
+    applyNavigationGroup(
       nav.moduleMenu,
       nav.moduleActions,
       initialized && navigationExpanded.module,
@@ -413,7 +441,8 @@
     );
     nav.close.disabled = !Boolean(activationRoot);
     nav.initialize.disabled = !hasProject || initializing;
-    nav.architecture.disabled = initializing || !initialized;
+    nav.architectureMenu.disabled = initializing || !initialized;
+    nav.architectureStart.disabled = initializing || !initialized;
     nav.moduleMenu.disabled = initializing || !initialized;
     nav.module.disabled = initializing || !initialized || modules.length === 0;
     nav.moduleStart.disabled =
@@ -505,6 +534,40 @@
     nav.initProgressMeta.textContent = initializationFailed()
       ? String(initializationState.error || initializationState.message || "Initialization failed.")
       : formatInitializationStatus(initializationState);
+  }
+
+  function publishInitializationProgress(initialization = initializationState) {
+    if (!runtimeApi || !initialization) {
+      return;
+    }
+    const failed = initialization.status === "failed";
+    const running = initialization.status === "queued" || initialization.status === "running";
+    const text = failed
+      ? String(initialization.error || initialization.message || "Initialization failed.")
+      : formatInitializationStatus(initialization);
+    const progressEvents = Array.isArray(initialization.progress_events)
+      ? initialization.progress_events
+      : [];
+    const entries = progressEvents.map((event) => ({
+      text: initializationProgressEventText(event),
+      className: "",
+    }));
+    if (!running) {
+      entries.push({
+        text: `${text}\r\n`,
+        className: failed ? "error" : "",
+      });
+    }
+    runtimeApi.modules.invoke("progress", "showProgressSnapshot", {
+      entries,
+    });
+  }
+
+  function initializationProgressEventText(event) {
+    const percent = Math.max(0, Math.min(99, Number(event.percent || 0)));
+    const phase = String(event.phase || "working").replaceAll("_", " ");
+    const message = String(event.message || phase);
+    return `[${String(percent).padStart(2, " ")}% · ${phase}] ${message}\r\n`;
   }
 
   function formatDuration(value) {
@@ -698,6 +761,10 @@
     }
     setStatus("Initializing AI course material...");
     setGenerating(true);
+    runtimeApi.modules.invoke("progress", "closeProgressEventStream");
+    runtimeApi.modules.invoke("progress", "showProgressSnapshot", {
+      entries: [],
+    });
     let payload = null;
     try {
       const response = await runtimeApi.http.fetch(
@@ -717,6 +784,7 @@
       throw error;
     }
     applyInitializationPayload(payload);
+    publishInitializationProgress();
     renderNavigationState();
     if (payload.status === "initialized") {
       setGenerating(false);
@@ -752,6 +820,7 @@
       throw new Error(payload.error || "status failed");
     }
     applyInitializationPayload(payload);
+    publishInitializationProgress();
     renderNavigationState();
     if (payload.status === "initialized") {
       stopInitializationPolling();
@@ -852,7 +921,8 @@
     const busy = isGenerating || initializationRunning();
     const modules = learnerModules();
     nav.initialize.disabled = busy || !hasProject;
-    nav.architecture.disabled = busy || !initialized;
+    nav.architectureMenu.disabled = busy || !initialized;
+    nav.architectureStart.disabled = busy || !initialized;
     nav.moduleMenu.disabled = busy || !initialized;
     nav.module.disabled = busy || !initialized || modules.length === 0;
     nav.functionMenu.disabled = busy || !initialized;
@@ -1234,6 +1304,12 @@
     const host = options.host;
     const state = {
       host,
+      toolbarHost: options.toolbarHost || null,
+      toolsController: options.toolsController || null,
+      fontControl: options.fontControl || null,
+      canPop: options.canPop !== false,
+      popOut: options.popOut || (() => {}),
+      setTitle: options.setTitle || (() => {}),
       contextUrl: options.contextUrl,
       postMessage: options.postMessage || (() => {}),
       walkthrough: null,
@@ -1245,11 +1321,109 @@
       selectedStartLine: null,
       selectedEndLine: null,
       lastSelectedLine: null,
+      pendingActiveScroll: false,
+      toolbarControls: null,
+      toolControls: null,
     };
 
     host.classList.add("code-learner-pane-host");
+    mountPaneToolbar(state);
+    mountPaneTools(state);
     renderPane(state);
     loadPaneState(state);
+    return {
+      refresh: () => loadPaneState(state),
+    };
+  }
+
+  function mountPaneToolbar(state) {
+    if (!state.toolbarHost) {
+      return;
+    }
+    const controls = document.createElement("div");
+    controls.className = "code-learner-pane-toolbar-actions";
+    controls.dataset.codeLearnerPaneToolbar = "";
+    controls.innerHTML = `
+      <button class="previous" type="button"
+              data-code-learner-toolbar="prev">Previous</button>
+      <button class="next" type="button"
+              data-code-learner-toolbar="next">Next</button>
+    `;
+    state.toolbarHost.prepend(controls);
+    state.toolbarControls = {
+      prev: controls.querySelector('[data-code-learner-toolbar="prev"]'),
+      next: controls.querySelector('[data-code-learner-toolbar="next"]'),
+    };
+    state.toolbarControls.prev.addEventListener(
+      "click",
+      () => selectAdjacentPaneStep(state, -1),
+    );
+    state.toolbarControls.next.addEventListener(
+      "click",
+      () => selectAdjacentPaneStep(state, 1),
+    );
+  }
+
+  function mountPaneTools(state) {
+    if (!state.toolsController) {
+      return;
+    }
+    const view = state.toolsController.addSection("code-learner-view", "View");
+    if (state.fontControl) {
+      state.fontControl.hidden = false;
+      state.fontControl.classList.add("pane-tool-font-row");
+      view.append(state.fontControl);
+    }
+    const actions = state.toolsController.addSection(
+      "code-learner-actions",
+      "Actions",
+    );
+    const refresh = paneToolButton("Refresh lesson", () => loadPaneState(state));
+    const tutor = paneToolButton("Start tutor", () => {
+      notifyPaneContext(state);
+      state.postMessage({ type: "electroboy-code-learner-start-agent" });
+    });
+    const popOut = paneToolButton("Pop out", () => state.popOut());
+    popOut.hidden = !state.canPop;
+    actions.append(refresh, tutor, popOut);
+    state.toolControls = { refresh, tutor, popOut };
+  }
+
+  function paneToolButton(label, action, className = "") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.className = `code-learner-tool-action ${className}`.trim();
+    button.addEventListener("click", action);
+    return button;
+  }
+
+  function updatePaneToolbar(state) {
+    const walkthrough = state.walkthrough;
+    const current = currentPaneStep(state);
+    const steps = walkthroughSteps(walkthrough);
+    const index = current ? steps.findIndex((step) => step.id === current.id) : -1;
+    state.setTitle(walkthrough ? walkthrough.title : "Code Learner");
+    if (!state.toolbarControls) {
+      return;
+    }
+    state.toolbarControls.prev.disabled = state.busy || index <= 0;
+    state.toolbarControls.next.disabled =
+      state.busy || index < 0 || index >= steps.length - 1;
+    if (state.toolControls) {
+      state.toolControls.tutor.disabled = state.busy || !walkthrough;
+      state.toolControls.refresh.disabled = state.busy;
+    }
+  }
+
+  function selectAdjacentPaneStep(state, offset) {
+    const steps = walkthroughSteps(state.walkthrough);
+    const current = currentPaneStep(state);
+    const index = current ? steps.findIndex((step) => step.id === current.id) : -1;
+    const next = steps[index + offset];
+    if (next) {
+      selectPaneStep(state, next.id);
+    }
   }
 
   async function loadPaneState(state) {
@@ -1299,6 +1473,7 @@
       state.selectedStartLine = null;
       state.selectedEndLine = null;
       state.lastSelectedLine = null;
+      state.pendingActiveScroll = true;
     }
   }
 
@@ -1307,18 +1482,6 @@
     const step = currentPaneStep(state);
     state.host.innerHTML = `
       <article class="code-learner-pane">
-        <header class="code-learner-pane-header">
-          <div class="code-learner-pane-title">
-            <strong>${escapeHtml(walkthrough ? walkthrough.title : "Code Learner")}</strong>
-            <span>${escapeHtml(paneHeaderDetail(state))}</span>
-          </div>
-          <div class="code-learner-pane-actions">
-            <button type="button" data-code-learner-pane="prev">Prev</button>
-            <button type="button" data-code-learner-pane="next">Next</button>
-            <button type="button" data-code-learner-pane="start-agent">Tutor</button>
-            <button type="button" data-code-learner-pane="refresh">Refresh</button>
-          </div>
-        </header>
         <div class="code-learner-pane-grid">
           <section class="code-learner-code-surface">
             ${renderPaneSource(state)}
@@ -1330,23 +1493,21 @@
       </article>
     `;
     bindPaneEvents(state);
+    updatePaneToolbar(state);
+    scrollToActivePaneLine(state);
   }
 
-  function paneHeaderDetail(state) {
-    if (state.busy) {
-      return "Loading";
+  function scrollToActivePaneLine(state) {
+    if (!state.pendingActiveScroll) {
+      return;
     }
-    if (state.error) {
-      return state.error;
-    }
-    if (paneInitializationRunning(state)) {
-      return formatInitializationStatus(state.initialization);
-    }
-    const step = currentPaneStep(state);
-    if (!state.walkthrough || !step) {
-      return "No course";
-    }
-    return `${modeLabel(state.walkthrough.learning_mode)} - ${currentStepPosition(state.walkthrough, step.id)}`;
+    state.pendingActiveScroll = false;
+    window.requestAnimationFrame(() => {
+      const activeLine = state.host.querySelector(".code-learner-code-line.active");
+      if (activeLine) {
+        activeLine.scrollIntoView({ block: "center", inline: "nearest" });
+      }
+    });
   }
 
   function currentPaneStep(state) {
@@ -1410,7 +1571,6 @@
       return `
         <div class="code-learner-empty">
           <strong>${escapeHtml(paneInitializationRunning(state) ? "Initializing" : "No course loaded")}</strong>
-          <button type="button" data-code-learner-pane="refresh">Refresh</button>
         </div>
       `;
     }
@@ -1434,7 +1594,6 @@
                   data-code-learner-pane="question"
                   placeholder="Ask about this code"></textarea>
         <div class="code-learner-question-actions">
-          <button type="button" data-code-learner-pane="start-agent">Tutor</button>
           <button type="submit">Send to input</button>
         </div>
         <div class="code-learner-pane-status"
@@ -1460,40 +1619,9 @@
   }
 
   function bindPaneEvents(state) {
-    const find = (name) => state.host.querySelector(`[data-code-learner-pane="${name}"]`);
-    const prev = find("prev");
-    const next = find("next");
-    const refresh = find("refresh");
-    const startAgent = state.host.querySelectorAll('[data-code-learner-pane="start-agent"]');
-    const questionForm = find("question-form");
-    const steps = walkthroughSteps(state.walkthrough);
-    const current = currentPaneStep(state);
-    const index = current ? steps.findIndex((step) => step.id === current.id) : -1;
-    if (prev) {
-      prev.disabled = index <= 0;
-      prev.addEventListener("click", () => {
-        if (index > 0) {
-          selectPaneStep(state, steps[index - 1].id);
-        }
-      });
-    }
-    if (next) {
-      next.disabled = index < 0 || index >= steps.length - 1;
-      next.addEventListener("click", () => {
-        if (index >= 0 && index < steps.length - 1) {
-          selectPaneStep(state, steps[index + 1].id);
-        }
-      });
-    }
-    if (refresh) {
-      refresh.addEventListener("click", () => loadPaneState(state));
-    }
-    for (const button of startAgent) {
-      button.addEventListener("click", () => {
-        notifyPaneContext(state);
-        state.postMessage({ type: "electroboy-code-learner-start-agent" });
-      });
-    }
+    const questionForm = state.host.querySelector(
+      '[data-code-learner-pane="question-form"]',
+    );
     if (questionForm) {
       questionForm.addEventListener("submit", (event) => {
         event.preventDefault();

@@ -196,6 +196,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
         prompt = code_learner_initialize_prompt(
             Path("/repo"),
             progress_path=".electroboy/code-learner/initialize-progress.jsonl",
+            checkpoint_path=".electroboy/code-learner/initialize-checkpoint.md",
         )
 
         self.assertIn("Return ONLY JSONL", prompt)
@@ -204,9 +205,42 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertIn("module boundaries must come from your understanding", prompt)
         self.assertIn("Progress reporting", prompt)
         self.assertIn('"record_type":"progress"', prompt)
+        self.assertIn("more than about five seconds", prompt)
+        self.assertIn("major discovery", prompt)
+        self.assertIn("heartbeat", prompt)
+        self.assertIn("Durable checkpoint", prompt)
+        self.assertIn("initialize-checkpoint.md", prompt)
+        self.assertIn("remaining work", prompt)
         self.assertIn("percent", prompt)
         self.assertIn('record_type: "module"', prompt)
         self.assertIn('record_type: "function_lesson"', prompt)
+
+    def test_initialize_prompt_resumes_an_existing_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = (
+                root / ".electroboy" / "code-learner" / "initialize-checkpoint.md"
+            )
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_text(
+                "# Code Learner Initialization Checkpoint\n\n"
+                "## Remaining work\n\n- Map service routes.\n",
+                encoding="utf-8",
+            )
+
+            prompt = code_learner_initialize_prompt(
+                root,
+                progress_path=(
+                    ".electroboy/code-learner/initialize-progress.jsonl"
+                ),
+                checkpoint_path=(
+                    ".electroboy/code-learner/initialize-checkpoint.md"
+                ),
+            )
+
+        self.assertIn("An existing checkpoint is present", prompt)
+        self.assertIn("Read it before inspecting other files", prompt)
+        self.assertIn("continue from its remaining-work section", prompt)
 
     def test_initialize_is_single_flight_and_reports_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,6 +265,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
                 root: Path,
                 *,
                 progress_path: str | None = None,
+                checkpoint_path: str | None = None,
                 progress_callback=None,
             ) -> str:
                 started.set()
@@ -261,6 +296,34 @@ class CodeLearnerServiceTests(unittest.TestCase):
             self.assertEqual(first["status"], "initializing")
             self.assertEqual(second["status"], "initializing")
             self.assertEqual(status["initialization"]["percent"], 25)
+            self.assertFalse(status["initialization"]["resumed_from_checkpoint"])
+            self.assertTrue(
+                str(status["initialization"]["checkpoint_path"]).endswith(
+                    "initialize-checkpoint.md"
+                )
+            )
+            self.assertEqual(
+                status["initialization"]["progress_events"],
+                [
+                    {
+                        "phase": "setup",
+                        "percent": 1,
+                        "message": (
+                            "Starting AI course initialization with durable "
+                            "checkpointing."
+                        ),
+                        "updated_at": status["initialization"]["progress_events"][0][
+                            "updated_at"
+                        ],
+                    },
+                    {
+                        "phase": "architecture",
+                        "percent": 25,
+                        "message": "Drafting architecture",
+                        "updated_at": status["initialization"]["last_progress_at"],
+                    }
+                ],
+            )
             self.assertEqual(completed["status"], "initialized")
             self.assertIn("analysis", completed["code_learner"])
             generate.assert_called_once()
@@ -331,10 +394,13 @@ class CodeLearnerServiceTests(unittest.TestCase):
                 corpus = generate_code_learner_course_corpus_jsonl(
                     source_root,
                     progress_path=".electroboy/code-learner/initialize-progress.jsonl",
+                    checkpoint_path=".electroboy/code-learner/initialize-checkpoint.md",
                     progress_callback=progress_events.append,
                 )
 
         self.assertIn('"course_manifest"', corpus)
+        invocation = runtime.invoke.call_args.args[0]
+        self.assertIn("initialize-checkpoint.md", invocation.prompt)
         self.assertEqual(progress_events[0]["phase"], "module_map")
         self.assertEqual(progress_events[0]["percent"], 40)
 

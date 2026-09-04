@@ -48,6 +48,8 @@ class _InitializationJob:
     updated_at: str = field(default_factory=utc_now)
     last_progress_at: str = ""
     error: str = ""
+    progress_events: list[dict[str, object]] = field(default_factory=list)
+    resumed_from_checkpoint: bool = False
     started_monotonic: float = field(default_factory=time.monotonic)
     thread: threading.Thread | None = field(default=None, repr=False)
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
@@ -81,6 +83,29 @@ class _InitializationJob:
             if progress:
                 self.last_progress_at = self.updated_at
 
+    def record_progress(self, record: dict[str, object]) -> None:
+        phase = str(record.get("phase") or self.phase or "running").strip()
+        message = str(record.get("message") or phase).strip()
+        percent = _bounded_percent(record.get("percent"))
+        self.update(
+            status="running",
+            phase=phase or "running",
+            percent=percent,
+            message=message or "Initializing AI course material.",
+            progress=True,
+        )
+        with self.lock:
+            event = {
+                "phase": phase or "running",
+                "percent": percent,
+                "message": message or "Initializing AI course material.",
+                "updated_at": self.updated_at,
+            }
+            if self.progress_events and self.progress_events[-1] == event:
+                return
+            self.progress_events.append(event)
+            self.progress_events = self.progress_events[-250:]
+
     def snapshot(self) -> dict[str, object]:
         with self.lock:
             elapsed = max(0, int(time.monotonic() - self.started_monotonic))
@@ -98,6 +123,11 @@ class _InitializationJob:
                 "elapsed_seconds": elapsed,
                 "estimated_remaining_seconds": remaining,
                 "error": self.error,
+                "progress_events": [dict(event) for event in self.progress_events],
+                "resumed_from_checkpoint": self.resumed_from_checkpoint,
+                "checkpoint_path": str(
+                    CodeLearnerStore(self.root).initialization_checkpoint_path
+                ),
                 "progress_path": str(
                     CodeLearnerStore(self.root).initialization_progress_path
                 ),
@@ -131,6 +161,9 @@ def _idle_initialization_snapshot(root: Path) -> dict[str, object]:
         "elapsed_seconds": 0,
         "estimated_remaining_seconds": None,
         "error": "",
+        "progress_events": [],
+        "resumed_from_checkpoint": False,
+        "checkpoint_path": str(CodeLearnerStore(root).initialization_checkpoint_path),
         "progress_path": str(CodeLearnerStore(root).initialization_progress_path),
     }
 
@@ -148,6 +181,9 @@ def _completed_initialization_snapshot(root: Path) -> dict[str, object]:
         "elapsed_seconds": 0,
         "estimated_remaining_seconds": None,
         "error": "",
+        "progress_events": [],
+        "resumed_from_checkpoint": False,
+        "checkpoint_path": str(CodeLearnerStore(root).initialization_checkpoint_path),
         "progress_path": str(CodeLearnerStore(root).initialization_progress_path),
     }
 
@@ -331,7 +367,11 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         with self._initialization_lock:
             job = self._initialization_jobs.get(str(root))
             if job is None or not job.is_running():
-                job = _InitializationJob(root=root)
+                store = CodeLearnerStore(root)
+                job = _InitializationJob(
+                    root=root,
+                    resumed_from_checkpoint=store.initialization_checkpoint_path.is_file(),
+                )
                 thread = threading.Thread(
                     target=self._run_initialization_job,
                     args=(root, job),
@@ -394,16 +434,23 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     ) -> None:
         store = CodeLearnerStore(root)
         progress_path = store.initialization_progress_relative_path.as_posix()
-        job.update(
-            status="running",
-            phase="setup",
-            percent=1,
-            message="Starting AI course initialization.",
+        checkpoint_path = store.initialization_checkpoint_relative_path.as_posix()
+        job.record_progress(
+            {
+                "phase": "setup",
+                "percent": 1,
+                "message": (
+                    "Resuming AI course initialization from cached findings."
+                    if job.resumed_from_checkpoint
+                    else "Starting AI course initialization with durable checkpointing."
+                ),
+            }
         )
         try:
             corpus_jsonl = generate_code_learner_course_corpus_jsonl(
                 root,
                 progress_path=progress_path,
+                checkpoint_path=checkpoint_path,
                 progress_callback=lambda record: self._record_initialization_progress(
                     job,
                     record,
@@ -435,16 +482,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         job: _InitializationJob,
         record: dict[str, object],
     ) -> None:
-        phase = str(record.get("phase") or job.phase or "running").strip()
-        message = str(record.get("message") or phase).strip()
-        percent = record.get("percent")
-        job.update(
-            status="running",
-            phase=phase or "running",
-            percent=_bounded_percent(percent),
-            message=message or "Initializing AI course material.",
-            progress=True,
-        )
+        job.record_progress(record)
 
     def _initialization_job(self, root: Path) -> _InitializationJob | None:
         with self._initialization_lock:

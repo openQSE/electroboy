@@ -26,6 +26,9 @@ LEARNER_CORPUS_RELATIVE_PATH = (
 LEARNER_INIT_PROGRESS_RELATIVE_PATH = (
     Path(".electroboy") / "code-learner" / "initialize-progress.jsonl"
 )
+LEARNER_INIT_CHECKPOINT_RELATIVE_PATH = (
+    Path(".electroboy") / "code-learner" / "initialize-checkpoint.md"
+)
 COURSE_CORPUS_SCHEMA_VERSION = 1
 SUPPORTED_LEARNING_MODES = frozenset({"architecture", "module", "function"})
 COURSE_CORPUS_RECORD_TYPES = frozenset(
@@ -559,6 +562,12 @@ class CodeLearnerStore:
         )
         self.initialization_progress_relative_path = (
             LEARNER_INIT_PROGRESS_RELATIVE_PATH
+        )
+        self.initialization_checkpoint_path = (
+            self.root / LEARNER_INIT_CHECKPOINT_RELATIVE_PATH
+        )
+        self.initialization_checkpoint_relative_path = (
+            LEARNER_INIT_CHECKPOINT_RELATIVE_PATH
         )
 
     def load_corpus_records(self) -> list[dict[str, object]]:

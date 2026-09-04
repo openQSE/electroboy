@@ -35,17 +35,31 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'navigation: "sidebar"' in frontend
     assert 'kind: "code-learner"' in frontend
     assert "window.ElectroBoyCodeLearnerPane" in frontend
+    assert "refresh: () => loadPaneState(state)" in frontend
     assert "electroboy-code-learner-context" in frontend
     assert "electroboy-code-learner-question" in frontend
     assert "preparePrompt" in frontend
     assert 'contextUrl("/api/code-learner/walkthrough")' in frontend
     assert 'contextUrl("/api/code-learner/init/status")' in frontend
     assert 'data-code-learner-control="project-menu"' in frontend
+    assert 'data-code-learner-control="open-project"' in frontend
+    assert (
+        'runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);'
+        in frontend
+    )
     assert '<span class="stage-action-label">Project</span>' in frontend
     assert '<span class="stage-action-label">Learn</span>' in frontend
     assert '<span class="stage-action-label">Outline</span>' in frontend
     assert 'data-code-learner-control="initialize"' in frontend
+    assert 'data-code-learner-control="architecture-menu"' in frontend
+    assert 'data-code-learner-control="architecture-start">Start lesson' in frontend
+    assert 'generateCourse({ mode: "architecture" })' in frontend
     assert 'data-code-learner-control="init-progress"' in frontend
+    assert 'runtimeApi.modules.invoke("progress", "showProgressSnapshot", {' in frontend
+    assert 'runtimeApi.modules.invoke("progress", "closeProgressEventStream");' in frontend
+    assert "initialization.progress_events" in frontend
+    assert "initializationProgressEventText(event)" in frontend
+    assert "if (!running)" in frontend
     assert 'data-code-learner-control="module"' in frontend
     assert 'data-code-learner-control="module-start"' in frontend
     assert 'data-code-learner-control="function"' in frontend
@@ -56,6 +70,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'activeNavigationGroup === "learn"' in frontend
     assert 'activeNavigationGroup === "outline"' in frontend
     assert "initialized && navigationExpanded.module" in frontend
+    assert "initialized && navigationExpanded.architecture" in frontend
     assert "initialized && navigationExpanded.function" in frontend
     assert "Boolean(walkthrough) && navigationExpanded.outline" in frontend
     assert (
@@ -69,9 +84,32 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'state.contextUrl("/api/code-learner/init"),' not in frontend
     assert 'button.classList.toggle("active"' not in frontend
     assert 'setAttribute("aria-current", "step")' in frontend
+    assert 'controls.dataset.codeLearnerPaneToolbar = ""' in frontend
+    toolbar_source = frontend[
+        frontend.index("function mountPaneToolbar") :
+        frontend.index("function mountPaneTools")
+    ]
+    assert ">Previous</button>" in toolbar_source
+    assert ">Next</button>" in toolbar_source
+    assert "Tutor" not in toolbar_source
+    assert "Refresh" not in toolbar_source
+    assert 'addSection("code-learner-view", "View")' in frontend
+    assert '"Refresh lesson"' in frontend
+    assert '"Start tutor"' in frontend
+    assert 'paneToolButton("Pop out"' in frontend
+    assert "button.code-learner-tool-action" in stylesheet
+    assert "text-align: center;" in stylesheet
+    assert '<header class="code-learner-pane-header">' not in frontend
+    assert 'data-code-learner-pane="refresh"' not in frontend
+    assert 'activeLine.scrollIntoView({ block: "center", inline: "nearest" });' in frontend
     assert ".code-learner-pane-grid" in stylesheet
     assert ".code-learner-progress-fill" in stylesheet
     assert ".tok-keyword" in stylesheet
+    assert "--code-learner-code-font-size: calc(var(--font-size) - 2px);" in stylesheet
+    assert "font-size: var(--code-learner-code-font-size);" in stylesheet
+    assert "font-size: calc(var(--font-size) + 9px);" in stylesheet
+    assert "font-size: var(--font-size);" in stylesheet
+    assert "line-height: var(--code-learner-code-line-height);" in stylesheet
 
 
 def test_code_learner_navigation_uses_shared_shell_menu_treatment() -> None:
@@ -104,6 +142,14 @@ def test_pane_window_loads_installed_workflow_assets_for_code_learner() -> None:
     assert "/assets/service/js/workflows/code-learner.js" in page
     assert "/assets/service/css/workflows/code-learner.css" in page
     assert "window.ElectroBoyCodeLearnerPane.mount" in page
+    assert "codeLearnerPane = window.ElectroBoyCodeLearnerPane.mount" in page
+    assert "codeLearnerPane.refresh();" in page
+    assert "toolbarHost: paneActions" in page
+    assert "fontControl: paneFontControls" in page
+    assert "popOut: requestCurrentPanePopOut" in page
+    assert 'type: "electroboy:pane-pop"' in page
+    assert 'if (kind === "code-learner") return "code-learner";' in page
+    assert "paneTitle.textContent = title" in page
     assert 'if (kind === "code-learner") return "Code Learner";' in page
 
 
@@ -119,6 +165,11 @@ def test_runtime_and_software_frontend_route_code_learner_as_separate_pane() -> 
 
     assert '"code-learner": { label: "Code Learner", element: null }' in runtime
     assert '"code-learner",' in runtime
+    assert 'if (kind === "code-learner") return "code-learner";' in runtime
+    assert "INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)" in runtime
+    assert 'leaf.kind !== "artifact"' in runtime
+    assert 'message.type === "electroboy:pane-pop"' in runtime
+    assert 'parameters.set("popped", "1")' in runtime
     assert (
         'project.kind === "project" || project.kind === "meta"'
         in software

@@ -764,7 +764,7 @@
   <main id="directPaneWindow" class="pane-window">
     <header class="pane-toolbar">
       <span id="paneTitle">Pane</span>
-      <div class="pane-actions">
+      <div id="paneActions" class="pane-actions">
         <div id="paneContentControl" class="pane-content-control" hidden>
           <label id="paneContentLabel" for="contentSwitcher">Content</label>
           <select
@@ -993,9 +993,11 @@
       "electroboy-agenda-state",
       "electroboy-mind-map-action",
     ]);
+    let codeLearnerPane = null;
     let artifactZoom = clampArtifactZoom(Number(params.get("document_zoom") || "100"));
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
+    const paneActions = document.getElementById("paneActions");
     const dockPane = document.getElementById("dockPane");
     const workspaceWindow = document.getElementById("workspaceWindow");
     const directPaneWindow = document.getElementById("directPaneWindow");
@@ -1090,6 +1092,7 @@
     applyFontSize();
 
     function paneFontKeyForKind(kind) {
+      if (kind === "code-learner") return "code-learner";
       if (kind === "shell") return "shell";
       if (kind === "progress") return "progress";
       if (kind === "input") return "input";
@@ -2160,6 +2163,19 @@
         return;
       }
       window.close();
+    }
+
+    function requestCurrentPanePopOut() {
+      if (!EMBEDDED_PANE || !paneInstanceId || window.parent === window) {
+        return;
+      }
+      window.parent.postMessage(
+        {
+          type: "electroboy:pane-pop",
+          paneInstanceId,
+        },
+        window.location.origin,
+      );
     }
 
     function closePaneDocument() {
@@ -4349,6 +4365,16 @@
         return;
       }
       if (
+        data.type === "electroboy:pane-set-content" &&
+        PANE_KIND === "code-learner" &&
+        (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
+      ) {
+        if (codeLearnerPane) {
+          codeLearnerPane.refresh();
+        }
+        return;
+      }
+      if (
         (data.type === "electroboy:pane-set-artifact" ||
           data.type === "electroboy:pane-set-content") &&
         (PANE_KIND === "artifact" ||
@@ -4548,8 +4574,17 @@
       PANE_KIND === "code-learner" &&
       window.ElectroBoyCodeLearnerPane
     ) {
-      window.ElectroBoyCodeLearnerPane.mount({
+      paneToolsTitle.textContent = "Code Learner tools";
+      codeLearnerPane = window.ElectroBoyCodeLearnerPane.mount({
         host: paneContentSurface,
+        toolbarHost: paneActions,
+        toolsController: paneToolsController,
+        fontControl: paneFontControls,
+        canPop: EMBEDDED_PANE && params.get("popped") !== "1",
+        popOut: requestCurrentPanePopOut,
+        setTitle: (title) => {
+          paneTitle.textContent = title;
+        },
         contextUrl,
         paneInstanceId,
         postMessage: (message) => {
