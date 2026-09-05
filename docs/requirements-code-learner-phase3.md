@@ -1759,31 +1759,43 @@ at the end of each boundary so the refactor remains reviewable and recoverable.
 
 ### Boundary 1: Phase 2 Characterization And Phase 3 Cutover Plan
 
-1. [ ] Record the current Phase 2 initialization stages, persisted files,
+1. [x] Record the current Phase 2 initialization stages, persisted files,
    routes, frontend states, and runtime roles.
-2. [ ] Identify every code path that reads or writes Phase 2 knowledge entity,
+2. [x] Identify every code path that reads or writes Phase 2 knowledge entity,
    relationship, flow, course, checkpoint, progress, and tutor records.
-3. [ ] Add or update characterization tests for current source revision and
+3. [x] Add or update characterization tests for current source revision and
    source-reference validation.
-4. [ ] Add characterization tests for current module discovery, relationship
+4. [x] Add characterization tests for current module discovery, relationship
    generation, Architecture generation, Module generation, and Function
    generation.
-5. [ ] Add a regression fixture reproducing a dangling AI-created entity ID.
-6. [ ] Add a regression fixture reproducing a single domain JSON object being
+5. [x] Add a regression fixture reproducing a dangling AI-created entity ID.
+6. [x] Add a regression fixture reproducing a single domain JSON object being
    mistaken for an agent result envelope.
-7. [ ] Add a regression fixture proving that an analysis AI cannot safely own
+7. [x] Add a regression fixture proving that an analysis AI cannot safely own
    canonical knowledge writes.
-8. [ ] Document in test names which Phase 2 behavior is retained, replaced, or
+8. [x] Document in test names which Phase 2 behavior is retained, replaced, or
    removed by Phase 3.
-9. [ ] Define a feature/version switch that prevents Phase 2 and Phase 3 state
+9. [x] Define a feature/version switch that prevents Phase 2 and Phase 3 state
    from being mixed in one initialization run.
-10. [ ] Define the temporary compatibility strategy for already initialized
+10. [x] Define the temporary compatibility strategy for already initialized
     Phase 2 projects.
-11. [ ] Confirm software-engineering and creative-writing workflows remain
+11. [x] Confirm software-engineering and creative-writing workflows remain
     outside the refactor boundary.
-12. [ ] Run the complete pre-refactor Code Learner test suite and record the
+12. [x] Run the complete pre-refactor Code Learner test suite and record the
     baseline result.
-13. [ ] Commit Phase 2 characterization tests and the Phase 3 cutover seam.
+13. [x] Commit Phase 2 characterization tests and the Phase 3 cutover seam.
+
+Boundary 1 validation notes:
+
+- The pre-refactor repository suite completed with 601 passing tests and 11
+  pre-existing failures: eight unrelated browser corkboard or mind-map tests,
+  two software requirements session-recovery tests, and one environment-bound
+  service-port assertion.
+- Existing Phase 2 characterization tests cover all learner modes, source
+  revision checks, malformed references, runtime read-only behavior, targeted
+  retry, restart, migration, and single-record AI responses.
+- `LearnerGenerationStore` detects unmarked Phase 2 state and requires an
+  explicit replacement or migration before selecting Phase 3.
 
 ### Boundary 2: Phase 3 Domain Contracts And Schemas
 
