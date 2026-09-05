@@ -114,6 +114,48 @@ def _module_patch(revision: str, run_id: str) -> list[dict[str, object]]:
     return [
         {
             **common,
+            "record_type": "knowledge_manifest",
+            "id": "knowledge.manifest",
+            "repository_name": "Fixture",
+            "scope_path": ".",
+            "status": "modules",
+            "entity_count": 2,
+            "relationship_count": 1,
+            "flow_count": 0,
+            "diagnostic_count": 0,
+            "attributes": {
+                "inventory": {
+                    "languages": [
+                        {"name": "Markdown", "evidence_paths": ["README.md"]}
+                    ],
+                    "excluded_regions": [],
+                    "build_systems": [],
+                    "dependency_manifests": [],
+                    "produced_artifact_ids": [],
+                    "entry_point_ids": [],
+                    "public_surface_ids": [],
+                    "process_ids": [],
+                    "test_surface_ids": [],
+                    "external_system_ids": [],
+                    "analysis_tools": [],
+                },
+                "module_catalog": {
+                    "major_module_ids": ["module.fixture"],
+                    "extension_family_ids": [],
+                    "shared_infrastructure_module_ids": [],
+                    "coverage": {
+                        "candidate_count": 1,
+                        "module_count": 1,
+                        "implementation_candidate_count": 0,
+                        "implementation_module_count": 0,
+                        "excluded_count": 0,
+                        "evidence_paths_reviewed": ["README.md"],
+                    },
+                },
+            },
+        },
+        {
+            **common,
             "record_type": "entity",
             "id": "module.fixture",
             "kind": "module",
@@ -122,6 +164,12 @@ def _module_patch(revision: str, run_id: str) -> list[dict[str, object]]:
             "parent_id": "repository.root",
             "source_refs": [reference],
             "confidence": "high",
+            "attributes": {
+                "boundary_evidence": ["documentation"],
+                "interface_ids": [],
+                "initial_dependency_ids": [],
+                "extension_family_id": "",
+            },
         },
         {
             **common,

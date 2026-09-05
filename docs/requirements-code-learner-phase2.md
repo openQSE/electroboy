@@ -1316,22 +1316,22 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 8: Module And Extension Discovery
 
-90. [ ] Implement the module-discovery prompt and scope contract.
-91. [ ] Infer modules from code relationships, build configuration, runtime
+90. [x] Implement the module-discovery prompt and scope contract.
+91. [x] Infer modules from code relationships, build configuration, runtime
     registration, documentation, and tests.
-92. [ ] Detect extension families without relying on fixed names such as
+92. [x] Detect extension families without relying on fixed names such as
     provider or plugin.
-93. [ ] Enumerate concrete implementations for each extension family.
-94. [ ] Separate family infrastructure, shared utility modules, and concrete
+93. [x] Enumerate concrete implementations for each extension family.
+94. [x] Separate family infrastructure, shared utility modules, and concrete
     implementations.
-95. [ ] Require a module or exclusion diagnostic for each implementation.
-96. [ ] Record public interfaces, ownership, primary source, and initial
+95. [x] Require a module or exclusion diagnostic for each implementation.
+96. [x] Record public interfaces, ownership, primary source, and initial
     dependencies for every major module.
-97. [ ] Add a coverage report comparing inventory evidence with emitted module
+97. [x] Add a coverage report comparing inventory evidence with emitted module
     records.
-98. [ ] Test multiple extension-family naming and registration patterns.
-99. [ ] Test that a recent branch change does not hide unrelated modules.
-100. [ ] Commit module and extension-family discovery.
+98. [x] Test multiple extension-family naming and registration patterns.
+99. [x] Test that a recent branch change does not hide unrelated modules.
+100. [x] Commit module and extension-family discovery.
 
 ### Boundary 9: Relationship And Runtime-Flow Deep Dive
 

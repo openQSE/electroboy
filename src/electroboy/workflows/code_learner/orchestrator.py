@@ -206,8 +206,11 @@ class AnalysisOrchestrator:
         if not output:
             raise CodeLearnerError("analysis pass returned no JSONL")
         records = parse_jsonl(output, artifact="analysis pass")
-        validate_pass_output(analysis_pass, records)
-        if self.store.load_knowledge():
+        existing = self.store.load_knowledge()
+        combined = {str(record["id"]): record for record in existing}
+        combined.update({str(record.get("id") or ""): record for record in records})
+        validate_pass_output(analysis_pass, combined.values())
+        if existing:
             self.store.merge_knowledge(records)
         else:
             self.store.save_knowledge(records)
