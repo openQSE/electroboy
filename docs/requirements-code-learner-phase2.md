@@ -19,6 +19,13 @@ Phase 2 requires two separate AI skills. The skills have different purposes,
 inputs, outputs, and quality gates. ElectroBoy orchestrates both skills and
 owns the schemas, storage, validation, progress, retry, and rendering behavior.
 
+Phase 2 must retain the v1 `course_manifest`, `architecture_step`, `module`,
+`module_step`, `function_index_entry`, and `function_lesson` fields through a
+read compatibility adapter. Existing v1 corpora remain readable and are not
+rewritten destructively. New Phase 2 knowledge and course records use their
+canonical schemas; fields with no Phase 2 equivalent are retained only in the
+v1 compatibility representation and are deprecated for new generation.
+
 ### `codebase-analysis`
 
 The `codebase-analysis` skill builds and incrementally enriches a durable,
@@ -1173,21 +1180,21 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 1: Baseline And Compatibility
 
-1. [ ] Record the current Code Learner corpus, walkthrough, initialization,
+1. [x] Record the current Code Learner corpus, walkthrough, initialization,
    module selection, function selection, rendering, and tutor behavior.
-2. [ ] Add characterization tests for the current JSONL parser and persisted
+2. [x] Add characterization tests for the current JSONL parser and persisted
    corpus.
-3. [ ] Add characterization tests for Architecture, Module, and Function
+3. [x] Add characterization tests for Architecture, Module, and Function
    walkthrough creation.
-4. [ ] Add a fixture for a repository containing multiple architectural
+4. [x] Add a fixture for a repository containing multiple architectural
    modules and an extension family with multiple implementations.
-5. [ ] Add fixtures for at least Python, TypeScript or JavaScript, and C or C++
+5. [x] Add fixtures for at least Python, TypeScript or JavaScript, and C or C++
    source layouts.
-6. [ ] Confirm existing v1 course artifacts remain readable during migration.
-7. [ ] Define which v1 fields will be migrated, deprecated, or retained.
-8. [ ] Verify unrelated software and creative-writing workflows remain
+6. [x] Confirm existing v1 course artifacts remain readable during migration.
+7. [x] Define which v1 fields will be migrated, deprecated, or retained.
+8. [x] Verify unrelated software and creative-writing workflows remain
    unaffected.
-9. [ ] Commit baseline fixtures and characterization tests.
+9. [x] Commit baseline fixtures and characterization tests.
 
 ### Boundary 2: Canonical Schemas
 
