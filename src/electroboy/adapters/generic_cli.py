@@ -6,11 +6,12 @@ import json
 import os
 import subprocess
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
-from .base import AgentInvocation, AgentResult, AgentRuntime
 from ..config import RuntimeConfig
+from .base import AgentInvocation, AgentResult, AgentRuntime
 
 
 class GenericCliRuntime(AgentRuntime):
@@ -23,7 +24,7 @@ class GenericCliRuntime(AgentRuntime):
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         command = self._command(invocation)
         prompt = self._build_prompt(invocation)
-        if invocation.progress_path:
+        if invocation.progress_path or invocation.activity_callback:
             return self._invoke_with_progress_monitor(command, prompt, invocation)
         try:
             run_kwargs: dict[str, object] = {
@@ -85,6 +86,7 @@ class GenericCliRuntime(AgentRuntime):
             prompt,
             stdout_chunks,
             stderr_chunks,
+            invocation,
         )
         process.wait()
         for thread in threads:
@@ -102,13 +104,18 @@ class GenericCliRuntime(AgentRuntime):
         prompt: str,
         stdout_chunks: list[str],
         stderr_chunks: list[str],
+        invocation: AgentInvocation,
     ) -> list[threading.Thread]:
         threads: list[threading.Thread] = []
         if process.stdout is not None:
             threads.append(
                 threading.Thread(
-                    target=self._collect_stream,
-                    args=(process.stdout, stdout_chunks),
+                    target=self._collect_stdout_stream,
+                    args=(
+                        process.stdout,
+                        stdout_chunks,
+                        invocation.activity_callback,
+                    ),
                     daemon=True,
                 )
             )
@@ -131,6 +138,47 @@ class GenericCliRuntime(AgentRuntime):
         for thread in threads:
             thread.start()
         return threads
+
+    def _collect_stdout_stream(
+        self,
+        stream: TextIO,
+        chunks: list[str],
+        activity_callback: Callable[[str], None] | None,
+    ) -> None:
+        if activity_callback is None:
+            self._collect_stream(stream, chunks)
+            return
+        try:
+            for line in stream:
+                chunks.append(line)
+                activity = self._activity_from_stdout_line(line)
+                if not activity:
+                    continue
+                try:
+                    activity_callback(activity)
+                except Exception:
+                    continue
+        finally:
+            stream.close()
+
+    @staticmethod
+    def _activity_from_stdout_line(line: str) -> str:
+        """Extract a concise activity message from a generic CLI output line."""
+
+        text = " ".join(line.split())
+        if not text:
+            return ""
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return text[:240]
+        if not isinstance(payload, dict):
+            return ""
+        for key in ("activity", "status", "message"):
+            value = payload.get(key)
+            if isinstance(value, str) and not value.lstrip().startswith(("{", "[")):
+                return " ".join(value.split())[:240]
+        return ""
 
     def _collect_stream(self, stream: TextIO, chunks: list[str]) -> None:
         try:
@@ -195,7 +243,9 @@ class GenericCliRuntime(AgentRuntime):
             provider_session_id = parsed.get("provider_session_id")
             return AgentResult(
                 ok=bool(parsed.get("ok", True)),
-                final_message=str(parsed.get("final_message", parsed.get("message", ""))),
+                final_message=str(
+                    parsed.get("final_message", parsed.get("message", ""))
+                ),
                 issues=list(parsed.get("issues", [])),
                 raw_events=[parsed],
                 changed_files=list(parsed.get("changed_files", [])),
@@ -215,4 +265,8 @@ class GenericCliRuntime(AgentRuntime):
                 structured_output=True,
                 structured_payload=parsed,
             )
-        return AgentResult(ok=True, final_message=stdout, raw_events=[{"value": parsed}])
+        return AgentResult(
+            ok=True,
+            final_message=stdout,
+            raw_events=[{"value": parsed}],
+        )

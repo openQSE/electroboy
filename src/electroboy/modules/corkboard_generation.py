@@ -5,11 +5,10 @@ from __future__ import annotations
 import json
 import re
 import threading
-import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 from uuid import uuid4
 
 from electroboy.adapters.base import AgentInvocation, AgentRuntime
@@ -273,6 +272,8 @@ Generation pass: {pass_definition['label']}.
 {pass_instructions}
 
 Read the source files, but do not modify any file and do not run destructive commands.
+While working, emit a concise one-line commentary update whenever your activity
+changes so the user can follow the analysis. Do not repeat an unchanged status.
 Return exactly one JSON object with this shape and no Markdown fence:
 {{
   "title": "concise board title",
@@ -614,6 +615,8 @@ class CorkboardGenerationManager:
         message = self._activity_text(text)
         if not message:
             return
+        if job.activities and job.activities[-1].get("text") == message:
+            return
         job.activity_sequence += 1
         job.activities.append(
             {
@@ -661,22 +664,6 @@ class CorkboardGenerationManager:
                     event_type=activity_type,
                 )
 
-    def _analysis_heartbeat(
-        self,
-        job: CorkboardGenerationJob,
-        stopped: threading.Event,
-    ) -> None:
-        started = time.monotonic()
-        while not stopped.wait(self.activity_interval):
-            with self.lock:
-                if job.status != "running" or job.step != "Analyzing source":
-                    return
-            elapsed = max(5, int(time.monotonic() - started))
-            self._record_activity(
-                job,
-                f"AI is analyzing the source ({elapsed} seconds elapsed).",
-            )
-
     def _run(
         self,
         services: ServiceServices,
@@ -696,33 +683,27 @@ class CorkboardGenerationManager:
                 activity="AI is analyzing the source.",
             )
             runtime = self.runtime_factory("corkboard_generation", root)
-            heartbeat_stopped = threading.Event()
-            heartbeat = threading.Thread(
-                target=self._analysis_heartbeat,
-                args=(job, heartbeat_stopped),
-                name=f"corkboard-generation-heartbeat-{job.id[:8]}",
-                daemon=True,
-            )
-            heartbeat.start()
-            try:
-                result = runtime.invoke(
-                    AgentInvocation(
-                        role="corkboard_generation",
-                        prompt=_prompt(
-                            job.workflow_id,
-                            job.scope,
-                            pass_definition,
-                            manifest,
-                        ),
-                        context_paths=(
-                            [str(root / job.scope["path"])]
-                            if job.scope["type"] == "file"
-                            else [str(root)]
-                        ),
-                    )
+            result = runtime.invoke(
+                AgentInvocation(
+                    role="corkboard_generation",
+                    prompt=_prompt(
+                        job.workflow_id,
+                        job.scope,
+                        pass_definition,
+                        manifest,
+                    ),
+                    context_paths=(
+                        [str(root / job.scope["path"])]
+                        if job.scope["type"] == "file"
+                        else [str(root)]
+                    ),
+                    activity_callback=lambda activity: self._record_activity(
+                        job,
+                        activity,
+                        event_type="agent",
+                    ),
                 )
-            finally:
-                heartbeat_stopped.set()
+            )
             if not result.ok:
                 raise StateError(
                     result.error or result.final_message or "corkboard agent failed"

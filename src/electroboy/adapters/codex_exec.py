@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
-from .base import AgentInvocation, AgentResult, AgentRuntime
+from ..config import RuntimeConfig
+from .base import AgentInvocation, AgentResult
 from .generic_cli import GenericCliRuntime
 from .interactive_cli import CodexInteractiveRuntime
-from ..config import RuntimeConfig
 
 
 class CodexExecRuntime(GenericCliRuntime):
@@ -48,6 +49,11 @@ class CodexExecRuntime(GenericCliRuntime):
 
     def _command(self, invocation: AgentInvocation) -> list[str]:
         command = [self.config.command, *self.config.args]
+        if (
+            invocation.role in {"corkboard_generation", "corkboard-generation"}
+            and not any("model_reasoning_summary" in part for part in command)
+        ):
+            command.extend(["-c", 'model_reasoning_summary="concise"'])
         if "--sandbox" in command or "-s" in command:
             return command
         sandbox = self.config.options.get("sandbox")
@@ -99,6 +105,55 @@ class CodexExecRuntime(GenericCliRuntime):
             raw_events=events,
             issues=issues,
         )
+
+    @classmethod
+    def _activity_from_stdout_line(cls, line: str) -> str:
+        """Translate one Codex JSONL event into user-facing activity."""
+
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            return ""
+        if not isinstance(event, dict):
+            return ""
+        item = event.get("item")
+        if not isinstance(item, dict):
+            return ""
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type in {"agent_message", "reasoning"}:
+            text = item.get("text") or item.get("message") or item.get("summary")
+            if isinstance(text, list):
+                text = " ".join(
+                    str(entry.get("text") or "")
+                    for entry in text
+                    if isinstance(entry, dict)
+                )
+            return cls._concise_activity(text)
+        if item_type == "command_execution":
+            return cls._command_activity(item)
+        return ""
+
+    @staticmethod
+    def _concise_activity(value: object) -> str:
+        text = " ".join(str(value or "").split())
+        if not text or text.startswith(("{", "[", "```")):
+            return ""
+        if len(text) > 240:
+            text = text[:237].rstrip() + "..."
+        return text
+
+    @classmethod
+    def _command_activity(cls, item: dict[str, object]) -> str:
+        command = item.get("command")
+        if isinstance(command, list):
+            command_text = " ".join(str(part) for part in command)
+        else:
+            command_text = str(command or "")
+        if not command_text:
+            return ""
+        if re.search(r"(^|\s)(cat|head|tail|sed|rg)(\s|$)", command_text):
+            return "Reading source material and identifying corkboard entries."
+        return "Inspecting source material for corkboard structure."
 
     def _extract_final_message(
         self,

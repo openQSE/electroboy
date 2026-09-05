@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 
@@ -15,6 +16,11 @@ class AgentInvocation:
     output_schema: dict[str, object] | None = None
     provider_session_id: str | None = None
     progress_path: str | None = None
+    activity_callback: Callable[[str], None] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
 
 @dataclass

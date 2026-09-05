@@ -719,7 +719,7 @@
       deleteDocuments,
       generate,
       generationJob: () => generationJob,
-      generationTask,
+      generationTask: (_runtime, job = generationJob) => generationTask(job),
       syncGeneration,
     },
     mount(runtime) {

@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.adapters.base import AgentInvocation  # noqa: E402
-from electroboy.config import RuntimeConfig  # noqa: E402
 from electroboy.adapters.codex_exec import CodexExecRuntime  # noqa: E402
 from electroboy.adapters.generic_cli import GenericCliRuntime  # noqa: E402
 from electroboy.adapters.interactive_cli import CodexInteractiveRuntime  # noqa: E402
+from electroboy.config import RuntimeConfig  # noqa: E402
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -49,11 +49,47 @@ class RuntimeAdapterTests(unittest.TestCase):
             )
         )
 
-        result = runtime._parse_stdout('{"type": "turn.completed", "message": "done"}\n')
+        result = runtime._parse_stdout(
+            '{"type": "turn.completed", "message": "done"}\n'
+        )
 
         self.assertTrue(result.ok)
         self.assertEqual(result.final_message, "done")
         self.assertEqual(result.raw_events[0]["type"], "turn.completed")
+
+    def test_codex_exec_streams_concise_activity_events(self) -> None:
+        activities: list[str] = []
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command=sys.executable,
+                args=[
+                    "-c",
+                    (
+                        "import json; "
+                        "print(json.dumps({'type': 'item.completed', "
+                        "'item': {'type': 'agent_message', "
+                        "'text': 'Mapping the central conflict.'}}), flush=True); "
+                        "print(json.dumps({'type': 'item.completed', "
+                        "'item': {'type': 'agent_message', "
+                        "'text': '{\\\"cards\\\": []}'}}), flush=True)"
+                    ),
+                ],
+            )
+        )
+
+        result = runtime.invoke(
+            AgentInvocation(
+                role="corkboard_generation",
+                prompt="prompt",
+                activity_callback=activities.append,
+            )
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(activities, ["Mapping the central conflict."])
+        self.assertTrue(result.structured_output)
 
     def test_generic_cli_runtime_errors_return_agent_result(self) -> None:
         runtime = GenericCliRuntime(
@@ -87,6 +123,8 @@ class RuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(review[-2:], ["--sandbox", "read-only"])
         self.assertEqual(generation[-2:], ["--sandbox", "read-only"])
+        self.assertIn('model_reasoning_summary="concise"', generation)
+        self.assertNotIn('model_reasoning_summary="concise"', review)
         self.assertEqual(coding[-2:], ["--sandbox", "workspace-write"])
 
     def test_codex_exec_uses_writable_sandbox_for_progress_file(self) -> None:

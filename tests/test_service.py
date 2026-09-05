@@ -891,11 +891,15 @@ class ServiceTests(unittest.TestCase):
             'className = "ad-hoc-session-dialog corkboard-picker-dialog"',
             corkboard,
         )
-        self.assertIn("generationTask,", corkboard)
+        self.assertIn("function generationTask(job = generationJob)", corkboard)
         self.assertIn("syncGeneration,", corkboard)
         self.assertIn("run: deleteProjectCorkboards", software)
         self.assertIn("if (task) actions.splice(3, 0, { task });", software)
         self.assertIn('data-creative-control="corkboard-generation-task"', creative)
+        self.assertIn(
+            "generationTask: (_runtime, job = generationJob) => generationTask(job)",
+            corkboard,
+        )
         self.assertIn('button.classList.add("danger")', app)
         self.assertIn(".corkboard-delete-dialog {", shell_css)
         self.assertIn(".stage-action-taskbar {", shell_css)

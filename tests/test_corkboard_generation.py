@@ -38,13 +38,22 @@ class FakeContexts:
 
 
 class FakeRuntime:
-    def __init__(self, payload: dict[str, object], delay: float = 0.0) -> None:
+    def __init__(
+        self,
+        payload: dict[str, object],
+        delay: float = 0.0,
+        activities: list[str] | None = None,
+    ) -> None:
         self.payload = payload
         self.delay = delay
+        self.activities = activities or []
         self.invocation: AgentInvocation | None = None
 
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         self.invocation = invocation
+        for activity in self.activities:
+            if invocation.activity_callback:
+                invocation.activity_callback(activity)
         if self.delay:
             time.sleep(self.delay)
         return AgentResult(
@@ -301,13 +310,18 @@ class CorkboardGenerationTests(unittest.TestCase):
         self.assertIn("- story.md", runtime.invocation.prompt)
         self.assertNotIn("private.md", runtime.invocation.prompt)
 
-    def test_generation_reports_new_steps_and_periodic_ai_activity(self) -> None:
+    def test_generation_streams_distinct_ai_activity_without_heartbeats(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "story.md").write_text("# Story\n", encoding="utf-8")
             runtime = FakeRuntime(
                 {"cards": [{"id": "opening", "title": "Opening"}]},
                 delay=0.07,
+                activities=[
+                    "Reading the opening scene.",
+                    "Reading the opening scene.",
+                    "Mapping the scene's causal turn.",
+                ],
             )
             manager = CorkboardGenerationManager(
                 runtime_factory=lambda role, project_root: runtime,
@@ -335,10 +349,17 @@ class CorkboardGenerationTests(unittest.TestCase):
                 status = manager.get("context-1", str(started["job_id"]))
 
         activities = status["activities"]
-        analysis_lines = [
-            entry for entry in activities if "AI is analyzing" in entry["text"]
-        ]
-        self.assertGreaterEqual(len(analysis_lines), 2)
+        self.assertEqual(
+            [
+                entry["text"]
+                for entry in activities
+                if entry.get("type") == "agent"
+            ],
+            ["Reading the opening scene.", "Mapping the scene's causal turn."],
+        )
+        self.assertFalse(
+            any("seconds elapsed" in entry["text"] for entry in activities)
+        )
         self.assertTrue(any("Validating" in entry["text"] for entry in activities))
         self.assertTrue(any("Laying out" in entry["text"] for entry in activities))
         self.assertTrue(any("Created 1 card" in entry["text"] for entry in activities))
