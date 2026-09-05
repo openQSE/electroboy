@@ -61,6 +61,30 @@ def _inventory(revision: str, run_id: str) -> list[dict[str, object]]:
             "relationship_count": 0,
             "flow_count": 0,
             "diagnostic_count": 0,
+            "attributes": {
+                "inventory": {
+                    "languages": [
+                        {"name": "Markdown", "evidence_paths": ["README.md"]}
+                    ],
+                    "excluded_regions": [],
+                    "build_systems": [],
+                    "dependency_manifests": [],
+                    "produced_artifact_ids": [],
+                    "entry_point_ids": [],
+                    "public_surface_ids": [],
+                    "process_ids": [],
+                    "test_surface_ids": [],
+                    "external_system_ids": [],
+                    "analysis_tools": [
+                        {
+                            "name": "repository-search",
+                            "available": True,
+                            "applies_to": ["Markdown"],
+                            "limitation": "Text search does not provide semantic edges.",
+                        }
+                    ],
+                }
+            },
         },
         {
             **common,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
 from typing import Protocol
@@ -14,77 +13,13 @@ from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
 from .contracts import parse_jsonl
+from .analysis_passes import ANALYSIS_PASSES, AnalysisPass, validate_pass_output
 from .domain import CodeLearnerError, repository_revision
 from .knowledge_store import KnowledgeStore
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 ANALYSIS_ROLE = "code_learner_analysis"
 ProgressCallback = Callable[[dict[str, object]], None]
-
-
-@dataclass(frozen=True)
-class AnalysisPass:
-    """One bounded repository-knowledge objective."""
-
-    name: str
-    percent: int
-    objective: str
-    output_expectation: str
-
-
-ANALYSIS_PASSES = (
-    AnalysisPass(
-        "inventory",
-        8,
-        "Inventory repository identity, scope, languages, exclusions, build "
-        "systems, artifacts, entry points, public surfaces, processes, tests, "
-        "external systems, and available language-analysis tools.",
-        "Emit the initial complete knowledge snapshot with one manifest and "
-        "repository/inventory entities. Explicitly diagnose exclusions.",
-    ),
-    AnalysisPass(
-        "modules",
-        24,
-        "Infer architectural modules and extension families from source, build "
-        "configuration, registration, documentation, and tests. Enumerate every "
-        "concrete implementation in each family.",
-        "Emit only added or revised entities, relationships, diagnostics, and "
-        "an updated manifest.",
-    ),
-    AnalysisPass(
-        "relationships",
-        42,
-        "Deeply map module ownership, dependencies, APIs, calls, construction, "
-        "lifecycle, state, data, events, configuration, errors, concurrency, "
-        "persistence, tests, deployment, and external communication.",
-        "Emit only relationship/entity enrichments, diagnostics, and an updated "
-        "manifest.",
-    ),
-    AnalysisPass(
-        "flows",
-        58,
-        "Identify and trace important ordered end-to-end runtime flows, branches, "
-        "participants, dispatch boundaries, and failure paths.",
-        "Emit runtime flows and only the supporting knowledge changes required.",
-    ),
-    AnalysisPass(
-        "symbols",
-        74,
-        "Build a broad language-appropriate symbol index with module ownership, "
-        "locations, signatures, callers, callees, state access, side effects, "
-        "tests, and limitations.",
-        "Emit symbol entities and supporting relationships or diagnostics.",
-    ),
-    AnalysisPass(
-        "validation",
-        88,
-        "Audit breadth and consistency. Find missing major modules, extension "
-        "implementations, entry-point ownership, runtime flows, source evidence, "
-        "and unresolved references.",
-        "Emit corrections, explicit diagnostics, or targeted knowledge requests. "
-        "Set the manifest status to validated only when coverage is sufficient.",
-    ),
-)
 
 
 class RuntimeFactory(Protocol):
@@ -131,6 +66,8 @@ Existing validated knowledge streams:
 
 Output expectation:
 {analysis_pass.output_expectation}
+
+{analysis_pass.contract}
 
 Rules:
 - Use a fresh context for this pass and durable files for continuity.
@@ -239,7 +176,7 @@ class AnalysisOrchestrator:
                 )
             )
             try:
-                self._accept_result(result)
+                self._accept_result(analysis_pass, result)
             except (CodeLearnerError, ValueError) as error:
                 last_error = str(error)
                 pass_state.update({"status": "retrying", "error": last_error})
@@ -260,7 +197,7 @@ class AnalysisOrchestrator:
             f"attempts: {last_error}"
         )
 
-    def _accept_result(self, result: AgentResult) -> None:
+    def _accept_result(self, analysis_pass: AnalysisPass, result: AgentResult) -> None:
         if not result.ok:
             raise CodeLearnerError(
                 result.error or result.final_message or "analysis runtime failed"
@@ -269,6 +206,7 @@ class AnalysisOrchestrator:
         if not output:
             raise CodeLearnerError("analysis pass returned no JSONL")
         records = parse_jsonl(output, artifact="analysis pass")
+        validate_pass_output(analysis_pass, records)
         if self.store.load_knowledge():
             self.store.merge_knowledge(records)
         else:

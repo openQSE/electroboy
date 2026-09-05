@@ -1303,16 +1303,16 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 7: Repository Inventory Pass
 
-82. [ ] Implement the inventory prompt and input contract.
-83. [ ] Record repository identity, scope, revision, languages, and exclusions.
-84. [ ] Record build systems, dependency manifests, and produced artifacts.
-85. [ ] Record entry points, public surfaces, processes, tests, and external
+82. [x] Implement the inventory prompt and input contract.
+83. [x] Record repository identity, scope, revision, languages, and exclusions.
+84. [x] Record build systems, dependency manifests, and produced artifacts.
+85. [x] Record entry points, public surfaces, processes, tests, and external
     systems.
-86. [ ] Record available language-analysis tools without requiring them.
-87. [ ] Validate that excluded regions have explicit reasons.
-88. [ ] Test monorepos, generated trees, vendored dependencies, missing docs,
+86. [x] Record available language-analysis tools without requiring them.
+87. [x] Validate that excluded regions have explicit reasons.
+88. [x] Test monorepos, generated trees, vendored dependencies, missing docs,
     and mixed-language repositories.
-89. [ ] Commit the repository inventory pass.
+89. [x] Commit the repository inventory pass.
 
 ### Boundary 8: Module And Extension Discovery
 
