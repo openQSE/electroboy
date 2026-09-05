@@ -8,6 +8,8 @@ Use stable IDs and explicit hierarchy. Each section records detail level,
 order, parent, knowledge entities, relationships, runtime flows, related
 modules and symbols, prerequisites, source references, confidence, and diagram
 metadata. Put prose, lists, tables, code, and fenced Mermaid only in `body`.
+Use `diagnostic_ids` when a section teaches an uncertainty, exclusion, or
+coverage limitation from the supplied knowledge.
 Use these canonical field names exactly and emit empty arrays when a section
 has no value for a required link collection.
 

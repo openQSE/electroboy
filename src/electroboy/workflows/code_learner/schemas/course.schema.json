@@ -39,6 +39,7 @@
     "knowledge_entity_ids": {"$ref": "#/$defs/stringArray"},
     "relationship_ids": {"$ref": "#/$defs/stringArray"},
     "runtime_flow_ids": {"$ref": "#/$defs/stringArray"},
+    "diagnostic_ids": {"$ref": "#/$defs/stringArray"},
     "related_module_ids": {"$ref": "#/$defs/stringArray"},
     "related_symbol_ids": {"$ref": "#/$defs/stringArray"},
     "source_refs": {

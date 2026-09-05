@@ -454,6 +454,7 @@ def _render_course(records: list[dict[str, object]]) -> list[str]:
             ("Knowledge Entity IDs", "knowledge_entity_ids"),
             ("Relationship IDs", "relationship_ids"),
             ("Runtime Flow IDs", "runtime_flow_ids"),
+            ("Diagnostic IDs", "diagnostic_ids"),
             ("Related Module IDs", "related_module_ids"),
             ("Related Symbol IDs", "related_symbol_ids"),
         ):
@@ -1002,6 +1003,7 @@ def _field_key(label: str) -> str:
         "description",
         "dependencies",
         "detail_level",
+        "diagnostic_ids",
         "diagrams",
         "exit_criteria",
         "interfaces",
@@ -1046,6 +1048,7 @@ def _list_field_keys() -> set[str]:
         "commit_tasks",
         "consequences",
         "deep_dive_ids",
+        "diagnostic_ids",
         "dependencies",
         "design_sections",
         "expected_results",

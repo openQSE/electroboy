@@ -313,6 +313,7 @@ def validate_course_records(
                 "knowledge_entity_ids",
                 "relationship_ids",
                 "runtime_flow_ids",
+                "diagnostic_ids",
                 "related_module_ids",
                 "related_symbol_ids",
                 "deep_dive_ids",

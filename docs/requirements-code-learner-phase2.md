@@ -1404,22 +1404,22 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 13: Architecture Course Generation
 
-147. [ ] Build the Architecture knowledge-subgraph selector.
-148. [ ] Include all major modules, extension families, relationships, runtime
+147. [x] Build the Architecture knowledge-subgraph selector.
+148. [x] Include all major modules, extension families, relationships, runtime
     flows, state, external systems, and diagnostics.
-149. [ ] Implement a scoped Architecture course prompt invoking
+149. [x] Implement a scoped Architecture course prompt invoking
     `code-learner-course`.
-150. [ ] Generate document and hierarchical section records.
-151. [ ] Require a Mermaid component diagram.
-152. [ ] Require at least one Mermaid sequence diagram for a major runtime flow.
-153. [ ] Allow the skill to select class, state, ER, data-flow, dependency, or
+150. [x] Generate document and hierarchical section records.
+151. [x] Require a Mermaid component diagram.
+152. [x] Require at least one Mermaid sequence diagram for a major runtime flow.
+153. [x] Allow the skill to select class, state, ER, data-flow, dependency, or
     deployment diagrams when useful.
-154. [ ] Validate knowledge links and source references for every section.
-155. [ ] Validate required diagram presence and Mermaid syntax where possible.
-156. [ ] Render and persist `architecture.jsonl` and `architecture.md`.
-157. [ ] Test architectural breadth against multi-module fixtures.
-158. [ ] Test that branch-local changes do not dominate the Architecture course.
-159. [ ] Commit Architecture course generation.
+154. [x] Validate knowledge links and source references for every section.
+155. [x] Validate required diagram presence and Mermaid syntax where possible.
+156. [x] Render and persist `architecture.jsonl` and `architecture.md`.
+157. [x] Test architectural breadth against multi-module fixtures.
+158. [x] Test that branch-local changes do not dominate the Architecture course.
+159. [x] Commit Architecture course generation.
 
 ### Boundary 14: Module Course Generation
 
