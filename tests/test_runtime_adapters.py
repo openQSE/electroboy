@@ -309,6 +309,39 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result.final_message, "blocked")
         self.assertEqual(result.error, "review failed")
 
+    def test_codex_exec_preserves_single_domain_json_object(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+        record = {
+            "schema_version": 1,
+            "record_type": "component_reconciliation",
+            "overlap_group_id": "overlap:example",
+            "decision": "same",
+            "partitions": [{"candidate_ids": ["a", "b"], "reason": "same"}],
+        }
+
+        result = runtime._parse_stdout(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "agent_message",
+                        "text": json.dumps(record),
+                    },
+                }
+            )
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(json.loads(result.final_message), record)
+        self.assertFalse(result.structured_output)
+
     def test_generic_cli_uses_configured_environment_allowlist(self) -> None:
         os.environ["ELECTROBOY_ALLOWED_TEST"] = "allowed"
         os.environ["ELECTROBOY_BLOCKED_TEST"] = "blocked"

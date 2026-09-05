@@ -139,6 +139,11 @@ class CodexExecRuntime(GenericCliRuntime):
             return None
         if not isinstance(parsed, dict):
             return None
+        # A final agent message may itself be a domain JSON object. Only unwrap
+        # the explicit AgentResult envelope; otherwise preserve the message for
+        # the workflow-specific parser.
+        if "final_message" not in parsed:
+            return None
         issues = parsed.get("issues")
         if not isinstance(issues, list):
             issues = []
