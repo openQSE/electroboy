@@ -170,3 +170,63 @@ records. Do not create catch-all miscellaneous or unclassified components just
 to force full coverage. Do not emit modules, relationships, diagrams, courses,
 or prose, and do not modify the repository or .electroboy state.
 """.strip()
+
+
+def module_synthesis_prompt(
+    root: Path | str,
+    *,
+    analysis_run_id: str,
+    repository_revision: str,
+    source_manifest_path: Path | str,
+    component_manifest_path: Path | str,
+    components_path: Path | str,
+    schema_path: Path | str,
+    affected_component_ids: Sequence[str] = (),
+    existing_modules_path: Path | str | None = None,
+) -> str:
+    """Build a bounded module-synthesis prompt over frozen components."""
+
+    repository = Path(root).expanduser().resolve()
+    scope = (
+        json.dumps(list(affected_component_ids))
+        if affected_component_ids
+        else "all frozen components"
+    )
+    existing = str(existing_modules_path) if existing_modules_path else "none"
+    return f"""You are the ElectroBoy Phase 3 module synthesis analyst.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {repository}
+Analysis run ID: {analysis_run_id}
+Repository revision: {repository_revision}
+Source manifest: {source_manifest_path}
+Frozen component manifest: {component_manifest_path}
+Canonical components: {components_path}
+Phase 3 output schema: {schema_path}
+Affected component scope: {scope}
+Existing accepted module draft: {existing}
+
+Organize the frozen components into architecturally meaningful modules. Emit
+module records with invocation-local IDs, name, kind, purpose, responsibility,
+component IDs, grouping rationale, primary component IDs, entry component IDs
+where applicable, confidence, and limitations. Optional parent module IDs may
+form an acyclic hierarchy.
+
+Every component must belong to at least one module or to an explicit module of
+kind `intentionally_ungrouped`. Repeated component membership requires a
+`repeated_component_rationales` entry in every affected module. Identify at
+most one primary module per component through `primary_for_component_ids`.
+Module source references may cite only files owned or supported by member
+components.
+
+Use only component IDs from the frozen manifest. If source reveals a missing
+component, emit a separate open knowledge_request with request_type
+`missing_component`, hard source references, and a reason. Do not create the
+component inline. For a targeted retry, preserve unaffected accepted modules
+and emit the complete resulting module set.
+
+Return strict JSONL containing only module and knowledge_request records. Do
+not alter components or emit relationships, flows, diagrams, course prose, or
+repository changes.
+""".strip()

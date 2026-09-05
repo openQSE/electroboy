@@ -2019,28 +2019,28 @@ Boundary 1 validation notes:
 
 ### Boundary 10: Module Synthesis
 
-145. [ ] Replace Phase 2 module/entity discovery with module synthesis over the
+145. [x] Replace Phase 2 module/entity discovery with module synthesis over the
      reconciled component manifest.
-146. [ ] Add Phase 3 module-synthesis guidance to the analysis skill.
-147. [ ] Build prompts with source and frozen component manifest paths.
-148. [ ] Require module name, kind, purpose, responsibility, component IDs, and
+146. [x] Add Phase 3 module-synthesis guidance to the analysis skill.
+147. [x] Build prompts with source and frozen component manifest paths.
+148. [x] Require module name, kind, purpose, responsibility, component IDs, and
      grouping rationale.
-149. [ ] Require every module to contain at least one component.
-150. [ ] Require primary and entry component IDs where applicable.
-151. [ ] Support optional acyclic module hierarchy.
-152. [ ] Permit repeated component membership only with explicit rationale.
-153. [ ] Require one primary module per component when inferable.
-154. [ ] Represent intentionally ungrouped components explicitly.
-155. [ ] Reject direct module ownership of source absent from member components.
-156. [ ] Reject unknown component IDs.
-157. [ ] Convert missing component discoveries into targeted requests.
-158. [ ] Run targeted component discovery and reconciliation for accepted
+149. [x] Require every module to contain at least one component.
+150. [x] Require primary and entry component IDs where applicable.
+151. [x] Support optional acyclic module hierarchy.
+152. [x] Permit repeated component membership only with explicit rationale.
+153. [x] Require one primary module per component when inferable.
+154. [x] Represent intentionally ungrouped components explicitly.
+155. [x] Reject direct module ownership of source absent from member components.
+156. [x] Reject unknown component IDs.
+157. [x] Convert missing component discoveries into targeted requests.
+158. [x] Run targeted component discovery and reconciliation for accepted
      requests.
-159. [ ] Regenerate only module scopes affected by new components.
-160. [ ] Persist and freeze the validated module manifest.
-161. [ ] Test complete grouping, ungrouped components, repeated membership,
+159. [x] Regenerate only module scopes affected by new components.
+160. [x] Persist and freeze the validated module manifest.
+161. [x] Test complete grouping, ungrouped components, repeated membership,
      hierarchy cycles, unknown components, and targeted discovery.
-162. [ ] Commit Phase 3 module synthesis and module manifest.
+162. [x] Commit Phase 3 module synthesis and module manifest.
 
 ### Boundary 11: Module Relationship Generation
 
