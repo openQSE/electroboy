@@ -849,6 +849,18 @@ class ServiceTests(unittest.TestCase):
             "async function startCreativeWritingAgent", delete_start
         )
         delete_source = creative[delete_start:delete_end]
+        self.assertIn(
+            "function confirmCreativeEntryDeletion(path, type)",
+            creative,
+        )
+        self.assertIn(
+            "await confirmCreativeEntryDeletion(path, type)", delete_source
+        )
+        self.assertNotIn("window.confirm", delete_source)
+        self.assertIn("Permanently delete ${label}?", creative)
+        self.assertIn(".creative-delete-dialog {", creative_css)
+        self.assertIn(".creative-delete-dialog::backdrop {", creative_css)
+        self.assertIn("0 24px 64px rgb(116 16 30 / 46%)", creative_css)
         self.assertLess(
             delete_source.index("removeCreativeTreeEntry("),
             delete_source.index("await refreshCreativeBinder({ showLoading: false });"),

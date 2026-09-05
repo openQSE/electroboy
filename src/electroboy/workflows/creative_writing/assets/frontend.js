@@ -23,6 +23,8 @@
   let creativeProjectActionsExpanded = false;
   let creativeAgentActionsExpanded = false;
   let creativeSessionDialog = null;
+  let creativeDeleteDialog = null;
+  let creativeDeleteDialogFinish = null;
   let creativeTreeRequestSequence = 0;
 
   function creativePaneKinds(layout, result = []) {
@@ -84,6 +86,13 @@
     if (creativeSessionDialog) {
       creativeSessionDialog.remove();
       creativeSessionDialog = null;
+    }
+    if (creativeDeleteDialogFinish) {
+      creativeDeleteDialogFinish(false);
+    }
+    if (creativeDeleteDialog) {
+      creativeDeleteDialog.remove();
+      creativeDeleteDialog = null;
     }
     if (runtimeApi) {
       runtimeApi.updateState({
@@ -1564,14 +1573,94 @@
       recordProjectStatusMessage(`created board: ${payload.path || path}`);
     }
 
+    function ensureCreativeDeleteDialog() {
+      if (creativeDeleteDialog) {
+        return creativeDeleteDialog;
+      }
+      const dialog = document.createElement("dialog");
+      dialog.className = "creative-delete-dialog";
+      dialog.setAttribute("aria-labelledby", "creativeDeleteDialogTitle");
+      dialog.setAttribute(
+        "aria-describedby",
+        "creativeDeleteDialogDescription",
+      );
+      dialog.innerHTML = `
+        <form method="dialog" class="creative-delete-dialog-form">
+          <header class="creative-delete-dialog-header">
+            <h2 id="creativeDeleteDialogTitle">Permanently delete file?</h2>
+          </header>
+          <section class="creative-delete-dialog-body">
+            <p id="creativeDeleteDialogDescription"></p>
+            <code class="creative-delete-dialog-path"></code>
+          </section>
+          <footer class="creative-delete-dialog-footer">
+            <button
+              type="button"
+              class="creative-delete-dialog-cancel"
+            >Cancel</button>
+            <button
+              type="button"
+              class="creative-delete-dialog-confirm"
+            >OK</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      creativeDeleteDialog = dialog;
+      return dialog;
+    }
+
+    function confirmCreativeEntryDeletion(path, type) {
+      const dialog = ensureCreativeDeleteDialog();
+      if (dialog.open) {
+        return Promise.resolve(false);
+      }
+      const isFolder = type === "directory";
+      const label = isFolder
+        ? "folder"
+        : type === "corkboard" ? "corkboard" : "file";
+      dialog.querySelector(".creative-delete-dialog-header h2").textContent =
+        `Permanently delete ${label}?`;
+      dialog.querySelector(".creative-delete-dialog-body p").textContent = isFolder
+        ? "This will permanently delete the folder and all files inside it."
+        : "This action cannot be undone.";
+      dialog.querySelector(".creative-delete-dialog-path").textContent = path;
+
+      return new Promise((resolve) => {
+        let finished = false;
+        const finish = (confirmed) => {
+          if (finished) {
+            return;
+          }
+          finished = true;
+          if (creativeDeleteDialogFinish === finish) {
+            creativeDeleteDialogFinish = null;
+          }
+          if (dialog.open) {
+            dialog.close();
+          }
+          resolve(confirmed);
+        };
+        creativeDeleteDialogFinish = finish;
+        dialog.querySelector(".creative-delete-dialog-cancel").onclick = () =>
+          finish(false);
+        dialog.querySelector(".creative-delete-dialog-confirm").onclick = () =>
+          finish(true);
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(false);
+        };
+        dialog.onclose = () => finish(false);
+        dialog.showModal();
+        dialog.querySelector(".creative-delete-dialog-cancel").focus();
+      });
+    }
+
     async function deleteCreativeEntry(path, type) {
       if (!activeProjectRoot || !path) {
         return;
       }
-      const label = type === "directory"
-        ? "folder and all of its contents"
-        : type === "corkboard" ? "corkboard" : "file";
-      if (!window.confirm(`Delete this ${label}?\n\n${path}`)) {
+      if (!await confirmCreativeEntryDeletion(path, type)) {
         return;
       }
       const response = await fetch(contextUrl("/api/creative/delete"), {
