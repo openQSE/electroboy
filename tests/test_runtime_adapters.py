@@ -389,6 +389,41 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.final_message, "done")
 
+    def test_codex_cli_streams_structured_runtime_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            events: list[dict[str, object]] = []
+            runtime = CodexExecRuntime(
+                RuntimeConfig(
+                    name="test",
+                    adapter="codex_exec",
+                    command=sys.executable,
+                    args=[
+                        "-c",
+                        (
+                            "import json; "
+                            "print(json.dumps({'type': 'turn.started'}), flush=True); "
+                            "print(json.dumps({'final_message': 'done'}), flush=True)"
+                        ),
+                        "--sandbox",
+                        "read-only",
+                    ],
+                ),
+                tmp,
+            )
+
+            result = runtime.invoke(
+                AgentInvocation(
+                    role="review",
+                    prompt="prompt",
+                    event_callback=events.append,
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.final_message, "done")
+        self.assertEqual(events[0]["stream"], "stdout")
+        self.assertEqual(events[0]["event"], {"type": "turn.started"})
+
 
 if __name__ == "__main__":
     unittest.main()

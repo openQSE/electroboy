@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
@@ -23,7 +24,7 @@ class GenericCliRuntime(AgentRuntime):
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         command = self._command(invocation)
         prompt = self._build_prompt(invocation)
-        if invocation.progress_path:
+        if invocation.progress_path or invocation.event_callback:
             return self._invoke_with_progress_monitor(command, prompt, invocation)
         try:
             run_kwargs: dict[str, object] = {
@@ -85,6 +86,7 @@ class GenericCliRuntime(AgentRuntime):
             prompt,
             stdout_chunks,
             stderr_chunks,
+            invocation.event_callback,
         )
         process.wait()
         for thread in threads:
@@ -102,13 +104,14 @@ class GenericCliRuntime(AgentRuntime):
         prompt: str,
         stdout_chunks: list[str],
         stderr_chunks: list[str],
+        event_callback: Callable[[dict[str, object]], None] | None,
     ) -> list[threading.Thread]:
         threads: list[threading.Thread] = []
         if process.stdout is not None:
             threads.append(
                 threading.Thread(
                     target=self._collect_stream,
-                    args=(process.stdout, stdout_chunks),
+                    args=(process.stdout, stdout_chunks, "stdout", event_callback),
                     daemon=True,
                 )
             )
@@ -116,7 +119,7 @@ class GenericCliRuntime(AgentRuntime):
             threads.append(
                 threading.Thread(
                     target=self._collect_stream,
-                    args=(process.stderr, stderr_chunks),
+                    args=(process.stderr, stderr_chunks, "stderr", event_callback),
                     daemon=True,
                 )
             )
@@ -132,14 +135,41 @@ class GenericCliRuntime(AgentRuntime):
             thread.start()
         return threads
 
-    def _collect_stream(self, stream: TextIO, chunks: list[str]) -> None:
+    def _collect_stream(
+        self,
+        stream: TextIO,
+        chunks: list[str],
+        stream_name: str,
+        event_callback: Callable[[dict[str, object]], None] | None,
+    ) -> None:
         try:
-            for chunk in iter(lambda: stream.read(4096), ""):
-                if not chunk:
-                    break
-                chunks.append(chunk)
+            for line in stream:
+                chunks.append(line)
+                self._emit_stream_event(stream_name, line, event_callback)
         finally:
             stream.close()
+
+    def _emit_stream_event(
+        self,
+        stream_name: str,
+        line: str,
+        event_callback: Callable[[dict[str, object]], None] | None,
+    ) -> None:
+        if event_callback is None or not line.strip():
+            return
+        event: dict[str, object] = {"stream": stream_name, "text": line.rstrip()}
+        if stream_name == "stdout":
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                pass
+            else:
+                if isinstance(payload, dict):
+                    event = {"stream": stream_name, "event": payload}
+        try:
+            event_callback(event)
+        except Exception:
+            return
 
     def _write_stdin(self, stream: TextIO, prompt: str) -> None:
         try:
