@@ -29,6 +29,9 @@ from electroboy.workflows.code_learner.domain import (  # noqa: E402
     CodeLearnerError,
     repository_revision,
 )
+from electroboy.workflows.code_learner.knowledge_store import (  # noqa: E402
+    KnowledgeStore,
+)
 from electroboy.workflows.code_learner.planner import (  # noqa: E402
     code_learner_initialize_prompt,
     generate_code_learner_course_corpus_jsonl,
@@ -74,6 +77,9 @@ class CodeLearnerServiceTests(unittest.TestCase):
         )
         self.assertIsNotNone(
             dispatcher.match("GET", "/api/code-learner/init/status")
+        )
+        self.assertIsNotNone(
+            dispatcher.match("POST", "/api/code-learner/cache/clear")
         )
 
     def test_controller_opens_repo_and_prepares_walkthrough_question(
@@ -170,6 +176,37 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertFalse(learner["phase2_initialized"])
         self.assertEqual(learner["migration"]["status"], "required")
         self.assertIn("Run Initialize", learner["migration"]["message"])
+
+    def test_clear_course_cache_returns_uninitialized_phase2_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+            knowledge = KnowledgeStore(source_root)
+            knowledge.state_root.mkdir(parents=True, exist_ok=True)
+            knowledge.courses_root.mkdir(parents=True, exist_ok=True)
+            (knowledge.courses_root / "cached.md").write_text(
+                "# Course\n",
+                encoding="utf-8",
+            )
+
+            cleared = controller.clear_course_cache(context_id)
+
+        self.assertEqual(cleared["status"], "cache_cleared")
+        self.assertEqual(cleared["cache"]["removed_file_count"], 1)
+        self.assertEqual(cleared["initialization"]["status"], "idle")
+        self.assertFalse(knowledge.courses_root.exists())
 
     def test_start_agent_uses_code_learner_session_bucket(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

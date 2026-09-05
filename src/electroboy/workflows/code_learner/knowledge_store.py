@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import threading
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -286,6 +287,35 @@ class KnowledgeStore:
         """Return the Markdown companion path for a course JSONL artifact."""
 
         return self.course_path(mode, scope_id).with_suffix(".md")
+
+    def clear_course_cache(self) -> dict[str, int]:
+        """Remove generated courses and their transient navigation context."""
+
+        with self._lock:
+            files = (
+                [path for path in self.courses_root.rglob("*") if path.is_file()]
+                if self.courses_root.is_dir()
+                else []
+            )
+            removed_bytes = sum(path.stat().st_size for path in files)
+            if self.courses_root.exists():
+                shutil.rmtree(self.courses_root)
+            self.navigation_path.unlink(missing_ok=True)
+            self.tutor_context_path.unlink(missing_ok=True)
+            checkpoint = self.load_checkpoint()
+            if checkpoint is not None:
+                checkpoint.pop("courses", None)
+                checkpoint.update(
+                    {
+                        "pipeline_status": "course_cache_cleared",
+                        "course_cache_cleared_at": utc_now(),
+                    }
+                )
+                self.save_checkpoint(checkpoint)
+        return {
+            "removed_file_count": len(files),
+            "removed_bytes": removed_bytes,
+        }
 
     def save_course(
         self,

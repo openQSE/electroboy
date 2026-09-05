@@ -191,6 +191,43 @@ def test_saves_courses_independently_by_mode_and_scope(repository: Path) -> None
     )
 
 
+def test_clear_course_cache_preserves_knowledge_and_invalidates_context(
+    repository: Path,
+) -> None:
+    store = KnowledgeStore(repository)
+    store.save_knowledge(_knowledge(repository))
+    store.save_course(
+        "module",
+        "module.registry",
+        _course("module", "module.registry"),
+    )
+    store.course_markdown_path("module", "module.registry").write_text(
+        "# Cached course\n",
+        encoding="utf-8",
+    )
+    store.navigation_path.write_text("{}\n", encoding="utf-8")
+    store.tutor_context_path.write_text("{}\n", encoding="utf-8")
+    store.save_checkpoint(
+        {
+            "pipeline_status": "activated",
+            "courses": {"module:module.registry": {"status": "completed"}},
+        }
+    )
+    knowledge_ids = store.knowledge_ids()
+
+    result = store.clear_course_cache()
+
+    assert result["removed_file_count"] >= 2
+    assert result["removed_bytes"] > 0
+    assert not store.courses_root.exists()
+    assert not store.navigation_path.exists()
+    assert not store.tutor_context_path.exists()
+    assert store.knowledge_ids() == knowledge_ids
+    checkpoint = store.load_checkpoint()
+    assert checkpoint["pipeline_status"] == "course_cache_cleared"
+    assert "courses" not in checkpoint
+
+
 def test_rejects_unsafe_or_mismatched_course_scope(repository: Path) -> None:
     store = KnowledgeStore(repository)
     store.save_knowledge(_knowledge(repository))

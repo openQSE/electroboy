@@ -56,6 +56,9 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'contextUrl("/api/code-learner/init/status")' in frontend
     assert 'data-code-learner-control="project-menu"' in frontend
     assert 'data-code-learner-control="open-project"' in frontend
+    assert 'data-code-learner-control="clear-cache"' in frontend
+    assert 'contextUrl("/api/code-learner/cache/clear")' in frontend
+    assert "async function clearCourseCache()" in frontend
     assert (
         'runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);'
         in frontend

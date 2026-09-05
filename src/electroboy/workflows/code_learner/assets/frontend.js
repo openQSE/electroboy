@@ -166,6 +166,8 @@
                    data-code-learner-control="recent"></div>
             </div>
             <button class="stage-action-button" type="button" disabled
+                    data-code-learner-control="clear-cache">Clear cache</button>
+            <button class="stage-action-button" type="button" disabled
                     data-code-learner-control="close">Deactivate</button>
           </div>
         </div>
@@ -275,6 +277,7 @@
       openProject: control(container, "open-project"),
       workspace: control(container, "workspace"),
       recentMenu: control(container, "recent-projects-menu"),
+      clearCache: control(container, "clear-cache"),
       close: control(container, "close"),
       recent: control(container, "recent"),
       form: control(container, "course-form"),
@@ -334,6 +337,11 @@
       runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);
     });
     nav.workspace.addEventListener("click", () => runtime.workspaces.openSelector());
+    nav.clearCache.addEventListener("click", () => {
+      clearCourseCache().catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+    });
     nav.close.addEventListener("click", () => runtime.project.deactivate());
     nav.initialize.addEventListener("click", () => {
       initializeCodeLearner().catch((error) => {
@@ -443,6 +451,7 @@
       activeNavigationGroup === "outline" && Boolean(walkthrough),
     );
     nav.close.disabled = !Boolean(activationRoot);
+    nav.clearCache.disabled = !hasProject || initializing;
     nav.initialize.disabled = !hasProject || initializing;
     nav.architectureMenu.disabled = initializing || !initialized;
     nav.architectureStart.disabled = initializing || !initialized;
@@ -873,6 +882,34 @@
     const moduleCount = Array.isArray(analysis.modules) ? analysis.modules.length : 0;
     const symbolCount = Array.isArray(analysis.symbols) ? analysis.symbols.length : 0;
     setStatus(`AI course initialized: ${moduleCount} modules, ${symbolCount} symbols.`);
+  }
+
+  async function clearCourseCache() {
+    if (!activeProjectRoot && !activationRoot) {
+      setStatus("Activate a project first.", "error");
+      return;
+    }
+    nav.clearCache.disabled = true;
+    setStatus("Clearing generated course cache...");
+    const response = await runtimeApi.http.fetch(
+      contextUrl("/api/code-learner/cache/clear"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    const payload = await response.json().catch(() => ({ error: "clear failed" }));
+    if (!response.ok) {
+      throw new Error(payload.error || "course cache clear failed");
+    }
+    selectedModuleTarget = "";
+    initializationState = payload.initialization || null;
+    applyLearnerPayload(payload.code_learner || {});
+    renderNavigationState();
+    openLearnerPane({ activate: false, refresh: true });
+    const count = Number(payload.cache && payload.cache.removed_file_count || 0);
+    setStatus(`Course cache cleared (${count} files). Run Initialize to rebuild.`);
   }
 
   async function generateCourse(options = {}) {

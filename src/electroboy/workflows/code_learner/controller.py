@@ -494,6 +494,40 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root = self._active_project_root(context_id)
         return self._initialization_payload(context_id, root)
 
+    def clear_course_cache(self, context_id: str) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            if any(
+                session.is_active()
+                for session in context.code_learner_sessions.values()
+            ):
+                raise CodeLearnerError(
+                    "stop the Code Learner tutor before clearing the course cache"
+                )
+        with self._initialization_lock:
+            job = self._initialization_jobs.get(str(root))
+            if job is not None and job.is_running():
+                raise CodeLearnerError(
+                    "wait for Code Learner initialization before clearing the cache"
+                )
+            lease = InitializationLease.acquire(
+                root,
+                f"clear-course-cache-{uuid4().hex}",
+            )
+            try:
+                cleared = KnowledgeStore(root).clear_course_cache()
+            finally:
+                lease.release()
+            self._initialization_jobs.pop(str(root), None)
+        return {
+            **self.services.contexts.project_payload(context_id),
+            "status": "cache_cleared",
+            "cache": cleared,
+            "initialization": _idle_initialization_snapshot(root),
+            "code_learner": self._state_payload(root),
+        }
+
     def wait_for_initialization(
         self,
         context_id: str,
@@ -1103,6 +1137,14 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         }
         phase2_store = KnowledgeStore(root)
         if phase2_store.load_knowledge(validate_sources=False):
+            payload.update(
+                {
+                    "walkthroughs": [],
+                    "current_walkthrough_id": "",
+                    "current_walkthrough": None,
+                    "source": None,
+                }
+            )
             payload["analysis"] = phase2_analysis_payload(root)
             payload["phase2_initialized"] = initialization_ready(root)
             payload["course_graph"] = CourseGraph.from_store(
