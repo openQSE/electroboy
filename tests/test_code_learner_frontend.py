@@ -118,6 +118,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert ".filter((event) => (" in frontend
     assert '["status", "turn", "error"].includes(event.activity_kind)' in frontend
     assert ".map((event) => ({" in frontend
+    assert 'className: event.activity_kind === "error" ? "error" : ""' in frontend
     assert "if (event.activity)" in frontend
     assert '`[AI] ${message}\\r\\n`' in frontend
     assert "initializationProgressEventText(event)" in frontend

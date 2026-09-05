@@ -382,6 +382,15 @@ class CodeLearnerServiceTests(unittest.TestCase):
                     )
                     progress_callback(
                         {
+                            "record_type": "progress",
+                            "phase": "relationships",
+                            "percent": 42,
+                            "message": "Continuing after error: bad edge",
+                            "activity_kind": "error",
+                        }
+                    )
+                    progress_callback(
+                        {
                             "record_type": "activity",
                             "activity": True,
                             "activity_kind": "status",
@@ -448,6 +457,11 @@ class CodeLearnerServiceTests(unittest.TestCase):
             self.assertTrue(
                 any(
                     event.get("activity_kind") == "status" for event in progress_events
+                )
+            )
+            self.assertTrue(
+                any(
+                    event.get("activity_kind") == "error" for event in progress_events
                 )
             )
             self.assertFalse(

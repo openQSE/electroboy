@@ -273,6 +273,7 @@ class _InitializationJob:
                 "phase": phase or "running",
                 "percent": percent,
                 "message": message or "Initializing AI course material.",
+                "activity_kind": str(details.get("activity_kind") or "stage"),
                 "updated_at": self.updated_at,
                 "scope_ids": list(self.active_scope),
                 "record_counts": dict(self.record_counts),
