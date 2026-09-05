@@ -175,6 +175,7 @@ class Phase3InitializationPipeline:
                     job_id,
                     repository_revision=revision,
                 )
+            self.store.discard_failed_terminal_result()
             self.invalidator.run(previous_source, source)
             checkpoint = self._checkpoint(revision, job_id)
             self._complete_stage(

@@ -129,6 +129,13 @@ class Phase3Store:
         value = self.read_json(self.result_path)
         return validate_terminal_result(value) if value is not None else None
 
+    def discard_failed_terminal_result(self) -> bool:
+        result = self.load_terminal_result()
+        if result is None or result.get("status") != "failed":
+            return False
+        self.result_path.unlink(missing_ok=True)
+        return True
+
     def clear(self) -> dict[str, int]:
         files = (
             [path for path in self.state_root.rglob("*") if path.is_file()]

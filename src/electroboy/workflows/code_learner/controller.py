@@ -578,6 +578,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     job.job_id,
                     repository_revision=source.revision if source else "",
                 )
+                Phase3Store(root).discard_failed_terminal_result()
                 thread = threading.Thread(
                     target=self._run_initialization_job,
                     args=(context_id, root, job),

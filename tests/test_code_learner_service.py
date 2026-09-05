@@ -454,6 +454,63 @@ class CodeLearnerServiceTests(unittest.TestCase):
             self.assertEqual(completed["status"], "initialized")
             run.assert_called_once()
 
+    def test_initialize_retry_hides_prior_terminal_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+            phase3 = Phase3Store(source_root)
+            phase3.save_terminal_result(
+                {
+                    "schema_version": 1,
+                    "repository_revision": "old-revision",
+                    "status": "failed",
+                    "course_active": False,
+                    "warning_count": 0,
+                    "diagnostic_ids": [],
+                    "failed_scope": "ctags_evidence",
+                    "recovery_action": "old failure",
+                    "completed_at": "2026-09-05T00:00:00+00:00",
+                }
+            )
+            phase3.write_json(
+                phase3.checkpoint_path,
+                {"schema_version": 1, "status": "running"},
+            )
+            started = threading.Event()
+            release = threading.Event()
+
+            def run_pipeline(_pipeline, progress_callback=None, *, acquire_lease=True):
+                started.set()
+                release.wait(timeout=2)
+                raise Phase3InitializationCancelled("stopped")
+
+            with mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "Phase3InitializationPipeline.run",
+                autospec=True,
+                side_effect=run_pipeline,
+            ):
+                payload = controller.initialize(context_id)
+                self.assertTrue(started.wait(timeout=2))
+                release.set()
+                controller.wait_for_initialization(context_id, timeout=2)
+
+        self.assertEqual(payload["status"], "initializing")
+        self.assertEqual(payload["code_learner"]["completion_status"], "")
+        self.assertFalse(phase3.result_path.exists())
+
     def test_initialize_reserves_completion_for_host_finalization(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"

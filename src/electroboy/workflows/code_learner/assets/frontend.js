@@ -582,9 +582,14 @@
     if (!nav.initCompletion) {
       return;
     }
+    const initializationStatus = String(
+      initializationState && initializationState.status || "",
+    );
+    const priorCompletionApplies =
+      !initializationRunning() && initializationStatus !== "aborted";
     const terminal = String(
       initializationState && initializationState.completion_status
-      || learnerState.completionStatus
+      || priorCompletionApplies && learnerState.completionStatus
       || "",
     );
     nav.initCompletion.hidden = !terminal;

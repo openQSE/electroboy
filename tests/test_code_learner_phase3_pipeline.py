@@ -190,6 +190,21 @@ def test_terminal_states_distinguish_clean_warning_and_failure(tmp_path: Path) -
     assert "no architecture" in failed["recovery_action"]
 
 
+def test_failed_terminal_result_is_discarded_without_clearing_checkpoint(
+    tmp_path: Path,
+) -> None:
+    pipeline, catalog = _ready_pipeline(tmp_path)
+    pipeline._active_stage = "components"
+    pipeline._fail(catalog.source.revision, CodeLearnerError("old failure"))
+    checkpoint = _checkpoint(pipeline)
+
+    assert pipeline.store.discard_failed_terminal_result() is True
+
+    assert pipeline.store.load_terminal_result() is None
+    assert pipeline.store.checkpoint_path.is_file()
+    assert pipeline.store.read_json(pipeline.store.checkpoint_path) == checkpoint
+
+
 def test_pipeline_resumes_completed_scopes_without_invoking_ai(tmp_path: Path) -> None:
     pipeline, catalog = _ready_pipeline(tmp_path)
     pipeline.ctags.raw_path.parent.mkdir(parents=True, exist_ok=True)

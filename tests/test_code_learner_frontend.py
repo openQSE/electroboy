@@ -103,6 +103,8 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'status === "aborting"' in frontend
     assert 'data-code-learner-control="init-completion"' in frontend
     assert "renderInitializationCompletion()" in frontend
+    assert 'initializationStatus !== "aborted"' in frontend
+    assert "priorCompletionApplies && learnerState.completionStatus" in frontend
     assert 'terminal === "complete_with_warnings"' in frontend
     assert 'terminal === "failed"' in frontend
     assert "learnerState.phase3Initialized" in frontend
