@@ -23,6 +23,9 @@ from .domain import (
 from .knowledge_store import KnowledgeStore
 
 TUTOR_CONTEXT_RELATIVE_PATH = ".electroboy/code-learner/tutor-context.json"
+PHASE3_TUTOR_CONTEXT_RELATIVE_PATH = (
+    ".electroboy/code-learner/phase3/tutor-context.json"
+)
 TUTOR_CONTEXT_SCHEMA_VERSION = 1
 
 
@@ -79,8 +82,7 @@ class TutorContextStore:
             (
                 item
                 for item in records
-                if item.get("record_type") == "section"
-                and item.get("id") == section_id
+                if item.get("record_type") == "section" and item.get("id") == section_id
             ),
             None,
         )
@@ -141,9 +143,9 @@ class TutorContextStore:
                 "course": self.store.course_path(mode, scope_id)
                 .relative_to(self.root)
                 .as_posix(),
-                "knowledge_root": self.store.knowledge_root
-                .relative_to(self.root)
-                .as_posix(),
+                "knowledge_root": self.store.knowledge_root.relative_to(
+                    self.root
+                ).as_posix(),
             },
             "writer_id": _required_text(writer_id, "writer ID"),
         }
@@ -173,9 +175,7 @@ class TutorContextStore:
         scope_id = walkthrough.mode_target or "repository.root"
         revision = repository_revision(self.root)
         known_ids = (
-            self.store.knowledge_ids()
-            if self.store.knowledge_root.exists()
-            else set()
+            self.store.knowledge_ids() if self.store.knowledge_root.exists() else set()
         )
         selected_id = scope_id if scope_id in known_ids else None
         payload = {
@@ -215,9 +215,9 @@ class TutorContextStore:
                 "course": CodeLearnerStore(self.root)
                 .corpus_path.relative_to(self.root)
                 .as_posix(),
-                "knowledge_root": self.store.knowledge_root
-                .relative_to(self.root)
-                .as_posix(),
+                "knowledge_root": self.store.knowledge_root.relative_to(
+                    self.root
+                ).as_posix(),
             },
             "writer_id": _required_text(writer_id, "writer ID"),
         }
@@ -228,8 +228,7 @@ class TutorContextStore:
             current = self.load(required=False)
             context = {
                 **dict(payload),
-                "context_version": int((current or {}).get("context_version") or 0)
-                + 1,
+                "context_version": int((current or {}).get("context_version") or 0) + 1,
                 "updated_at": utc_now(),
             }
             try:
@@ -239,9 +238,7 @@ class TutorContextStore:
                     f"invalid tutor context update: {error}"
                 ) from error
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.path.with_suffix(
-                f"{self.path.suffix}.{uuid4().hex}.tmp"
-            )
+            temporary = self.path.with_suffix(f"{self.path.suffix}.{uuid4().hex}.tmp")
             try:
                 temporary.write_text(
                     json.dumps(normalized, indent=2, sort_keys=True) + "\n",
@@ -263,10 +260,16 @@ class TutorContextStore:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
-def tutor_bootstrap_prompt(root: Path | str) -> str:
+def tutor_bootstrap_prompt(root: Path | str, *, generation: str = "phase2") -> str:
     """Return the fixed, one-time instruction for a repository tutor."""
 
     repository = Path(root).expanduser().resolve()
+    context_path = (
+        PHASE3_TUTOR_CONTEXT_RELATIVE_PATH
+        if generation == "phase3"
+        else TUTOR_CONTEXT_RELATIVE_PATH
+    )
+    schema_version = 2 if generation == "phase3" else 1
     return "\n".join(
         (
             "You are the ElectroBoy Code Learner tutor for this repository.",
@@ -275,10 +278,11 @@ def tutor_bootstrap_prompt(root: Path | str) -> str:
             "implementation commands unless the operator explicitly changes the task.",
             "",
             f"Repository root: {repository}",
-            f"Tutor context: {TUTOR_CONTEXT_RELATIVE_PATH}",
+            f"Tutor context: {context_path}",
             "",
             "Before answering every learner question, read the tutor context file.",
-            "Require schema_version 1, treat its current context_version as",
+            f"Require schema_version {schema_version}, then treat the current",
+            "context_version as",
             "authoritative, and do not substitute a location remembered from chat.",
             "If the file is missing, unreadable, incompatible, or stale, say so",
             "instead of guessing the learner's location.",
@@ -296,9 +300,7 @@ def tutor_bootstrap_prompt(root: Path | str) -> str:
     )
 
 
-def require_repository_read_capability(
-    command: list[str], root: Path | str
-) -> None:
+def require_repository_read_capability(command: list[str], root: Path | str) -> None:
     """Reject tutor runtimes that cannot read the attached repository."""
 
     repository = Path(root).expanduser().resolve()
@@ -334,18 +336,14 @@ def _required_text(value: str, field: str) -> str:
     return normalized
 
 
-def _module_id(
-    mode: str, scope_id: str, section: Mapping[str, object]
-) -> str | None:
+def _module_id(mode: str, scope_id: str, section: Mapping[str, object]) -> str | None:
     if mode == "module":
         return scope_id
     related = section.get("related_module_ids", [])
     return str(related[0]) if isinstance(related, list) and related else None
 
 
-def _symbol_id(
-    mode: str, scope_id: str, section: Mapping[str, object]
-) -> str | None:
+def _symbol_id(mode: str, scope_id: str, section: Mapping[str, object]) -> str | None:
     if mode == "function":
         return scope_id
     related = section.get("related_symbol_ids", [])

@@ -131,3 +131,73 @@ def build_catalog(root: Path, *, relationship: bool = True):
         relationships=relationships,
         relationship_service=relationship_service,
     )
+
+
+def build_course_records(
+    catalog,
+    mode: str,
+    scope_id: str,
+    *,
+    deep_dive_ids: list[str] | None = None,
+    source_index: int = 0,
+) -> list[dict[str, object]]:
+    document_id = f"course:{mode}:{scope_id}"
+    module = catalog.modules.modules[source_index]
+    component = catalog.components.components[source_index]
+    symbol = component["symbols"][0]
+    return [
+        {
+            "schema_version": 1,
+            "record_type": "document",
+            "id": document_id,
+            "analysis_run_id": "run-1",
+            "repository_revision": catalog.source.revision,
+            "title": f"{mode.title()} Course",
+            "course_mode": mode,
+            "scope_id": scope_id,
+            "status": "ready",
+        },
+        {
+            "schema_version": 1,
+            "record_type": "section",
+            "id": f"{document_id}:section:1",
+            "analysis_run_id": "run-1",
+            "repository_revision": catalog.source.revision,
+            "parent_id": document_id,
+            "heading_level": 2,
+            "order": 1,
+            "title": "Current lesson",
+            "body": "A compact fixture lesson.",
+            "detail_level": mode,
+            "confidence": "high",
+            "previous_section_id": None,
+            "next_section_id": None,
+            "return_section_id": None,
+            "deep_dive_ids": list(deep_dive_ids or []),
+            "deep_dive_targets": [
+                {"target_type": "component", "target_id": component["id"]}
+            ],
+            "prerequisite_section_ids": [],
+            "knowledge_entity_ids": [component["id"], module["id"]],
+            "relationship_ids": [
+                item["id"]
+                for item in catalog.relationships
+                if module["id"] in {item["from_module_id"], item["to_module_id"]}
+            ],
+            "runtime_flow_ids": [],
+            "diagnostic_ids": [],
+            "related_module_ids": [module["id"]],
+            "related_symbol_ids": [symbol["canonical_key"]],
+            "source_refs": [
+                {
+                    "path": f"file{source_index}.py",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "symbol": symbol["name"],
+                    "reason": "Tutor context source.",
+                    "revision": catalog.source.revision,
+                }
+            ],
+            "diagrams": [],
+        },
+    ]

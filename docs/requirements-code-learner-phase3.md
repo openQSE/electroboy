@@ -2164,21 +2164,21 @@ Boundary 1 validation notes:
 
 ### Boundary 16: Contextual Tutor Integration
 
-240. [ ] Update the tutor-context schema for Phase 3 component, module,
+240. [x] Update the tutor-context schema for Phase 3 component, module,
      relationship, symbol-locator, and navigation identities.
-241. [ ] Keep the shared workspace Agent Input as the only tutor composer.
-242. [ ] Update context atomically on course, section, module, component,
+241. [x] Keep the shared workspace Agent Input as the only tutor composer.
+242. [x] Update context atomically on course, section, module, component,
      function, source, and navigation changes.
-243. [ ] Preserve the one-time tutor bootstrap instruction.
-244. [ ] Require the tutor to read the current context file before each answer.
-245. [ ] Avoid injecting full manifests or course content into each question.
-246. [ ] Let the tutor read only relevant manifest records and source files.
-247. [ ] Treat missing, stale, malformed, or incompatible context as explicit
+243. [x] Preserve the one-time tutor bootstrap instruction.
+244. [x] Require the tutor to read the current context file before each answer.
+245. [x] Avoid injecting full manifests or course content into each question.
+246. [x] Let the tutor read only relevant manifest records and source files.
+247. [x] Treat missing, stale, malformed, or incompatible context as explicit
      states.
-248. [ ] Prevent tutor Q&A from mutating source or canonical learner state.
-249. [ ] Test horizontal navigation, vertical navigation, source selection,
+248. [x] Prevent tutor Q&A from mutating source or canonical learner state.
+249. [x] Test horizontal navigation, vertical navigation, source selection,
      rapid context changes, stale context, and session reuse.
-250. [ ] Commit Phase 3 contextual tutor integration.
+250. [x] Commit Phase 3 contextual tutor integration.
 
 ### Boundary 17: Orchestration, Progress, Retry, And Recovery
 
