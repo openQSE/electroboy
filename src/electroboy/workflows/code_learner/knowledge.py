@@ -117,13 +117,16 @@ class Phase3KnowledgeContext:
         *,
         require_component: bool = False,
         require_sequence: bool = False,
+        additional_node_ids: Sequence[str] = (),
     ) -> None:
         types = {str(diagram.get("type") or "") for diagram in diagrams}
         if require_component and not types & {"component", "flowchart", "graph"}:
             raise CodeLearnerError("Architecture needs a component/flowchart diagram")
         if require_sequence and "sequence" not in types:
             raise CodeLearnerError("ordered cross-module flow needs a sequence diagram")
-        valid_nodes = set(self.modules) | set(self.components)
+        valid_nodes = (
+            set(self.modules) | set(self.components) | set(additional_node_ids)
+        )
         for index, diagram in enumerate(diagrams):
             mermaid = str(diagram.get("mermaid") or "")
             node_ids = [str(item) for item in diagram.get("node_ids", [])]

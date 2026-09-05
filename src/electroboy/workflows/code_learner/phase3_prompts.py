@@ -393,3 +393,80 @@ canonical node_ids and relationship_ids for validation. Use only frozen IDs.
 Return strict JSONL only. Do not rebuild components, modules, relationships, or
 other module scopes, and do not emit course prose or modify state.
 """.strip()
+
+
+def important_function_selection_prompt(
+    root: Path | str,
+    *,
+    repository_revision: str,
+    component_manifest_path: Path | str,
+    module_manifest_path: Path | str,
+    architecture_knowledge_path: Path | str,
+    module_knowledge_path: Path | str,
+    budget: int,
+) -> str:
+    """Ask AI to rank only exact canonical symbols for eager generation."""
+
+    return f"""You are selecting important functions for Code Learner Phase 3.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {Path(root).expanduser().resolve()}
+Repository revision: {repository_revision}
+Frozen component manifest: {component_manifest_path}
+Frozen module manifest: {module_manifest_path}
+Architecture knowledge: {architecture_knowledge_path}
+Per-module knowledge directory: {module_knowledge_path}
+Maximum eager Function artifacts: {budget}
+
+Rank functions important to entry surfaces, vertical flows, module boundaries,
+state, errors, and extension dispatch. Return one JSON object with `selections`,
+where every item has exact `canonical_key`, integer `importance` from 1 to 100,
+and `reason`. Use only canonical symbol keys in the component manifest. Return
+at most the configured budget. Do not generate Function knowledge or course
+prose in this pass.
+""".strip()
+
+
+def function_knowledge_prompt(
+    root: Path | str,
+    *,
+    analysis_run_id: str,
+    repository_revision: str,
+    symbol: Mapping[str, object],
+    component_ids: Sequence[str],
+    module_ids: Sequence[str],
+    source_manifest_path: Path | str,
+    component_manifest_path: Path | str,
+    module_manifest_path: Path | str,
+    architecture_knowledge_path: Path | str,
+    module_knowledge_path: Path | str,
+) -> str:
+    """Create an exact-locator Function knowledge prompt."""
+
+    return f"""You are the ElectroBoy Phase 3 Function knowledge analyst.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {Path(root).expanduser().resolve()}
+Analysis run ID: {analysis_run_id}
+Repository revision: {repository_revision}
+Exact canonical symbol: {json.dumps(dict(symbol), sort_keys=True)}
+Owning/supporting component IDs: {json.dumps(list(component_ids))}
+Related module IDs: {json.dumps(list(module_ids))}
+Source manifest: {source_manifest_path}
+Frozen component manifest: {component_manifest_path}
+Frozen module manifest: {module_manifest_path}
+Architecture knowledge: {architecture_knowledge_path}
+Per-module knowledge directory: {module_knowledge_path}
+
+Generate exactly one function_knowledge record for this symbol. Include
+purpose, contract, local_flow, callers, callees, state, errors, concurrency,
+tests, and limitations. Resolve caller and callee locators where evidence
+allows. Label every call as direct, inferred, dynamic, or unresolved in prose
+and structured call_edges. Add a Mermaid call or flow graph when evidence makes
+one useful, listing canonical symbol node IDs separately for validation.
+
+Return strict JSONL only. Do not analyze an alternate symbol, restart
+initialization, rebuild manifests, or emit course prose or repository changes.
+""".strip()

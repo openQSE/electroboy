@@ -2114,31 +2114,31 @@ Boundary 1 validation notes:
 
 ### Boundary 14: Important And On-Demand Function Knowledge
 
-209. [ ] Define AI important-function selection over resolved symbol locators,
+209. [x] Define AI important-function selection over resolved symbol locators,
      components, modules, and vertical flows.
-210. [ ] Require important-function selections to resolve to exact canonical
+210. [x] Require important-function selections to resolve to exact canonical
      symbol locators.
-211. [ ] Bound eager generation by importance and configured initialization
+211. [x] Bound eager generation by importance and configured initialization
      budget.
-212. [ ] Refactor Function knowledge selection to use Phase 3 component and
+212. [x] Refactor Function knowledge selection to use Phase 3 component and
      module context.
-213. [ ] Preserve exact, qualified, partial, ambiguous, and missing symbol
+213. [x] Preserve exact, qualified, partial, ambiguous, and missing symbol
      resolution.
-214. [ ] Require user disambiguation before analyzing an ambiguous symbol.
-215. [ ] Generate purpose, contract, local flow, callers, callees, state,
+214. [x] Require user disambiguation before analyzing an ambiguous symbol.
+215. [x] Generate purpose, contract, local flow, callers, callees, state,
      errors, concurrency, tests, and limitations.
-216. [ ] Generate a Mermaid call or flow graph when useful evidence exists.
-217. [ ] Distinguish direct, inferred, dynamic, and unresolved calls in prose
+216. [x] Generate a Mermaid call or flow graph when useful evidence exists.
+217. [x] Distinguish direct, inferred, dynamic, and unresolved calls in prose
      and diagrams.
-218. [ ] Persist eager Function artifacts independently.
-219. [ ] Start targeted generation for an uncached resolvable Function request.
-220. [ ] Prevent on-demand generation from restarting initialization.
-221. [ ] Cache by canonical symbol locator and source revision.
-222. [ ] Link generated Function material into related Module and Architecture
+218. [x] Persist eager Function artifacts independently.
+219. [x] Start targeted generation for an uncached resolvable Function request.
+220. [x] Prevent on-demand generation from restarting initialization.
+221. [x] Cache by canonical symbol locator and source revision.
+222. [x] Link generated Function material into related Module and Architecture
      vertical paths.
-223. [ ] Test important selection, arbitrary on-demand generation, ambiguous
+223. [x] Test important selection, arbitrary on-demand generation, ambiguous
      names, missing symbols, single-function components, and stale cache.
-224. [ ] Commit Phase 3 Function knowledge generation.
+224. [x] Commit Phase 3 Function knowledge generation.
 
 ### Boundary 15: Course Skill, Rendering, And Navigation
 
