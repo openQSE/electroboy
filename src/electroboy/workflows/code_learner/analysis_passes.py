@@ -19,6 +19,14 @@ class AnalysisPass:
     contract: str
 
 
+@dataclass(frozen=True)
+class AnalysisScope:
+    """A bounded entity scope within one analysis pass."""
+
+    key: str
+    entity_ids: tuple[str, ...] = ()
+
+
 INVENTORY_CONTRACT = """Inventory output contract:
 - Emit exactly one knowledge_manifest and one repository entity.
 - Store these arrays under knowledge_manifest.attributes.inventory:
@@ -71,6 +79,42 @@ MODULE_CONTRACT = """Module discovery output contract:
   evidence, never the repository scope.
 """
 
+RELATIONSHIP_CONTRACT = """Relationship deep-dive output contract:
+- Analyze only the supplied module scope and its direct neighbors. Do not
+  repeat repository inventory or unrelated module discovery.
+- For every scoped module, revise its attributes.relationship_analysis with
+  incoming_relationship_ids, outgoing_relationship_ids, diagnostic_ids, and
+  categories.
+- categories has an explicit present, not-applicable, or unresolved value for
+  each of: interfaces, construction, lifecycle, cleanup, state, persistence,
+  events, messages, external_interactions, concurrency, asynchronous_behavior,
+  configuration, errors, tests, and deployment.
+- Emit typed relationships for verified or inferred edges. Use confidence and
+  source references to distinguish those cases.
+- Reconcile an apparent contradiction against existing records. Revise the
+  stable record when evidence improves; otherwise emit a diagnostic naming
+  both claims and the evidence still needed.
+- Represent unresolved registration, reflection, callbacks, function
+  pointers, generated dispatch, or external behavior as diagnostics rather
+  than fabricated direct calls.
+"""
+
+FLOW_CONTRACT = """Runtime-flow output contract:
+- Preserve the manifest and add knowledge_manifest.attributes.flow_catalog
+  with flow_ids, major_entry_point_ids, covered_entry_point_ids, and
+  uncovered_entry_points.
+- Every uncovered entry-point item has id, reason, and diagnostic_id.
+- Trace important end-to-end behavior across module, process, state, event,
+  message, persistence, and external-system boundaries where present.
+- Every runtime_flow has participants, contiguous ordered steps, source
+  evidence, confidence, and attributes containing normal_path_summary,
+  alternate_flows, error_flows, concurrency_notes, and unresolved_dispatch.
+- alternate_flows and error_flows are arrays. Empty arrays explicitly mean no
+  material branch was found in inspected evidence.
+- Step endpoints and relationship IDs resolve. Dynamic dispatch limitations
+  remain explicit and do not become invented direct edges.
+"""
+
 
 ANALYSIS_PASSES = (
     AnalysisPass(
@@ -101,7 +145,7 @@ ANALYSIS_PASSES = (
         "persistence, tests, deployment, and external communication.",
         "Emit only relationship/entity enrichments, diagnostics, and an updated "
         "manifest.",
-        "Preserve existing entities and emit typed, source-backed graph edges.",
+        RELATIONSHIP_CONTRACT,
     ),
     AnalysisPass(
         "flows",
@@ -109,8 +153,7 @@ ANALYSIS_PASSES = (
         "Identify and trace important ordered end-to-end runtime flows, branches, "
         "participants, dispatch boundaries, and failure paths.",
         "Emit runtime flows and only the supporting knowledge changes required.",
-        "Every flow has ordered steps, participants, source evidence, and "
-        "explicit alternate or unresolved behavior where applicable.",
+        FLOW_CONTRACT,
     ),
     AnalysisPass(
         "symbols",
@@ -137,6 +180,8 @@ ANALYSIS_PASSES = (
 def validate_pass_output(
     analysis_pass: AnalysisPass,
     records: Iterable[Mapping[str, object]],
+    *,
+    scope_ids: Iterable[str] = (),
 ) -> None:
     """Apply deterministic quality gates specific to one analysis pass."""
 
@@ -145,6 +190,39 @@ def validate_pass_output(
         _validate_inventory(normalized)
     elif analysis_pass.name == "modules":
         _validate_modules(normalized)
+    elif analysis_pass.name == "relationships":
+        _validate_relationships(normalized, tuple(scope_ids))
+    elif analysis_pass.name == "flows":
+        _validate_flows(normalized)
+
+
+def analysis_scopes(
+    analysis_pass: AnalysisPass,
+    records: Iterable[Mapping[str, object]],
+    *,
+    batch_size: int = 4,
+) -> tuple[AnalysisScope, ...]:
+    """Derive deterministic bounded scopes for a pass from durable knowledge."""
+
+    if analysis_pass.name != "relationships":
+        return (AnalysisScope("all"),)
+    normalized = [dict(record) for record in records]
+    manifest = _single_manifest(normalized, "relationship")
+    attributes = manifest.get("attributes")
+    catalog = attributes.get("module_catalog") if isinstance(attributes, dict) else None
+    module_ids = catalog.get("major_module_ids") if isinstance(catalog, dict) else None
+    if not isinstance(module_ids, list):
+        raise CodeLearnerError(
+            "relationship analysis requires module_catalog.major_module_ids"
+        )
+    size = max(1, batch_size)
+    return tuple(
+        AnalysisScope(
+            f"modules-{index // size + 1}",
+            tuple(str(item) for item in module_ids[index : index + size]),
+        )
+        for index in range(0, len(module_ids), size)
+    ) or (AnalysisScope("modules-empty"),)
 
 
 def _validate_inventory(records: list[dict[str, object]]) -> None:
@@ -410,6 +488,197 @@ def _validate_modules(records: list[dict[str, object]]) -> None:
         raise CodeLearnerError(
             "module catalog implementation candidates must all be modules or exclusions"
         )
+
+
+def _validate_relationships(
+    records: list[dict[str, object]], scope_ids: tuple[str, ...]
+) -> None:
+    entities = {
+        str(record.get("id")): record
+        for record in records
+        if record.get("record_type") == "entity"
+    }
+    relationships = {
+        str(record.get("id")): record
+        for record in records
+        if record.get("record_type") == "relationship"
+    }
+    diagnostics = {
+        str(record.get("id"))
+        for record in records
+        if record.get("record_type") == "diagnostic"
+    }
+    required_categories = {
+        "interfaces",
+        "construction",
+        "lifecycle",
+        "cleanup",
+        "state",
+        "persistence",
+        "events",
+        "messages",
+        "external_interactions",
+        "concurrency",
+        "asynchronous_behavior",
+        "configuration",
+        "errors",
+        "tests",
+        "deployment",
+    }
+    allowed_statuses = {"present", "not-applicable", "unresolved"}
+    for module_id in scope_ids:
+        module = entities.get(module_id)
+        if not module or module.get("kind") != "module":
+            raise CodeLearnerError(
+                f"relationship scope contains unknown module: {module_id}"
+            )
+        attributes = module.get("attributes")
+        analysis = (
+            attributes.get("relationship_analysis")
+            if isinstance(attributes, dict)
+            else None
+        )
+        if not isinstance(analysis, dict):
+            raise CodeLearnerError(
+                f"scoped module {module_id} requires relationship_analysis"
+            )
+        for field in (
+            "incoming_relationship_ids",
+            "outgoing_relationship_ids",
+            "diagnostic_ids",
+        ):
+            if not isinstance(analysis.get(field), list):
+                raise CodeLearnerError(
+                    f"scoped module {module_id} requires {field}"
+                )
+        _require_known_ids(
+            analysis["incoming_relationship_ids"],
+            set(relationships),
+            f"{module_id} incoming relationships",
+        )
+        _require_known_ids(
+            analysis["outgoing_relationship_ids"],
+            set(relationships),
+            f"{module_id} outgoing relationships",
+        )
+        _require_known_ids(
+            analysis["diagnostic_ids"], diagnostics, f"{module_id} diagnostics"
+        )
+        categories = analysis.get("categories")
+        if not isinstance(categories, dict) or set(categories) != required_categories:
+            raise CodeLearnerError(
+                f"scoped module {module_id} requires all relationship categories"
+            )
+        if any(value not in allowed_statuses for value in categories.values()):
+            raise CodeLearnerError(
+                f"scoped module {module_id} has invalid relationship category status"
+            )
+        unresolved = any(value == "unresolved" for value in categories.values())
+        if unresolved and not analysis["diagnostic_ids"]:
+            raise CodeLearnerError(
+                f"scoped module {module_id} requires diagnostics for unresolved categories"
+            )
+
+
+def _validate_flows(records: list[dict[str, object]]) -> None:
+    manifest = _single_manifest(records, "flow")
+    attributes = manifest.get("attributes")
+    catalog = attributes.get("flow_catalog") if isinstance(attributes, dict) else None
+    if not isinstance(catalog, dict):
+        raise CodeLearnerError("flow manifest requires attributes.flow_catalog")
+    for field in (
+        "flow_ids",
+        "major_entry_point_ids",
+        "covered_entry_point_ids",
+        "uncovered_entry_points",
+    ):
+        if not isinstance(catalog.get(field), list):
+            raise CodeLearnerError(f"flow catalog requires array {field}")
+    entities = {
+        str(record.get("id")): record
+        for record in records
+        if record.get("record_type") == "entity"
+    }
+    flows = {
+        str(record.get("id")): record
+        for record in records
+        if record.get("record_type") == "runtime_flow"
+    }
+    diagnostics = {
+        str(record.get("id"))
+        for record in records
+        if record.get("record_type") == "diagnostic"
+    }
+    entry_points = {
+        record_id
+        for record_id, record in entities.items()
+        if record.get("kind") == "entry-point"
+    }
+    _require_known_ids(catalog["flow_ids"], set(flows), "flow catalog")
+    _require_known_ids(
+        catalog["major_entry_point_ids"], entry_points, "major entry points"
+    )
+    _require_known_ids(
+        catalog["covered_entry_point_ids"], entry_points, "covered entry points"
+    )
+    uncovered_ids: set[str] = set()
+    for index, item in enumerate(catalog["uncovered_entry_points"]):
+        if not isinstance(item, dict) or any(
+            not str(item.get(field) or "").strip()
+            for field in ("id", "reason", "diagnostic_id")
+        ):
+            raise CodeLearnerError(
+                f"uncovered entry point {index} requires id, reason, and diagnostic_id"
+            )
+        entry_id = str(item["id"])
+        if entry_id not in entry_points:
+            raise CodeLearnerError(f"uncovered entry point is unknown: {entry_id}")
+        if item["diagnostic_id"] not in diagnostics:
+            raise CodeLearnerError(
+                f"uncovered entry point {entry_id} requires a known diagnostic"
+            )
+        uncovered_ids.add(entry_id)
+    expected = set(catalog["major_entry_point_ids"])
+    actual = set(catalog["covered_entry_point_ids"]) | uncovered_ids
+    if actual != expected:
+        raise CodeLearnerError(
+            "every major entry point must be covered or explicitly unresolved"
+        )
+    participants = {
+        str(participant)
+        for flow_id in catalog["flow_ids"]
+        for participant in flows[flow_id].get("participant_ids", [])
+    }
+    missing_coverage = set(catalog["covered_entry_point_ids"]) - participants
+    if missing_coverage:
+        raise CodeLearnerError(
+            "covered entry points must participate in a cataloged runtime flow: "
+            + ", ".join(sorted(missing_coverage))
+        )
+    for flow_id in catalog["flow_ids"]:
+        flow = flows[flow_id]
+        details = flow.get("attributes")
+        if not isinstance(details, dict):
+            raise CodeLearnerError(f"runtime flow {flow_id} requires attributes")
+        if not str(details.get("normal_path_summary") or "").strip():
+            raise CodeLearnerError(
+                f"runtime flow {flow_id} requires normal_path_summary"
+            )
+        for field in ("alternate_flows", "error_flows", "unresolved_dispatch"):
+            if not isinstance(details.get(field), list):
+                raise CodeLearnerError(f"runtime flow {flow_id} requires {field}")
+        if not isinstance(details.get("concurrency_notes"), str):
+            raise CodeLearnerError(
+                f"runtime flow {flow_id} requires concurrency_notes"
+            )
+        steps = flow.get("steps")
+        if not isinstance(steps, list):
+            raise CodeLearnerError(f"runtime flow {flow_id} requires steps")
+        orders = [step.get("order") for step in steps if isinstance(step, dict)]
+        if orders != list(range(1, len(steps) + 1)):
+            raise CodeLearnerError(
+                f"runtime flow {flow_id} steps must have contiguous order"
+            )
 
 
 def _single_manifest(

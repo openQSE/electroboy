@@ -1335,20 +1335,20 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 9: Relationship And Runtime-Flow Deep Dive
 
-101. [ ] Implement scoped relationship-deep-dive prompts.
-102. [ ] Process modules in bounded batches or independent invocations.
-103. [ ] Record typed incoming and outgoing relationships.
-104. [ ] Record construction, lifecycle, ownership, and cleanup behavior.
-105. [ ] Record state, persistence, events, messages, and external interactions.
-106. [ ] Record concurrency and asynchronous behavior where present.
-107. [ ] Implement runtime-flow discovery and ordered flow steps.
-108. [ ] Record alternate and error flows.
-109. [ ] Reconcile contradictory relationships from separate passes.
-110. [ ] Generate diagnostics for unresolved dispatch or incomplete evidence.
-111. [ ] Verify every major module has sufficient relationship coverage.
-112. [ ] Test cyclic dependencies, event-driven flow, dynamic registration,
+101. [x] Implement scoped relationship-deep-dive prompts.
+102. [x] Process modules in bounded batches or independent invocations.
+103. [x] Record typed incoming and outgoing relationships.
+104. [x] Record construction, lifecycle, ownership, and cleanup behavior.
+105. [x] Record state, persistence, events, messages, and external interactions.
+106. [x] Record concurrency and asynchronous behavior where present.
+107. [x] Implement runtime-flow discovery and ordered flow steps.
+108. [x] Record alternate and error flows.
+109. [x] Reconcile contradictory relationships from separate passes.
+110. [x] Generate diagnostics for unresolved dispatch or incomplete evidence.
+111. [x] Verify every major module has sufficient relationship coverage.
+112. [x] Test cyclic dependencies, event-driven flow, dynamic registration,
     and cross-process communication.
-113. [ ] Commit relationship and runtime-flow analysis.
+113. [x] Commit relationship and runtime-flow analysis.
 
 ### Boundary 10: Symbol Index And Analysis Adapters
 
