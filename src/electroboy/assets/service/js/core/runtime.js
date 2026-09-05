@@ -354,6 +354,7 @@
     let creativeEditingPath = "";
     let creativeEditingType = "";
     let expandedCreativeFolders = new Set();
+    let creativeTrashExpanded = false;
     let creativeScratchSaveTimer = null;
     let creativeProjectActionsExpanded = false;
     let creativeAgentActionsExpanded = false;
@@ -6249,6 +6250,7 @@
       creativeEditingPath = "";
       creativeEditingType = "";
       expandedCreativeFolders = new Set();
+      creativeTrashExpanded = false;
       creativeTreePayload = null;
       restoredScratchContextId = "";
       projectStatusMessages = [];
@@ -6458,6 +6460,7 @@
         creativeEditingPath = "";
         creativeEditingType = "";
         expandedCreativeFolders = new Set();
+        creativeTrashExpanded = false;
         creativeTreePayload = null;
         restoredScratchContextId = "";
       }
@@ -8017,6 +8020,7 @@
       creativeEditingPath = "";
       creativeEditingType = "";
       expandedCreativeFolders = new Set();
+      creativeTrashExpanded = false;
       creativeTreePayload = null;
       recordProjectStatusMessage(`deactivated: ${previousProject}`);
       updateProjectState(payload);
@@ -8391,6 +8395,7 @@
           creativeEditingPath,
           creativeEditingType,
           expandedCreativeFolders,
+          creativeTrashExpanded,
         };
       },
       updateState(patch) {
@@ -8414,6 +8419,9 @@
         }
         if (Object.hasOwn(patch, "expandedCreativeFolders")) {
           expandedCreativeFolders = patch.expandedCreativeFolders;
+        }
+        if (Object.hasOwn(patch, "creativeTrashExpanded")) {
+          creativeTrashExpanded = Boolean(patch.creativeTrashExpanded);
         }
         if (Object.hasOwn(patch, "selectedSessionId")) {
           selectedSessionId = patch.selectedSessionId || "";

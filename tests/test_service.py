@@ -746,6 +746,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-creative-control="new-root-file">New File', creative)
         self.assertIn('data-creative-control="trash"', creative)
         self.assertIn("creativeTrashExpanded = false", creative)
+        self.assertIn("creativeTrashExpanded,", app)
+        self.assertIn(
+            'Object.hasOwn(patch, "creativeTrashExpanded")',
+            app,
+        )
         self.assertIn("createMissing: false", creative)
         self.assertIn(
             'folder.className = "creative-tree-row directory creative-trash-folder-row"',
