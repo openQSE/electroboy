@@ -88,9 +88,7 @@ def test_every_ai_prompt_includes_its_complete_record_contract(
                 "id": "overlap:1",
             },
             candidates=[],
-            source_manifest_path="source/manifest.json",
-            files_path="source/files.jsonl",
-            schema_path="schemas/phase3.schema.json",
+            source_paths=[],
         ),
         "module": module_synthesis_prompt(
             tmp_path,

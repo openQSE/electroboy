@@ -25,10 +25,30 @@ def packaged_skill_path(name: str) -> Path:
     return path.resolve()
 
 
-def skill_prompt_reference(name: str) -> str:
+def skill_prompt_reference(
+    name: str, *, pass_references: tuple[str, ...] = ()
+) -> str:
     """Build the explicit instruction used by runtime prompts."""
 
-    return f"""Use the ${name} skill at {packaged_skill_path(name)}.
+    skill_path = packaged_skill_path(name)
+    reference_text = ""
+    if pass_references:
+        paths = [skill_path.parent / relative for relative in pass_references]
+        missing = [path for path in paths if not path.is_file()]
+        if missing:
+            raise CodeLearnerError(
+                f"{name} skill references a missing pass file: {missing[0]}"
+            )
+        rendered = "\n".join(f"- {path.resolve()}" for path in paths)
+        reference_text = f"""
+Read the skill file and these pass-specific references together before acting:
+{rendered}
+Do not read other skill references; this prompt contains the complete output
+contract for the bounded pass.
+"""
+
+    return f"""Use the ${name} skill at {skill_path}.
+{reference_text}
 
 Progress updates:
 - While actively working, emit one brief status update in the runtime

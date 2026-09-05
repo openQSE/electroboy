@@ -97,9 +97,7 @@ def component_reconciliation_prompt(
     analysis_run_id: str,
     group: Mapping[str, object],
     candidates: Sequence[Mapping[str, object]],
-    source_manifest_path: Path | str,
-    files_path: Path | str,
-    schema_path: Path | str,
+    source_paths: Sequence[str],
 ) -> str:
     """Create one complete, source-grounded overlap reconciliation prompt."""
 
@@ -110,14 +108,18 @@ def component_reconciliation_prompt(
     }
     return f"""You are the ElectroBoy Phase 3 component reconciliation analyst.
 
-{skill_prompt_reference("codebase-analysis")}
+{skill_prompt_reference(
+    "codebase-analysis",
+    pass_references=("references/component-reconciliation.md",),
+)}
 
 Repository root: {repository}
 Analysis run ID: {analysis_run_id}
 Repository revision: {group.get("repository_revision", "")}
-Source manifest: {source_manifest_path}
-Complete file records: {files_path}
-Phase 3 output schema: {schema_path}
+
+This invocation is fully bounded. Its complete reconciliation evidence is
+included below. Inspect only these referenced repository paths as needed:
+{json.dumps(list(source_paths), indent=2)}
 
 Reconcile exactly this complete overlap group:
 {json.dumps(payload, indent=2, sort_keys=True)}
@@ -140,6 +142,14 @@ Output contract:
 - A partition may clarify name, aliases, kind, responsibility, membership,
   references, reason, and limitations using only supplied evidence.
 - Explain the decision and preserve unresolved differences.
+
+Efficiency rules:
+- Do not read repository-wide source manifests, file records, Ctags output,
+  candidate catalogs, overlap catalogs, or the full multipurpose schema.
+- The inline payload and compact output contract are authoritative for this
+  decision. Do not rediscover repository structure or unrelated components.
+- Read only enough of the listed repository files to distinguish component
+  identity, then return the required object immediately.
 
 Forbidden output:
 - relationships, hierarchy, ownership edges, call edges, module membership,

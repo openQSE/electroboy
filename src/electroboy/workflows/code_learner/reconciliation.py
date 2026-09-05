@@ -92,6 +92,7 @@ class ComponentReconciliationService:
     ) -> ReconciliationResult:
         group, candidates = self._scope(group_id)
         runtime = self.runtime_factory(RECONCILIATION_ROLE, self.root)
+        context_paths = self._context_paths(candidates)
         previous_error = ""
         for attempt in range(1, self.max_attempts + 1):
             prompt = component_reconciliation_prompt(
@@ -99,18 +100,14 @@ class ComponentReconciliationService:
                 analysis_run_id=analysis_run_id,
                 group=group,
                 candidates=candidates,
-                source_manifest_path=self.root
-                / ".electroboy/code-learner/phase3/source/manifest.json",
-                files_path=self.root
-                / ".electroboy/code-learner/phase3/source/files.jsonl",
-                schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
+                source_paths=context_paths,
             )
             if previous_error:
                 prompt = self.repair_prompt(group_id, previous_error, prompt)
             invocation = AgentInvocation(
                 role=RECONCILIATION_ROLE,
                 prompt=prompt,
-                context_paths=self._context_paths(),
+                context_paths=context_paths,
             )
             result = runtime.invoke(invocation)
             attempt_id = f"{_safe_id(group_id)}-{attempt}"
@@ -394,17 +391,21 @@ record types.
             },
         )
 
-    def _context_paths(self) -> list[str]:
-        return [
-            path.relative_to(self.root).as_posix()
-            for path in (
-                self.groups_path,
-                self.candidates_path,
-                self.root / ".electroboy/code-learner/phase3/source/manifest.json",
-                self.root / ".electroboy/code-learner/phase3/source/files.jsonl",
-            )
-            if path.is_file()
-        ]
+    def _context_paths(
+        self, candidates: Sequence[Mapping[str, object]]
+    ) -> list[str]:
+        paths = {
+            str(file_id)[len("file:") :]
+            for candidate in candidates
+            for file_id in candidate.get("file_ids", [])
+            if str(file_id).startswith("file:")
+        }
+        bounded = []
+        for relative in sorted(paths):
+            path = (self.root / relative).resolve()
+            if path.is_relative_to(self.root) and path.is_file():
+                bounded.append(relative)
+        return bounded
 
 
 def _safe_id(value: str) -> str:

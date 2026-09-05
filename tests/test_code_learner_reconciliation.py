@@ -205,9 +205,7 @@ def test_reconciliation_prompt_is_complete_and_forbids_scope_drift(
         analysis_run_id="run-1",
         group=group,
         candidates=candidates,
-        source_manifest_path="source/manifest.json",
-        files_path="source/files.jsonl",
-        schema_path="phase3.schema.json",
+        source_paths=["a.py", "b.py", "c.py"],
     )
 
     assert "shared-ab" in prompt
@@ -216,3 +214,26 @@ def test_reconciliation_prompt_is_complete_and_forbids_scope_drift(
     assert "supporting_source_refs" in prompt
     assert "every input candidate exactly once" in prompt
     assert "relationships, hierarchy" in prompt
+    assert "repository-wide source manifests" in prompt
+    assert "references/component-reconciliation.md" in prompt
+    assert "Do not read other skill references" in prompt
+    assert "references/knowledge-schema.md" not in prompt
+    assert "source/files.jsonl" not in prompt
+
+
+def test_reconciliation_invocation_includes_only_candidate_source_files(
+    tmp_path: Path,
+) -> None:
+    service, _ = _setup(tmp_path)
+    for path in ("a.py", "b.py", "c.py"):
+        (tmp_path / path).write_text("pass\n", encoding="utf-8")
+    runtime = FakeRuntime(
+        [AgentResult(True, json.dumps(_record("distinct", [["a"], ["b"], ["c"]])))]
+    )
+    service.runtime_factory = lambda role, root: runtime
+
+    service.reconcile_group("overlap:one", analysis_run_id="run-1")
+
+    invocation = runtime.invocations[0]
+    assert invocation.context_paths == ["a.py", "b.py", "c.py"]
+    assert not any(".electroboy" in path for path in invocation.context_paths)
