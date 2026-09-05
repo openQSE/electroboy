@@ -21,6 +21,7 @@ from .course_artifacts import render_saved_course
 from .domain import CodeLearnerError
 from .knowledge_store import KnowledgeStore
 from .knowledge_validation import EnrichmentController
+from .progress import InvocationHeartbeat
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 COURSE_ROLE = "code_learner_course"
@@ -69,6 +70,14 @@ class FunctionResolution:
             "symbol": dict(self.symbol) if self.symbol else None,
             "candidates": [dict(item) for item in self.candidates],
         }
+
+
+class CourseEnrichmentRequired(CodeLearnerError):
+    """Signal that a course pass emitted targeted knowledge requests."""
+
+    def __init__(self, request_ids: list[str]) -> None:
+        self.request_ids = tuple(request_ids)
+        super().__init__("course generation requested targeted knowledge enrichment")
 
 
 class RuntimeFactory(Protocol):
@@ -470,20 +479,41 @@ class CourseBuilder:
                 f"({attempt}/{self.max_attempts}).",
                 progress_callback,
             )
-            result = runtime.invoke(
-                AgentInvocation(
-                    role=COURSE_ROLE,
-                    prompt=course_prompt(
-                        self.root,
-                        scope,
-                        input_path=input_path,
-                        audience=audience,
-                    ),
-                    context_paths=[input_path.relative_to(self.root).as_posix()],
-                )
+            invocation = AgentInvocation(
+                role=COURSE_ROLE,
+                prompt=course_prompt(
+                    self.root,
+                    scope,
+                    input_path=input_path,
+                    audience=audience,
+                ),
+                context_paths=[input_path.relative_to(self.root).as_posix()],
             )
+            with InvocationHeartbeat(
+                lambda event: self._emit_event(event, progress_callback),
+                {
+                    "record_type": "progress",
+                    "phase": f"{scope.mode}_course",
+                    "percent": 94,
+                    "message": (
+                        f"Still generating {scope.mode.title()} course for "
+                        f"{scope.scope_id}; waiting for structured output."
+                    ),
+                    "scope_ids": [scope.scope_id],
+                },
+            ):
+                result = runtime.invoke(invocation)
             try:
                 records = self._accept_course(scope, result)
+            except CourseEnrichmentRequired as error:
+                last_error = str(error)
+                self.enrichment_factory(self.root).run_request_ids(
+                    error.request_ids,
+                    progress_callback,
+                )
+                scope = self._refresh_scope(scope)
+                input_path = self._write_scope(scope)
+                continue
             except (CodeLearnerError, ValueError) as error:
                 last_error = str(error)
                 if attempt < self.max_attempts and self.retry_delay:
@@ -536,8 +566,8 @@ class CourseBuilder:
         record_types = {record.get("record_type") for record in records}
         if record_types <= {"knowledge_request"}:
             self.store.merge_knowledge(records)
-            raise CodeLearnerError(
-                "course generation requested targeted knowledge enrichment"
+            raise CourseEnrichmentRequired(
+                [str(record.get("id") or "") for record in records]
             )
         if not record_types <= {"document", "section"}:
             raise CodeLearnerError(
@@ -557,6 +587,13 @@ class CourseBuilder:
             self._validate_function(scope, validated)
         return validated
 
+    def _refresh_scope(self, scope: CourseScope) -> CourseScope:
+        if scope.mode == "architecture":
+            return self.selector.architecture()
+        if scope.mode == "module":
+            return self.selector.module(scope.scope_id)
+        return self.selector.function(scope.scope_id)
+
     def _validate_identity(
         self, scope: CourseScope, records: list[dict[str, object]]
     ) -> None:
@@ -568,6 +605,11 @@ class CourseBuilder:
         document = next(
             record for record in records if record.get("record_type") == "document"
         )
+        expected_id = f"course.{scope.mode}.{scope.scope_id}"
+        if document.get("id") != expected_id:
+            raise CodeLearnerError(
+                f"generated course document ID must be {expected_id}"
+            )
         if document.get("course_mode") != scope.mode:
             raise CodeLearnerError("generated course mode does not match request")
         if document.get("scope_id") != scope.scope_id:
@@ -907,6 +949,14 @@ class CourseBuilder:
             "message": message,
             "updated_at": utc_now(),
         }
+        self._emit_event(event, callback)
+
+    def _emit_event(
+        self,
+        event: dict[str, object],
+        callback: ProgressCallback | None,
+    ) -> None:
+        event.setdefault("updated_at", utc_now())
         self.store.append_progress(event)
         if callback:
             callback(event)

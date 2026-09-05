@@ -1282,7 +1282,7 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 6: Analysis Runtime And Pass Orchestration
 
-66. [ ] Replace the monolithic initialization prompt with an analysis-run
+66. [x] Replace the monolithic initialization prompt with an analysis-run
     orchestrator.
 67. [x] Define explicit inventory, module, relationship, flow, symbol, and
     validation pass types.
@@ -1295,7 +1295,7 @@ boundary so later work can be reviewed or reverted independently.
 74. [x] Parse and validate each pass output before merging it.
 75. [x] Preserve completed pass output when a later pass fails.
 76. [x] Resume from the first incomplete or invalid pass after restart.
-77. [ ] Enforce a single conflicting initialization job per repository.
+77. [x] Enforce a single conflicting initialization job per repository.
 78. [x] Add bounded retry behavior for transient runtime failures.
 79. [x] Ensure retries cannot duplicate knowledge records.
 80. [x] Add orchestration tests with deterministic fake AI outputs.
@@ -1512,20 +1512,20 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 18: Progress, Recovery, And Invalidation
 
-210. [ ] Define overall progress weights for inventory, modules, relationships,
+210. [x] Define overall progress weights for inventory, modules, relationships,
     flows, symbols, validation, courses, rendering, and activation.
-211. [ ] Report active invocation scope and durable record counts.
-212. [ ] Report completed and remaining module-analysis and course jobs.
-213. [ ] Preserve the host-owned 100-percent completion rule.
-214. [ ] Add heartbeats for long AI inspections and final-response delivery.
-215. [ ] Persist checkpoints after every validated pass and completed course.
-216. [ ] Resume without repeating completed invocations.
-217. [ ] Detect source revision changes and compute affected record scopes.
-218. [ ] Mark affected knowledge, diagrams, and courses stale.
-219. [ ] Regenerate only stale scopes and downstream projections.
-220. [ ] Test service restart, AI interruption, malformed output, partial
+211. [x] Report active invocation scope and durable record counts.
+212. [x] Report completed and remaining module-analysis and course jobs.
+213. [x] Preserve the host-owned 100-percent completion rule.
+214. [x] Add heartbeats for long AI inspections and final-response delivery.
+215. [x] Persist checkpoints after every validated pass and completed course.
+216. [x] Resume without repeating completed invocations.
+217. [x] Detect source revision changes and compute affected record scopes.
+218. [x] Mark affected knowledge, diagrams, and courses stale.
+219. [x] Regenerate only stale scopes and downstream projections.
+220. [x] Test service restart, AI interruption, malformed output, partial
     module completion, source changes, and resumed rendering.
-221. [ ] Commit progress, recovery, and invalidation behavior.
+221. [x] Commit progress, recovery, and invalidation behavior.
 
 ### Boundary 19: End-To-End Validation
 

@@ -25,6 +25,17 @@ class FakeRuntime:
         return self.results.pop(0)
 
 
+class FakeEnrichment:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.request_ids: list[str] = []
+
+    def run_request_ids(self, request_ids, progress_callback=None):
+        del progress_callback
+        self.request_ids.extend(request_ids)
+        return None
+
+
 def _copy_fixture(tmp_path: Path) -> Path:
     repository = tmp_path / "repository"
     shutil.copytree(FIXTURE, repository)
@@ -260,3 +271,38 @@ def test_architecture_builder_requires_both_mandatory_diagrams(
             runtime_factory=lambda _role, _root: runtime,
             max_attempts=1,
         ).build_architecture()
+
+
+def test_architecture_course_enriches_ai_requested_knowledge_before_retry(
+    tmp_path: Path,
+) -> None:
+    repository = _copy_fixture(tmp_path)
+    request = {
+        "schema_version": 1,
+        "analysis_run_id": "course-fixture",
+        "repository_revision": "fixture-v1",
+        "record_type": "knowledge_request",
+        "id": "request.architecture-dispatch",
+        "scope_id": "repository.root",
+        "missing_facts": "Resolve runtime dispatch ownership.",
+        "related_record_ids": ["module.registry"],
+        "status": "open",
+    }
+    runtime = FakeRuntime(
+        [
+            AgentResult(ok=True, final_message=json.dumps(request)),
+            AgentResult(ok=True, final_message=_jsonl(_course())),
+        ]
+    )
+    enrichment = FakeEnrichment(repository)
+
+    result = CourseBuilder(
+        repository,
+        runtime_factory=lambda _role, _root: runtime,
+        enrichment_factory=lambda _root: enrichment,
+        max_attempts=2,
+    ).build_architecture()
+
+    assert result.mode == "architecture"
+    assert enrichment.request_ids == ["request.architecture-dispatch"]
+    assert len(runtime.invocations) == 2

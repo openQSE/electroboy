@@ -15,6 +15,7 @@ from electroboy.runtime import runtime_for_role
 from .contracts import parse_jsonl, validate_knowledge_records
 from .domain import CodeLearnerError, repository_revision
 from .knowledge_store import KnowledgeStore
+from .progress import InvocationHeartbeat
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 ENRICHMENT_ROLE = "code_learner_analysis"
@@ -319,13 +320,25 @@ class EnrichmentController:
         before_ids = set(request.get("related_record_ids", []))
         for attempt in range(1, self.max_attempts + 1):
             self._progress(request, attempt, progress_callback)
-            result = runtime.invoke(
-                AgentInvocation(
-                    role=ENRICHMENT_ROLE,
-                    prompt=enrichment_prompt(self.root, self.store, request, attempt),
-                    context_paths=_request_context_paths(self.store, request),
-                )
+            invocation = AgentInvocation(
+                role=ENRICHMENT_ROLE,
+                prompt=enrichment_prompt(self.root, self.store, request, attempt),
+                context_paths=_request_context_paths(self.store, request),
             )
+            with InvocationHeartbeat(
+                lambda event: self._emit_event(event, progress_callback),
+                {
+                    "record_type": "progress",
+                    "phase": "knowledge_enrichment",
+                    "percent": 90,
+                    "message": (
+                        "Still resolving knowledge request "
+                        f"{request['id']}; waiting for structured output."
+                    ),
+                    "scope_ids": [str(request.get("scope_id") or "")],
+                },
+            ):
+                result = runtime.invoke(invocation)
             if not result.ok or not result.final_message.strip():
                 continue
             try:
@@ -399,6 +412,14 @@ class EnrichmentController:
             ),
             "updated_at": utc_now(),
         }
+        self._emit_event(event, callback)
+
+    def _emit_event(
+        self,
+        event: dict[str, object],
+        callback: ProgressCallback | None,
+    ) -> None:
+        event.setdefault("updated_at", utc_now())
         self.store.append_progress(event)
         if callback:
             callback(event)

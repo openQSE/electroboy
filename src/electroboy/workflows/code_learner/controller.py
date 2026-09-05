@@ -27,10 +27,16 @@ from .domain import (
     SourceAdapter,
     Walkthrough,
     create_walkthrough,
+    repository_revision,
     resolve_symbol,
 )
+from .initialization import (
+    InitializationLease,
+    InitializationPipeline,
+    initialization_ready,
+    mark_pipeline_activated,
+)
 from .knowledge_store import KnowledgeStore
-from .planner import generate_code_learner_course_corpus_jsonl
 from .tutor_context import (
     TutorContextStore,
     require_repository_read_capability,
@@ -58,9 +64,18 @@ class _InitializationJob:
     last_progress_at: str = ""
     error: str = ""
     progress_events: list[dict[str, object]] = field(default_factory=list)
+    active_scope: list[str] = field(default_factory=list)
+    record_counts: dict[str, int] = field(default_factory=dict)
+    completed_analysis_jobs: int = 0
+    remaining_analysis_jobs: int = 0
+    completed_analysis_scopes: list[str] = field(default_factory=list)
+    remaining_analysis_scopes: list[str] = field(default_factory=list)
+    completed_module_courses: list[str] = field(default_factory=list)
+    remaining_module_courses: list[str] = field(default_factory=list)
     resumed_from_checkpoint: bool = False
     started_monotonic: float = field(default_factory=time.monotonic)
     thread: threading.Thread | None = field(default=None, repr=False)
+    lease: InitializationLease | None = field(default=None, repr=False)
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def is_running(self) -> bool:
@@ -96,11 +111,12 @@ class _InitializationJob:
         phase = str(record.get("phase") or self.phase or "running").strip()
         message = str(record.get("message") or phase).strip()
         reported_percent = _bounded_percent(record.get("percent"))
-        percent = min(reported_percent, _AI_PROGRESS_MAX_PERCENT)
-        if reported_percent >= 100:
+        host_owned = record.get("host_owned") is True
+        percent = min(reported_percent, 99 if host_owned else _AI_PROGRESS_MAX_PERCENT)
+        if reported_percent >= 100 and not host_owned:
             phase = "final_delivery"
             message = "Receiving final course corpus from AI."
-        self._record_running_progress(phase, percent, message)
+        self._record_running_progress(phase, percent, message, details=record)
 
     def record_system_progress(
         self,
@@ -120,6 +136,7 @@ class _InitializationJob:
         phase: str,
         percent: int,
         message: str,
+        details: dict[str, object] | None = None,
     ) -> None:
         self.update(
             status="running",
@@ -129,11 +146,60 @@ class _InitializationJob:
             progress=True,
         )
         with self.lock:
+            details = details or {}
+            if "scope_ids" in details:
+                self.active_scope = [
+                    str(item) for item in details.get("scope_ids", [])
+                ]
+            if isinstance(details.get("record_counts"), dict):
+                self.record_counts = {
+                    str(key): int(value)
+                    for key, value in details["record_counts"].items()
+                }
+            if "completed_analysis_jobs" in details:
+                self.completed_analysis_jobs = int(
+                    details.get("completed_analysis_jobs") or 0
+                )
+            if "remaining_analysis_jobs" in details:
+                self.remaining_analysis_jobs = int(
+                    details.get("remaining_analysis_jobs") or 0
+                )
+            if "completed_analysis_scopes" in details:
+                self.completed_analysis_scopes = [
+                    str(item)
+                    for item in details.get("completed_analysis_scopes", [])
+                ]
+            if "remaining_analysis_scopes" in details:
+                self.remaining_analysis_scopes = [
+                    str(item)
+                    for item in details.get("remaining_analysis_scopes", [])
+                ]
+            if "completed_module_courses" in details:
+                self.completed_module_courses = [
+                    str(item)
+                    for item in details.get("completed_module_courses", [])
+                ]
+            if "remaining_module_courses" in details:
+                self.remaining_module_courses = [
+                    str(item)
+                    for item in details.get("remaining_module_courses", [])
+                ]
             event = {
                 "phase": phase or "running",
                 "percent": percent,
                 "message": message or "Initializing AI course material.",
                 "updated_at": self.updated_at,
+                "scope_ids": list(self.active_scope),
+                "record_counts": dict(self.record_counts),
+                "completed_analysis_jobs": self.completed_analysis_jobs,
+                "remaining_analysis_jobs": self.remaining_analysis_jobs,
+                "completed_analysis_scopes": list(
+                    self.completed_analysis_scopes
+                ),
+                "remaining_analysis_scopes": list(self.remaining_analysis_scopes),
+                "completed_module_courses": list(self.completed_module_courses),
+                "remaining_module_courses": list(self.remaining_module_courses),
+                "heartbeat": bool(details.get("heartbeat")),
             }
             if self.progress_events and self.progress_events[-1] == event:
                 return
@@ -158,12 +224,22 @@ class _InitializationJob:
                 "estimated_remaining_seconds": remaining,
                 "error": self.error,
                 "progress_events": [dict(event) for event in self.progress_events],
+                "active_scope": list(self.active_scope),
+                "record_counts": dict(self.record_counts),
+                "completed_analysis_jobs": self.completed_analysis_jobs,
+                "remaining_analysis_jobs": self.remaining_analysis_jobs,
+                "completed_analysis_scopes": list(
+                    self.completed_analysis_scopes
+                ),
+                "remaining_analysis_scopes": list(self.remaining_analysis_scopes),
+                "completed_module_courses": list(self.completed_module_courses),
+                "remaining_module_courses": list(self.remaining_module_courses),
                 "resumed_from_checkpoint": self.resumed_from_checkpoint,
                 "checkpoint_path": str(
-                    CodeLearnerStore(self.root).initialization_checkpoint_path
+                    KnowledgeStore(self.root).checkpoint_path
                 ),
                 "progress_path": str(
-                    CodeLearnerStore(self.root).initialization_progress_path
+                    KnowledgeStore(self.root).progress_path
                 ),
             }
 
@@ -196,9 +272,17 @@ def _idle_initialization_snapshot(root: Path) -> dict[str, object]:
         "estimated_remaining_seconds": None,
         "error": "",
         "progress_events": [],
+        "active_scope": [],
+        "record_counts": {},
+        "completed_analysis_jobs": 0,
+        "remaining_analysis_jobs": 0,
+        "completed_analysis_scopes": [],
+        "remaining_analysis_scopes": [],
+        "completed_module_courses": [],
+        "remaining_module_courses": [],
         "resumed_from_checkpoint": False,
-        "checkpoint_path": str(CodeLearnerStore(root).initialization_checkpoint_path),
-        "progress_path": str(CodeLearnerStore(root).initialization_progress_path),
+        "checkpoint_path": str(KnowledgeStore(root).checkpoint_path),
+        "progress_path": str(KnowledgeStore(root).progress_path),
     }
 
 
@@ -216,9 +300,17 @@ def _completed_initialization_snapshot(root: Path) -> dict[str, object]:
         "estimated_remaining_seconds": None,
         "error": "",
         "progress_events": [],
+        "active_scope": [],
+        "record_counts": {},
+        "completed_analysis_jobs": 0,
+        "remaining_analysis_jobs": 0,
+        "completed_analysis_scopes": [],
+        "remaining_analysis_scopes": [],
+        "completed_module_courses": [],
+        "remaining_module_courses": [],
         "resumed_from_checkpoint": False,
-        "checkpoint_path": str(CodeLearnerStore(root).initialization_checkpoint_path),
-        "progress_path": str(CodeLearnerStore(root).initialization_progress_path),
+        "checkpoint_path": str(KnowledgeStore(root).checkpoint_path),
+        "progress_path": str(KnowledgeStore(root).progress_path),
     }
 
 
@@ -373,19 +465,24 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def initialize(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if CodeLearnerStore(root).corpus_analysis() is not None:
+        if (
+            initialization_ready(root)
+            or CodeLearnerStore(root).corpus_analysis() is not None
+        ):
             return self._initialization_payload(context_id, root)
         with self._initialization_lock:
             job = self._initialization_jobs.get(str(root))
             if job is None or not job.is_running():
-                store = CodeLearnerStore(root)
                 job = _InitializationJob(
                     root=root,
-                    resumed_from_checkpoint=store.initialization_checkpoint_path.is_file(),
+                    resumed_from_checkpoint=(
+                        KnowledgeStore(root).checkpoint_path.is_file()
+                    ),
                 )
+                job.lease = InitializationLease.acquire(root, job.job_id)
                 thread = threading.Thread(
                     target=self._run_initialization_job,
-                    args=(root, job),
+                    args=(context_id, root, job),
                     name=f"code-learner-init-{job.job_id[:8]}",
                     daemon=True,
                 )
@@ -458,12 +555,10 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def _run_initialization_job(
         self,
+        context_id: str,
         root: Path,
         job: _InitializationJob,
     ) -> None:
-        store = CodeLearnerStore(root)
-        progress_path = store.initialization_progress_relative_path.as_posix()
-        checkpoint_path = store.initialization_checkpoint_relative_path.as_posix()
         job.record_system_progress(
             phase="setup",
             percent=1,
@@ -474,16 +569,27 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             ),
         )
         try:
-            corpus_jsonl = generate_code_learner_course_corpus_jsonl(
-                root,
-                progress_path=progress_path,
-                checkpoint_path=checkpoint_path,
-                progress_callback=lambda record: self._record_initialization_progress(
-                    job,
-                    record,
-                ),
+            result = InitializationPipeline(root).run(
+                lambda record: self._record_initialization_progress(job, record)
             )
-            self._save_initialized_corpus(root, corpus_jsonl, job=job)
+            job.record_system_progress(
+                phase="activation",
+                percent=99,
+                message="Activating the validated Architecture course.",
+            )
+            navigation = CourseNavigator(root).open(
+                "course.architecture.repository.root"
+            )
+            TutorContextStore(root).write_navigation(
+                navigation,
+                project_id=context_id,
+                writer_id=f"electroboy:{context_id}",
+            )
+            if result.revision != repository_revision(root):
+                raise CodeLearnerError(
+                    "repository changed before course activation; resume initialization"
+                )
+            mark_pipeline_activated(root)
             job.update(
                 status="initialized",
                 phase="complete",
@@ -498,6 +604,10 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 message=message,
                 error=message,
             )
+        finally:
+            if job.lease is not None:
+                job.lease.release()
+                job.lease = None
 
     def _record_initialization_progress(
         self,
@@ -517,12 +627,15 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     ) -> dict[str, object]:
         job = self._initialization_job(root)
         state = self._state_payload(root)
-        initialized = "analysis" in state
+        initialized = initialization_ready(root) or "analysis" in state
         if job is not None and job.is_running():
             status = "initializing"
             initialization = job.snapshot()
         elif job is not None and str(job.snapshot().get("status")) == "failed":
             status = "failed"
+            initialization = job.snapshot()
+        elif job is not None and str(job.snapshot().get("status")) == "initialized":
+            status = "initialized"
             initialization = job.snapshot()
         elif initialized:
             status = "initialized"

@@ -24,6 +24,8 @@ from .contracts import parse_jsonl
 from .domain import CodeLearnerError, repository_revision
 from .knowledge_store import KnowledgeStore
 from .knowledge_validation import KnowledgeValidator
+from .progress import InvocationHeartbeat
+from .revision import repository_source_snapshot
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 ANALYSIS_ROLE = "code_learner_analysis"
@@ -237,33 +239,44 @@ class AnalysisOrchestrator:
         for attempt in range(1, self.max_attempts + 1):
             job_state["attempts"] = attempt
             self.store.save_checkpoint(checkpoint)
-            result = runtime.invoke(
-                AgentInvocation(
-                    role=ANALYSIS_ROLE,
-                    prompt=analysis_pass_prompt(
-                        self.root,
-                        analysis_pass,
-                        run_id=run_id,
-                        revision=revision,
-                        store=self.store,
-                        scope=scope,
-                    ),
-                    context_paths=[
-                        path.relative_to(self.root).as_posix()
-                        for path in self.store.knowledge_root.glob("*.jsonl")
+            invocation = AgentInvocation(
+                role=ANALYSIS_ROLE,
+                prompt=analysis_pass_prompt(
+                    self.root,
+                    analysis_pass,
+                    run_id=run_id,
+                    revision=revision,
+                    store=self.store,
+                    scope=scope,
+                ),
+                context_paths=[
+                    path.relative_to(self.root).as_posix()
+                    for path in self.store.knowledge_root.glob("*.jsonl")
+                ]
+                + (
+                    [
+                        self.store.symbol_evidence_path.relative_to(
+                            self.root
+                        ).as_posix()
                     ]
-                    + (
-                        [
-                            self.store.symbol_evidence_path.relative_to(
-                                self.root
-                            ).as_posix()
-                        ]
-                        if analysis_pass.name == "symbols"
-                        and self.store.symbol_evidence_path.is_file()
-                        else []
-                    ),
-                )
+                    if analysis_pass.name == "symbols"
+                    and self.store.symbol_evidence_path.is_file()
+                    else []
+                ),
             )
+            with InvocationHeartbeat(
+                lambda event: self._progress(event, progress_callback),
+                {
+                    "phase": analysis_pass.name,
+                    "percent": analysis_pass.percent,
+                    "message": (
+                        f"Still analyzing {analysis_pass.name} scope "
+                        f"{scope.key}; waiting for structured output."
+                    ),
+                    "scope_ids": list(scope.entity_ids),
+                },
+            ):
+                result = runtime.invoke(invocation)
             try:
                 self._accept_result(analysis_pass, scope, result)
             except (CodeLearnerError, ValueError) as error:
@@ -301,7 +314,7 @@ class AnalysisOrchestrator:
         if not output:
             raise CodeLearnerError("analysis pass returned no JSONL")
         records = parse_jsonl(output, artifact="analysis pass")
-        existing = self.store.load_knowledge()
+        existing = self.store.load_knowledge(validate_sources=False)
         combined = {str(record["id"]): record for record in existing}
         combined.update({str(record.get("id") or ""): record for record in records})
         validate_pass_output(
@@ -310,9 +323,9 @@ class AnalysisOrchestrator:
             scope_ids=scope.entity_ids,
         )
         if existing:
-            self.store.merge_knowledge(records)
+            self.store.merge_knowledge(records, validate_sources=False)
         else:
-            self.store.save_knowledge(records)
+            self.store.save_knowledge(records, validate_sources=False)
 
     def _prepare_pass(self, analysis_pass: AnalysisPass) -> None:
         if analysis_pass.name != "symbols":
@@ -348,6 +361,7 @@ class AnalysisOrchestrator:
             "repository_revision": revision,
             "status": "running",
             "created_at": utc_now(),
+            "source_snapshot": repository_source_snapshot(self.root),
             "passes": {
                 analysis_pass.name: {"status": "pending", "attempts": 0}
                 for analysis_pass in self.passes

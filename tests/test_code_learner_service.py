@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,12 +25,16 @@ from electroboy.workflows.code_learner.controller import (  # noqa: E402
     CodeLearnerWorkflowController,
     code_learner_agent_command,
 )
-from electroboy.workflows.code_learner.plugin import (  # noqa: E402
-    workflow as code_learner_workflow,
+from electroboy.workflows.code_learner.domain import (  # noqa: E402
+    CodeLearnerError,
+    repository_revision,
 )
 from electroboy.workflows.code_learner.planner import (  # noqa: E402
     code_learner_initialize_prompt,
     generate_code_learner_course_corpus_jsonl,
+)
+from electroboy.workflows.code_learner.plugin import (  # noqa: E402
+    workflow as code_learner_workflow,
 )
 
 
@@ -280,31 +285,42 @@ class CodeLearnerServiceTests(unittest.TestCase):
             started = threading.Event()
             release = threading.Event()
 
-            def planner(
-                root: Path,
-                *,
-                progress_path: str | None = None,
-                checkpoint_path: str | None = None,
-                progress_callback=None,
-            ) -> str:
+            def run_pipeline(_pipeline, progress_callback=None):
                 started.set()
                 if progress_callback is not None:
                     progress_callback(
                         {
                             "record_type": "progress",
-                            "phase": "architecture",
-                            "percent": 25,
-                            "message": "Drafting architecture",
+                            "phase": "relationships",
+                            "percent": 42,
+                            "message": "Mapping module relationships",
+                            "scope_ids": ["module.sample"],
+                            "record_counts": {"entity": 4},
+                            "completed_analysis_jobs": 2,
+                            "remaining_analysis_jobs": 3,
+                            "completed_module_courses": [],
+                            "remaining_module_courses": ["module.sample"],
                         }
                     )
                 release.wait(timeout=2)
-                return self._sample_course_jsonl()
+                return SimpleNamespace(revision=repository_revision(source_root))
 
             with mock.patch(
                 "electroboy.workflows.code_learner.controller."
-                "generate_code_learner_course_corpus_jsonl",
-                side_effect=planner,
-            ) as generate:
+                "InitializationPipeline.run",
+                autospec=True,
+                side_effect=run_pipeline,
+            ) as run, mock.patch(
+                "electroboy.workflows.code_learner.controller.CourseNavigator.open",
+                return_value={"current": {"id": "architecture.overview"}},
+            ), mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "TutorContextStore.write_navigation",
+                return_value={},
+            ), mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "mark_pipeline_activated"
+            ):
                 first = controller.initialize(context_id)
                 self.assertTrue(started.wait(timeout=2))
                 second = controller.initialize(context_id)
@@ -314,38 +330,21 @@ class CodeLearnerServiceTests(unittest.TestCase):
 
             self.assertEqual(first["status"], "initializing")
             self.assertEqual(second["status"], "initializing")
-            self.assertEqual(status["initialization"]["percent"], 25)
+            self.assertEqual(status["initialization"]["percent"], 42)
             self.assertFalse(status["initialization"]["resumed_from_checkpoint"])
             self.assertTrue(
                 str(status["initialization"]["checkpoint_path"]).endswith(
-                    "initialize-checkpoint.md"
+                    "checkpoint.json"
                 )
             )
             self.assertEqual(
-                status["initialization"]["progress_events"],
-                [
-                    {
-                        "phase": "setup",
-                        "percent": 1,
-                        "message": (
-                            "Starting AI course initialization with durable "
-                            "checkpointing."
-                        ),
-                        "updated_at": status["initialization"]["progress_events"][0][
-                            "updated_at"
-                        ],
-                    },
-                    {
-                        "phase": "architecture",
-                        "percent": 25,
-                        "message": "Drafting architecture",
-                        "updated_at": status["initialization"]["last_progress_at"],
-                    }
-                ],
+                status["initialization"]["active_scope"], ["module.sample"]
             )
+            self.assertEqual(status["initialization"]["record_counts"], {"entity": 4})
+            self.assertEqual(status["initialization"]["completed_analysis_jobs"], 2)
+            self.assertEqual(status["initialization"]["remaining_analysis_jobs"], 3)
             self.assertEqual(completed["status"], "initialized")
-            self.assertIn("analysis", completed["code_learner"])
-            generate.assert_called_once()
+            run.assert_called_once()
 
     def test_initialize_reserves_completion_for_host_finalization(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -366,13 +365,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
             final_output_started = threading.Event()
             release = threading.Event()
 
-            def planner(
-                root: Path,
-                *,
-                progress_path: str | None = None,
-                checkpoint_path: str | None = None,
-                progress_callback=None,
-            ) -> str:
+            def run_pipeline(_pipeline, progress_callback=None):
                 if progress_callback is not None:
                     progress_callback(
                         {
@@ -384,12 +377,23 @@ class CodeLearnerServiceTests(unittest.TestCase):
                     )
                 final_output_started.set()
                 release.wait(timeout=2)
-                return self._sample_course_jsonl()
+                return SimpleNamespace(revision=repository_revision(source_root))
 
             with mock.patch(
                 "electroboy.workflows.code_learner.controller."
-                "generate_code_learner_course_corpus_jsonl",
-                side_effect=planner,
+                "InitializationPipeline.run",
+                autospec=True,
+                side_effect=run_pipeline,
+            ), mock.patch(
+                "electroboy.workflows.code_learner.controller.CourseNavigator.open",
+                return_value={"current": {"id": "architecture.overview"}},
+            ), mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "TutorContextStore.write_navigation",
+                return_value={},
+            ), mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "mark_pipeline_activated"
             ):
                 controller.initialize(context_id)
                 self.assertTrue(final_output_started.wait(timeout=2))
@@ -417,7 +421,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
                 event["phase"]
                 for event in completed_initialization["progress_events"][-3:]
             ],
-            ["final_delivery", "validation", "formalizing"],
+            ["setup", "final_delivery", "activation"],
         )
 
     def test_initialize_reports_failed_ai_planner(self) -> None:
@@ -438,22 +442,16 @@ class CodeLearnerServiceTests(unittest.TestCase):
             controller.open_project(context_id, str(source_root))
 
             with mock.patch(
-                "electroboy.workflows.code_learner.planner.runtime_for_role"
-            ) as runtime_for_role:
-                runtime = mock.Mock()
-                runtime.invoke.return_value = AgentResult(
-                    ok=False,
-                    final_message="",
-                    error="planner failed",
-                )
-                runtime_for_role.return_value = runtime
-
+                "electroboy.workflows.code_learner.controller."
+                "InitializationPipeline.run",
+                side_effect=CodeLearnerError("analysis pass failed"),
+            ):
                 started = controller.initialize(context_id)
                 failed = _wait_for_status(controller, context_id, "failed")
 
-        self.assertEqual(started["status"], "initializing")
+        self.assertIn(started["status"], {"initializing", "failed"})
         self.assertEqual(failed["status"], "failed")
-        self.assertIn("planner failed", failed["initialization"]["error"])
+        self.assertIn("analysis pass failed", failed["initialization"]["error"])
 
     def test_planner_monitors_progress_jsonl_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -85,8 +85,13 @@ class KnowledgeStore:
     def save_knowledge(
         self,
         records: Iterable[Mapping[str, object]],
+        *,
+        validate_sources: bool = True,
     ) -> list[dict[str, object]]:
-        normalized = validate_knowledge_records(records, root=self.root)
+        normalized = validate_knowledge_records(
+            records,
+            root=self.root if validate_sources else None,
+        )
         grouped = {
             record_type: [
                 record
@@ -112,11 +117,13 @@ class KnowledgeStore:
     def merge_knowledge(
         self,
         changes: Iterable[Mapping[str, object]],
+        *,
+        validate_sources: bool = True,
     ) -> list[dict[str, object]]:
         incoming = [dict(record) for record in changes]
         if not incoming:
             raise CodeLearnerError("knowledge merge is empty")
-        current = self.load_knowledge()
+        current = self.load_knowledge(validate_sources=validate_sources)
         merged = {str(record["id"]): record for record in current}
         for record in incoming:
             record_id = str(record.get("id") or "")
@@ -132,7 +139,7 @@ class KnowledgeStore:
             merged[record_id] = record
         ordered = _knowledge_ordered(merged.values())
         _refresh_manifest_counts(ordered)
-        return self.save_knowledge(ordered)
+        return self.save_knowledge(ordered, validate_sources=validate_sources)
 
     def knowledge_ids(self, *, validate_sources: bool = True) -> set[str]:
         return {
@@ -355,13 +362,99 @@ class KnowledgeStore:
                     record["status"] = "stale"
             validate_course_records(
                 records,
-                knowledge_ids=self.knowledge_ids(),
-                root=self.root,
+                knowledge_ids=self.knowledge_ids(validate_sources=False),
+                root=None,
             )
             with self._lock:
                 _write_jsonl(path, records)
+            document = next(
+                record
+                for record in records
+                if record.get("record_type") == "document"
+            )
+            self.record_course_status(
+                str(document.get("course_mode") or ""),
+                str(document.get("scope_id") or ""),
+                "stale",
+                path=path.relative_to(self.root).as_posix(),
+            )
             changed.append(path)
         return changed
+
+    def revise_courses(
+        self,
+        *,
+        affected_ids: Iterable[str],
+        changed_paths: Iterable[str],
+        revision: str,
+    ) -> dict[str, list[Path]]:
+        """Stale affected courses and promote unchanged courses to a revision."""
+
+        affected = set(affected_ids)
+        changed_sources = set(changed_paths)
+        stale: list[Path] = []
+        promoted: list[Path] = []
+        if not self.courses_root.is_dir():
+            return {"stale": stale, "promoted": promoted}
+        knowledge_ids = self.knowledge_ids(validate_sources=False)
+        for path in sorted(self.courses_root.rglob("*.jsonl")):
+            records = parse_jsonl(
+                path.read_text(encoding="utf-8"),
+                artifact=path.relative_to(self.root).as_posix(),
+            )
+            document = next(
+                record
+                for record in records
+                if record.get("record_type") == "document"
+            )
+            linked_ids = {
+                str(item)
+                for record in records
+                for field in (
+                    "knowledge_entity_ids",
+                    "relationship_ids",
+                    "runtime_flow_ids",
+                    "diagnostic_ids",
+                )
+                for item in record.get(field, [])
+            }
+            direct_sources = {
+                str(reference.get("path") or "")
+                for record in records
+                for reference in record.get("source_refs", [])
+                if isinstance(reference, dict)
+            }
+            is_architecture = document.get("course_mode") == "architecture"
+            is_stale = bool(
+                (linked_ids & affected)
+                or (direct_sources & changed_sources)
+                or (is_architecture and (affected or changed_sources))
+            )
+            for record in records:
+                if is_stale and record.get("record_type") in {"document", "section"}:
+                    record["status"] = "stale"
+                elif not is_stale:
+                    record["repository_revision"] = revision
+                    for reference in record.get("source_refs", []):
+                        if isinstance(reference, dict) and "revision" in reference:
+                            reference["revision"] = revision
+            validate_course_records(
+                records,
+                knowledge_ids=knowledge_ids,
+                root=None if is_stale else self.root,
+            )
+            with self._lock:
+                _write_jsonl(path, records)
+            mode = str(document.get("course_mode") or "")
+            scope_id = str(document.get("scope_id") or "")
+            self.record_course_status(
+                mode,
+                scope_id,
+                "stale" if is_stale else "ready",
+                path=path.relative_to(self.root).as_posix(),
+            )
+            (stale if is_stale else promoted).append(path)
+        return {"stale": stale, "promoted": promoted}
 
     def load_course_index(self) -> dict[str, object]:
         """Load per-scope generation states for independently built courses."""
