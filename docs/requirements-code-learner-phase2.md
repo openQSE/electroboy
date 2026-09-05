@@ -1284,22 +1284,22 @@ boundary so later work can be reviewed or reverted independently.
 
 66. [ ] Replace the monolithic initialization prompt with an analysis-run
     orchestrator.
-67. [ ] Define explicit inventory, module, relationship, flow, symbol, and
+67. [x] Define explicit inventory, module, relationship, flow, symbol, and
     validation pass types.
-68. [ ] Give each pass a fresh AI invocation by default.
-69. [ ] Pass only relevant durable artifact paths and scope to each invocation.
-70. [ ] Explicitly invoke `codebase-analysis` in every analysis prompt.
-71. [ ] Verify skill availability before starting the first pass.
-72. [ ] Assign one analysis run ID and source revision across all passes.
-73. [ ] Persist pass status before and after each invocation.
-74. [ ] Parse and validate each pass output before merging it.
-75. [ ] Preserve completed pass output when a later pass fails.
-76. [ ] Resume from the first incomplete or invalid pass after restart.
+68. [x] Give each pass a fresh AI invocation by default.
+69. [x] Pass only relevant durable artifact paths and scope to each invocation.
+70. [x] Explicitly invoke `codebase-analysis` in every analysis prompt.
+71. [x] Verify skill availability before starting the first pass.
+72. [x] Assign one analysis run ID and source revision across all passes.
+73. [x] Persist pass status before and after each invocation.
+74. [x] Parse and validate each pass output before merging it.
+75. [x] Preserve completed pass output when a later pass fails.
+76. [x] Resume from the first incomplete or invalid pass after restart.
 77. [ ] Enforce a single conflicting initialization job per repository.
-78. [ ] Add bounded retry behavior for transient runtime failures.
-79. [ ] Ensure retries cannot duplicate knowledge records.
-80. [ ] Add orchestration tests with deterministic fake AI outputs.
-81. [ ] Commit staged analysis orchestration.
+78. [x] Add bounded retry behavior for transient runtime failures.
+79. [x] Ensure retries cannot duplicate knowledge records.
+80. [x] Add orchestration tests with deterministic fake AI outputs.
+81. [x] Commit staged analysis orchestration.
 
 ### Boundary 7: Repository Inventory Pass
 
