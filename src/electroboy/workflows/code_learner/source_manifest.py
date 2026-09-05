@@ -173,6 +173,24 @@ class SourceManifestService:
             and (not source_status or record.get("source_status") == source_status)
         ]
 
+    def record_symbol_evidence(self, metadata: Mapping[str, object]) -> None:
+        """Attach extractor metadata without changing file or revision identity."""
+
+        snapshot = self.load()
+        if snapshot is None:
+            raise CodeLearnerError("source manifest must exist before symbol evidence")
+        manifest = {
+            **snapshot.manifest,
+            "raw_tag_count": int(metadata.get("raw_tag_count") or 0),
+            "symbol_evidence": dict(metadata),
+        }
+        validate_manifest(
+            manifest,
+            manifest_type="source_manifest",
+            repository_revision=snapshot.revision,
+        )
+        self._save(manifest, snapshot.files)
+
     def _save(
         self,
         manifest: Mapping[str, object],

@@ -1855,39 +1855,39 @@ Boundary 1 validation notes:
 
 ### Boundary 4: Universal Ctags Evidence And Symbol Resolution
 
-49. [ ] Define reusable process-adapter and `SourceSymbolProvider` contracts
+49. [x] Define reusable process-adapter and `SourceSymbolProvider` contracts
     independently from component, module, course, route, and frontend code.
-50. [ ] Add Universal Ctags as a Git submodule at the agreed third-party path,
+50. [x] Add Universal Ctags as a Git submodule at the agreed third-party path,
     pin a reviewed revision, and preserve required license and notice files.
-51. [ ] Add a tool installer that uses a packaged pinned executable or builds
+51. [x] Add a tool installer that uses a packaged pinned executable or builds
     the submodule into an ElectroBoy-managed, platform-specific cache.
-52. [ ] Verify executable identity, source version, JSON feature, JSON output
+52. [x] Verify executable identity, source version, JSON feature, JSON output
     version, parser inventory, and controlled smoke-test behavior.
-53. [ ] Invoke Ctags with ambient user and repository configuration disabled
+53. [x] Invoke Ctags with ambient user and repository configuration disabled
     and pass only exact file-manifest paths.
-54. [ ] Capture raw Ctags JSONL and complete invocation metadata outside the
+54. [x] Capture raw Ctags JSONL and complete invocation metadata outside the
     learned source tree.
-55. [ ] Parse tag and pseudo-tag records with explicit output-version checks
+55. [x] Parse tag and pseudo-tag records with explicit output-version checks
     and tolerate compatible unknown fields.
-56. [ ] Build indexed raw-evidence queries over name, path, language, long
+56. [x] Build indexed raw-evidence queries over name, path, language, long
     kind, range, scope, signature, typeref, and file-local status.
-57. [ ] Exclude pseudo-tags from symbol matches and derive canonical locator
+57. [x] Exclude pseudo-tags from symbol matches and derive canonical locator
     tuples from source identity rather than Ctags output ordering.
-58. [ ] Distinguish declarations, definitions, same-name symbols, nested
+58. [x] Distinguish declarations, definitions, same-name symbols, nested
     scopes, file-local symbols, and overloads as far as Ctags evidence permits.
-59. [ ] Record Ctags version, parser, confidence, coverage, and limitations in
+59. [x] Record Ctags version, parser, confidence, coverage, and limitations in
     the source manifest without asserting architecture or call relationships.
-60. [ ] Preserve repository-search fallback and explicit diagnostics for files
+60. [x] Preserve repository-search fallback and explicit diagnostics for files
     or languages unsupported by Universal Ctags.
-61. [ ] Implement targeted Ctags resolution for an AI-referenced missing
+61. [x] Implement targeted Ctags resolution for an AI-referenced missing
     symbol before requiring file, name, and source-range fallback evidence.
-62. [ ] Attach confirmed locator evidence to the referencing record and
+62. [x] Attach confirmed locator evidence to the referencing record and
     preserve an unresolved diagnostic when targeted resolution fails.
-63. [ ] Test C, C++, Python, and JavaScript symbols, duplicate names, nested
+63. [x] Test C, C++, Python, and JavaScript symbols, duplicate names, nested
     scopes, file-local symbols, overloads, unsupported syntax, and parser gaps.
-64. [ ] Test deterministic raw evidence and resolver results, exact file-list
+64. [x] Test deterministic raw evidence and resolver results, exact file-list
     enforcement, disabled configuration, cache reuse, and tool failure.
-65. [ ] Verify no test requires configuring or compiling a learned fixture
+65. [x] Verify no test requires configuring or compiling a learned fixture
     repository, then commit the pinned Ctags evidence and resolver integration.
 
 ### Boundary 5: Component Discovery Skill And Prompt

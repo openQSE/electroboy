@@ -64,6 +64,7 @@ electroboy = [
 "electroboy.workflows.code_learner" = [
   "assets/*.js",
   "assets/*.css",
+  "THIRD_PARTY-NOTICES.md",
   "schemas/*.json",
   "skills/*/SKILL.md",
   "skills/*/references/*.md",
