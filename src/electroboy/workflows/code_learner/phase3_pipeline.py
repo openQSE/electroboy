@@ -183,7 +183,6 @@ class Phase3InitializationPipeline:
                 ready=lambda: self.ctags.load() is not None,
                 resume=self.ctags.load,
             )
-            self._analysis_workspace.open(source.files)
             self._run_stage(
                 checkpoint,
                 "components",
@@ -617,6 +616,17 @@ class Phase3InitializationPipeline:
         self.store.write_json(self.store.checkpoint_path, checkpoint)
 
     def _observed_runtime(self, role: str, root: Path) -> AgentRuntime:
+        if self._analysis_workspace.workspace is None:
+            source = self.source.load()
+            if source is None:
+                raise CodeLearnerError(
+                    "source manifest is unavailable for isolated AI analysis"
+                )
+            self._emit(
+                self._active_stage,
+                "Preparing isolated AI repository snapshot.",
+            )
+            self._analysis_workspace.open(source.files)
         runtime = (
             self._analysis_workspace.runtime(role)
             if self._analysis_workspace.workspace is not None

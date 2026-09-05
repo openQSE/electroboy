@@ -31,18 +31,14 @@ class IsolatedAnalysisWorkspace:
         _initialize_git_metadata(self.workspace)
         for record in files:
             relative = Path(str(record.get("path") or ""))
-            source = (self.root / relative).resolve()
-            if (
-                not relative.parts
-                or not _within(self.root, source)
-                or not source.is_file()
-            ):
+            source = self.root / relative
+            if not _valid_relative_path(relative):
                 raise CodeLearnerError(
                     f"cannot isolate source-manifest path: {relative.as_posix()}"
                 )
             target = self.workspace / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            self._copy_manifest_entry(record, source, target)
         self._copy_support_state()
         return self.workspace
 
@@ -80,6 +76,41 @@ class IsolatedAnalysisWorkspace:
                 dirs_exist_ok=True,
             )
 
+    def _copy_manifest_entry(
+        self,
+        record: Mapping[str, object],
+        source: Path,
+        target: Path,
+    ) -> None:
+        if record.get("source_status") == "submodule":
+            target.mkdir(exist_ok=True)
+            return
+        if bool(record.get("symlink")):
+            if not source.is_symlink():
+                raise CodeLearnerError(
+                    f"source-manifest symlink is unavailable: {record.get('path')}"
+                )
+            link_target = str(record.get("symlink_target") or "")
+            if not link_target or link_target != source.readlink().as_posix():
+                raise CodeLearnerError(
+                    f"source-manifest symlink changed: {record.get('path')}"
+                )
+            resolved_target = (source.parent / link_target).resolve()
+            if not _within(self.root, resolved_target):
+                raise CodeLearnerError(
+                    f"source-manifest symlink escapes repository: {record.get('path')}"
+                )
+            target.symlink_to(
+                link_target,
+                target_is_directory=resolved_target.is_dir(),
+            )
+            return
+        if not source.is_file():
+            raise CodeLearnerError(
+                f"cannot isolate source-manifest path: {record.get('path')}"
+            )
+        shutil.copy2(source, target)
+
 
 class _RelocatedRuntime(AgentRuntime):
     def __init__(
@@ -116,6 +147,10 @@ def _within(root: Path, path: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _valid_relative_path(path: Path) -> bool:
+    return bool(path.parts) and not path.is_absolute() and ".." not in path.parts
 
 
 def _initialize_git_metadata(workspace: Path) -> None:
