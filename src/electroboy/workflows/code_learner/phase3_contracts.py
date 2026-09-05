@@ -308,12 +308,10 @@ def validate_reconciliations(
             issues.append(
                 Phase3Issue(f"{prefix}.partitions", "same needs one partition")
             )
-        if decision == "distinct" and any(
-            len(partition.get("candidate_ids", [])) > 1 for partition in partitions
-        ):
+        if decision == "distinct" and len(partitions) < 2:
             issues.append(
                 Phase3Issue(
-                    f"{prefix}.partitions", "distinct partitions must be singletons"
+                    f"{prefix}.partitions", "distinct needs at least two partitions"
                 )
             )
     _raise("component reconciliations", issues)

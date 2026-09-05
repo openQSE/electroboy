@@ -29,6 +29,7 @@ which validates and persists it.
 Read only the references required for the requested pass:
 
 - Component discovery: [repository-discovery.md](references/repository-discovery.md)
+- Component reconciliation: [component-reconciliation.md](references/component-reconciliation.md)
 - Record emission: [knowledge-schema.md](references/knowledge-schema.md)
 - Module relationships and flows: [relationship-types.md](references/relationship-types.md)
 - Symbol grounding: [language-tooling.md](references/language-tooling.md)

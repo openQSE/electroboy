@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .skills import skill_prompt_reference
@@ -73,4 +75,59 @@ Runtime rules:
 - Do not build, compile, link, test, or execute the learned repository.
 - The active branch diff is evidence, not the analysis scope.
 - Do not wrap JSONL in Markdown or add explanatory text.
+""".strip()
+
+
+def component_reconciliation_prompt(
+    root: Path | str,
+    *,
+    analysis_run_id: str,
+    group: Mapping[str, object],
+    candidates: Sequence[Mapping[str, object]],
+    source_manifest_path: Path | str,
+    files_path: Path | str,
+    schema_path: Path | str,
+) -> str:
+    """Create one complete, source-grounded overlap reconciliation prompt."""
+
+    repository = Path(root).expanduser().resolve()
+    payload = {
+        "overlap_group": dict(group),
+        "candidates": [dict(candidate) for candidate in candidates],
+    }
+    return f"""You are the ElectroBoy Phase 3 component reconciliation analyst.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {repository}
+Analysis run ID: {analysis_run_id}
+Repository revision: {group.get("repository_revision", "")}
+Source manifest: {source_manifest_path}
+Complete file records: {files_path}
+Phase 3 output schema: {schema_path}
+
+Reconcile exactly this complete overlap group:
+{json.dumps(payload, indent=2, sort_keys=True)}
+
+Read the referenced source before deciding. Shared and candidate-exclusive
+canonical symbol sets are authoritative reconciliation anchors. Candidate
+names, responsibilities, member files, owned references, supporting references,
+and limitations are evidence, not overlap triggers.
+
+Output contract:
+- Return exactly one component_reconciliation JSON object and no other text.
+- Use decision `same` only when every candidate is one component and emit one
+  partition.
+- Otherwise use decision `distinct`; each partition is one same-component set
+  and separate partitions are distinct.
+- Include every input candidate exactly once. Do not introduce external
+  candidate IDs, file IDs, symbol keys, or source references.
+- A partition may clarify name, aliases, kind, responsibility, membership,
+  references, reason, and limitations using only supplied evidence.
+- Explain the decision and preserve unresolved differences.
+
+Forbidden output:
+- relationships, hierarchy, ownership edges, call edges, module membership,
+  runtime flows, diagrams, courses, unrelated discovery, or repository edits.
+- Markdown fences or explanatory prose outside the JSON object.
 """.strip()

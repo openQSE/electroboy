@@ -122,7 +122,7 @@ def test_reconciliation_requires_complete_distinct_partition() -> None:
         "partitions": [{"candidate_ids": ["a", "b"]}],
     }
 
-    with pytest.raises(Phase3ContractError, match="singletons"):
+    with pytest.raises(Phase3ContractError, match="at least two partitions"):
         validate_reconciliations([reconciliation], groups={"overlap:1": group})
 
 

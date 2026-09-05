@@ -1968,27 +1968,27 @@ Boundary 1 validation notes:
 
 ### Boundary 8: AI Component Reconciliation
 
-113. [ ] Add focused reconciliation guidance to the analysis skill.
-114. [ ] Build a reconciliation prompt containing one complete overlap group.
-115. [ ] Include shared and exclusive symbols for every candidate.
-116. [ ] Include candidate names, responsibilities, membership, and source
+113. [x] Add focused reconciliation guidance to the analysis skill.
+114. [x] Build a reconciliation prompt containing one complete overlap group.
+115. [x] Include shared and exclusive symbols for every candidate.
+116. [x] Include candidate names, responsibilities, membership, and source
      references.
-117. [ ] Restrict decisions to `same` and `distinct`.
-118. [ ] Require a complete partition for groups larger than two candidates.
-119. [ ] Prohibit relationships, hierarchy, module membership, and unrelated
+117. [x] Restrict decisions to `same` and `distinct`.
+118. [x] Require a complete partition for groups larger than two candidates.
+119. [x] Prohibit relationships, hierarchy, module membership, and unrelated
      discovery in reconciliation output.
-120. [ ] Validate that every input candidate appears exactly once.
-121. [ ] Validate that no external candidate or source ID is introduced.
-122. [ ] Apply `same` by merging only the AI-selected partitions.
-123. [ ] Preserve aliases, origin candidate IDs, and reconciliation provenance.
-124. [ ] Apply `distinct` without creating a component relationship.
-125. [ ] Record intentional shared-symbol membership for distinct components.
-126. [ ] Persist each reconciliation independently.
-127. [ ] Build bounded repair prompts for malformed partitions.
-128. [ ] Resume from the first unresolved overlap group after interruption.
-129. [ ] Test same, distinct, mixed partition, malformed partition,
+120. [x] Validate that every input candidate appears exactly once.
+121. [x] Validate that no external candidate or source ID is introduced.
+122. [x] Apply `same` by merging only the AI-selected partitions.
+123. [x] Preserve aliases, origin candidate IDs, and reconciliation provenance.
+124. [x] Apply `distinct` without creating a component relationship.
+125. [x] Record intentional shared-symbol membership for distinct components.
+126. [x] Persist each reconciliation independently.
+127. [x] Build bounded repair prompts for malformed partitions.
+128. [x] Resume from the first unresolved overlap group after interruption.
+129. [x] Test same, distinct, mixed partition, malformed partition,
      contradictory response, retry, and restart behavior.
-130. [ ] Commit AI component reconciliation.
+130. [x] Commit AI component reconciliation.
 
 ### Boundary 9: Reconciled Component Manifest
 
