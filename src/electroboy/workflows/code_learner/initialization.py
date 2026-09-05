@@ -300,6 +300,10 @@ class InitializationPipeline:
         event: Mapping[str, object],
         callback: ProgressCallback | None,
     ) -> None:
+        if event.get("activity") is True:
+            if callback is not None:
+                callback(dict(event))
+            return
         phase = str(event.get("phase") or "setup")
         self._emit(
             phase,
@@ -317,6 +321,10 @@ class InitializationPipeline:
         total: int,
         callback: ProgressCallback | None,
     ) -> None:
+        if event.get("activity") is True:
+            if callback is not None:
+                callback(dict(event))
+            return
         self._module_progress(
             index,
             total,

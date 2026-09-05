@@ -15,7 +15,7 @@ from electroboy.runtime import runtime_for_role
 from .contracts import parse_jsonl, validate_knowledge_records
 from .domain import CodeLearnerError, repository_revision
 from .knowledge_store import KnowledgeStore
-from .progress import InvocationHeartbeat
+from .progress import AgentActivityReporter, InvocationHeartbeat
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 ENRICHMENT_ROLE = "code_learner_analysis"
@@ -320,10 +320,17 @@ class EnrichmentController:
         before_ids = set(request.get("related_record_ids", []))
         for attempt in range(1, self.max_attempts + 1):
             self._progress(request, attempt, progress_callback)
+            activity_reporter = AgentActivityReporter(
+                lambda event: self._emit_event(event, progress_callback),
+                phase="knowledge_enrichment",
+                percent=90,
+                scope_ids=[str(request.get("scope_id") or "")],
+            )
             invocation = AgentInvocation(
                 role=ENRICHMENT_ROLE,
                 prompt=enrichment_prompt(self.root, self.store, request, attempt),
                 context_paths=_request_context_paths(self.store, request),
+                event_callback=activity_reporter,
             )
             with InvocationHeartbeat(
                 lambda event: self._emit_event(event, progress_callback),

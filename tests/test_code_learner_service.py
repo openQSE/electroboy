@@ -379,6 +379,27 @@ class CodeLearnerServiceTests(unittest.TestCase):
                             "remaining_module_courses": ["module.sample"],
                         }
                     )
+                    progress_callback(
+                        {
+                            "record_type": "activity",
+                            "activity": True,
+                            "activity_kind": "command",
+                            "phase": "relationships",
+                            "percent": 42,
+                            "message": "AI command started: rg module.sample",
+                            "scope_ids": ["module.sample"],
+                        }
+                    )
+                    progress_callback(
+                        {
+                            "record_type": "progress",
+                            "phase": "relationships",
+                            "percent": 42,
+                            "message": "Still mapping module relationships",
+                            "scope_ids": ["module.sample"],
+                            "heartbeat": True,
+                        }
+                    )
                 release.wait(timeout=2)
                 return SimpleNamespace(revision=repository_revision(source_root))
 
@@ -420,6 +441,14 @@ class CodeLearnerServiceTests(unittest.TestCase):
             self.assertEqual(status["initialization"]["record_counts"], {"entity": 4})
             self.assertEqual(status["initialization"]["completed_analysis_jobs"], 2)
             self.assertEqual(status["initialization"]["remaining_analysis_jobs"], 3)
+            progress_events = status["initialization"]["progress_events"]
+            self.assertTrue(
+                any(
+                    event.get("activity_kind") == "command"
+                    for event in progress_events
+                )
+            )
+            self.assertFalse(any(event.get("heartbeat") for event in progress_events))
             self.assertEqual(completed["status"], "initialized")
             run.assert_called_once()
 

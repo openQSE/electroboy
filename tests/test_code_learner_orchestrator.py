@@ -220,6 +220,7 @@ def test_runs_fresh_scoped_passes_and_persists_each_result(repository: Path) -> 
     assert len(runtime.invocations) == 2
     assert all("$codebase-analysis" in item.prompt for item in runtime.invocations)
     assert all(run_id in item.prompt for item in runtime.invocations)
+    assert all(item.event_callback is not None for item in runtime.invocations)
     assert runtime.invocations[0].provider_session_id is None
     assert {record["id"] for record in records} >= {
         "repository.root",

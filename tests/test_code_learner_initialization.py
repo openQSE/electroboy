@@ -18,7 +18,10 @@ from electroboy.workflows.code_learner.initialization import (
     mark_pipeline_activated,
 )
 from electroboy.workflows.code_learner.knowledge_store import KnowledgeStore
-from electroboy.workflows.code_learner.progress import InvocationHeartbeat
+from electroboy.workflows.code_learner.progress import (
+    AgentActivityReporter,
+    InvocationHeartbeat,
+)
 
 
 class FakeAnalysis:
@@ -368,3 +371,77 @@ def test_invocation_heartbeat_repeats_bounded_progress() -> None:
     assert len(events) >= 2
     assert all(event["heartbeat"] is True for event in events)
     assert all(event["percent"] == 74 for event in events)
+
+
+def test_agent_activity_reporter_projects_reasoning_and_command_output() -> None:
+    events: list[dict[str, object]] = []
+    reporter = AgentActivityReporter(
+        events.append,
+        phase="inventory",
+        percent=8,
+        scope_ids=["repository.root"],
+    )
+
+    reporter(
+        {
+            "stream": "stdout",
+            "event": {
+                "type": "item.completed",
+                "item": {"type": "reasoning", "text": "Mapping entry points."},
+            },
+        }
+    )
+    reporter(
+        {
+            "stream": "stdout",
+            "event": {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": "rg --files",
+                    "exit_code": 0,
+                    "aggregated_output": "README.md\nsrc/app.py\n",
+                },
+            },
+        }
+    )
+
+    assert events[0]["activity"] is True
+    assert events[0]["activity_kind"] == "reasoning"
+    assert events[0]["message"] == "AI reasoning: Mapping entry points."
+    assert events[1]["activity_kind"] == "command"
+    assert "rg --files" in str(events[1]["message"])
+    assert "src/app.py" in str(events[1]["message"])
+
+
+def test_agent_activity_reporter_summarizes_structured_final_output() -> None:
+    events: list[dict[str, object]] = []
+    reporter = AgentActivityReporter(events.append, phase="modules", percent=24)
+
+    reporter(
+        {
+            "stream": "stdout",
+            "event": {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": '{"record_type":"entity"}'},
+            },
+        }
+    )
+
+    assert events[0]["message"] == "AI returned structured output (24 characters)."
+
+
+def test_pipeline_preserves_agent_activity_metadata(repository: Path) -> None:
+    events: list[dict[str, object]] = []
+    activity = {
+        "record_type": "activity",
+        "activity": True,
+        "activity_kind": "reasoning",
+        "phase": "inventory",
+        "percent": 8,
+        "message": "AI reasoning: Mapping repository entry points.",
+    }
+
+    _pipeline(repository)._forward(activity, events.append)
+
+    assert events == [activity]

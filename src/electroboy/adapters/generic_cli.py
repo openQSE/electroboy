@@ -10,8 +10,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
-from .base import AgentInvocation, AgentResult, AgentRuntime
 from ..config import RuntimeConfig
+from .base import AgentInvocation, AgentResult, AgentRuntime
 
 
 class GenericCliRuntime(AgentRuntime):

@@ -21,7 +21,7 @@ from .course_artifacts import render_saved_course
 from .domain import CodeLearnerError
 from .knowledge_store import KnowledgeStore
 from .knowledge_validation import EnrichmentController
-from .progress import InvocationHeartbeat
+from .progress import AgentActivityReporter, InvocationHeartbeat
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 COURSE_ROLE = "code_learner_course"
@@ -479,6 +479,12 @@ class CourseBuilder:
                 f"({attempt}/{self.max_attempts}).",
                 progress_callback,
             )
+            activity_reporter = AgentActivityReporter(
+                lambda event: self._emit_event(event, progress_callback),
+                phase=f"{scope.mode}_course",
+                percent=94,
+                scope_ids=[scope.scope_id],
+            )
             invocation = AgentInvocation(
                 role=COURSE_ROLE,
                 prompt=course_prompt(
@@ -488,6 +494,7 @@ class CourseBuilder:
                     audience=audience,
                 ),
                 context_paths=[input_path.relative_to(self.root).as_posix()],
+                event_callback=activity_reporter,
             )
             with InvocationHeartbeat(
                 lambda event: self._emit_event(event, progress_callback),

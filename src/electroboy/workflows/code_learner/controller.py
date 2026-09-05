@@ -110,6 +110,9 @@ class _InitializationJob:
                 self.last_progress_at = self.updated_at
 
     def record_progress(self, record: dict[str, object]) -> None:
+        if record.get("activity") is True:
+            self._record_activity(record)
+            return
         phase = str(record.get("phase") or self.phase or "running").strip()
         message = str(record.get("message") or phase).strip()
         reported_percent = _bounded_percent(record.get("percent"))
@@ -119,6 +122,38 @@ class _InitializationJob:
             phase = "final_delivery"
             message = "Receiving final course corpus from AI."
         self._record_running_progress(phase, percent, message, details=record)
+
+    def _record_activity(self, record: dict[str, object]) -> None:
+        message = str(record.get("message") or "").strip()
+        if not message:
+            return
+        with self.lock:
+            scope_ids = record.get("scope_ids")
+            self.updated_at = utc_now()
+            self.last_progress_at = self.updated_at
+            event = {
+                "phase": str(record.get("phase") or self.phase or "running"),
+                "percent": min(
+                    _bounded_percent(record.get("percent")),
+                    _AI_PROGRESS_MAX_PERCENT,
+                ),
+                "message": message,
+                "updated_at": self.updated_at,
+                "scope_ids": [
+                    str(item)
+                    for item in (scope_ids if isinstance(scope_ids, list) else [])
+                ],
+                "activity": True,
+                "activity_kind": str(record.get("activity_kind") or "runtime"),
+                "heartbeat": False,
+            }
+            if self.progress_events and all(
+                self.progress_events[-1].get(key) == event.get(key)
+                for key in ("message", "scope_ids", "activity_kind")
+            ):
+                return
+            self.progress_events.append(event)
+            self.progress_events = self.progress_events[-250:]
 
     def record_system_progress(
         self,
@@ -186,6 +221,8 @@ class _InitializationJob:
                     str(item)
                     for item in details.get("remaining_module_courses", [])
                 ]
+            if details.get("heartbeat"):
+                return
             event = {
                 "phase": phase or "running",
                 "percent": percent,

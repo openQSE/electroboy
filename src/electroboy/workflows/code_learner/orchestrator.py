@@ -24,7 +24,7 @@ from .contracts import parse_jsonl
 from .domain import CodeLearnerError, repository_revision
 from .knowledge_store import KnowledgeStore
 from .knowledge_validation import KnowledgeValidator
-from .progress import InvocationHeartbeat
+from .progress import AgentActivityReporter, InvocationHeartbeat
 from .revision import repository_source_snapshot
 from .skills import skill_prompt_reference, validate_packaged_skill
 
@@ -239,6 +239,12 @@ class AnalysisOrchestrator:
         for attempt in range(1, self.max_attempts + 1):
             job_state["attempts"] = attempt
             self.store.save_checkpoint(checkpoint)
+            activity_reporter = AgentActivityReporter(
+                lambda event: self._progress(event, progress_callback),
+                phase=analysis_pass.name,
+                percent=analysis_pass.percent,
+                scope_ids=list(scope.entity_ids),
+            )
             invocation = AgentInvocation(
                 role=ANALYSIS_ROLE,
                 prompt=analysis_pass_prompt(
@@ -263,6 +269,7 @@ class AnalysisOrchestrator:
                     and self.store.symbol_evidence_path.is_file()
                     else []
                 ),
+                event_callback=activity_reporter,
             )
             with InvocationHeartbeat(
                 lambda event: self._progress(event, progress_callback),

@@ -564,10 +564,12 @@
     const progressEvents = Array.isArray(initialization.progress_events)
       ? initialization.progress_events
       : [];
-    const entries = progressEvents.map((event) => ({
-      text: initializationProgressEventText(event),
-      className: "",
-    }));
+    const entries = progressEvents
+      .filter((event) => !event.heartbeat)
+      .map((event) => ({
+        text: initializationProgressEventText(event),
+        className: event.activity_kind === "error" ? "error" : "",
+      }));
     if (!running) {
       entries.push({
         text: `${text}\r\n`,
@@ -580,6 +582,11 @@
   }
 
   function initializationProgressEventText(event) {
+    if (event.activity) {
+      const kind = String(event.activity_kind || "activity").replaceAll("_", " ");
+      const message = `[AI · ${kind}] ${String(event.message || "Working")}`;
+      return `${message.trimEnd()}\r\n`;
+    }
     const percent = Math.max(0, Math.min(99, Number(event.percent || 0)));
     const phase = String(event.phase || "working").replaceAll("_", " ");
     const message = String(event.message || phase);

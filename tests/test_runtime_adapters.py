@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy.adapters.base import AgentInvocation  # noqa: E402
-from electroboy.config import RuntimeConfig  # noqa: E402
 from electroboy.adapters.codex_exec import CodexExecRuntime  # noqa: E402
 from electroboy.adapters.generic_cli import GenericCliRuntime  # noqa: E402
 from electroboy.adapters.interactive_cli import CodexInteractiveRuntime  # noqa: E402
+from electroboy.config import RuntimeConfig  # noqa: E402
 
 
 class RuntimeAdapterTests(unittest.TestCase):

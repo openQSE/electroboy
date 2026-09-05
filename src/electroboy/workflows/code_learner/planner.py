@@ -11,6 +11,7 @@ from electroboy.adapters.base import AgentInvocation
 from electroboy.runtime import runtime_for_role
 
 from .domain import CodeLearnerError
+from .progress import AgentActivityReporter
 
 CODE_LEARNER_INITIALIZE_ROLE = "code_learner_initialize"
 ProgressCallback = Callable[[dict[str, object]], None]
@@ -381,6 +382,15 @@ def generate_code_learner_course_corpus_jsonl(
     if monitor is not None:
         monitor.start()
     try:
+        activity_reporter = (
+            AgentActivityReporter(
+                progress_callback,
+                phase="ai_course_generation",
+                percent=2,
+            )
+            if progress_callback is not None
+            else None
+        )
         result = runtime.invoke(
             AgentInvocation(
                 role=CODE_LEARNER_INITIALIZE_ROLE,
@@ -390,6 +400,7 @@ def generate_code_learner_course_corpus_jsonl(
                     checkpoint_path=checkpoint_path,
                 ),
                 progress_path=progress_path,
+                event_callback=activity_reporter,
             )
         )
     finally:
