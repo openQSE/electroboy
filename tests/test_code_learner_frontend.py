@@ -59,6 +59,14 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="clear-cache"' in frontend
     assert 'contextUrl("/api/code-learner/cache/clear")' in frontend
     assert "async function clearCourseCache()" in frontend
+    assert "learnerState = emptyLearnerState();" in frontend
+    assert "navigationExpanded.outline = false;" in frontend
+    assert "nav.clearCache.disabled = !hasProject || initializing || !initialized;" in frontend
+    assert 'if (Object.hasOwn(payload, "state_path")) {' in frontend
+    assert 'if (Object.hasOwn(payload, "current_walkthrough")) {' in frontend
+    assert "state.walkthrough = payload.current_walkthrough || null;" in frontend
+    assert 'if (Object.hasOwn(payload, "source")) {' in frontend
+    assert "state.source = payload.source || null;" in frontend
     assert 'clearButton.textContent = "Clear list";' in frontend
     assert 'separator.className = "stage-action-separator";' in frontend
     assert "runtimeApi.recent.clear(entries)" in frontend

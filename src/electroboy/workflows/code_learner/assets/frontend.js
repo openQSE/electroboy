@@ -451,7 +451,7 @@
       activeNavigationGroup === "outline" && Boolean(walkthrough),
     );
     nav.close.disabled = !Boolean(activationRoot);
-    nav.clearCache.disabled = !hasProject || initializing;
+    nav.clearCache.disabled = !hasProject || initializing || !initialized;
     nav.initialize.disabled = !hasProject || initializing;
     nav.architectureMenu.disabled = initializing || !initialized;
     nav.architectureStart.disabled = initializing || !initialized;
@@ -920,7 +920,15 @@
     if (!response.ok) {
       throw new Error(payload.error || "course cache clear failed");
     }
+    learnerState = emptyLearnerState();
+    learnerContext = null;
+    courseMode = "architecture";
     selectedModuleTarget = "";
+    navigationExpanded.architecture = false;
+    navigationExpanded.module = false;
+    navigationExpanded.function = false;
+    navigationExpanded.outline = false;
+    nav.function.value = "";
     initializationState = payload.initialization || null;
     applyLearnerPayload(payload.code_learner || {});
     renderNavigationState();
@@ -1603,24 +1611,31 @@
     if (!payload || typeof payload !== "object") {
       return;
     }
-    if (payload.analysis) {
-      state.analysis = payload.analysis;
+    if (Object.hasOwn(payload, "state_path")) {
+      state.analysis = null;
+      state.walkthrough = null;
+      state.source = null;
+      state.courseArtifact = null;
+      state.courseNavigation = null;
+    }
+    if (Object.hasOwn(payload, "analysis")) {
+      state.analysis = payload.analysis || null;
     }
     if (payload.initialization) {
       state.initialization = payload.initialization;
     }
-    if (payload.current_walkthrough) {
-      state.walkthrough = payload.current_walkthrough;
+    if (Object.hasOwn(payload, "current_walkthrough")) {
+      state.walkthrough = payload.current_walkthrough || null;
     }
-    if (payload.walkthrough) {
-      state.walkthrough = payload.walkthrough;
+    if (Object.hasOwn(payload, "walkthrough")) {
+      state.walkthrough = payload.walkthrough || null;
     }
-    if (payload.source) {
-      state.source = payload.source;
+    if (Object.hasOwn(payload, "source")) {
+      state.source = payload.source || null;
       state.selectedStartLine = null;
       state.selectedEndLine = null;
       state.lastSelectedLine = null;
-      state.pendingActiveScroll = true;
+      state.pendingActiveScroll = Boolean(state.source);
     }
     if (Object.hasOwn(payload, "course_artifact")) {
       state.courseArtifact = payload.course_artifact || null;

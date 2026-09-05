@@ -206,6 +206,10 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertEqual(cleared["status"], "cache_cleared")
         self.assertEqual(cleared["cache"]["removed_file_count"], 1)
         self.assertEqual(cleared["initialization"]["status"], "idle")
+        self.assertFalse(cleared["code_learner"]["phase2_initialized"])
+        self.assertEqual(cleared["code_learner"]["walkthroughs"], [])
+        self.assertIsNone(cleared["code_learner"]["current_walkthrough"])
+        self.assertIsNone(cleared["code_learner"]["source"])
         self.assertFalse(knowledge.courses_root.exists())
 
     def test_start_agent_uses_code_learner_session_bucket(self) -> None:
