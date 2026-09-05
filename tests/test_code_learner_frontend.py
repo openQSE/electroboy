@@ -37,8 +37,11 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "window.ElectroBoyCodeLearnerPane" in frontend
     assert "refresh: () => loadPaneState(state)" in frontend
     assert "electroboy-code-learner-context" in frontend
-    assert "electroboy-code-learner-question" in frontend
     assert "preparePrompt" in frontend
+    assert (
+        "preparePrompt: (runtime, ...args) => invoke(runtime, preparePrompt, args)"
+        in frontend
+    )
     assert 'contextUrl("/api/code-learner/walkthrough")' in frontend
     assert 'contextUrl("/api/code-learner/init/status")' in frontend
     assert 'data-code-learner-control="project-menu"' in frontend
@@ -101,6 +104,10 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "text-align: center;" in stylesheet
     assert '<header class="code-learner-pane-header">' not in frontend
     assert 'data-code-learner-pane="refresh"' not in frontend
+    assert 'data-code-learner-pane="question-form"' not in frontend
+    assert 'data-code-learner-pane="question"' not in frontend
+    assert "preparePaneQuestion" not in frontend
+    assert "electroboy-code-learner-question" not in frontend
     assert 'activeLine.scrollIntoView({ block: "center", inline: "nearest" });' in frontend
     assert ".code-learner-pane-grid" in stylesheet
     assert ".code-learner-progress-fill" in stylesheet
@@ -110,6 +117,8 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "font-size: calc(var(--font-size) + 9px);" in stylesheet
     assert "font-size: var(--font-size);" in stylesheet
     assert "line-height: var(--code-learner-code-line-height);" in stylesheet
+    assert ".code-learner-question-form" not in stylesheet
+    assert ".code-learner-question-actions" not in stylesheet
 
 
 def test_code_learner_navigation_uses_shared_shell_menu_treatment() -> None:

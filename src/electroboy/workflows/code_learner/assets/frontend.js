@@ -1191,14 +1191,6 @@
       }
       return true;
     }
-    if (data.type === "electroboy-code-learner-question") {
-      const prompt = String(data.prompt || "");
-      if (prompt) {
-        runtime.ui.setAgentInputVisible(true);
-        runtime.ui.insertTextAtCursor(prompt);
-      }
-      return true;
-    }
     if (data.type === "electroboy-code-learner-start-agent") {
       startTutor(runtime).catch((error) => {
         setStatus(error.message || String(error), "error");
@@ -1588,17 +1580,6 @@
         </div>
         ${renderRelatedReferences(step)}
       </div>
-      <form class="code-learner-question-form"
-            data-code-learner-pane="question-form">
-        <textarea spellcheck="true" rows="4"
-                  data-code-learner-pane="question"
-                  placeholder="Ask about this code"></textarea>
-        <div class="code-learner-question-actions">
-          <button type="submit">Send to input</button>
-        </div>
-        <div class="code-learner-pane-status"
-             data-code-learner-pane="status"></div>
-      </form>
     `;
   }
 
@@ -1619,15 +1600,6 @@
   }
 
   function bindPaneEvents(state) {
-    const questionForm = state.host.querySelector(
-      '[data-code-learner-pane="question-form"]',
-    );
-    if (questionForm) {
-      questionForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        preparePaneQuestion(state);
-      });
-    }
     state.host.querySelectorAll(".code-learner-code-line").forEach((line) => {
       line.addEventListener("click", (event) => {
         selectPaneLine(state, Number(line.dataset.line || "0"), event.shiftKey);
@@ -1681,47 +1653,6 @@
       state.busy = false;
       renderPane(state);
     }
-  }
-
-  async function preparePaneQuestion(state) {
-    const input = state.host.querySelector('[data-code-learner-pane="question"]');
-    const status = state.host.querySelector('[data-code-learner-pane="status"]');
-    const question = input ? input.value.trim() : "";
-    if (!question || !state.walkthrough) {
-      return;
-    }
-    if (status) {
-      status.textContent = "Preparing...";
-    }
-    const response = await fetch(state.contextUrl("/api/code-learner/question"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question,
-        walkthrough_id: state.walkthrough.id,
-        ...paneContextOptions(state),
-      }),
-    });
-    const payload = await response.json().catch(() => ({ error: "question failed" }));
-    if (!response.ok) {
-      if (status) {
-        status.textContent = payload.error || "question failed";
-      }
-      return;
-    }
-    applyPanePayload(state, payload);
-    state.postMessage({
-      type: "electroboy-code-learner-question",
-      prompt: payload.prompt || learnerPrompt(question, paneContext(state)),
-      question,
-    });
-    if (input) {
-      input.value = "";
-    }
-    if (status) {
-      status.textContent = "Sent to input.";
-    }
-    notifyPaneContext(state);
   }
 
   function notifyPaneContext(state) {
