@@ -2182,35 +2182,35 @@ Boundary 1 validation notes:
 
 ### Boundary 17: Orchestration, Progress, Retry, And Recovery
 
-251. [ ] Replace Phase 2 pass ordering with explicit Phase 3 stages.
-252. [ ] Define independent checkpoint keys for source files, Ctags evidence,
+251. [x] Replace Phase 2 pass ordering with explicit Phase 3 stages.
+252. [x] Define independent checkpoint keys for source files, Ctags evidence,
      components, overlap groups, reconciliations, file coverage,
      missing-file investigation, modules, relationships, knowledge, courses,
      rendering, and activation.
-253. [ ] Enforce one conflicting initialization job per repository revision.
-254. [ ] Verify every AI stage runs read-only.
-255. [ ] Stream meaningful AI reasoning, commands, and bounded output activity.
-256. [ ] Report file, raw tag, candidate, overlap, disposition, unresolved-file,
+253. [x] Enforce one conflicting initialization job per repository revision.
+254. [x] Verify every AI stage runs read-only.
+255. [x] Stream meaningful AI reasoning, commands, and bounded output activity.
+256. [x] Report file, raw tag, candidate, overlap, disposition, unresolved-file,
      component, module, relationship, knowledge, course, and warning counts.
-257. [ ] Write exact validation errors to progress before retry.
-258. [ ] Build targeted retries for candidate, reconciliation, module,
+257. [x] Write exact validation errors to progress before retry.
+258. [x] Build targeted retries for candidate, reconciliation, module,
      relationship, knowledge, and course scopes while limiting missing-file
      investigation to one pass.
-259. [ ] Prevent retries from rewriting completed canonical scopes.
-260. [ ] Preserve raw failed attempt output outside canonical stores.
-261. [ ] Resume from the first incomplete scope after process or service
+259. [x] Prevent retries from rewriting completed canonical scopes.
+260. [x] Preserve raw failed attempt output outside canonical stores.
+261. [x] Resume from the first incomplete scope after process or service
      restart.
-262. [ ] Keep progress below 100 percent through validation, persistence,
+262. [x] Keep progress below 100 percent through validation, persistence,
      rendering, and activation.
-263. [ ] Define and persist `complete`, `complete_with_warnings`, and `failed`;
+263. [x] Define and persist `complete`, `complete_with_warnings`, and `failed`;
      convert exhausted semantic scopes into warnings when a usable course
      remains and reserve `failed` for a run that cannot activate usable course
      content.
-264. [ ] Test interruption at every Phase 3 stage.
-265. [ ] Test malformed output, empty output, single-record output, direct-write
+264. [x] Test interruption at every Phase 3 stage.
+265. [x] Test malformed output, empty output, single-record output, direct-write
      attempts, one-pass missing-file investigation, warning completion, hard
      failure, retry repair, and restart recovery.
-266. [ ] Commit Phase 3 orchestration, progress, retry, and recovery.
+266. [x] Commit Phase 3 orchestration, progress, retry, and recovery.
 
 ### Boundary 18: Revision, Cache, And Phase 2 Compatibility
 

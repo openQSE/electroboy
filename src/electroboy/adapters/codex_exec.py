@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .base import AgentInvocation, AgentResult, AgentRuntime
+from ..config import RuntimeConfig
+from .base import AgentInvocation, AgentResult
 from .generic_cli import GenericCliRuntime
 from .interactive_cli import CodexInteractiveRuntime
-from ..config import RuntimeConfig
 
 
 class CodexExecRuntime(GenericCliRuntime):
@@ -35,6 +35,10 @@ class CodexExecRuntime(GenericCliRuntime):
         "documentation-review",
         "code_learner_initialize",
         "code-learner-initialize",
+        "code_learner_analysis",
+        "code-learner-analysis",
+        "code_learner_course",
+        "code-learner-course",
     }
 
     def __init__(self, config: RuntimeConfig, root: Path | str = ".") -> None:

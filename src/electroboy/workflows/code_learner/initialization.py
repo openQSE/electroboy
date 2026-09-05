@@ -91,7 +91,13 @@ class InitializationLease:
         self._stream = stream
 
     @classmethod
-    def acquire(cls, root: Path | str, job_id: str) -> InitializationLease:
+    def acquire(
+        cls,
+        root: Path | str,
+        job_id: str,
+        *,
+        repository_revision: str = "",
+    ) -> InitializationLease:
         store = KnowledgeStore(root)
         path = store.state_root / "initialize.lock"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +118,7 @@ class InitializationLease:
                 {
                     "pid": os.getpid(),
                     "job_id": job_id,
+                    "repository_revision": repository_revision,
                     "started_at": utc_now(),
                 },
                 sort_keys=True,

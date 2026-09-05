@@ -49,7 +49,9 @@ class RuntimeAdapterTests(unittest.TestCase):
             )
         )
 
-        result = runtime._parse_stdout('{"type": "turn.completed", "message": "done"}\n')
+        result = runtime._parse_stdout(
+            '{"type": "turn.completed", "message": "done"}\n'
+        )
 
         self.assertTrue(result.ok)
         self.assertEqual(result.final_message, "done")
@@ -83,10 +85,18 @@ class RuntimeAdapterTests(unittest.TestCase):
         code_learner = runtime._command(
             AgentInvocation(role="code_learner_initialize", prompt="p")
         )
+        code_learner_analysis = runtime._command(
+            AgentInvocation(role="code_learner_analysis", prompt="p")
+        )
+        code_learner_course = runtime._command(
+            AgentInvocation(role="code_learner_course", prompt="p")
+        )
         coding = runtime._command(AgentInvocation(role="coding", prompt="p"))
 
         self.assertEqual(review[-2:], ["--sandbox", "read-only"])
         self.assertEqual(code_learner[-2:], ["--sandbox", "read-only"])
+        self.assertEqual(code_learner_analysis[-2:], ["--sandbox", "read-only"])
+        self.assertEqual(code_learner_course[-2:], ["--sandbox", "read-only"])
         self.assertEqual(coding[-2:], ["--sandbox", "workspace-write"])
 
     def test_codex_exec_uses_writable_sandbox_for_progress_file(self) -> None:

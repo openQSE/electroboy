@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -349,10 +350,16 @@ def test_pipeline_resumes_at_missing_render_without_repeating_ai_course(
 def test_initialization_lease_rejects_conflicting_process_job(
     repository: Path,
 ) -> None:
-    first = InitializationLease.acquire(repository, "job-1")
+    first = InitializationLease.acquire(
+        repository, "job-1", repository_revision="revision-1"
+    )
     try:
+        owner = json.loads(first.path.read_text(encoding="utf-8"))
+        assert owner["repository_revision"] == "revision-1"
         with pytest.raises(CodeLearnerError, match="already running"):
-            InitializationLease.acquire(repository, "job-2")
+            InitializationLease.acquire(
+                repository, "job-2", repository_revision="revision-1"
+            )
     finally:
         first.release()
     second = InitializationLease.acquire(repository, "job-3")
