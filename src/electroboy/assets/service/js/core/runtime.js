@@ -394,7 +394,9 @@
       "assignments",
       "calendar",
       "mind-map",
+      "progress",
       "scratch",
+      "shell",
       "status",
     ]);
 
@@ -469,6 +471,52 @@
         : null;
     }
 
+    function workflowPaneKinds(mode = workflowMode) {
+      const contribution = paneLayoutContribution(mode);
+      const requested = Array.isArray(contribution?.paneKinds)
+        ? contribution.paneKinds
+        : null;
+      if (!requested) {
+        return Object.entries(PANE_LAYOUT_KINDS).map(([kind, definition]) => ({
+          kind,
+          label: definition.label,
+        }));
+      }
+      return requested.flatMap((item) => {
+        const kind = typeof item === "string" ? item : String(item?.kind || "");
+        if (!PANE_LAYOUT_KINDS[kind]) {
+          return [];
+        }
+        return [{
+          kind,
+          label: typeof item === "string"
+            ? PANE_LAYOUT_KINDS[kind].label
+            : String(item.label || PANE_LAYOUT_KINDS[kind].label),
+        }];
+      });
+    }
+
+    function workflowPaneKind(kind, mode = workflowMode) {
+      return workflowPaneKinds(mode).find((item) => item.kind === kind) || null;
+    }
+
+    function applyWorkflowPaneLabels(mode = workflowMode) {
+      for (const [kind, definition] of Object.entries(PANE_LAYOUT_KINDS)) {
+        if (!definition.element) {
+          continue;
+        }
+        const title = definition.element.querySelector(".pane-title");
+        if (!title) {
+          continue;
+        }
+        if (!title.dataset.electroboyDefaultLabel) {
+          title.dataset.electroboyDefaultLabel = title.textContent;
+        }
+        title.textContent = workflowPaneKind(kind, mode)?.label
+          || title.dataset.electroboyDefaultLabel;
+      }
+    }
+
     function defaultPaneLayout(mode = workflowMode) {
       const contribution = paneLayoutContribution(mode);
       return paneLayoutFromDefinition(
@@ -522,13 +570,14 @@
       return `electroboy.workspaceClientState.${contextId || "detached"}`;
     }
 
-    function normalizePaneLayoutNode(value, seenKinds) {
+    function normalizePaneLayoutNode(value, seenKinds, mode = workflowMode) {
       if (!value || typeof value !== "object") {
         return null;
       }
       if (value.type === "leaf") {
         const requestedKind = String(value.kind || "empty");
-        const validKind = requestedKind === "empty" || PANE_LAYOUT_KINDS[requestedKind];
+        const validKind = requestedKind === "empty"
+          || Boolean(workflowPaneKind(requestedKind, mode));
         const duplicateSingleton = SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind) &&
           seenKinds.has(requestedKind);
         if (validKind && duplicateSingleton) {
@@ -550,8 +599,8 @@
       if (value.type !== "split") {
         return null;
       }
-      const first = normalizePaneLayoutNode(value.first, seenKinds);
-      const second = normalizePaneLayoutNode(value.second, seenKinds);
+      const first = normalizePaneLayoutNode(value.first, seenKinds, mode);
+      const second = normalizePaneLayoutNode(value.second, seenKinds, mode);
       if (!first && !second) {
         return null;
       }
@@ -576,7 +625,7 @@
         const storage = workspacePresentationStorage();
         const raw = storage.getItem(storageKey);
         if (raw !== null) {
-          const stored = normalizePaneLayoutNode(JSON.parse(raw), new Set());
+          const stored = normalizePaneLayoutNode(JSON.parse(raw), new Set(), mode);
           const migrated = restoredPaneLayoutForWorkflow(stored, mode);
           if (migrated && migrated !== stored) {
             storage.setItem(storageKey, JSON.stringify(migrated));
@@ -588,7 +637,9 @@
           : window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
         if (legacyRaw !== null) {
           window.localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
-          const stored = normalizePaneLayoutNode(JSON.parse(legacyRaw), new Set());
+          const stored = normalizePaneLayoutNode(
+            JSON.parse(legacyRaw), new Set(), mode,
+          );
           const migrated = restoredPaneLayoutForWorkflow(stored, mode);
           if (migrated) {
             storage.setItem(storageKey, JSON.stringify(migrated));
@@ -2013,6 +2064,9 @@
     }
 
     function paneLayoutKindAvailable(kind, leaf = null) {
+      if (kind !== "empty" && !workflowPaneKind(kind)) {
+        return false;
+      }
       if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
         const existingLeaf = paneLayoutLeafByKind(kind);
         return !existingLeaf || existingLeaf === leaf;
@@ -2065,10 +2119,11 @@
       emptyOption.value = "empty";
       emptyOption.textContent = "Choose pane";
       select.append(emptyOption);
-      for (const [kind, definition] of Object.entries(PANE_LAYOUT_KINDS)) {
+      for (const item of workflowPaneKinds()) {
+        const kind = item.kind;
         const option = document.createElement("option");
         option.value = kind;
-        option.textContent = definition.label;
+        option.textContent = item.label;
         option.disabled = !paneLayoutKindAvailable(kind, leaf);
         select.append(option);
       }
@@ -2728,6 +2783,7 @@
       const root = renderPaneLayoutNode(paneLayout);
       root.classList.add("pane-layout-root");
       outputWorkbench.replaceChildren(root);
+      applyWorkflowPaneLabels();
       refreshPaneLayoutVisibility();
       scheduleFitTerminal();
     }
@@ -8263,6 +8319,7 @@
         projectPanel,
         projectPath,
         projectStatus,
+        projectStatusOutput,
         openProjectShell,
         toggleProjectShellPane,
         closeProjectShellPane,

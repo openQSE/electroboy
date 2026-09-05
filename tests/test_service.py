@@ -1511,7 +1511,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(
             '"agent",\n      "artifact",\n      "agenda",\n'
             '      "assignments",\n      "calendar",\n'
-            '      "mind-map",\n      "scratch",\n'
+            '      "mind-map",\n      "progress",\n      "scratch",\n'
+            '      "shell",\n'
             '      "status"',
             runtime,
         )
@@ -1563,6 +1564,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('element.dataset.paneDragIgnore = "true";', runtime)
         self.assertIn("function bindPaneLayoutCommand(button, handler)", runtime)
         self.assertIn("bindPaneLayoutCommand(close, () => closePaneLayoutLeaf(leaf.id));", runtime)
+
         self.assertIn('bumpFrontendDebugCounter("paneLayout.closeSkippedMissingLeaf")', runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
@@ -2157,6 +2159,18 @@ class ServiceTests(unittest.TestCase):
                     workflows=object(),
                 )
             )
+
+    def test_workflow_can_limit_and_label_shared_pane_kinds(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn("function workflowPaneKinds(mode = workflowMode)", runtime)
+        self.assertIn("Array.isArray(contribution?.paneKinds)", runtime)
+        self.assertIn("function workflowPaneKind(kind, mode = workflowMode)", runtime)
+        self.assertIn("function applyWorkflowPaneLabels(mode = workflowMode)", runtime)
+        self.assertIn("for (const item of workflowPaneKinds())", runtime)
+        self.assertIn(
+            'if (kind !== "empty" && !workflowPaneKind(kind))', runtime
+        )
 
     def test_configured_workflow_endpoint_persists_extra_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
