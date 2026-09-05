@@ -31,6 +31,9 @@ def test_component_discovery_prompt_is_bounded_file_backed_and_read_only(
     assert "modules" in prompt and "relationships" in prompt
     assert "Do not modify" in prompt
     assert "Do not build, compile, link, test, or execute" in prompt
+    assert "at least every five seconds" in prompt
+    assert "exactly one plain-text sentence" in prompt
+    assert "Never include source code, commands, command output" in prompt
 
 
 def test_component_discovery_skill_describes_phase3_boundaries() -> None:

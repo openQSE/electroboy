@@ -636,7 +636,10 @@
       ? initialization.progress_events
       : [];
     const entries = progressEvents
-      .filter((event) => !event.heartbeat)
+      .filter((event) => (
+        !event.heartbeat
+        && (!event.activity || ["status", "turn", "error"].includes(event.activity_kind))
+      ))
       .map((event) => ({
         text: initializationProgressEventText(event),
         className: event.activity_kind === "error" ? "error" : "",
@@ -654,14 +657,22 @@
 
   function initializationProgressEventText(event) {
     if (event.activity) {
-      const kind = String(event.activity_kind || "activity").replaceAll("_", " ");
-      const message = `[AI · ${kind}] ${String(event.message || "Working")}`;
-      return `${message.trimEnd()}\r\n`;
+      const message = sanitizedInitializationProgress(event.message || "Working");
+      return `[AI] ${message}\r\n`;
     }
     const percent = Math.max(0, Math.min(99, Number(event.percent || 0)));
     const phase = String(event.phase || "working").replaceAll("_", " ");
-    const message = String(event.message || phase);
+    const message = sanitizedInitializationProgress(event.message || phase);
     return `[${String(percent).padStart(2, " ")}% · ${phase}] ${message}\r\n`;
+  }
+
+  function sanitizedInitializationProgress(value) {
+    const text = String(value || "")
+      .split("```", 1)[0]
+      .replaceAll("`", "")
+      .replaceAll(/\s+/g, " ")
+      .trim();
+    return text.length > 200 ? `${text.slice(0, 197).trimEnd()}...` : text;
   }
 
   function formatDuration(value) {

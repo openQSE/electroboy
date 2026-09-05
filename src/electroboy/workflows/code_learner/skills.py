@@ -28,7 +28,18 @@ def packaged_skill_path(name: str) -> Path:
 def skill_prompt_reference(name: str) -> str:
     """Build the explicit instruction used by runtime prompts."""
 
-    return f"Use the ${name} skill at {packaged_skill_path(name)}."
+    return f"""Use the ${name} skill at {packaged_skill_path(name)}.
+
+Progress updates:
+- While actively working, emit one brief status update in the runtime
+  commentary/status channel at least every five seconds and whenever your
+  focus changes.
+- Each update must be exactly one plain-text sentence describing the current
+  conceptual task or finding.
+- Never include source code, commands, command output, JSON, file contents,
+  paths, line numbers, private reasoning, or implementation traces.
+- Progress updates are separate from the final structured response and must
+  not be included in its JSONL."""
 
 
 def validate_packaged_skill(name: str) -> Path:

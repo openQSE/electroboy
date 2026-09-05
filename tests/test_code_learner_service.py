@@ -384,10 +384,10 @@ class CodeLearnerServiceTests(unittest.TestCase):
                         {
                             "record_type": "activity",
                             "activity": True,
-                            "activity_kind": "command",
+                            "activity_kind": "status",
                             "phase": "relationships",
                             "percent": 42,
-                            "message": "AI command started: rg module.sample",
+                            "message": "Comparing module relationships.",
                             "scope_ids": ["module.sample"],
                         }
                     )
@@ -446,6 +446,11 @@ class CodeLearnerServiceTests(unittest.TestCase):
             self.assertEqual(status["initialization"]["remaining_analysis_jobs"], 3)
             progress_events = status["initialization"]["progress_events"]
             self.assertTrue(
+                any(
+                    event.get("activity_kind") == "status" for event in progress_events
+                )
+            )
+            self.assertFalse(
                 any(
                     event.get("activity_kind") == "command" for event in progress_events
                 )

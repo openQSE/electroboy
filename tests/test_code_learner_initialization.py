@@ -380,7 +380,7 @@ def test_invocation_heartbeat_repeats_bounded_progress() -> None:
     assert all(event["percent"] == 74 for event in events)
 
 
-def test_agent_activity_reporter_projects_reasoning_and_command_output() -> None:
+def test_agent_activity_reporter_sanitizes_status_and_ignores_command_output() -> None:
     events: list[dict[str, object]] = []
     reporter = AgentActivityReporter(
         events.append,
@@ -394,7 +394,10 @@ def test_agent_activity_reporter_projects_reasoning_and_command_output() -> None
             "stream": "stdout",
             "event": {
                 "type": "item.completed",
-                "item": {"type": "reasoning", "text": "Mapping entry points."},
+                "item": {
+                    "type": "reasoning",
+                    "text": "Mapping `entry points`.\n```c\nint main(void);\n```",
+                },
             },
         }
     )
@@ -414,14 +417,14 @@ def test_agent_activity_reporter_projects_reasoning_and_command_output() -> None
     )
 
     assert events[0]["activity"] is True
-    assert events[0]["activity_kind"] == "reasoning"
-    assert events[0]["message"] == "AI reasoning: Mapping entry points."
-    assert events[1]["activity_kind"] == "command"
-    assert "rg --files" in str(events[1]["message"])
-    assert "src/app.py" in str(events[1]["message"])
+    assert len(events) == 1
+    assert events[0]["activity_kind"] == "status"
+    assert events[0]["message"] == "Mapping entry points."
+    assert "rg --files" not in str(events)
+    assert "src/app.py" not in str(events)
 
 
-def test_agent_activity_reporter_summarizes_structured_final_output() -> None:
+def test_agent_activity_reporter_ignores_structured_final_output() -> None:
     events: list[dict[str, object]] = []
     reporter = AgentActivityReporter(events.append, phase="modules", percent=24)
 
@@ -435,7 +438,7 @@ def test_agent_activity_reporter_summarizes_structured_final_output() -> None:
         }
     )
 
-    assert events[0]["message"] == "AI returned structured output (24 characters)."
+    assert events == []
 
 
 def test_pipeline_preserves_agent_activity_metadata(repository: Path) -> None:

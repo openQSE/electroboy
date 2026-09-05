@@ -19,7 +19,11 @@ def test_analysis_skill_is_discoverable_and_explicitly_referenceable() -> None:
     assert path.name == "SKILL.md"
     assert path.parent.name == name
     assert path.is_file()
-    assert skill_prompt_reference(name) == f"Use the ${name} skill at {path}."
+    reference = skill_prompt_reference(name)
+    assert reference.startswith(f"Use the ${name} skill at {path}.")
+    assert "at least every five seconds" in reference
+    assert "exactly one plain-text sentence" in reference
+    assert "Never include source code, commands, command output" in reference
     assert validate_packaged_skill(name) == path
 
 

@@ -115,10 +115,13 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         'runtimeApi.modules.invoke("progress", "closeProgressEventStream");' in frontend
     )
     assert "initialization.progress_events" in frontend
-    assert ".filter((event) => !event.heartbeat)" in frontend
+    assert ".filter((event) => (" in frontend
+    assert '["status", "turn", "error"].includes(event.activity_kind)' in frontend
+    assert ".map((event) => ({" in frontend
     assert "if (event.activity)" in frontend
-    assert '`[AI · ${kind}] ${String(event.message || "Working")}`' in frontend
+    assert '`[AI] ${message}\\r\\n`' in frontend
     assert "initializationProgressEventText(event)" in frontend
+    assert "sanitizedInitializationProgress(event.message" in frontend
     assert "if (!running)" in frontend
     assert 'data-code-learner-control="module"' in frontend
     assert 'data-code-learner-control="module-start"' in frontend

@@ -163,8 +163,9 @@ def test_observed_runtime_streams_activity_and_rejects_direct_writes() -> None:
     assert result.ok is False
     assert "direct repository/state writes" in str(result.error)
     assert "src/main.py" in str(result.error)
-    assert any(item.get("activity_kind") == "reasoning" for item in events)
-    assert any(item.get("activity_kind") == "command" for item in events)
+    assert any(item.get("activity_kind") == "status" for item in events)
+    assert not any(item.get("activity_kind") == "command" for item in events)
+    assert not any("src/main.py:1" in str(item) for item in events)
     assert all(item.get("percent") == 14 for item in events)
 
 

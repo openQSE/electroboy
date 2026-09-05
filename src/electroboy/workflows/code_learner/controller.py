@@ -51,6 +51,7 @@ from .phase3_pipeline import (
 )
 from .phase3_store import Phase3Store
 from .phase3_tutor import Phase3TutorContextStore
+from .progress import sanitize_progress_message
 from .source_manifest import SourceManifestService
 from .tutor_context import (
     TutorContextStore,
@@ -146,7 +147,10 @@ class _InitializationJob:
         self._record_running_progress(phase, percent, message, details=record)
 
     def _record_activity(self, record: dict[str, object]) -> None:
-        message = str(record.get("message") or "").strip()
+        activity_kind = str(record.get("activity_kind") or "status")
+        if activity_kind not in {"status", "turn", "error"}:
+            return
+        message = sanitize_progress_message(record.get("message"))
         if not message:
             return
         with self.lock:
@@ -168,7 +172,7 @@ class _InitializationJob:
                     for item in (scope_ids if isinstance(scope_ids, list) else [])
                 ],
                 "activity": True,
-                "activity_kind": str(record.get("activity_kind") or "runtime"),
+                "activity_kind": activity_kind,
                 "heartbeat": False,
             }
             if self.progress_events and all(
