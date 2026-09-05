@@ -1263,22 +1263,22 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 5: Knowledge Store
 
-54. [ ] Introduce a knowledge-store domain boundary independent from browser
+54. [x] Introduce a knowledge-store domain boundary independent from browser
     routes and renderers.
-55. [ ] Implement safe paths for manifest, entities, relationships, flows,
+55. [x] Implement safe paths for manifest, entities, relationships, flows,
     diagnostics, requests, progress, and checkpoints.
-56. [ ] Implement atomic JSONL writes and append/update behavior.
-57. [ ] Implement stable-record merge semantics.
-58. [ ] Implement conflict detection for incompatible records with the same ID.
-59. [ ] Implement record deprecation or replacement metadata.
-60. [ ] Implement query operations by ID, kind, module, source path, and
+56. [x] Implement atomic JSONL writes and append/update behavior.
+57. [x] Implement stable-record merge semantics.
+58. [x] Implement conflict detection for incompatible records with the same ID.
+59. [x] Implement record deprecation or replacement metadata.
+60. [x] Implement query operations by ID, kind, module, source path, and
     relationship neighborhood.
-61. [ ] Implement manifest count and status updates.
-62. [ ] Implement source-revision and source-reference freshness checks.
-63. [ ] Add tests for interrupted writes, malformed records, duplicate IDs,
+61. [x] Implement manifest count and status updates.
+62. [x] Implement source-revision and source-reference freshness checks.
+63. [x] Add tests for interrupted writes, malformed records, duplicate IDs,
     merges, revisions, and stale references.
-64. [ ] Add migration or import support for useful v1 corpus data.
-65. [ ] Commit the durable knowledge store.
+64. [x] Add migration or import support for useful v1 corpus data.
+65. [x] Commit the durable knowledge store.
 
 ### Boundary 6: Analysis Runtime And Pass Orchestration
 
