@@ -1238,28 +1238,28 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 4: `code-learner-course` Skill
 
-38. [ ] Scaffold the `code-learner-course` skill with automatic
+38. [x] Scaffold the `code-learner-course` skill with automatic
     discoverability.
-39. [ ] Write a concise `SKILL.md` describing evidence-only course generation
+39. [x] Write a concise `SKILL.md` describing evidence-only course generation
     and mode routing.
-40. [ ] Add shared course-schema and evidence-grounding guidance.
-41. [ ] Add Architecture course guidance.
-42. [ ] Add Module course guidance.
-43. [ ] Add Function course guidance.
-44. [ ] Add layered horizontal and vertical navigation guidance.
-45. [ ] Add capability-driven Mermaid selection, syntax, labeling, and evidence
+40. [x] Add shared course-schema and evidence-grounding guidance.
+41. [x] Add Architecture course guidance.
+42. [x] Add Module course guidance.
+43. [x] Add Function course guidance.
+44. [x] Add layered horizontal and vertical navigation guidance.
+45. [x] Add capability-driven Mermaid selection, syntax, labeling, and evidence
     guidance without a closed per-mode diagram allowlist.
-46. [ ] Require component and sequence diagrams for Architecture.
-47. [ ] Require call graphs for Function courses when call evidence exists.
-48. [ ] Add knowledge-request behavior for insufficient evidence.
-49. [ ] Add instructions preventing repository-wide rediscovery during course
+46. [x] Require component and sequence diagrams for Architecture.
+47. [x] Require call graphs for Function courses when call evidence exists.
+48. [x] Add knowledge-request behavior for insufficient evidence.
+49. [x] Add instructions preventing repository-wide rediscovery during course
     generation.
-50. [ ] Validate the skill package.
-51. [ ] Forward-test each course mode using a fixed knowledge fixture without
+50. [x] Validate the skill package.
+51. [x] Forward-test each course mode using a fixed knowledge fixture without
     providing expected prose.
-52. [ ] Verify the skill preserves uncertainty and does not invent missing
+52. [x] Verify the skill preserves uncertainty and does not invent missing
     relationships.
-53. [ ] Commit the course skill and behavioral tests.
+53. [x] Commit the course skill and behavioral tests.
 
 ### Boundary 5: Knowledge Store
 

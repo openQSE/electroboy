@@ -16,30 +16,96 @@
     "id": {"type": "string", "minLength": 1},
     "analysis_run_id": {"type": "string", "minLength": 1},
     "repository_revision": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
     "course_mode": {"enum": ["architecture", "module", "function"]},
+    "scope_id": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1},
+    "parent_id": {"type": "string", "minLength": 1},
+    "heading_level": {"type": "integer", "minimum": 1},
+    "order": {"type": "integer", "minimum": 0},
+    "body": {"type": "string", "minLength": 1},
     "detail_level": {"enum": ["architecture", "module", "function"]},
-    "body": {"type": "string"},
+    "confidence": {
+      "oneOf": [
+        {"enum": ["verified", "high", "medium", "low", "unknown"]},
+        {"type": "number", "minimum": 0, "maximum": 1}
+      ]
+    },
     "previous_section_id": {"type": ["string", "null"]},
     "next_section_id": {"type": ["string", "null"]},
     "return_section_id": {"type": ["string", "null"]},
-    "deep_dive_ids": {"type": "array", "items": {"type": "string"}},
-    "prerequisite_section_ids": {
+    "deep_dive_ids": {"$ref": "#/$defs/stringArray"},
+    "prerequisite_section_ids": {"$ref": "#/$defs/stringArray"},
+    "knowledge_entity_ids": {"$ref": "#/$defs/stringArray"},
+    "relationship_ids": {"$ref": "#/$defs/stringArray"},
+    "runtime_flow_ids": {"$ref": "#/$defs/stringArray"},
+    "related_module_ids": {"$ref": "#/$defs/stringArray"},
+    "related_symbol_ids": {"$ref": "#/$defs/stringArray"},
+    "source_refs": {
       "type": "array",
-      "items": {"type": "string"}
+      "items": {"$ref": "#/$defs/sourceReference"}
     },
-    "related_module_ids": {"type": "array", "items": {"type": "string"}},
-    "related_symbol_ids": {"type": "array", "items": {"type": "string"}},
     "diagrams": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "type", "question"],
-        "properties": {
-          "id": {"type": "string", "minLength": 1},
-          "type": {"type": "string", "minLength": 1},
-          "question": {"type": "string", "minLength": 1}
-        }
+      "items": {"$ref": "#/$defs/diagram"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"record_type": {"const": "document"}}},
+      "then": {
+        "required": ["title", "course_mode", "scope_id", "status"]
       }
+    },
+    {
+      "if": {"properties": {"record_type": {"const": "section"}}},
+      "then": {
+        "required": [
+          "parent_id",
+          "heading_level",
+          "order",
+          "title",
+          "body",
+          "detail_level",
+          "knowledge_entity_ids",
+          "relationship_ids",
+          "runtime_flow_ids",
+          "related_module_ids",
+          "related_symbol_ids",
+          "prerequisite_section_ids",
+          "source_refs",
+          "confidence"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "sourceReference": {
+      "type": "object",
+      "required": ["path", "start_line", "end_line", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "symbol": {"type": "string"},
+        "reason": {"type": "string", "minLength": 1},
+        "revision": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "diagram": {
+      "type": "object",
+      "required": ["id", "type", "question"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"type": "string", "minLength": 1},
+        "question": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true
