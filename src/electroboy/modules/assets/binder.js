@@ -16,9 +16,6 @@
     if (trash) {
       trash.replaceChildren();
     }
-    if (runtime.elements.creativeEmptyTrash) {
-      runtime.elements.creativeEmptyTrash.disabled = true;
-    }
   }
 
   function folderEntryVisible(entry) {
@@ -406,11 +403,47 @@
       return;
     }
     trash.replaceChildren();
-    const payload = runtime.getState().creativeTreePayload;
+    const state = runtime.getState();
+    const payload = state.creativeTreePayload;
     const entries = payload && Array.isArray(payload.trash) ? payload.trash : [];
-    const emptyButton = runtime.elements.creativeEmptyTrash;
-    if (emptyButton) {
-      emptyButton.disabled = entries.length === 0;
+    const expanded = Boolean(state.creativeTrashExpanded);
+    const action = creativeActions(runtime);
+    const folder = document.createElement("div");
+    folder.className = "creative-tree-row directory creative-trash-folder-row";
+    folder.classList.toggle("expanded", expanded);
+    folder.tabIndex = 0;
+    folder.setAttribute("role", "treeitem");
+    folder.setAttribute("aria-expanded", expanded ? "true" : "false");
+
+    const icon = document.createElement("span");
+    icon.className = "creative-tree-icon folder";
+    icon.innerHTML = iconSvg(expanded ? "folder-open" : "folder");
+    const name = document.createElement("span");
+    name.className = "creative-tree-name";
+    name.textContent = "Trash";
+    const emptyButton = document.createElement("button");
+    emptyButton.className = "creative-empty-trash";
+    emptyButton.type = "button";
+    emptyButton.textContent = "Empty Trash";
+    emptyButton.disabled = entries.length === 0;
+    emptyButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      action.emptyCreativeTrash();
+    });
+    const disclosure = document.createElement("span");
+    disclosure.className = "creative-tree-disclosure";
+    folder.append(icon, name, emptyButton, disclosure);
+    folder.addEventListener("click", () => action.toggleCreativeTrash());
+    folder.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        action.toggleCreativeTrash();
+      }
+    });
+    trash.append(folder);
+    if (!expanded) {
+      return;
     }
     if (entries.length === 0) {
       const empty = document.createElement("div");
@@ -419,7 +452,6 @@
       trash.append(empty);
       return;
     }
-    const action = creativeActions(runtime);
     for (const entry of entries) {
       const row = document.createElement("div");
       row.className = "creative-trash-row";
@@ -490,6 +522,7 @@
       createCreativeDocument: (...args) => invoke("createCreativeDocumentInline", ...args),
       createCreativeFolder: (...args) => invoke("createCreativeFolderInline", ...args),
       deleteCreativeEntry: (...args) => invoke("deleteCreativeEntry", ...args),
+      emptyCreativeTrash: (...args) => invoke("emptyCreativeTrash", ...args),
       permanentlyDeleteCreativeTrashEntry: (...args) =>
         invoke("permanentlyDeleteCreativeTrashEntry", ...args),
       restoreCreativeTrashEntry: (...args) =>
@@ -499,6 +532,7 @@
       selectCreativeCorkboard: (...args) => invoke("selectCreativeCorkboard", ...args),
       selectCreativeDocument: (...args) => invoke("selectCreativeDocument", ...args),
       selectCreativeFolder: (...args) => invoke("selectCreativeFolder", ...args),
+      toggleCreativeTrash: (...args) => invoke("toggleCreativeTrash", ...args),
     };
   }
 

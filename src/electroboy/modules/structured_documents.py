@@ -28,7 +28,11 @@ def _editor(request: RouteRequest) -> HtmlResponse:
         artifact = str((params.get("artifact") or [""])[0]).strip()
         requested_path = str((params.get("path") or [""])[0])
         title = str((params.get("title") or [""])[0]).strip() or None
-        create_missing = str((params.get("create") or [""])[0]) == "1"
+        create_missing = (
+            str((params.get("create") or [""])[0]) == "1"
+            and request.services.contexts.project_mode(request.context_id)
+            != "creative"
+        )
         rich_editor = (
             request.services.contexts.project_mode(request.context_id) == "creative"
             and artifact == "document"

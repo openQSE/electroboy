@@ -838,7 +838,9 @@
         parameters.set("path", item.target.path);
         parameters.set("title", item.target.label);
         parameters.set("embed", "1");
-        parameters.set("create", "1");
+        if (item.createMissing !== false) {
+          parameters.set("create", "1");
+        }
         parameters.set("zoom", String(runtimeState.documentZoom));
         parameters.set("version", String(runtimeState.artifactPreviewVersion));
         return documentPreviewUrlWithFragment(
@@ -863,7 +865,9 @@
       if (item.kind === "document" && item.target) {
         parameters.set("path", item.target.path);
         parameters.set("title", item.target.label);
-        parameters.set("create", "1");
+        if (item.createMissing !== false) {
+          parameters.set("create", "1");
+        }
       }
       if (item.kind === "route" && item.path) {
         parameters.set("path", item.path);

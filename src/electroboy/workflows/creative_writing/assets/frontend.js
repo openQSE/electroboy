@@ -18,6 +18,7 @@
   let creativeEditingPath = "";
   let creativeEditingType = "";
   let expandedCreativeFolders = new Set();
+  let creativeTrashExpanded = false;
   let restoredScratchContextId = "";
   let creativeScratchSaveTimer = null;
   let creativeProjectActionsExpanded = false;
@@ -62,6 +63,7 @@
     expandedCreativeFolders = state.expandedCreativeFolders instanceof Set
       ? state.expandedCreativeFolders
       : new Set(state.expandedCreativeFolders || []);
+    creativeTrashExpanded = Boolean(state.creativeTrashExpanded);
   }
 
   function resetCreativeWorkflowState() {
@@ -80,6 +82,7 @@
     creativeEditingPath = "";
     creativeEditingType = "";
     expandedCreativeFolders = new Set();
+    creativeTrashExpanded = false;
     restoredScratchContextId = "";
     creativeProjectActionsExpanded = false;
     creativeAgentActionsExpanded = false;
@@ -106,6 +109,7 @@
         creativeEditingPath: "",
         creativeEditingType: "",
         expandedCreativeFolders,
+        creativeTrashExpanded,
       });
     }
   }
@@ -119,6 +123,7 @@
       creativeEditingPath,
       creativeEditingType,
       expandedCreativeFolders,
+      creativeTrashExpanded,
     });
   }
 
@@ -352,7 +357,6 @@
   let creativeAgentMenuButton = null;
   let creativeAgentActions = null;
   let creativeStartAgent = null;
-  let creativeEmptyTrash = null;
   let creativeRecentProjectsExpanded = false;
 
   function renderNavigation(container, runtime) {
@@ -443,12 +447,7 @@
           </div>
           <div class="creative-tree" role="tree" data-creative-control="tree"></div>
           <div class="creative-divider creative-trash-divider" aria-hidden="true"></div>
-          <div class="creative-trash-header">
-            <div class="creative-folder-title" role="heading" aria-level="2">Trash</div>
-            <button class="creative-empty-trash" type="button"
-                    data-creative-control="empty-trash">Empty Trash</button>
-          </div>
-          <div class="creative-trash" role="list" data-creative-control="trash"></div>
+          <div class="creative-trash" role="tree" data-creative-control="trash"></div>
         </div>
       </section>
     `;
@@ -472,8 +471,6 @@
     const corkboardActions = find("corkboard-actions");
     runtime.elements.creativeTree = find("tree");
     runtime.elements.creativeTrash = find("trash");
-    creativeEmptyTrash = find("empty-trash");
-    runtime.elements.creativeEmptyTrash = creativeEmptyTrash;
 
     creativeProjectMenuButton.addEventListener("click", () => {
       toggleCreativeActionGroup("project");
@@ -528,9 +525,6 @@
     find("new-root-file").addEventListener("click", () => {
       createCreativeDocumentInline();
     });
-    creativeEmptyTrash.addEventListener("click", () => {
-      emptyCreativeTrash();
-    });
     creativeRecentProjectsButton.addEventListener("click", () => {
       toggleCreativeActionGroup("recent-projects");
     });
@@ -573,7 +567,6 @@
     bindRuntime(runtime);
     runtime.elements.creativeTree = null;
     runtime.elements.creativeTrash = null;
-    runtime.elements.creativeEmptyTrash = null;
     creativeProjectMenuButton = null;
     creativeProjectActions = null;
     creativeOpenProject = null;
@@ -587,7 +580,6 @@
     creativeAgentMenuButton = null;
     creativeAgentActions = null;
     creativeStartAgent = null;
-    creativeEmptyTrash = null;
     resetCreativeWorkflowState();
   }
 
@@ -724,6 +716,7 @@
           title: target.label,
           target,
           editing: false,
+          createMissing: false,
         },
       ],
       { manual: true, stage: WORKFLOW_ID },
@@ -894,6 +887,11 @@
     function renderCreativeTree() {
       publishState();
       return window.ElectroBoyFrontend.invokeModule("binder", "renderTree");
+    }
+
+    function toggleCreativeTrash() {
+      creativeTrashExpanded = !creativeTrashExpanded;
+      renderCreativeTree();
     }
 
     function showCreativeCorkboard(path, options = {}) {
@@ -1965,6 +1963,10 @@
         invoke(runtime, restoreCreativeTrashEntry, args),
       permanentlyDeleteCreativeTrashEntry: (runtime, ...args) =>
         invoke(runtime, permanentlyDeleteCreativeTrashEntry, args),
+      emptyCreativeTrash: (runtime, ...args) =>
+        invoke(runtime, emptyCreativeTrash, args),
+      toggleCreativeTrash: (runtime, ...args) =>
+        invoke(runtime, toggleCreativeTrash, args),
       chooseCreativeAgentSession: (runtime, ...args) => invoke(runtime, chooseCreativeAgentSession, args),
       startCreativeWritingAgent: (runtime, ...args) => invoke(runtime, startCreativeWritingAgent, args),
     },

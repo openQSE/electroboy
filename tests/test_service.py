@@ -744,8 +744,16 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('data-creative-control="new-root-folder">New Folder', creative)
         self.assertIn('data-creative-control="new-root-file">New File', creative)
-        self.assertIn('data-creative-control="empty-trash">Empty Trash', creative)
         self.assertIn('data-creative-control="trash"', creative)
+        self.assertIn("creativeTrashExpanded = false", creative)
+        self.assertIn("createMissing: false", creative)
+        self.assertIn(
+            'folder.className = "creative-tree-row directory creative-trash-folder-row"',
+            binder,
+        )
+        self.assertIn('emptyButton.textContent = "Empty Trash";', binder)
+        self.assertIn("if (!expanded) {", binder)
+        self.assertIn("if (item.createMissing !== false)", documents)
         self.assertIn("createCreativeFolderInline();", creative)
         self.assertIn("createCreativeDocumentInline();", creative)
         self.assertIn(".creative-root-actions {", creative_css)
@@ -4712,6 +4720,21 @@ class ServiceTests(unittest.TestCase):
                 state.creative_tree(context_id)["trash"][0]["id"],
                 trash_id,
             )
+            with self.assertRaisesRegex(StateError, "document does not exist"):
+                artifact_editor_html(
+                    project_root,
+                    "document",
+                    "chapters/chapter-01.md",
+                    rich_editor=True,
+                )
+            with self.assertRaisesRegex(StateError, "document no longer exists"):
+                save_artifact_edit(
+                    project_root,
+                    "document",
+                    "chapters/chapter-01.md",
+                    {"mode": "markdown", "markdown": "# Stale editor save\n"},
+                )
+            self.assertFalse(chapter.exists())
 
             chapter.write_text("# Replacement\n", encoding="utf-8")
             with self.assertRaisesRegex(

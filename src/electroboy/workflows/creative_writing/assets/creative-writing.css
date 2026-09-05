@@ -357,26 +357,24 @@
   margin-top: 10px;
 }
 
-.creative-trash-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
+.creative-trash-folder-row.creative-tree-row.directory {
+  grid-template-columns: 18px minmax(0, 1fr) auto 18px;
 }
 
 .creative-empty-trash {
   border: 0;
   background: transparent;
-  color: #48627a;
+  color: #ffffff;
   cursor: pointer;
   font: inherit;
   font-size: var(--ui-small-font-size);
+  opacity: 0.82;
   padding: 2px 8px;
 }
 
 .creative-empty-trash:hover:not(:disabled) {
-  color: #a62938;
+  color: #ffd5d8;
+  opacity: 1;
   text-decoration: underline;
 }
 
@@ -401,6 +399,8 @@
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) 26px 26px;
   align-items: center;
+  width: calc(100% - 16px);
+  margin-left: 16px;
   min-width: 0;
   min-height: 38px;
   border: 1px solid #c8d4df;

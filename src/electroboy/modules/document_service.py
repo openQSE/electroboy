@@ -526,6 +526,8 @@ def _artifact_edit_payload(
         )
         markdown_path = document_path.relative_to(project_root).as_posix()
     if not document_path.exists():
+        if artifact == "document" and not create_missing:
+            raise StateError(f"document does not exist: {markdown_path}")
         document_path.parent.mkdir(parents=True, exist_ok=True)
         document_path.write_text(
             _document_starter_markdown(markdown_path),
@@ -708,6 +710,8 @@ def save_artifact_edit(
         artifact,
         requested_path,
     )
+    if artifact == "document" and not document_path.is_file():
+        raise StateError("document no longer exists")
     document_path.parent.mkdir(parents=True, exist_ok=True)
     document_path.write_text(markdown, encoding="utf-8")
     saved_path = _document_target_path(project_root, str(document_path))[0]

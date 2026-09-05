@@ -46,12 +46,17 @@ def _preview(request: RouteRequest) -> HtmlResponse:
         root = request.services.contexts.active_project_root(request.context_id)
         path = str((params.get("path") or [""])[0])
         title = str((params.get("title") or [""])[0]).strip() or None
+        create_missing = (
+            (params.get("create") or ["0"])[0] == "1"
+            and request.services.contexts.project_mode(request.context_id)
+            != "creative"
+        )
         page, status = document_target_html(
             root,
             path,
             title=title,
             embedded=(params.get("embed") or ["0"])[0] == "1",
-            create_missing=(params.get("create") or ["0"])[0] == "1",
+            create_missing=create_missing,
             zoom_percent=_document_zoom_from_params(params),
             asset_context={
                 key: str((params.get(key) or [""])[0])
