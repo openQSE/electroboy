@@ -6,6 +6,10 @@ from electroboy.workflows.code_learner.course_graph import (
     CourseGraph,
     CourseNavigator,
 )
+from electroboy.workflows.code_learner.course_projection import (
+    phase2_analysis_payload,
+    project_navigation,
+)
 from electroboy.workflows.code_learner.domain import repository_revision
 from electroboy.workflows.code_learner.knowledge_store import KnowledgeStore
 
@@ -215,4 +219,43 @@ def test_deep_dive_reports_generating_target_without_losing_location(
     assert result["navigation"]["target"] == {
         "id": "course.function.symbol.run",
         "status": "generating",
+    }
+
+
+def test_phase2_projection_supplies_menu_slide_source_and_artifact_models(
+    tmp_path: Path,
+) -> None:
+    _seed(tmp_path)
+    navigation = CourseNavigator(tmp_path).open(
+        "course.architecture.repository.root",
+        "course.architecture.repository.root.section-2",
+    )
+
+    analysis = phase2_analysis_payload(tmp_path)
+    payload = project_navigation(tmp_path, navigation)
+
+    assert analysis["modules"] == [
+        {
+            "id": "module.app",
+            "path": "module.app",
+            "name": "App",
+            "summary": "Application module.",
+            "file_count": 1,
+            "source_refs": [_source()],
+        }
+    ]
+    assert analysis["symbols"][0]["id"] == "symbol.run"
+    assert payload["walkthrough"]["current_step_id"].endswith("section-2")
+    assert payload["walkthrough"]["steps"][1]["deep_dive_ids"] == [
+        "course.module.module.app",
+        "course.function.symbol.run",
+    ]
+    assert payload["source"]["path"] == "src/app.py"
+    assert payload["source"]["active_start_line"] == 2
+    assert payload["course_artifact"] == {
+        "mode": "architecture",
+        "scope_id": "repository.root",
+        "jsonl_path": ".electroboy/code-learner/courses/architecture.jsonl",
+        "markdown_path": ".electroboy/code-learner/courses/architecture.md",
+        "title": "Architecture Course",
     }

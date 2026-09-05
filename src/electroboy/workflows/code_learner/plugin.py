@@ -20,6 +20,7 @@ def workflow() -> WorkflowDefinition:
         modules=(
             "core",
             "agent_sessions",
+            "markdown_documents",
             "file_browser",
             "progress",
             "project_shell",

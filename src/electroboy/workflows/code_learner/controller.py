@@ -19,6 +19,7 @@ from electroboy.state_store import StateError
 from .course_artifacts import render_saved_course
 from .course_builder import CourseBuilder
 from .course_graph import CourseGraph, CourseNavigator
+from .course_projection import phase2_analysis_payload, project_navigation
 from .domain import (
     WORKFLOW_ID,
     CodeLearnerError,
@@ -774,10 +775,18 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 project_id=context_id,
                 writer_id=f"electroboy:{context_id}",
             )
+            return project_navigation(root, result)
         return result
 
     def modules(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        if KnowledgeStore(root).load_knowledge(validate_sources=False):
+            analysis = phase2_analysis_payload(root)
+            return {
+                "status": "listed",
+                "modules": analysis["modules"],
+                "truncated": False,
+            }
         analysis = CodeLearnerStore(root).corpus_analysis() or _empty_analysis(root)
         return {
             "status": "listed",
@@ -787,6 +796,27 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def symbols(self, context_id: str, query: str = "") -> dict[str, object]:
         root = self._active_project_root(context_id)
+        if KnowledgeStore(root).load_knowledge(validate_sources=False):
+            analysis = phase2_analysis_payload(root)
+            symbols = list(analysis["symbols"])
+            requested = query.strip().lower()
+            if requested:
+                symbols = [
+                    symbol
+                    for symbol in symbols
+                    if requested in str(symbol.get("qualified_name") or "").lower()
+                    or requested in str(symbol.get("name") or "").lower()
+                ]
+            return {
+                "status": "listed",
+                "symbols": symbols[:80],
+                "truncated": len(symbols) > 80,
+                "resolution": (
+                    CourseBuilder(root).resolve_function(query).to_dict()
+                    if requested
+                    else None
+                ),
+            }
         analysis = CodeLearnerStore(root).corpus_analysis() or _empty_analysis(root)
         symbols = list(analysis.symbols)
         requested = query.strip().lower()
@@ -815,6 +845,28 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         intended_audience: str = "",
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        store = KnowledgeStore(root)
+        if store.load_knowledge(validate_sources=False):
+            mode = str(learning_mode or "").strip().lower()
+            if mode == "architecture":
+                course_id = "course.architecture.repository.root"
+            elif mode == "module":
+                if not target:
+                    raise CodeLearnerError("Module target is required")
+                course_id = f"course.module.{target}"
+            elif mode == "function":
+                result = CourseBuilder(root).build_function(
+                    target,
+                    audience=intended_audience,
+                )
+                course_id = f"course.function.{result.scope_id}"
+            else:
+                raise CodeLearnerError(f"unknown course mode: {learning_mode}")
+            return self.navigate_course(
+                context_id,
+                "open",
+                course_id=course_id,
+            )
         walkthrough = create_walkthrough(
             root,
             learning_mode=learning_mode,
@@ -836,6 +888,13 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         step_id: str,
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        if walkthrough_id.startswith("course."):
+            return self.navigate_course(
+                context_id,
+                "open",
+                course_id=walkthrough_id,
+                section_id=step_id,
+            )
         walkthrough = CodeLearnerStore(root).set_current_step(
             walkthrough_id,
             step_id,
@@ -854,6 +913,16 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         **context_options: object,
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        if walkthrough_id.startswith("course."):
+            navigation = CourseNavigator(root).update_code_view(
+                _code_view_from_options(root, context_options)
+            )
+            context = TutorContextStore(root).write_navigation(
+                navigation,
+                project_id=context_id,
+                writer_id=f"electroboy:{context_id}",
+            )
+            return {"status": "prepared", "context": context}
         walkthrough = CodeLearnerStore(root).get(walkthrough_id)
         context = TutorContextStore(root).write_walkthrough(
             walkthrough,
@@ -875,10 +944,24 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
         store = CodeLearnerStore(root)
-        walkthrough = store.get(walkthrough_id)
         question = str(question or "").strip()
         if not question:
             raise CodeLearnerError("learner question is required")
+        if walkthrough_id.startswith("course."):
+            context = self.learner_context(
+                context_id,
+                walkthrough_id,
+                **context_options,
+            )["context"]
+            return {
+                **project_navigation(root, CourseNavigator(root).state()),
+                "status": "prepared",
+                "question": question,
+                "prompt": question,
+                "context_version": context["context_version"],
+                "context_path": ".electroboy/code-learner/tutor-context.json",
+            }
+        walkthrough = store.get(walkthrough_id)
         context = TutorContextStore(root).write_walkthrough(
             walkthrough,
             project_id=context_id,
@@ -903,14 +986,29 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     ) -> tuple[AgentSession, bool]:
         root = self._active_project_root(context_id)
         store = CodeLearnerStore(root)
-        walkthrough = store.get(walkthrough_id)
         tutor_context = TutorContextStore(root)
-        tutor_context.write_walkthrough(
-            walkthrough,
-            project_id=context_id,
-            writer_id=f"electroboy:{context_id}",
-            context_options=context_options,
-        )
+        if walkthrough_id.startswith("course."):
+            navigation = CourseNavigator(root).update_code_view(
+                _code_view_from_options(root, context_options)
+            )
+            compact_context = tutor_context.write_navigation(
+                navigation,
+                project_id=context_id,
+                writer_id=f"electroboy:{context_id}",
+            )
+            course = compact_context["course"]
+            learning_mode = str(course["mode"])
+            mode_target = str(course["scope_id"])
+        else:
+            walkthrough = store.get(walkthrough_id)
+            tutor_context.write_walkthrough(
+                walkthrough,
+                project_id=context_id,
+                writer_id=f"electroboy:{context_id}",
+                context_options=context_options,
+            )
+            learning_mode = walkthrough.learning_mode
+            mode_target = walkthrough.mode_target
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             for session in context.code_learner_sessions.values():
@@ -924,9 +1022,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 kind=self.workflow_id,
                 interactive=True,
                 metadata={
-                    "walkthrough_id": walkthrough.id,
-                    "learning_mode": walkthrough.learning_mode,
-                    "mode_target": walkthrough.mode_target,
+                    "walkthrough_id": walkthrough_id,
+                    "learning_mode": learning_mode,
+                    "mode_target": mode_target,
                     "tutor_context_path": (
                         ".electroboy/code-learner/tutor-context.json"
                     ),
@@ -936,12 +1034,19 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             context.code_learner_sessions[session.session_id] = session
             context.selected_session_id = session.session_id
             self.services.sessions.record(context, session)
-        tutor_context.write_walkthrough(
-            walkthrough,
-            project_id=context_id,
-            writer_id=session.session_id,
-            context_options=context_options,
-        )
+        if walkthrough_id.startswith("course."):
+            tutor_context.write_navigation(
+                CourseNavigator(root).state(),
+                project_id=context_id,
+                writer_id=session.session_id,
+            )
+        else:
+            tutor_context.write_walkthrough(
+                walkthrough,
+                project_id=context_id,
+                writer_id=session.session_id,
+                context_options=context_options,
+            )
         try:
             session.start()
         except Exception:
@@ -993,6 +1098,17 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             "current_walkthrough_id": current.id if current else "",
             "current_walkthrough": current.to_dict() if current else None,
         }
+        phase2_store = KnowledgeStore(root)
+        if phase2_store.load_knowledge(validate_sources=False):
+            payload["analysis"] = phase2_analysis_payload(root)
+            payload["phase2_initialized"] = initialization_ready(root)
+            payload["course_graph"] = CourseGraph.from_store(
+                phase2_store
+            ).to_dict()
+            navigation = CourseNavigator(root).state()
+            if navigation.get("current"):
+                payload.update(project_navigation(root, navigation))
+            return payload
         analysis = store.corpus_analysis()
         if analysis is not None:
             payload["analysis"] = analysis.to_dict()
@@ -1020,6 +1136,25 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         if root is None:
             raise StateError("open a source repository first")
         return Path(root).expanduser().resolve()
+
+
+def _code_view_from_options(
+    root: Path,
+    options: dict[str, object],
+) -> dict[str, object]:
+    navigation = CourseNavigator(root).state().get("navigation")
+    navigation = navigation if isinstance(navigation, dict) else {}
+    current = navigation.get("code_view")
+    current = current if isinstance(current, dict) else {}
+    return {
+        "path": options.get("selected_file_path") or current.get("path") or "",
+        "selected_start_line": options.get("selected_start_line"),
+        "selected_end_line": options.get("selected_end_line"),
+        "visible_start_line": options.get("visible_start_line")
+        or current.get("visible_start_line"),
+        "visible_end_line": options.get("visible_end_line")
+        or current.get("visible_end_line"),
+    }
 
 
 def context_options_from_payload(payload: dict[str, Any]) -> dict[str, object]:

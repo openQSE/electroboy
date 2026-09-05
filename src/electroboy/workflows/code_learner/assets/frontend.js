@@ -61,9 +61,13 @@
   function emptyLearnerState() {
     return {
       analysis: null,
+      phase2Present: false,
+      phase2Initialized: false,
       walkthroughs: [],
       currentWalkthrough: null,
       source: null,
+      courseArtifact: null,
+      courseNavigation: null,
     };
   }
 
@@ -238,7 +242,7 @@
             </label>
             <button class="stage-action-button" type="button" disabled
                     data-code-learner-control="start-agent">Start tutor</button>
-            <div class="code-learner-status"
+            <div class="code-learner-status" role="status" aria-live="polite"
                  data-code-learner-control="status"></div>
             <div class="code-learner-progress" hidden
                  data-code-learner-control="init-progress">
@@ -470,6 +474,9 @@
   }
 
   function learnerInitialized() {
+    if (learnerState.phase2Present) {
+      return learnerState.phase2Initialized;
+    }
     return Boolean(
       learnerState.analysis ||
       learnerState.currentWalkthrough ||
@@ -788,6 +795,7 @@
     if (payload.status === "initialized") {
       setGenerating(false);
       openLearnerPane({ activate: false, refresh: true });
+      openCourseDocument(payload.code_learner || {});
       setInitializedStatus();
       return;
     }
@@ -825,6 +833,7 @@
       stopInitializationPolling();
       setGenerating(false);
       openLearnerPane({ activate: false, refresh: true });
+      openCourseDocument(payload.code_learner || {});
       setInitializedStatus();
     } else if (payload.status === "failed") {
       stopInitializationPolling();
@@ -886,7 +895,59 @@
       return;
     }
     setGenerating(true);
-    setStatus(`Generating ${modeLabel(mode)} course...`);
+    if (mode === "function") {
+      setStatus("Resolving function symbol...", "resolving");
+      const resolutionResponse = await runtimeApi.http.fetch(
+        contextUrl(
+          `/api/code-learner/course/function/resolve?query=${encodeURIComponent(target)}`
+        ),
+        { cache: "no-store" },
+      );
+      const resolution = await resolutionResponse.json().catch(() => ({
+        status: "failed",
+        error: "function resolution failed",
+      }));
+      if (!resolutionResponse.ok) {
+        setGenerating(false);
+        throw new Error(`Failed: ${resolution.error || "function resolution failed"}`);
+      }
+      if (resolution.status === "ambiguous") {
+        setGenerating(false);
+        const names = (resolution.candidates || [])
+          .slice(0, 5)
+          .map((candidate) => candidate.qualified_name || candidate.name || candidate.id)
+          .join(", ");
+        setStatus(`Ambiguous function: ${names}`, "ambiguous");
+        return;
+      }
+      if (resolution.status === "missing") {
+        setGenerating(false);
+        setStatus(`Function not found: ${target}`, "missing");
+        return;
+      }
+      setStatus("Analyzing function evidence...", "analyzing");
+      const buildResponse = await runtimeApi.http.fetch(
+        contextUrl("/api/code-learner/course/function"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: target,
+            audience: nav.audience.value.trim(),
+          }),
+        },
+      );
+      const build = await buildResponse.json().catch(() => ({
+        error: "function generation failed",
+      }));
+      if (!buildResponse.ok) {
+        setGenerating(false);
+        throw new Error(`Failed: ${build.error || "function generation failed"}`);
+      }
+      setStatus("Validating generated Function course...", "validating");
+    } else {
+      setStatus(`Opening ${modeLabel(mode)} course...`, "generating");
+    }
     const response = await runtimeApi.http.fetch(
       contextUrl("/api/code-learner/walkthrough"),
       {
@@ -908,7 +969,19 @@
     applyLearnerPayload(payload);
     renderNavigationState();
     openLearnerPane({ refresh: true });
-    setStatus(`Ready: ${payload.walkthrough.title || "course"}`);
+    openCourseDocument(payload);
+    setStatus(`Ready: ${payload.walkthrough.title || "course"}`, "ready");
+  }
+
+  function openCourseDocument(payload) {
+    const artifact = payload && payload.course_artifact;
+    if (!runtimeApi || !artifact || !artifact.markdown_path) {
+      return;
+    }
+    runtimeApi.modules.invoke("documents", "openDocumentTarget", {
+      path: artifact.markdown_path,
+      label: artifact.title || "Course",
+    });
   }
 
   function setGenerating(isGenerating) {
@@ -1050,6 +1123,10 @@
     if (Object.hasOwn(payload, "analysis")) {
       learnerState.analysis = payload.analysis;
     }
+    if (Object.hasOwn(payload, "phase2_initialized")) {
+      learnerState.phase2Present = true;
+      learnerState.phase2Initialized = Boolean(payload.phase2_initialized);
+    }
     if (Array.isArray(payload.walkthroughs)) {
       learnerState.walkthroughs = payload.walkthroughs;
     }
@@ -1063,6 +1140,12 @@
     if (Object.hasOwn(payload, "source")) {
       learnerState.source = payload.source;
       learnerContext = payload.source ? contextFromState() : null;
+    }
+    if (Object.hasOwn(payload, "course_artifact")) {
+      learnerState.courseArtifact = payload.course_artifact || null;
+    }
+    if (Object.hasOwn(payload, "course_navigation")) {
+      learnerState.courseNavigation = payload.course_navigation || null;
     }
   }
 
@@ -1200,6 +1283,10 @@
       });
       return true;
     }
+    if (data.type === "electroboy-code-learner-course-artifact") {
+      openCourseDocument(data.payload || {});
+      return true;
+    }
     return false;
   }
 
@@ -1319,6 +1406,8 @@
       pendingActiveScroll: false,
       toolbarControls: null,
       toolControls: null,
+      courseArtifact: null,
+      courseNavigation: null,
     };
 
     host.classList.add("code-learner-pane-host");
@@ -1339,6 +1428,8 @@
     controls.className = "code-learner-pane-toolbar-actions";
     controls.dataset.codeLearnerPaneToolbar = "";
     controls.innerHTML = `
+      <button class="back" type="button"
+              data-code-learner-toolbar="back">Back</button>
       <button class="previous" type="button"
               data-code-learner-toolbar="prev">Previous</button>
       <button class="next" type="button"
@@ -1346,9 +1437,14 @@
     `;
     state.toolbarHost.prepend(controls);
     state.toolbarControls = {
+      back: controls.querySelector('[data-code-learner-toolbar="back"]'),
       prev: controls.querySelector('[data-code-learner-toolbar="prev"]'),
       next: controls.querySelector('[data-code-learner-toolbar="next"]'),
     };
+    state.toolbarControls.back.addEventListener(
+      "click",
+      () => navigatePaneCourse(state, "back"),
+    );
     state.toolbarControls.prev.addEventListener(
       "click",
       () => selectAdjacentPaneStep(state, -1),
@@ -1405,6 +1501,8 @@
     state.toolbarControls.prev.disabled = state.busy || index <= 0;
     state.toolbarControls.next.disabled =
       state.busy || index < 0 || index >= steps.length - 1;
+    state.toolbarControls.back.disabled =
+      state.busy || !Boolean(walkthrough && walkthrough.can_go_back);
     if (state.toolControls) {
       state.toolControls.tutor.disabled = state.busy || !walkthrough;
       state.toolControls.refresh.disabled = state.busy;
@@ -1469,6 +1567,12 @@
       state.selectedEndLine = null;
       state.lastSelectedLine = null;
       state.pendingActiveScroll = true;
+    }
+    if (Object.hasOwn(payload, "course_artifact")) {
+      state.courseArtifact = payload.course_artifact || null;
+    }
+    if (Object.hasOwn(payload, "course_navigation")) {
+      state.courseNavigation = payload.course_navigation || null;
     }
   }
 
@@ -1582,6 +1686,7 @@
           ${escapeHtml(referenceLabel(reference))}
         </div>
         ${renderRelatedReferences(step)}
+        ${renderDeepDiveActions(step)}
       </div>
     `;
   }
@@ -1602,10 +1707,40 @@
     `;
   }
 
+  function renderDeepDiveActions(step) {
+    const targets = Array.isArray(step.deep_dive_ids) ? step.deep_dive_ids : [];
+    if (!targets.length) {
+      return "";
+    }
+    return `
+      <div class="code-learner-deep-dives">
+        ${targets.map((target) => `
+          <button type="button" data-code-learner-deep-dive="${escapeHtml(target)}">
+            Deep Dive: ${escapeHtml(deepDiveLabel(target))}
+          </button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function deepDiveLabel(target) {
+    const parts = String(target || "").split(".");
+    return parts.slice(2).join(".") || target;
+  }
+
   function bindPaneEvents(state) {
     state.host.querySelectorAll(".code-learner-code-line").forEach((line) => {
       line.addEventListener("click", (event) => {
         selectPaneLine(state, Number(line.dataset.line || "0"), event.shiftKey);
+      });
+    });
+    state.host.querySelectorAll("[data-code-learner-deep-dive]").forEach((button) => {
+      button.addEventListener("click", () => {
+        navigatePaneCourse(
+          state,
+          "deep-dive",
+          button.dataset.codeLearnerDeepDive || "",
+        );
       });
     });
   }
@@ -1650,12 +1785,77 @@
       }
       applyPanePayload(state, payload);
       notifyPaneContext(state);
+      notifyCourseArtifact(state);
     } catch (error) {
       state.error = error.message || String(error);
     } finally {
       state.busy = false;
       renderPane(state);
     }
+  }
+
+  async function navigatePaneCourse(state, action, targetId = "") {
+    if (!state.walkthrough || state.busy) {
+      return;
+    }
+    state.busy = true;
+    renderPane(state);
+    try {
+      let payload = await requestPaneNavigation(state, action, targetId);
+      const target = payload.course_navigation
+        && payload.course_navigation.navigation
+        && payload.course_navigation.navigation.target;
+      if (
+        action === "deep-dive" &&
+        target &&
+        target.status === "missing" &&
+        String(target.id || "").startsWith("course.function.")
+      ) {
+        const query = String(target.id).slice("course.function.".length);
+        const buildResponse = await fetch(
+          state.contextUrl("/api/code-learner/course/function"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query }),
+          },
+        );
+        const build = await buildResponse.json().catch(() => ({
+          error: "function generation failed",
+        }));
+        if (!buildResponse.ok) {
+          throw new Error(build.error || "function generation failed");
+        }
+        payload = await requestPaneNavigation(state, action, targetId);
+      }
+      applyPanePayload(state, payload);
+      notifyPaneContext(state);
+      notifyCourseArtifact(state);
+    } catch (error) {
+      state.error = error.message || String(error);
+    } finally {
+      state.busy = false;
+      renderPane(state);
+    }
+  }
+
+  async function requestPaneNavigation(state, action, targetId) {
+    const response = await fetch(
+      state.contextUrl("/api/code-learner/course/navigation"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          target_id: targetId,
+        }),
+      },
+    );
+    const payload = await response.json().catch(() => ({ error: "navigation failed" }));
+    if (!response.ok) {
+      throw new Error(payload.error || "navigation failed");
+    }
+    return payload;
   }
 
   function notifyPaneContext(state) {
@@ -1666,6 +1866,16 @@
     state.postMessage({
       type: "electroboy-code-learner-context",
       context,
+    });
+  }
+
+  function notifyCourseArtifact(state) {
+    if (!state.courseArtifact) {
+      return;
+    }
+    state.postMessage({
+      type: "electroboy-code-learner-course-artifact",
+      payload: { course_artifact: state.courseArtifact },
     });
   }
 

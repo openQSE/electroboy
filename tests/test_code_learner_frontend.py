@@ -77,6 +77,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="module-start"' in frontend
     assert 'data-code-learner-control="function"' in frontend
     assert 'data-code-learner-control="function-start"' in frontend
+    assert 'role="status" aria-live="polite"' in frontend
     assert "generateCourse({ mode: \"module\" })" in frontend
     assert 'let activeNavigationGroup = "project";' in frontend
     assert 'activeNavigationGroup === "project"' in frontend
@@ -104,6 +105,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     ]
     assert ">Previous</button>" in toolbar_source
     assert ">Next</button>" in toolbar_source
+    assert ">Back</button>" in toolbar_source
     assert "Tutor" not in toolbar_source
     assert "Refresh" not in toolbar_source
     assert 'addSection("code-learner-view", "View")' in frontend
@@ -122,6 +124,14 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert ".code-learner-pane-grid" in stylesheet
     assert ".code-learner-progress-fill" in stylesheet
     assert ".tok-keyword" in stylesheet
+    assert 'data-kind="resolving"' in stylesheet
+    assert 'data-kind="analyzing"' in stylesheet
+    assert 'data-kind="generating"' in stylesheet
+    assert 'data-kind="validating"' in stylesheet
+    assert 'data-kind="ready"' in stylesheet
+    assert 'data-kind="ambiguous"' in stylesheet
+    assert 'data-kind="missing"' in stylesheet
+    assert "white-space: pre-wrap;" in stylesheet
     assert "--code-learner-code-font-size: calc(var(--font-size) - 2px);" in stylesheet
     assert "font-size: var(--code-learner-code-font-size);" in stylesheet
     assert "font-size: calc(var(--font-size) + 9px);" in stylesheet

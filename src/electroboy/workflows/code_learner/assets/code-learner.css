@@ -81,6 +81,22 @@
   color: var(--error);
 }
 
+.code-learner-status[data-kind="resolving"],
+.code-learner-status[data-kind="analyzing"],
+.code-learner-status[data-kind="generating"],
+.code-learner-status[data-kind="validating"] {
+  color: #315f87;
+}
+
+.code-learner-status[data-kind="ready"] {
+  color: #24715e;
+}
+
+.code-learner-status[data-kind="ambiguous"],
+.code-learner-status[data-kind="missing"] {
+  color: #8a5b12;
+}
+
 .code-learner-progress {
   display: grid;
   gap: 4px;
@@ -174,6 +190,12 @@
   border-color: #3e806d;
   background: #174238;
   color: #ddfff5;
+}
+
+.code-learner-pane-toolbar-actions button.back {
+  border-color: #48535f;
+  background: #1a2129;
+  color: #d2dde5;
 }
 
 .code-learner-pane-toolbar-actions button.previous:hover:not(:disabled) {
@@ -345,6 +367,7 @@
   color: #d2dde5;
   font-size: var(--font-size);
   line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .code-learner-reference {
@@ -368,6 +391,22 @@
   padding: 4px 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.code-learner-deep-dives {
+  display: grid;
+  gap: 6px;
+}
+
+.code-learner-deep-dives button {
+  min-height: 34px;
+  border: 1px solid #3e806d;
+  border-radius: 6px;
+  background: #174238;
+  color: #ddfff5;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
 
 .code-learner-empty {
