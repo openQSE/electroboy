@@ -79,6 +79,7 @@ class CtagsCapability:
     json_output_version: str
     languages: tuple[str, ...]
     features: tuple[str, ...]
+    jansson_revision: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +91,7 @@ class CtagsCapability:
             "json_output_version": self.json_output_version,
             "languages": list(self.languages),
             "features": list(self.features),
+            "dependencies": {"jansson": self.jansson_revision},
         }
 
 
@@ -100,13 +102,18 @@ class UniversalCtagsToolchain:
         self,
         *,
         source_root: Path | str | None = None,
+        dependency_root: Path | str | None = None,
         cache_root: Path | str | None = None,
         executable: Path | str | None = None,
         process: ProcessAdapter | None = None,
     ) -> None:
         checkout = Path(__file__).resolve().parents[4]
+        self.checkout_root = checkout
         self.source_root = Path(
             source_root or checkout / "third_party" / "universal-ctags"
+        ).resolve()
+        self.dependency_root = Path(
+            dependency_root or checkout / "third_party" / "jansson"
         ).resolve()
         cache = (
             cache_root
@@ -121,11 +128,21 @@ class UniversalCtagsToolchain:
         self.process = process or SubprocessAdapter()
 
     def prepare(self) -> CtagsCapability:
-        source_revision = self._source_revision()
-        executable = self.executable or self._cached_executable(source_revision)
+        self._ensure_pinned_sources()
+        source_revision = self._source_revision(
+            self.source_root, "Universal Ctags"
+        )
+        jansson_revision = self._source_revision(self.dependency_root, "Jansson")
+        executable = self.executable or self._cached_executable(
+            source_revision, jansson_revision
+        )
         if not executable.is_file():
-            executable = self._build(source_revision, executable)
-        capability = self.verify(executable, source_revision=source_revision)
+            executable = self._build(executable)
+        capability = self.verify(
+            executable,
+            source_revision=source_revision,
+            jansson_revision=jansson_revision,
+        )
         self.executable = executable
         return capability
 
@@ -134,6 +151,7 @@ class UniversalCtagsToolchain:
         executable: Path,
         *,
         source_revision: str = "",
+        jansson_revision: str = "",
     ) -> CtagsCapability:
         version = self._text(executable, "--version")
         if "Universal Ctags" not in version:
@@ -143,7 +161,9 @@ class UniversalCtagsToolchain:
             for line in self._text(executable, "--list-features").splitlines()
             if line.strip()
         )
-        if not any(feature.lower() == "json" for feature in features):
+        if not any(
+            feature.split(maxsplit=1)[0].lower() == "json" for feature in features
+        ):
             raise CtagsToolError("Universal Ctags was built without JSON support")
         languages = tuple(
             line.strip()
@@ -154,9 +174,8 @@ class UniversalCtagsToolchain:
             root = Path(temp)
             (root / "smoke.c").write_text("int smoke(void) { return 0; }\n")
             result = self.process.run(
-                _ctags_command(executable),
+                _ctags_command(executable, ["smoke.c"]),
                 cwd=root,
-                input_bytes=b"smoke.c\0",
             )
             smoke_records, _warnings = _parse_raw_jsonl(result.stdout)
             output_version = next(
@@ -183,6 +202,7 @@ class UniversalCtagsToolchain:
             json_output_version=output_version,
             languages=languages,
             features=features,
+            jansson_revision=jansson_revision,
         )
 
     def _text(self, executable: Path, *arguments: str) -> str:
@@ -194,38 +214,124 @@ class UniversalCtagsToolchain:
             )
         return result.stdout.decode("utf-8", errors="replace")
 
-    def _source_revision(self) -> str:
+    def _ensure_pinned_sources(self) -> None:
+        required = (
+            (self.source_root, "configure.ac", "third_party/universal-ctags"),
+            (self.dependency_root, "CMakeLists.txt", "third_party/jansson"),
+        )
+        missing = [
+            relative
+            for root, marker, relative in required
+            if not (root / marker).is_file()
+        ]
+        if not missing:
+            return
+        if not (self.checkout_root / ".git").exists():
+            raise CtagsToolError(
+                "pinned Ctags build sources are unavailable; initialize repository "
+                "submodules"
+            )
         result = self.process.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.source_root, timeout=10
+            ["git", "submodule", "update", "--init", "--recursive", "--", *missing],
+            cwd=self.checkout_root,
+            timeout=300,
         )
         if result.returncode != 0:
-            raise CtagsToolError("pinned Universal Ctags submodule is unavailable")
+            raise CtagsToolError(
+                "could not initialize pinned Ctags build sources: "
+                f"{_process_detail(result)}"
+            )
+        still_missing = [
+            relative
+            for root, marker, relative in required
+            if not (root / marker).is_file()
+        ]
+        if still_missing:
+            raise CtagsToolError(
+                "pinned Ctags build sources remain unavailable: "
+                + ", ".join(still_missing)
+            )
+
+    def _source_revision(self, root: Path, name: str) -> str:
+        result = self.process.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, timeout=10
+        )
+        if result.returncode != 0:
+            raise CtagsToolError(f"pinned {name} submodule is unavailable")
         return result.stdout.decode().strip()
 
-    def _cached_executable(self, source_revision: str) -> Path:
+    def _cached_executable(
+        self, source_revision: str, jansson_revision: str
+    ) -> Path:
         platform_key = f"{platform.system().lower()}-{platform.machine().lower()}"
-        return self.cache_root / source_revision / platform_key / "bin" / "ctags"
+        build_key = hashlib.sha256(
+            f"{source_revision}\0{jansson_revision}\0json".encode()
+        ).hexdigest()
+        return self.cache_root / build_key / platform_key / "bin" / "ctags"
 
-    def _build(self, source_revision: str, destination: Path) -> Path:
+    def _build(self, destination: Path) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
             prefix="electroboy-ctags-build-", dir=destination.parent.parent
         ) as temp:
-            build_root = Path(temp) / "source"
-            shutil.copytree(self.source_root, build_root, symlinks=True)
-            commands = (
-                ["./autogen.sh"],
-                ["./configure", "--enable-json"],
-                ["make", f"-j{max(1, os.cpu_count() or 1)}"],
+            temp_root = Path(temp)
+            ctags_source = temp_root / "ctags-source"
+            jansson_source = temp_root / "jansson-source"
+            jansson_build = temp_root / "jansson-build"
+            dependency_prefix = temp_root / "dependencies"
+            shutil.copytree(self.source_root, ctags_source, symlinks=True)
+            shutil.copytree(self.dependency_root, jansson_source, symlinks=True)
+            jobs = str(max(1, os.cpu_count() or 1))
+            self._run_build_step(
+                [
+                    "cmake",
+                    "-S",
+                    str(jansson_source),
+                    "-B",
+                    str(jansson_build),
+                    f"-DCMAKE_INSTALL_PREFIX={dependency_prefix}",
+                    "-DCMAKE_INSTALL_LIBDIR=lib",
+                    "-DJANSSON_BUILD_SHARED_LIBS=OFF",
+                    "-DJANSSON_BUILD_DOCS=OFF",
+                    "-DJANSSON_EXAMPLES=OFF",
+                    "-DJANSSON_WITHOUT_TESTS=ON",
+                ],
+                cwd=temp_root,
+                label="pinned Jansson configuration",
             )
-            for command in commands:
-                result = self.process.run(command, cwd=build_root, timeout=300)
-                if result.returncode != 0:
-                    detail = result.stderr.decode("utf-8", errors="replace").strip()
-                    raise CtagsToolError(
-                        f"could not build pinned Universal Ctags: {detail}"
-                    )
-            built = build_root / "ctags"
+            self._run_build_step(
+                ["cmake", "--build", str(jansson_build), "--parallel", jobs],
+                cwd=temp_root,
+                label="pinned Jansson build",
+            )
+            self._run_build_step(
+                ["cmake", "--install", str(jansson_build)],
+                cwd=temp_root,
+                label="pinned Jansson installation",
+            )
+            self._run_build_step(
+                ["./autogen.sh"],
+                cwd=ctags_source,
+                label="pinned Universal Ctags bootstrap",
+            )
+            self._run_build_step(
+                [
+                    "env",
+                    f"PKG_CONFIG_PATH={dependency_prefix / 'lib' / 'pkgconfig'}",
+                    f"CPPFLAGS=-I{dependency_prefix / 'include'}",
+                    f"LDFLAGS=-L{dependency_prefix / 'lib'}",
+                    "./configure",
+                    "--enable-json",
+                ],
+                cwd=ctags_source,
+                label="pinned Universal Ctags configuration",
+            )
+            self._run_build_step(
+                ["make", f"-j{jobs}"],
+                cwd=ctags_source,
+                label="pinned Universal Ctags build",
+            )
+            built = ctags_source / "ctags"
             if not built.is_file():
                 raise CtagsToolError("Universal Ctags build produced no executable")
             temporary = destination.with_suffix(".tmp")
@@ -233,6 +339,14 @@ class UniversalCtagsToolchain:
             temporary.chmod(0o755)
             os.replace(temporary, destination)
         return destination
+
+    def _run_build_step(
+        self, command: Sequence[str], *, cwd: Path, label: str
+    ) -> None:
+        result = self.process.run(command, cwd=cwd, timeout=300)
+        if result.returncode != 0:
+            detail = _process_detail(result)
+            raise CtagsToolError(f"could not complete {label}: {detail}")
 
 
 @dataclass(frozen=True)
@@ -278,22 +392,23 @@ class CtagsEvidenceService:
         capability: CtagsCapability | None = None
         raw = b""
         command: list[str] = []
+        invocation_count = 0
         try:
             capability = self.toolchain.prepare()
             executable = Path(capability.executable)
             command = _ctags_command(executable)
-            result = self.process.run(
-                command,
-                cwd=self.root,
-                input_bytes=b"\0".join(path.encode() for path in paths) + b"\0",
-                timeout=max(30.0, len(paths) / 10),
-            )
-            if result.returncode != 0:
-                raise CtagsToolError(
-                    result.stderr.decode("utf-8", errors="replace").strip()
-                    or "Universal Ctags indexing failed"
+            output: list[bytes] = []
+            for batch in _ctags_path_batches(paths):
+                result = self.process.run(
+                    _ctags_command(executable, batch),
+                    cwd=self.root,
+                    timeout=max(30.0, len(batch) / 10),
                 )
-            raw = result.stdout
+                invocation_count += 1
+                if result.returncode != 0:
+                    raise CtagsToolError(_process_detail(result))
+                output.append(result.stdout)
+            raw = b"".join(output)
         except CtagsToolError as error:
             warning = str(error)
         records, parse_warnings = _parse_raw_jsonl(raw)
@@ -301,10 +416,12 @@ class CtagsEvidenceService:
         metadata = {
             "schema_version": 1,
             "repository_revision": snapshot.revision,
-            "status": "complete" if capability else "complete_with_warnings",
+            "status": "complete" if not warnings else "complete_with_warnings",
             "started_at": started,
             "completed_at": utc_now(),
             "command": command,
+            "input_transport": "bounded-argv-batches",
+            "invocation_count": invocation_count,
             "ambient_configuration_disabled": True,
             "input_paths": paths,
             "input_path_count": len(paths),
@@ -336,9 +453,8 @@ class CtagsEvidenceService:
         try:
             capability = self.toolchain.prepare()
             result = self.process.run(
-                _ctags_command(Path(capability.executable)),
+                _ctags_command(Path(capability.executable), [path]),
                 cwd=self.root,
-                input_bytes=path.encode() + b"\0",
             )
             if result.returncode != 0:
                 return []
@@ -549,8 +665,8 @@ class SymbolLocatorResolver:
         )
 
 
-def _ctags_command(executable: Path) -> list[str]:
-    return [
+def _ctags_command(executable: Path, paths: Sequence[str] = ()) -> list[str]:
+    command = [
         str(executable),
         "--options=NONE",
         "--output-format=json",
@@ -558,8 +674,34 @@ def _ctags_command(executable: Path) -> list[str]:
         "--extras=+p",
         "-f",
         "-",
-        "--files0-from=-",
     ]
+    command.extend(f"./{path}" if path.startswith("-") else path for path in paths)
+    return command
+
+
+def _ctags_path_batches(
+    paths: Sequence[str], *, max_items: int = 512, max_characters: int = 131_072
+) -> list[list[str]]:
+    batches: list[list[str]] = []
+    batch: list[str] = []
+    characters = 0
+    for path in paths:
+        size = len(os.fsencode(path)) + 1
+        if batch and (len(batch) >= max_items or characters + size > max_characters):
+            batches.append(batch)
+            batch = []
+            characters = 0
+        batch.append(path)
+        characters += size
+    if batch:
+        batches.append(batch)
+    return batches
+
+
+def _process_detail(result: ProcessResult) -> str:
+    stderr = result.stderr.decode("utf-8", errors="replace").strip()
+    stdout = result.stdout.decode("utf-8", errors="replace").strip()
+    return stderr or stdout or f"process exited with status {result.returncode}"
 
 
 def _parse_raw_jsonl(raw: bytes) -> tuple[list[dict[str, object]], list[str]]:

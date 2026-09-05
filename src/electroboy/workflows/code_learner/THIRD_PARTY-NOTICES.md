@@ -11,3 +11,11 @@ ElectroBoy invokes the resulting executable as a separate process. The
 Universal Ctags source and executable are not incorporated into the ElectroBoy
 Python modules. A distribution that bundles the executable must also bundle
 the corresponding pinned source, copyright notices, and license text.
+
+## Jansson
+
+Code Learner builds the pinned Jansson source at `third_party/jansson` as a
+private static dependency when it builds Universal Ctags with JSON support.
+Jansson is licensed under the MIT license, with additional notices for specific
+source files. Its complete notices and license text are preserved in the pinned
+submodule's `LICENSE` file.

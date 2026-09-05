@@ -69,7 +69,12 @@ class VerifyProcess:
         if argument == "--version":
             return ProcessResult(0, (self.version + "\n").encode(), b"")
         if argument == "--list-features":
-            return ProcessResult(0, b"json\nwildcards\n", b"")
+            return ProcessResult(
+                0,
+                b"#NAME DESCRIPTION\njson supports json format output\n"
+                b"wildcards supports wildcard file names\n",
+                b"",
+            )
         if argument == "--list-languages":
             return ProcessResult(0, b"C\nPython\n", b"")
         return ProcessResult(
@@ -136,12 +141,14 @@ def test_capture_uses_exact_manifest_paths_and_preserves_raw_jsonl(
     command, cwd, stdin = process.calls[0]
     assert cwd == tmp_path
     assert "--options=NONE" in command
-    assert "--files0-from=-" in command
-    assert set(stdin.rstrip(b"\0").decode().split("\0")) == {
+    assert set(command[-3:]) == {
         "app.py",
         "main.c",
         "view.js",
     }
+    assert stdin == b""
+    assert capture.metadata["input_transport"] == "bounded-argv-batches"
+    assert capture.metadata["invocation_count"] == 1
     assert capture.metadata["raw_tag_count"] == 3
     assert capture.raw_path.read_text().count("\n") == 4
     assert source.load().manifest["raw_tag_count"] == 3
@@ -197,7 +204,8 @@ def test_locator_resolver_handles_exact_ambiguous_and_fallback_matches(
     assert ambiguous.status == "ambiguous" and len(ambiguous.matches) == 2
     assert fallback.status == "exact" and fallback.provenance == "repository-search"
     assert len(process.calls) == 2
-    assert process.calls[-1][2] == b"main.c\0"
+    assert process.calls[-1][0][-1] == "main.c"
+    assert process.calls[-1][2] == b""
     assert any(evidence.targeted_root.glob("*.jsonl"))
 
 
@@ -238,9 +246,33 @@ def test_toolchain_verifies_json_parsers_and_smoke_output(tmp_path: Path) -> Non
         source_root=tmp_path,
         executable=executable,
         process=VerifyProcess(),
-    ).verify(executable, source_revision="pinned")
+    ).verify(
+        executable,
+        source_revision="pinned-ctags",
+        jansson_revision="pinned-jansson",
+    )
 
     assert capability.json_supported is True
     assert capability.json_output_version == "1.0"
-    assert capability.source_revision == "pinned"
+    assert capability.source_revision == "pinned-ctags"
+    assert capability.to_dict()["dependencies"] == {"jansson": "pinned-jansson"}
     assert capability.languages == ("C", "Python")
+
+
+def test_tool_cache_key_includes_ctags_jansson_platform_and_json(
+    tmp_path: Path,
+) -> None:
+    toolchain = UniversalCtagsToolchain(
+        source_root=tmp_path / "ctags",
+        dependency_root=tmp_path / "jansson",
+        cache_root=tmp_path / "cache",
+    )
+
+    first = toolchain._cached_executable("ctags-a", "jansson-a")
+    different_ctags = toolchain._cached_executable("ctags-b", "jansson-a")
+    different_jansson = toolchain._cached_executable("ctags-a", "jansson-b")
+
+    assert first.name == "ctags"
+    assert first.parent.name == "bin"
+    assert first != different_ctags
+    assert first != different_jansson
