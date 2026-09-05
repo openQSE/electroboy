@@ -152,3 +152,46 @@ def test_candidate_service_preserves_semantic_fields_without_rewriting(
 
     assert stored["name"] == "Source Authored Name"
     assert stored["responsibility"] == "Exact AI-authored responsibility."
+
+
+def test_complete_discovery_replaces_the_previous_candidate_snapshot(
+    tmp_path: Path,
+) -> None:
+    source = _setup(tmp_path)
+    service = ComponentCandidateService(
+        tmp_path, resolver=FakeResolver(), source=source
+    )
+    old = _candidate(source.load().revision, name="old")
+    current = _candidate(source.load().revision, name="current")
+    service.ingest(json.dumps(old), attempt_id="old-discovery")
+
+    service.ingest(
+        json.dumps(current),
+        attempt_id="current-discovery",
+        replace_existing=True,
+    )
+
+    assert [item["candidate_id"] for item in service.load()] == [
+        "candidate-current"
+    ]
+
+
+def test_candidate_repair_merges_into_the_current_snapshot(tmp_path: Path) -> None:
+    source = _setup(tmp_path)
+    service = ComponentCandidateService(
+        tmp_path, resolver=FakeResolver(), source=source
+    )
+    current = _candidate(source.load().revision, name="current")
+    repaired = _candidate(source.load().revision, name="repaired")
+    service.ingest(
+        json.dumps(current),
+        attempt_id="current-discovery",
+        replace_existing=True,
+    )
+
+    service.ingest(json.dumps(repaired), attempt_id="repair")
+
+    assert [item["candidate_id"] for item in service.load()] == [
+        "candidate-current",
+        "candidate-repaired",
+    ]

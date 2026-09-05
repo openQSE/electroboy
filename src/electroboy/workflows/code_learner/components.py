@@ -62,7 +62,13 @@ class ComponentCandidateService:
         self.candidates_path = self.store.components_root / "candidates.jsonl"
         self.validation_root = self.store.components_root / "validation"
 
-    def ingest(self, text: str, *, attempt_id: str) -> CandidateValidationResult:
+    def ingest(
+        self,
+        text: str,
+        *,
+        attempt_id: str,
+        replace_existing: bool = False,
+    ) -> CandidateValidationResult:
         """Retain one raw attempt and atomically promote valid candidates."""
 
         attempt = str(attempt_id or "").strip()
@@ -100,8 +106,8 @@ class ComponentCandidateService:
                 candidate["validated_at"] = utc_now()
                 candidate["validation_attempt_id"] = attempt
                 accepted.append(candidate)
-        if accepted:
-            self._promote(accepted)
+        if accepted or replace_existing:
+            self._promote(accepted, replace_existing=replace_existing)
         result = CandidateValidationResult(
             attempt,
             tuple(accepted),
@@ -222,8 +228,13 @@ diagram, course, repository file, or ElectroBoy state file.
         end = int(reference.get("end_line") or reference.get("start_line") or 1)
         return [f"{prefix}.end_line: exceeds file length"] if end > line_count else []
 
-    def _promote(self, accepted: Sequence[Mapping[str, object]]) -> None:
-        current = {
+    def _promote(
+        self,
+        accepted: Sequence[Mapping[str, object]],
+        *,
+        replace_existing: bool = False,
+    ) -> None:
+        current = {} if replace_existing else {
             str(record.get("candidate_id") or ""): record for record in self.load()
         }
         for record in accepted:

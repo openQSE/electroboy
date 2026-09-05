@@ -493,7 +493,9 @@ class Phase3InitializationPipeline:
                 result.error or "component discovery returned no JSONL"
             )
         validation = self.candidates.ingest(
-            result.final_message, attempt_id=f"discovery-{run_id}"
+            result.final_message,
+            attempt_id=f"discovery-{run_id}",
+            replace_existing=True,
         )
         for rejected in validation.rejected:
             repaired = self._repair_candidate(runtime, rejected)
