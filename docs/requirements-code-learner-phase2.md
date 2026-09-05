@@ -1423,27 +1423,27 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 14: Module Course Generation
 
-160. [ ] Build a module knowledge-subgraph selector with direct relationship
+160. [x] Build a module knowledge-subgraph selector with direct relationship
     neighbors.
-161. [ ] Implement one scoped course invocation per module.
-162. [ ] Generate module purpose, interfaces, dependencies, internals, state,
+161. [x] Implement one scoped course invocation per module.
+162. [x] Generate module purpose, interfaces, dependencies, internals, state,
     flows, tests, changes, and risks.
-163. [ ] Generate dependency or component-style diagrams for sufficiently
+163. [x] Generate dependency or component-style diagrams for sufficiently
     connected modules.
-164. [ ] Allow every Mermaid diagram type supported by the installed renderer,
+164. [x] Allow every Mermaid diagram type supported by the installed renderer,
     select diagrams from module evidence, and support multiple complementary
     diagram types in one module course.
-165. [ ] Persist each module JSONL and Markdown independently.
-166. [ ] Isolate module generation failures.
-167. [ ] Track module generation completion in the knowledge manifest or course
+165. [x] Persist each module JSONL and Markdown independently.
+166. [x] Isolate module generation failures.
+167. [x] Track module generation completion in the knowledge manifest or course
     index.
-168. [ ] Link family modules, concrete implementations, shared infrastructure,
+168. [x] Link family modules, concrete implementations, shared infrastructure,
     and related functions.
-169. [ ] Support retrying one module without rebuilding Architecture or other
+169. [x] Support retrying one module without rebuilding Architecture or other
     modules.
-170. [ ] Test module completeness, cross-links, independent failures, and
+170. [x] Test module completeness, cross-links, independent failures, and
     retries.
-171. [ ] Commit Module course generation.
+171. [x] Commit Module course generation.
 
 ### Boundary 15: Layered Course Navigation
 

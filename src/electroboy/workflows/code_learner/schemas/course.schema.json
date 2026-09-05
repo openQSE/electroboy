@@ -20,10 +20,12 @@
     "course_mode": {"enum": ["architecture", "module", "function"]},
     "scope_id": {"type": "string", "minLength": 1},
     "status": {"type": "string", "minLength": 1},
+    "coverage_topics": {"$ref": "#/$defs/stringArray"},
     "parent_id": {"type": "string", "minLength": 1},
     "heading_level": {"type": "integer", "minimum": 1},
     "order": {"type": "integer", "minimum": 0},
     "body": {"type": "string", "minLength": 1},
+    "topic": {"type": "string", "minLength": 1},
     "detail_level": {"enum": ["architecture", "module", "function"]},
     "confidence": {
       "oneOf": [

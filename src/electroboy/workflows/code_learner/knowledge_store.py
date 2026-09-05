@@ -44,6 +44,7 @@ class KnowledgeStore:
         self.symbol_evidence_path = self.analysis_root / "symbol-evidence.jsonl"
         self.progress_path = self.state_root / "progress.jsonl"
         self.checkpoint_path = self.state_root / "checkpoint.json"
+        self.course_index_path = self.courses_root / "index.json"
         self.tutor_context_path = self.state_root / "tutor-context.json"
         self._lock = threading.RLock()
 
@@ -351,6 +352,44 @@ class KnowledgeStore:
                 _write_jsonl(path, records)
             changed.append(path)
         return changed
+
+    def load_course_index(self) -> dict[str, object]:
+        """Load per-scope generation states for independently built courses."""
+
+        if not self.course_index_path.is_file():
+            return {"schema_version": 1, "courses": {}}
+        try:
+            value = json.loads(self.course_index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise CodeLearnerError(f"could not load course index: {error}") from error
+        if not isinstance(value, dict) or not isinstance(value.get("courses"), dict):
+            raise CodeLearnerError("course index must contain a courses object")
+        return value
+
+    def record_course_status(
+        self,
+        mode: str,
+        scope_id: str,
+        status: str,
+        *,
+        path: str = "",
+        error: str = "",
+    ) -> None:
+        """Atomically update one course without disturbing sibling states."""
+
+        with self._lock:
+            index = self.load_course_index()
+            courses = index["courses"]
+            key = f"{mode.lower()}:{scope_id}"
+            courses[key] = {
+                "mode": mode.lower(),
+                "scope_id": scope_id,
+                "status": status,
+                "path": path,
+                "error": error,
+                "updated_at": utc_now(),
+            }
+            _write_json(self.course_index_path, index)
 
     def append_progress(self, record: Mapping[str, object]) -> None:
         payload = json.dumps(dict(record), sort_keys=True) + "\n"

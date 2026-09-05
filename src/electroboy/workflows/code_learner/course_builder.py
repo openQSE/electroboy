@@ -46,6 +46,14 @@ class CourseBuildResult:
     record_count: int
 
 
+@dataclass(frozen=True)
+class CourseBatchResult:
+    """Independent results from building a catalog of module courses."""
+
+    completed: tuple[CourseBuildResult, ...]
+    failed: Mapping[str, str]
+
+
 class RuntimeFactory(Protocol):
     def __call__(self, role: str, root: Path) -> AgentRuntime: ...
 
@@ -74,6 +82,96 @@ class KnowledgeSubgraphSelector:
             and record.get("status") != "deprecated"
         ]
         return CourseScope("architecture", "repository.root", tuple(selected))
+
+    def module(self, module_id: str) -> CourseScope:
+        records = self.store.load_knowledge()
+        by_id = {str(record["id"]): record for record in records}
+        module = by_id.get(module_id)
+        if not module or module.get("record_type") != "entity" or module.get(
+            "kind"
+        ) != "module":
+            raise CodeLearnerError(f"unknown module: {module_id}")
+        selected_ids = {"knowledge.manifest", module_id}
+        for record in records:
+            if record.get("record_type") == "entity" and record.get(
+                "parent_id"
+            ) == module_id:
+                selected_ids.add(str(record["id"]))
+        direct_relationships = [
+            record
+            for record in records
+            if record.get("record_type") == "relationship"
+            and (
+                record.get("from_id") in selected_ids
+                or record.get("to_id") in selected_ids
+            )
+        ]
+        for relationship in direct_relationships:
+            selected_ids.update(
+                {
+                    str(relationship["id"]),
+                    str(relationship["from_id"]),
+                    str(relationship["to_id"]),
+                }
+            )
+        attributes = module.get("attributes")
+        family_id = (
+            str(attributes.get("extension_family_id") or "")
+            if isinstance(attributes, dict)
+            else ""
+        )
+        if family_id and family_id in by_id:
+            selected_ids.add(family_id)
+            family_attributes = by_id[family_id].get("attributes")
+            if isinstance(family_attributes, dict):
+                selected_ids.update(
+                    str(item)
+                    for item in family_attributes.get("implementation_module_ids", [])
+                )
+        for record in records:
+            if record.get("record_type") == "runtime_flow" and set(
+                record.get("participant_ids", [])
+            ) & selected_ids:
+                selected_ids.add(str(record["id"]))
+            if record.get("record_type") == "diagnostic":
+                diagnostic_attributes = record.get("attributes")
+                related = (
+                    set(diagnostic_attributes.get("related_record_ids", []))
+                    if isinstance(diagnostic_attributes, dict)
+                    else set()
+                )
+                if related & selected_ids:
+                    selected_ids.add(str(record["id"]))
+        selected = [
+            record
+            for record in records
+            if record.get("id") in selected_ids and record.get("status") != "deprecated"
+        ]
+        return CourseScope("module", module_id, tuple(selected))
+
+    def module_ids(self) -> tuple[str, ...]:
+        records = self.store.load_knowledge()
+        manifest = next(
+            record
+            for record in records
+            if record.get("record_type") == "knowledge_manifest"
+        )
+        attributes = manifest.get("attributes")
+        catalog = (
+            attributes.get("module_catalog")
+            if isinstance(attributes, dict)
+            else None
+        )
+        if isinstance(catalog, dict) and isinstance(
+            catalog.get("major_module_ids"), list
+        ):
+            return tuple(str(item) for item in catalog["major_module_ids"])
+        return tuple(
+            str(record["id"])
+            for record in records
+            if record.get("record_type") == "entity"
+            and record.get("kind") == "module"
+        )
 
 
 def course_prompt(
@@ -137,16 +235,64 @@ class CourseBuilder:
         audience: str = "",
         progress_callback: ProgressCallback | None = None,
     ) -> CourseBuildResult:
+        return self._build_scope(
+            self.selector.architecture(),
+            audience=audience,
+            progress_callback=progress_callback,
+        )
+
+    def build_module(
+        self,
+        module_id: str,
+        *,
+        audience: str = "",
+        progress_callback: ProgressCallback | None = None,
+    ) -> CourseBuildResult:
+        return self._build_scope(
+            self.selector.module(module_id),
+            audience=audience,
+            progress_callback=progress_callback,
+        )
+
+    def build_all_modules(
+        self,
+        *,
+        audience: str = "",
+        progress_callback: ProgressCallback | None = None,
+    ) -> CourseBatchResult:
+        completed: list[CourseBuildResult] = []
+        failed: dict[str, str] = {}
+        for module_id in self.selector.module_ids():
+            try:
+                completed.append(
+                    self.build_module(
+                        module_id,
+                        audience=audience,
+                        progress_callback=progress_callback,
+                    )
+                )
+            except CodeLearnerError as error:
+                failed[module_id] = str(error)
+        return CourseBatchResult(tuple(completed), failed)
+
+    def _build_scope(
+        self,
+        scope: CourseScope,
+        *,
+        audience: str,
+        progress_callback: ProgressCallback | None,
+    ) -> CourseBuildResult:
         validate_packaged_skill("code-learner-course")
-        scope = self.selector.architecture()
         input_path = self._write_scope(scope)
         runtime = self.runtime_factory(COURSE_ROLE, self.root)
+        self.store.record_course_status(scope.mode, scope.scope_id, "generating")
         last_error = ""
         for attempt in range(1, self.max_attempts + 1):
             self._progress(
-                "architecture_course",
+                f"{scope.mode}_course",
                 94,
-                f"Generating Architecture course ({attempt}/{self.max_attempts}).",
+                f"Generating {scope.mode.title()} course for {scope.scope_id} "
+                f"({attempt}/{self.max_attempts}).",
                 progress_callback,
             )
             result = runtime.invoke(
@@ -175,10 +321,16 @@ class CourseBuilder:
                 self.root, scope.mode, scope.scope_id
             )
             self._progress(
-                "architecture_ready",
+                f"{scope.mode}_ready",
                 98,
-                "Architecture course validated and rendered.",
+                f"{scope.mode.title()} course validated and rendered.",
                 progress_callback,
+            )
+            self.store.record_course_status(
+                scope.mode,
+                scope.scope_id,
+                "ready",
+                path=jsonl_path.relative_to(self.root).as_posix(),
             )
             return CourseBuildResult(
                 mode=scope.mode,
@@ -187,10 +339,14 @@ class CourseBuilder:
                 markdown_path=rendered.markdown_path,
                 record_count=len(records),
             )
-        raise CodeLearnerError(
-            f"Architecture course generation failed after {self.max_attempts} "
-            f"attempts: {last_error}"
+        message = (
+            f"{scope.mode.title()} course generation failed after "
+            f"{self.max_attempts} attempts: {last_error}"
         )
+        self.store.record_course_status(
+            scope.mode, scope.scope_id, "failed", error=message
+        )
+        raise CodeLearnerError(message)
 
     def _accept_course(
         self, scope: CourseScope, result: AgentResult
@@ -218,6 +374,8 @@ class CourseBuilder:
         self._validate_identity(scope, validated)
         if scope.mode == "architecture":
             self._validate_architecture(scope, validated)
+        elif scope.mode == "module":
+            self._validate_module(scope, validated)
         return validated
 
     def _validate_identity(
@@ -329,6 +487,82 @@ class CourseBuilder:
                     + ", ".join(sorted(missing))
                 )
 
+    def _validate_module(
+        self, scope: CourseScope, records: list[dict[str, object]]
+    ) -> None:
+        document = next(
+            record for record in records if record.get("record_type") == "document"
+        )
+        sections = [
+            record for record in records if record.get("record_type") == "section"
+        ]
+        required_topics = {
+            "purpose",
+            "interfaces",
+            "dependencies",
+            "internals",
+            "state",
+            "flows",
+            "tests",
+            "changes",
+            "risks",
+        }
+        coverage = set(document.get("coverage_topics", []))
+        section_topics = {str(section.get("topic") or "") for section in sections}
+        if required_topics - coverage or required_topics - section_topics:
+            missing = (required_topics - coverage) | (required_topics - section_topics)
+            raise CodeLearnerError(
+                "Module course omits required topics: "
+                + ", ".join(sorted(missing))
+            )
+        if any(not section.get("source_refs") for section in sections):
+            raise CodeLearnerError("every Module section requires source references")
+        covered_entities = {
+            str(item)
+            for section in sections
+            for field in ("knowledge_entity_ids", "related_module_ids")
+            for item in section.get(field, [])
+        }
+        required_entities = {
+            str(record["id"])
+            for record in scope.records
+            if record.get("record_type") == "entity"
+            and record.get("kind")
+            in {"module", "extension-family", "implementation", "interface"}
+        }
+        if missing_entities := required_entities - covered_entities:
+            raise CodeLearnerError(
+                "Module course omits related entities: "
+                + ", ".join(sorted(missing_entities))
+            )
+        relationships = {
+            str(record["id"])
+            for record in scope.records
+            if record.get("record_type") == "relationship"
+        }
+        covered_relationships = {
+            str(item)
+            for section in sections
+            for item in section.get("relationship_ids", [])
+        }
+        if missing_relationships := relationships - covered_relationships:
+            raise CodeLearnerError(
+                "Module course omits direct relationships: "
+                + ", ".join(sorted(missing_relationships))
+            )
+        if len(relationships) >= 2:
+            diagrams = [
+                diagram
+                for section in sections
+                for diagram in section.get("diagrams", [])
+                if isinstance(diagram, dict)
+            ]
+            bodies = "\n".join(str(section.get("body") or "") for section in sections)
+            if not diagrams or not _mermaid_blocks(bodies):
+                raise CodeLearnerError(
+                    "connected Module course requires an evidence-grounded diagram"
+                )
+
     def _write_scope(self, scope: CourseScope) -> Path:
         path = (
             self.store.analysis_root
@@ -374,7 +608,7 @@ def _diagram_type(diagram: Mapping[str, object]) -> str:
 
 
 def _validate_mermaid_fences(markdown: str) -> None:
-    blocks = re.findall(r"```mermaid\s*\n(.*?)```", markdown, flags=re.DOTALL)
+    blocks = _mermaid_blocks(markdown)
     if len(blocks) < 2:
         raise CodeLearnerError(
             "Architecture course must contain component and sequence Mermaid fences"
@@ -386,6 +620,10 @@ def _validate_mermaid_fences(markdown: str) -> None:
         raise CodeLearnerError("Architecture component Mermaid syntax is missing")
     if not any(re.search(r"^\s*sequenceDiagram\b", block) for block in blocks):
         raise CodeLearnerError("Architecture sequence Mermaid syntax is missing")
+
+
+def _mermaid_blocks(markdown: str) -> list[str]:
+    return re.findall(r"```mermaid\s*\n(.*?)```", markdown, flags=re.DOTALL)
 
 
 def _safe_scope(scope_id: str) -> str:

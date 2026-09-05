@@ -418,6 +418,11 @@ def _render_course(records: list[dict[str, object]]) -> list[str]:
         _append_field(lines, "ID", _record_id(document))
         _append_field(lines, "Course Mode", _string(document.get("course_mode")))
         _append_field(lines, "Scope ID", _string(document.get("scope_id")))
+        _append_list_field(
+            lines,
+            "Coverage Topics",
+            _string_list(document.get("coverage_topics")),
+        )
         _append_field(
             lines, "Analysis Run ID", _string(document.get("analysis_run_id"))
         )
@@ -436,6 +441,7 @@ def _render_course(records: list[dict[str, object]]) -> list[str]:
         )
         _append_body(lines, record)
         _append_field(lines, "Detail Level", _string(record.get("detail_level")))
+        _append_field(lines, "Topic", _string(record.get("topic")))
         _append_field(lines, "Confidence", _string(record.get("confidence")))
         _append_field(
             lines,
@@ -998,6 +1004,7 @@ def _field_key(label: str) -> str:
         "consumer",
         "context",
         "course_mode",
+        "coverage_topics",
         "decision",
         "deep_dive_ids",
         "description",
@@ -1035,6 +1042,7 @@ def _field_key(label: str) -> str:
         "steps",
         "suite",
         "summary",
+        "topic",
         "verification",
     }
     if normalized in aliases:
@@ -1047,6 +1055,7 @@ def _list_field_keys() -> set[str]:
         "acceptance_criteria",
         "commit_tasks",
         "consequences",
+        "coverage_topics",
         "deep_dive_ids",
         "diagnostic_ids",
         "dependencies",
