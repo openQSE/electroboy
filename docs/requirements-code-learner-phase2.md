@@ -103,7 +103,9 @@ The skill must teach an AI agent how to:
   tradeoffs rather than presenting a folder tour
 - generate Markdown-capable JSONL sections compatible with ElectroBoy's
   existing structured-document rendering path
-- use Mermaid for required and optional diagrams
+- select from every Mermaid diagram type supported by ElectroBoy when that
+  diagram materially improves the explanation; diagram selection must not be
+  limited to a fixed Architecture, Module, or Function allowlist
 - connect every lesson section to knowledge entity IDs, relationship IDs,
   runtime-flow IDs, and source references
 - request targeted knowledge enrichment when required evidence is absent
@@ -559,7 +561,8 @@ records, suggested source locations, and whether course generation is blocked.
 |       |-- <symbol-id>.jsonl
 |       `-- <symbol-id>.md
 |-- progress.jsonl
-`-- checkpoint.json
+|-- checkpoint.json
+`-- tutor-context.json
 ```
 
 The final design may combine knowledge streams physically, but the logical
@@ -740,9 +743,25 @@ An extension family must have a family-level module and concrete module entries
 for meaningful implementations. Shared infrastructure should not replace
 implementation-specific coverage.
 
-Module courses should use Mermaid dependency, sequence, class, state, or data
-flow diagrams when useful. A module dependency diagram is required when the
-module has multiple important incoming or outgoing relationships.
+Module courses may use any Mermaid diagram type supported by ElectroBoy when
+it materially clarifies the selected module. Diagram selection must follow the
+module's actual structure and behavior rather than a fixed per-mode list. For
+example, a module may benefit from flowcharts, sequence diagrams, class
+diagrams, state diagrams, entity-relationship diagrams, mind maps, timelines,
+Git graphs, quadrant charts, requirement diagrams, C4 diagrams, Sankey
+diagrams, XY charts, block diagrams, packet diagrams, architecture diagrams,
+Kanban diagrams, or another Mermaid syntax supported by the installed
+renderer. This list is illustrative, not exhaustive, and unsupported or
+inapplicable diagram types must not be generated merely to increase diagram
+count.
+
+A module may contain multiple diagram types when they answer different
+questions. A module dependency or component-style diagram is required when
+the module has multiple important incoming or outgoing relationships. A
+sequence or flow diagram should be added when ordered runtime behavior is
+central to understanding the module. State, class, entity-relationship, data,
+deployment, protocol, and other specialized diagrams should be selected when
+the corresponding knowledge exists.
 
 ### Function Course Requirements
 
@@ -793,6 +812,13 @@ The UI must distinguish `resolving`, `analyzing`, `building course`,
 
 - Mermaid source must be stored inside fenced `mermaid` blocks in Markdown
   body fields.
+- Every Mermaid diagram type supported by the installed renderer is eligible
+  for Architecture, Module, or Function material when it is useful and can be
+  grounded in the knowledge model.
+- Diagram-type policy must be capability-driven rather than encoded as a
+  closed per-course-mode allowlist.
+- The course artifact should record the selected diagram type and the
+  knowledge question it is intended to answer.
 - The existing structured-document Markdown renderer and file-pane Mermaid
   renderer must be reused.
 - Generated Mermaid must be syntax-validated before course activation when a
@@ -810,21 +836,116 @@ The UI must distinguish `resolving`, `analyzing`, `building course`,
 ## Contextual Tutor Requirements
 
 The shared workspace Agent Input remains the only learner question composer.
-Code Learner must enrich each submitted question with:
+ElectroBoy must not prepend or append a large serialized learner-context prompt
+to every submitted question. The user's question should be sent to the active
+tutor session as written, apart from minimal transport metadata required by the
+AI runtime.
 
-- current course and section IDs
-- current horizontal and vertical position
-- selected knowledge entities and relationships
-- active module or function scope
-- visible source and selected source range
-- related runtime flow
-- source revision and stale status
-- recent Q&A context
+### Tutor Session Bootstrap
 
-The tutor should use the durable knowledge model before performing broad source
-inspection. If the answer reveals new durable knowledge, it may propose an
-enrichment request, but ordinary Q&A must not silently mutate the knowledge
-model.
+When a tutor session is created, ElectroBoy gives it one stable bootstrap
+instruction. That instruction identifies the repository root and the relative
+path `.electroboy/code-learner/tutor-context.json`, and requires the tutor to:
+
+1. read the context file before answering every learner question
+2. treat its current version as authoritative for the learner's location
+3. follow referenced course, knowledge, and source artifacts only as needed
+4. avoid relying on an older course position retained in conversation history
+5. report a missing, unreadable, incompatible, or stale context file instead
+   of silently guessing the user's location
+
+The bootstrap instruction is sent once when the tutor session starts. It must
+not contain the complete course, knowledge subgraph, or source excerpt. An AI
+runtime used for contextual tutoring must provide repository-scoped file-read
+capability or an equivalent tool that resolves the same context-file contract.
+
+### Tutor Context File
+
+`tutor-context.json` is a small, mutable context pointer. It is not a transcript
+and must not duplicate the full lesson or knowledge graph. ElectroBoy owns and
+atomically rewrites it whenever the learner changes course, section, layer,
+module, function, source selection, or repository revision.
+
+The canonical schema must include:
+
+- schema and monotonically increasing context versions
+- project and repository identity
+- repository revision and stale status
+- current course document, mode, scope, and section IDs
+- horizontal position and vertical navigation path
+- selected knowledge entity, relationship, and runtime-flow IDs
+- active module or symbol ID
+- visible source path and selected line range when present
+- repository-relative paths to the active course artifact and knowledge root
+- update timestamp and writer/session identity for diagnostics
+
+Example:
+
+```json
+{
+  "schema_version": 1,
+  "context_version": 42,
+  "project_id": "project-id",
+  "repository_revision": "revision",
+  "stale": false,
+  "course": {
+    "document_id": "course.module.storage",
+    "mode": "module",
+    "scope_id": "module.storage",
+    "section_id": "module.storage.write-path",
+    "horizontal_index": 4,
+    "vertical_path": [
+      "course.architecture",
+      "course.module.storage"
+    ]
+  },
+  "selection": {
+    "module_id": "module.storage",
+    "symbol_id": null,
+    "knowledge_entity_ids": ["module.storage"],
+    "relationship_ids": ["relationship.api-calls-storage"],
+    "runtime_flow_ids": ["flow.request-processing"]
+  },
+  "source": {
+    "path": "src/storage.ext",
+    "start_line": 10,
+    "end_line": 30
+  },
+  "artifacts": {
+    "course": ".electroboy/code-learner/courses/modules/module.storage.jsonl",
+    "knowledge_root": ".electroboy/code-learner/knowledge"
+  },
+  "updated_at": "2026-09-04T12:00:00Z",
+  "writer_id": "electroboy-session-id"
+}
+```
+
+All paths in the file must be repository-relative and validated against the
+attached project root. Optional selections must use explicit `null` or empty
+collections so the tutor can distinguish an absent selection from a malformed
+file.
+
+### Question-Time Behavior
+
+Before ElectroBoy enables question submission after a navigation change, it
+must atomically persist the new context version. The tutor then reads the
+context file at question time and loads the smallest useful evidence set:
+
+- the current course section and nearby course structure
+- directly referenced knowledge entities, relationships, and runtime flows
+- visible or selected source only when needed to answer the question
+- additional repository evidence only when the referenced material is
+  insufficient
+
+Conversation history remains available for conversational continuity, but it
+must not override the current file-backed navigation context. Repeated
+questions at the same location reuse the same context file without resending
+its contents. Navigation changes update the file without restarting the tutor
+session.
+
+If the answer reveals new durable knowledge, the tutor may propose a structured
+enrichment request. Ordinary Q&A must not silently mutate the knowledge model,
+course artifacts, or tutor context file.
 
 ## Persistence, Revision, And Invalidation
 
@@ -925,6 +1046,10 @@ their writes and progress records are isolated.
   relationships are available.
 - `CL2-CR-13` All course claims and diagrams remain linked to knowledge and
   source evidence.
+- `CL2-CR-14` Module courses may use any Mermaid diagram type supported by the
+  installed renderer when the diagram is evidence-grounded and useful.
+- `CL2-CR-15` Diagram selection is not restricted by a closed per-mode
+  allowlist, and multiple diagram types may appear in one module course.
 
 ### Function Fallback
 
@@ -954,6 +1079,14 @@ their writes and progress records are isolated.
   composer.
 - `CL2-UI-7` Progress distinguishes analysis, delivery, validation, course
   construction, rendering, and readiness.
+- `CL2-UI-8` ElectroBoy atomically maintains a compact, canonical
+  `.electroboy/code-learner/tutor-context.json` file.
+- `CL2-UI-9` Tutor sessions receive one bootstrap instruction requiring them
+  to read the current context file before every answer.
+- `CL2-UI-10` ElectroBoy does not serialize and inject the full learner context
+  into each user question.
+- `CL2-UI-11` Contextual tutoring is enabled only when the AI runtime can read
+  the repository-scoped context file or access an equivalent context tool.
 
 ## Quality Requirements
 
@@ -1006,6 +1139,9 @@ their writes and progress records are isolated.
   diagrams can be generated and rendered when selected by the course author.
 - A Module course includes incoming and outgoing relationships, important
   flows, state, tests, and deeper symbol links.
+- A Module course can select any evidence-grounded Mermaid diagram type
+  supported by the installed renderer, including more than one type when the
+  diagrams explain different aspects of the module.
 - Architecture-to-Module deep dive and return navigation preserve the prior
   horizontal position.
 - Selecting an indexed symbol without a Function lesson starts targeted
@@ -1023,8 +1159,11 @@ their writes and progress records are isolated.
   replaying completed repository analysis.
 - Progress remains below 100 percent until validation, persistence, rendering,
   and activation complete.
-- The shared Agent Input answers a question using the current course layer,
-  section, source range, and knowledge context.
+- A tutor session receives its context-file bootstrap only once, reads the
+  current context file before each answer, and answers through the shared Agent
+  Input without full context being injected into each question.
+- Moving to another course section atomically updates the context file, and the
+  next answer uses the new section without restarting the tutor session.
 
 ## Detailed Implementation Checklist
 
@@ -1060,7 +1199,8 @@ boundary so later work can be reviewed or reverted independently.
 14. [ ] Define relationship kinds and the relationship schema.
 15. [ ] Define runtime-flow and ordered-step schemas.
 16. [ ] Define diagnostic, exclusion, coverage, and knowledge-request schemas.
-17. [ ] Define course document and section schema extensions.
+17. [ ] Define course document, section, diagram-metadata, and compact tutor
+    context schemas.
 18. [ ] Define horizontal and vertical course-link fields.
 19. [ ] Define schema-version compatibility and migration behavior.
 20. [ ] Implement deterministic schema loading and validation.
@@ -1100,7 +1240,8 @@ boundary so later work can be reviewed or reverted independently.
 42. [ ] Add Module course guidance.
 43. [ ] Add Function course guidance.
 44. [ ] Add layered horizontal and vertical navigation guidance.
-45. [ ] Add Mermaid selection, syntax, labeling, and evidence guidance.
+45. [ ] Add capability-driven Mermaid selection, syntax, labeling, and evidence
+    guidance without a closed per-mode diagram allowlist.
 46. [ ] Require component and sequence diagrams for Architecture.
 47. [ ] Require call graphs for Function courses when call evidence exists.
 48. [ ] Add knowledge-request behavior for insufficient evidence.
@@ -1280,9 +1421,11 @@ boundary so later work can be reviewed or reverted independently.
 161. [ ] Implement one scoped course invocation per module.
 162. [ ] Generate module purpose, interfaces, dependencies, internals, state,
     flows, tests, changes, and risks.
-163. [ ] Generate required dependency diagrams for sufficiently connected
-    modules.
-164. [ ] Generate other useful Mermaid diagrams from module evidence.
+163. [ ] Generate dependency or component-style diagrams for sufficiently
+    connected modules.
+164. [ ] Allow every Mermaid diagram type supported by the installed renderer,
+    select diagrams from module evidence, and support multiple complementary
+    diagram types in one module course.
 165. [ ] Persist each module JSONL and Markdown independently.
 166. [ ] Isolate module generation failures.
 167. [ ] Track module generation completion in the knowledge manifest or course
@@ -1338,19 +1481,27 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 17: Contextual Tutor Integration
 
-200. [ ] Extend learner context with knowledge, relationship, flow, course
-    layer, and section IDs.
+200. [ ] Implement the canonical compact tutor-context schema with project,
+    revision, course, navigation, knowledge, source, artifact, and version
+    fields.
 201. [ ] Keep the shared workspace Agent Input as the only question composer.
-202. [ ] Retrieve the smallest relevant knowledge neighborhood for each
-    question.
-203. [ ] Include visible and selected source context with revision status.
-204. [ ] Preserve conversation continuity across horizontal navigation.
-205. [ ] Update context before questions after vertical navigation.
-206. [ ] Prevent ordinary Q&A from silently modifying durable knowledge.
-207. [ ] Allow the tutor to propose a structured enrichment request.
-208. [ ] Test context updates, stale knowledge, deep-dive transitions, and
-    source selections.
-209. [ ] Commit knowledge-aware tutor integration.
+202. [ ] Add an atomic context-file writer with monotonically increasing
+    versions and repository-relative path validation.
+203. [ ] Update the context file for course, section, layer, module, function,
+    source-selection, and repository-revision changes.
+204. [ ] Define the one-time tutor bootstrap instruction requiring a context
+    file read before every answer.
+205. [ ] Add an AI-runtime capability check for repository-scoped context-file
+    reads or an equivalent context tool.
+206. [ ] Send user questions without serialized course or knowledge context
+    while preserving ordinary conversation history.
+207. [ ] Make the tutor resolve only the referenced course section, knowledge
+    neighborhood, and source evidence needed for the answer.
+208. [ ] Handle missing, malformed, stale, incompatible, and concurrently
+    updated context files without guessing the learner's location.
+209. [ ] Prevent ordinary Q&A from mutating durable state, allow structured
+    enrichment proposals, test navigation races and session reuse, and commit
+    file-backed tutor integration.
 
 ### Boundary 18: Progress, Recovery, And Invalidation
 
