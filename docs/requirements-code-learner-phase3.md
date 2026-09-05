@@ -1832,26 +1832,26 @@ Boundary 1 validation notes:
 
 ### Boundary 3: Source File Manifest
 
-33. [ ] Introduce a source-manifest service independent from the Phase 2
+33. [x] Introduce a source-manifest service independent from the Phase 2
     knowledge store.
-34. [ ] Enumerate tracked files for Git repositories.
-35. [ ] Support deterministic enumeration for non-Git source roots.
-36. [ ] Include modified tracked content in the repository revision signature.
-37. [ ] Normalize all manifest paths relative to the selected source root.
-38. [ ] Reject paths that escape the source root.
-39. [ ] Record file content hashes and sizes.
-40. [ ] Record symlink and executable metadata where relevant.
-41. [ ] Define explicit policy for ignored, generated, vendored, and untracked
+34. [x] Enumerate tracked files for Git repositories.
+35. [x] Support deterministic enumeration for non-Git source roots.
+36. [x] Include modified tracked content in the repository revision signature.
+37. [x] Normalize all manifest paths relative to the selected source root.
+38. [x] Reject paths that escape the source root.
+39. [x] Record file content hashes and sizes.
+40. [x] Record symlink and executable metadata where relevant.
+41. [x] Define explicit policy for ignored, generated, vendored, and untracked
     files.
-42. [ ] Represent nested repositories and submodules without flattening their
+42. [x] Represent nested repositories and submodules without flattening their
     revisions.
-43. [ ] Add language classification as non-semantic metadata.
-44. [ ] Write file records and source-manifest metadata atomically.
-45. [ ] Add query operations by file ID, normalized path, language, and status.
-46. [ ] Test clean, dirty, non-Git, symlink, submodule, generated, and mixed
+43. [x] Add language classification as non-semantic metadata.
+44. [x] Write file records and source-manifest metadata atomically.
+45. [x] Add query operations by file ID, normalized path, language, and status.
+46. [x] Test clean, dirty, non-Git, symlink, submodule, generated, and mixed
     language fixtures.
-47. [ ] Test repeat generation produces identical records at the same revision.
-48. [ ] Commit deterministic source file manifest support.
+47. [x] Test repeat generation produces identical records at the same revision.
+48. [x] Commit deterministic source file manifest support.
 
 ### Boundary 4: Universal Ctags Evidence And Symbol Resolution
 
