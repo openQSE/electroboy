@@ -6,6 +6,8 @@
   let eventSource = null;
   let paneSync = null;
   let latestProgressState = { entries: [] };
+  let backgroundTaskId = "";
+  let backgroundActivityIds = new Set();
 
   function initializeProgressTerminal(runtime) {
     if (terminal || !window.Terminal) {
@@ -43,11 +45,17 @@
     output.scrollTop = output.scrollHeight;
   }
 
-  function clearProgressOutput(runtime) {
+  function resetProgressOutput(runtime) {
     if (runtime.terminals.reset(terminal)) {
       return;
     }
     runtime.elements.progressOutput.replaceChildren();
+  }
+
+  function clearProgressOutput(runtime) {
+    backgroundTaskId = "";
+    backgroundActivityIds = new Set();
+    resetProgressOutput(runtime);
   }
 
   function renderProgressState(runtime, state, publish = false) {
@@ -61,7 +69,7 @@
         className: entry.className || "",
       })),
     };
-    clearProgressOutput(runtime);
+    resetProgressOutput(runtime);
     latestProgressState.entries.forEach((entry) => {
       appendProgressOutput(runtime, entry.text, entry.className);
     });
@@ -70,8 +78,75 @@
     }
   }
 
+  function backgroundActivityEntry(activity) {
+    const timestamp = String(activity.timestamp || "");
+    const time = timestamp.includes("T")
+      ? timestamp.split("T")[1].replace(/Z$/, "").split(".")[0]
+      : "";
+    const prefix = time ? `${time}  ` : "";
+    return {
+      text: `${prefix}${String(activity.text || "")}\r\n`,
+      className: activity.type === "error" ? "error" : "",
+    };
+  }
+
+  function renderBackgroundTask(runtime, task) {
+    if (!task || !task.job_id) {
+      return;
+    }
+    initializeProgressTerminal(runtime);
+    const taskId = String(task.job_id);
+    const activities = Array.isArray(task.activities) ? task.activities : [];
+    if (backgroundTaskId !== taskId) {
+      backgroundTaskId = taskId;
+      backgroundActivityIds = new Set();
+      const entries = [{
+        text: `Corkboard generation: ${String(task.title || "Untitled")}\r\n`,
+        className: "system",
+      }];
+      activities.forEach((activity) => {
+        backgroundActivityIds.add(String(activity.id || ""));
+        entries.push(backgroundActivityEntry(activity));
+      });
+      renderProgressState(runtime, { entries }, true);
+      return;
+    }
+    const additions = [];
+    activities.forEach((activity) => {
+      const activityId = String(activity.id || "");
+      if (!activityId || backgroundActivityIds.has(activityId)) {
+        return;
+      }
+      backgroundActivityIds.add(activityId);
+      additions.push(backgroundActivityEntry(activity));
+    });
+    if (!additions.length) {
+      return;
+    }
+    latestProgressState = {
+      entries: [...latestProgressState.entries, ...additions],
+    };
+    additions.forEach((entry) => {
+      appendProgressOutput(runtime, entry.text, entry.className);
+    });
+    if (paneSync) {
+      paneSync.publish(latestProgressState);
+    }
+  }
+
+  function clearBackgroundTask(runtime, taskId) {
+    if (!backgroundTaskId || backgroundTaskId !== String(taskId || "")) {
+      return;
+    }
+    clearProgressOutput(runtime);
+    latestProgressState = { entries: [] };
+    if (paneSync) paneSync.publish(latestProgressState);
+  }
+
   function connectProgressEvents(runtime, options = {}) {
     closeProgressEventStream();
+    backgroundTaskId = "";
+    backgroundActivityIds = new Set();
     runtime.layout.showProgressPane(true, options);
     eventSource = runtime.http.eventSource("/api/progress/events");
     eventSource.addEventListener("progress-event", (event) => {
@@ -142,6 +217,8 @@
       exportProgressLog,
       appendProgressOutput,
       clearProgressOutput,
+      renderBackgroundTask,
+      clearBackgroundTask,
       connectProgressEvents,
       closeProgressEventStream: () => closeProgressEventStream(),
       terminal: () => terminal,

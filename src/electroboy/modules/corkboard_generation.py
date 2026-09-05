@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from electroboy.service.services import ServiceServices
 from electroboy.state_store import StateError
 
 MAX_GENERATED_CARDS = 75
+GENERATION_ACTIVITY_INTERVAL_SECONDS = 5.0
 IGNORED_PARTS = frozenset(
     {".electroboy", ".git", ".hg", ".svn", "__pycache__", "node_modules"}
 )
@@ -452,6 +454,8 @@ class CorkboardGenerationJob:
     updated_at: str = field(default_factory=_utc_now)
     result: dict[str, object] | None = None
     error: str = ""
+    activities: list[dict[str, object]] = field(default_factory=list)
+    activity_sequence: int = 0
 
     def payload(self) -> dict[str, object]:
         return {
@@ -469,6 +473,7 @@ class CorkboardGenerationJob:
             "updated_at": self.updated_at,
             "result": dict(self.result) if self.result else None,
             "error": self.error,
+            "activities": [dict(activity) for activity in self.activities],
         }
 
 
@@ -485,8 +490,10 @@ class CorkboardGenerationManager:
     def __init__(
         self,
         runtime_factory: RuntimeFactory = _default_runtime_factory,
+        activity_interval: float = GENERATION_ACTIVITY_INTERVAL_SECONDS,
     ) -> None:
         self.runtime_factory = runtime_factory
+        self.activity_interval = max(0.01, float(activity_interval))
         self.lock = threading.RLock()
         self.jobs: dict[str, CorkboardGenerationJob] = {}
 
@@ -556,6 +563,7 @@ class CorkboardGenerationManager:
             ):
                 raise StateError("a corkboard generation is already running")
             self.jobs[job.id] = job
+            self._record_activity_locked(job, "Queued corkboard generation.")
             self._trim_jobs()
         thread = threading.Thread(
             target=self._run,
@@ -581,11 +589,93 @@ class CorkboardGenerationManager:
                 raise StateError("corkboard generation job was not found")
             return job.payload()
 
-    def _update(self, job: CorkboardGenerationJob, **values: object) -> None:
+    def latest(self, context_id: str) -> dict[str, object] | None:
+        """Return the newest retained job for one workspace context."""
+
         with self.lock:
+            matches = [
+                job for job in self.jobs.values() if job.context_id == context_id
+            ]
+            if not matches:
+                return None
+            return matches[-1].payload()
+
+    @staticmethod
+    def _activity_text(value: object) -> str:
+        return " ".join(str(value or "").split())[:240]
+
+    def _record_activity_locked(
+        self,
+        job: CorkboardGenerationJob,
+        text: object,
+        *,
+        event_type: str = "status",
+    ) -> None:
+        message = self._activity_text(text)
+        if not message:
+            return
+        job.activity_sequence += 1
+        job.activities.append(
+            {
+                "id": job.activity_sequence,
+                "timestamp": _utc_now(),
+                "text": message,
+                "type": event_type,
+            }
+        )
+        if len(job.activities) > 200:
+            del job.activities[: len(job.activities) - 200]
+        job.updated_at = _utc_now()
+
+    def _record_activity(
+        self,
+        job: CorkboardGenerationJob,
+        text: object,
+        *,
+        event_type: str = "status",
+    ) -> None:
+        with self.lock:
+            self._record_activity_locked(job, text, event_type=event_type)
+
+    def _update(
+        self,
+        job: CorkboardGenerationJob,
+        *,
+        activity: str = "",
+        activity_type: str = "status",
+        **values: object,
+    ) -> None:
+        with self.lock:
+            previous_step = job.step
             for key, value in values.items():
                 setattr(job, key, value)
             job.updated_at = _utc_now()
+            next_step = str(values.get("step") or "")
+            message = activity or (
+                next_step if next_step and next_step != previous_step else ""
+            )
+            if message:
+                self._record_activity_locked(
+                    job,
+                    message,
+                    event_type=activity_type,
+                )
+
+    def _analysis_heartbeat(
+        self,
+        job: CorkboardGenerationJob,
+        stopped: threading.Event,
+    ) -> None:
+        started = time.monotonic()
+        while not stopped.wait(self.activity_interval):
+            with self.lock:
+                if job.status != "running" or job.step != "Analyzing source":
+                    return
+            elapsed = max(5, int(time.monotonic() - started))
+            self._record_activity(
+                job,
+                f"AI is analyzing the source ({elapsed} seconds elapsed).",
+            )
 
     def _run(
         self,
@@ -598,42 +688,74 @@ class CorkboardGenerationManager:
         connection_id: str,
     ) -> None:
         try:
-            self._update(job, status="running", step="Analyzing source", progress=25)
-            runtime = self.runtime_factory("corkboard_generation", root)
-            result = runtime.invoke(
-                AgentInvocation(
-                    role="corkboard_generation",
-                    prompt=_prompt(
-                        job.workflow_id,
-                        job.scope,
-                        pass_definition,
-                        manifest,
-                    ),
-                    context_paths=(
-                        [str(root / job.scope["path"])]
-                        if job.scope["type"] == "file"
-                        else [str(root)]
-                    ),
-                )
+            self._update(
+                job,
+                status="running",
+                step="Analyzing source",
+                progress=25,
+                activity="AI is analyzing the source.",
             )
+            runtime = self.runtime_factory("corkboard_generation", root)
+            heartbeat_stopped = threading.Event()
+            heartbeat = threading.Thread(
+                target=self._analysis_heartbeat,
+                args=(job, heartbeat_stopped),
+                name=f"corkboard-generation-heartbeat-{job.id[:8]}",
+                daemon=True,
+            )
+            heartbeat.start()
+            try:
+                result = runtime.invoke(
+                    AgentInvocation(
+                        role="corkboard_generation",
+                        prompt=_prompt(
+                            job.workflow_id,
+                            job.scope,
+                            pass_definition,
+                            manifest,
+                        ),
+                        context_paths=(
+                            [str(root / job.scope["path"])]
+                            if job.scope["type"] == "file"
+                            else [str(root)]
+                        ),
+                    )
+                )
+            finally:
+                heartbeat_stopped.set()
             if not result.ok:
                 raise StateError(
                     result.error or result.final_message or "corkboard agent failed"
                 )
-            self._update(job, step="Validating plan", progress=70)
+            self._update(
+                job,
+                step="Validating plan",
+                progress=70,
+                activity="Validating the generated corkboard plan.",
+            )
             plan = _json_plan(result)
             cards, connectors = normalize_generation_plan(
                 root,
                 plan,
                 default_source=job.scope.get("path", ""),
             )
-            self._update(job, step="Laying out cards", progress=82)
+            self._update(
+                job,
+                step="Laying out cards",
+                progress=82,
+                activity="Laying out cards and causal connections.",
+            )
             current_root = services.contexts.active_project_root(
                 job.context_id
             ).resolve()
             if current_root != root:
                 raise StateError("active project changed during corkboard generation")
-            self._update(job, step="Saving corkboard", progress=92)
+            self._update(
+                job,
+                step="Saving corkboard",
+                progress=92,
+                activity="Saving the generated corkboard.",
+            )
             created = provider.create_generated_board(
                 job.context_id,
                 job.board_id,
@@ -647,6 +769,12 @@ class CorkboardGenerationManager:
                 status="complete",
                 step="Complete",
                 progress=100,
+                activity=(
+                    f"Created {len(cards)} card"
+                    f"{'s' if len(cards) != 1 else ''} and "
+                    f"{len(connectors)} connection"
+                    f"{'s' if len(connectors) != 1 else ''}."
+                ),
                 result={
                     **created,
                     "card_count": len(cards),
@@ -660,6 +788,8 @@ class CorkboardGenerationManager:
                 step="Failed",
                 progress=100,
                 error=str(error),
+                activity=f"Corkboard generation failed: {error}",
+                activity_type="error",
             )
 
     def _trim_jobs(self) -> None:

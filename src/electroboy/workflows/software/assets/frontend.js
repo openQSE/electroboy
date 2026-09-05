@@ -426,7 +426,7 @@
       });
     }
     if (stageId === "corkboard") {
-      return [
+      const actions = [
         {
           label: "Open",
           title: "Open an existing project corkboard.",
@@ -453,6 +453,9 @@
           run: deleteProjectCorkboards,
         },
       ];
+      const task = runtime.modules.invoke("corkboard", "generationTask");
+      if (task) actions.splice(3, 0, { task });
+      return actions;
     }
     if (stageId === "mind-map") {
       return [

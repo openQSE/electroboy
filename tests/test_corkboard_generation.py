@@ -35,12 +35,15 @@ class FakeContexts:
 
 
 class FakeRuntime:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: dict[str, object], delay: float = 0.0) -> None:
         self.payload = payload
+        self.delay = delay
         self.invocation: AgentInvocation | None = None
 
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         self.invocation = invocation
+        if self.delay:
+            time.sleep(self.delay)
         return AgentResult(
             ok=True,
             final_message="",
@@ -294,6 +297,49 @@ class CorkboardGenerationTests(unittest.TestCase):
         self.assertEqual(status["status"], "complete")
         self.assertIn("- story.md", runtime.invocation.prompt)
         self.assertNotIn("private.md", runtime.invocation.prompt)
+
+    def test_generation_reports_new_steps_and_periodic_ai_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "story.md").write_text("# Story\n", encoding="utf-8")
+            runtime = FakeRuntime(
+                {"cards": [{"id": "opening", "title": "Opening"}]},
+                delay=0.07,
+            )
+            manager = CorkboardGenerationManager(
+                runtime_factory=lambda role, project_root: runtime,
+                activity_interval=0.02,
+            )
+            dependency = object()
+            services = ServiceServices(
+                contexts=FakeContexts(root),
+                workspaces=dependency,
+                sessions=dependency,
+                files=dependency,
+                workflows=dependency,
+            )
+            started = manager.start(
+                services,
+                FakeProvider(),
+                "context-1",
+                {"scope": {"type": "project"}, "pass": "story-scenes"},
+            )
+            deadline = time.monotonic() + 2
+            status = manager.get("context-1", str(started["job_id"]))
+            while status["status"] in {"queued", "running"}:
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+                status = manager.get("context-1", str(started["job_id"]))
+
+        activities = status["activities"]
+        analysis_lines = [
+            entry for entry in activities if "AI is analyzing" in entry["text"]
+        ]
+        self.assertGreaterEqual(len(analysis_lines), 2)
+        self.assertTrue(any("Validating" in entry["text"] for entry in activities))
+        self.assertTrue(any("Laying out" in entry["text"] for entry in activities))
+        self.assertTrue(any("Created 1 card" in entry["text"] for entry in activities))
+        self.assertEqual(manager.latest("context-1")["job_id"], started["job_id"])
 
     def test_generated_board_write_is_atomic_and_does_not_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

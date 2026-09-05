@@ -185,12 +185,14 @@ def _start_generation(request: RouteRequest) -> ServiceResponse:
 def _generation_status(request: RouteRequest) -> ServiceResponse:
     try:
         job_id = str((request.params.get("job_id") or [""])[0]).strip()
-        if not job_id:
-            raise StateError("corkboard generation job id is required")
-        job = GENERATION_MANAGER.get(request.context_id, job_id)
+        job = (
+            GENERATION_MANAGER.get(request.context_id, job_id)
+            if job_id
+            else GENERATION_MANAGER.latest(request.context_id)
+        )
     except Exception as error:
         return conflict(error)
-    return JsonResponse(job)
+    return JsonResponse(job or {"status": "idle", "job_id": ""})
 
 
 _HANDLERS = {

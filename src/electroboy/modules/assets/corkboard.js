@@ -1,6 +1,14 @@
 (function () {
   "use strict";
 
+  let generationJob = null;
+  let generationPollTimer = 0;
+  let generationPollOptions = {};
+  let generationRuntime = null;
+  let generationContextId = "";
+  let publishedGenerationSignature = "";
+  let completedGenerationJobId = "";
+
   function contextUrl(runtime, path) {
     return runtime.http.contextUrl(path);
   }
@@ -388,10 +396,6 @@
           <input class="ad-hoc-session-uuid corkboard-generation-title"
                  maxlength="200" autocomplete="off"
                  placeholder="Use the suggested name"></label>
-        <section class="corkboard-generation-progress" hidden>
-          <progress max="100" value="0"></progress>
-          <p class="ad-hoc-session-details corkboard-generation-step"></p>
-        </section>
         <p class="ad-hoc-session-error corkboard-generation-error" hidden></p>
         <footer class="ad-hoc-session-footer">
           <button class="corkboard-generation-cancel" type="button">Cancel</button>
@@ -423,21 +427,164 @@
       : "Source: Entire active project";
   }
 
-  function generationDelay(milliseconds) {
-    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-  }
-
-  async function generationStatus(runtime, jobId) {
-    const parameters = new URLSearchParams({ job_id: jobId });
+  async function generationStatus(runtime, jobId = "") {
+    const parameters = new URLSearchParams();
+    if (jobId) parameters.set("job_id", jobId);
+    const query = parameters.toString();
     const response = await fetch(contextUrl(
       runtime,
-      `/api/corkboard-generation?${parameters.toString()}`,
+      `/api/corkboard-generation${query ? `?${query}` : ""}`,
     ), { cache: "no-store" });
     const payload = await response.json().catch(() => ({
       error: "generation status failed",
     }));
     if (!response.ok) throw new Error(payload.error || "generation status failed");
     return payload;
+  }
+
+  function generationTask(job = generationJob) {
+    if (!job || !job.job_id) return null;
+    return {
+      id: String(job.job_id),
+      label: String(job.title || "Corkboard generation"),
+      detail: String(job.step || job.status || "Generating…"),
+      progress: Math.max(0, Math.min(100, Number(job.progress || 0))),
+      status: String(job.status || "queued"),
+    };
+  }
+
+  function publishGenerationJob(runtime, job, force = false) {
+    if (!job || !job.job_id) return;
+    generationJob = job;
+    const signature = [job.job_id, job.status, job.progress, job.updated_at].join(":");
+    if (!force && signature === publishedGenerationSignature) return;
+    publishedGenerationSignature = signature;
+    runtime.modules.invoke("progress", "renderBackgroundTask", job);
+    window.dispatchEvent(new CustomEvent(
+      "electroboy-corkboard-generation-progress",
+      { detail: job },
+    ));
+    runtime.ui.refreshStageActionPanel();
+  }
+
+  function finishGeneratedBoard(runtime, job, options = {}) {
+    if (
+      job.status !== "complete" ||
+      !job.result ||
+      completedGenerationJobId === String(job.job_id)
+    ) {
+      return;
+    }
+    completedGenerationJobId = String(job.job_id);
+    const generated = {
+      ...job.result,
+      board_id: job.result.board_id || job.board_id,
+      provider: job.result.provider || job.provider,
+      title: job.result.title || job.title,
+    };
+    if (options.show !== false) {
+      show(runtime, generated, { ...options, freeform: true });
+    }
+    window.postMessage({
+      type: "electroboy-corkboard-generated",
+      board: generated,
+    }, window.location.origin);
+  }
+
+  function stopGenerationMonitor() {
+    if (generationPollTimer) {
+      window.clearTimeout(generationPollTimer);
+      generationPollTimer = 0;
+    }
+  }
+
+  async function pollGeneration() {
+    generationPollTimer = 0;
+    if (!generationRuntime || !generationJob?.job_id) return;
+    const contextId = generationContextId;
+    const jobId = String(generationJob.job_id);
+    try {
+      const job = await generationStatus(generationRuntime, jobId);
+      if (
+        generationContextId !== contextId ||
+        String(generationJob?.job_id || "") !== jobId
+      ) {
+        return;
+      }
+      publishGenerationJob(generationRuntime, job);
+      if (job.status === "queued" || job.status === "running") {
+        generationPollTimer = window.setTimeout(pollGeneration, 1000);
+        return;
+      }
+      finishGeneratedBoard(generationRuntime, job, generationPollOptions);
+      if (job.status === "failed") {
+        generationRuntime.notifications.appendOutput(
+          `${job.error || "corkboard generation failed"}\n`,
+          "error",
+        );
+      }
+    } catch (error) {
+      if (
+        generationContextId !== contextId ||
+        String(generationJob?.job_id || "") !== jobId
+      ) {
+        return;
+      }
+      generationRuntime.notifications.appendOutput(
+        `corkboard generation status failed: ${error.message || error}\n`,
+        "error",
+      );
+      generationPollTimer = window.setTimeout(pollGeneration, 3000);
+    }
+  }
+
+  function monitorGeneration(runtime, job, options = {}) {
+    stopGenerationMonitor();
+    generationRuntime = runtime;
+    generationContextId = String(runtime.getState().contextId || "");
+    generationPollOptions = { ...options };
+    publishGenerationJob(runtime, job, true);
+    if (job.status === "queued" || job.status === "running") {
+      generationPollTimer = window.setTimeout(pollGeneration, 750);
+    } else {
+      finishGeneratedBoard(runtime, job, options);
+    }
+  }
+
+  async function syncGeneration(runtime) {
+    const contextId = String(runtime.getState().contextId || "");
+    if (!contextId) return null;
+    if (generationContextId && generationContextId !== contextId) {
+      const previousJobId = generationJob?.job_id || "";
+      stopGenerationMonitor();
+      generationJob = null;
+      publishedGenerationSignature = "";
+      completedGenerationJobId = "";
+      runtime.modules.invoke("progress", "clearBackgroundTask", previousJobId);
+      window.dispatchEvent(new CustomEvent(
+        "electroboy-corkboard-generation-progress",
+        { detail: null },
+      ));
+      runtime.ui.refreshStageActionPanel();
+    }
+    generationContextId = contextId;
+    const latest = await generationStatus(runtime).catch(() => null);
+    if (String(runtime.getState().contextId || "") !== contextId) return null;
+    if (!latest || !latest.job_id) {
+      generationJob = null;
+      publishedGenerationSignature = "";
+      runtime.ui.refreshStageActionPanel();
+      return null;
+    }
+    if (
+      generationJob?.job_id === latest.job_id &&
+      (latest.status === "queued" || latest.status === "running")
+    ) {
+      publishGenerationJob(runtime, latest);
+      return latest;
+    }
+    monitorGeneration(runtime, latest, { show: false });
+    return latest;
   }
 
   async function generate(runtime, options = {}) {
@@ -453,9 +600,6 @@
     const form = dialog.querySelector("form");
     const passList = dialog.querySelector(".corkboard-generation-passes");
     const title = dialog.querySelector(".corkboard-generation-title");
-    const progress = dialog.querySelector(".corkboard-generation-progress");
-    const progressBar = progress.querySelector("progress");
-    const step = dialog.querySelector(".corkboard-generation-step");
     const error = dialog.querySelector(".corkboard-generation-error");
     const close = dialog.querySelector(".ad-hoc-session-close");
     const cancel = dialog.querySelector(".corkboard-generation-cancel");
@@ -465,7 +609,6 @@
     passList.textContent = "Loading passes…";
     title.value = "";
     title.disabled = false;
-    progress.hidden = true;
     error.hidden = true;
     submit.disabled = true;
     close.disabled = false;
@@ -524,9 +667,6 @@
         cancel.disabled = true;
         submit.disabled = true;
         title.disabled = true;
-        progress.hidden = false;
-        progressBar.value = 5;
-        step.textContent = "Starting non-interactive agent…";
         error.hidden = true;
         try {
           const response = await fetch(contextUrl(runtime, "/api/corkboard-generation"), {
@@ -539,35 +679,12 @@
               provider: options.provider || "",
             }),
           });
-          let job = await response.json().catch(() => ({
+          const job = await response.json().catch(() => ({
             error: "corkboard generation failed",
           }));
           if (!response.ok) throw new Error(job.error || "corkboard generation failed");
-          while (job.status === "queued" || job.status === "running") {
-            progressBar.value = Number(job.progress || 0);
-            step.textContent = String(job.step || "Generating…");
-            await generationDelay(750);
-            job = await generationStatus(runtime, job.job_id);
-          }
-          progressBar.value = Number(job.progress || 100);
-          step.textContent = String(job.step || job.status || "Complete");
-          if (job.status !== "complete" || !job.result) {
-            throw new Error(job.error || "corkboard generation failed");
-          }
-          const generated = {
-            ...job.result,
-            board_id: job.result.board_id || job.board_id,
-            provider: job.result.provider || job.provider,
-            title: job.result.title || job.title,
-          };
-          if (options.show !== false) {
-            show(runtime, generated, { ...options, freeform: true });
-          }
-          window.postMessage({
-            type: "electroboy-corkboard-generated",
-            board: generated,
-          }, window.location.origin);
-          finish(generated);
+          finish(job);
+          monitorGeneration(runtime, job, options);
         } catch (generationError) {
           running = false;
           error.textContent = generationError.message || String(generationError);
@@ -576,7 +693,6 @@
           cancel.disabled = false;
           submit.disabled = false;
           title.disabled = false;
-          progress.hidden = true;
         }
       };
       dialog.showModal();
@@ -596,6 +712,18 @@
       "corkboard-generation",
       "corkboard-board-deletion",
     ],
-    actions: { show, openDocument, newDocument, deleteDocuments, generate },
+    actions: {
+      show,
+      openDocument,
+      newDocument,
+      deleteDocuments,
+      generate,
+      generationJob: () => generationJob,
+      generationTask,
+      syncGeneration,
+    },
+    mount(runtime) {
+      generationRuntime = runtime;
+    },
   });
 })();

@@ -381,7 +381,18 @@
   let creativeAgentMenuButton = null;
   let creativeAgentActions = null;
   let creativeStartAgent = null;
+  let creativeCorkboardGenerationTaskbar = null;
   let creativeRecentProjectsExpanded = false;
+
+  function updateCreativeCorkboardGenerationTaskbar(runtime = runtimeApi) {
+    if (!runtime || !creativeCorkboardGenerationTaskbar) return;
+    const task = runtime.modules.invoke("corkboard", "generationTask");
+    runtime.ui.renderStageTaskbar(creativeCorkboardGenerationTaskbar, task);
+  }
+
+  window.addEventListener("electroboy-corkboard-generation-progress", () => {
+    updateCreativeCorkboardGenerationTaskbar();
+  });
 
   function renderNavigation(container, runtime) {
     bindRuntime(runtime);
@@ -463,6 +474,8 @@
               <button class="stage-action-button danger" type="button"
                       data-creative-control="delete-corkboard">Delete</button>
             </div>
+            <div class="stage-action-taskbar" hidden aria-live="polite"
+                 data-creative-control="corkboard-generation-task"></div>
           </div>
           <div class="creative-divider" aria-hidden="true"></div>
           <div class="creative-folder-title" role="heading" aria-level="2">Folders</div>
@@ -497,6 +510,7 @@
     const mindMapActions = find("mind-map-actions");
     const corkboardMenu = find("corkboard-menu");
     const corkboardActions = find("corkboard-actions");
+    creativeCorkboardGenerationTaskbar = find("corkboard-generation-task");
     runtime.elements.creativeTree = find("tree");
     runtime.elements.creativeTrash = find("trash");
 
@@ -587,6 +601,7 @@
       });
     });
     updateCreativeBinderActions();
+    updateCreativeCorkboardGenerationTaskbar(runtime);
   }
 
   function refreshNavigation(runtime) {
@@ -621,6 +636,7 @@
     creativeAgentMenuButton = null;
     creativeAgentActions = null;
     creativeStartAgent = null;
+    creativeCorkboardGenerationTaskbar = null;
     resetCreativeWorkflowState();
   }
 

@@ -6523,6 +6523,10 @@
         loadPaneLayoutForWorkflow();
         renderPaneLayout();
       }
+      window.ElectroBoyFrontend.invokeModuleOptional(
+        "corkboard",
+        "syncGeneration",
+      );
       startWorkspaceHeartbeat();
     }
 
@@ -6899,13 +6903,19 @@
       trigger.addEventListener("click", () => toggleStageActionGroup(stageId));
       group.append(trigger);
 
+      const actions = stageActions(stageId);
       if (isExpanded) {
         const list = document.createElement("div");
         list.className = "stage-action-list";
         list.setAttribute("role", "group");
-        renderStageActionList(list, stageActions(stageId));
+        renderStageActionList(list, actions.filter((action) => !action.task));
         group.append(list);
       }
+      actions.filter((action) => action.task).forEach((action) => {
+        const taskbar = document.createElement("div");
+        renderStageTaskbar(taskbar, action.task);
+        group.append(taskbar);
+      });
       return group;
     }
 
@@ -6925,6 +6935,12 @@
 
     function renderStageActionList(container, actions) {
       for (const action of actions) {
+        if (action.task) {
+          const taskbar = document.createElement("div");
+          renderStageTaskbar(taskbar, action.task);
+          container.append(taskbar);
+          continue;
+        }
         if (action.separator) {
           const separator = document.createElement("div");
           separator.className = "stage-action-separator";
@@ -6945,6 +6961,35 @@
         }
         container.append(stageActionButton(action));
       }
+    }
+
+    function renderStageTaskbar(container, task) {
+      const progress = Math.max(0, Math.min(100, Number(task?.progress || 0)));
+      const status = String(task?.status || "queued");
+      container.classList.add("stage-action-taskbar");
+      container.setAttribute("aria-live", "polite");
+      container.classList.toggle("complete", status === "complete");
+      container.classList.toggle("failed", status === "failed");
+      container.hidden = !task;
+      if (!task) {
+        container.replaceChildren();
+        return;
+      }
+      const heading = document.createElement("div");
+      heading.className = "stage-action-taskbar-heading";
+      const label = document.createElement("strong");
+      label.textContent = String(task.label || "Background task");
+      label.title = label.textContent;
+      const value = document.createElement("span");
+      value.textContent = `${Math.round(progress)}%`;
+      heading.append(label, value);
+      const bar = document.createElement("progress");
+      bar.max = 100;
+      bar.value = progress;
+      const detail = document.createElement("p");
+      detail.textContent = String(task.detail || status);
+      detail.title = detail.textContent;
+      container.replaceChildren(heading, bar, detail);
     }
 
     function stageActionSubgroup(action) {
@@ -8622,6 +8667,7 @@
       },
       ui: {
         stageActionButton,
+        renderStageTaskbar,
         refreshStageActionPanel,
         hideStageMenus,
         setAgentInputVisible,

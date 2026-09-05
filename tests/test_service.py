@@ -879,17 +879,27 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id = "corkboardGenerationPicker"', corkboard)
         self.assertIn('contextUrl(runtime, "/api/corkboard-generation")', corkboard)
         self.assertIn('type: "electroboy-corkboard-generated"', corkboard)
+        self.assertNotIn('class="corkboard-generation-progress"', corkboard)
+        self.assertIn(
+            "finish(job);\n          monitorGeneration(runtime, job, options);",
+            corkboard,
+        )
+        self.assertIn("function publishGenerationJob(runtime, job", corkboard)
+        self.assertIn('"progress", "renderBackgroundTask", job', corkboard)
+        self.assertIn('"electroboy-corkboard-generation-progress"', corkboard)
         self.assertIn(
             'className = "ad-hoc-session-dialog corkboard-picker-dialog"',
             corkboard,
         )
-        self.assertIn(
-            "actions: { show, openDocument, newDocument, deleteDocuments, generate }",
-            corkboard,
-        )
+        self.assertIn("generationTask,", corkboard)
+        self.assertIn("syncGeneration,", corkboard)
         self.assertIn("run: deleteProjectCorkboards", software)
+        self.assertIn("if (task) actions.splice(3, 0, { task });", software)
+        self.assertIn('data-creative-control="corkboard-generation-task"', creative)
         self.assertIn('button.classList.add("danger")', app)
         self.assertIn(".corkboard-delete-dialog {", shell_css)
+        self.assertIn(".stage-action-taskbar {", shell_css)
+        self.assertIn("function renderStageTaskbar(container, task)", app)
         self.assertIn("let creativeTreeRequestSequence = 0;", creative)
         self.assertIn(
             "const requestSequence = ++creativeTreeRequestSequence;",
@@ -1425,7 +1435,7 @@ class ServiceTests(unittest.TestCase):
             file_pane_tools.index('["docx", "DOCX"]'),
         )
         self.assertIn("frame.contentWindow.find(", file_pane_tools)
-        self.assertIn(".corkboard-generation-progress {", shell_css)
+        self.assertNotIn(".corkboard-generation-progress {", shell_css)
         self.assertIn(
             'contextUrl("/api/agents/documentation/start")',
             file_pane_tools,
@@ -1557,6 +1567,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("_runtime", file_browser)
         self.assertIn("function connectProgressEvents(runtime, options = {})", progress)
         self.assertIn("runtime.layout.showProgressPane(true, options)", progress)
+        self.assertIn("function renderBackgroundTask(runtime, task)", progress)
+        self.assertIn("backgroundActivityIds", progress)
         self.assertIn("async function startProjectShell(runtime)", project_shell)
         self.assertIn(
             'window.open("", popupName, SHELL_POPUP_FEATURES)',

@@ -20,6 +20,97 @@ CHROME = shutil.which("google-chrome") or shutil.which("chromium")
 NODE = shutil.which("node")
 
 
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_corkboard_activity_populates_progress_without_opening_pane() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/modules/assets/progress.js"
+    )
+    script = r"""
+let contribution = null;
+const children = [];
+const output = {
+  scrollHeight: 0,
+  scrollTop: 0,
+  appendChild(child) {
+    children.push(child);
+    this.scrollHeight = children.length;
+  },
+  replaceChildren() {
+    children.length = 0;
+  },
+};
+let paneOpenCalls = 0;
+global.document = {
+  createElement() {
+    return { textContent: "", className: "" };
+  },
+};
+global.window = {
+  addEventListener() {},
+  ElectroBoyFrontend: {
+    registerModule(value) {
+      contribution = value;
+    },
+  },
+};
+require(process.argv[1]);
+const runtime = {
+  elements: {
+    progressOutput: output,
+    exportProgressOutput: { addEventListener() {} },
+  },
+  terminals: {
+    reset() { return false; },
+    formatMessage(text) { return text; },
+    options() { return {}; },
+    applyFontSize() {},
+  },
+  layout: {
+    showProgressPane() { paneOpenCalls += 1; },
+  },
+  sharedPanes: {
+    connect() { return { close() {}, publish() {} }; },
+  },
+  downloads: {},
+  http: {},
+  notifications: { appendOutput() {} },
+};
+contribution.mount(runtime);
+contribution.actions.renderBackgroundTask(runtime, {
+  job_id: "job-1",
+  title: "Story scenes",
+  activities: [
+    { id: 1, timestamp: "2026-09-05T12:00:00Z", text: "AI is analyzing." },
+  ],
+});
+contribution.actions.renderBackgroundTask(runtime, {
+  job_id: "job-1",
+  title: "Story scenes",
+  activities: [
+    { id: 1, timestamp: "2026-09-05T12:00:00Z", text: "AI is analyzing." },
+    { id: 2, timestamp: "2026-09-05T12:00:05Z", text: "Still analyzing." },
+  ],
+});
+if (paneOpenCalls !== 0) throw new Error("background task opened the Progress pane");
+if (children.length !== 3) throw new Error(`unexpected line count: ${children.length}`);
+if (!children[0].textContent.includes("Story scenes")) throw new Error("missing title");
+if (!children[2].textContent.includes("Still analyzing")) {
+  throw new Error("missing update");
+}
+"""
+
+    completed = subprocess.run(
+        [str(NODE), "-e", script, str(asset)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def browser_dom(server: object, profile: Path) -> subprocess.CompletedProcess[str]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
