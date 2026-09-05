@@ -192,6 +192,29 @@
 
     const boardViewBody = controller.addSection("corkboard-view", "Board view");
 
+    function labeledSelect(labelText, ariaLabel, action) {
+      const wrapper = document.createElement("label");
+      wrapper.className = "pane-tool-slider";
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", ariaLabel);
+      select.addEventListener("change", () => postBoardTool(action, select.value));
+      wrapper.append(label, select);
+      boardViewBody.append(wrapper);
+      return { wrapper, select };
+    }
+
+    const boardPicker = labeledSelect("Board", "Corkboard", "select-board");
+    const boardLayout = labeledSelect("Layout", "Corkboard layout", "set-layout");
+    const autoOrganize = button("Auto-organize", () => {
+      postBoardTool("auto-organize");
+    });
+    const undoOrganize = button("Undo organize", () => {
+      postBoardTool("undo-organize");
+    });
+    boardViewBody.append(autoOrganize, undoOrganize);
+
     function boardSlider(label, min, max, step, action) {
       const wrapper = document.createElement("label");
       wrapper.className = "pane-tool-slider";
@@ -266,6 +289,26 @@
 
     function applyBoardState(state) {
       boardState = state;
+      const boards = Array.isArray(state.boards) ? state.boards : [];
+      boardPicker.select.replaceChildren(...boards.map((entry) => {
+        const option = document.createElement("option");
+        option.value = String(entry.id || "");
+        option.textContent = String(entry.title || entry.id || "Untitled board");
+        return option;
+      }));
+      boardPicker.wrapper.hidden = boards.length < 2;
+      boardPicker.select.value = String(state.boardPath || "");
+      const layouts = Array.isArray(state.layoutModes) ? state.layoutModes : [];
+      boardLayout.select.replaceChildren(...layouts.map((mode) => {
+        const option = document.createElement("option");
+        option.value = mode;
+        option.textContent = mode === "grid" ? "Grid" : "Freeform";
+        return option;
+      }));
+      boardLayout.wrapper.hidden = layouts.length < 2;
+      boardLayout.select.value = String(state.layoutMode || "");
+      autoOrganize.hidden = !state.canAutoOrganize;
+      undoOrganize.hidden = !state.canUndoOrganize;
       boardZoom.input.value = String(state.zoomSlider ?? 500);
       boardZoom.output.textContent = state.zoomLabel || "100%";
       cardSize.input.value = String(state.cardScale ?? 100);

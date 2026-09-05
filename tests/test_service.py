@@ -915,16 +915,23 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/creative/trash/restore")', delete_source)
         self.assertIn('contextUrl("/api/creative/trash/delete")', delete_source)
         self.assertIn('contextUrl("/api/creative/trash/empty")', delete_source)
-        self.assertIn("showCreativeTrashUndo(payload.trash_entry);", delete_source)
+        self.assertIn(
+            "await applyCreativeTrashResult(path, type, payload.trash_entry);",
+            delete_source,
+        )
+        self.assertIn("async function applyCreativeTrashResult(", creative)
+        self.assertIn('data.type === "electroboy-creative-files-changed"', creative)
         self.assertIn(".creative-delete-dialog {", creative_css)
         self.assertIn(".creative-delete-dialog::backdrop {", creative_css)
         self.assertIn(".creative-delete-dialog.danger {", creative_css)
         self.assertIn("0 24px 64px rgb(116 16 30 / 46%)", creative_css)
+        reconcile_start = creative.index("async function applyCreativeTrashResult(")
+        reconcile_source = creative[reconcile_start:delete_start]
         self.assertLess(
-            delete_source.index("removeCreativeTreeEntry("),
-            delete_source.index(
+            reconcile_source.index("removeCreativeTreeEntry("),
+            reconcile_source.index(
                 "await refreshCreativeBinder({ showLoading: false });",
-                delete_source.index("removeCreativeTreeEntry("),
+                reconcile_source.index("removeCreativeTreeEntry("),
             ),
         )
         self.assertIn('kind: "agenda"', agenda)
@@ -1299,6 +1306,16 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("documentation/start", pane_tools)
         self.assertNotIn("creative-writing", pane_tools)
         self.assertIn('controller.addSection("corkboard-view", "Board view")', file_pane_tools)
+        self.assertIn(
+            'labeledSelect("Board", "Corkboard", "select-board")',
+            file_pane_tools,
+        )
+        self.assertIn(
+            'labeledSelect("Layout", "Corkboard layout", "set-layout")',
+            file_pane_tools,
+        )
+        self.assertIn('postBoardTool("auto-organize")', file_pane_tools)
+        self.assertIn('postBoardTool("undo-organize")', file_pane_tools)
         self.assertIn('controller.addSection("corkboard-color", "Selected card")', file_pane_tools)
         self.assertIn('controller.addSection("corkboard-export", "Export")', file_pane_tools)
         self.assertIn('postBoardTool("random-card-color")', file_pane_tools)
@@ -5220,9 +5237,13 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("BOARD_ZOOM_STORAGE_PREFIX", page)
             self.assertIn('document.body.classList.add("canvas-panning")', page)
             self.assertIn("card-delete-icon", page)
-            self.assertIn('remove.title = "Delete card";', page)
+            self.assertIn('const label = boardType === "folder"', page)
             self.assertIn("function deleteFreeformCard(card, button)", page)
-            self.assertIn("card.delete_confirmation", page)
+            self.assertIn('cardKind(card) === "group"', page)
+            self.assertIn("confirmCorkboardAction({", page)
+            self.assertNotIn("card.delete_confirmation", page)
+            self.assertNotIn("window.confirm(confirmation)", page)
+            self.assertNotIn("window.alert", page)
             self.assertIn("await cardSaveRequests.get(key);", page)
             self.assertIn("function cardColorName(card)", page)
             self.assertIn("function buildColorButton(card, cardElement)", page)
@@ -5405,6 +5426,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(saved["card"]["note"], "Provider-backed note.")
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn("/api/corkboard", page)
+        self.assertIn('contextUrl("/api/creative/delete")', page)
+        self.assertIn("function deleteFolderCard(card, button)", page)
+        self.assertIn('type: "electroboy-creative-files-changed"', page)
+        self.assertIn('className = "corkboard-confirm-dialog"', page)
         self.assertIn("electroboy-corkboard-open", page)
         self.assertNotIn("/api/creative/corkboard", page)
 
@@ -6468,10 +6493,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"fixed-card-ratio"', page)
         self.assertIn('"--card-height"', page)
         self.assertIn("const CARD_ASPECT_RATIO", page)
-        self.assertIn('id="layoutSelect"', page)
-        self.assertIn('id="boardSelect"', page)
-        self.assertIn('id="autoOrganize"', page)
-        self.assertIn('id="undoOrganize"', page)
+        self.assertNotIn('id="layoutSelect"', page)
+        self.assertNotIn('id="boardSelect"', page)
+        self.assertNotIn('id="autoOrganize"', page)
+        self.assertNotIn('id="undoOrganize"', page)
+        self.assertIn('id="addCard"', page)
+        self.assertIn('message.action === "set-layout"', page)
+        self.assertIn('message.action === "auto-organize"', page)
+        self.assertIn('message.action === "undo-organize"', page)
         self.assertIn("function selectLayoutMode(nextMode)", page)
         self.assertIn("function organizeFreeformCards", page)
         self.assertIn("function captureGridPositions", page)

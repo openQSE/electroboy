@@ -805,32 +805,6 @@ def render_corkboard_html(
       flex-wrap: wrap;
     }}
 
-    .layout-control {{
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      color: #fff9e8;
-      font-size: 12px;
-      font-weight: 800;
-    }}
-
-    .layout-control[hidden] {{
-      display: none;
-    }}
-
-    .layout-select {{
-      min-height: 32px;
-      border: 1px solid rgba(255, 249, 232, 0.42);
-      border-radius: 999px;
-      background: rgba(52, 34, 22, 0.66);
-      color: #fff9e8;
-      cursor: pointer;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 800;
-      padding: 0 28px 0 12px;
-    }}
-
     .toolbar-button {{
       min-height: 32px;
       border: 1px solid rgba(255, 249, 232, 0.42);
@@ -1336,6 +1310,104 @@ def render_corkboard_html(
       content: "";
     }}
 
+    .corkboard-confirm-dialog {{
+      width: min(460px, calc(100vw - 40px));
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid #a62938;
+      border-radius: 8px;
+      background: #fff1f2;
+      color: #49141b;
+      box-shadow:
+        0 24px 64px rgb(116 16 30 / 46%),
+        0 0 0 1px rgb(166 41 56 / 24%);
+    }}
+
+    .corkboard-confirm-dialog::backdrop {{
+      background: rgb(66 8 17 / 56%);
+      backdrop-filter: blur(2px);
+    }}
+
+    .corkboard-confirm-dialog form {{
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }}
+
+    .corkboard-confirm-dialog header,
+    .corkboard-confirm-dialog footer {{
+      display: flex;
+      align-items: center;
+      padding: 16px 18px;
+    }}
+
+    .corkboard-confirm-dialog header {{
+      border-bottom: 1px solid #d99099;
+      background: #f7d6da;
+    }}
+
+    .corkboard-confirm-dialog h2 {{
+      margin: 0;
+      color: #7d1d2a;
+      font-size: 16px;
+      font-weight: 650;
+    }}
+
+    .corkboard-confirm-dialog section {{
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      background: #fff5f6;
+    }}
+
+    .corkboard-confirm-dialog p {{
+      margin: 0;
+      line-height: 1.45;
+    }}
+
+    .corkboard-confirm-dialog code {{
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid #e3a7ae;
+      border-radius: 5px;
+      background: #fce3e6;
+      color: #72202b;
+      font-size: 12px;
+      padding: 9px 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+
+    .corkboard-confirm-dialog footer {{
+      justify-content: flex-end;
+      gap: 8px;
+      border-top: 1px solid #d99099;
+      background: #f4cdd2;
+      padding-block: 12px;
+    }}
+
+    .corkboard-confirm-dialog button {{
+      min-width: 86px;
+      height: 34px;
+      border: 1px solid #bb6b75;
+      border-radius: 4px;
+      background: #fff7f8;
+      color: #5e1a23;
+      cursor: pointer;
+      font: inherit;
+      padding: 0 14px;
+    }}
+
+    .corkboard-confirm-dialog .confirm {{
+      border-color: #9e2635;
+      background: #a62938;
+      color: #ffffff;
+    }}
+
+    .corkboard-confirm-dialog button:hover,
+    .corkboard-confirm-dialog button:focus-visible {{
+      filter: brightness(0.94);
+    }}
+
     .card-note {{
       display: block;
       width: calc(100% - 24px);
@@ -1458,20 +1530,6 @@ def render_corkboard_html(
                {"readonly" if payload["board_type"] != "freeform" else ""}>
       </div>
       <div class="toolbar-actions">
-        <label id="boardControl" class="layout-control" hidden>
-          <span>Board</span>
-          <select id="boardSelect" class="layout-select" aria-label="Corkboard"></select>
-        </label>
-        <label id="layoutControl" class="layout-control" hidden>
-          <span>Layout</span>
-          <select id="layoutSelect" class="layout-select" aria-label="Corkboard layout"></select>
-        </label>
-        <button id="autoOrganize" class="toolbar-button" type="button" hidden>
-          Auto-organize
-        </button>
-        <button id="undoOrganize" class="toolbar-button" type="button" hidden>
-          Undo organize
-        </button>
         <button id="addCard" class="toolbar-button" type="button" hidden>Add card</button>
       </div>
     </header>
@@ -1543,12 +1601,6 @@ def render_corkboard_html(
     const board = document.getElementById("board");
     const boardEyebrow = document.getElementById("boardEyebrow");
     const boardTitle = document.getElementById("boardTitle");
-    const boardControl = document.getElementById("boardControl");
-    const boardSelect = document.getElementById("boardSelect");
-    const layoutControl = document.getElementById("layoutControl");
-    const layoutSelect = document.getElementById("layoutSelect");
-    const autoOrganize = document.getElementById("autoOrganize");
-    const undoOrganize = document.getElementById("undoOrganize");
     const addCard = document.getElementById("addCard");
     const boardZoomSlider = document.getElementById("boardZoomSlider");
     const boardZoomValue = document.getElementById("boardZoomValue");
@@ -1633,6 +1685,8 @@ def render_corkboard_html(
     let layoutMode = DEFAULT_LAYOUT_MODE;
     let organizeUndo = null;
     let selectedCardKey = "";
+    let availableBoards = [];
+    let corkboardConfirmDialog = null;
 
     document.body.classList.toggle("fixed-card-ratio", CARD_ASPECT_RATIO > 0);
     boardTitle.readOnly = boardType !== "freeform" || !supports("rename-board");
@@ -1684,36 +1738,28 @@ def render_corkboard_html(
       if (!boards.length) {{
         return;
       }}
-      boardSelect.replaceChildren();
-      let matchedCurrent = false;
-      for (const entry of boards) {{
+      availableBoards = boards.map((entry) => {{
         const boardId = String(entry.board_id || entry.id || "").trim();
         if (!boardId) {{
-          continue;
+          return null;
         }}
-        const option = document.createElement("option");
-        option.value = boardId;
-        option.textContent = String(entry.title || entry.label || boardId);
-        option.selected = boardId === boardStoragePath();
-        matchedCurrent = matchedCurrent || option.selected;
-        boardSelect.append(option);
+        return {{
+          id: boardId,
+          title: String(entry.title || entry.label || boardId),
+        }};
+      }}).filter(Boolean);
+      if (!availableBoards.some((entry) => entry.id === boardStoragePath())) {{
+        availableBoards.unshift({{
+          id: boardStoragePath(),
+          title: CORKBOARD_DATA.title || boardStoragePath(),
+        }});
       }}
-      if (!boardSelect.options.length) {{
-        return;
-      }}
-      if (!matchedCurrent) {{
-        const current = document.createElement("option");
-        current.value = boardStoragePath();
-        current.textContent = CORKBOARD_DATA.title || boardStoragePath();
-        current.selected = true;
-        boardSelect.prepend(current);
-      }}
-      boardControl.hidden = false;
+      postToolState();
     }}
 
     function selectBoard(boardId) {{
-      const option = boardSelect.selectedOptions[0];
-      const title = option ? option.textContent : boardId;
+      const entry = availableBoards.find((candidate) => candidate.id === boardId);
+      const title = entry ? entry.title : boardId;
       window.parent.postMessage(
         {{
           type: "electroboy-corkboard-selected",
@@ -2606,6 +2652,11 @@ def render_corkboard_html(
       window.parent.postMessage({{
         type: "electroboy-corkboard-tool-state",
         boardPath: boardStoragePath(),
+        boards: availableBoards,
+        layoutMode,
+        layoutModes: AVAILABLE_LAYOUT_MODES,
+        canAutoOrganize: usesFreeformLayout() && supports("move-card"),
+        canUndoOrganize: Boolean(organizeUndo) && usesFreeformLayout(),
         zoomSlider: boardZoomSliderValue(),
         zoomLabel: boardZoomLabel(),
         cardScale,
@@ -2860,6 +2911,14 @@ def render_corkboard_html(
       if (message.type !== "electroboy-corkboard-tool") return;
       if (message.action === "request-state") {{
         postToolState();
+      }} else if (message.action === "select-board") {{
+        selectBoard(String(message.value || ""));
+      }} else if (message.action === "set-layout") {{
+        selectLayoutMode(String(message.value || ""));
+      }} else if (message.action === "auto-organize") {{
+        organizeFreeformCards().then(() => renderCards());
+      }} else if (message.action === "undo-organize") {{
+        restoreOrganizedCards();
       }} else if (message.action === "set-board-zoom") {{
         updateBoardZoom(boardZoomFromSlider(message.value));
       }} else if (message.action === "set-card-size") {{
@@ -2914,20 +2973,9 @@ def render_corkboard_html(
 
     function updateLayoutControls() {{
       document.body.classList.toggle("freeform-canvas", usesFreeformLayout());
-      layoutControl.hidden = AVAILABLE_LAYOUT_MODES.length < 2;
-      layoutSelect.value = layoutMode;
-      autoOrganize.hidden = !usesFreeformLayout() || !supports("move-card");
-      undoOrganize.hidden = !organizeUndo || !usesFreeformLayout();
     }}
 
     function configureLayoutControls() {{
-      layoutSelect.replaceChildren();
-      for (const mode of AVAILABLE_LAYOUT_MODES) {{
-        const option = document.createElement("option");
-        option.value = mode;
-        option.textContent = mode === "grid" ? "Grid" : "Freeform";
-        layoutSelect.append(option);
-      }}
       updateLayoutControls();
     }}
 
@@ -2983,6 +3031,7 @@ def render_corkboard_html(
         rowHeight = Math.max(rowHeight, height);
       }}
       updateLayoutControls();
+      postToolState();
       await persistCardPositions();
     }}
 
@@ -3009,6 +3058,7 @@ def render_corkboard_html(
       }}
       renderCards();
       await persistCardPositions();
+      postToolState();
     }}
 
     async function captureGridPositions() {{
@@ -3027,11 +3077,10 @@ def render_corkboard_html(
 
     async function selectLayoutMode(nextMode) {{
       if (!AVAILABLE_LAYOUT_MODES.includes(nextMode) || nextMode === layoutMode) {{
-        layoutSelect.value = layoutMode;
+        postToolState();
         return;
       }}
       const previousMode = layoutMode;
-      layoutSelect.disabled = true;
       if (layoutMode === "freeform" && nextMode === "grid") {{
         await organizeFreeformCards({{ recordUndo: false }});
       }} else if (layoutMode === "grid" && nextMode === "freeform") {{
@@ -3046,7 +3095,6 @@ def render_corkboard_html(
       }}
       canvasPanState = null;
       renderCards();
-      layoutSelect.disabled = false;
     }}
 
     function applyGridColumns() {{
@@ -3228,6 +3276,91 @@ def render_corkboard_html(
       return request;
     }}
 
+    function ensureCorkboardConfirmDialog() {{
+      if (corkboardConfirmDialog) return corkboardConfirmDialog;
+      const dialog = document.createElement("dialog");
+      dialog.className = "corkboard-confirm-dialog";
+      dialog.innerHTML = `
+        <form method="dialog">
+          <header><h2></h2></header>
+          <section><p></p><code></code></section>
+          <footer>
+            <button type="button" class="cancel">Cancel</button>
+            <button type="button" class="confirm">OK</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      corkboardConfirmDialog = dialog;
+      return dialog;
+    }}
+
+    function confirmCorkboardAction({{
+      title,
+      description,
+      path,
+      confirmLabel,
+      confirmationOnly = false,
+    }}) {{
+      const dialog = ensureCorkboardConfirmDialog();
+      if (dialog.open) return Promise.resolve(false);
+      dialog.querySelector("h2").textContent = title;
+      dialog.querySelector("p").textContent = description;
+      const pathElement = dialog.querySelector("code");
+      pathElement.textContent = path || "";
+      pathElement.hidden = !path;
+      const cancel = dialog.querySelector(".cancel");
+      const confirm = dialog.querySelector(".confirm");
+      cancel.hidden = confirmationOnly;
+      confirm.textContent = confirmLabel || "OK";
+      return new Promise((resolve) => {{
+        let finished = false;
+        const finish = (value) => {{
+          if (finished) return;
+          finished = true;
+          cancel.onclick = null;
+          confirm.onclick = null;
+          dialog.oncancel = null;
+          dialog.onclose = null;
+          if (dialog.open) dialog.close();
+          resolve(value);
+        }};
+        cancel.onclick = () => finish(false);
+        confirm.onclick = () => finish(true);
+        dialog.oncancel = (event) => {{
+          event.preventDefault();
+          finish(false);
+        }};
+        dialog.onclose = () => finish(false);
+        dialog.showModal();
+        (confirmationOnly ? confirm : cancel).focus();
+      }});
+    }}
+
+    function showCorkboardError(message) {{
+      return confirmCorkboardAction({{
+        title: "Unable to complete delete",
+        description: message,
+        path: "",
+        confirmLabel: "OK",
+        confirmationOnly: true,
+      }});
+    }}
+
+    function removeCardFromBoard(card) {{
+      const key = cardKey(card);
+      const index = cards.findIndex((candidate) => cardKey(candidate) === key);
+      if (index >= 0) cards.splice(index, 1);
+      connectors.splice(
+        0,
+        connectors.length,
+        ...connectors.filter((connector) =>
+          connector.source.card_id !== key && connector.target.card_id !== key),
+      );
+      if (selectedCardKey === key) selectedCardKey = "";
+      renderCards();
+    }}
+
     async function saveCard(card) {{
       if (
         !CORKBOARD_DATA.context_id ||
@@ -3268,12 +3401,16 @@ def render_corkboard_html(
       if (boardType !== "freeform" || !supports("delete-card")) {{
         return;
       }}
-      const title = card.title || "Untitled card";
-      const confirmation = String(
-        card.delete_confirmation || `Delete "${{title}}"?`,
-      ).trim();
-      if (!window.confirm(confirmation)) {{
-        return;
+      if (cardKind(card) === "group") {{
+        const title = card.title || "Untitled card group";
+        if (!await confirmCorkboardAction({{
+          title: "Delete card group?",
+          description: "This card group will be removed from the corkboard.",
+          path: title,
+          confirmLabel: "Delete group",
+        }})) {{
+          return;
+        }}
       }}
       const key = cardKey(card);
       window.clearTimeout(saveTimers.get(key));
@@ -3296,24 +3433,74 @@ def render_corkboard_html(
             ? await response.json().catch(() => ({{}}))
             : {{}};
           button.disabled = false;
-          window.alert(payload.error || "Unable to delete card.");
+          showCorkboardError(payload.error || "Unable to delete card.");
           return;
         }}
       }}
-      const index = cards.findIndex((candidate) => cardKey(candidate) === key);
-      if (index >= 0) {{
-        cards.splice(index, 1);
+      removeCardFromBoard(card);
+    }}
+
+    async function deleteFolderCard(card, button) {{
+      if (boardType !== "folder" || !supports("delete-card")) return;
+      const key = cardKey(card);
+      const label = card.type === "directory" ? "folder" : "file";
+      if (!await confirmCorkboardAction({{
+        title: `Move ${{label}} to Trash?`,
+        description: "You can restore it later from the Trash section.",
+        path: key,
+        confirmLabel: "Move to Trash",
+      }})) {{
+        return;
       }}
-      connectors.splice(
-        0,
-        connectors.length,
-        ...connectors.filter((connector) =>
-          connector.source.card_id !== key && connector.target.card_id !== key),
+      window.clearTimeout(saveTimers.get(key));
+      saveTimers.delete(key);
+      button.disabled = true;
+      await cardSaveRequests.get(key);
+      const response = await fetch(contextUrl("/api/creative/delete"), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ path: key }}),
+      }}).catch(() => null);
+      const payload = response
+        ? await response.json().catch(() => ({{}}))
+        : {{}};
+      if (!response || !response.ok) {{
+        button.disabled = false;
+        showCorkboardError(payload.error || `Unable to move ${{label}} to Trash.`);
+        return;
+      }}
+      removeCardFromBoard(card);
+      const change = {{
+        type: "electroboy-creative-files-changed",
+        action: "trash",
+        path: key,
+        entry_type: card.type || "file",
+        trash_entry: payload.trash_entry || null,
+      }};
+      window.parent.postMessage(change, PARENT_MESSAGE_ORIGIN);
+      if (corkboardChannel) corkboardChannel.postMessage(change);
+    }}
+
+    function buildDeleteButton(card) {{
+      const remove = document.createElement("button");
+      remove.className = "card-delete";
+      remove.type = "button";
+      const label = boardType === "folder" ? "Move to Trash" : "Delete card";
+      remove.title = label;
+      remove.setAttribute(
+        "aria-label",
+        `${{label}}: ${{card.title || card.name || "card"}}`,
       );
-      if (selectedCardKey === key) {{
-        selectedCardKey = "";
-      }}
-      renderCards();
+      remove.addEventListener("pointerdown", (event) => event.stopPropagation());
+      remove.addEventListener("click", () => {{
+        if (boardType === "folder") deleteFolderCard(card, remove);
+        else deleteFreeformCard(card, remove);
+      }});
+      const icon = document.createElement("span");
+      icon.className = "card-delete-icon";
+      icon.setAttribute("aria-hidden", "true");
+      remove.append(icon);
+      return remove;
     }}
 
     async function saveOrder() {{
@@ -3776,6 +3963,9 @@ def render_corkboard_html(
           open.textContent = "Open";
           open.addEventListener("click", () => openCard(card));
           tools.append(open);
+          if (supports("delete-card")) {{
+            tools.append(buildDeleteButton(card));
+          }}
           head.append(titleBox, tools);
         }} else {{
           titleBox.append(title);
@@ -3795,19 +3985,8 @@ def render_corkboard_html(
             open.addEventListener("click", () => openCard(card));
             tools.append(open);
           }}
-          const remove = document.createElement("button");
-          remove.className = "card-delete";
-          remove.type = "button";
-          remove.title = "Delete card";
-          remove.setAttribute("aria-label", `Delete ${{card.title || "card"}}`);
-          remove.addEventListener("pointerdown", (event) => event.stopPropagation());
-          remove.addEventListener("click", () => deleteFreeformCard(card, remove));
-          const icon = document.createElement("span");
-          icon.className = "card-delete-icon";
-          icon.setAttribute("aria-hidden", "true");
-          remove.append(icon);
           if (supports("delete-card")) {{
-            tools.append(remove);
+            tools.append(buildDeleteButton(card));
           }}
           head.append(titleBox, tools);
         }}
@@ -3837,21 +4016,6 @@ def render_corkboard_html(
     }}
 
     addCard.addEventListener("click", makeFreeformCard);
-    boardSelect.addEventListener("change", () => selectBoard(boardSelect.value));
-    layoutSelect.addEventListener("change", () =>
-      selectLayoutMode(layoutSelect.value),
-    );
-    autoOrganize.addEventListener("click", async () => {{
-      autoOrganize.disabled = true;
-      await organizeFreeformCards();
-      renderCards();
-      autoOrganize.disabled = false;
-    }});
-    undoOrganize.addEventListener("click", async () => {{
-      undoOrganize.disabled = true;
-      await restoreOrganizedCards();
-      undoOrganize.disabled = false;
-    }});
     boardTitle.addEventListener("input", queueBoardTitleSave);
     boardTitle.addEventListener("blur", saveBoardTitle);
     boardTitle.addEventListener("keydown", (event) => {{

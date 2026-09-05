@@ -313,6 +313,14 @@
       }
       return true;
     }
+    if (data.type === "electroboy-creative-files-changed" && data.path) {
+      applyCreativeTrashResult(
+        data.path,
+        data.entry_type || "file",
+        data.trash_entry || null,
+      );
+      return true;
+    }
     if (
       !["electroboy-corkboard-open", "electroboy-creative-open"].includes(data.type) ||
       !data.path ||
@@ -1799,35 +1807,11 @@
       creativeTrashUndoTimer = window.setTimeout(dismissCreativeTrashUndo, 10000);
     }
 
-    async function deleteCreativeEntry(path, type) {
-      if (!activeProjectRoot || !path) {
-        return;
-      }
-      const label = creativeEntryLabel(type);
-      if (!await confirmCreativeAction({
-        title: `Move ${label} to Trash?`,
-        description: "You can restore it later from the Trash section.",
-        path,
-        confirmLabel: "Move to Trash",
-      })) {
-        return;
-      }
-      const closesActiveDocument = creativePathIsInside(creativeActiveDocument, path);
-      if (closesActiveDocument) {
+    async function applyCreativeTrashResult(path, type, trashEntry) {
+      if (creativePathIsInside(creativeActiveDocument, path)) {
         creativeActiveDocument = "";
         publishState();
         hideArtifactPreview();
-      }
-      const response = await fetch(contextUrl("/api/creative/delete"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      });
-      const payload = await response.json().catch(() => ({ error: "delete failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "delete failed"}\n`, "error");
-        await refreshCreativeBinder({ showLoading: false });
-        return;
       }
       if (creativePathIsInside(creativeActiveFolder, path)) {
         creativeActiveFolder = creativeParentPath(path);
@@ -1848,8 +1832,36 @@
         renderCreativeTree();
       }
       await refreshCreativeBinder({ showLoading: false });
-      showCreativeTrashUndo(payload.trash_entry);
+      showCreativeTrashUndo(trashEntry);
       recordProjectStatusMessage(`moved ${type} to Trash: ${path}`);
+    }
+
+    async function deleteCreativeEntry(path, type) {
+      if (!activeProjectRoot || !path) {
+        return;
+      }
+      const label = creativeEntryLabel(type);
+      if (!await confirmCreativeAction({
+        title: `Move ${label} to Trash?`,
+        description: "You can restore it later from the Trash section.",
+        path,
+        confirmLabel: "Move to Trash",
+        danger: true,
+      })) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await response.json().catch(() => ({ error: "delete failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "delete failed"}\n`, "error");
+        await refreshCreativeBinder({ showLoading: false });
+        return;
+      }
+      await applyCreativeTrashResult(path, type, payload.trash_entry);
     }
 
     async function restoreCreativeTrashEntry(trashId) {
