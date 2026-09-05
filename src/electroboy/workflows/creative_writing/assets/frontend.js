@@ -23,6 +23,7 @@
   let creativeProjectActionsExpanded = false;
   let creativeAgentActionsExpanded = false;
   let creativeSessionDialog = null;
+  let creativeTreeRequestSequence = 0;
 
   function creativePaneKinds(layout, result = []) {
     if (!layout || layout.type === "leaf") {
@@ -79,6 +80,7 @@
     creativeProjectActionsExpanded = false;
     creativeAgentActionsExpanded = false;
     creativeRecentProjectsExpanded = false;
+    creativeTreeRequestSequence += 1;
     if (creativeSessionDialog) {
       creativeSessionDialog.remove();
       creativeSessionDialog = null;
@@ -419,6 +421,13 @@
           </div>
           <div class="creative-divider" aria-hidden="true"></div>
           <div class="creative-folder-title" role="heading" aria-level="2">Folders</div>
+          <div class="creative-tree-actions creative-root-actions" role="group"
+               aria-label="Create folder content">
+            <button class="creative-tree-action" type="button"
+                    data-creative-control="new-root-folder">New Folder</button>
+            <button class="creative-tree-action" type="button"
+                    data-creative-control="new-root-file">New File</button>
+          </div>
           <div class="creative-tree" role="tree" data-creative-control="tree"></div>
         </div>
       </section>
@@ -489,6 +498,12 @@
     });
     find("new-corkboard").addEventListener("click", () => {
       openCorkboard("new");
+    });
+    find("new-root-folder").addEventListener("click", () => {
+      createCreativeFolderInline();
+    });
+    find("new-root-file").addEventListener("click", () => {
+      createCreativeDocumentInline();
     });
     creativeRecentProjectsButton.addEventListener("click", () => {
       toggleCreativeActionGroup("recent-projects");
@@ -810,7 +825,7 @@
       updateCreativeBinderActions();
     }
 
-    async function refreshCreativeBinder() {
+    async function refreshCreativeBinder(options = {}) {
       if (!creativeModeActive()) {
         return;
       }
@@ -819,11 +834,17 @@
         showCreativeTreeMessage("Open or create a project to start writing.");
         return;
       }
-      showCreativeTreeMessage("Loading Binder...");
+      if (options.showLoading !== false) {
+        showCreativeTreeMessage("Loading Binder...");
+      }
+      const requestSequence = ++creativeTreeRequestSequence;
       const response = await fetch(contextUrl("/api/creative/tree"), {
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({ error: "Binder failed" }));
+      if (requestSequence !== creativeTreeRequestSequence) {
+        return;
+      }
       if (!response.ok) {
         showCreativeTreeMessage(payload.error || "Binder failed");
         return;
@@ -1308,6 +1329,20 @@
       return null;
     }
 
+    function removeCreativeTreeEntry(entries, path) {
+      if (!Array.isArray(entries)) {
+        return false;
+      }
+      const index = entries.findIndex((entry) => entry.path === path);
+      if (index >= 0) {
+        entries.splice(index, 1);
+        return true;
+      }
+      return entries.some((entry) =>
+        removeCreativeTreeEntry(entry.children, path),
+      );
+    }
+
     function uniqueCreativeChildPath(basePath, stem, extension = "") {
       const existing = new Set(
         creativeEntryChildren(basePath).map((entry) =>
@@ -1565,7 +1600,13 @@
           (folder) => !creativePathIsInside(folder, path),
         ),
       );
-      await refreshCreativeBinder();
+      if (removeCreativeTreeEntry(
+        creativeTreePayload && creativeTreePayload.entries,
+        path,
+      )) {
+        renderCreativeTree();
+      }
+      await refreshCreativeBinder({ showLoading: false });
       recordProjectStatusMessage(`deleted ${type}: ${path}`);
     }
 

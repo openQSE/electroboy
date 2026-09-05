@@ -253,6 +253,12 @@
   padding: 0 0 4px;
 }
 
+.creative-root-actions {
+  width: auto;
+  margin-left: 0;
+  padding: 0 8px 4px;
+}
+
 .creative-tree-action {
   min-height: 28px;
   border: 1px solid #b8c8d7;

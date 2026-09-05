@@ -740,6 +740,15 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn(">Folders</div>", creative)
         self.assertIn(".creative-folder-title {", creative_css)
+        self.assertIn(
+            'class="creative-tree-actions creative-root-actions"',
+            creative,
+        )
+        self.assertIn('data-creative-control="new-root-folder">New Folder', creative)
+        self.assertIn('data-creative-control="new-root-file">New File', creative)
+        self.assertIn("createCreativeFolderInline();", creative)
+        self.assertIn("createCreativeDocumentInline();", creative)
+        self.assertIn(".creative-root-actions {", creative_css)
         self.assertIn('hiddenActionStages: ["document"]', software)
         self.assertIn("hiddenActionStages.has(stageId)", app)
         self.assertNotIn('if (stageId === "document")', app)
@@ -820,6 +829,22 @@ class ServiceTests(unittest.TestCase):
             corkboard,
         )
         self.assertIn("actions: { show, openDocument, newDocument }", corkboard)
+        self.assertIn("let creativeTreeRequestSequence = 0;", creative)
+        self.assertIn(
+            "const requestSequence = ++creativeTreeRequestSequence;",
+            creative,
+        )
+        self.assertIn("requestSequence !== creativeTreeRequestSequence", creative)
+        self.assertIn("function removeCreativeTreeEntry(entries, path)", creative)
+        delete_start = creative.index("async function deleteCreativeEntry(path, type)")
+        delete_end = creative.index(
+            "async function startCreativeWritingAgent", delete_start
+        )
+        delete_source = creative[delete_start:delete_end]
+        self.assertLess(
+            delete_source.index("removeCreativeTreeEntry("),
+            delete_source.index("await refreshCreativeBinder({ showLoading: false });"),
+        )
         self.assertIn('kind: "agenda"', agenda)
         self.assertIn('id: "agenda"', agenda)
         self.assertIn('id: "assignments"', assignments)
