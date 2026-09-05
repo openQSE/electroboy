@@ -2,8 +2,6 @@
   "use strict";
 
   const WORKFLOW_ID = "code-learner";
-  const CONTEXT_HEADER = "[ElectroBoy Code Learner context]";
-  const CONTEXT_FOOTER = "[/ElectroBoy Code Learner context]";
   const MODE_LABELS = {
     architecture: "Architecture",
     module: "Module",
@@ -42,6 +40,7 @@
   let activationRoot = "";
   let learnerState = emptyLearnerState();
   let learnerContext = null;
+  let tutorContextWrite = Promise.resolve();
   let nav = {};
   let courseMode = "architecture";
   let initializationState = null;
@@ -1144,38 +1143,39 @@
     };
   }
 
-  function preparePrompt(runtime, message) {
+  async function preparePrompt(runtime, message) {
     bindRuntime(runtime);
-    const text = String(message || "").trim();
-    if (!text || text.startsWith(CONTEXT_HEADER)) {
-      return message;
-    }
-    const context = learnerContext || contextFromState();
-    if (!context || !context.walkthrough_id) {
-      return message;
-    }
-    return learnerPrompt(text, context);
+    await tutorContextWrite;
+    return message;
   }
 
-  function learnerPrompt(question, context) {
-    const lines = [
-      CONTEXT_HEADER,
-      `Walkthrough: ${context.walkthrough_id || ""}`,
-      `Mode: ${context.learning_mode || ""}`,
-      `Target: ${context.mode_target || ""}`,
-      `Step: ${context.step_position || ""} ${context.step_title || ""}`.trim(),
-      (
-        `Source: ${context.file_path || ""}:` +
-        `${context.start_line || ""}-${context.end_line || ""}`
-      ),
-      "Use this context to answer the user's learning question. Explain only;",
-      "do not edit files, run commands, or perform implementation work.",
-    ];
-    if (context.source_excerpt) {
-      lines.push("", "Source excerpt:", context.source_excerpt);
+  function persistTutorContext(context) {
+    if (!runtimeApi || !context || !context.walkthrough_id) {
+      return tutorContextWrite;
     }
-    lines.push(CONTEXT_FOOTER, "", question);
-    return `${lines.join("\n").trim()}\n`;
+    tutorContextWrite = tutorContextWrite.catch(() => null).then(async () => {
+      const response = await runtimeApi.http.fetch(
+        contextUrl("/api/code-learner/context"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walkthrough_id: context.walkthrough_id,
+            selected_file_path: context.selected_file_path || "",
+            selected_start_line: context.selected_start_line || null,
+            selected_end_line: context.selected_end_line || null,
+            visible_start_line: context.visible_start_line || null,
+            visible_end_line: context.visible_end_line || null,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({ error: "context failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || "context failed");
+      }
+      return payload;
+    });
+    return tutorContextWrite;
   }
 
   function handleWindowMessage(runtime, data) {
@@ -1189,6 +1189,9 @@
         learnerState.currentWalkthrough.current_step_id = learnerContext.step_id;
         renderNavigationState();
       }
+      persistTutorContext(learnerContext).catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
       return true;
     }
     if (data.type === "electroboy-code-learner-start-agent") {

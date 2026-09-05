@@ -42,6 +42,16 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         "preparePrompt: (runtime, ...args) => invoke(runtime, preparePrompt, args)"
         in frontend
     )
+    prepare_prompt_source = frontend[
+        frontend.index("function preparePrompt") :
+        frontend.index("function handleWindowMessage")
+    ]
+    assert "async function preparePrompt" in frontend
+    assert "await tutorContextWrite;" in prepare_prompt_source
+    assert "return message;" in prepare_prompt_source
+    assert 'contextUrl("/api/code-learner/context")' in prepare_prompt_source
+    assert "Source excerpt:" not in prepare_prompt_source
+    assert "[ElectroBoy Code Learner context]" not in frontend
     assert 'contextUrl("/api/code-learner/walkthrough")' in frontend
     assert 'contextUrl("/api/code-learner/init/status")' in frontend
     assert 'data-code-learner-control="project-menu"' in frontend

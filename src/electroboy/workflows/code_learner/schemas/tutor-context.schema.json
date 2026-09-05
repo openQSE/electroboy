@@ -22,12 +22,76 @@
     "project_id": {"type": "string", "minLength": 1},
     "repository_revision": {"type": "string", "minLength": 1},
     "stale": {"type": "boolean"},
-    "course": {"type": "object"},
-    "selection": {"type": "object"},
-    "source": {"type": ["object", "null"]},
-    "artifacts": {"type": "object"},
+    "course": {
+      "type": "object",
+      "required": [
+        "document_id",
+        "mode",
+        "scope_id",
+        "section_id",
+        "horizontal_index",
+        "vertical_path"
+      ],
+      "properties": {
+        "document_id": {"type": "string", "minLength": 1},
+        "mode": {"enum": ["architecture", "module", "function"]},
+        "scope_id": {"type": "string", "minLength": 1},
+        "section_id": {"type": "string", "minLength": 1},
+        "horizontal_index": {"type": "integer", "minimum": 0},
+        "vertical_path": {"$ref": "#/$defs/stringArray"}
+      },
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "required": [
+        "module_id",
+        "symbol_id",
+        "knowledge_entity_ids",
+        "relationship_ids",
+        "runtime_flow_ids"
+      ],
+      "properties": {
+        "module_id": {"type": ["string", "null"]},
+        "symbol_id": {"type": ["string", "null"]},
+        "knowledge_entity_ids": {"$ref": "#/$defs/stringArray"},
+        "relationship_ids": {"$ref": "#/$defs/stringArray"},
+        "runtime_flow_ids": {"$ref": "#/$defs/stringArray"}
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["path", "start_line", "end_line"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "start_line": {"type": "integer", "minimum": 1},
+            "end_line": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["course", "knowledge_root"],
+      "properties": {
+        "course": {"type": "string", "minLength": 1},
+        "knowledge_root": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
     "updated_at": {"type": "string", "minLength": 1},
     "writer_id": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
   },
   "additionalProperties": false
 }

@@ -26,14 +26,16 @@ from .domain import (
     RepositoryAnalysis,
     SourceAdapter,
     Walkthrough,
-    build_learner_context,
     create_walkthrough,
-    learner_prompt,
-    learner_question_payload,
     resolve_symbol,
 )
 from .knowledge_store import KnowledgeStore
 from .planner import generate_code_learner_course_corpus_jsonl
+from .tutor_context import (
+    TutorContextStore,
+    require_repository_read_capability,
+    tutor_bootstrap_prompt,
+)
 
 _INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running"})
 _AI_PROGRESS_MAX_PERCENT = 95
@@ -274,48 +276,25 @@ def _empty_analysis(root: Path) -> RepositoryAnalysis:
 
 def _code_learner_agent_prompt(
     root: Path,
-    context: dict[str, object] | None = None,
+    _context: dict[str, object] | None = None,
 ) -> str:
-    lines = [
-        "You are the ElectroBoy Code Learner tutor for this repository.",
-        "",
-        "Stay in teaching mode. Answer questions about the code the learner is",
-        "currently viewing. Do not modify files, run implementation commands, or",
-        "launch other agents unless the operator explicitly changes the task.",
-        "",
-        f"Repository root: {root}",
-    ]
-    if context:
-        lines.extend(
-            [
-                "",
-                "Initial learner context:",
-                f"- Walkthrough: {context.get('walkthrough_id')}",
-                f"- Mode: {context.get('learning_mode')}",
-                f"- Target: {context.get('mode_target')}",
-                f"- Step: {context.get('step_position')} {context.get('step_title')}",
-                (
-                    "- Source: "
-                    f"{context.get('file_path')}:{context.get('start_line')}-"
-                    f"{context.get('end_line')}"
-                ),
-            ]
-        )
-    return "\n".join(lines).strip()
+    return tutor_bootstrap_prompt(root)
 
 
 def code_learner_agent_command(
     root: Path,
-    context: dict[str, object] | None = None,
+    _context: dict[str, object] | None = None,
 ) -> list[str]:
-    return [
+    command = [
         "codex",
         "--cd",
         str(root),
         "--sandbox",
         "read-only",
-        _code_learner_agent_prompt(root, context),
+        _code_learner_agent_prompt(root),
     ]
+    require_repository_read_capability(command, root)
+    return command
 
 
 class CodeLearnerWorkflowController(BoundWorkflowController):
@@ -663,18 +642,26 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root = self._active_project_root(context_id)
         navigator = CourseNavigator(root)
         if action == "open":
-            return navigator.open(course_id, section_id)
-        if action in {"previous", "next"}:
-            return navigator.move(action)
-        if action == "deep-dive":
-            return navigator.deep_dive(target_id)
-        if action == "back":
-            return navigator.back()
-        if action == "code-view":
-            return navigator.update_code_view(code_view or {})
-        if action == "state":
-            return navigator.state()
-        raise CodeLearnerError(f"unknown course navigation action: {action}")
+            result = navigator.open(course_id, section_id)
+        elif action in {"previous", "next"}:
+            result = navigator.move(action)
+        elif action == "deep-dive":
+            result = navigator.deep_dive(target_id)
+        elif action == "back":
+            result = navigator.back()
+        elif action == "code-view":
+            result = navigator.update_code_view(code_view or {})
+        elif action == "state":
+            result = navigator.state()
+        else:
+            raise CodeLearnerError(f"unknown course navigation action: {action}")
+        if result.get("current"):
+            result["tutor_context"] = TutorContextStore(root).write_navigation(
+                result,
+                project_id=context_id,
+                writer_id=f"electroboy:{context_id}",
+            )
+        return result
 
     def modules(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
@@ -722,6 +709,11 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             intended_audience=intended_audience,
         )
         saved = CodeLearnerStore(root).save_walkthrough(walkthrough)
+        TutorContextStore(root).write_walkthrough(
+            saved,
+            project_id=context_id,
+            writer_id=f"electroboy:{context_id}",
+        )
         return self._walkthrough_payload(root, saved)
 
     def set_current_step(
@@ -735,6 +727,11 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             walkthrough_id,
             step_id,
         )
+        TutorContextStore(root).write_walkthrough(
+            walkthrough,
+            project_id=context_id,
+            writer_id=f"electroboy:{context_id}",
+        )
         return self._walkthrough_payload(root, walkthrough)
 
     def learner_context(
@@ -745,13 +742,15 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
         walkthrough = CodeLearnerStore(root).get(walkthrough_id)
+        context = TutorContextStore(root).write_walkthrough(
+            walkthrough,
+            project_id=context_id,
+            writer_id=f"electroboy:{context_id}",
+            context_options=context_options,
+        )
         return {
             "status": "prepared",
-            "context": build_learner_context(
-                root,
-                walkthrough,
-                **context_options,
-            ),
+            "context": context,
         }
 
     def prepare_question(
@@ -764,19 +763,22 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root = self._active_project_root(context_id)
         store = CodeLearnerStore(root)
         walkthrough = store.get(walkthrough_id)
-        payload = learner_question_payload(
-            root,
+        question = str(question or "").strip()
+        if not question:
+            raise CodeLearnerError("learner question is required")
+        context = TutorContextStore(root).write_walkthrough(
             walkthrough,
-            question,
-            **context_options,
+            project_id=context_id,
+            writer_id=f"electroboy:{context_id}",
+            context_options=context_options,
         )
-        context = payload.get("context")
-        if not isinstance(context, dict):
-            raise CodeLearnerError("question context was not prepared")
-        updated = store.record_question(walkthrough.id, question, context)
         return {
-            **payload,
-            "walkthrough": updated.to_dict(),
+            "status": "prepared",
+            "question": question,
+            "prompt": question,
+            "context_version": context["context_version"],
+            "context_path": ".electroboy/code-learner/tutor-context.json",
+            "walkthrough": walkthrough.to_dict(),
             "walkthroughs": self._walkthrough_summaries(root),
         }
 
@@ -789,7 +791,13 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root = self._active_project_root(context_id)
         store = CodeLearnerStore(root)
         walkthrough = store.get(walkthrough_id)
-        learner_context = build_learner_context(root, walkthrough, **context_options)
+        tutor_context = TutorContextStore(root)
+        tutor_context.write_walkthrough(
+            walkthrough,
+            project_id=context_id,
+            writer_id=f"electroboy:{context_id}",
+            context_options=context_options,
+        )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             for session in context.code_learner_sessions.values():
@@ -797,7 +805,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     context.selected_session_id = session.session_id
                     return session, False
             session = AgentSession(
-                command=code_learner_agent_command(root, learner_context),
+                command=code_learner_agent_command(root),
                 cwd=root,
                 label="code learner tutor",
                 kind=self.workflow_id,
@@ -806,12 +814,21 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     "walkthrough_id": walkthrough.id,
                     "learning_mode": walkthrough.learning_mode,
                     "mode_target": walkthrough.mode_target,
+                    "tutor_context_path": (
+                        ".electroboy/code-learner/tutor-context.json"
+                    ),
                 },
             )
             session = self.services.sessions.prepare(context, session)
             context.code_learner_sessions[session.session_id] = session
             context.selected_session_id = session.session_id
             self.services.sessions.record(context, session)
+        tutor_context.write_walkthrough(
+            walkthrough,
+            project_id=context_id,
+            writer_id=session.session_id,
+            context_options=context_options,
+        )
         try:
             session.start()
         except Exception:
@@ -831,12 +848,13 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         walkthrough_id: str = "",
         **context_options: object,
     ) -> str:
-        root = self._active_project_root(context_id)
-        walkthrough = CodeLearnerStore(root).get(walkthrough_id)
-        return learner_prompt(
+        self.prepare_question(
+            context_id,
             question,
-            build_learner_context(root, walkthrough, **context_options),
+            walkthrough_id,
+            **context_options,
         )
+        return str(question or "").strip() + "\n"
 
     def _walkthrough_payload(
         self,

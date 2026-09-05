@@ -147,8 +147,7 @@ class CodeLearnerDomainTests(unittest.TestCase):
 
         self.assertTrue(context["selection_active"])
         self.assertEqual(context["start_line"], 2)
-        self.assertIn("src/sample/main.py:2-3", prompt)
-        self.assertIn("Why this branch?", prompt)
+        self.assertEqual(prompt, "Why this branch?\n")
 
     def test_store_persists_walkthrough_and_question_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

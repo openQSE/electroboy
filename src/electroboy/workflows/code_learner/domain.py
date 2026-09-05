@@ -1262,33 +1262,10 @@ def build_learner_context(
 
 
 def learner_prompt(question: str, context: dict[str, object]) -> str:
-    """Wrap a user question with the active Code Learner source context."""
+    """Return the question unchanged; context is resolved from the pointer file."""
 
-    source_excerpt = str(context.get("source_excerpt") or "").strip()
-    context_lines = [
-        "[ElectroBoy Code Learner context]",
-        f"Walkthrough: {context.get('walkthrough_id')}",
-        f"Mode: {context.get('learning_mode')}",
-        f"Target: {context.get('mode_target')}",
-        f"Step: {context.get('step_position')} {context.get('step_title')}",
-        (
-            "Source: "
-            f"{context.get('file_path')}:{context.get('start_line')}-"
-            f"{context.get('end_line')}"
-        ),
-        "Use this context to answer the user's learning question. Explain only;",
-        "do not edit files, run commands, or perform implementation work.",
-    ]
-    if source_excerpt:
-        context_lines.extend(["", "Source excerpt:", source_excerpt])
-    context_lines.extend(
-        [
-            "[/ElectroBoy Code Learner context]",
-            "",
-            str(question or "").strip(),
-        ]
-    )
-    return "\n".join(context_lines).strip() + "\n"
+    del context
+    return str(question or "").strip() + "\n"
 
 
 def learner_question_payload(

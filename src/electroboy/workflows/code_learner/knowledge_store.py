@@ -134,8 +134,11 @@ class KnowledgeStore:
         _refresh_manifest_counts(ordered)
         return self.save_knowledge(ordered)
 
-    def knowledge_ids(self) -> set[str]:
-        return {str(record["id"]) for record in self.load_knowledge()}
+    def knowledge_ids(self, *, validate_sources: bool = True) -> set[str]:
+        return {
+            str(record["id"])
+            for record in self.load_knowledge(validate_sources=validate_sources)
+        }
 
     def get(self, record_id: str) -> dict[str, object]:
         requested = str(record_id or "").strip()
@@ -302,7 +305,13 @@ class KnowledgeStore:
             _write_jsonl(path, normalized)
         return path
 
-    def load_course(self, mode: str, scope_id: str) -> list[dict[str, object]]:
+    def load_course(
+        self,
+        mode: str,
+        scope_id: str,
+        *,
+        validate_sources: bool = True,
+    ) -> list[dict[str, object]]:
         path = self.course_path(mode, scope_id)
         if not path.is_file():
             return []
@@ -311,8 +320,8 @@ class KnowledgeStore:
                 path.read_text(encoding="utf-8"),
                 artifact=path.relative_to(self.root).as_posix(),
             ),
-            knowledge_ids=self.knowledge_ids(),
-            root=self.root,
+            knowledge_ids=self.knowledge_ids(validate_sources=validate_sources),
+            root=self.root if validate_sources else None,
         )
 
     def mark_courses_stale(self, knowledge_ids: Iterable[str]) -> list[Path]:

@@ -115,6 +115,11 @@ class CodeLearnerServiceTests(unittest.TestCase):
                 selected_end_line=6,
             )
             recent = recent_project_entries(service_root)
+            tutor_context = json.loads(
+                (
+                    source_root / ".electroboy/code-learner/tutor-context.json"
+                ).read_text(encoding="utf-8")
+            )
 
         self.assertEqual(opened["workflow_id"], "code-learner")
         self.assertEqual(opened["project_mode"], "code-learner")
@@ -131,8 +136,9 @@ class CodeLearnerServiceTests(unittest.TestCase):
         )
         self.assertEqual(symbols["resolution"]["status"], "resolved")
         self.assertEqual(selected["walkthrough"]["current_step_id"], step_id)
-        self.assertIn("src/sample/main.py:4-6", question["prompt"])
-        self.assertEqual(question["walkthrough"]["qa_history"][0]["step_id"], step_id)
+        self.assertEqual(question["prompt"], "What calls does this function make?")
+        self.assertEqual(question["walkthrough"]["qa_history"], [])
+        self.assertEqual(tutor_context["source"]["start_line"], 4)
 
     def test_start_agent_uses_code_learner_session_bucket(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,10 +170,19 @@ class CodeLearnerServiceTests(unittest.TestCase):
                     context_id,
                     str(course["walkthrough"]["id"]),
                 )
+                with mock.patch.object(session, "is_active", return_value=True):
+                    reused, started_again = controller.start_agent(
+                        context_id,
+                        str(course["walkthrough"]["id"]),
+                        selected_start_line=2,
+                        selected_end_line=3,
+                    )
 
             payload = state.project_payload(context_id)
 
         self.assertTrue(started)
+        self.assertFalse(started_again)
+        self.assertIs(reused, session)
         start.assert_called_once_with(session)
         self.assertEqual(session.kind, "code-learner")
         self.assertIn(session.session_id, payload["selected_session_id"])
@@ -190,7 +205,9 @@ class CodeLearnerServiceTests(unittest.TestCase):
 
         self.assertIn("read-only", command)
         self.assertIn("Code Learner tutor", command[-1])
-        self.assertIn("src/app.py:10-20", command[-1])
+        self.assertIn(".electroboy/code-learner/tutor-context.json", command[-1])
+        self.assertNotIn("src/app.py:10-20", command[-1])
+        self.assertIn("Before answering every learner question", command[-1])
 
     def test_initialize_prompt_requests_ai_inferred_jsonl_corpus(self) -> None:
         prompt = code_learner_initialize_prompt(

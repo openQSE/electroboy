@@ -1488,25 +1488,25 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 17: Contextual Tutor Integration
 
-200. [ ] Implement the canonical compact tutor-context schema with project,
+200. [x] Implement the canonical compact tutor-context schema with project,
     revision, course, navigation, knowledge, source, artifact, and version
     fields.
-201. [ ] Keep the shared workspace Agent Input as the only question composer.
-202. [ ] Add an atomic context-file writer with monotonically increasing
+201. [x] Keep the shared workspace Agent Input as the only question composer.
+202. [x] Add an atomic context-file writer with monotonically increasing
     versions and repository-relative path validation.
-203. [ ] Update the context file for course, section, layer, module, function,
+203. [x] Update the context file for course, section, layer, module, function,
     source-selection, and repository-revision changes.
-204. [ ] Define the one-time tutor bootstrap instruction requiring a context
+204. [x] Define the one-time tutor bootstrap instruction requiring a context
     file read before every answer.
-205. [ ] Add an AI-runtime capability check for repository-scoped context-file
+205. [x] Add an AI-runtime capability check for repository-scoped context-file
     reads or an equivalent context tool.
-206. [ ] Send user questions without serialized course or knowledge context
+206. [x] Send user questions without serialized course or knowledge context
     while preserving ordinary conversation history.
-207. [ ] Make the tutor resolve only the referenced course section, knowledge
+207. [x] Make the tutor resolve only the referenced course section, knowledge
     neighborhood, and source evidence needed for the answer.
-208. [ ] Handle missing, malformed, stale, incompatible, and concurrently
+208. [x] Handle missing, malformed, stale, incompatible, and concurrently
     updated context files without guessing the learner's location.
-209. [ ] Prevent ordinary Q&A from mutating durable state, allow structured
+209. [x] Prevent ordinary Q&A from mutating durable state, allow structured
     enrichment proposals, test navigation races and session reuse, and commit
     file-backed tutor integration.
 
