@@ -145,6 +145,32 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertEqual(question["walkthrough"]["qa_history"], [])
         self.assertEqual(tutor_context["source"]["start_line"], 4)
 
+    def test_legacy_corpus_requires_phase2_initialization(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+            controller.initialize_from_jsonl(context_id, self._sample_course_jsonl())
+
+            status = controller.initialization_status(context_id)
+
+        self.assertEqual(status["status"], "uninitialized")
+        learner = status["code_learner"]
+        self.assertFalse(learner["phase2_initialized"])
+        self.assertEqual(learner["migration"]["status"], "required")
+        self.assertIn("Run Initialize", learner["migration"]["message"])
+
     def test_start_agent_uses_code_learner_session_bucket(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"

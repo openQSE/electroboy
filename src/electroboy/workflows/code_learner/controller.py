@@ -38,6 +38,7 @@ from .initialization import (
     mark_pipeline_activated,
 )
 from .knowledge_store import KnowledgeStore
+from .migration import LegacyCorpusMigrator
 from .tutor_context import (
     TutorContextStore,
     require_repository_read_capability,
@@ -466,10 +467,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def initialize(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if (
-            initialization_ready(root)
-            or CodeLearnerStore(root).corpus_analysis() is not None
-        ):
+        if initialization_ready(root):
             return self._initialization_payload(context_id, root)
         with self._initialization_lock:
             job = self._initialization_jobs.get(str(root))
@@ -628,7 +626,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     ) -> dict[str, object]:
         job = self._initialization_job(root)
         state = self._state_payload(root)
-        initialized = initialization_ready(root) or "analysis" in state
+        initialized = initialization_ready(root)
         if job is not None and job.is_running():
             status = "initializing"
             initialization = job.snapshot()
@@ -657,6 +655,11 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def analysis(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        if KnowledgeStore(root).load_knowledge(validate_sources=False):
+            return {
+                "status": "analyzed",
+                "analysis": phase2_analysis_payload(root),
+            }
         analysis = CodeLearnerStore(root).corpus_analysis()
         return {
             "status": "analyzed" if analysis is not None else "uninitialized",
@@ -1109,6 +1112,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             if navigation.get("current"):
                 payload.update(project_navigation(root, navigation))
             return payload
+        migration = LegacyCorpusMigrator(root).status()
+        payload["phase2_initialized"] = False
+        payload["migration"] = migration.to_dict()
         analysis = store.corpus_analysis()
         if analysis is not None:
             payload["analysis"] = analysis.to_dict()

@@ -17,6 +17,7 @@ from .course_builder import CourseBuilder, CourseBuildResult
 from .domain import CodeLearnerError, repository_revision
 from .knowledge_store import KnowledgeStore
 from .knowledge_validation import EnrichmentController, KnowledgeValidationReport
+from .migration import LegacyCorpusMigrator, LegacyMigrationResult
 from .orchestrator import AnalysisOrchestrator
 from .revision import RevisionInvalidator
 
@@ -60,6 +61,10 @@ class CourseRunner(Protocol):
     def build_architecture(
         self, *, progress_callback: ProgressCallback | None = None
     ) -> CourseBuildResult: ...
+
+
+class MigrationRunner(Protocol):
+    def migrate(self) -> LegacyMigrationResult: ...
 
     def build_module(
         self,
@@ -134,12 +139,14 @@ class InitializationPipeline:
         analysis_factory: Callable[[Path], AnalysisRunner] = AnalysisOrchestrator,
         enrichment_factory: Callable[[Path], EnrichmentRunner] = EnrichmentController,
         course_factory: Callable[[Path], CourseRunner] = CourseBuilder,
+        migration_factory: Callable[[Path], MigrationRunner] = LegacyCorpusMigrator,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.store = KnowledgeStore(self.root)
         self.analysis_factory = analysis_factory
         self.enrichment_factory = enrichment_factory
         self.course_factory = course_factory
+        self.migration_factory = migration_factory
 
     def run(
         self,
@@ -151,6 +158,14 @@ class InitializationPipeline:
             "Preparing staged repository analysis.",
             progress_callback,
         )
+        migration = self.migration_factory(self.root).migrate()
+        if migration.status == "imported":
+            self._emit(
+                "migration",
+                migration.message,
+                progress_callback,
+                percent=3,
+            )
         invalidation = RevisionInvalidator(self.root).run()
         if invalidation.changed:
             self._emit(
