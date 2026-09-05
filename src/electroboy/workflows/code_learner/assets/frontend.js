@@ -342,18 +342,18 @@
     });
     nav.architectureStart.addEventListener("click", () => {
       generateCourse({ mode: "architecture" }).catch((error) => {
-        setStatus(error.message || String(error), "error");
+        setStatus(error.message || String(error), "failed");
       });
     });
     nav.moduleStart.addEventListener("click", () => {
       generateCourse({ mode: "module" }).catch((error) => {
-        setStatus(error.message || String(error), "error");
+        setStatus(error.message || String(error), "failed");
       });
     });
     nav.form.addEventListener("submit", (event) => {
       event.preventDefault();
       generateCourse({ mode: "function" }).catch((error) => {
-        setStatus(error.message || String(error), "error");
+        setStatus(error.message || String(error), "failed");
       });
     });
     nav.startAgent.addEventListener("click", () => {
@@ -1577,6 +1577,7 @@
   }
 
   function renderPane(state) {
+    const renderStarted = window.performance.now();
     const walkthrough = state.walkthrough;
     const step = currentPaneStep(state);
     state.host.innerHTML = `
@@ -1594,6 +1595,9 @@
     bindPaneEvents(state);
     updatePaneToolbar(state);
     scrollToActivePaneLine(state);
+    state.host.dataset.renderMilliseconds = (
+      window.performance.now() - renderStarted
+    ).toFixed(2);
   }
 
   function scrollToActivePaneLine(state) {

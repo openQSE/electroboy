@@ -77,7 +77,8 @@
   padding: 2px 8px 0 18px;
 }
 
-.code-learner-status[data-kind="error"] {
+.code-learner-status[data-kind="error"],
+.code-learner-status[data-kind="failed"] {
   color: var(--error);
 }
 

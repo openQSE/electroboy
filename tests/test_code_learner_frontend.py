@@ -131,6 +131,8 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-kind="ready"' in stylesheet
     assert 'data-kind="ambiguous"' in stylesheet
     assert 'data-kind="missing"' in stylesheet
+    assert 'data-kind="failed"' in stylesheet
+    assert "state.host.dataset.renderMilliseconds" in frontend
     assert "white-space: pre-wrap;" in stylesheet
     assert "--code-learner-code-font-size: calc(var(--font-size) - 2px);" in stylesheet
     assert "font-size: var(--code-learner-code-font-size);" in stylesheet
