@@ -1,41 +1,41 @@
 ---
 name: codebase-analysis
-description: Build or enrich a durable, source-grounded knowledge graph for an unfamiliar code repository. Use for Code Learner discovery and targeted knowledge requests, not for writing lessons.
+description: Discover and reconcile source-grounded components, modules, relationships, and layered knowledge for Code Learner Phase 3. Use for bounded repository-analysis passes, not course prose.
 ---
 
 # Codebase Analysis
 
-Build verified repository knowledge, not course prose. Treat the repository as
-read-only except for the ElectroBoy state paths explicitly supplied in the
-invocation.
+Build source-grounded repository knowledge, not course prose. The repository
+and ElectroBoy state are read-only. Return structured output to ElectroBoy,
+which validates and persists it.
 
 ## Operating Contract
 
-- Read the canonical knowledge schema named by the invocation before emitting
-  records.
-- Use the supplied run ID, repository revision, scope, and output paths.
-- Emit strict JSONL only. Preserve stable IDs from existing records.
-- Attach repository-relative source references to behavioral claims.
-- Record uncertainty, exclusions, and unresolved dynamic behavior as
-  diagnostics. Never invent a relationship to make the graph complete.
-- Append concise progress and heartbeat records to the supplied progress path.
-- Persist the supplied checkpoint after every validated pass so another fresh
-  invocation can continue without hidden conversation history.
-- Use fresh source evidence rather than treating the active branch diff or one
-  prominent subsystem as the repository architecture.
-- Do not write Architecture, Module, or Function lessons.
+- Read the supplied Phase 3 schema and all input manifests before source
+  inspection.
+- Use the supplied run ID, revision, scope, and temporary candidate IDs.
+- Emit strict JSONL only; do not write output or checkpoints directly.
+- Cite exact file IDs and source-oriented symbol locators from the supplied
+  evidence.
+- Preserve accepted component and module IDs in later passes.
+- Record uncertainty and missing evidence instead of inventing entities or
+  relationships.
+- Treat the full selected file manifest as scope. A branch diff or prominent
+  subsystem is evidence, not the architecture boundary.
+- Do not emit course documents or lesson prose.
 
 ## Pass Routing
 
 Read only the references required for the requested pass:
 
-- Inventory or module discovery: [repository-discovery.md](references/repository-discovery.md)
-- Record emission or enrichment: [knowledge-schema.md](references/knowledge-schema.md)
-- Relationship or runtime-flow analysis: [relationship-types.md](references/relationship-types.md)
-- Symbol discovery: [language-tooling.md](references/language-tooling.md)
-- Validation or stopping: [completeness-rules.md](references/completeness-rules.md)
+- Component discovery: [repository-discovery.md](references/repository-discovery.md)
+- Record emission: [knowledge-schema.md](references/knowledge-schema.md)
+- Module relationships and flows: [relationship-types.md](references/relationship-types.md)
+- Symbol grounding: [language-tooling.md](references/language-tooling.md)
+- Validation and stopping: [completeness-rules.md](references/completeness-rules.md)
 
-For an enrichment request, inspect only the requested entity and the smallest
-caller, callee, relationship, flow, or source neighborhood needed to resolve
-it. Stop after the requested facts are supported or a diagnostic explains why
-they cannot be established.
+Perform only the pass named by the invocation. Component discovery must not
+emit modules, relationships, diagrams, or courses. Reconciliation decides only
+`same` or `distinct`. Later passes may consume frozen manifests but may not
+silently add endpoints. Stop after the bounded contract is satisfied or a
+diagnostic records what remains unresolved.

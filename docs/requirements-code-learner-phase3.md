@@ -1892,30 +1892,30 @@ Boundary 1 validation notes:
 
 ### Boundary 5: Component Discovery Skill And Prompt
 
-66. [ ] Replace the entity-first discovery guidance in `codebase-analysis`
+66. [x] Replace the entity-first discovery guidance in `codebase-analysis`
     with Phase 3 component discovery guidance.
-67. [ ] Teach the skill that ElectroBoy supplies file identities and validates
+67. [x] Teach the skill that ElectroBoy supplies file identities and validates
     AI-authored source-oriented symbol locators.
-68. [ ] Teach the skill that it authors semantic component candidates.
-69. [ ] Require at least one hard source reference per candidate.
-70. [ ] Require explicit file membership and precise symbol locators where
+68. [x] Teach the skill that it authors semantic component candidates.
+69. [x] Require at least one hard source reference per candidate.
+70. [x] Require explicit file membership and precise symbol locators where
     components are narrower than whole files.
-71. [ ] Explain valid component granularity from one important function through
+71. [x] Explain valid component granularity from one important function through
     multiple files.
-72. [ ] Prohibit one-component-per-symbol output without architectural reason.
-73. [ ] Prohibit repository-wide components that erase meaningful boundaries.
-74. [ ] Require source-defined name evidence when one is available.
-75. [ ] Distinguish owned references from supporting references.
-76. [ ] Prohibit module, relationship, diagram, and course output during
+72. [x] Prohibit one-component-per-symbol output without architectural reason.
+73. [x] Prohibit repository-wide components that erase meaningful boundaries.
+74. [x] Require source-defined name evidence when one is available.
+75. [x] Distinguish owned references from supporting references.
+76. [x] Prohibit module, relationship, diagram, and course output during
     component discovery.
-77. [ ] Prohibit direct writes to source or `.electroboy` state.
-78. [ ] Build a component discovery prompt that passes file manifest, raw Ctags
+77. [x] Prohibit direct writes to source or `.electroboy` state.
+78. [x] Build a component discovery prompt that passes file manifest, raw Ctags
     evidence, prior artifact, and schema paths rather than embedding catalogs.
-79. [ ] Add bounded repository-scope instructions that avoid branch-diff
+79. [x] Add bounded repository-scope instructions that avoid branch-diff
     overfitting.
-80. [ ] Add skill package validation for the revised references.
-81. [ ] Forward-test the prompt against C, Python, and mixed-language fixtures.
-82. [ ] Commit the Phase 3 component discovery skill and prompt contract.
+80. [x] Add skill package validation for the revised references.
+81. [x] Forward-test the prompt against C, Python, and mixed-language fixtures.
+82. [x] Commit the Phase 3 component discovery skill and prompt contract.
 
 ### Boundary 6: Component Candidate Validation And Persistence
 

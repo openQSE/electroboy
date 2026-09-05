@@ -1,24 +1,22 @@
-# Knowledge Schema
+# Phase 3 Analysis Records
 
-The invocation identifies the canonical JSON Schema and existing knowledge
-streams. The schema is authoritative; this reference explains how to use it.
+The supplied JSON Schema is authoritative. Emit one object per line with no
+Markdown fence or surrounding prose. Use the exact repository revision.
 
-- Emit one JSON object per line with no Markdown fence or surrounding prose.
-- Use stable lowercase dot-separated IDs based on concept identity, not list
-  position.
-- Keep entities, typed relationships, ordered runtime flows, diagnostics, and
-  knowledge requests as separate records.
-- Use `kind` for entity and relationship kinds, `from_id` and `to_id` for
-  relationship endpoints, and the manifest's top-level count fields exactly as
-  named by the schema. Do not invent aliases for canonical fields.
-- Reuse an existing ID when the concept still exists. Replace or deprecate its
-  evidence instead of creating a duplicate.
-- Use the exact run ID and repository revision supplied by ElectroBoy.
-- Source references must include a repository-relative path, valid inclusive
-  line range, and a concise statement of what that range proves.
-- Use confidence to distinguish verified facts from high, medium, low, or
-  unknown inference.
-- Keep language-specific details in `attributes`; do not weaken common fields.
+During component discovery emit only `component_candidate` records. Candidate
+IDs are invocation-local and do not become permanent identity. Include:
 
-An enrichment response contains only added, revised, deprecated, diagnostic,
-or resolved-request records for its scope. It does not repeat the whole graph.
+- candidate ID, name, kind, responsibility, confidence, and limitations
+- every owned file ID
+- precise symbol locators when the component is narrower than a whole file
+- owned source references and supporting source references
+- whether the name is source-defined or inferred
+
+A symbol locator includes file ID, name, kind, scope when known, and inclusive
+source range. Never invent a symbol ID. ElectroBoy resolves the locator against
+raw Ctags and source evidence and assigns canonical comparison data.
+
+In later passes, reuse opaque component and module IDs exactly. Emit missing
+component or endpoint requests separately instead of introducing canonical
+objects inline. Diagnostics are separate records and never substitute for an
+invalid component, module, relationship, or knowledge record.

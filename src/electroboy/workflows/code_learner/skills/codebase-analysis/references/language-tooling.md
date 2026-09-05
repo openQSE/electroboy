@@ -1,16 +1,17 @@
 # Language Tooling
 
-Choose analysis tools from the repository's languages and installed
-capabilities. Useful adapters may wrap LSP servers, compiler indexes, tags,
-Tree-sitter, repository search, build metadata, or runtime traces. No editor or
-specific language server is mandatory.
+ElectroBoy supplies the canonical file manifest and raw Universal Ctags JSONL.
+Use Ctags records to locate functions, methods, classes, interfaces, types,
+routes, commands, and other language constructs, but do not treat tags as
+architectural ownership, call relationships, or runtime behavior.
 
-Build a broad index of functions, methods, classes, interfaces, important data
-types, routes, commands, and other addressable symbols. Record qualified name,
-kind, language, owning module, declarations, implementation, visibility,
-signature, callers, callees, interfaces, data access, side effects, tests, and
-analysis limitations when practical.
+Emit source-oriented locators, never Ctags line numbers or output ordering as
+IDs. Include file ID, name, kind, scope, signature, and source range when known.
+Read the referenced source before making behavioral claims. If Ctags lacks a
+parser or symbol, provide file, name, and range evidence so ElectroBoy can run
+targeted Ctags and repository-search resolution.
 
-Use parser or compiler evidence ahead of text matching. When only text search
-is available, lower confidence and record ambiguity. Initialization needs a
-resolvable index, not a complete lesson for every symbol.
+Do not build the learned repository or require a compilation database, object
+files, language server, editor, or runtime trace. Preserve ambiguity for
+overloads, nested scopes, generated code, macros, reflection, and dynamic
+dispatch.

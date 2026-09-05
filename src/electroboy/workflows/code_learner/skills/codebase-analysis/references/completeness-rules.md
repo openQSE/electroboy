@@ -1,14 +1,16 @@
 # Completeness Rules
 
-Before declaring a pass complete, verify that emitted IDs are unique, all
-references resolve, source paths and ranges exist, and records use the current
-revision. Confirm major entry points belong to modules and flows, major modules
-have interfaces and relationships, and every discovered extension
-implementation has coverage or an explicit exclusion.
+Before returning a pass, verify record types, temporary or canonical IDs,
+repository revision, file IDs, symbol locators, and source ranges. Do not emit
+records belonging to a later pass.
 
-Report counts for discovered and completed scopes. List skipped files,
-unsupported tools, unresolved behavior, and remaining work. A bounded pass may
-finish with diagnostics; it may not call partial coverage complete.
+Component discovery should inspect the complete selected file manifest, but it
+does not have to force every file into a component. ElectroBoy computes file
+coverage afterward and may request one focused missing-file investigation.
+Classify build, CI, packaging, release, and repository tooling explicitly when
+asked. Leave a file unresolved rather than inventing a component.
 
-If missing facts block course generation, emit a targeted knowledge request
-with scope, related records, likely source locations, and required facts.
+Report uncertainty and unsupported dynamic behavior. A bounded pass may finish
+with diagnostics. Remaining discrepancies reduce confidence or course coverage
+but do not require repository-wide retries or prevent ElectroBoy from building
+a useful course from validated records.
