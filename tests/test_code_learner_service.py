@@ -28,7 +28,6 @@ from electroboy.workflows.code_learner.controller import (  # noqa: E402
 from electroboy.workflows.code_learner.domain import (  # noqa: E402
     CodeLearnerError,
     CodeLearnerStore,
-    repository_revision,
 )
 from electroboy.workflows.code_learner.generation import (  # noqa: E402
     LearnerGenerationStore,
@@ -74,18 +73,10 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertEqual(workflow.label, "Code Learner")
         self.assertEqual(workflow.controller_factory, CodeLearnerWorkflowController)
         self.assertEqual(workflow.project_kinds, ("code-learner",))
-        self.assertIsNotNone(
-            dispatcher.match("POST", "/api/code-learner/project/open")
-        )
-        self.assertIsNotNone(
-            dispatcher.match("POST", "/api/code-learner/question")
-        )
-        self.assertIsNotNone(
-            dispatcher.match("GET", "/api/code-learner/init/status")
-        )
-        self.assertIsNotNone(
-            dispatcher.match("POST", "/api/code-learner/cache/clear")
-        )
+        self.assertIsNotNone(dispatcher.match("POST", "/api/code-learner/project/open"))
+        self.assertIsNotNone(dispatcher.match("POST", "/api/code-learner/question"))
+        self.assertIsNotNone(dispatcher.match("GET", "/api/code-learner/init/status"))
+        self.assertIsNotNone(dispatcher.match("POST", "/api/code-learner/cache/clear"))
 
     def test_controller_opens_repo_and_prepares_walkthrough_question(
         self,
@@ -132,9 +123,9 @@ class CodeLearnerServiceTests(unittest.TestCase):
             )
             recent = recent_project_entries(service_root)
             tutor_context = json.loads(
-                (
-                    source_root / ".electroboy/code-learner/tutor-context.json"
-                ).read_text(encoding="utf-8")
+                (source_root / ".electroboy/code-learner/tutor-context.json").read_text(
+                    encoding="utf-8"
+                )
             )
 
         self.assertEqual(opened["workflow_id"], "code-learner")
@@ -341,12 +332,8 @@ class CodeLearnerServiceTests(unittest.TestCase):
 
             prompt = code_learner_initialize_prompt(
                 root,
-                progress_path=(
-                    ".electroboy/code-learner/initialize-progress.jsonl"
-                ),
-                checkpoint_path=(
-                    ".electroboy/code-learner/initialize-checkpoint.md"
-                ),
+                progress_path=(".electroboy/code-learner/initialize-progress.jsonl"),
+                checkpoint_path=(".electroboy/code-learner/initialize-checkpoint.md"),
             )
 
         self.assertIn("An existing checkpoint is present", prompt)
@@ -372,7 +359,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
             started = threading.Event()
             release = threading.Event()
 
-            def run_pipeline(_pipeline, progress_callback=None):
+            def run_pipeline(_pipeline, progress_callback=None, *, acquire_lease=True):
                 started.set()
                 if progress_callback is not None:
                     progress_callback(
@@ -411,23 +398,25 @@ class CodeLearnerServiceTests(unittest.TestCase):
                         }
                     )
                 release.wait(timeout=2)
-                return SimpleNamespace(revision=repository_revision(source_root))
+                return SimpleNamespace(status="complete")
 
-            with mock.patch(
-                "electroboy.workflows.code_learner.controller."
-                "InitializationPipeline.run",
-                autospec=True,
-                side_effect=run_pipeline,
-            ) as run, mock.patch(
-                "electroboy.workflows.code_learner.controller.CourseNavigator.open",
-                return_value={"current": {"id": "architecture.overview"}},
-            ), mock.patch(
-                "electroboy.workflows.code_learner.controller."
-                "TutorContextStore.write_navigation",
-                return_value={},
-            ), mock.patch(
-                "electroboy.workflows.code_learner.controller."
-                "mark_pipeline_activated"
+            with (
+                mock.patch(
+                    "electroboy.workflows.code_learner.controller."
+                    "Phase3InitializationPipeline.run",
+                    autospec=True,
+                    side_effect=run_pipeline,
+                ) as run,
+                mock.patch(
+                    "electroboy.workflows.code_learner.controller."
+                    "Phase3CourseNavigator.open",
+                    return_value={"current": {"section_id": "architecture.overview"}},
+                ),
+                mock.patch(
+                    "electroboy.workflows.code_learner.controller."
+                    "Phase3TutorContextStore.write_navigation",
+                    return_value={},
+                ),
             ):
                 first = controller.initialize(context_id)
                 self.assertTrue(started.wait(timeout=2))
@@ -454,8 +443,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
             progress_events = status["initialization"]["progress_events"]
             self.assertTrue(
                 any(
-                    event.get("activity_kind") == "command"
-                    for event in progress_events
+                    event.get("activity_kind") == "command" for event in progress_events
                 )
             )
             self.assertFalse(any(event.get("heartbeat") for event in progress_events))
@@ -481,7 +469,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
             final_output_started = threading.Event()
             release = threading.Event()
 
-            def run_pipeline(_pipeline, progress_callback=None):
+            def run_pipeline(_pipeline, progress_callback=None, *, acquire_lease=True):
                 if progress_callback is not None:
                     progress_callback(
                         {
@@ -493,23 +481,35 @@ class CodeLearnerServiceTests(unittest.TestCase):
                     )
                 final_output_started.set()
                 release.wait(timeout=2)
-                return SimpleNamespace(revision=repository_revision(source_root))
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "record_type": "progress",
+                            "phase": "activation",
+                            "percent": 99,
+                            "message": "Activating course",
+                            "host_owned": True,
+                        }
+                    )
+                return SimpleNamespace(status="complete")
 
-            with mock.patch(
-                "electroboy.workflows.code_learner.controller."
-                "InitializationPipeline.run",
-                autospec=True,
-                side_effect=run_pipeline,
-            ), mock.patch(
-                "electroboy.workflows.code_learner.controller.CourseNavigator.open",
-                return_value={"current": {"id": "architecture.overview"}},
-            ), mock.patch(
-                "electroboy.workflows.code_learner.controller."
-                "TutorContextStore.write_navigation",
-                return_value={},
-            ), mock.patch(
-                "electroboy.workflows.code_learner.controller."
-                "mark_pipeline_activated"
+            with (
+                mock.patch(
+                    "electroboy.workflows.code_learner.controller."
+                    "Phase3InitializationPipeline.run",
+                    autospec=True,
+                    side_effect=run_pipeline,
+                ),
+                mock.patch(
+                    "electroboy.workflows.code_learner.controller."
+                    "Phase3CourseNavigator.open",
+                    return_value={"current": {"section_id": "architecture.overview"}},
+                ),
+                mock.patch(
+                    "electroboy.workflows.code_learner.controller."
+                    "Phase3TutorContextStore.write_navigation",
+                    return_value={},
+                ),
             ):
                 controller.initialize(context_id)
                 self.assertTrue(final_output_started.wait(timeout=2))
@@ -559,7 +559,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
 
             with mock.patch(
                 "electroboy.workflows.code_learner.controller."
-                "InitializationPipeline.run",
+                "Phase3InitializationPipeline.run",
                 side_effect=CodeLearnerError("analysis pass failed"),
             ):
                 started = controller.initialize(context_id)

@@ -391,11 +391,18 @@ class Phase3CourseNavigator:
         self.root = self.service.root
         self.store = self.service.store
 
-    def open(self, mode: str, scope_id: str) -> dict[str, object]:
+    def open(self, mode: str, scope_id: str, section_id: str = "") -> dict[str, object]:
         records = self.service.load(mode, scope_id)
         if not records:
             raise CodeLearnerError("course target is missing")
-        section = _sections(records)[0]
+        sections = _sections(records)
+        section = (
+            next((item for item in sections if item["id"] == section_id), None)
+            if section_id
+            else sections[0]
+        )
+        if section is None:
+            raise CodeLearnerError("course section is missing")
         state = {
             "schema_version": 1,
             "current": {
@@ -462,6 +469,18 @@ class Phase3CourseNavigator:
         state["current"] = previous["current"]
         state["code_view"] = previous["code_view"]
         state["target"] = {}
+        self.store.write_json(self.service.navigation_path, state)
+        return self.state()
+
+    def update_code_view(self, code_view: Mapping[str, object]) -> dict[str, object]:
+        state = self._load()
+        current = state.get("code_view", {})
+        current = current if isinstance(current, Mapping) else {}
+        state["code_view"] = {
+            **current,
+            **{key: value for key, value in code_view.items() if value is not None},
+        }
+        state["updated_at"] = utc_now()
         self.store.write_json(self.service.navigation_path, state)
         return self.state()
 

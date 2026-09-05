@@ -137,6 +137,27 @@
   line-height: 1.3;
 }
 
+.code-learner-completion {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 2px 8px 4px 18px;
+  color: #24715e;
+  font-size: var(--ui-small-font-size);
+  line-height: 1.3;
+}
+
+.code-learner-completion[hidden] {
+  display: none;
+}
+
+.code-learner-completion[data-kind="complete_with_warnings"] {
+  color: #8a5b12;
+}
+
+.code-learner-completion[data-kind="failed"] {
+  color: var(--error);
+}
+
 .code-learner-pane-host {
   --code-learner-small-font-size: calc(var(--font-size) - 3px);
   --code-learner-code-font-size: calc(var(--font-size) - 2px);

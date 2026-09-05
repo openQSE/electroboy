@@ -31,7 +31,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         workflows,
     )
 
-    assert 'id: WORKFLOW_ID' in frontend
+    assert "id: WORKFLOW_ID" in frontend
     assert 'navigation: "sidebar"' in frontend
     assert 'kind: "code-learner"' in frontend
     assert "window.ElectroBoyCodeLearnerPane" in frontend
@@ -43,8 +43,9 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         in frontend
     )
     prepare_prompt_source = frontend[
-        frontend.index("function preparePrompt") :
-        frontend.index("function handleWindowMessage")
+        frontend.index("function preparePrompt") : frontend.index(
+            "function handleWindowMessage"
+        )
     ]
     assert "async function preparePrompt" in frontend
     assert "await tutorContextWrite;" in prepare_prompt_source
@@ -61,10 +62,15 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "async function clearCourseCache()" in frontend
     assert "learnerState = emptyLearnerState();" in frontend
     assert "navigationExpanded.outline = false;" in frontend
-    assert "nav.clearCache.disabled = !hasProject || initializing || !initialized;" in frontend
+    assert (
+        "nav.clearCache.disabled = !hasProject || initializing || !initialized;"
+        in frontend
+    )
     assert "const courseArtifact = learnerState.courseArtifact;" in frontend
     assert "closeCourseDocument(courseArtifact);" in frontend
-    assert "openLearnerPane({ activate: false, refresh: true, reset: true });" in frontend
+    assert (
+        "openLearnerPane({ activate: false, refresh: true, reset: true });" in frontend
+    )
     assert "reset: () => resetPaneState(state)" in frontend
     assert "function resetPaneState(state)" in frontend
     assert "state.loadSequence += 1;" in frontend
@@ -91,10 +97,17 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="architecture-start">Start lesson' in frontend
     assert 'generateCourse({ mode: "architecture" })' in frontend
     assert 'data-code-learner-control="init-progress"' in frontend
+    assert 'data-code-learner-control="init-completion"' in frontend
+    assert "renderInitializationCompletion()" in frontend
+    assert 'terminal === "complete_with_warnings"' in frontend
+    assert 'terminal === "failed"' in frontend
+    assert "learnerState.phase3Initialized" in frontend
     assert 'else if (initializing) {\n      setStatus("");' in frontend
     assert ".code-learner-status:empty" in stylesheet
     assert 'runtimeApi.modules.invoke("progress", "showProgressSnapshot", {' in frontend
-    assert 'runtimeApi.modules.invoke("progress", "closeProgressEventStream");' in frontend
+    assert (
+        'runtimeApi.modules.invoke("progress", "closeProgressEventStream");' in frontend
+    )
     assert "initialization.progress_events" in frontend
     assert ".filter((event) => !event.heartbeat)" in frontend
     assert "if (event.activity)" in frontend
@@ -106,7 +119,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="function"' in frontend
     assert 'data-code-learner-control="function-start"' in frontend
     assert 'role="status" aria-live="polite"' in frontend
-    assert "generateCourse({ mode: \"module\" })" in frontend
+    assert 'generateCourse({ mode: "module" })' in frontend
     assert 'let activeNavigationGroup = "project";' in frontend
     assert 'activeNavigationGroup === "project"' in frontend
     assert 'activeNavigationGroup === "learn"' in frontend
@@ -128,8 +141,9 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'setAttribute("aria-current", "step")' in frontend
     assert 'controls.dataset.codeLearnerPaneToolbar = ""' in frontend
     toolbar_source = frontend[
-        frontend.index("function mountPaneToolbar") :
-        frontend.index("function mountPaneTools")
+        frontend.index("function mountPaneToolbar") : frontend.index(
+            "function mountPaneTools"
+        )
     ]
     assert ">Previous</button>" in toolbar_source
     assert ">Next</button>" in toolbar_source
@@ -148,7 +162,9 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-pane="question"' not in frontend
     assert "preparePaneQuestion" not in frontend
     assert "electroboy-code-learner-question" not in frontend
-    assert 'activeLine.scrollIntoView({ block: "center", inline: "nearest" });' in frontend
+    assert (
+        'activeLine.scrollIntoView({ block: "center", inline: "nearest" });' in frontend
+    )
     assert ".code-learner-pane-grid" in stylesheet
     assert ".code-learner-progress-fill" in stylesheet
     assert ".tok-keyword" in stylesheet
@@ -230,7 +246,4 @@ def test_runtime_and_software_frontend_route_code_learner_as_separate_pane() -> 
     assert 'leaf.kind !== "artifact"' in runtime
     assert 'message.type === "electroboy:pane-pop"' in runtime
     assert 'parameters.set("popped", "1")' in runtime
-    assert (
-        'project.kind === "project" || project.kind === "meta"'
-        in software
-    )
+    assert 'project.kind === "project" || project.kind === "meta"' in software

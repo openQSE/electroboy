@@ -8,6 +8,8 @@ from pathlib import Path
 from .course_graph import CourseGraph
 from .domain import CodeLearnerError, SourceAdapter
 from .knowledge_store import KnowledgeStore
+from .phase3_courses import Phase3CourseService
+from .phase3_store import Phase3Store
 
 
 def phase2_analysis_payload(root: Path | str) -> dict[str, object]:
@@ -137,9 +139,7 @@ def project_navigation(
             "title": value.get("title") or document_id,
             "learning_mode": value.get("course_mode"),
             "mode_target": value.get("scope_id"),
-            "current_step_id": (
-                section_id if document_id == course_id else ""
-            ),
+            "current_step_id": (section_id if document_id == course_id else ""),
             "source_revision": value.get("repository_revision"),
             "review_status": value.get("status"),
             "step_count": sum(
@@ -168,6 +168,199 @@ def project_navigation(
             "title": document.get("title") or course_id,
         },
     }
+
+
+def phase3_analysis_payload(root: Path | str) -> dict[str, object]:
+    """Return Phase 3 canonical modules and symbols in the stable menu shape."""
+
+    from .component_manifest import ComponentManifestService
+    from .modules import ModuleSynthesisService
+    from .source_manifest import SourceManifestService
+
+    repository = Path(root).expanduser().resolve()
+    source = SourceManifestService(repository).load()
+    components = ComponentManifestService(repository).load()
+    modules = ModuleSynthesisService(repository).load()
+    if source is None or components is None or modules is None:
+        return {
+            "source_root": str(repository),
+            "source_files": [],
+            "language_counts": {},
+            "modules": [],
+            "symbols": [],
+            "truncated": False,
+        }
+    files = source.by_id()
+    language_counts: dict[str, int] = {}
+    for file in source.files:
+        language = str(file.get("language") or "unknown")
+        language_counts[language] = language_counts.get(language, 0) + 1
+    component_by_id = {
+        str(component["id"]): component for component in components.components
+    }
+    module_payload = []
+    for module in modules.modules:
+        member_ids = list(map(str, module.get("component_ids", [])))
+        file_ids = {
+            str(file_id)
+            for component_id in member_ids
+            for file_id in component_by_id.get(component_id, {}).get("file_ids", [])
+        }
+        module_payload.append(
+            {
+                "id": module["id"],
+                "path": module["id"],
+                "name": module.get("name") or module["id"],
+                "summary": module.get("purpose") or module.get("responsibility") or "",
+                "file_count": len(file_ids),
+                "component_count": len(member_ids),
+                "source_refs": list(module.get("source_refs", [])),
+            }
+        )
+    symbols = []
+    for component in components.components:
+        for symbol in component.get("symbols", []):
+            if not isinstance(symbol, Mapping):
+                continue
+            file = files.get(str(symbol.get("file_id") or ""), {})
+            scope = str(symbol.get("scope") or "")
+            name = str(symbol.get("name") or "")
+            symbols.append(
+                {
+                    "id": symbol.get("canonical_key"),
+                    "canonical_key": symbol.get("canonical_key"),
+                    "name": name,
+                    "qualified_name": f"{scope}.{name}" if scope else name,
+                    "kind": symbol.get("kind") or "symbol",
+                    "component_id": component["id"],
+                    "file_path": file.get("path") or "",
+                    "start_line": symbol.get("start_line") or 1,
+                    "end_line": symbol.get("end_line") or 1,
+                }
+            )
+    return {
+        "source_root": str(repository),
+        "source_files": [str(item["path"]) for item in source.files],
+        "language_counts": language_counts,
+        "modules": sorted(module_payload, key=lambda item: str(item["name"])),
+        "symbols": sorted(symbols, key=lambda item: str(item["qualified_name"])),
+        "truncated": False,
+    }
+
+
+def project_phase3_navigation(
+    root: Path | str,
+    navigation: Mapping[str, object],
+) -> dict[str, object]:
+    """Project a Phase 3 navigator state into the shared learner-pane model."""
+
+    repository = Path(root).expanduser().resolve()
+    store = Phase3Store(repository)
+    service = Phase3CourseService(repository, store=store)
+    current = navigation.get("current")
+    section = navigation.get("section")
+    if not isinstance(current, Mapping) or not isinstance(section, Mapping):
+        raise CodeLearnerError("Phase 3 course navigation has no current section")
+    mode = str(current.get("mode") or "")
+    scope_id = str(current.get("scope_id") or "")
+    document_id = str(current.get("document_id") or "")
+    section_id = str(current.get("section_id") or "")
+    records = service.load(mode, scope_id)
+    document = next(
+        record for record in records if record.get("record_type") == "document"
+    )
+    sections = sorted(
+        (record for record in records if record.get("record_type") == "section"),
+        key=lambda record: (int(record.get("order") or 0), str(record.get("id"))),
+    )
+    history = navigation.get("history", [])
+    history = history if isinstance(history, list) else []
+    walkthrough = {
+        "id": document_id,
+        "title": document.get("title") or document_id,
+        "source_root": str(repository),
+        "learning_mode": mode,
+        "mode_target": scope_id if mode != "architecture" else "",
+        "intended_audience": "",
+        "steps": [_project_section(item) for item in sections],
+        "current_step_id": section_id,
+        "generated_at": document.get("generated_at") or "",
+        "source_revision": document.get("repository_revision") or "",
+        "review_status": document.get("status") or "ready",
+        "qa_history": [],
+        "breadcrumbs": [
+            str(item.get("current", {}).get("document_id") or "")
+            for item in history
+            if isinstance(item, Mapping) and isinstance(item.get("current"), Mapping)
+        ]
+        + [document_id],
+        "can_go_back": bool(history),
+    }
+    code_view = navigation.get("code_view")
+    code_view = code_view if isinstance(code_view, Mapping) else {}
+    path = str(code_view.get("path") or "")
+    source = (
+        SourceAdapter(repository).source_payload(
+            path,
+            start_line=int(code_view.get("start_line") or 1),
+            end_line=int(code_view.get("end_line") or 1),
+            padding=80,
+        )
+        if path
+        else None
+    )
+    return {
+        "status": "ready",
+        "walkthrough": walkthrough,
+        "current_walkthrough": walkthrough,
+        "walkthroughs": _phase3_course_summaries(service, document_id, section_id),
+        "source": source,
+        "course_navigation": {
+            "generation": "phase3",
+            "navigation": dict(navigation),
+        },
+        "course_artifact": {
+            "mode": mode,
+            "scope_id": scope_id,
+            "jsonl_path": service.course_path(mode, scope_id)
+            .relative_to(repository)
+            .as_posix(),
+            "markdown_path": service.markdown_path(mode, scope_id)
+            .relative_to(repository)
+            .as_posix(),
+            "title": document.get("title") or document_id,
+        },
+    }
+
+
+def _phase3_course_summaries(
+    service: Phase3CourseService, current_id: str, section_id: str
+) -> list[dict[str, object]]:
+    summaries = []
+    targets = service.index().get("targets", {})
+    for document_id, target in targets.items():
+        if not isinstance(target, Mapping) or target.get("status") != "ready":
+            continue
+        records = service.load(str(target["mode"]), str(target["scope_id"]))
+        document = next(
+            item for item in records if item.get("record_type") == "document"
+        )
+        summaries.append(
+            {
+                "id": document_id,
+                "title": document.get("title") or document_id,
+                "learning_mode": target["mode"],
+                "mode_target": target["scope_id"],
+                "current_step_id": section_id if document_id == current_id else "",
+                "source_revision": document.get("repository_revision") or "",
+                "review_status": document.get("status") or "ready",
+                "step_count": sum(
+                    item.get("record_type") == "section" for item in records
+                ),
+                "qa_count": 0,
+            }
+        )
+    return summaries
 
 
 def _project_section(section: Mapping[str, object]) -> dict[str, object]:
@@ -219,13 +412,9 @@ def _source_payload(
     if not path:
         return None
     start = int(
-        code_view.get("selected_start_line")
-        or reference.get("start_line")
-        or 1
+        code_view.get("selected_start_line") or reference.get("start_line") or 1
     )
-    end = int(
-        code_view.get("selected_end_line") or reference.get("end_line") or start
-    )
+    end = int(code_view.get("selected_end_line") or reference.get("end_line") or start)
     return SourceAdapter(root).source_payload(
         path,
         start_line=start,

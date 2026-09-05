@@ -61,8 +61,15 @@
   function emptyLearnerState() {
     return {
       analysis: null,
+      learnerGeneration: "",
       phase2Present: false,
       phase2Initialized: false,
+      phase3Present: false,
+      phase3Initialized: false,
+      completionStatus: "",
+      warningCount: 0,
+      failedScope: "",
+      recoveryAction: "",
       walkthroughs: [],
       currentWalkthrough: null,
       source: null,
@@ -256,6 +263,9 @@
               <div class="code-learner-progress-meta"
                    data-code-learner-control="init-progress-meta"></div>
             </div>
+            <div class="code-learner-completion" hidden role="status"
+                 aria-live="polite"
+                 data-code-learner-control="init-completion"></div>
           </div>
         </form>
         <div class="code-learner-section">
@@ -305,6 +315,7 @@
       initProgress: control(container, "init-progress"),
       initProgressFill: control(container, "init-progress-fill"),
       initProgressMeta: control(container, "init-progress-meta"),
+      initCompletion: control(container, "init-completion"),
       outlineMenu: control(container, "outline-menu"),
       outlineActions: control(container, "outline-actions"),
       outline: control(container, "outline"),
@@ -484,6 +495,9 @@
   }
 
   function learnerInitialized() {
+    if (learnerState.phase3Present) {
+      return learnerState.phase3Initialized;
+    }
     if (learnerState.phase2Present) {
       return learnerState.phase2Initialized;
     }
@@ -543,13 +557,54 @@
     if (!show) {
       nav.initProgressFill.style.width = "0%";
       nav.initProgressMeta.textContent = "";
+    } else {
+      const percent = Math.max(0, Math.min(100, Number(initializationState.percent || 0)));
+      nav.initProgressFill.style.width = `${percent}%`;
+      nav.initProgressMeta.textContent = initializationFailed()
+        ? String(initializationState.error || initializationState.message || "Initialization failed.")
+        : formatInitializationStatus(initializationState);
+    }
+    renderInitializationCompletion();
+  }
+
+  function renderInitializationCompletion() {
+    if (!nav.initCompletion) {
       return;
     }
-    const percent = Math.max(0, Math.min(100, Number(initializationState.percent || 0)));
-    nav.initProgressFill.style.width = `${percent}%`;
-    nav.initProgressMeta.textContent = initializationFailed()
-      ? String(initializationState.error || initializationState.message || "Initialization failed.")
-      : formatInitializationStatus(initializationState);
+    const terminal = String(
+      initializationState && initializationState.completion_status
+      || learnerState.completionStatus
+      || "",
+    );
+    nav.initCompletion.hidden = !terminal;
+    nav.initCompletion.dataset.kind = terminal;
+    if (!terminal) {
+      nav.initCompletion.textContent = "";
+      return;
+    }
+    const warnings = Number(
+      initializationState && initializationState.warning_count
+      || learnerState.warningCount
+      || 0,
+    );
+    const failedScope = String(
+      initializationState && initializationState.failed_scope
+      || learnerState.failedScope
+      || "",
+    );
+    const recovery = String(
+      initializationState && initializationState.recovery_action
+      || learnerState.recoveryAction
+      || "",
+    );
+    if (terminal === "complete_with_warnings") {
+      nav.initCompletion.textContent = `Complete with warnings (${warnings})`;
+    } else if (terminal === "failed") {
+      const scope = failedScope ? ` at ${failedScope.replaceAll("_", " ")}` : "";
+      nav.initCompletion.textContent = `Failed${scope}${recovery ? `: ${recovery}` : ""}`;
+    } else {
+      nav.initCompletion.textContent = "Complete";
+    }
   }
 
   function publishInitializationProgress(initialization = initializationState) {
@@ -1209,6 +1264,19 @@
       learnerState.phase2Present = true;
       learnerState.phase2Initialized = Boolean(payload.phase2_initialized);
     }
+    if (Object.hasOwn(payload, "learner_generation")) {
+      learnerState.learnerGeneration = String(payload.learner_generation || "");
+    }
+    if (Object.hasOwn(payload, "phase3_initialized")) {
+      learnerState.phase3Present = true;
+      learnerState.phase3Initialized = Boolean(payload.phase3_initialized);
+    }
+    if (Object.hasOwn(payload, "completion_status")) {
+      learnerState.completionStatus = String(payload.completion_status || "");
+      learnerState.warningCount = Number(payload.warning_count || 0);
+      learnerState.failedScope = String(payload.failed_scope || "");
+      learnerState.recoveryAction = String(payload.recovery_action || "");
+    }
     if (Array.isArray(payload.walkthroughs)) {
       learnerState.walkthroughs = payload.walkthroughs;
     }
@@ -1842,8 +1910,10 @@
   }
 
   function deepDiveLabel(target) {
-    const parts = String(target || "").split(".");
-    return parts.slice(2).join(".") || target;
+    const value = String(target || "");
+    const separator = value.startsWith("course:") ? ":" : ".";
+    const parts = value.split(separator);
+    return parts.slice(2).join(separator) || target;
   }
 
   function bindPaneEvents(state) {
@@ -1927,9 +1997,13 @@
         action === "deep-dive" &&
         target &&
         target.status === "missing" &&
-        String(target.id || "").startsWith("course.function.")
+        (String(target.id || "").startsWith("course.function.") ||
+          String(target.id || "").startsWith("course:function:"))
       ) {
-        const query = String(target.id).slice("course.function.".length);
+        const targetId = String(target.id);
+        const query = targetId.startsWith("course:function:")
+          ? targetId.slice("course:function:".length)
+          : targetId.slice("course.function.".length);
         const buildResponse = await fetch(
           state.contextUrl("/api/code-learner/course/function"),
           {
