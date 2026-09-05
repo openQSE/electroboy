@@ -65,6 +65,8 @@ electroboy = [
   "assets/*.js",
   "assets/*.css",
   "schemas/*.json",
+  "skills/*/SKILL.md",
+  "skills/*/references/*.md",
 ]
 
 [tool.black]

@@ -1218,23 +1218,23 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 3: `codebase-analysis` Skill
 
-24. [ ] Scaffold the `codebase-analysis` skill with automatic discoverability.
-25. [ ] Write a concise `SKILL.md` describing purpose, constraints, staged
+24. [x] Scaffold the `codebase-analysis` skill with automatic discoverability.
+25. [x] Write a concise `SKILL.md` describing purpose, constraints, staged
     operation, and reference routing.
-26. [ ] Add repository-discovery guidance that remains language-independent.
-27. [ ] Add knowledge-schema guidance referencing the canonical schemas.
-28. [ ] Add relationship-type guidance with concrete evidence expectations.
-29. [ ] Add extension-family discovery and completeness guidance.
-30. [ ] Add language-tooling guidance covering optional adapters and fallback
+26. [x] Add repository-discovery guidance that remains language-independent.
+27. [x] Add knowledge-schema guidance referencing the canonical schemas.
+28. [x] Add relationship-type guidance with concrete evidence expectations.
+29. [x] Add extension-family discovery and completeness guidance.
+30. [x] Add language-tooling guidance covering optional adapters and fallback
     behavior.
-31. [ ] Add explicit instructions preventing active-branch overfitting.
-32. [ ] Add explicit instructions against course-prose generation.
-33. [ ] Add checkpoint, progress, source-safety, and stopping rules.
-34. [ ] Validate the skill package with the skill validator.
-35. [ ] Forward-test the skill independently against an unfamiliar fixture.
-36. [ ] Review whether the skill discovers all fixture implementations and
+31. [x] Add explicit instructions preventing active-branch overfitting.
+32. [x] Add explicit instructions against course-prose generation.
+33. [x] Add checkpoint, progress, source-safety, and stopping rules.
+34. [x] Validate the skill package with the skill validator.
+35. [x] Forward-test the skill independently against an unfamiliar fixture.
+36. [x] Review whether the skill discovers all fixture implementations and
     records uncertainty correctly.
-37. [ ] Commit the analysis skill and behavioral tests.
+37. [x] Commit the analysis skill and behavioral tests.
 
 ### Boundary 4: `code-learner-course` Skill
 
