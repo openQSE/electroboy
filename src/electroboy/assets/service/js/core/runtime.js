@@ -3316,7 +3316,11 @@
 
     function storedDocumentZoom() {
       try {
-        const stored = Number(window.localStorage.getItem(DOCUMENT_ZOOM_STORAGE_KEY));
+        const storedValue = window.localStorage.getItem(DOCUMENT_ZOOM_STORAGE_KEY);
+        if (storedValue === null || storedValue.trim() === "") {
+          return DEFAULT_DOCUMENT_ZOOM;
+        }
+        const stored = Number(storedValue);
         if (Number.isFinite(stored)) {
           return clampDocumentZoom(stored);
         }

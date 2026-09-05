@@ -3275,6 +3275,16 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("increaseArtifactZoom.disabled = false;", pane)
 
+    def test_document_zoom_defaults_when_browser_preference_is_missing(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn("const DEFAULT_DOCUMENT_ZOOM = 100;", runtime)
+        self.assertIn(
+            'if (storedValue === null || storedValue.trim() === "") {',
+            runtime,
+        )
+        self.assertIn("return DEFAULT_DOCUMENT_ZOOM;", runtime)
+
     def test_document_target_renderer_supports_repository_links(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
