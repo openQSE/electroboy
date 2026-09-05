@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from electroboy.modules.document_service import markdown_document_html
 from electroboy.structured_artifacts import (
     markdown_to_artifact_records,
     render_artifact_markdown,
@@ -194,3 +195,39 @@ def test_saved_course_uses_safe_shared_artifact_paths(tmp_path: Path) -> None:
     assert result.markdown_path.endswith("courses/architecture.md")
     assert (tmp_path / result.markdown_path).is_file()
     assert "sequenceDiagram" in (tmp_path / result.markdown_path).read_text()
+
+
+def test_shared_document_renderer_accepts_all_required_mermaid_families(
+    tmp_path: Path,
+) -> None:
+    examples = {
+        "component": "flowchart LR\n  API --> Service",
+        "sequence": "sequenceDiagram\n  API->>Service: request",
+        "dependency": "flowchart TD\n  UI --> Core",
+        "state": "stateDiagram-v2\n  Idle --> Running",
+        "class": "classDiagram\n  class Service",
+        "er": "erDiagram\n  PROJECT ||--o{ MODULE : contains",
+        "call-graph": "flowchart TD\n  caller --> callee",
+    }
+    markdown = "\n\n".join(
+        f"## {name}\n\n```mermaid\n{source}\n```"
+        for name, source in examples.items()
+    )
+    path = tmp_path / "course.md"
+    path.write_text(markdown, encoding="utf-8")
+
+    page, status = markdown_document_html(
+        tmp_path,
+        "course.md",
+        "Course",
+        "Course missing",
+        embedded=True,
+    )
+
+    assert status.value == 200
+    assert page.count('class="mermaid"') == len(examples)
+    assert "mermaid@10/dist/mermaid.min.js" in page
+    assert "stateDiagram-v2" in page
+    assert "classDiagram" in page
+    assert "erDiagram" in page
+    assert "caller --&gt; callee" in page
