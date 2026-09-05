@@ -308,6 +308,45 @@ class KnowledgeStore:
             root=self.root,
         )
 
+    def mark_courses_stale(self, knowledge_ids: Iterable[str]) -> list[Path]:
+        """Mark persisted courses linked to changed knowledge as stale."""
+
+        affected = set(knowledge_ids)
+        changed: list[Path] = []
+        if not affected or not self.courses_root.is_dir():
+            return changed
+        for path in sorted(self.courses_root.rglob("*.jsonl")):
+            records = parse_jsonl(
+                path.read_text(encoding="utf-8"),
+                artifact=path.relative_to(self.root).as_posix(),
+            )
+            linked = any(
+                affected
+                & set(record.get("knowledge_entity_ids", []))
+                | affected
+                & set(record.get("relationship_ids", []))
+                | affected
+                & set(record.get("runtime_flow_ids", []))
+                for record in records
+                if record.get("record_type") == "section"
+            )
+            if not linked:
+                continue
+            for record in records:
+                if record.get("record_type") == "document":
+                    record["status"] = "stale"
+                elif record.get("record_type") == "section":
+                    record["status"] = "stale"
+            validate_course_records(
+                records,
+                knowledge_ids=self.knowledge_ids(),
+                root=self.root,
+            )
+            with self._lock:
+                _write_jsonl(path, records)
+            changed.append(path)
+        return changed
+
     def append_progress(self, record: Mapping[str, object]) -> None:
         payload = json.dumps(dict(record), sort_keys=True) + "\n"
         with self._lock:

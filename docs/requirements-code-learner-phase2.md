@@ -1369,20 +1369,20 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 11: Knowledge Validation And Enrichment
 
-125. [ ] Implement cross-record referential validation.
-126. [ ] Implement source path and line-range validation.
-127. [ ] Implement module and extension-family completeness validation.
-128. [ ] Implement entry-point and runtime-flow coverage validation.
-129. [ ] Implement manifest count validation.
-130. [ ] Convert actionable gaps into structured knowledge requests.
-131. [ ] Add a targeted enrichment-job controller.
-132. [ ] Merge enrichment output with stable-ID preservation.
-133. [ ] Mark affected knowledge and course records stale.
-134. [ ] Prevent unbounded enrichment loops with explicit attempt and diagnostic
+125. [x] Implement cross-record referential validation.
+126. [x] Implement source path and line-range validation.
+127. [x] Implement module and extension-family completeness validation.
+128. [x] Implement entry-point and runtime-flow coverage validation.
+129. [x] Implement manifest count validation.
+130. [x] Convert actionable gaps into structured knowledge requests.
+131. [x] Add a targeted enrichment-job controller.
+132. [x] Merge enrichment output with stable-ID preservation.
+133. [x] Mark affected knowledge and course records stale.
+134. [x] Prevent unbounded enrichment loops with explicit attempt and diagnostic
     limits.
-135. [ ] Test successful enrichment, unresolved enrichment, conflicting
+135. [x] Test successful enrichment, unresolved enrichment, conflicting
     evidence, and partial validation.
-136. [ ] Commit validation and enrichment behavior.
+136. [x] Commit validation and enrichment behavior.
 
 ### Boundary 12: Generic Course Artifact Support
 

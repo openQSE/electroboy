@@ -23,6 +23,7 @@ from .analysis_passes import (
 from .contracts import parse_jsonl
 from .domain import CodeLearnerError, repository_revision
 from .knowledge_store import KnowledgeStore
+from .knowledge_validation import KnowledgeValidator
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 ANALYSIS_ROLE = "code_learner_analysis"
@@ -139,14 +140,29 @@ class AnalysisOrchestrator:
                 revision=revision,
                 progress_callback=progress_callback,
             )
-        checkpoint["status"] = "validated"
+        if any(item.name == "validation" for item in self.passes):
+            report = KnowledgeValidator(self.root).persist_requests(self.store)
+            checkpoint["status"] = (
+                "validated" if report.complete else "needs_enrichment"
+            )
+        else:
+            report = None
+            checkpoint["status"] = "validated"
         checkpoint["completed_at"] = utc_now()
         self.store.save_checkpoint(checkpoint)
         self._progress(
             {
-                "phase": "knowledge_validated",
+                "phase": (
+                    "knowledge_validated"
+                    if report is None or report.complete
+                    else "knowledge_needs_enrichment"
+                ),
                 "percent": 92,
-                "message": "Knowledge model validated.",
+                "message": (
+                    "Knowledge model validated."
+                    if report is None or report.complete
+                    else f"Knowledge model has {len(report.gaps)} enrichment gaps."
+                ),
             },
             progress_callback,
         )
