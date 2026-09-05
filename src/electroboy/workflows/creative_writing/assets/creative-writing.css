@@ -254,9 +254,18 @@
 }
 
 .creative-root-actions {
-  width: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
   margin-left: 0;
+  box-sizing: border-box;
   padding: 0 8px 4px;
+}
+
+.creative-root-actions .creative-tree-action {
+  min-width: 0;
+  width: 100%;
+  text-align: center;
 }
 
 .creative-tree-action {

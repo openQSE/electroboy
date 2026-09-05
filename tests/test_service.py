@@ -749,6 +749,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("createCreativeFolderInline();", creative)
         self.assertIn("createCreativeDocumentInline();", creative)
         self.assertIn(".creative-root-actions {", creative_css)
+        self.assertIn(
+            "grid-template-columns: repeat(2, minmax(0, 1fr));",
+            creative_css,
+        )
+        self.assertIn(
+            ".creative-root-actions .creative-tree-action {",
+            creative_css,
+        )
         self.assertIn('hiddenActionStages: ["document"]', software)
         self.assertIn("hiddenActionStages.has(stageId)", app)
         self.assertNotIn('if (stageId === "document")', app)
