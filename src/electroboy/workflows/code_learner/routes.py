@@ -87,6 +87,16 @@ def _source(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _course_artifact(request: RouteRequest) -> ServiceResponse:
+    mode = str((request.params.get("mode") or [""])[0])
+    scope_id = str((request.params.get("scope_id") or [""])[0])
+    return _workflow_action(
+        lambda: _controller(request).course_artifact(
+            request.context_id, mode, scope_id
+        )
+    )
+
+
 def _modules(request: RouteRequest) -> ServiceResponse:
     return _workflow_action(lambda: _controller(request).modules(request.context_id))
 
@@ -189,6 +199,7 @@ ROUTES = (
     _route("GET", "/api/code-learner/init/status", "initialization_status"),
     _route("GET", "/api/code-learner/analysis", "analysis"),
     _route("GET", "/api/code-learner/source", "source"),
+    _route("GET", "/api/code-learner/course/artifact", "course_artifact"),
     _route("GET", "/api/code-learner/modules", "modules"),
     _route("GET", "/api/code-learner/symbols", "symbols"),
     _route("POST", "/api/code-learner/walkthrough", "create_walkthrough"),
@@ -204,6 +215,7 @@ HANDLERS: dict[str, RouteHandler] = {
     "initialization_status": _initialization_status,
     "analysis": _analysis,
     "source": _source,
+    "course_artifact": _course_artifact,
     "modules": _modules,
     "symbols": _symbols,
     "create_walkthrough": _create_walkthrough,

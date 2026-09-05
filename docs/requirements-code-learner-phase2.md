@@ -1386,21 +1386,21 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 12: Generic Course Artifact Support
 
-137. [ ] Add a generic `course` artifact type to the structured artifact
+137. [x] Add a generic `course` artifact type to the structured artifact
     boundary.
-138. [ ] Reuse existing JSONL reading, record ordering, hierarchy, and Markdown
+138. [x] Reuse existing JSONL reading, record ordering, hierarchy, and Markdown
     body rendering.
-139. [ ] Reuse existing Markdown, Mermaid, file-pane, zoom, and pop-out
+139. [x] Reuse existing Markdown, Mermaid, file-pane, zoom, and pop-out
     rendering.
-140. [ ] Add course document and section field preservation.
-141. [ ] Add deterministic JSONL-to-Markdown generation for Architecture,
+140. [x] Add course document and section field preservation.
+141. [x] Add deterministic JSONL-to-Markdown generation for Architecture,
     Module, and Function artifacts.
-142. [ ] Preserve Mermaid fences exactly in generated Markdown.
-143. [ ] Add safe course artifact routes and paths.
-144. [ ] Confirm no Code Learner-specific Markdown or Mermaid renderer remains.
-145. [ ] Test headings, nesting, prose, tables, code blocks, source links, and
+142. [x] Preserve Mermaid fences exactly in generated Markdown.
+143. [x] Add safe course artifact routes and paths.
+144. [x] Confirm no Code Learner-specific Markdown or Mermaid renderer remains.
+145. [x] Test headings, nesting, prose, tables, code blocks, source links, and
     multiple Mermaid diagram types.
-146. [ ] Commit generic course artifact and renderer reuse.
+146. [x] Commit generic course artifact and renderer reuse.
 
 ### Boundary 13: Architecture Course Generation
 

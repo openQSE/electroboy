@@ -270,6 +270,11 @@ class KnowledgeStore:
             return self.courses_root / "functions" / f"{safe_scope}.jsonl"
         raise CodeLearnerError(f"unknown course mode: {mode}")
 
+    def course_markdown_path(self, mode: str, scope_id: str) -> Path:
+        """Return the Markdown companion path for a course JSONL artifact."""
+
+        return self.course_path(mode, scope_id).with_suffix(".md")
+
     def save_course(
         self,
         mode: str,

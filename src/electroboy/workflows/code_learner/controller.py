@@ -11,18 +11,19 @@ from uuid import uuid4
 
 from electroboy.models import utc_now
 from electroboy.service.recent_projects import remember_recent_project
-from electroboy.service.sessions import AgentSession
 from electroboy.service.services import ServiceServices
+from electroboy.service.sessions import AgentSession
 from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError
 
+from .course_artifacts import render_saved_course
 from .domain import (
     WORKFLOW_ID,
     CodeLearnerError,
     CodeLearnerStore,
+    RepositoryAnalysis,
     SourceAdapter,
     Walkthrough,
-    RepositoryAnalysis,
     build_learner_context,
     create_walkthrough,
     learner_prompt,
@@ -584,6 +585,19 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 end_line=end_line,
                 padding=padding,
             ),
+        }
+
+    def course_artifact(
+        self, context_id: str, mode: str, scope_id: str
+    ) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        result = render_saved_course(root, mode, scope_id)
+        return {
+            "status": "rendered",
+            "artifact": result.artifact,
+            "jsonl_path": result.jsonl_path,
+            "markdown_path": result.markdown_path,
+            "record_count": result.record_count,
         }
 
     def modules(self, context_id: str) -> dict[str, object]:

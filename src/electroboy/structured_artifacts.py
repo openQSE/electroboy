@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from .feature_artifacts import artifact_paths_for_run, resolve_artifact_path
 from .planning import implementation_plan_jsonl_path
 from .state_store import StateError, StateStore
-
 
 ARTIFACT_DEFAULT_MARKDOWN_PATHS = {
     "requirements": "docs/requirements.md",
     "design": "docs/detailed-design.md",
     "implementation-plan": "docs/implementation-plan.md",
     "test-plan": "docs/test-plan.md",
+    "course": ".electroboy/code-learner/courses/course.md",
 }
 
 ARTIFACT_TITLES = {
@@ -25,6 +25,7 @@ ARTIFACT_TITLES = {
     "design": "Detailed Design",
     "implementation-plan": "Implementation Plan",
     "test-plan": "Test Plan",
+    "course": "Course",
 }
 
 
@@ -69,7 +70,9 @@ def render_artifact(
     root = Path(root).resolve()
     artifact = normalize_artifact_name(artifact)
     resolved_markdown = markdown_path or artifact_markdown_path(root, artifact)
-    resolved_jsonl = jsonl_path or artifact_jsonl_path(root, artifact, resolved_markdown)
+    resolved_jsonl = jsonl_path or artifact_jsonl_path(
+        root, artifact, resolved_markdown
+    )
     records = read_artifact_records(root, resolved_jsonl)
     markdown = render_artifact_markdown(artifact, records)
     output_path = _safe_project_path(root, resolved_markdown)
@@ -95,7 +98,9 @@ def import_artifact(
     root = Path(root).resolve()
     artifact = normalize_artifact_name(artifact)
     resolved_markdown = markdown_path or artifact_markdown_path(root, artifact)
-    resolved_jsonl = jsonl_path or artifact_jsonl_path(root, artifact, resolved_markdown)
+    resolved_jsonl = jsonl_path or artifact_jsonl_path(
+        root, artifact, resolved_markdown
+    )
     markdown_file = _safe_project_path(root, resolved_markdown)
     if not markdown_file.exists():
         raise StateError(f"Markdown artifact does not exist: {resolved_markdown}")
@@ -130,6 +135,7 @@ def normalize_artifact_name(value: str) -> str:
         "plan": "implementation-plan",
         "test-plan": "test-plan",
         "tests": "test-plan",
+        "course": "course",
     }
     if artifact not in aliases:
         known = ", ".join(sorted(ARTIFACT_DEFAULT_MARKDOWN_PATHS))
@@ -172,7 +178,9 @@ def read_artifact_records(root: Path, jsonl_path: str) -> list[dict[str, object]
     if not path.exists():
         raise StateError(f"structured artifact does not exist: {jsonl_path}")
     records: list[dict[str, object]] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         if not line.strip():
             continue
         try:
@@ -204,6 +212,8 @@ def render_artifact_markdown(
         lines = _render_implementation_plan(records)
     elif artifact == "test-plan":
         lines = _render_test_plan(records)
+    elif artifact == "course":
+        lines = _render_course(records)
     else:  # pragma: no cover - normalize_artifact_name guards this branch.
         raise StateError(f"unknown artifact: {artifact}")
     return _finalize_markdown(lines)
@@ -301,13 +311,19 @@ def _render_design(records: list[dict[str, object]]) -> list[str]:
         if record_type == "decision":
             _append_field(lines, "Context", _string(record.get("context")))
             _append_field(lines, "Decision", _string(record.get("decision")))
-            _append_list_field(lines, "Consequences", _string_list(record.get("consequences")))
+            _append_list_field(
+                lines,
+                "Consequences",
+                _string_list(record.get("consequences")),
+            )
         if record_type == "interface":
             _append_field(lines, "Kind", _string(record.get("kind")))
             _append_field(lines, "Producer", _string(record.get("producer")))
             _append_field(lines, "Consumer", _string(record.get("consumer")))
             _append_json_field(lines, "Schema", record.get("schema"))
-        _append_list_field(lines, "Requirements", _string_list(record.get("requirements")))
+        _append_list_field(
+            lines, "Requirements", _string_list(record.get("requirements"))
+        )
         _append_list_field(lines, "Interfaces", _string_list(record.get("interfaces")))
         _append_field(lines, "Status", _string(record.get("status")))
     return lines
@@ -326,15 +342,21 @@ def _render_implementation_plan(records: list[dict[str, object]]) -> list[str]:
         _append_body(lines, record)
         _append_list_field(lines, "Commit Tasks", _commit_tasks(record))
         _append_field(lines, "Scope", _string(record.get("scope")))
-        _append_list_field(lines, "Requirements", _string_list(record.get("requirements")))
+        _append_list_field(
+            lines, "Requirements", _string_list(record.get("requirements"))
+        )
         _append_list_field(
             lines,
             "Design Sections",
             _string_list(record.get("design_sections")),
         )
-        _append_list_field(lines, "Exit Criteria", _string_list(record.get("exit_criteria")))
+        _append_list_field(
+            lines, "Exit Criteria", _string_list(record.get("exit_criteria"))
+        )
         _append_list_field(lines, "Paths", _string_list(record.get("paths")))
-        _append_list_field(lines, "Dependencies", _string_list(record.get("dependencies")))
+        _append_list_field(
+            lines, "Dependencies", _string_list(record.get("dependencies"))
+        )
     return lines
 
 
@@ -353,7 +375,11 @@ def _render_test_plan(records: list[dict[str, object]]) -> list[str]:
         if record_type == "test":
             _append_field(lines, "Level", _string(record.get("level")))
             _append_field(lines, "Suite", _string(record.get("suite")))
-            _append_list_field(lines, "Preconditions", _string_list(record.get("preconditions")))
+            _append_list_field(
+                lines,
+                "Preconditions",
+                _string_list(record.get("preconditions")),
+            )
             _append_list_field(lines, "Steps", _string_list(record.get("steps")))
             _append_list_field(
                 lines,
@@ -363,7 +389,9 @@ def _render_test_plan(records: list[dict[str, object]]) -> list[str]:
             _append_json_field(lines, "Automation", record.get("automation"))
         if record_type == "suite":
             _append_field(lines, "Scope", _string(record.get("scope")))
-        _append_list_field(lines, "Requirements", _string_list(record.get("requirements")))
+        _append_list_field(
+            lines, "Requirements", _string_list(record.get("requirements"))
+        )
         _append_list_field(
             lines,
             "Design Sections",
@@ -374,6 +402,64 @@ def _render_test_plan(records: list[dict[str, object]]) -> list[str]:
             "Implementation Units",
             _string_list(record.get("implementation_units")),
         )
+        _append_field(lines, "Status", _string(record.get("status")))
+    return lines
+
+
+def _render_course(records: list[dict[str, object]]) -> list[str]:
+    """Render generic hierarchical course records through shared Markdown APIs."""
+
+    lines = _document_heading(records, "course")
+    document = next(
+        (record for record in records if _record_type(record) == "document"),
+        None,
+    )
+    if document:
+        _append_field(lines, "ID", _record_id(document))
+        _append_field(lines, "Course Mode", _string(document.get("course_mode")))
+        _append_field(lines, "Scope ID", _string(document.get("scope_id")))
+        _append_field(
+            lines, "Analysis Run ID", _string(document.get("analysis_run_id"))
+        )
+        _append_field(
+            lines,
+            "Repository Revision",
+            _string(document.get("repository_revision")),
+        )
+    heading_levels = _heading_levels_for_records("course", records)
+    for record in _ordered_content_records(records):
+        _append_heading(
+            lines,
+            heading_levels.get(id(record), 2),
+            _record_title(record, "Section"),
+            record,
+        )
+        _append_body(lines, record)
+        _append_field(lines, "Detail Level", _string(record.get("detail_level")))
+        _append_field(lines, "Confidence", _string(record.get("confidence")))
+        _append_field(
+            lines,
+            "Previous Section ID",
+            _string(record.get("previous_section_id")),
+        )
+        _append_field(
+            lines, "Next Section ID", _string(record.get("next_section_id"))
+        )
+        _append_field(
+            lines, "Return Section ID", _string(record.get("return_section_id"))
+        )
+        for label, field in (
+            ("Deep Dive IDs", "deep_dive_ids"),
+            ("Prerequisite Section IDs", "prerequisite_section_ids"),
+            ("Knowledge Entity IDs", "knowledge_entity_ids"),
+            ("Relationship IDs", "relationship_ids"),
+            ("Runtime Flow IDs", "runtime_flow_ids"),
+            ("Related Module IDs", "related_module_ids"),
+            ("Related Symbol IDs", "related_symbol_ids"),
+        ):
+            _append_list_field(lines, label, _string_list(record.get(field)))
+        _append_json_field(lines, "Source Refs", record.get("source_refs"))
+        _append_json_field(lines, "Diagrams", record.get("diagrams"))
         _append_field(lines, "Status", _string(record.get("status")))
     return lines
 
@@ -443,7 +529,10 @@ def _content_record_from_markdown(
     *,
     parent_id: str = "",
 ) -> dict[str, object]:
-    record_id, title = _split_record_heading(section.title)
+    if artifact == "course":
+        record_id, title = _split_course_record_heading(section.title)
+    else:
+        record_id, title = _split_record_heading(section.title)
     record_type = _content_record_type(artifact, record_id)
     if not record_id:
         record_id = _generated_content_id(artifact, record_type, index)
@@ -821,7 +910,7 @@ def _extract_markdown_fields(
             values, index = _extract_markdown_list(lines, index, value)
             fields[key] = values
             continue
-        if key in {"schema", "automation"}:
+        if key in {"schema", "automation", "source_refs", "diagrams"}:
             parsed, index = _extract_json_field(lines, index, value)
             fields[key] = parsed
             continue
@@ -901,26 +990,44 @@ def _field_key(label: str) -> str:
         "requirement_statement": "requirement_statement",
     }
     known = {
+        "analysis_run_id",
         "automation",
+        "confidence",
         "consequences",
         "consumer",
         "context",
+        "course_mode",
         "decision",
+        "deep_dive_ids",
         "description",
         "dependencies",
+        "detail_level",
+        "diagrams",
         "exit_criteria",
         "interfaces",
         "kind",
+        "knowledge_entity_ids",
         "level",
+        "next_section_id",
         "paths",
         "personas",
         "preconditions",
+        "prerequisite_section_ids",
+        "previous_section_id",
         "priority",
         "producer",
         "rationale",
+        "related_module_ids",
+        "related_symbol_ids",
+        "relationship_ids",
+        "repository_revision",
         "requirements",
+        "return_section_id",
+        "runtime_flow_ids",
         "schema",
         "scope",
+        "scope_id",
+        "source_refs",
         "statement",
         "status",
         "steps",
@@ -938,18 +1045,25 @@ def _list_field_keys() -> set[str]:
         "acceptance_criteria",
         "commit_tasks",
         "consequences",
+        "deep_dive_ids",
         "dependencies",
         "design_sections",
         "expected_results",
         "exit_criteria",
         "implementation_units",
         "interfaces",
+        "knowledge_entity_ids",
         "out_of_scope",
         "paths",
         "personas",
         "plan_tasks",
         "preconditions",
+        "prerequisite_section_ids",
         "requirements",
+        "related_module_ids",
+        "related_symbol_ids",
+        "relationship_ids",
+        "runtime_flow_ids",
         "steps",
         "verification",
     }
@@ -969,6 +1083,7 @@ def _document_id(artifact: str) -> str:
         "design": "DES-DOC",
         "implementation-plan": "PLAN-DOC",
         "test-plan": "TEST-DOC",
+        "course": "COURSE-DOC",
     }[artifact]
 
 
@@ -977,6 +1092,13 @@ def _split_record_heading(title: str) -> tuple[str, str]:
         r"^((?:PH\d+-C\d+)|(?:[A-Za-z][A-Za-z0-9_.-]*-\d+))\.\s+(.+)$",
         title.strip(),
     )
+    if not match:
+        return "", title.strip()
+    return match.group(1), match.group(2).strip()
+
+
+def _split_course_record_heading(title: str) -> tuple[str, str]:
+    match = re.match(r"^([A-Za-z][A-Za-z0-9_.-]+)\.\s+(.+)$", title.strip())
     if not match:
         return "", title.strip()
     return match.group(1), match.group(2).strip()
@@ -1043,7 +1165,9 @@ def _unit_id_parts(unit_id: str) -> tuple[int | None, int | None]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _ordered_content_records(records: list[dict[str, object]]) -> list[dict[str, object]]:
+def _ordered_content_records(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
     return sorted(
         [record for record in records if _record_type(record) != "document"],
         key=_record_sort_key,
