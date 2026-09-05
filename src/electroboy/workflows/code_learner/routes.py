@@ -120,6 +120,28 @@ def _course_navigation(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(result)
 
 
+def _resolve_function_course(request: RouteRequest) -> ServiceResponse:
+    query = str((request.params.get("query") or [""])[0])
+    return _workflow_action(
+        lambda: _controller(request).resolve_function_course(
+            request.context_id, query
+        )
+    )
+
+
+def _build_function_course(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        result = _controller(request).build_function_course(
+            request.context_id,
+            str(payload.get("query") or ""),
+            str(payload.get("audience") or ""),
+        )
+    except Exception as error:
+        return _error(error)
+    return JsonResponse(result)
+
+
 def _modules(request: RouteRequest) -> ServiceResponse:
     return _workflow_action(lambda: _controller(request).modules(request.context_id))
 
@@ -225,6 +247,12 @@ ROUTES = (
     _route("GET", "/api/code-learner/course/artifact", "course_artifact"),
     _route("GET", "/api/code-learner/course/graph", "course_graph"),
     _route("POST", "/api/code-learner/course/navigation", "course_navigation"),
+    _route(
+        "GET",
+        "/api/code-learner/course/function/resolve",
+        "resolve_function_course",
+    ),
+    _route("POST", "/api/code-learner/course/function", "build_function_course"),
     _route("GET", "/api/code-learner/modules", "modules"),
     _route("GET", "/api/code-learner/symbols", "symbols"),
     _route("POST", "/api/code-learner/walkthrough", "create_walkthrough"),
@@ -243,6 +271,8 @@ HANDLERS: dict[str, RouteHandler] = {
     "course_artifact": _course_artifact,
     "course_graph": _course_graph,
     "course_navigation": _course_navigation,
+    "resolve_function_course": _resolve_function_course,
+    "build_function_course": _build_function_course,
     "modules": _modules,
     "symbols": _symbols,
     "create_walkthrough": _create_walkthrough,

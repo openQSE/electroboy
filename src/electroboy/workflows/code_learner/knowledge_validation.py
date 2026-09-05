@@ -275,9 +275,34 @@ class EnrichmentController:
     ) -> KnowledgeValidationReport:
         validate_packaged_skill("codebase-analysis")
         report = self.validator.persist_requests(self.store)
-        requests = report.request_records()[: self.max_requests]
+        return self._run_requests(report.request_records(), progress_callback)
+
+    def run_request_ids(
+        self,
+        request_ids: Iterable[str],
+        progress_callback: ProgressCallback | None = None,
+    ) -> KnowledgeValidationReport:
+        """Run only explicitly selected open requests."""
+
+        validate_packaged_skill("codebase-analysis")
+        requested = set(request_ids)
+        requests = [
+            record
+            for record in self.store.load_knowledge()
+            if record.get("record_type") == "knowledge_request"
+            and record.get("id") in requested
+            and record.get("status") == "open"
+        ]
+        return self._run_requests(requests, progress_callback)
+
+    def _run_requests(
+        self,
+        requests: Iterable[dict[str, object]],
+        progress_callback: ProgressCallback | None,
+    ) -> KnowledgeValidationReport:
+        selected = list(requests)[: self.max_requests]
         runtime = self.runtime_factory(ENRICHMENT_ROLE, self.root)
-        for request in requests:
+        for request in selected:
             if request.get("status") == "blocked":
                 continue
             resolved = self._run_request(runtime, request, progress_callback)
@@ -310,8 +335,24 @@ class EnrichmentController:
                 self.store.merge_knowledge(changes)
             except (CodeLearnerError, ValueError):
                 continue
+            current = self.store.get(str(request["id"]))
+            attributes = current.get("attributes")
+            gap_code = (
+                str(attributes.get("gap_code") or "")
+                if isinstance(attributes, dict)
+                else ""
+            )
             report = self.validator.audit(self.store.load_knowledge())
-            if not any(gap.request_id == request["id"] for gap in report.gaps):
+            validator_gap_remains = any(
+                gap.request_id == request["id"] for gap in report.gaps
+            )
+            targeted_gap_remains = (
+                gap_code == "function-evidence"
+                and _function_evidence_missing(
+                    self.store.get(str(request.get("scope_id") or ""))
+                )
+            )
+            if not validator_gap_remains and not targeted_gap_remains:
                 changed_ids = before_ids | {
                     str(record.get("id")) for record in changes
                 }
@@ -416,6 +457,24 @@ def _source_paths(record: Mapping[str, object]) -> tuple[str, ...]:
         str(reference.get("path"))
         for reference in record.get("source_refs", [])
         if isinstance(reference, dict) and reference.get("path")
+    )
+
+
+def _function_evidence_missing(record: Mapping[str, object]) -> bool:
+    attributes = record.get("attributes")
+    if not isinstance(attributes, dict):
+        return True
+    return any(
+        field not in attributes
+        for field in (
+            "signature",
+            "caller_ids",
+            "callee_ids",
+            "state_access_ids",
+            "side_effects",
+            "analysis_limitations",
+            "call_edge_confidence",
+        )
     )
 
 

@@ -442,6 +442,11 @@ def _render_course(records: list[dict[str, object]]) -> list[str]:
         _append_body(lines, record)
         _append_field(lines, "Detail Level", _string(record.get("detail_level")))
         _append_field(lines, "Topic", _string(record.get("topic")))
+        _append_json_field(
+            lines,
+            "Call Edge Confidence",
+            record.get("call_edge_confidence"),
+        )
         _append_field(lines, "Confidence", _string(record.get("confidence")))
         _append_field(
             lines,
@@ -917,7 +922,13 @@ def _extract_markdown_fields(
             values, index = _extract_markdown_list(lines, index, value)
             fields[key] = values
             continue
-        if key in {"schema", "automation", "source_refs", "diagrams"}:
+        if key in {
+            "schema",
+            "automation",
+            "source_refs",
+            "diagrams",
+            "call_edge_confidence",
+        }:
             parsed, index = _extract_json_field(lines, index, value)
             fields[key] = parsed
             continue
@@ -999,6 +1010,7 @@ def _field_key(label: str) -> str:
     known = {
         "analysis_run_id",
         "automation",
+        "call_edge_confidence",
         "confidence",
         "consequences",
         "consumer",

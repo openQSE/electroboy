@@ -17,6 +17,7 @@ from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError
 
 from .course_artifacts import render_saved_course
+from .course_builder import CourseBuilder
 from .course_graph import CourseGraph, CourseNavigator
 from .domain import (
     WORKFLOW_ID,
@@ -607,6 +608,46 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         return {
             "status": "loaded",
             "graph": CourseGraph.from_store(KnowledgeStore(root)).to_dict(),
+        }
+
+    def resolve_function_course(
+        self, context_id: str, query: str
+    ) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        resolution = CourseBuilder(root).resolve_function(query)
+        payload = resolution.to_dict()
+        symbol = resolution.symbol
+        if symbol:
+            symbol_id = str(symbol.get("id") or "")
+            index = KnowledgeStore(root).load_course_index().get("courses", {})
+            course = (
+                index.get(f"function:{symbol_id}", {})
+                if isinstance(index, dict)
+                else {}
+            )
+            payload["course_status"] = (
+                course.get("status", "missing")
+                if isinstance(course, dict)
+                else "missing"
+            )
+        else:
+            payload["course_status"] = "missing"
+        return payload
+
+    def build_function_course(
+        self, context_id: str, query: str, audience: str = ""
+    ) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        result = CourseBuilder(root).build_function(query, audience=audience)
+        return {
+            "status": "ready",
+            "course": {
+                "mode": result.mode,
+                "scope_id": result.scope_id,
+                "jsonl_path": result.jsonl_path,
+                "markdown_path": result.markdown_path,
+                "record_count": result.record_count,
+            },
         }
 
     def navigate_course(

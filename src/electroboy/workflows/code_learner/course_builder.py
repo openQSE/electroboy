@@ -20,6 +20,7 @@ from .contracts import parse_jsonl, validate_course_records
 from .course_artifacts import render_saved_course
 from .domain import CodeLearnerError
 from .knowledge_store import KnowledgeStore
+from .knowledge_validation import EnrichmentController
 from .skills import skill_prompt_reference, validate_packaged_skill
 
 COURSE_ROLE = "code_learner_course"
@@ -52,6 +53,22 @@ class CourseBatchResult:
 
     completed: tuple[CourseBuildResult, ...]
     failed: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class FunctionResolution:
+    """Resolution of user-entered text against durable symbol entities."""
+
+    status: str
+    symbol: Mapping[str, object] | None = None
+    candidates: tuple[Mapping[str, object], ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "symbol": dict(self.symbol) if self.symbol else None,
+            "candidates": [dict(item) for item in self.candidates],
+        }
 
 
 class RuntimeFactory(Protocol):
@@ -173,6 +190,55 @@ class KnowledgeSubgraphSelector:
             and record.get("kind") == "module"
         )
 
+    def function(self, symbol_id: str) -> CourseScope:
+        records = self.store.load_knowledge()
+        by_id = {str(record["id"]): record for record in records}
+        symbol = by_id.get(symbol_id)
+        if not symbol or symbol.get("record_type") != "entity" or symbol.get(
+            "kind"
+        ) != "symbol":
+            raise CodeLearnerError(f"unknown symbol: {symbol_id}")
+        selected_ids = {"knowledge.manifest", symbol_id}
+        owner_id = str(symbol.get("parent_id") or "")
+        if owner_id:
+            selected_ids.add(owner_id)
+        for record in records:
+            if record.get("record_type") == "relationship" and (
+                record.get("from_id") in selected_ids
+                or record.get("to_id") in selected_ids
+            ):
+                selected_ids.update(
+                    {
+                        str(record["id"]),
+                        str(record["from_id"]),
+                        str(record["to_id"]),
+                    }
+                )
+        for record in records:
+            if record.get("record_type") == "runtime_flow" and set(
+                record.get("participant_ids", [])
+            ) & selected_ids:
+                selected_ids.add(str(record["id"]))
+            if record.get("record_type") == "diagnostic":
+                attributes = record.get("attributes")
+                related = (
+                    set(attributes.get("related_record_ids", []))
+                    if isinstance(attributes, dict)
+                    else set()
+                )
+                if related & selected_ids:
+                    selected_ids.add(str(record["id"]))
+        return CourseScope(
+            "function",
+            symbol_id,
+            tuple(
+                record
+                for record in records
+                if record.get("id") in selected_ids
+                and record.get("status") != "deprecated"
+            ),
+        )
+
 
 def course_prompt(
     root: Path,
@@ -219,6 +285,7 @@ class CourseBuilder:
         root: Path | str,
         *,
         runtime_factory: RuntimeFactory | None = None,
+        enrichment_factory: Callable[[Path], EnrichmentController] | None = None,
         max_attempts: int = 2,
         retry_delay: float = 0.0,
     ) -> None:
@@ -226,6 +293,7 @@ class CourseBuilder:
         self.store = KnowledgeStore(self.root)
         self.selector = KnowledgeSubgraphSelector(self.store)
         self.runtime_factory = runtime_factory or _default_runtime_factory
+        self.enrichment_factory = enrichment_factory or EnrichmentController
         self.max_attempts = max(1, max_attempts)
         self.retry_delay = max(0.0, retry_delay)
 
@@ -274,6 +342,113 @@ class CourseBuilder:
             except CodeLearnerError as error:
                 failed[module_id] = str(error)
         return CourseBatchResult(tuple(completed), failed)
+
+    def resolve_function(self, query: str) -> FunctionResolution:
+        requested = str(query or "").strip().lower()
+        if not requested:
+            return FunctionResolution("missing")
+        symbols = [
+            record
+            for record in self.store.load_knowledge()
+            if record.get("record_type") == "entity"
+            and record.get("kind") == "symbol"
+            and record.get("status") != "deprecated"
+        ]
+        id_matches = [
+            symbol
+            for symbol in symbols
+            if str(symbol.get("id") or "").lower() == requested
+        ]
+        if len(id_matches) == 1:
+            return FunctionResolution("exact", id_matches[0], tuple(id_matches))
+        qualified = [
+            symbol
+            for symbol in symbols
+            if str(_symbol_attribute(symbol, "qualified_name")).lower() == requested
+        ]
+        if len(qualified) == 1:
+            return FunctionResolution("qualified", qualified[0], tuple(qualified))
+        if len(qualified) > 1:
+            return FunctionResolution("ambiguous", candidates=tuple(qualified[:20]))
+        exact = [
+            symbol
+            for symbol in symbols
+            if str(symbol.get("name") or "").lower() == requested
+        ]
+        if len(exact) == 1:
+            return FunctionResolution("exact", exact[0], tuple(exact))
+        if len(exact) > 1:
+            return FunctionResolution("ambiguous", candidates=tuple(exact[:20]))
+        partial = [
+            symbol
+            for symbol in symbols
+            if requested in str(_symbol_attribute(symbol, "qualified_name")).lower()
+            or requested in str(symbol.get("name") or "").lower()
+        ]
+        if len(partial) == 1:
+            return FunctionResolution("partial", partial[0], tuple(partial))
+        if partial:
+            return FunctionResolution("ambiguous", candidates=tuple(partial[:20]))
+        return FunctionResolution("missing")
+
+    def build_function(
+        self,
+        query: str,
+        *,
+        audience: str = "",
+        progress_callback: ProgressCallback | None = None,
+    ) -> CourseBuildResult:
+        resolution = self.resolve_function(query)
+        if resolution.status == "missing":
+            raise CodeLearnerError(f"function symbol was not found: {query}")
+        if resolution.status == "ambiguous":
+            names = ", ".join(
+                str(_symbol_attribute(item, "qualified_name") or item.get("name"))
+                for item in resolution.candidates
+            )
+            raise CodeLearnerError(f"function symbol is ambiguous: {query}: {names}")
+        symbol = dict(resolution.symbol or {})
+        symbol_id = str(symbol["id"])
+        cached = self.store.load_course("function", symbol_id)
+        if cached and cached[0].get("status") == "ready":
+            manifest = self.store.get("knowledge.manifest")
+            if cached[0].get("repository_revision") == manifest.get(
+                "repository_revision"
+            ):
+                return CourseBuildResult(
+                    mode="function",
+                    scope_id=symbol_id,
+                    jsonl_path=self.store.course_path(
+                        "function", symbol_id
+                    ).relative_to(self.root).as_posix(),
+                    markdown_path=self.store.course_markdown_path(
+                        "function", symbol_id
+                    ).relative_to(self.root).as_posix(),
+                    record_count=len(cached),
+                )
+        if _function_evidence_missing(symbol):
+            request = self._function_request(symbol)
+            self.store.merge_knowledge([request])
+            self._progress(
+                "function_analyzing",
+                92,
+                f"Enriching function evidence for {symbol_id}.",
+                progress_callback,
+            )
+            self.enrichment_factory(self.root).run_request_ids(
+                [str(request["id"])], progress_callback
+            )
+            symbol = self.store.get(symbol_id)
+            if _function_evidence_missing(symbol):
+                raise CodeLearnerError(
+                    "function evidence remains incomplete after enrichment: "
+                    f"{symbol_id}"
+                )
+        return self._build_scope(
+            self.selector.function(symbol_id),
+            audience=audience,
+            progress_callback=progress_callback,
+        )
 
     def _build_scope(
         self,
@@ -332,6 +507,8 @@ class CourseBuilder:
                 "ready",
                 path=jsonl_path.relative_to(self.root).as_posix(),
             )
+            if scope.mode == "function":
+                self._link_function_course(scope, records)
             return CourseBuildResult(
                 mode=scope.mode,
                 scope_id=scope.scope_id,
@@ -376,6 +553,8 @@ class CourseBuilder:
             self._validate_architecture(scope, validated)
         elif scope.mode == "module":
             self._validate_module(scope, validated)
+        elif scope.mode == "function":
+            self._validate_function(scope, validated)
         return validated
 
     def _validate_identity(
@@ -584,6 +763,136 @@ class CourseBuilder:
             temporary.unlink(missing_ok=True)
         return path
 
+    def _function_request(self, symbol: Mapping[str, object]) -> dict[str, object]:
+        manifest = self.store.get("knowledge.manifest")
+        symbol_id = str(symbol["id"])
+        return {
+            "schema_version": 1,
+            "record_type": "knowledge_request",
+            "id": f"request.function-evidence.{_safe_scope(symbol_id)}",
+            "analysis_run_id": manifest["analysis_run_id"],
+            "repository_revision": manifest["repository_revision"],
+            "scope_id": symbol_id,
+            "missing_facts": (
+                "Inspect this symbol's contract, callers, callees, control flow, "
+                "state access, side effects, errors, tests, and dynamic dispatch."
+            ),
+            "related_record_ids": [symbol_id],
+            "status": "open",
+            "source_refs": list(symbol.get("source_refs", [])),
+            "attributes": {
+                "gap_code": "function-evidence",
+                "suggested_paths": [
+                    str(reference.get("path"))
+                    for reference in symbol.get("source_refs", [])
+                    if isinstance(reference, dict) and reference.get("path")
+                ],
+                "blocks_course": True,
+            },
+        }
+
+    def _validate_function(
+        self, scope: CourseScope, records: list[dict[str, object]]
+    ) -> None:
+        document = next(
+            record for record in records if record.get("record_type") == "document"
+        )
+        sections = [
+            record for record in records if record.get("record_type") == "section"
+        ]
+        required_topics = {
+            "contract",
+            "control-flow",
+            "calls",
+            "side-effects",
+            "errors",
+            "tests",
+        }
+        coverage = set(document.get("coverage_topics", []))
+        section_topics = {str(section.get("topic") or "") for section in sections}
+        if missing := (required_topics - coverage) | (required_topics - section_topics):
+            raise CodeLearnerError(
+                "Function course omits required topics: "
+                + ", ".join(sorted(missing))
+            )
+        if any(not section.get("source_refs") for section in sections):
+            raise CodeLearnerError("every Function section requires source references")
+        symbol = next(
+            record for record in scope.records if record.get("id") == scope.scope_id
+        )
+        attributes = symbol.get("attributes")
+        attributes = attributes if isinstance(attributes, dict) else {}
+        edge_ids = set(attributes.get("caller_ids", [])) | set(
+            attributes.get("callee_ids", [])
+        )
+        if edge_ids:
+            diagrams = [
+                diagram
+                for section in sections
+                for diagram in section.get("diagrams", [])
+                if isinstance(diagram, dict)
+            ]
+            diagram_types = {_diagram_type(diagram) for diagram in diagrams}
+            bodies = "\n".join(str(section.get("body") or "") for section in sections)
+            has_call_graph = bool(
+                diagram_types & {"flowchart", "graph", "callgraph"}
+            ) and bool(_mermaid_blocks(bodies))
+            if not has_call_graph:
+                raise CodeLearnerError(
+                    "Function course requires a Mermaid call graph for known edges"
+                )
+            preserved = next(
+                (
+                    section.get("call_edge_confidence")
+                    for section in sections
+                    if isinstance(section.get("call_edge_confidence"), dict)
+                ),
+                None,
+            )
+            if preserved != attributes.get("call_edge_confidence"):
+                raise CodeLearnerError(
+                    "Function course must preserve call-edge confidence"
+                )
+
+    def _link_function_course(
+        self, scope: CourseScope, records: list[dict[str, object]]
+    ) -> None:
+        document = next(
+            record for record in records if record.get("record_type") == "document"
+        )
+        target_id = str(document["id"])
+        symbol = self.store.get(scope.scope_id)
+        owner_id = str(symbol.get("parent_id") or "")
+        for path in sorted(self.store.courses_root.rglob("*.jsonl")):
+            if path == self.store.course_path("function", scope.scope_id):
+                continue
+            course = parse_jsonl(
+                path.read_text(encoding="utf-8"),
+                artifact=path.relative_to(self.root).as_posix(),
+            )
+            changed = False
+            for section in course:
+                if section.get("record_type") != "section":
+                    continue
+                if scope.scope_id not in section.get(
+                    "related_symbol_ids", []
+                ) and owner_id not in section.get("related_module_ids", []):
+                    continue
+                links = list(section.get("deep_dive_ids", []))
+                if target_id not in links:
+                    links.append(target_id)
+                    section["deep_dive_ids"] = links
+                    changed = True
+            if not changed:
+                continue
+            course_document = next(
+                item for item in course if item.get("record_type") == "document"
+            )
+            mode = str(course_document["course_mode"])
+            course_scope = str(course_document["scope_id"])
+            self.store.save_course(mode, course_scope, course)
+            render_saved_course(self.root, mode, course_scope)
+
     def _progress(
         self,
         phase: str,
@@ -628,6 +937,29 @@ def _mermaid_blocks(markdown: str) -> list[str]:
 
 def _safe_scope(scope_id: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "-", scope_id).strip(".-") or "course"
+
+
+def _symbol_attribute(symbol: Mapping[str, object], field: str) -> object:
+    attributes = symbol.get("attributes")
+    return attributes.get(field, "") if isinstance(attributes, dict) else ""
+
+
+def _function_evidence_missing(symbol: Mapping[str, object]) -> bool:
+    attributes = symbol.get("attributes")
+    if not isinstance(attributes, dict):
+        return True
+    return any(
+        field not in attributes
+        for field in (
+            "signature",
+            "caller_ids",
+            "callee_ids",
+            "state_access_ids",
+            "side_effects",
+            "analysis_limitations",
+            "call_edge_confidence",
+        )
+    )
 
 
 def _default_runtime_factory(role: str, root: Path) -> AgentRuntime:

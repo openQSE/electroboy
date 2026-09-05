@@ -1464,27 +1464,27 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 16: On-Demand Function Courses
 
-185. [ ] Change Function selection to resolve against the durable symbol index.
-186. [ ] Preserve exact, qualified, partial, ambiguous, and missing resolution
+185. [x] Change Function selection to resolve against the durable symbol index.
+186. [x] Preserve exact, qualified, partial, ambiguous, and missing resolution
     states.
-187. [ ] Detect whether a fresh Function course already exists.
-188. [ ] Build the targeted function knowledge subgraph.
-189. [ ] Create an enrichment request when call, state, or flow evidence is
+187. [x] Detect whether a fresh Function course already exists.
+188. [x] Build the targeted function knowledge subgraph.
+189. [x] Create an enrichment request when call, state, or flow evidence is
     insufficient.
-190. [ ] Run scoped function enrichment without restarting initialization.
-191. [ ] Invoke `code-learner-course` in Function mode after knowledge validates.
-192. [ ] Generate contract, control-flow, call, side-effect, error, and test
+190. [x] Run scoped function enrichment without restarting initialization.
+191. [x] Invoke `code-learner-course` in Function mode after knowledge validates.
+192. [x] Generate contract, control-flow, call, side-effect, error, and test
     sections.
-193. [ ] Generate a Mermaid call graph when meaningful edges exist.
-194. [ ] Distinguish verified, inferred, dynamic, and unresolved graph edges.
-195. [ ] Persist and cache the Function course by stable symbol ID and revision.
-196. [ ] Add the generated course to Module and Architecture cross-links where
+193. [x] Generate a Mermaid call graph when meaningful edges exist.
+194. [x] Distinguish verified, inferred, dynamic, and unresolved graph edges.
+195. [x] Persist and cache the Function course by stable symbol ID and revision.
+196. [x] Add the generated course to Module and Architecture cross-links where
     applicable.
 197. [ ] Expose resolving, analyzing, generating, validating, ready, ambiguous,
     missing, and failed UI states.
-198. [ ] Test symbols with and without eager lessons, ambiguous names, absent
+198. [x] Test symbols with and without eager lessons, ambiguous names, absent
     symbols, dynamic calls, stale sources, and retry behavior.
-199. [ ] Commit on-demand Function generation.
+199. [x] Commit on-demand Function generation.
 
 ### Boundary 17: Contextual Tutor Integration
 
