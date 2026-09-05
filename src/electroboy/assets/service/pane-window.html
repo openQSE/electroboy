@@ -4370,6 +4370,9 @@
         (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
       ) {
         if (codeLearnerPane) {
+          if (data.item && data.item.reset) {
+            codeLearnerPane.reset();
+          }
           codeLearnerPane.refresh();
         }
         return;

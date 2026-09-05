@@ -62,6 +62,14 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "learnerState = emptyLearnerState();" in frontend
     assert "navigationExpanded.outline = false;" in frontend
     assert "nav.clearCache.disabled = !hasProject || initializing || !initialized;" in frontend
+    assert "const courseArtifact = learnerState.courseArtifact;" in frontend
+    assert "closeCourseDocument(courseArtifact);" in frontend
+    assert "openLearnerPane({ activate: false, refresh: true, reset: true });" in frontend
+    assert "reset: () => resetPaneState(state)" in frontend
+    assert "function resetPaneState(state)" in frontend
+    assert "state.loadSequence += 1;" in frontend
+    assert "const sequence = ++state.loadSequence;" in frontend
+    assert "if (sequence !== state.loadSequence) {" in frontend
     assert 'if (Object.hasOwn(payload, "state_path")) {' in frontend
     assert 'if (Object.hasOwn(payload, "current_walkthrough")) {' in frontend
     assert "state.walkthrough = payload.current_walkthrough || null;" in frontend
@@ -190,6 +198,7 @@ def test_pane_window_loads_installed_workflow_assets_for_code_learner() -> None:
     assert "window.ElectroBoyCodeLearnerPane.mount" in page
     assert "codeLearnerPane = window.ElectroBoyCodeLearnerPane.mount" in page
     assert "codeLearnerPane.refresh();" in page
+    assert "codeLearnerPane.reset();" in page
     assert "toolbarHost: paneActions" in page
     assert "fontControl: paneFontControls" in page
     assert "popOut: requestCurrentPanePopOut" in page

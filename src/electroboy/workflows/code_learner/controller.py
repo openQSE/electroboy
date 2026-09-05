@@ -516,7 +516,18 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 f"clear-course-cache-{uuid4().hex}",
             )
             try:
-                cleared = KnowledgeStore(root).clear_course_cache()
+                phase2_cleared = KnowledgeStore(root).clear_course_cache()
+                legacy_cleared = CodeLearnerStore(root).clear_course_cache()
+                cleared = {
+                    "removed_file_count": (
+                        phase2_cleared["removed_file_count"]
+                        + legacy_cleared["removed_file_count"]
+                    ),
+                    "removed_bytes": (
+                        phase2_cleared["removed_bytes"]
+                        + legacy_cleared["removed_bytes"]
+                    ),
+                }
             finally:
                 lease.release()
             self._initialization_jobs.pop(str(root), None)

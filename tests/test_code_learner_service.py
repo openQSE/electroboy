@@ -27,6 +27,7 @@ from electroboy.workflows.code_learner.controller import (  # noqa: E402
 )
 from electroboy.workflows.code_learner.domain import (  # noqa: E402
     CodeLearnerError,
+    CodeLearnerStore,
     repository_revision,
 )
 from electroboy.workflows.code_learner.knowledge_store import (  # noqa: E402
@@ -193,6 +194,13 @@ class CodeLearnerServiceTests(unittest.TestCase):
             )
             controller = state.workflow_controller("code-learner")
             controller.open_project(context_id, str(source_root))
+            controller.initialize_from_jsonl(
+                context_id,
+                self._sample_course_jsonl(),
+            )
+            legacy = CodeLearnerStore(source_root)
+            self.assertTrue(legacy.path.is_file())
+            self.assertTrue(legacy.corpus_path.is_file())
             knowledge = KnowledgeStore(source_root)
             knowledge.state_root.mkdir(parents=True, exist_ok=True)
             knowledge.courses_root.mkdir(parents=True, exist_ok=True)
@@ -204,13 +212,15 @@ class CodeLearnerServiceTests(unittest.TestCase):
             cleared = controller.clear_course_cache(context_id)
 
         self.assertEqual(cleared["status"], "cache_cleared")
-        self.assertEqual(cleared["cache"]["removed_file_count"], 1)
+        self.assertEqual(cleared["cache"]["removed_file_count"], 3)
         self.assertEqual(cleared["initialization"]["status"], "idle")
         self.assertFalse(cleared["code_learner"]["phase2_initialized"])
         self.assertEqual(cleared["code_learner"]["walkthroughs"], [])
         self.assertIsNone(cleared["code_learner"]["current_walkthrough"])
         self.assertIsNone(cleared["code_learner"]["source"])
         self.assertFalse(knowledge.courses_root.exists())
+        self.assertFalse(legacy.path.exists())
+        self.assertFalse(legacy.corpus_path.exists())
 
     def test_start_agent_uses_code_learner_session_bucket(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

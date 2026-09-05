@@ -68,6 +68,7 @@
       source: null,
       courseArtifact: null,
       courseNavigation: null,
+      loadSequence: 0,
     };
   }
 
@@ -920,6 +921,7 @@
     if (!response.ok) {
       throw new Error(payload.error || "course cache clear failed");
     }
+    const courseArtifact = learnerState.courseArtifact;
     learnerState = emptyLearnerState();
     learnerContext = null;
     courseMode = "architecture";
@@ -932,7 +934,8 @@
     initializationState = payload.initialization || null;
     applyLearnerPayload(payload.code_learner || {});
     renderNavigationState();
-    openLearnerPane({ activate: false, refresh: true });
+    closeCourseDocument(courseArtifact);
+    openLearnerPane({ activate: false, refresh: true, reset: true });
     const count = Number(payload.cache && payload.cache.removed_file_count || 0);
     setStatus(`Course cache cleared (${count} files). Run Initialize to rebuild.`);
   }
@@ -1046,6 +1049,15 @@
     });
   }
 
+  function closeCourseDocument(artifact) {
+    if (!runtimeApi || !artifact || !artifact.markdown_path) {
+      return;
+    }
+    runtimeApi.modules.invoke("documents", "closeDocumentTarget", {
+      path: artifact.markdown_path,
+    });
+  }
+
   function setGenerating(isGenerating) {
     if (!nav.learnActions) {
       return;
@@ -1153,7 +1165,7 @@
     }
     runtimeApi.layout.assignPane(
       "code-learner",
-      learnerPaneItem(Boolean(options.refresh)),
+      learnerPaneItem(Boolean(options.refresh), Boolean(options.reset)),
       "",
       {
         targetPane: "agent",
@@ -1164,7 +1176,7 @@
     );
   }
 
-  function learnerPaneItem(refresh = false) {
+  function learnerPaneItem(refresh = false, reset = false) {
     const walkthrough = learnerState.currentWalkthrough;
     return {
       id: "code-learner-main",
@@ -1172,6 +1184,7 @@
       title: walkthrough ? walkthrough.title : "Code Learner",
       walkthroughId: walkthrough ? walkthrough.id : "",
       updatedAt: refresh ? String(Date.now()) : "",
+      reset,
     };
   }
 
@@ -1479,7 +1492,24 @@
     loadPaneState(state);
     return {
       refresh: () => loadPaneState(state),
+      reset: () => resetPaneState(state),
     };
+  }
+
+  function resetPaneState(state) {
+    state.loadSequence += 1;
+    state.walkthrough = null;
+    state.source = null;
+    state.analysis = null;
+    state.courseArtifact = null;
+    state.courseNavigation = null;
+    state.selectedStartLine = null;
+    state.selectedEndLine = null;
+    state.lastSelectedLine = null;
+    state.pendingActiveScroll = false;
+    state.busy = false;
+    state.error = "";
+    renderPane(state);
   }
 
   function mountPaneToolbar(state) {
@@ -1582,6 +1612,7 @@
   }
 
   async function loadPaneState(state) {
+    const sequence = ++state.loadSequence;
     state.busy = true;
     state.error = "";
     renderPane(state);
@@ -1594,16 +1625,23 @@
       if (!response.ok) {
         throw new Error(payload.error || "load failed");
       }
+      if (sequence !== state.loadSequence) {
+        return;
+      }
       if (payload.initialization) {
         state.initialization = payload.initialization;
       }
       applyPanePayload(state, payload.code_learner || payload);
     } catch (error) {
-      state.error = error.message || String(error);
+      if (sequence === state.loadSequence) {
+        state.error = error.message || String(error);
+      }
     } finally {
-      state.busy = false;
-      renderPane(state);
-      notifyPaneContext(state);
+      if (sequence === state.loadSequence) {
+        state.busy = false;
+        renderPane(state);
+        notifyPaneContext(state);
+      }
     }
   }
 

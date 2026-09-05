@@ -678,6 +678,18 @@ class CodeLearnerStore:
         self._write(payload)
         return walkthrough
 
+    def clear_course_cache(self) -> dict[str, int]:
+        """Remove legacy generated corpus and walkthrough state."""
+
+        files = [path for path in (self.path, self.corpus_path) if path.is_file()]
+        removed_bytes = sum(path.stat().st_size for path in files)
+        for path in files:
+            path.unlink(missing_ok=True)
+        return {
+            "removed_file_count": len(files),
+            "removed_bytes": removed_bytes,
+        }
+
     def set_current_step(self, walkthrough_id: str, step_id: str) -> Walkthrough:
         walkthrough = self.get(walkthrough_id).with_current_step(step_id)
         return self.save_walkthrough(walkthrough)
