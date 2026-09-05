@@ -2092,25 +2092,25 @@ Boundary 1 validation notes:
 
 ### Boundary 13: Horizontal And Vertical Module Knowledge
 
-195. [ ] Replace Phase 2 module subgraph selection with Phase 3 manifest
+195. [x] Replace Phase 2 module subgraph selection with Phase 3 manifest
      selection.
-196. [ ] Build one independent module-knowledge scope per module.
-197. [ ] Define horizontal module fields for purpose, interfaces, neighbors,
+196. [x] Build one independent module-knowledge scope per module.
+197. [x] Define horizontal module fields for purpose, interfaces, neighbors,
      configuration, state, tests, risks, and peer navigation.
-198. [ ] Define vertical module fields for components, initialization, normal
+198. [x] Define vertical module fields for components, initialization, normal
      flow, alternate flow, errors, data, concurrency, and important functions.
-199. [ ] Resolve every component reference against frozen manifests and every
+199. [x] Resolve every component reference against frozen manifests and every
      symbol locator through the source-evidence resolver.
-200. [ ] Resolve every canonical neighbor edge against module relationships.
-201. [ ] Allow AI-selected Mermaid diagram types based on module evidence.
-202. [ ] Validate canonical diagram nodes and edges before rendering.
-203. [ ] Link horizontal peer modules independently from vertical deep dives.
-204. [ ] Preserve module-level uncertainty and intentional component overlap.
-205. [ ] Persist each module knowledge artifact independently.
-206. [ ] Retry one failed module without rebuilding other module knowledge.
-207. [ ] Test modules with one component, many components, repeated components,
+200. [x] Resolve every canonical neighbor edge against module relationships.
+201. [x] Allow AI-selected Mermaid diagram types based on module evidence.
+202. [x] Validate canonical diagram nodes and edges before rendering.
+203. [x] Link horizontal peer modules independently from vertical deep dives.
+204. [x] Preserve module-level uncertainty and intentional component overlap.
+205. [x] Persist each module knowledge artifact independently.
+206. [x] Retry one failed module without rebuilding other module knowledge.
+207. [x] Test modules with one component, many components, repeated components,
      no relationships, dynamic behavior, and multiple diagrams.
-208. [ ] Commit Phase 3 Module knowledge generation.
+208. [x] Commit Phase 3 Module knowledge generation.
 
 ### Boundary 14: Important And On-Demand Function Knowledge
 

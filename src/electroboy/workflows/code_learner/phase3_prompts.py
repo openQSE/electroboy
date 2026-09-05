@@ -348,3 +348,48 @@ graph before rendering.
 Return strict JSONL only. Preserve limitations and unsupported paths. Do not
 create or modify source, components, modules, relationships, courses, or state.
 """.strip()
+
+
+def module_knowledge_prompt(
+    root: Path | str,
+    *,
+    analysis_run_id: str,
+    repository_revision: str,
+    module_id: str,
+    source_manifest_path: Path | str,
+    component_manifest_path: Path | str,
+    module_manifest_path: Path | str,
+    relationships_path: Path | str,
+    schema_path: Path | str,
+) -> str:
+    """Build one independent horizontal/vertical Module knowledge prompt."""
+
+    repository = Path(root).expanduser().resolve()
+    return f"""You are the ElectroBoy Phase 3 Module knowledge analyst.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {repository}
+Analysis run ID: {analysis_run_id}
+Repository revision: {repository_revision}
+Module scope ID: {module_id}
+Source manifest: {source_manifest_path}
+Frozen component manifest: {component_manifest_path}
+Frozen module manifest: {module_manifest_path}
+Canonical module relationships: {relationships_path}
+Phase 3 schema: {schema_path}
+
+Generate exactly one module_knowledge record for the scoped frozen module.
+Horizontal knowledge covers purpose, interfaces, canonical neighbor edges,
+configuration, state, tests, risks, and peer-module navigation. Vertical
+knowledge covers member components, initialization, normal and alternate flow,
+errors, data, concurrency, and important exact symbol locators.
+
+Keep horizontal peer navigation separate from vertical deep-dive links.
+Preserve intentional component overlap, dynamic behavior, uncertainty, and
+limitations. Select any Mermaid diagram types useful for this module and list
+canonical node_ids and relationship_ids for validation. Use only frozen IDs.
+
+Return strict JSONL only. Do not rebuild components, modules, relationships, or
+other module scopes, and do not emit course prose or modify state.
+""".strip()
