@@ -859,8 +859,11 @@ class _ObservedRuntime(AgentRuntime):
                 "Code Learner initialization was stopped."
             )
         previous_callback = invocation.event_callback
+        reported_live_event = False
 
         def report(event: dict[str, object]) -> None:
+            nonlocal reported_live_event
+            reported_live_event = True
             self.reporter(event)
             if previous_callback is not None:
                 previous_callback(event)
@@ -872,8 +875,9 @@ class _ObservedRuntime(AgentRuntime):
             raise Phase3InitializationCancelled(
                 "Code Learner initialization was stopped."
             )
-        for event in result.raw_events:
-            self.reporter({"event": event})
+        if not reported_live_event:
+            for event in result.raw_events:
+                self.reporter({"event": event})
         if result.changed_files or result.created_files:
             return AgentResult(
                 False,

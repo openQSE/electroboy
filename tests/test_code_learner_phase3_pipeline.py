@@ -185,6 +185,36 @@ def test_observed_runtime_streams_activity_and_rejects_direct_writes() -> None:
     assert not any(item.get("activity_kind") == "command" for item in events)
     assert not any("src/main.py:1" in str(item) for item in events)
     assert all(item.get("percent") == 14 for item in events)
+    assert len(events) == 1
+
+
+def test_observed_runtime_replays_raw_events_when_adapter_does_not_stream() -> None:
+    events: list[dict[str, object]] = []
+    runtime = _ObservedRuntime(
+        _Runtime(
+            AgentResult(
+                True,
+                "{}",
+                raw_events=[
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "reasoning",
+                            "text": "Tracing entry points",
+                        },
+                    }
+                ],
+            )
+        ),
+        events.append,
+        stage="components",
+        percent=14,
+    )
+
+    result = runtime.invoke(AgentInvocation(role="code_learner_analysis", prompt="p"))
+
+    assert result.ok is True
+    assert [event["message"] for event in events] == ["Tracing entry points"]
 
 
 def test_terminal_states_distinguish_clean_warning_and_failure(tmp_path: Path) -> None:
