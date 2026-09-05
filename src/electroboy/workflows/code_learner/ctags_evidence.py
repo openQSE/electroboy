@@ -22,6 +22,8 @@ from .domain import CodeLearnerError
 from .phase3_contracts import SymbolLocator
 from .source_manifest import SourceManifestService, SourceManifestSnapshot
 
+CTAGS_EVIDENCE_PROFILE = "code-learner-symbols-v2"
+
 
 class CtagsToolError(CodeLearnerError):
     """Raised when the pinned Universal Ctags tool cannot be prepared."""
@@ -415,6 +417,7 @@ class CtagsEvidenceService:
         warnings = [item for item in [warning, *parse_warnings] if item]
         metadata = {
             "schema_version": 1,
+            "evidence_profile": CTAGS_EVIDENCE_PROFILE,
             "repository_revision": snapshot.revision,
             "status": "complete" if not warnings else "complete_with_warnings",
             "started_at": started,
@@ -497,6 +500,30 @@ class CtagsEvidenceService:
         return CtagsCapture(
             self.raw_path, self.invocation_path, tuple(records), metadata
         )
+
+    def load_current(
+        self, snapshot: SourceManifestSnapshot | None = None
+    ) -> CtagsCapture | None:
+        """Load evidence only when it uses the current extraction profile."""
+
+        snapshot = snapshot or self.source.load()
+        capture = self.load()
+        if snapshot is None or capture is None:
+            return None
+        paths = [
+            str(record["path"])
+            for record in snapshot.files
+            if record.get("source_status") != "submodule"
+            and record.get("symlink") is not True
+        ]
+        metadata = capture.metadata
+        if (
+            metadata.get("evidence_profile") != CTAGS_EVIDENCE_PROFILE
+            or metadata.get("repository_revision") != snapshot.revision
+            or metadata.get("input_hash") != _path_hash(paths)
+        ):
+            return None
+        return capture
 
     def _save(self, raw: bytes, metadata: Mapping[str, object]) -> None:
         with self._lock:
@@ -588,7 +615,6 @@ class SymbolLocatorResolver:
         matches = self.query(
             name=locator.name,
             file_id=locator.file_id,
-            kind=locator.kind if locator.kind != "symbol" else "",
             scope=locator.scope,
         )
         narrowed = _narrow_matches(matches, locator)
@@ -614,7 +640,6 @@ class SymbolLocatorResolver:
             record
             for record in self.evidence.capture_target(str(file["path"]))
             if record.get("name") == locator.name
-            and (locator.kind == "symbol" or record.get("kind") == locator.kind)
             and (not locator.scope or record.get("scope") == locator.scope)
         ]
         targeted = _narrow_matches(targeted, locator)
@@ -672,6 +697,8 @@ def _ctags_command(executable: Path, paths: Sequence[str] = ()) -> list[str]:
         "--output-format=json",
         "--fields=+neKSEs",
         "--extras=+p",
+        "--kinds-C=+px",
+        "--kinds-C++=+px",
         "-f",
         "-",
     ]

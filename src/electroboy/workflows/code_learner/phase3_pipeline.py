@@ -193,8 +193,8 @@ class Phase3InitializationPipeline:
                 checkpoint,
                 "ctags_evidence",
                 lambda: self._capture_ctags(source),
-                ready=lambda: self.ctags.load() is not None,
-                resume=self.ctags.load,
+                ready=lambda: self.ctags.load_current(source) is not None,
+                resume=lambda: self.ctags.load_current(source),
             )
             self._run_stage(
                 checkpoint,

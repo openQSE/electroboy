@@ -141,6 +141,8 @@ def test_capture_uses_exact_manifest_paths_and_preserves_raw_jsonl(
     command, cwd, stdin = process.calls[0]
     assert cwd == tmp_path
     assert "--options=NONE" in command
+    assert "--kinds-C=+px" in command
+    assert "--kinds-C++=+px" in command
     assert set(command[-3:]) == {
         "app.py",
         "main.c",
@@ -207,6 +209,51 @@ def test_locator_resolver_handles_exact_ambiguous_and_fallback_matches(
     assert process.calls[-1][0][-1] == "main.c"
     assert process.calls[-1][2] == b""
     assert any(evidence.targeted_root.glob("*.jsonl"))
+
+
+def test_locator_resolver_accepts_ai_declaration_kind_for_ctags_prototype(
+    tmp_path: Path,
+) -> None:
+    source = _repository(tmp_path)
+    process = FakeProcess(
+        [_tag("start", "main.c", "C", 1, kind="prototype")]
+    )
+    evidence = CtagsEvidenceService(
+        tmp_path, toolchain=FakeToolchain(), process=process
+    )
+    evidence.capture(source.load())
+
+    resolution = SymbolLocatorResolver(
+        tmp_path, source=source, evidence=evidence
+    ).resolve(
+        {
+            "file_id": "file:main.c",
+            "name": "start",
+            "kind": "function_declaration",
+            "start_line": 1,
+            "end_line": 1,
+        }
+    )
+
+    assert resolution.status == "exact"
+    assert resolution.locator["kind"] == "prototype"
+    assert resolution.provenance == "universal-ctags"
+
+
+def test_load_current_rejects_an_obsolete_evidence_profile(tmp_path: Path) -> None:
+    source = _repository(tmp_path)
+    evidence = CtagsEvidenceService(
+        tmp_path, toolchain=FakeToolchain(), process=FakeProcess([])
+    )
+    evidence.capture(source.load())
+    metadata = json.loads(evidence.invocation_path.read_text(encoding="utf-8"))
+    metadata.pop("evidence_profile")
+    evidence.invocation_path.write_text(
+        json.dumps(metadata) + "\n", encoding="utf-8"
+    )
+
+    assert evidence.load() is not None
+    assert evidence.load_current(source.load()) is None
 
 
 def test_ctags_unavailable_is_a_coverage_warning_not_a_source_failure(
