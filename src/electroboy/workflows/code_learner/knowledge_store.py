@@ -46,6 +46,7 @@ class KnowledgeStore:
         self.checkpoint_path = self.state_root / "checkpoint.json"
         self.course_index_path = self.courses_root / "index.json"
         self.tutor_context_path = self.state_root / "tutor-context.json"
+        self.navigation_path = self.state_root / "navigation.json"
         self._lock = threading.RLock()
 
     def knowledge_path(self, record_type: str) -> Path:

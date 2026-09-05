@@ -97,6 +97,29 @@ def _course_artifact(request: RouteRequest) -> ServiceResponse:
     )
 
 
+def _course_graph(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).course_graph(request.context_id)
+    )
+
+
+def _course_navigation(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        code_view = payload.get("code_view")
+        result = _controller(request).navigate_course(
+            request.context_id,
+            str(payload.get("action") or "state"),
+            course_id=str(payload.get("course_id") or ""),
+            section_id=str(payload.get("section_id") or ""),
+            target_id=str(payload.get("target_id") or ""),
+            code_view=dict(code_view) if isinstance(code_view, dict) else None,
+        )
+    except Exception as error:
+        return _error(error)
+    return JsonResponse(result)
+
+
 def _modules(request: RouteRequest) -> ServiceResponse:
     return _workflow_action(lambda: _controller(request).modules(request.context_id))
 
@@ -200,6 +223,8 @@ ROUTES = (
     _route("GET", "/api/code-learner/analysis", "analysis"),
     _route("GET", "/api/code-learner/source", "source"),
     _route("GET", "/api/code-learner/course/artifact", "course_artifact"),
+    _route("GET", "/api/code-learner/course/graph", "course_graph"),
+    _route("POST", "/api/code-learner/course/navigation", "course_navigation"),
     _route("GET", "/api/code-learner/modules", "modules"),
     _route("GET", "/api/code-learner/symbols", "symbols"),
     _route("POST", "/api/code-learner/walkthrough", "create_walkthrough"),
@@ -216,6 +241,8 @@ HANDLERS: dict[str, RouteHandler] = {
     "analysis": _analysis,
     "source": _source,
     "course_artifact": _course_artifact,
+    "course_graph": _course_graph,
+    "course_navigation": _course_navigation,
     "modules": _modules,
     "symbols": _symbols,
     "create_walkthrough": _create_walkthrough,

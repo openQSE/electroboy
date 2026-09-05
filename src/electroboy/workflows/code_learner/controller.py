@@ -17,6 +17,7 @@ from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError
 
 from .course_artifacts import render_saved_course
+from .course_graph import CourseGraph, CourseNavigator
 from .domain import (
     WORKFLOW_ID,
     CodeLearnerError,
@@ -30,6 +31,7 @@ from .domain import (
     learner_question_payload,
     resolve_symbol,
 )
+from .knowledge_store import KnowledgeStore
 from .planner import generate_code_learner_course_corpus_jsonl
 
 _INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running"})
@@ -599,6 +601,39 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             "markdown_path": result.markdown_path,
             "record_count": result.record_count,
         }
+
+    def course_graph(self, context_id: str) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        return {
+            "status": "loaded",
+            "graph": CourseGraph.from_store(KnowledgeStore(root)).to_dict(),
+        }
+
+    def navigate_course(
+        self,
+        context_id: str,
+        action: str,
+        *,
+        course_id: str = "",
+        section_id: str = "",
+        target_id: str = "",
+        code_view: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        navigator = CourseNavigator(root)
+        if action == "open":
+            return navigator.open(course_id, section_id)
+        if action in {"previous", "next"}:
+            return navigator.move(action)
+        if action == "deep-dive":
+            return navigator.deep_dive(target_id)
+        if action == "back":
+            return navigator.back()
+        if action == "code-view":
+            return navigator.update_code_view(code_view or {})
+        if action == "state":
+            return navigator.state()
+        raise CodeLearnerError(f"unknown course navigation action: {action}")
 
     def modules(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)

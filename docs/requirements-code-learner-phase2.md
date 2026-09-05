@@ -1447,20 +1447,20 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 15: Layered Course Navigation
 
-172. [ ] Define a course graph projection from document and section records.
-173. [ ] Preserve horizontal order separately at each course layer.
-174. [ ] Add explicit vertical links from Architecture sections to modules.
-175. [ ] Add explicit vertical links from Module sections to functions.
-176. [ ] Add parent links and return-position state.
-177. [ ] Implement Previous and Next within the current layer.
-178. [ ] Implement Deep Dive, Back, and breadcrumb behavior.
-179. [ ] Synchronize each selected section with its primary source reference.
-180. [ ] Preserve code-pane selection and scroll behavior across horizontal
+172. [x] Define a course graph projection from document and section records.
+173. [x] Preserve horizontal order separately at each course layer.
+174. [x] Add explicit vertical links from Architecture sections to modules.
+175. [x] Add explicit vertical links from Module sections to functions.
+176. [x] Add parent links and return-position state.
+177. [x] Implement Previous and Next within the current layer.
+178. [x] Implement Deep Dive, Back, and breadcrumb behavior.
+179. [x] Synchronize each selected section with its primary source reference.
+180. [x] Preserve code-pane selection and scroll behavior across horizontal
     navigation.
-181. [ ] Preserve prior horizontal position when returning from a deep dive.
-182. [ ] Add missing, stale, generating, and failed target states.
-183. [ ] Test multi-level navigation and browser reload restoration.
-184. [ ] Commit layered course navigation.
+181. [x] Preserve prior horizontal position when returning from a deep dive.
+182. [x] Add missing, stale, generating, and failed target states.
+183. [x] Test multi-level navigation and browser reload restoration.
+184. [x] Commit layered course navigation.
 
 ### Boundary 16: On-Demand Function Courses
 
