@@ -839,9 +839,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('runtimeApi.layout.ensurePane("agent");', sessions)
         self.assertIn("function renderTree(runtime)", binder)
         self.assertIn("function addEntryDragBehavior(", binder)
-        self.assertIn('row.addEventListener("dragstart"', binder)
-        self.assertIn('row.addEventListener("drop"', binder)
-        self.assertIn("action.moveCreativeEntry(draggedPath, path)", binder)
+        self.assertIn('row.addEventListener("pointerdown"', binder)
+        self.assertIn('window.addEventListener("pointermove"', binder)
+        self.assertIn("document.elementFromPoint(clientX, clientY)", binder)
+        self.assertIn(
+            "drag.action.moveCreativeEntry(drag.path, destinationFolder)",
+            binder,
+        )
+        self.assertIn("distance < 6", binder)
         self.assertIn('contextUrl("/api/creative/move")', creative)
         self.assertIn(".creative-tree-row.directory.creative-drop-target", creative_css)
         self.assertIn("function renderTrash(runtime)", binder)

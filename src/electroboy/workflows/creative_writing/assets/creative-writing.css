@@ -88,13 +88,19 @@
   padding: 0 8px;
 }
 
-.creative-tree-row[draggable="true"] {
+.creative-tree-row.creative-draggable {
   cursor: grab;
+  user-select: none;
 }
 
 .creative-tree-row.creative-dragging {
   cursor: grabbing;
   opacity: 0.48;
+}
+
+body.creative-row-drag-active,
+body.creative-row-drag-active * {
+  cursor: grabbing !important;
 }
 
 .creative-tree-row.directory.creative-drop-target {

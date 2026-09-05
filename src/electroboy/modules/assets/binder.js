@@ -4,9 +4,11 @@
   let folderColorPicker = null;
   let folderColorPickerAnchor = null;
   let folderColorPickerDocumentHandler = null;
-  let draggedCreativeEntry = null;
+  let activeCreativePointerDrag = null;
+  let suppressCreativeClickUntil = 0;
 
   function showMessage(runtime, message) {
+    cancelCreativePointerDrag(runtime);
     const tree = runtime.elements.creativeTree;
     tree.replaceChildren();
     const empty = document.createElement("div");
@@ -24,6 +26,7 @@
   }
 
   function renderTree(runtime) {
+    cancelCreativePointerDrag(runtime);
     const tree = runtime.elements.creativeTree;
     const state = runtime.getState();
     closeFolderColorPicker();
@@ -108,12 +111,14 @@
         (!isDirectory && path === state.creativeActiveDocument),
     );
     row.setAttribute("role", "treeitem");
-    row.draggable = state.creativeEditingPath !== path;
+    const canDrag = state.creativeEditingPath !== path;
+    row.classList.toggle("creative-draggable", canDrag);
+    row.dataset.creativePath = path;
     row.setAttribute("aria-grabbed", "false");
     if (isDirectory) {
       row.setAttribute("aria-expanded", expanded ? "true" : "false");
     }
-    addEntryDragBehavior(runtime, row, entry, path, isDirectory);
+    addEntryDragBehavior(runtime, row, entry, path, canDrag);
 
     const icon = document.createElement("span");
     icon.className = `creative-tree-icon ${iconClass(entry)}`;
@@ -185,63 +190,137 @@
       });
   }
 
-  function canDropCreativeEntry(path, destinationFolder) {
-    if (!draggedCreativeEntry || !path || !destinationFolder) {
+  function canDropCreativeEntry(path, type, destinationFolder) {
+    if (!path || !destinationFolder) {
       return false;
     }
     if (path === destinationFolder || parentPath(path) === destinationFolder) {
       return false;
     }
-    return draggedCreativeEntry.type !== "directory"
+    return type !== "directory"
       || !destinationFolder.startsWith(`${path}/`);
   }
 
-  function addEntryDragBehavior(runtime, row, entry, path, isDirectory) {
-    const action = creativeActions(runtime);
-    row.addEventListener("dragstart", (event) => {
-      if (!row.draggable || event.target.closest("button, input")) {
-        event.preventDefault();
-        return;
-      }
-      draggedCreativeEntry = { path, type: entry.type || "file" };
-      row.classList.add("creative-dragging");
-      row.setAttribute("aria-grabbed", "true");
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("application/x-electroboy-creative-path", path);
-      event.dataTransfer.setData("text/plain", path);
-    });
-    row.addEventListener("dragend", () => {
-      clearCreativeDropTargets(runtime);
-      draggedCreativeEntry = null;
-    });
-    if (!isDirectory) {
+  function creativeDropTargetAt(runtime, clientX, clientY, drag) {
+    const element = document.elementFromPoint(clientX, clientY);
+    const row = element && element.closest(".creative-tree-row.directory");
+    if (!row || !runtime.elements.creativeTree.contains(row)) {
+      return null;
+    }
+    const destinationFolder = String(row.dataset.creativePath || "");
+    return canDropCreativeEntry(drag.path, drag.type, destinationFolder)
+      ? { row, path: destinationFolder }
+      : null;
+  }
+
+  function finishCreativePointerDrag(runtime, event, canceled = false) {
+    const drag = activeCreativePointerDrag;
+    if (!drag || event.pointerId !== drag.pointerId) {
       return;
     }
-    row.addEventListener("dragover", (event) => {
-      const draggedPath = draggedCreativeEntry && draggedCreativeEntry.path;
-      if (!canDropCreativeEntry(draggedPath, path)) {
+    window.removeEventListener("pointermove", drag.moveHandler);
+    window.removeEventListener("pointerup", drag.upHandler);
+    window.removeEventListener("pointercancel", drag.cancelHandler);
+    const destinationFolder = drag.started && !canceled ? drag.targetPath : "";
+    if (drag.started) {
+      event.preventDefault();
+      suppressCreativeClickUntil = window.performance.now() + 250;
+    }
+    clearCreativeDropTargets(runtime);
+    document.body.classList.remove("creative-row-drag-active");
+    activeCreativePointerDrag = null;
+    if (destinationFolder) {
+      drag.action.moveCreativeEntry(drag.path, destinationFolder);
+    }
+  }
+
+  function cancelCreativePointerDrag(runtime) {
+    if (!activeCreativePointerDrag) {
+      return;
+    }
+    finishCreativePointerDrag(
+      runtime,
+      {
+        pointerId: activeCreativePointerDrag.pointerId,
+        preventDefault() {},
+      },
+      true,
+    );
+  }
+
+  function updateCreativePointerDrag(runtime, event) {
+    const drag = activeCreativePointerDrag;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    if (!drag.started) {
+      const distance = Math.hypot(
+        event.clientX - drag.startX,
+        event.clientY - drag.startY,
+      );
+      if (distance < 6) {
         return;
       }
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = "move";
-      row.classList.add("creative-drop-target");
-    });
-    row.addEventListener("dragleave", (event) => {
-      if (!row.contains(event.relatedTarget)) {
-        row.classList.remove("creative-drop-target");
+      drag.started = true;
+      drag.row.classList.add("creative-dragging");
+      drag.row.setAttribute("aria-grabbed", "true");
+      document.body.classList.add("creative-row-drag-active");
+    }
+    event.preventDefault();
+    runtime.elements.creativeTree
+      .querySelectorAll(".creative-drop-target")
+      .forEach((element) => element.classList.remove("creative-drop-target"));
+    const target = creativeDropTargetAt(
+      runtime,
+      event.clientX,
+      event.clientY,
+      drag,
+    );
+    drag.targetPath = target ? target.path : "";
+    if (target) {
+      target.row.classList.add("creative-drop-target");
+    }
+  }
+
+  function addEntryDragBehavior(runtime, row, entry, path, canDrag) {
+    const action = creativeActions(runtime);
+    row.addEventListener("click", (event) => {
+      if (window.performance.now() < suppressCreativeClickUntil) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
       }
-    });
-    row.addEventListener("drop", (event) => {
-      const draggedPath = draggedCreativeEntry && draggedCreativeEntry.path;
-      if (!canDropCreativeEntry(draggedPath, path)) {
+    }, true);
+    row.addEventListener("pointerdown", (event) => {
+      if (!canDrag || event.button !== 0 || event.isPrimary === false) {
         return;
       }
-      event.preventDefault();
-      event.stopPropagation();
-      clearCreativeDropTargets(runtime);
-      draggedCreativeEntry = null;
-      action.moveCreativeEntry(draggedPath, path);
+      if (activeCreativePointerDrag) {
+        cancelCreativePointerDrag(runtime);
+      }
+      const drag = {
+        action,
+        path,
+        type: entry.type || "file",
+        row,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        started: false,
+        targetPath: "",
+        moveHandler: null,
+        upHandler: null,
+        cancelHandler: null,
+      };
+      drag.moveHandler = (moveEvent) =>
+        updateCreativePointerDrag(runtime, moveEvent);
+      drag.upHandler = (upEvent) =>
+        finishCreativePointerDrag(runtime, upEvent);
+      drag.cancelHandler = (cancelEvent) =>
+        finishCreativePointerDrag(runtime, cancelEvent, true);
+      activeCreativePointerDrag = drag;
+      window.addEventListener("pointermove", drag.moveHandler, { passive: false });
+      window.addEventListener("pointerup", drag.upHandler);
+      window.addEventListener("pointercancel", drag.cancelHandler);
     });
   }
 
