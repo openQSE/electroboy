@@ -445,6 +445,13 @@
           disabled: !state.activeProjectRoot,
           run: generateProjectCorkboard,
         },
+        {
+          label: "Delete",
+          title: "Move one or more project corkboards to Trash.",
+          disabled: !state.activeProjectRoot,
+          danger: true,
+          run: deleteProjectCorkboards,
+        },
       ];
     }
     if (stageId === "mind-map") {
@@ -658,6 +665,14 @@
       });
     } catch (error) {
       appendOutput(`${error.message || "corkboard generation failed"}\n`, "error");
+    }
+  }
+
+  async function deleteProjectCorkboards() {
+    try {
+      await runtimeApi.modules.invoke("corkboard", "deleteDocuments");
+    } catch (error) {
+      appendOutput(`${error.message || "corkboard deletion failed"}\n`, "error");
     }
   }
 

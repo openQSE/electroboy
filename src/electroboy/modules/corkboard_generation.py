@@ -375,11 +375,8 @@ def normalize_generation_plan(
             "id": card_id,
             "title": title[:200],
             "note": str(raw.get("note") or raw.get("summary") or "")[:5000],
-            "rotation": 0,
             "color": ROLE_COLORS.get(role, "slate"),
             "card_type": "card",
-            "width": 340,
-            "height": 220,
             "metadata": {
                 "role": role,
                 "lane": lane,
@@ -394,13 +391,10 @@ def normalize_generation_plan(
             )
         prepared.append((sequence, index, card))
     prepared.sort(key=lambda item: (item[0], item[1]))
-    lanes: dict[str, int] = {}
     cards: list[dict[str, object]] = []
     for position, (_, _, card) in enumerate(prepared):
-        lane = str(card["metadata"]["lane"])
-        lane_index = lanes.setdefault(lane, len(lanes))
-        card["x"] = 60 + position * 420
-        card["y"] = 60 + lane_index * 300
+        card["x"] = 60 + position * 360
+        card["y"] = 60
         cards.append(card)
 
     raw_connectors = plan.get("connectors", [])

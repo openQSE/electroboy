@@ -56,6 +56,14 @@ class CorkboardProvider(Protocol):
         connection_id: str = "",
     ) -> dict[str, object]: ...
 
+    def delete_boards(
+        self,
+        context_id: str,
+        board_ids: list[str],
+        *,
+        connection_id: str = "",
+    ) -> dict[str, object]: ...
+
 
 @runtime_checkable
 class CorkboardWorkflowController(Protocol):

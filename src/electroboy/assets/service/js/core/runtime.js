@@ -6996,6 +6996,9 @@
       if (action.primary) {
         button.classList.add("primary");
       }
+      if (action.danger) {
+        button.classList.add("danger");
+      }
       button.textContent = action.label;
       button.title = action.title || action.label;
       button.disabled = Boolean(

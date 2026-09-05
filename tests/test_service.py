@@ -733,6 +733,10 @@ class ServiceTests(unittest.TestCase):
             'data-creative-control="generate-corkboard">Generate',
             creative,
         )
+        self.assertIn(
+            'data-creative-control="delete-corkboard">Delete',
+            creative,
+        )
         self.assertIn('scope: { type: "project" }', creative)
         mind_map_position = creative.index('data-creative-control="mind-map-menu"')
         corkboard_position = creative.index('data-creative-control="corkboard-menu"')
@@ -866,6 +870,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function openDocument(runtime, options = {})", corkboard)
         self.assertIn("async function newDocument(runtime, options = {})", corkboard)
         self.assertIn("async function generate(runtime, options = {})", corkboard)
+        self.assertIn(
+            "async function deleteDocuments(runtime, options = {})",
+            corkboard,
+        )
+        self.assertIn('input.type = "checkbox";', corkboard)
+        self.assertIn('contextUrl(runtime, "/api/corkboards/delete")', corkboard)
         self.assertIn('id = "corkboardGenerationPicker"', corkboard)
         self.assertIn('contextUrl(runtime, "/api/corkboard-generation")', corkboard)
         self.assertIn('type: "electroboy-corkboard-generated"', corkboard)
@@ -874,9 +884,12 @@ class ServiceTests(unittest.TestCase):
             corkboard,
         )
         self.assertIn(
-            "actions: { show, openDocument, newDocument, generate }",
+            "actions: { show, openDocument, newDocument, deleteDocuments, generate }",
             corkboard,
         )
+        self.assertIn("run: deleteProjectCorkboards", software)
+        self.assertIn('button.classList.add("danger")', app)
+        self.assertIn(".corkboard-delete-dialog {", shell_css)
         self.assertIn("let creativeTreeRequestSequence = 0;", creative)
         self.assertIn(
             "const requestSequence = ++creativeTreeRequestSequence;",
@@ -2273,6 +2286,10 @@ class ServiceTests(unittest.TestCase):
         generation_status = dispatcher.match("GET", "/api/corkboard-generation")
         self.assertIsNotNone(generation_status)
         self.assertEqual(generation_status.handler_name, "generation_status")
+        deletion_match = dispatcher.match("POST", "/api/corkboards/delete")
+        self.assertIsNotNone(deletion_match)
+        self.assertEqual(deletion_match.owner, "corkboard")
+        self.assertEqual(deletion_match.handler_name, "delete_boards")
 
     def test_all_registered_routes_have_executable_handlers(self) -> None:
         modules = build_module_registry()
@@ -5446,6 +5463,18 @@ class ServiceTests(unittest.TestCase):
                 },
             )
             page, status = render_corkboard_html(snapshot)
+            deleted_boards = provider.delete_boards(
+                context_id,
+                ["corkboard/ideas.corkboard.json"],
+            )
+            remaining_boards = provider.list_boards(context_id)
+            creative_trash_item_exists = (
+                project_root
+                / ".electroboy"
+                / "trash"
+                / deleted_boards["trash_entries"][0]["id"]
+                / "item"
+            ).is_file()
 
         self.assertEqual(provider.provider_id, "creative-files")
         self.assertEqual(snapshot["provider"], "creative-files")
@@ -5464,6 +5493,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('className = "corkboard-confirm-dialog"', page)
         self.assertIn("electroboy-corkboard-open", page)
         self.assertNotIn("/api/creative/corkboard", page)
+        self.assertEqual(deleted_boards["status"], "trashed")
+        self.assertEqual(remaining_boards, [])
+        self.assertTrue(creative_trash_item_exists)
 
     def test_software_workflow_uses_shared_project_corkboard_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5498,6 +5530,18 @@ class ServiceTests(unittest.TestCase):
             )
             boards = provider.list_boards(context_id)
             snapshot = provider.get_board(context_id, created["board_id"])
+            deleted_boards = provider.delete_boards(
+                context_id,
+                [created["board_id"]],
+            )
+            remaining_boards = provider.list_boards(context_id)
+            project_trash_item_exists = (
+                project_root
+                / ".electroboy"
+                / "trash"
+                / deleted_boards["trash_entries"][0]["id"]
+                / "item"
+            ).is_file()
 
         self.assertEqual(provider.provider_id, "project-files")
         self.assertEqual(
@@ -5509,6 +5553,8 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["board_type"], "freeform")
         self.assertNotIn("group-card", snapshot["capabilities"])
         self.assertEqual(saved["card"]["id"], "verify-package")
+        self.assertEqual(remaining_boards, [])
+        self.assertTrue(project_trash_item_exists)
 
     def test_agenda_contract_groups_items_and_renders_generic_controls(self) -> None:
         snapshot = normalize_agenda_snapshot(
@@ -6574,6 +6620,14 @@ class ServiceTests(unittest.TestCase):
                     f"/api/corkboard?context_id={context_id}"
                     "&provider=creative-files&board_id=chapters",
                 )
+                delete_status, delete_body, _delete_content_type = post_json(
+                    server,
+                    f"/api/corkboards/delete?context_id={context_id}",
+                    {
+                        "provider": "creative-files",
+                        "board_ids": ["corkboard/ideas.corkboard.json"],
+                    },
+                )
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -6586,6 +6640,15 @@ class ServiceTests(unittest.TestCase):
         api_payload = json.loads(api_body)
         self.assertEqual(api_payload["provider"], "creative-files")
         self.assertEqual(api_payload["board_id"], "chapters")
+        self.assertEqual(delete_status, HTTPStatus.OK)
+        delete_payload = json.loads(delete_body)
+        self.assertEqual(
+            delete_payload["board_ids"],
+            ["corkboard/ideas.corkboard.json"],
+        )
+        self.assertFalse(
+            (project_root / "corkboard" / "ideas.corkboard.json").exists()
+        )
 
     def test_creative_freeform_corkboard_converts_card_to_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

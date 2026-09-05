@@ -7,6 +7,7 @@ from electroboy.modules.creative_workspace import (
     _creative_corkboard_payload,
     create_generated_creative_corkboard,
     save_creative_corkboard,
+    trash_corkboard_documents,
 )
 from electroboy.service.corkboard import normalize_board_snapshot
 from electroboy.service.services import ServiceServices
@@ -210,3 +211,13 @@ class CreativeWritingCorkboardProvider:
             "provider": self.provider_id,
             "title": title,
         }
+
+    def delete_boards(
+        self,
+        context_id: str,
+        board_ids: list[str],
+        *,
+        connection_id: str = "",
+    ) -> dict[str, object]:
+        root = self.services.contexts.active_project_root(context_id)
+        return trash_corkboard_documents(root, board_ids)

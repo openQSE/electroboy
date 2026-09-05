@@ -143,6 +143,10 @@ class CorkboardGenerationTests(unittest.TestCase):
 
         self.assertEqual([card["id"] for card in cards], ["cause", "effect"])
         self.assertLess(cards[0]["x"], cards[1]["x"])
+        self.assertEqual(cards[0]["y"], cards[1]["y"])
+        self.assertNotIn("width", cards[0])
+        self.assertNotIn("height", cards[0])
+        self.assertNotIn("rotation", cards[0])
         self.assertEqual(cards[0]["color"], "sky")
         self.assertEqual(cards[1]["color"], "peach")
         self.assertEqual(cards[0]["path"], "chapter.md")
@@ -305,8 +309,13 @@ class CorkboardGenerationTests(unittest.TestCase):
                         "note": "Begin here.",
                         "x": 60,
                         "y": 60,
+                        "width": 340,
+                        "height": 220,
                         "color": "storyline",
-                        "metadata": {"role": "storyline"},
+                        "metadata": {
+                            "role": "storyline",
+                            "lane": "main",
+                        },
                     }
                 ],
                 connectors=[],
@@ -324,6 +333,8 @@ class CorkboardGenerationTests(unittest.TestCase):
 
         self.assertIn('"title": "Story"', document)
         self.assertIn('"role": "storyline"', document)
+        self.assertNotIn('"width"', document)
+        self.assertNotIn('"height"', document)
 
 
 if __name__ == "__main__":

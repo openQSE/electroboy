@@ -149,15 +149,53 @@
       cursor: pointer;
     }
 
-    .ad-hoc-session-option:has(input[type="radio"]:checked) {
+    .ad-hoc-session-option:has(input[type="radio"]:checked),
+    .ad-hoc-session-option:has(input[type="checkbox"]:checked) {
       border-color: var(--active);
       background: var(--active-soft);
       box-shadow: 0 0 0 1px var(--active);
     }
 
-    .ad-hoc-session-option input[type="radio"] {
+    .ad-hoc-session-option input[type="radio"],
+    .ad-hoc-session-option input[type="checkbox"] {
       margin: 3px 0 0;
       accent-color: var(--active);
+    }
+
+    .corkboard-delete-dialog {
+      border-color: rgba(255, 95, 109, 0.72);
+      box-shadow:
+        0 0 0 1px rgba(255, 95, 109, 0.28),
+        0 24px 72px rgba(130, 18, 34, 0.52);
+    }
+
+    .corkboard-delete-dialog::backdrop {
+      background: rgba(49, 4, 12, 0.72);
+    }
+
+    .corkboard-delete-dialog .ad-hoc-session-header {
+      border-bottom-color: rgba(255, 95, 109, 0.36);
+      background: rgba(143, 24, 40, 0.18);
+    }
+
+    .corkboard-delete-dialog .ad-hoc-session-header h2 {
+      color: #ffb4bd;
+    }
+
+    .corkboard-delete-dialog .ad-hoc-session-option:has(input:checked) {
+      border-color: #ff5f6d;
+      background: rgba(143, 24, 40, 0.18);
+      box-shadow: 0 0 0 1px #ff5f6d;
+    }
+
+    .corkboard-delete-dialog .ad-hoc-session-option input {
+      accent-color: #ff5f6d;
+    }
+
+    .corkboard-delete-dialog .corkboard-delete-submit {
+      border-color: #ff5f6d;
+      background: #9f2638;
+      color: #fff4f5;
     }
 
     .ad-hoc-session-option-copy {
@@ -1259,6 +1297,15 @@
       background: #c2dfe5;
       color: #164f5a;
       font-weight: 400;
+    }
+
+    .stage-action-button.danger {
+      color: #a32638;
+    }
+
+    .stage-action-button.danger:hover:not(:disabled) {
+      background: rgba(163, 38, 56, 0.12);
+      color: #7e1728;
     }
 
     .stage-action-button:hover:not(:disabled) {

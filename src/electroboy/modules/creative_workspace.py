@@ -466,11 +466,16 @@ def _creative_trash_entries(project_root: Path | str) -> list[dict[str, object]]
 def _trash_creative_entry(
     project_root: Path | str,
     relative_path: str,
+    *,
+    allow_project_state: bool = False,
 ) -> dict[str, object]:
     normalized_path, path = _creative_path(project_root, relative_path)
     if not path.exists():
         raise StateError(f"path does not exist: {normalized_path}")
-    if Path(normalized_path).parts[0] == ".electroboy":
+    if (
+        Path(normalized_path).parts[0] == ".electroboy"
+        and not allow_project_state
+    ):
         raise StateError("ElectroBoy project state cannot be moved to Trash")
     project_root = Path(project_root).expanduser().resolve()
     trash_id = uuid4().hex
@@ -522,6 +527,66 @@ def _trash_creative_entry(
             "type": entry_type,
             "deleted_at": manifest["deleted_at"],
         },
+    }
+
+
+def trash_corkboard_documents(
+    project_root: Path | str,
+    board_ids: list[str],
+    *,
+    allow_project_state: bool = False,
+) -> dict[str, object]:
+    """Move a validated collection of corkboard documents to project Trash."""
+
+    normalized_ids: list[str] = []
+    seen: set[str] = set()
+    for board_id in board_ids:
+        normalized_id, path = _creative_path(project_root, board_id)
+        if normalized_id in seen:
+            continue
+        if not normalized_id.endswith(CREATIVE_CORKBOARD_SUFFIX):
+            raise StateError(
+                f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}"
+            )
+        if (
+            Path(normalized_id).parts[0] == ".electroboy"
+            and not allow_project_state
+        ):
+            raise StateError("ElectroBoy project state cannot be moved to Trash")
+        if not path.is_file():
+            raise StateError(f"corkboard does not exist: {normalized_id}")
+        seen.add(normalized_id)
+        normalized_ids.append(normalized_id)
+    if not normalized_ids:
+        raise StateError("select at least one corkboard")
+
+    results: list[dict[str, object]] = []
+    try:
+        for normalized_id in normalized_ids:
+            results.append(
+                _trash_creative_entry(
+                    project_root,
+                    normalized_id,
+                    allow_project_state=allow_project_state,
+                )
+            )
+    except Exception:
+        for result in reversed(results):
+            entry = result.get("trash_entry")
+            if not isinstance(entry, dict):
+                continue
+            trash_id = str(entry.get("id") or "")
+            if not trash_id:
+                continue
+            try:
+                _restore_creative_trash_entry(project_root, trash_id)
+            except Exception:
+                pass
+        raise
+    return {
+        "status": "trashed",
+        "board_ids": normalized_ids,
+        "trash_entries": [result["trash_entry"] for result in results],
     }
 
 
@@ -4699,6 +4764,17 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
             continue
         card_id = str(raw_card.get("id") or f"card-{index + 1}")
         style = _creative_corkboard_card_style(card_id, index)
+        metadata = raw_card.get("metadata")
+        try:
+            legacy_generated_size = (
+                isinstance(metadata, dict)
+                and "role" in metadata
+                and "lane" in metadata
+                and float(raw_card.get("width")) == 340
+                and float(raw_card.get("height")) == 220
+            )
+        except (TypeError, ValueError):
+            legacy_generated_size = False
         color = _normalize_creative_card_color(
             raw_card.get("color"),
             str(style["color"]),
@@ -4736,7 +4812,6 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
         target = raw_card.get("target")
         if isinstance(target, dict):
             card["target"] = dict(target)
-        metadata = raw_card.get("metadata")
         if isinstance(metadata, dict):
             card["metadata"] = dict(metadata)
         if card_type == "group":
@@ -4745,14 +4820,14 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
             )
             if board_path:
                 card["board_path"] = board_path
-        if raw_card.get("width") is not None:
+        if raw_card.get("width") is not None and not legacy_generated_size:
             card["width"] = _bounded_float(
                 raw_card.get("width"),
                 320,
                 CREATIVE_CARD_MIN_WIDTH,
                 CREATIVE_CARD_MAX_WIDTH,
             )
-        if raw_card.get("height") is not None:
+        if raw_card.get("height") is not None and not legacy_generated_size:
             card["height"] = _bounded_float(
                 raw_card.get("height"),
                 200,

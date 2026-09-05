@@ -132,6 +132,27 @@ def _create(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(result)
 
 
+def _delete_boards(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        provider = _provider(request)
+        _require_matching_provider(provider, payload)
+        requested = payload.get("board_ids")
+        if not isinstance(requested, list):
+            raise StateError("corkboard selection must be a list")
+        board_ids = [str(board_id or "").strip() for board_id in requested]
+        if any(not board_id for board_id in board_ids):
+            raise StateError("corkboard ids cannot be empty")
+        result = provider.delete_boards(
+            request.context_id,
+            board_ids,
+            connection_id=request.connection_id,
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(result)
+
+
 def _generation_passes(request: RouteRequest) -> ServiceResponse:
     try:
         context = request.services.contexts.require(request.context_id)
@@ -178,6 +199,7 @@ _HANDLERS = {
     "boards": _boards,
     "save": _save,
     "create": _create,
+    "delete_boards": _delete_boards,
     "generation_passes": _generation_passes,
     "start_generation": _start_generation,
     "generation_status": _generation_status,
@@ -194,6 +216,12 @@ def module() -> ServiceModule:
             route("GET", "/api/corkboards", "corkboard", "boards"),
             route("POST", "/api/corkboard", "corkboard", "save"),
             route("POST", "/api/corkboards", "corkboard", "create"),
+            route(
+                "POST",
+                "/api/corkboards/delete",
+                "corkboard",
+                "delete_boards",
+            ),
             route(
                 "GET",
                 "/api/corkboard-generation/passes",
@@ -229,6 +257,7 @@ def module() -> ServiceModule:
                 "corkboard-auto-organize",
                 "corkboard-board-selector",
                 "corkboard-generation",
+                "corkboard-board-deletion",
             }
         ),
         state_namespace="corkboard",

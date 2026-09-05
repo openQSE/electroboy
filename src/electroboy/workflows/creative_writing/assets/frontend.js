@@ -325,6 +325,18 @@
       refreshCreativeBinder({ showLoading: false });
       return true;
     }
+    if (data.type === "electroboy-corkboards-deleted") {
+      const deleted = new Set(
+        Array.isArray(data.board_ids) ? data.board_ids.map(String) : [],
+      );
+      if (deleted.has(creativeActiveDocument)) {
+        creativeActiveDocument = "";
+        publishState();
+        hideArtifactPreview();
+      }
+      refreshCreativeBinder({ showLoading: false });
+      return true;
+    }
     if (
       !["electroboy-corkboard-open", "electroboy-creative-open"].includes(data.type) ||
       !data.path ||
@@ -448,6 +460,8 @@
                       data-creative-control="new-corkboard">New</button>
               <button class="stage-action-button" type="button"
                       data-creative-control="generate-corkboard">Generate</button>
+              <button class="stage-action-button danger" type="button"
+                      data-creative-control="delete-corkboard">Delete</button>
             </div>
           </div>
           <div class="creative-divider" aria-hidden="true"></div>
@@ -539,6 +553,11 @@
         stage: "creative-writing",
       }).catch((error) => {
         appendOutput(`corkboard generation failed: ${error.message || error}\n`, "error");
+      });
+    });
+    find("delete-corkboard").addEventListener("click", () => {
+      runtime.modules.invoke("corkboard", "deleteDocuments").catch((error) => {
+        appendOutput(`corkboard deletion failed: ${error.message || error}\n`, "error");
       });
     });
     find("new-root-folder").addEventListener("click", () => {

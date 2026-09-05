@@ -15,6 +15,7 @@ from .creative_workspace import (
     _creative_corkboard_payload,
     create_generated_creative_corkboard,
     save_creative_corkboard,
+    trash_corkboard_documents,
 )
 
 PROJECT_CORKBOARD_DIRECTORY = Path(".electroboy") / "shared" / "corkboards"
@@ -195,3 +196,20 @@ class ProjectCorkboardProvider:
             "provider": self.provider_id,
             "title": title,
         }
+
+    def delete_boards(
+        self,
+        context_id: str,
+        board_ids: list[str],
+        *,
+        connection_id: str = "",
+    ) -> dict[str, object]:
+        root = self.services.contexts.active_project_root(context_id)
+        normalized_ids = [
+            self._relative_board_path(board_id) for board_id in board_ids
+        ]
+        return trash_corkboard_documents(
+            root,
+            normalized_ids,
+            allow_project_state=True,
+        )

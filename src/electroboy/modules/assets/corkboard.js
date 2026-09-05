@@ -243,6 +243,129 @@
     return created;
   }
 
+  function deletionPicker() {
+    let dialog = document.getElementById("corkboardDeletionPicker");
+    if (dialog) return dialog;
+    dialog = document.createElement("dialog");
+    dialog.id = "corkboardDeletionPicker";
+    dialog.className = "ad-hoc-session-dialog corkboard-delete-dialog";
+    dialog.innerHTML = `
+      <form method="dialog" class="ad-hoc-session-form">
+        <header class="ad-hoc-session-header">
+          <div><h2>Delete Corkboards</h2>
+            <p>Select the corkboards to move to project Trash.</p></div>
+          <button class="ad-hoc-session-close" type="button"
+                  aria-label="Close">&times;</button>
+        </header>
+        <fieldset class="ad-hoc-session-options">
+          <legend>Existing corkboards</legend>
+          <div class="ad-hoc-session-list corkboard-delete-list"></div>
+        </fieldset>
+        <p class="ad-hoc-session-error corkboard-delete-error" hidden></p>
+        <footer class="ad-hoc-session-footer">
+          <button class="corkboard-delete-cancel" type="button">Cancel</button>
+          <button class="ad-hoc-session-submit corkboard-delete-submit"
+                  type="submit" disabled>Move to Trash</button>
+        </footer>
+      </form>`;
+    document.body.append(dialog);
+    return dialog;
+  }
+
+  async function chooseBoardsToDelete(runtime) {
+    const dialog = deletionPicker();
+    const list = dialog.querySelector(".corkboard-delete-list");
+    const error = dialog.querySelector(".corkboard-delete-error");
+    const submit = dialog.querySelector(".corkboard-delete-submit");
+    const available = await boards(runtime);
+    error.hidden = true;
+    submit.disabled = true;
+    list.replaceChildren();
+    if (!available.length) {
+      const empty = document.createElement("span");
+      empty.className = "ad-hoc-session-details";
+      empty.textContent = "No corkboards yet.";
+      list.append(empty);
+    } else {
+      list.replaceChildren(...available.map((entry, index) => {
+        const option = document.createElement("label");
+        option.className = "ad-hoc-session-option";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.name = "corkboard-delete-document";
+        input.value = String(index);
+        const copy = document.createElement("span");
+        copy.className = "ad-hoc-session-option-copy";
+        const title = document.createElement("strong");
+        title.textContent = String(entry.title || entry.board_id || "Corkboard");
+        const details = document.createElement("span");
+        details.className = "ad-hoc-session-details";
+        details.textContent = String(entry.board_id || "");
+        copy.append(title, details);
+        option.append(input, copy);
+        option.dataset.board = JSON.stringify(entry);
+        return option;
+      }));
+    }
+    list.onchange = () => {
+      submit.disabled = !list.querySelector(
+        'input[name="corkboard-delete-document"]:checked',
+      );
+    };
+    return new Promise((resolve) => {
+      let finished = false;
+      const finish = (value) => {
+        if (finished) return;
+        finished = true;
+        if (dialog.open) dialog.close();
+        resolve(value);
+      };
+      dialog.querySelector(".ad-hoc-session-close").onclick = () => finish([]);
+      dialog.querySelector(".corkboard-delete-cancel").onclick = () => finish([]);
+      dialog.oncancel = (event) => {
+        event.preventDefault();
+        finish([]);
+      };
+      dialog.querySelector("form").onsubmit = (event) => {
+        event.preventDefault();
+        const selected = Array.from(list.querySelectorAll(
+          'input[name="corkboard-delete-document"]:checked',
+        )).map((input) => {
+          const option = input.closest(".ad-hoc-session-option");
+          return option ? JSON.parse(option.dataset.board) : null;
+        }).filter(Boolean);
+        if (selected.length) finish(selected);
+      };
+      dialog.showModal();
+    });
+  }
+
+  async function deleteDocuments(runtime, options = {}) {
+    const selected = await chooseBoardsToDelete(runtime);
+    if (!selected.length) return null;
+    const boardIds = selected.map((entry) => String(entry.board_id || ""));
+    const response = await fetch(contextUrl(runtime, "/api/corkboards/delete"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        board_ids: boardIds,
+        provider: options.provider || selected[0].provider || "",
+      }),
+    });
+    const payload = await response.json().catch(() => ({
+      error: "corkboard deletion failed",
+    }));
+    if (!response.ok) {
+      throw new Error(payload.error || "corkboard deletion failed");
+    }
+    window.postMessage({
+      type: "electroboy-corkboards-deleted",
+      board_ids: boardIds,
+      result: payload,
+    }, window.location.origin);
+    return payload;
+  }
+
   function generationPicker() {
     let dialog = document.getElementById("corkboardGenerationPicker");
     if (dialog) return dialog;
@@ -471,7 +594,8 @@
       "corkboard-auto-organize",
       "corkboard-board-selector",
       "corkboard-generation",
+      "corkboard-board-deletion",
     ],
-    actions: { show, openDocument, newDocument, generate },
+    actions: { show, openDocument, newDocument, deleteDocuments, generate },
   });
 })();
