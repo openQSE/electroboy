@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +16,7 @@ from electroboy.modules.corkboard_generation import (
 )
 from electroboy.modules.creative_workspace import (
     create_generated_creative_corkboard,
+    save_creative_corkboard,
 )
 from electroboy.service.services import ServiceServices
 from electroboy.state_store import StateError
@@ -381,6 +384,87 @@ class CorkboardGenerationTests(unittest.TestCase):
         self.assertIn('"role": "storyline"', document)
         self.assertNotIn('"width"', document)
         self.assertNotIn('"height"', document)
+
+    def test_generated_board_survives_concurrent_card_updates_and_batch_layout(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board_path = create_generated_creative_corkboard(
+                root,
+                "corkboard/story.corkboard.json",
+                title="Story",
+                cards=[
+                    {
+                        "id": f"scene-{index}",
+                        "title": f"Scene {index}",
+                        "x": index * 40,
+                        "y": 40,
+                    }
+                    for index in range(48)
+                ],
+                connectors=[],
+            )
+
+            def update_card(index: int) -> dict[str, object]:
+                return save_creative_corkboard(
+                    root,
+                    {
+                        "board_type": "freeform",
+                        "corkboard": board_path,
+                        "card": {
+                            "id": f"scene-{index}",
+                            "x": 1000 + index,
+                            "y": 2000 + index,
+                        },
+                    },
+                )
+
+            with ThreadPoolExecutor(max_workers=16) as executor:
+                list(executor.map(update_card, range(48)))
+
+            batch = save_creative_corkboard(
+                root,
+                {
+                    "board_type": "freeform",
+                    "action": "positions",
+                    "corkboard": board_path,
+                    "positions": [
+                        {"id": f"scene-{index}", "x": index * 90, "y": 720}
+                        for index in range(48)
+                    ],
+                },
+            )
+            document = json.loads((root / board_path).read_text(encoding="utf-8"))
+
+        self.assertEqual(len(batch["positions"]), 48)
+        self.assertEqual(len(document["cards"]), 48)
+        self.assertEqual(
+            [(card["x"], card["y"]) for card in document["cards"]],
+            [(index * 90, 720) for index in range(48)],
+        )
+
+    def test_invalid_board_is_never_replaced_with_an_empty_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = root / "corkboard" / "broken.corkboard.json"
+            board.parent.mkdir(parents=True)
+            original = '{"cards": ['
+            board.write_text(original, encoding="utf-8")
+
+            with self.assertRaisesRegex(StateError, "invalid JSON"):
+                save_creative_corkboard(
+                    root,
+                    {
+                        "board_type": "freeform",
+                        "corkboard": "corkboard/broken.corkboard.json",
+                        "card": {"id": "new-card", "title": "New card"},
+                    },
+                )
+
+            unchanged = board.read_text(encoding="utf-8")
+
+        self.assertEqual(unchanged, original)
 
 
 if __name__ == "__main__":

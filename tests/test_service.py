@@ -5317,6 +5317,11 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("function buildColorButton(card, cardElement)", page)
             self.assertIn("card-color-icon", page)
             self.assertIn('action: "delete-card"', page)
+            self.assertIn('action: "update-card-positions"', page)
+            self.assertNotIn(
+                "Promise.all(changedCards.map((card) => persistCard(card)))",
+                page,
+            )
             self.assertNotIn('"Idea"', page)
             self.assertIn("selectedCardKey = card.id;", page)
             self.assertIn("Opening beat", page)
@@ -5397,6 +5402,19 @@ class ServiceTests(unittest.TestCase):
                     },
                 },
             )
+            moved = provider.apply_operation(
+                context_id,
+                {
+                    "provider": "creative-files",
+                    "board_type": "freeform",
+                    "action": "update-card-positions",
+                    "board_id": board_path,
+                    "positions": [
+                        {"id": "scene-one", "x": 160, "y": 280},
+                        {"id": "scene-two", "x": 720, "y": 280},
+                    ],
+                },
+            )
             page, status = creative_corkboard_html(
                 project_root,
                 board_path,
@@ -5411,6 +5429,9 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(document["cards"][0]["height"], 240)
             self.assertEqual(patched["card"]["title"], "Scene One")
             self.assertEqual(saved["connector"]["source"]["card_id"], "scene-one")
+            self.assertEqual(len(moved["positions"]), 2)
+            self.assertEqual(document["cards"][0]["x"], 160)
+            self.assertEqual(document["cards"][1]["x"], 720)
             self.assertEqual(
                 document["connectors"][0]["id"], "scene-one-to-scene-two"
             )
@@ -5547,6 +5568,15 @@ class ServiceTests(unittest.TestCase):
                     },
                 },
             )
+            moved = provider.apply_operation(
+                context_id,
+                {
+                    "provider": "project-files",
+                    "board_id": created["board_id"],
+                    "action": "update-card-positions",
+                    "positions": [{"id": "verify-package", "x": 480, "y": 240}],
+                },
+            )
             boards = provider.list_boards(context_id)
             snapshot = provider.get_board(context_id, created["board_id"])
             deleted_boards = provider.delete_boards(
@@ -5572,6 +5602,8 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["board_type"], "freeform")
         self.assertNotIn("group-card", snapshot["capabilities"])
         self.assertEqual(saved["card"]["id"], "verify-package")
+        self.assertEqual(moved["positions"][0]["x"], 480)
+        self.assertEqual(snapshot["cards"][0]["x"], 480)
         self.assertEqual(remaining_boards, [])
         self.assertTrue(project_trash_item_exists)
 

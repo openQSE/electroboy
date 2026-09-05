@@ -7,6 +7,7 @@ import html
 import json
 import re
 import shutil
+import threading
 from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
@@ -109,6 +110,9 @@ CREATIVE_FOLDER_PALETTE_IDS = frozenset(
 )
 
 CREATIVE_DEFAULT_FOLDER_COLOR = "navy"
+
+_CREATIVE_CORKBOARD_LOCKS_GUARD = threading.Lock()
+_CREATIVE_CORKBOARD_LOCKS: dict[Path, threading.RLock] = {}
 
 
 def _existing_creative_project_root(path: str) -> Path:
@@ -217,6 +221,36 @@ def _empty_creative_corkboard_document(
     }
 
 
+def _creative_corkboard_lock(path: Path) -> threading.RLock:
+    """Return the process-wide lock for one corkboard document."""
+
+    resolved_path = path.expanduser().resolve()
+    with _CREATIVE_CORKBOARD_LOCKS_GUARD:
+        return _CREATIVE_CORKBOARD_LOCKS.setdefault(
+            resolved_path,
+            threading.RLock(),
+        )
+
+
+def _atomic_write_creative_corkboard_document(
+    path: Path,
+    document: dict[str, object],
+) -> None:
+    """Replace a corkboard document without exposing a partial JSON file."""
+
+    with _creative_corkboard_lock(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temporary.write_text(
+                json.dumps(document, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def _create_creative_corkboard(
     project_root: Path | str,
     relative_path: str,
@@ -226,29 +260,25 @@ def _create_creative_corkboard(
     normalized_path, corkboard_path = _creative_path(project_root, relative_path)
     if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
         raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
-    if corkboard_path.exists() and not corkboard_path.is_file():
-        raise StateError("corkboard path already exists as a folder")
     default_title = corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
-    if not corkboard_path.exists() or not corkboard_path.read_text(encoding="utf-8").strip():
-        corkboard_path.parent.mkdir(parents=True, exist_ok=True)
-        corkboard_path.write_text(
-            json.dumps(
+    with _creative_corkboard_lock(corkboard_path):
+        if corkboard_path.exists() and not corkboard_path.is_file():
+            raise StateError("corkboard path already exists as a folder")
+        if not corkboard_path.exists():
+            _atomic_write_creative_corkboard_document(
+                corkboard_path,
                 _empty_creative_corkboard_document(
                     _normalize_creative_corkboard_title(title, default_title)
                 ),
-                indent=2,
             )
-            + "\n",
-            encoding="utf-8",
-        )
-    elif title:
-        data = _load_creative_corkboard_document(corkboard_path)
-        if not str(data.get("title") or "").strip():
-            data["title"] = _normalize_creative_corkboard_title(title, default_title)
-            corkboard_path.write_text(
-                json.dumps(data, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
+        else:
+            data = _load_creative_corkboard_document(corkboard_path)
+            if title and not str(data.get("title") or "").strip():
+                data["title"] = _normalize_creative_corkboard_title(
+                    title,
+                    default_title,
+                )
+                _atomic_write_creative_corkboard_document(corkboard_path, data)
     return normalized_path
 
 
@@ -265,26 +295,16 @@ def create_generated_creative_corkboard(
     normalized_path, corkboard_path = _creative_path(project_root, relative_path)
     if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
         raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
-    if corkboard_path.exists():
-        raise StateError(f"corkboard path already exists: {normalized_path}")
     document = _empty_creative_corkboard_document(title)
     document["cards"] = _freeform_corkboard_cards({"cards": cards})
     document["connectors"] = _freeform_corkboard_connectors(
         {"connectors": connectors},
         document["cards"],
     )
-    corkboard_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = corkboard_path.with_name(
-        f".{corkboard_path.name}.{uuid4().hex}.tmp"
-    )
-    try:
-        temporary.write_text(
-            json.dumps(document, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(corkboard_path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    with _creative_corkboard_lock(corkboard_path):
+        if corkboard_path.exists():
+            raise StateError(f"corkboard path already exists: {normalized_path}")
+        _atomic_write_creative_corkboard_document(corkboard_path, document)
     return normalized_path
 
 
@@ -3132,7 +3152,26 @@ def render_corkboard_html(
       if (!CORKBOARD_DATA.context_id || !supports("move-card")) {{
         return;
       }}
-      await Promise.all(changedCards.map((card) => persistCard(card)));
+      const positions = changedCards.map((card) => ({{
+        id: cardKey(card),
+        x: Number(card.x) || 0,
+        y: Number(card.y) || 0,
+      }}));
+      if (!positions.length) return;
+      const response = await fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          provider: CORKBOARD_DATA.provider || "",
+          board_id: boardStoragePath(),
+          board_type: boardType,
+          action: "update-card-positions",
+          positions,
+        }}),
+      }}).catch(() => null);
+      if (!response || !response.ok) {{
+        throw new Error("Unable to save corkboard card positions.");
+      }}
     }}
 
     function queueAutoLayoutPositionSave() {{
@@ -4887,19 +4926,25 @@ def _save_creative_folder_corkboard_order(
 def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return _empty_creative_corkboard_document()
+    except OSError as error:
+        raise StateError(f"could not read corkboard document: {path}") from error
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise StateError(f"corkboard document contains invalid JSON: {path}") from error
     if not isinstance(data, dict):
-        return _empty_creative_corkboard_document()
+        raise StateError(f"corkboard document must contain an object: {path}")
     if data.get("type") != "electroboy.creative.corkboard":
         data["type"] = "electroboy.creative.corkboard"
     data["schema_version"] = 2
     if str(data.get("layout") or "").strip().lower() not in {"grid", "freeform"}:
         data["layout"] = "freeform"
-    if not isinstance(data.get("cards"), list):
+    if data.get("cards") is None:
         data["cards"] = []
-    if not isinstance(data.get("connectors"), list):
+    elif not isinstance(data.get("cards"), list):
+        raise StateError(f"corkboard cards must be a list: {path}")
+    if data.get("connectors") is None:
         data["connectors"] = []
+    elif not isinstance(data.get("connectors"), list):
+        raise StateError(f"corkboard connectors must be a list: {path}")
     return data
 
 
@@ -4916,12 +4961,10 @@ def _save_creative_freeform_corkboard_layout(
     normalized_layout = str(layout or "").strip().lower()
     if normalized_layout not in {"grid", "freeform"}:
         raise StateError(f"unknown corkboard layout mode: {normalized_layout or 'missing'}")
-    data = _load_creative_corkboard_document(path)
-    data["layout"] = normalized_layout
-    path.write_text(
-        json.dumps(data, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    with _creative_corkboard_lock(path):
+        data = _load_creative_corkboard_document(path)
+        data["layout"] = normalized_layout
+        _atomic_write_creative_corkboard_document(path, data)
     return normalized_layout
 
 
@@ -5094,85 +5137,132 @@ def _save_creative_freeform_corkboard_card(
         _create_creative_corkboard(project_root, normalized_path)
     if not path.is_file():
         raise StateError(f"corkboard is not a file: {normalized_path}")
-    data = _load_creative_corkboard_document(path)
-    cards = _freeform_corkboard_cards(data)
-    card_id = str(card_payload.get("id") or uuid4().hex)[:100]
-    style = _creative_corkboard_card_style(card_id, len(cards))
-    existing_card: dict[str, object] = {}
-    existing_color: object = None
-    for existing in cards:
-        if existing.get("id") == card_id:
-            existing_card = existing
-            existing_color = existing.get("color")
-            break
-    merged_card = {**existing_card, **card_payload}
-    default_color = _normalize_creative_card_color(existing_color, str(style["color"]))
-    card_type = _creative_freeform_card_type(
-        merged_card.get("card_type")
-    )
-    card = {
-        "id": card_id,
-        "title": str(merged_card.get("title") or "Untitled card")[:200],
-        "note": str(merged_card.get("note") or "")[:5000],
-        "x": _bounded_float(
-            merged_card.get("x"),
-            36,
-            -1_000_000,
-            1_000_000,
-        ),
-        "y": _bounded_float(
-            merged_card.get("y"),
-            36,
-            -1_000_000,
-            1_000_000,
-        ),
-        "rotation": _bounded_float(
-            merged_card.get("rotation"),
-            float(style["rotation"]),
-            -8,
-            8,
-        ),
-        "color": _normalize_creative_card_color(
-            merged_card.get("color"),
-            default_color,
-        ),
-        "card_type": card_type,
-    }
-    if card_type == "group":
-        card["board_path"] = _ensure_creative_card_group_corkboard(
-            project_root,
-            parent_corkboard_path=normalized_path,
-            card_id=card_id,
-            board_title=str(card["title"]),
-            board_path=(
-                merged_card.get("board_path")
+    with _creative_corkboard_lock(path):
+        data = _load_creative_corkboard_document(path)
+        cards = _freeform_corkboard_cards(data)
+        card_id = str(card_payload.get("id") or uuid4().hex)[:100]
+        style = _creative_corkboard_card_style(card_id, len(cards))
+        existing_card: dict[str, object] = {}
+        existing_color: object = None
+        for existing in cards:
+            if existing.get("id") == card_id:
+                existing_card = existing
+                existing_color = existing.get("color")
+                break
+        merged_card = {**existing_card, **card_payload}
+        default_color = _normalize_creative_card_color(
+            existing_color,
+            str(style["color"]),
+        )
+        card_type = _creative_freeform_card_type(merged_card.get("card_type"))
+        card = {
+            "id": card_id,
+            "title": str(merged_card.get("title") or "Untitled card")[:200],
+            "note": str(merged_card.get("note") or "")[:5000],
+            "x": _bounded_float(
+                merged_card.get("x"),
+                36,
+                -1_000_000,
+                1_000_000,
             ),
-        )
-    if merged_card.get("width") is not None:
-        card["width"] = _bounded_float(
-            merged_card.get("width"),
-            320,
-            CREATIVE_CARD_MIN_WIDTH,
-            CREATIVE_CARD_MAX_WIDTH,
-        )
-    if merged_card.get("height") is not None:
-        card["height"] = _bounded_float(
-            merged_card.get("height"),
-            200,
-            CREATIVE_CARD_MIN_HEIGHT,
-            CREATIVE_CARD_MAX_HEIGHT,
-        )
-    replaced = False
-    for index, existing in enumerate(cards):
-        if existing.get("id") == card_id:
-            cards[index] = card
-            replaced = True
-            break
-    if not replaced:
-        cards.append(card)
-    data["cards"] = cards
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            "y": _bounded_float(
+                merged_card.get("y"),
+                36,
+                -1_000_000,
+                1_000_000,
+            ),
+            "rotation": _bounded_float(
+                merged_card.get("rotation"),
+                float(style["rotation"]),
+                -8,
+                8,
+            ),
+            "color": _normalize_creative_card_color(
+                merged_card.get("color"),
+                default_color,
+            ),
+            "card_type": card_type,
+        }
+        if card_type == "group":
+            card["board_path"] = _ensure_creative_card_group_corkboard(
+                project_root,
+                parent_corkboard_path=normalized_path,
+                card_id=card_id,
+                board_title=str(card["title"]),
+                board_path=merged_card.get("board_path"),
+            )
+        if merged_card.get("width") is not None:
+            card["width"] = _bounded_float(
+                merged_card.get("width"),
+                320,
+                CREATIVE_CARD_MIN_WIDTH,
+                CREATIVE_CARD_MAX_WIDTH,
+            )
+        if merged_card.get("height") is not None:
+            card["height"] = _bounded_float(
+                merged_card.get("height"),
+                200,
+                CREATIVE_CARD_MIN_HEIGHT,
+                CREATIVE_CARD_MAX_HEIGHT,
+            )
+        replaced = False
+        for index, existing in enumerate(cards):
+            if existing.get("id") == card_id:
+                cards[index] = card
+                replaced = True
+                break
+        if not replaced:
+            cards.append(card)
+        data["cards"] = cards
+        _atomic_write_creative_corkboard_document(path, data)
     return card
+
+
+def _save_creative_freeform_corkboard_positions(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    positions: list[object],
+) -> list[dict[str, object]]:
+    """Persist card coordinates in one locked document mutation."""
+
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    normalized_positions: dict[str, tuple[float, float]] = {}
+    for raw_position in positions:
+        if not isinstance(raw_position, dict):
+            raise StateError("corkboard card position must be an object")
+        card_id = str(raw_position.get("id") or "").strip()[:100]
+        if not card_id:
+            raise StateError("corkboard card position id is required")
+        if card_id in normalized_positions:
+            raise StateError(f"duplicate corkboard card position: {card_id}")
+        normalized_positions[card_id] = (
+            _bounded_float(raw_position.get("x"), 36, -1_000_000, 1_000_000),
+            _bounded_float(raw_position.get("y"), 36, -1_000_000, 1_000_000),
+        )
+    with _creative_corkboard_lock(path):
+        data = _load_creative_corkboard_document(path)
+        cards = _freeform_corkboard_cards(data)
+        card_ids = {str(card.get("id") or "") for card in cards}
+        missing_ids = normalized_positions.keys() - card_ids
+        if missing_ids:
+            missing = ", ".join(sorted(missing_ids))
+            raise StateError(f"corkboard cards do not exist: {missing}")
+        saved_positions: list[dict[str, object]] = []
+        for card in cards:
+            card_id = str(card.get("id") or "")
+            position = normalized_positions.get(card_id)
+            if position is None:
+                continue
+            card["x"], card["y"] = position
+            saved_positions.append(
+                {"id": card_id, "x": position[0], "y": position[1]}
+            )
+        data["cards"] = cards
+        _atomic_write_creative_corkboard_document(path, data)
+    return saved_positions
 
 
 def _delete_creative_freeform_corkboard_card(
@@ -5189,21 +5279,22 @@ def _delete_creative_freeform_corkboard_card(
     normalized_card_id = card_id.strip()[:100]
     if not normalized_card_id:
         raise StateError("freeform corkboard card id is required")
-    data = _load_creative_corkboard_document(path)
-    cards = _freeform_corkboard_cards(data)
-    remaining_cards = [
-        card for card in cards if card.get("id") != normalized_card_id
-    ]
-    if len(remaining_cards) == len(cards):
-        raise StateError(f"card does not exist: {normalized_card_id}")
-    data["cards"] = remaining_cards
-    data["connectors"] = [
-        connector
-        for connector in _freeform_corkboard_connectors(data, cards)
-        if connector["source"]["card_id"] != normalized_card_id
-        and connector["target"]["card_id"] != normalized_card_id
-    ]
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with _creative_corkboard_lock(path):
+        data = _load_creative_corkboard_document(path)
+        cards = _freeform_corkboard_cards(data)
+        remaining_cards = [
+            card for card in cards if card.get("id") != normalized_card_id
+        ]
+        if len(remaining_cards) == len(cards):
+            raise StateError(f"card does not exist: {normalized_card_id}")
+        data["cards"] = remaining_cards
+        data["connectors"] = [
+            connector
+            for connector in _freeform_corkboard_connectors(data, cards)
+            if connector["source"]["card_id"] != normalized_card_id
+            and connector["target"]["card_id"] != normalized_card_id
+        ]
+        _atomic_write_creative_corkboard_document(path, data)
     return normalized_card_id
 
 
@@ -5216,47 +5307,48 @@ def _save_creative_freeform_corkboard_connector(
     normalized_path, path = _creative_path(project_root, corkboard_path)
     if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
         raise StateError(f"corkboard does not exist: {normalized_path}")
-    data = _load_creative_corkboard_document(path)
-    cards = _freeform_corkboard_cards(data)
-    card_ids = {str(card.get("id") or "") for card in cards}
-    connectors = _freeform_corkboard_connectors(data, cards)
-    connector_id = str(connector_payload.get("id") or uuid4().hex).strip()[:100]
-    if not connector_id:
-        raise StateError("corkboard connector id is required")
-    existing = next(
-        (connector for connector in connectors if connector["id"] == connector_id),
-        {},
-    )
-    merged = {**existing, **connector_payload, "id": connector_id}
-    source = _normalize_creative_connector_anchor(merged.get("source"))
-    target = _normalize_creative_connector_anchor(merged.get("target"))
-    if source["card_id"] not in card_ids or target["card_id"] not in card_ids:
-        raise StateError("connector endpoints must reference existing cards")
-    if source["card_id"] == target["card_id"]:
-        raise StateError("connector endpoints must reference different cards")
-    style = str(merged.get("style") or "string").strip().lower()
-    if style not in {"string", "line", "dashed"}:
-        raise StateError(f"unknown connector style: {style}")
-    connector = {
-        "id": connector_id,
-        "source": source,
-        "target": target,
-        "color": _normalize_creative_connector_color(merged.get("color")),
-        "thickness": _bounded_float(merged.get("thickness"), 3, 1, 12),
-        "curve": _bounded_float(merged.get("curve"), 0.18, -0.75, 0.75),
-        "style": style,
-        "label": str(merged.get("label") or "")[:200],
-    }
-    replaced = False
-    for index, current in enumerate(connectors):
-        if current["id"] == connector_id:
-            connectors[index] = connector
-            replaced = True
-            break
-    if not replaced:
-        connectors.append(connector)
-    data["connectors"] = connectors
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with _creative_corkboard_lock(path):
+        data = _load_creative_corkboard_document(path)
+        cards = _freeform_corkboard_cards(data)
+        card_ids = {str(card.get("id") or "") for card in cards}
+        connectors = _freeform_corkboard_connectors(data, cards)
+        connector_id = str(connector_payload.get("id") or uuid4().hex).strip()[:100]
+        if not connector_id:
+            raise StateError("corkboard connector id is required")
+        existing = next(
+            (connector for connector in connectors if connector["id"] == connector_id),
+            {},
+        )
+        merged = {**existing, **connector_payload, "id": connector_id}
+        source = _normalize_creative_connector_anchor(merged.get("source"))
+        target = _normalize_creative_connector_anchor(merged.get("target"))
+        if source["card_id"] not in card_ids or target["card_id"] not in card_ids:
+            raise StateError("connector endpoints must reference existing cards")
+        if source["card_id"] == target["card_id"]:
+            raise StateError("connector endpoints must reference different cards")
+        style = str(merged.get("style") or "string").strip().lower()
+        if style not in {"string", "line", "dashed"}:
+            raise StateError(f"unknown connector style: {style}")
+        connector = {
+            "id": connector_id,
+            "source": source,
+            "target": target,
+            "color": _normalize_creative_connector_color(merged.get("color")),
+            "thickness": _bounded_float(merged.get("thickness"), 3, 1, 12),
+            "curve": _bounded_float(merged.get("curve"), 0.18, -0.75, 0.75),
+            "style": style,
+            "label": str(merged.get("label") or "")[:200],
+        }
+        replaced = False
+        for index, current in enumerate(connectors):
+            if current["id"] == connector_id:
+                connectors[index] = connector
+                replaced = True
+                break
+        if not replaced:
+            connectors.append(connector)
+        data["connectors"] = connectors
+        _atomic_write_creative_corkboard_document(path, data)
     return connector
 
 
@@ -5272,13 +5364,14 @@ def _delete_creative_freeform_corkboard_connector(
     normalized_id = connector_id.strip()[:100]
     if not normalized_id:
         raise StateError("corkboard connector id is required")
-    data = _load_creative_corkboard_document(path)
-    connectors = _freeform_corkboard_connectors(data)
-    remaining = [item for item in connectors if item["id"] != normalized_id]
-    if len(remaining) == len(connectors):
-        raise StateError(f"connector does not exist: {normalized_id}")
-    data["connectors"] = remaining
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with _creative_corkboard_lock(path):
+        data = _load_creative_corkboard_document(path)
+        connectors = _freeform_corkboard_connectors(data)
+        remaining = [item for item in connectors if item["id"] != normalized_id]
+        if len(remaining) == len(connectors):
+            raise StateError(f"connector does not exist: {normalized_id}")
+        data["connectors"] = remaining
+        _atomic_write_creative_corkboard_document(path, data)
     return normalized_id
 
 
@@ -5296,46 +5389,45 @@ def _save_creative_freeform_corkboard_title(
     normalized_title = _normalize_creative_corkboard_title(title, "")
     if not str(title or "").strip():
         raise StateError("corkboard title is required")
-    data = _load_creative_corkboard_document(path)
-    data["title"] = normalized_title
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with _creative_corkboard_lock(path):
+        data = _load_creative_corkboard_document(path)
+        data["title"] = normalized_title
+        _atomic_write_creative_corkboard_document(path, data)
     updated_groups: list[dict[str, str]] = []
     project_root_path = Path(project_root).expanduser().resolve()
     for parent_path in project_root_path.rglob(f"*{CREATIVE_CORKBOARD_SUFFIX}"):
         if not parent_path.is_file() or parent_path == path:
             continue
-        try:
-            parent_data = json.loads(parent_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        cards = parent_data.get("cards") if isinstance(parent_data, dict) else None
-        if not isinstance(cards, list):
-            continue
-        changed = False
-        for card in cards:
-            if not isinstance(card, dict):
+        with _creative_corkboard_lock(parent_path):
+            try:
+                parent_data = _load_creative_corkboard_document(parent_path)
+            except StateError:
                 continue
-            if (
-                _creative_freeform_card_type(card.get("card_type")) == "group"
-                and _normalize_creative_corkboard_reference(card.get("board_path"))
-                == normalized_path
-                and card.get("title") != normalized_title
-            ):
-                card["title"] = normalized_title
-                changed = True
-                updated_groups.append(
-                    {
-                        "corkboard": parent_path.relative_to(
-                            project_root_path
-                        ).as_posix(),
-                        "card_id": str(card.get("id") or ""),
-                    }
-                )
-        if changed:
-            parent_path.write_text(
-                json.dumps(parent_data, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
+            cards = parent_data["cards"]
+            changed = False
+            for card in cards:
+                if not isinstance(card, dict):
+                    continue
+                if (
+                    _creative_freeform_card_type(card.get("card_type")) == "group"
+                    and _normalize_creative_corkboard_reference(
+                        card.get("board_path")
+                    )
+                    == normalized_path
+                    and card.get("title") != normalized_title
+                ):
+                    card["title"] = normalized_title
+                    changed = True
+                    updated_groups.append(
+                        {
+                            "corkboard": parent_path.relative_to(
+                                project_root_path
+                            ).as_posix(),
+                            "card_id": str(card.get("id") or ""),
+                        }
+                    )
+            if changed:
+                _atomic_write_creative_corkboard_document(parent_path, parent_data)
     return {"title": normalized_title, "group_cards": updated_groups}
 
 
@@ -5381,6 +5473,16 @@ def save_creative_corkboard(
                 title=payload.get("title"),
             )
             return {"status": "saved", **title_result}
+        if action == "positions":
+            positions = payload.get("positions")
+            if not isinstance(positions, list):
+                raise StateError("freeform corkboard positions must be a list")
+            saved_positions = _save_creative_freeform_corkboard_positions(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                positions=positions,
+            )
+            return {"status": "saved", "positions": saved_positions}
         if action == "delete":
             card_id = _delete_creative_freeform_corkboard_card(
                 project_root,

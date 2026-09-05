@@ -112,6 +112,7 @@ class CreativeWritingCorkboardProvider:
             "rename-board",
             "reorder-cards",
             "update-card",
+            "update-card-positions",
             "update-connector",
         }:
             return payload
@@ -129,6 +130,13 @@ class CreativeWritingCorkboardProvider:
                 "action": "title",
                 "corkboard": board_id,
                 "title": payload.get("title"),
+            }
+        if action == "update-card-positions":
+            return {
+                "board_type": "freeform",
+                "action": "positions",
+                "corkboard": board_id,
+                "positions": payload.get("positions"),
             }
         if action == "delete-card":
             return {

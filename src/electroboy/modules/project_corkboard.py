@@ -132,6 +132,8 @@ class ProjectCorkboardProvider:
         }
         if action == "rename-board":
             operation.update(action="title", title=payload.get("title"))
+        elif action == "update-card-positions":
+            operation.update(action="positions", positions=payload.get("positions"))
         elif action == "delete-card":
             operation.update(action="delete", card_id=payload.get("card_id"))
         elif action in {"create-card", "update-card", "patch-card"}:
