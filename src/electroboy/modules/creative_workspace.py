@@ -296,16 +296,72 @@ def _rename_creative_entry(
         raise StateError(f"path does not exist: {old_relative_path}")
     normalized_name = _normalize_creative_entry_name(new_name)
     destination = (source.parent / normalized_name).resolve()
+    return _relocate_creative_entry(
+        project_root,
+        old_relative_path,
+        source,
+        destination,
+    )
+
+
+def _relocate_creative_entry(
+    project_root: Path | str,
+    old_relative_path: str,
+    source: Path,
+    destination: Path,
+) -> tuple[str, str]:
+    project_root = Path(project_root).expanduser().resolve()
     try:
-        destination.relative_to(project_root)
+        destination_relative_path = destination.relative_to(project_root)
     except ValueError as error:
         raise StateError("path cannot escape the project") from error
+    if Path(old_relative_path).parts[0] == ".electroboy":
+        raise StateError("ElectroBoy project state cannot be moved")
+    if destination_relative_path.parts[0] == ".electroboy":
+        raise StateError("entries cannot be moved into ElectroBoy project state")
+    if destination == source:
+        raise StateError("path is already in that folder")
+    if source.is_dir() and source in destination.parents:
+        raise StateError("folder cannot be moved inside itself")
     if destination.exists():
-        raise StateError(f"path already exists: {normalized_name}")
+        raise StateError(f"path already exists: {destination.name}")
     source.rename(destination)
-    new_relative_path = destination.relative_to(project_root).as_posix()
-    _remap_creative_corkboard_paths(project_root, old_relative_path, new_relative_path)
+    new_relative_path = destination_relative_path.as_posix()
+    try:
+        _remap_creative_corkboard_paths(
+            project_root,
+            old_relative_path,
+            new_relative_path,
+        )
+    except Exception:
+        destination.rename(source)
+        _remap_creative_corkboard_paths(
+            project_root,
+            new_relative_path,
+            old_relative_path,
+        )
+        raise
     return old_relative_path, new_relative_path
+
+
+def _move_creative_entry(
+    project_root: Path | str,
+    relative_path: str,
+    destination_folder: str,
+) -> tuple[str, str]:
+    old_relative_path, source = _creative_path(project_root, relative_path)
+    normalized_folder, folder = _creative_path(project_root, destination_folder)
+    if not source.exists():
+        raise StateError(f"path does not exist: {old_relative_path}")
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder does not exist: {normalized_folder}")
+    destination = (folder / source.name).resolve()
+    return _relocate_creative_entry(
+        project_root,
+        old_relative_path,
+        source,
+        destination,
+    )
 
 
 def _creative_trash_root(project_root: Path | str) -> Path:

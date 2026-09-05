@@ -4,6 +4,7 @@
   let folderColorPicker = null;
   let folderColorPickerAnchor = null;
   let folderColorPickerDocumentHandler = null;
+  let draggedCreativeEntry = null;
 
   function showMessage(runtime, message) {
     const tree = runtime.elements.creativeTree;
@@ -107,9 +108,12 @@
         (!isDirectory && path === state.creativeActiveDocument),
     );
     row.setAttribute("role", "treeitem");
+    row.draggable = state.creativeEditingPath !== path;
+    row.setAttribute("aria-grabbed", "false");
     if (isDirectory) {
       row.setAttribute("aria-expanded", expanded ? "true" : "false");
     }
+    addEntryDragBehavior(runtime, row, entry, path, isDirectory);
 
     const icon = document.createElement("span");
     icon.className = `creative-tree-icon ${iconClass(entry)}`;
@@ -170,6 +174,75 @@
       }
       appendFolderActions(runtime, path, depth + 1);
     }
+  }
+
+  function clearCreativeDropTargets(runtime) {
+    runtime.elements.creativeTree
+      ?.querySelectorAll(".creative-drop-target, .creative-dragging")
+      .forEach((element) => {
+        element.classList.remove("creative-drop-target", "creative-dragging");
+        element.setAttribute("aria-grabbed", "false");
+      });
+  }
+
+  function canDropCreativeEntry(path, destinationFolder) {
+    if (!draggedCreativeEntry || !path || !destinationFolder) {
+      return false;
+    }
+    if (path === destinationFolder || parentPath(path) === destinationFolder) {
+      return false;
+    }
+    return draggedCreativeEntry.type !== "directory"
+      || !destinationFolder.startsWith(`${path}/`);
+  }
+
+  function addEntryDragBehavior(runtime, row, entry, path, isDirectory) {
+    const action = creativeActions(runtime);
+    row.addEventListener("dragstart", (event) => {
+      if (!row.draggable || event.target.closest("button, input")) {
+        event.preventDefault();
+        return;
+      }
+      draggedCreativeEntry = { path, type: entry.type || "file" };
+      row.classList.add("creative-dragging");
+      row.setAttribute("aria-grabbed", "true");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/x-electroboy-creative-path", path);
+      event.dataTransfer.setData("text/plain", path);
+    });
+    row.addEventListener("dragend", () => {
+      clearCreativeDropTargets(runtime);
+      draggedCreativeEntry = null;
+    });
+    if (!isDirectory) {
+      return;
+    }
+    row.addEventListener("dragover", (event) => {
+      const draggedPath = draggedCreativeEntry && draggedCreativeEntry.path;
+      if (!canDropCreativeEntry(draggedPath, path)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      row.classList.add("creative-drop-target");
+    });
+    row.addEventListener("dragleave", (event) => {
+      if (!row.contains(event.relatedTarget)) {
+        row.classList.remove("creative-drop-target");
+      }
+    });
+    row.addEventListener("drop", (event) => {
+      const draggedPath = draggedCreativeEntry && draggedCreativeEntry.path;
+      if (!canDropCreativeEntry(draggedPath, path)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      clearCreativeDropTargets(runtime);
+      draggedCreativeEntry = null;
+      action.moveCreativeEntry(draggedPath, path);
+    });
   }
 
   function treeName(entry, path) {
@@ -508,6 +581,11 @@
     return parts.length ? parts[parts.length - 1] : "";
   }
 
+  function parentPath(path) {
+    const parts = String(path || "").split("/").filter(Boolean);
+    return parts.slice(0, -1).join("/");
+  }
+
   function creativeActions(runtime) {
     const invoke = (action, ...args) =>
       window.ElectroBoyFrontend.invokeWorkflow(
@@ -528,6 +606,7 @@
       restoreCreativeTrashEntry: (...args) =>
         invoke("restoreCreativeTrashEntry", ...args),
       finishCreativeRename: (...args) => invoke("finishCreativeRename", ...args),
+      moveCreativeEntry: (...args) => invoke("moveCreativeEntry", ...args),
       setCreativeFolderColor: (...args) => invoke("setCreativeFolderColor", ...args),
       selectCreativeCorkboard: (...args) => invoke("selectCreativeCorkboard", ...args),
       selectCreativeDocument: (...args) => invoke("selectCreativeDocument", ...args),

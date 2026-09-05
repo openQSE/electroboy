@@ -838,6 +838,12 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("selectCreativeDocument(firstDocument.path", creative)
         self.assertIn('runtimeApi.layout.ensurePane("agent");', sessions)
         self.assertIn("function renderTree(runtime)", binder)
+        self.assertIn("function addEntryDragBehavior(", binder)
+        self.assertIn('row.addEventListener("dragstart"', binder)
+        self.assertIn('row.addEventListener("drop"', binder)
+        self.assertIn("action.moveCreativeEntry(draggedPath, path)", binder)
+        self.assertIn('contextUrl("/api/creative/move")', creative)
+        self.assertIn(".creative-tree-row.directory.creative-drop-target", creative_css)
         self.assertIn("function renderTrash(runtime)", binder)
         self.assertIn('invoke("restoreCreativeTrashEntry", ...args)', binder)
         self.assertIn("function folderEntryVisible(entry)", binder)
@@ -4700,6 +4706,93 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue((project_root / "draft.md").is_file())
             self.assertFalse((project_root / "chapters").exists())
             self.assertTrue((project_root / ".electroboy").is_dir())
+
+    def test_service_state_moves_creative_entries_between_folders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            state.create_creative_folder(context_id, "chapters/act-one")
+            state.create_creative_document(
+                context_id,
+                "chapters/act-one/opening.md",
+            )
+            state.set_creative_folder_color(
+                context_id,
+                "chapters/act-one",
+                "rose",
+            )
+            state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "folder",
+                    "folder": "chapters/act-one",
+                    "path": "chapters/act-one/opening.md",
+                    "note": "Preserve this card note.",
+                    "color": "sky",
+                },
+            )
+
+            moved_file = state.move_creative_entry(
+                context_id,
+                "chapters/act-one/opening.md",
+                "research",
+            )
+
+            self.assertEqual(moved_file["status"], "moved")
+            self.assertEqual(moved_file["path"], "research/opening.md")
+            self.assertFalse(
+                (project_root / "chapters" / "act-one" / "opening.md").exists()
+            )
+            self.assertTrue((project_root / "research" / "opening.md").is_file())
+            creative_state = json.loads(
+                (
+                    project_root / ".electroboy" / "creative" / "corkboards.json"
+                ).read_text(encoding="utf-8")
+            )
+            cards = creative_state["folders"]["chapters/act-one"]["cards"]
+            self.assertIn("research/opening.md", cards)
+            self.assertEqual(
+                cards["research/opening.md"]["note"],
+                "Preserve this card note.",
+            )
+
+            state.create_creative_document(
+                context_id,
+                "chapters/act-one/opening.md",
+            )
+            with self.assertRaisesRegex(StateError, "path already exists"):
+                state.move_creative_entry(
+                    context_id,
+                    "chapters/act-one/opening.md",
+                    "research",
+                )
+
+            moved_folder = state.move_creative_entry(
+                context_id,
+                "chapters/act-one",
+                "research",
+            )
+            self.assertEqual(moved_folder["path"], "research/act-one")
+            tree = state.creative_tree(context_id)
+            research = next(
+                entry for entry in tree["entries"] if entry["path"] == "research"
+            )
+            act_one = next(
+                entry
+                for entry in research["children"]
+                if entry["path"] == "research/act-one"
+            )
+            self.assertEqual(act_one["folder_color"], "rose")
+            with self.assertRaisesRegex(StateError, "inside itself"):
+                state.move_creative_entry(
+                    context_id,
+                    "research",
+                    "research/act-one",
+                )
 
     def test_creative_trash_prevents_reseeding_and_requires_collision_free_restore(
         self,

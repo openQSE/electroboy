@@ -15,6 +15,7 @@ from .creative_workspace import (
     _create_creative_folder,
     _creative_tree_payload,
     _empty_creative_trash,
+    _move_creative_entry,
     _permanently_delete_creative_trash_entry,
     _rename_creative_entry,
     _restore_creative_trash_entry,
@@ -69,6 +70,21 @@ def _rename(request: RouteRequest) -> ServiceResponse:
             "old_path": old_path,
             "path": new_path,
         }
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(result)
+
+
+def _move(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        root = request.services.contexts.active_project_root(request.context_id)
+        old_path, new_path = _move_creative_entry(
+            root,
+            str(payload.get("path") or ""),
+            str(payload.get("destination_folder") or ""),
+        )
+        result = {"status": "moved", "old_path": old_path, "path": new_path}
     except Exception as error:
         return conflict(error)
     return JsonResponse(result)
@@ -134,6 +150,7 @@ _HANDLERS = {
     "create_folder": _create_folder,
     "create_document": _create_document,
     "rename": _rename,
+    "move": _move,
     "delete": _delete,
     "restore_trash_entry": _restore_trash_entry,
     "permanently_delete_trash_entry": _permanently_delete_trash_entry,
@@ -151,6 +168,7 @@ def module() -> ServiceModule:
             route("POST", "/api/creative/folders", "binder", "create_folder"),
             route("POST", "/api/creative/documents", "binder", "create_document"),
             route("POST", "/api/creative/rename", "binder", "rename"),
+            route("POST", "/api/creative/move", "binder", "move"),
             route("POST", "/api/creative/delete", "binder", "delete"),
             route(
                 "POST",

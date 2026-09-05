@@ -910,6 +910,18 @@ class ServiceState:
             relative_path,
         )
 
+    def move_creative_entry(
+        self,
+        context_id: str,
+        relative_path: str,
+        destination_folder: str,
+    ) -> dict[str, object]:
+        return self.workflow_controller("creative-writing").move_creative_entry(
+            context_id,
+            relative_path,
+            destination_folder,
+        )
+
     def restore_creative_trash_entry(
         self,
         context_id: str,

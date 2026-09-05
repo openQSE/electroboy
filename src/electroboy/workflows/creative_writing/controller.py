@@ -16,6 +16,7 @@ from electroboy.modules.creative_workspace import (
     _ensure_creative_scratchpad,
     _ensure_creative_workspace,
     _existing_creative_project_root,
+    _move_creative_entry,
     _permanently_delete_creative_trash_entry,
     _rename_creative_entry,
     _restore_creative_trash_entry,
@@ -207,6 +208,20 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
     ) -> dict[str, object]:
         project_root = self.services.contexts.active_project_root(context_id)
         return _trash_creative_entry(project_root, relative_path)
+
+    def move_creative_entry(
+        self,
+        context_id: str,
+        relative_path: str,
+        destination_folder: str,
+    ) -> dict[str, object]:
+        project_root = self.services.contexts.active_project_root(context_id)
+        old_path, new_path = _move_creative_entry(
+            project_root,
+            relative_path,
+            destination_folder,
+        )
+        return {"status": "moved", "old_path": old_path, "path": new_path}
 
     def restore_creative_trash_entry(
         self,

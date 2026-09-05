@@ -1410,6 +1410,29 @@
       return path;
     }
 
+    function remapCreativeWorkspacePaths(oldPath, newPath) {
+      creativeActiveDocument = remapCreativePath(
+        creativeActiveDocument,
+        oldPath,
+        newPath,
+      );
+      creativeActiveFolder = remapCreativePath(
+        creativeActiveFolder,
+        oldPath,
+        newPath,
+      );
+      creativeEditingPath = remapCreativePath(
+        creativeEditingPath,
+        oldPath,
+        newPath,
+      );
+      expandedCreativeFolders = new Set(
+        Array.from(expandedCreativeFolders).map((folder) =>
+          remapCreativePath(folder, oldPath, newPath),
+        ),
+      );
+    }
+
     function beginCreativeRename(path, type) {
       creativeEditingPath = path;
       creativeEditingType = type;
@@ -1496,18 +1519,50 @@
         return;
       }
       const newPath = String(payload.path || "");
-      creativeActiveDocument = remapCreativePath(creativeActiveDocument, path, newPath);
-      creativeActiveFolder = remapCreativePath(creativeActiveFolder, path, newPath);
-      expandedCreativeFolders = new Set(
-        Array.from(expandedCreativeFolders).map((folder) =>
-          remapCreativePath(folder, path, newPath),
-        ),
-      );
+      remapCreativeWorkspacePaths(path, newPath);
       creativeEditingPath = "";
       creativeEditingType = "";
       await refreshCreativeBinder();
       recordProjectStatusMessage(`renamed: ${newPath}`);
       if (creativeActiveDocument) {
+        if (creativePathIsCorkboard(creativeActiveDocument)) {
+          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+        } else {
+          showCreativeDocument(creativeActiveDocument);
+        }
+      }
+    }
+
+    async function moveCreativeEntry(path, destinationFolder) {
+      if (!activeProjectRoot || !path || !destinationFolder) {
+        return;
+      }
+      if (creativeParentPath(path) === destinationFolder) {
+        return;
+      }
+      const activeDocumentMoved = creativePathIsInside(
+        creativeActiveDocument,
+        path,
+      );
+      const response = await fetch(contextUrl("/api/creative/move"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path,
+          destination_folder: destinationFolder,
+        }),
+      });
+      const payload = await response.json().catch(() => ({ error: "move failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "move failed"}\n`, "error");
+        return;
+      }
+      const newPath = String(payload.path || "");
+      remapCreativeWorkspacePaths(path, newPath);
+      expandedCreativeFolders.add(destinationFolder);
+      await refreshCreativeBinder({ showLoading: false });
+      recordProjectStatusMessage(`moved: ${path} → ${newPath}`);
+      if (activeDocumentMoved && creativeActiveDocument) {
         if (creativePathIsCorkboard(creativeActiveDocument)) {
           showCreativeCorkboard(creativeActiveDocument, { freeform: true });
         } else {
@@ -1949,6 +2004,8 @@
       creativePathIsCorkboard: (runtime, ...args) => invoke(runtime, creativePathIsCorkboard, args),
       creativePathIsInside: (runtime, ...args) => invoke(runtime, creativePathIsInside, args),
       remapCreativePath: (runtime, ...args) => invoke(runtime, remapCreativePath, args),
+      moveCreativeEntry: (runtime, ...args) =>
+        invoke(runtime, moveCreativeEntry, args),
       beginCreativeRename: (runtime, ...args) => invoke(runtime, beginCreativeRename, args),
       cancelCreativeRename: (runtime, ...args) => invoke(runtime, cancelCreativeRename, args),
       normalizedCreativeName: (runtime, ...args) => invoke(runtime, normalizedCreativeName, args),

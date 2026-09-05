@@ -88,6 +88,25 @@
   padding: 0 8px;
 }
 
+.creative-tree-row[draggable="true"] {
+  cursor: grab;
+}
+
+.creative-tree-row.creative-dragging {
+  cursor: grabbing;
+  opacity: 0.48;
+}
+
+.creative-tree-row.directory.creative-drop-target {
+  outline: 3px solid #66d9e8;
+  outline-offset: 2px;
+  background: color-mix(
+    in srgb,
+    var(--creative-folder-color, #1f3f5f) 72%,
+    white
+  );
+}
+
 .creative-tree-row.directory {
   grid-template-columns: 18px minmax(0, 1fr) 20px 26px 26px 18px;
   min-height: 34px;
