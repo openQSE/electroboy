@@ -59,12 +59,16 @@ class ComponentReconciliationService:
 
     def pending_group_ids(self) -> list[str]:
         completed = {
-            str(record.get("overlap_group_id") or "") for record in self.load()
+            str(record.get("overlap_group_id") or ""): str(
+                record.get("candidate_revision") or ""
+            )
+            for record in self.load()
         }
         return [
             str(group.get("id") or "")
             for group in self._groups()
-            if str(group.get("id") or "") not in completed
+            if completed.get(str(group.get("id") or ""))
+            != str(group.get("candidate_revision") or "")
         ]
 
     def reconcile_pending(self, *, analysis_run_id: str) -> list[dict[str, object]]:

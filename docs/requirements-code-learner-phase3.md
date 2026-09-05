@@ -1992,30 +1992,30 @@ Boundary 1 validation notes:
 
 ### Boundary 9: Reconciled Component Manifest
 
-131. [ ] Introduce a component-manifest builder over validated candidates and
+131. [x] Introduce a component-manifest builder over validated candidates and
      reconciliations.
-132. [ ] Pass non-overlapping candidates through without semantic deduplication.
-133. [ ] Convert same-component partitions into one canonical component.
-134. [ ] Preserve distinct overlapping components independently.
-135. [ ] Allocate opaque persisted component record IDs.
-136. [ ] Ensure persisted IDs do not encode AI-authored names.
-137. [ ] Preserve file IDs, resolved symbol locators, source references,
+132. [x] Pass non-overlapping candidates through without semantic deduplication.
+133. [x] Convert same-component partitions into one canonical component.
+134. [x] Preserve distinct overlapping components independently.
+135. [x] Allocate opaque persisted component record IDs.
+136. [x] Ensure persisted IDs do not encode AI-authored names.
+137. [x] Preserve file IDs, resolved symbol locators, source references,
      aliases, validation provenance, and candidate provenance.
-138. [ ] Quarantine unresolved overlap groups, record warnings, and allow
+138. [x] Quarantine unresolved overlap groups, record warnings, and allow
      unrelated validated components to continue downstream.
-139. [ ] Build the reverse file-coverage map and derive exactly one disposition
+139. [x] Build the reverse file-coverage map and derive exactly one disposition
      for every in-scope file.
-140. [ ] Persist the coverage report and an investigation context bundle that
+140. [x] Persist the coverage report and an investigation context bundle that
      references all collected evidence, accepted records, and diagnostics.
-141. [ ] Run at most one focused missing-file investigation, route proposed
+141. [x] Run at most one focused missing-file investigation, route proposed
      component changes through normal validation and reconciliation, and
      recompute coverage once.
-142. [ ] Persist remaining unresolved files as warnings and reject catch-all
+142. [x] Persist remaining unresolved files as warnings and reject catch-all
      components proposed solely to force full coverage.
-143. [ ] Freeze the usable component manifest with counts, revision, run ID,
+143. [x] Freeze the usable component manifest with counts, revision, run ID,
      completion state, and queries by component, candidate, file, locator,
      name, alias, and disposition; test warning-bearing and clean rebuilds.
-144. [ ] Commit reconciled component manifest support.
+144. [x] Commit reconciled component manifest support.
 
 ### Boundary 10: Module Synthesis
 

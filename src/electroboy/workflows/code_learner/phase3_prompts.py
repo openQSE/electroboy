@@ -131,3 +131,42 @@ Forbidden output:
   runtime flows, diagrams, courses, unrelated discovery, or repository edits.
 - Markdown fences or explanatory prose outside the JSON object.
 """.strip()
+
+
+def missing_file_investigation_prompt(
+    root: Path | str,
+    *,
+    analysis_run_id: str,
+    repository_revision: str,
+    context_path: Path | str,
+    unresolved_file_ids: Sequence[str],
+) -> str:
+    """Create the one allowed focused file-coverage investigation prompt."""
+
+    repository = Path(root).expanduser().resolve()
+    return f"""You are the ElectroBoy Phase 3 missing-file investigator.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {repository}
+Analysis run ID: {analysis_run_id}
+Repository revision: {repository_revision}
+Authoritative investigation context: {context_path}
+Unresolved file IDs: {json.dumps(list(unresolved_file_ids))}
+
+Read the complete investigation context first. It references all source,
+symbol, candidate, overlap, reconciliation, component, disposition, diagnostic,
+attempt, and checkpoint evidence already collected. Use those artifacts as the
+current working set; do not rediscover the repository from scratch after a new
+session or context compaction. Inspect only source needed to resolve these files.
+
+For each unresolved file, either amend or propose a source-grounded
+component_candidate, emit one file_disposition of repository_infrastructure or
+excluded with a concrete reason, or leave it unresolved with a reason. New and
+amended candidates will pass normal validation, overlap, and reconciliation.
+
+Return strict JSONL containing only component_candidate and file_disposition
+records. Do not create catch-all miscellaneous or unclassified components just
+to force full coverage. Do not emit modules, relationships, diagrams, courses,
+or prose, and do not modify the repository or .electroboy state.
+""".strip()
