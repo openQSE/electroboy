@@ -10,6 +10,10 @@
     tree.append(empty);
   }
 
+  function folderEntryVisible(entry) {
+    return !entry.corkboard && String(entry.path || "") !== "corkboard";
+  }
+
   function renderTree(runtime) {
     const tree = runtime.elements.creativeTree;
     const state = runtime.getState();
@@ -18,11 +22,12 @@
       Array.isArray(state.creativeTreePayload.entries)
       ? state.creativeTreePayload.entries
       : [];
-    if (entries.length === 0) {
+    const folderEntries = entries.filter(folderEntryVisible);
+    if (folderEntries.length === 0) {
       showMessage(runtime, "No writing documents yet.");
       return;
     }
-    for (const entry of entries) {
+    for (const entry of folderEntries) {
       appendEntry(runtime, entry, 0);
     }
   }
@@ -144,7 +149,7 @@
     tree.append(row);
 
     if (isDirectory && expanded) {
-      for (const child of entry.children || []) {
+      for (const child of (entry.children || []).filter(folderEntryVisible)) {
         appendEntry(runtime, child, depth + 1);
       }
       appendFolderActions(runtime, path, depth + 1);
@@ -233,7 +238,6 @@
     const entries = [
       ["New folder", action.createCreativeFolder],
       ["New file", action.createCreativeDocument],
-      ["New board", action.createCreativeCorkboard],
     ];
     for (const [label, handler] of entries) {
       const button = document.createElement("button");
@@ -280,7 +284,6 @@
       appendOutput: runtime.notifications.appendOutput,
       beginCreativeRename: (...args) => invoke("beginCreativeRename", ...args),
       cancelCreativeRename: (...args) => invoke("cancelCreativeRename", ...args),
-      createCreativeCorkboard: (...args) => invoke("createCreativeCorkboardInline", ...args),
       createCreativeDocument: (...args) => invoke("createCreativeDocumentInline", ...args),
       createCreativeFolder: (...args) => invoke("createCreativeFolderInline", ...args),
       deleteCreativeEntry: (...args) => invoke("deleteCreativeEntry", ...args),

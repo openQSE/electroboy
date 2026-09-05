@@ -706,6 +706,9 @@ class ServiceTests(unittest.TestCase):
         input_history_css = read_service_text_asset(
             "css/input-history.css", modules, workflows
         )
+        creative_css = read_service_text_asset(
+            "css/workflows/creative-writing.css", modules, workflows
+        )
 
         self.assertIn("bindRuntime(nextRuntime)", registry)
         self.assertIn("invokeWorkflow(id, action, ...args)", registry)
@@ -723,6 +726,20 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('if (stageId === "mind-map")', software)
         self.assertIn('data-creative-control="mind-map-menu"', creative)
+        self.assertIn('data-creative-control="corkboard-menu"', creative)
+        self.assertIn('data-creative-control="open-corkboard">Open', creative)
+        self.assertIn('data-creative-control="new-corkboard">New', creative)
+        mind_map_position = creative.index('data-creative-control="mind-map-menu"')
+        corkboard_position = creative.index('data-creative-control="corkboard-menu"')
+        folders_position = creative.index('class="creative-folder-title"')
+        self.assertLess(mind_map_position, corkboard_position)
+        self.assertLess(corkboard_position, folders_position)
+        self.assertIn(
+            'class="creative-divider" aria-hidden="true"',
+            creative[corkboard_position:folders_position],
+        )
+        self.assertIn(">Folders</div>", creative)
+        self.assertIn(".creative-folder-title {", creative_css)
         self.assertIn('hiddenActionStages: ["document"]', software)
         self.assertIn("hiddenActionStages.has(stageId)", app)
         self.assertNotIn('if (stageId === "document")', app)
@@ -791,8 +808,18 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("selectCreativeDocument(firstDocument.path", creative)
         self.assertIn('runtimeApi.layout.ensurePane("agent");', sessions)
         self.assertIn("function renderTree(runtime)", binder)
+        self.assertIn("function folderEntryVisible(entry)", binder)
+        self.assertIn('String(entry.path || "") !== "corkboard"', binder)
+        self.assertNotIn('["New board",', binder)
         self.assertIn("function show(runtime, source, options = {})", corkboard)
         self.assertIn('kind: "corkboard"', corkboard)
+        self.assertIn("async function openDocument(runtime, options = {})", corkboard)
+        self.assertIn("async function newDocument(runtime, options = {})", corkboard)
+        self.assertIn(
+            'className = "ad-hoc-session-dialog corkboard-picker-dialog"',
+            corkboard,
+        )
+        self.assertIn("actions: { show, openDocument, newDocument }", corkboard)
         self.assertIn('kind: "agenda"', agenda)
         self.assertIn('id: "agenda"', agenda)
         self.assertIn('id: "assignments"', assignments)

@@ -46,6 +46,15 @@
   white-space: nowrap;
 }
 
+.creative-folder-title {
+  min-width: 0;
+  color: #1d3348;
+  font-size: var(--ui-small-font-size);
+  font-weight: 650;
+  line-height: 1.35;
+  padding: 0 8px;
+}
+
 .creative-binder-status {
   min-height: 18px;
   color: #48627a;

@@ -403,6 +403,22 @@
                       data-creative-control="new-mind-map">New</button>
             </div>
           </div>
+          <div class="creative-section">
+            <button class="stage-action-stage" type="button" aria-expanded="false"
+                    data-creative-control="corkboard-menu">
+              <span class="stage-action-label">Corkboard</span>
+              <span class="stage-action-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="stage-action-list" role="group" hidden
+                 data-creative-control="corkboard-actions">
+              <button class="stage-action-button" type="button"
+                      data-creative-control="open-corkboard">Open</button>
+              <button class="stage-action-button" type="button"
+                      data-creative-control="new-corkboard">New</button>
+            </div>
+          </div>
+          <div class="creative-divider" aria-hidden="true"></div>
+          <div class="creative-folder-title" role="heading" aria-level="2">Folders</div>
           <div class="creative-tree" role="tree" data-creative-control="tree"></div>
         </div>
       </section>
@@ -423,6 +439,8 @@
     creativeStartAgent = find("start-agent");
     const mindMapMenu = find("mind-map-menu");
     const mindMapActions = find("mind-map-actions");
+    const corkboardMenu = find("corkboard-menu");
+    const corkboardActions = find("corkboard-actions");
     runtime.elements.creativeTree = find("tree");
 
     creativeProjectMenuButton.addEventListener("click", () => {
@@ -441,6 +459,36 @@
     });
     find("new-mind-map").addEventListener("click", () => {
       runtime.modules.invoke("mind_map", "newDocument");
+    });
+    corkboardMenu.addEventListener("click", () => {
+      const expanded = corkboardMenu.getAttribute("aria-expanded") === "true";
+      corkboardMenu.setAttribute("aria-expanded", expanded ? "false" : "true");
+      corkboardActions.hidden = expanded;
+    });
+    const openCorkboard = (mode) => {
+      const action = mode === "new" ? "newDocument" : "openDocument";
+      runtime.modules.invoke("corkboard", action, {
+        directory: "corkboard",
+        show: false,
+        suffix: CREATIVE_CORKBOARD_SUFFIX,
+      }).then((board) => {
+        if (!board) {
+          return;
+        }
+        selectCorkboard(
+          runtime,
+          String(board.board_id || board.path || ""),
+          { title: String(board.title || "") },
+        );
+      }).catch((error) => {
+        appendOutput(`corkboard ${mode} failed: ${error.message || error}\n`, "error");
+      });
+    };
+    find("open-corkboard").addEventListener("click", () => {
+      openCorkboard("open");
+    });
+    find("new-corkboard").addEventListener("click", () => {
+      openCorkboard("new");
     });
     creativeRecentProjectsButton.addEventListener("click", () => {
       toggleCreativeActionGroup("recent-projects");
