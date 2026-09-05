@@ -1341,8 +1341,15 @@ class ServiceTests(unittest.TestCase):
             'labeledSelect("Layout", "Corkboard layout", "set-layout")',
             file_pane_tools,
         )
-        self.assertIn('postBoardTool("auto-organize")', file_pane_tools)
+        self.assertIn('menu("Auto-organize"', file_pane_tools)
+        self.assertIn('postBoardTool("organize-grid")', file_pane_tools)
+        self.assertIn('postBoardTool("organize-layout")', file_pane_tools)
+        self.assertIn(
+            'postBoardTool("set-auto-layout", autoLayoutInput.checked)',
+            file_pane_tools,
+        )
         self.assertIn('postBoardTool("undo-organize")', file_pane_tools)
+        self.assertIn(".pane-tool-toggle {", pane_css)
         self.assertIn('controller.addSection("corkboard-color", "Selected card")', file_pane_tools)
         self.assertIn('controller.addSection("corkboard-export", "Export")', file_pane_tools)
         self.assertIn('postBoardTool("random-card-color")', file_pane_tools)
@@ -6577,10 +6584,17 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn('id="undoOrganize"', page)
         self.assertIn('id="addCard"', page)
         self.assertIn('message.action === "set-layout"', page)
+        self.assertIn('message.action === "organize-grid"', page)
+        self.assertIn('message.action === "organize-layout"', page)
         self.assertIn('message.action === "auto-organize"', page)
+        self.assertIn('message.action === "set-auto-layout"', page)
         self.assertIn('message.action === "undo-organize"', page)
         self.assertIn("function selectLayoutMode(nextMode)", page)
-        self.assertIn("function organizeFreeformCards", page)
+        self.assertIn("function organizeFreeformGrid", page)
+        self.assertIn("function layoutFreeformCards", page)
+        self.assertIn("function resolveFreeformOverlaps", page)
+        self.assertIn("function scaleFreeformCardPositions", page)
+        self.assertIn("function queueAutoLayoutPositionSave", page)
         self.assertIn("function captureGridPositions", page)
         self.assertIn("function applyGridColumns()", page)
         self.assertIn("canvasViewport.clientWidth / boardZoomFactor()", page)

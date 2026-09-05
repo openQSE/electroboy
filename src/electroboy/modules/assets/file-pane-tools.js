@@ -210,13 +210,28 @@
 
     const boardPicker = labeledSelect("Board", "Corkboard", "select-board");
     const boardLayout = labeledSelect("Layout", "Corkboard layout", "set-layout");
-    const autoOrganize = button("Auto-organize", () => {
-      postBoardTool("auto-organize");
+    const organizeMenu = menu("Auto-organize", "pane-tool-organize-menu");
+    const organizeGrid = menuButton("Grid", () => {
+      postBoardTool("organize-grid");
     });
+    const organizeLayout = menuButton("Layout", () => {
+      postBoardTool("organize-layout");
+    });
+    organizeMenu.list.append(organizeGrid, organizeLayout);
+    const autoLayout = document.createElement("label");
+    autoLayout.className = "pane-tool-toggle";
+    const autoLayoutInput = document.createElement("input");
+    autoLayoutInput.type = "checkbox";
+    autoLayoutInput.addEventListener("change", () => {
+      postBoardTool("set-auto-layout", autoLayoutInput.checked);
+    });
+    const autoLayoutText = document.createElement("span");
+    autoLayoutText.textContent = "Auto layout on card resize";
+    autoLayout.append(autoLayoutInput, autoLayoutText);
     const undoOrganize = button("Undo organize", () => {
       postBoardTool("undo-organize");
     });
-    boardViewBody.append(autoOrganize, undoOrganize);
+    boardViewBody.append(organizeMenu.details, autoLayout, undoOrganize);
 
     function boardSlider(label, min, max, step, action) {
       const wrapper = document.createElement("label");
@@ -310,7 +325,9 @@
       }));
       boardLayout.wrapper.hidden = layouts.length < 2;
       boardLayout.select.value = String(state.layoutMode || "");
-      autoOrganize.hidden = !state.canAutoOrganize;
+      organizeMenu.details.hidden = !state.canAutoOrganize;
+      autoLayout.hidden = !state.canAutoLayout;
+      autoLayoutInput.checked = Boolean(state.autoLayoutEnabled);
       undoOrganize.hidden = !state.canUndoOrganize;
       boardZoom.input.value = String(state.zoomSlider ?? 500);
       boardZoom.output.textContent = state.zoomLabel || "100%";

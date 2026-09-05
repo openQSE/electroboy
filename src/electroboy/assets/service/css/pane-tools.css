@@ -140,6 +140,22 @@
   accent-color: #66d9e8;
 }
 
+.pane-tool-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  color: #c9d5e8;
+  cursor: pointer;
+  font-size: var(--ui-small-font-size);
+  padding: 4px 8px;
+}
+
+.pane-tool-toggle input[type="checkbox"] {
+  margin: 0;
+  accent-color: #66d9e8;
+}
+
 .pane-tool-color-row {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);

@@ -528,6 +528,70 @@ def test_browser_corkboard_uses_provider_default_grid_layout(tmp_path: Path) -> 
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_corkboard_layout_and_resize_prevent_overlaps(
+    tmp_path: Path,
+) -> None:
+    page = render_corkboard_html(
+        {
+            "provider": "layout-test",
+            "board_id": "overlap-test",
+            "board_type": "freeform",
+            "title": "Overlap test",
+            "capabilities": ["move-card"],
+            "cards": [
+                {"id": "a", "title": "A", "x": 20, "y": 20},
+                {"id": "b", "title": "B", "x": 80, "y": 60},
+            ],
+            "connectors": [],
+        }
+    )[0]
+    driver = """
+      <script>
+        window.addEventListener("load", () => {
+          const send = (action, value = null) => window.dispatchEvent(
+            new MessageEvent("message", {
+              source: window,
+              origin: window.location.origin,
+              data: { type: "electroboy-corkboard-tool", action, value },
+            }),
+          );
+          window.setTimeout(() => {
+            send("organize-layout");
+            window.setTimeout(() => {
+              document.body.dataset.layoutPositions = Array.from(
+                document.querySelectorAll(".index-card"),
+              ).map((element) =>
+                `${element.dataset.key}:${element.style.left},${element.style.top}`,
+              ).join("|");
+              send("set-auto-layout", true);
+              send("set-card-size", 200);
+              window.setTimeout(() => {
+                document.body.dataset.resizePositions = Array.from(
+                  document.querySelectorAll(".index-card"),
+                ).map((element) =>
+                  `${element.dataset.key}:${element.style.left},${element.style.top},`
+                  + `${element.offsetWidth}x${element.offsetHeight}`,
+                ).join("|");
+              }, 100);
+            }, 100);
+          }, 0);
+        });
+      </script>
+    """
+    completed = browser_file_dom(
+        page.replace("</body>", f"{driver}</body>"),
+        tmp_path,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert 'data-layout-positions="a:20px,20px|b:80px,248px"' in completed.stdout
+    assert (
+        'data-resize-positions="a:20px,20px,640x400|b:140px,476px,640x400"'
+        in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_mind_map_expands_children_without_reserving_subtree_space(
     tmp_path: Path,
 ) -> None:

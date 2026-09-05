@@ -1736,6 +1736,7 @@ def render_corkboard_html(
       : "electroboy.creative.corkboard";
     const CARD_SCALE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardScale.`;
     const CARD_FONT_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardFont.`;
+    const AUTO_LAYOUT_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.autoLayout.`;
     const BOARD_ZOOM_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.boardZoom.`;
     const CANVAS_PAN_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.canvasPan.`;
     const MIN_BOARD_ZOOM = 1;
@@ -1782,9 +1783,11 @@ def render_corkboard_html(
     let boardZoom = storedBoardZoom();
     let cardScale = storedCardScale();
     let cardFontScale = storedCardFontScale();
+    let autoLayoutEnabled = storedAutoLayout();
     let canvasPan = storedCanvasPan();
     let layoutMode = DEFAULT_LAYOUT_MODE;
     let organizeUndo = null;
+    let autoLayoutPositionSaveTimer = null;
     let selectedCardKey = "";
     let availableBoards = [];
     let corkboardConfirmDialog = null;
@@ -1878,6 +1881,10 @@ def render_corkboard_html(
 
     function cardScaleStorageKey() {{
       return `${{CARD_SCALE_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
+    }}
+
+    function autoLayoutStorageKey() {{
+      return `${{AUTO_LAYOUT_STORAGE_PREFIX}}${{boardType}}:${{boardStoragePath()}}`;
     }}
 
     function boardZoomStorageKey() {{
@@ -2174,6 +2181,31 @@ def render_corkboard_html(
       }}
     }}
 
+    function storedAutoLayout() {{
+      try {{
+        return window.localStorage.getItem(autoLayoutStorageKey()) === "true";
+      }} catch (error) {{
+        return false;
+      }}
+    }}
+
+    function saveAutoLayout() {{
+      try {{
+        window.localStorage.setItem(
+          autoLayoutStorageKey(),
+          String(autoLayoutEnabled),
+        );
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function setAutoLayout(value) {{
+      autoLayoutEnabled = Boolean(value);
+      saveAutoLayout();
+      postToolState();
+    }}
+
     function scaledCardValue(value) {{
       return Math.round(value * cardScale / 100);
     }}
@@ -2287,9 +2319,32 @@ def render_corkboard_html(
     }}
 
     function updateCardScale(value) {{
-      cardScale = clampCardScale(value);
+      const nextScale = clampCardScale(value);
+      if (nextScale === cardScale) {{
+        postToolState();
+        return;
+      }}
+      const previousScale = cardScale;
+      const reposition = autoLayoutEnabled
+        && usesFreeformLayout()
+        && cards.length > 1;
+      const changedCards = reposition
+        ? scaleFreeformCardPositions(previousScale, nextScale)
+        : [];
+      cardScale = nextScale;
       saveCardScale();
       applyCardScale();
+      if (reposition) {{
+        for (const card of resolveFreeformOverlaps()) {{
+          if (!changedCards.includes(card)) changedCards.push(card);
+        }}
+        for (const card of changedCards) {{
+          const element = cardElementFor(card);
+          if (element) applyCardPosition(element, card);
+        }}
+        sizeBoard();
+        queueAutoLayoutPositionSave();
+      }}
       postToolState();
     }}
 
@@ -2757,7 +2812,9 @@ def render_corkboard_html(
         layoutMode,
         layoutModes: AVAILABLE_LAYOUT_MODES,
         canAutoOrganize: usesFreeformLayout() && supports("move-card"),
+        canAutoLayout: usesFreeformLayout() && supports("move-card"),
         canUndoOrganize: Boolean(organizeUndo) && usesFreeformLayout(),
+        autoLayoutEnabled,
         zoomSlider: boardZoomSliderValue(),
         zoomLabel: boardZoomLabel(),
         cardScale,
@@ -3016,10 +3073,16 @@ def render_corkboard_html(
         selectBoard(String(message.value || ""));
       }} else if (message.action === "set-layout") {{
         selectLayoutMode(String(message.value || ""));
+      }} else if (message.action === "organize-grid") {{
+        organizeFreeformGrid().then(() => renderCards());
+      }} else if (message.action === "organize-layout") {{
+        layoutFreeformCards();
       }} else if (message.action === "auto-organize") {{
-        organizeFreeformCards().then(() => renderCards());
+        organizeFreeformGrid().then(() => renderCards());
       }} else if (message.action === "undo-organize") {{
         restoreOrganizedCards();
+      }} else if (message.action === "set-auto-layout") {{
+        setAutoLayout(message.value);
       }} else if (message.action === "set-board-zoom") {{
         updateBoardZoom(boardZoomFromSlider(message.value));
       }} else if (message.action === "set-card-size") {{
@@ -3072,6 +3135,14 @@ def render_corkboard_html(
       await Promise.all(changedCards.map((card) => persistCard(card)));
     }}
 
+    function queueAutoLayoutPositionSave() {{
+      window.clearTimeout(autoLayoutPositionSaveTimer);
+      autoLayoutPositionSaveTimer = window.setTimeout(() => {{
+        autoLayoutPositionSaveTimer = null;
+        persistCardPositions().catch(() => {{}});
+      }}, 240);
+    }}
+
     function updateLayoutControls() {{
       document.body.classList.toggle("freeform-canvas", usesFreeformLayout());
     }}
@@ -3080,23 +3151,123 @@ def render_corkboard_html(
       updateLayoutControls();
     }}
 
-    async function organizeFreeformCards({{ recordUndo = true }} = {{}}) {{
+    function rememberOrganizeUndo(recordUndo = true) {{
+      if (!recordUndo) {{
+        organizeUndo = null;
+        return;
+      }}
+      organizeUndo = {{
+        order: cards.map((card) => cardKey(card)),
+        positions: new Map(
+          cards.map((card) => [
+            cardKey(card),
+            {{ x: Number(card.x) || 0, y: Number(card.y) || 0 }},
+          ]),
+        ),
+      }};
+    }}
+
+    function scaleFreeformCardPositions(previousScale, nextScale) {{
+      const ratio = nextScale / previousScale;
+      if (!Number.isFinite(ratio) || ratio <= 0 || cards.length < 2) return [];
+      const anchor = cardsInPositionOrder()[0];
+      if (!anchor) return [];
+      const anchorX = Number(anchor.x) || 0;
+      const anchorY = Number(anchor.y) || 0;
+      const changed = [];
+      for (const card of cards) {{
+        if (card === anchor) continue;
+        card.x = anchorX + ((Number(card.x) || 0) - anchorX) * ratio;
+        card.y = anchorY + ((Number(card.y) || 0) - anchorY) * ratio;
+        changed.push(card);
+      }}
+      return changed;
+    }}
+
+    function resolveFreeformOverlaps() {{
+      if (!usesFreeformLayout() || cards.length < 2) return [];
+      const gap = Math.max(14, scaledCardValue(BASE_CARD_GAP));
+      const entries = cards.map((card, index) => ({{
+        card,
+        index,
+        geometry: cardWorldGeometry(card),
+      }})).sort((left, right) => {{
+        const yDifference = left.geometry.y - right.geometry.y;
+        if (Math.abs(yDifference) > 1) return yDifference;
+        const xDifference = left.geometry.x - right.geometry.x;
+        return Math.abs(xDifference) > 1 ? xDifference : left.index - right.index;
+      }});
+      const changed = new Set();
+      const maximumPasses = Math.max(8, entries.length * 4);
+      for (let pass = 0; pass < maximumPasses; pass += 1) {{
+        let passChanged = false;
+        for (let fixedIndex = 0; fixedIndex < entries.length - 1; fixedIndex += 1) {{
+          const fixed = entries[fixedIndex].geometry;
+          for (
+            let movingIndex = fixedIndex + 1;
+            movingIndex < entries.length;
+            movingIndex += 1
+          ) {{
+            const moving = entries[movingIndex].geometry;
+            const overlapX = Math.min(
+              fixed.x + fixed.width + gap,
+              moving.x + moving.width + gap,
+            ) - Math.max(fixed.x, moving.x);
+            const overlapY = Math.min(
+              fixed.y + fixed.height + gap,
+              moving.y + moving.height + gap,
+            ) - Math.max(fixed.y, moving.y);
+            if (overlapX <= 0 || overlapY <= 0) continue;
+            const fixedCenterX = fixed.x + fixed.width / 2;
+            const fixedCenterY = fixed.y + fixed.height / 2;
+            const movingCenterX = moving.x + moving.width / 2;
+            const movingCenterY = moving.y + moving.height / 2;
+            const shiftX = movingCenterX >= fixedCenterX
+              ? fixed.x + fixed.width + gap - moving.x
+              : fixed.x - gap - moving.width - moving.x;
+            const shiftY = movingCenterY >= fixedCenterY
+              ? fixed.y + fixed.height + gap - moving.y
+              : fixed.y - gap - moving.height - moving.y;
+            if (Math.abs(shiftX) <= Math.abs(shiftY)) {{
+              moving.x += shiftX;
+            }} else {{
+              moving.y += shiftY;
+            }}
+            moving.center = {{
+              x: moving.x + moving.width / 2,
+              y: moving.y + moving.height / 2,
+            }};
+            entries[movingIndex].card.x = moving.x;
+            entries[movingIndex].card.y = moving.y;
+            changed.add(entries[movingIndex].card);
+            passChanged = true;
+          }}
+        }}
+        if (!passChanged) break;
+      }}
+      return Array.from(changed);
+    }}
+
+    async function layoutFreeformCards({{ recordUndo = true }} = {{}}) {{
+      if (!usesFreeformLayout() || cards.length === 0) return;
+      const previousUndo = organizeUndo;
+      rememberOrganizeUndo(recordUndo);
+      const changedCards = resolveFreeformOverlaps();
+      if (recordUndo && changedCards.length === 0) organizeUndo = previousUndo;
+      for (const card of changedCards) {{
+        const element = cardElementFor(card);
+        if (element) applyCardPosition(element, card);
+      }}
+      sizeBoard();
+      postToolState();
+      await persistCardPositions(changedCards);
+    }}
+
+    async function organizeFreeformGrid({{ recordUndo = true }} = {{}}) {{
       if (boardType !== "freeform" || cards.length === 0) {{
         return;
       }}
-      if (recordUndo) {{
-        organizeUndo = {{
-          order: cards.map((card) => cardKey(card)),
-          positions: new Map(
-            cards.map((card) => [
-              cardKey(card),
-              {{ x: Number(card.x) || 0, y: Number(card.y) || 0 }},
-            ]),
-          ),
-        }};
-      }} else {{
-        organizeUndo = null;
-      }}
+      rememberOrganizeUndo(recordUndo);
       const ordered = cardsInPositionOrder();
       replaceCardOrder(ordered);
       const viewportWidth = Math.max(
@@ -3183,7 +3354,7 @@ def render_corkboard_html(
       }}
       const previousMode = layoutMode;
       if (layoutMode === "freeform" && nextMode === "grid") {{
-        await organizeFreeformCards({{ recordUndo: false }});
+        await organizeFreeformGrid({{ recordUndo: false }});
       }} else if (layoutMode === "grid" && nextMode === "freeform") {{
         await captureGridPositions();
         canvasPan = {{ x: 0, y: 0 }};
