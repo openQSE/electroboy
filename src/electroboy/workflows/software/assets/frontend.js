@@ -439,6 +439,12 @@
           disabled: !state.activeProjectRoot,
           run: newProjectCorkboard,
         },
+        {
+          label: "Generate",
+          title: "Generate a project corkboard with a non-interactive agent.",
+          disabled: !state.activeProjectRoot,
+          run: generateProjectCorkboard,
+        },
       ];
     }
     if (stageId === "mind-map") {
@@ -642,6 +648,17 @@
       return;
     }
     showProjectCorkboard(payload);
+  }
+
+  async function generateProjectCorkboard() {
+    try {
+      await runtimeApi.modules.invoke("corkboard", "generate", {
+        scope: { type: "project" },
+        stage: "corkboard",
+      });
+    } catch (error) {
+      appendOutput(`${error.message || "corkboard generation failed"}\n`, "error");
+    }
   }
 
   function projectStageActions(runtime, state) {

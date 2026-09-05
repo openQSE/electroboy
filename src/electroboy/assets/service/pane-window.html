@@ -2050,6 +2050,12 @@
       );
     }
 
+    function generatePaneDocumentCorkboard() {
+      const path = artifactTargetPath();
+      if (!path) return;
+      postDocumentFileAction("generate-corkboard", { path });
+    }
+
     function forwardArtifactHostAction(event, data) {
       if (!ARTIFACT_HOST_ACTION_TYPES.has(data.type)) {
         return false;
@@ -4440,6 +4446,7 @@
           startAgent: startPaneDocumentAgent,
           open: () => openPaneDocumentFileBrowser("document"),
           new: () => openPaneDocumentFileBrowser("document-new"),
+          generateCorkboard: generatePaneDocumentCorkboard,
           back: () => navigatePaneDocumentHistory("back"),
           forward: () => navigatePaneDocumentHistory("forward"),
           close: closePaneDocument,

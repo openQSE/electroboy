@@ -45,6 +45,17 @@ class CorkboardProvider(Protocol):
         connection_id: str = "",
     ) -> dict[str, object]: ...
 
+    def create_generated_board(
+        self,
+        context_id: str,
+        board_id: str,
+        *,
+        title: str,
+        cards: list[dict[str, object]],
+        connectors: list[dict[str, object]],
+        connection_id: str = "",
+    ) -> dict[str, object]: ...
+
 
 @runtime_checkable
 class CorkboardWorkflowController(Protocol):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from electroboy.modules.creative_workspace import (
     _create_creative_corkboard,
     _creative_corkboard_payload,
+    create_generated_creative_corkboard,
     save_creative_corkboard,
 )
 from electroboy.service.corkboard import normalize_board_snapshot
@@ -183,3 +184,29 @@ class CreativeWritingCorkboardProvider:
         root = self.services.contexts.active_project_root(context_id)
         path = _create_creative_corkboard(root, board_id, title=title)
         return {"status": "created", "path": path, "board_id": path}
+
+    def create_generated_board(
+        self,
+        context_id: str,
+        board_id: str,
+        *,
+        title: str,
+        cards: list[dict[str, object]],
+        connectors: list[dict[str, object]],
+        connection_id: str = "",
+    ) -> dict[str, object]:
+        root = self.services.contexts.active_project_root(context_id)
+        path = create_generated_creative_corkboard(
+            root,
+            board_id,
+            title=title,
+            cards=cards,
+            connectors=connectors,
+        )
+        return {
+            "status": "created",
+            "path": path,
+            "board_id": path,
+            "provider": self.provider_id,
+            "title": title,
+        }

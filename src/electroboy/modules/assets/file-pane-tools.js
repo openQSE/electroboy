@@ -146,13 +146,16 @@
     const create = menuButton("New", () => {
       runAction("new", () => {});
     });
+    const generateCorkboard = menuButton("Generate Corkboard…", () => {
+      runAction("generateCorkboard", () => {});
+    });
     const close = menuButton("Close", () => {
       runAction("close", () => {});
     });
     const refreshButton = menuButton("Refresh", () => {
       runAction("refresh", () => controls.refresh?.click());
     });
-    fileMenu.list.append(open, create, close, refreshButton);
+    fileMenu.list.append(open, create, generateCorkboard, close, refreshButton);
 
     const modeMenu = menu("Mode", "pane-tool-mode-menu");
     const preview = menuButton("Preview", () => {
@@ -476,10 +479,18 @@
       actionsBody.closest("details").hidden = isBoard && pop.hidden;
       open.hidden = typeof actions.open !== "function";
       create.hidden = typeof actions.new !== "function";
+      generateCorkboard.hidden =
+        typeof actions.generateCorkboard !== "function"
+        || current.kind !== "document"
+        || !current.path;
       close.hidden = typeof actions.close !== "function" || current.canClose === false;
       refreshButton.hidden = current.canRefresh === false;
       fileMenu.details.hidden = isBoard || (
-        open.hidden && create.hidden && close.hidden && refreshButton.hidden
+        open.hidden
+        && create.hidden
+        && generateCorkboard.hidden
+        && close.hidden
+        && refreshButton.hidden
       );
       const canSwitchMode = current.canSwitchMode !== false;
       preview.hidden = !canSwitchMode;

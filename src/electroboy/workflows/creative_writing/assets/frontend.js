@@ -321,6 +321,10 @@
       );
       return true;
     }
+    if (data.type === "electroboy-corkboard-generated") {
+      refreshCreativeBinder({ showLoading: false });
+      return true;
+    }
     if (
       !["electroboy-corkboard-open", "electroboy-creative-open"].includes(data.type) ||
       !data.path ||
@@ -442,6 +446,8 @@
                       data-creative-control="open-corkboard">Open</button>
               <button class="stage-action-button" type="button"
                       data-creative-control="new-corkboard">New</button>
+              <button class="stage-action-button" type="button"
+                      data-creative-control="generate-corkboard">Generate</button>
             </div>
           </div>
           <div class="creative-divider" aria-hidden="true"></div>
@@ -526,6 +532,14 @@
     });
     find("new-corkboard").addEventListener("click", () => {
       openCorkboard("new");
+    });
+    find("generate-corkboard").addEventListener("click", () => {
+      runtime.modules.invoke("corkboard", "generate", {
+        scope: { type: "project" },
+        stage: "creative-writing",
+      }).catch((error) => {
+        appendOutput(`corkboard generation failed: ${error.message || error}\n`, "error");
+      });
     });
     find("new-root-folder").addEventListener("click", () => {
       createCreativeFolderInline();

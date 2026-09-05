@@ -155,6 +155,14 @@
         },
         open: () => openDocumentFileBrowser(),
         new: () => openNewDocumentFileBrowser(),
+        generateCorkboard: () => {
+          const item = activeArtifactToolItem();
+          if (!item || item.kind !== "document" || !item.target) return;
+          return runtimeApi.modules.invoke("corkboard", "generate", {
+            scope: { type: "file", path: documentTargetKey(item.target) },
+            stage: activeProjectIsCreative() ? "creative-writing" : "corkboard",
+          });
+        },
         back: () => navigateDocumentHistory("back"),
         forward: () => navigateDocumentHistory("forward"),
         close: () => {
@@ -448,6 +456,16 @@
         );
       } else if (data.action === "close") {
         closeDocumentTarget(data.target || null);
+      } else if (data.action === "generate-corkboard") {
+        const path = documentTargetKey(data.target || null);
+        if (path) {
+          Promise.resolve(runtimeApi.modules.invoke("corkboard", "generate", {
+            scope: { type: "file", path },
+            stage: activeProjectIsCreative() ? "creative-writing" : "corkboard",
+          })).catch((error) => {
+            appendOutput(`corkboard generation failed: ${error.message || error}\n`, "error");
+          });
+        }
       }
     }
 

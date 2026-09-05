@@ -13,6 +13,7 @@ from .creative_workspace import (
     CREATIVE_CORKBOARD_SUFFIX,
     _create_creative_corkboard,
     _creative_corkboard_payload,
+    create_generated_creative_corkboard,
     save_creative_corkboard,
 )
 
@@ -166,4 +167,31 @@ class ProjectCorkboardProvider:
             "provider": self.provider_id,
             "title": title
             or Path(path).name.removesuffix(CREATIVE_CORKBOARD_SUFFIX),
+        }
+
+    def create_generated_board(
+        self,
+        context_id: str,
+        board_id: str,
+        *,
+        title: str,
+        cards: list[dict[str, object]],
+        connectors: list[dict[str, object]],
+        connection_id: str = "",
+    ) -> dict[str, object]:
+        root = self.services.contexts.active_project_root(context_id)
+        normalized_id = self._relative_board_path(board_id or title)
+        path = create_generated_creative_corkboard(
+            root,
+            normalized_id,
+            title=title,
+            cards=cards,
+            connectors=connectors,
+        )
+        return {
+            "status": "created",
+            "board_id": path,
+            "path": path,
+            "provider": self.provider_id,
+            "title": title,
         }

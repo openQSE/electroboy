@@ -15,6 +15,7 @@ from electroboy.service.routes import RouteRequest
 from electroboy.state_store import StateError
 
 from .common import conflict, route
+from .corkboard_generation import GENERATION_MANAGER, generation_passes
 from .creative_workspace import render_corkboard_html
 
 
@@ -131,12 +132,55 @@ def _create(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(result)
 
 
+def _generation_passes(request: RouteRequest) -> ServiceResponse:
+    try:
+        context = request.services.contexts.require(request.context_id)
+        workflow_id = str(context.workflow_id or "")
+        passes = generation_passes(workflow_id)
+        if not passes:
+            raise StateError("active workflow does not support corkboard generation")
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse({"workflow": workflow_id, "passes": passes})
+
+
+def _start_generation(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        provider = _provider(request)
+        _require_matching_provider(provider, payload)
+        job = GENERATION_MANAGER.start(
+            request.services,
+            provider,
+            request.context_id,
+            payload,
+            connection_id=request.connection_id,
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(job, status=HTTPStatus.ACCEPTED)
+
+
+def _generation_status(request: RouteRequest) -> ServiceResponse:
+    try:
+        job_id = str((request.params.get("job_id") or [""])[0]).strip()
+        if not job_id:
+            raise StateError("corkboard generation job id is required")
+        job = GENERATION_MANAGER.get(request.context_id, job_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(job)
+
+
 _HANDLERS = {
     "view": _view,
     "board": _board,
     "boards": _boards,
     "save": _save,
     "create": _create,
+    "generation_passes": _generation_passes,
+    "start_generation": _start_generation,
+    "generation_status": _generation_status,
 }
 
 
@@ -150,6 +194,24 @@ def module() -> ServiceModule:
             route("GET", "/api/corkboards", "corkboard", "boards"),
             route("POST", "/api/corkboard", "corkboard", "save"),
             route("POST", "/api/corkboards", "corkboard", "create"),
+            route(
+                "GET",
+                "/api/corkboard-generation/passes",
+                "corkboard",
+                "generation_passes",
+            ),
+            route(
+                "POST",
+                "/api/corkboard-generation",
+                "corkboard",
+                "start_generation",
+            ),
+            route(
+                "GET",
+                "/api/corkboard-generation",
+                "corkboard",
+                "generation_status",
+            ),
             # Compatibility aliases for pre-provider creative clients.
             route("GET", "/artifacts/creative-corkboard", "corkboard", "view"),
             route("POST", "/api/creative/corkboard", "corkboard", "save"),
@@ -166,6 +228,7 @@ def module() -> ServiceModule:
                 "selectable-corkboard-layout",
                 "corkboard-auto-organize",
                 "corkboard-board-selector",
+                "corkboard-generation",
             }
         ),
         state_namespace="corkboard",

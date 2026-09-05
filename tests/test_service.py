@@ -719,6 +719,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('kind: "scratch"', software)
         self.assertIn('kind: "status"', software)
         self.assertIn('if (stageId === "corkboard")', software)
+        self.assertIn("run: generateProjectCorkboard", software)
+        self.assertIn("async function generateProjectCorkboard()", software)
         self.assertIn(
             'sidecarStages: ["document", "corkboard", "mind-map"]', software
         )
@@ -727,6 +729,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-creative-control="corkboard-menu"', creative)
         self.assertIn('data-creative-control="open-corkboard">Open', creative)
         self.assertIn('data-creative-control="new-corkboard">New', creative)
+        self.assertIn(
+            'data-creative-control="generate-corkboard">Generate',
+            creative,
+        )
+        self.assertIn('scope: { type: "project" }', creative)
         mind_map_position = creative.index('data-creative-control="mind-map-menu"')
         corkboard_position = creative.index('data-creative-control="corkboard-menu"')
         folders_position = creative.index('class="creative-folder-title"')
@@ -858,11 +865,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('kind: "corkboard"', corkboard)
         self.assertIn("async function openDocument(runtime, options = {})", corkboard)
         self.assertIn("async function newDocument(runtime, options = {})", corkboard)
+        self.assertIn("async function generate(runtime, options = {})", corkboard)
+        self.assertIn('id = "corkboardGenerationPicker"', corkboard)
+        self.assertIn('contextUrl(runtime, "/api/corkboard-generation")', corkboard)
+        self.assertIn('type: "electroboy-corkboard-generated"', corkboard)
         self.assertIn(
             'className = "ad-hoc-session-dialog corkboard-picker-dialog"',
             corkboard,
         )
-        self.assertIn("actions: { show, openDocument, newDocument }", corkboard)
+        self.assertIn(
+            "actions: { show, openDocument, newDocument, generate }",
+            corkboard,
+        )
         self.assertIn("let creativeTreeRequestSequence = 0;", creative)
         self.assertIn(
             "const requestSequence = ++creativeTreeRequestSequence;",
@@ -1343,6 +1357,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('setActionStatus("Agent started")', file_pane_tools)
         self.assertIn('const pop = button("Pop"', file_pane_tools)
         self.assertIn('runAction("pop", () => {});', file_pane_tools)
+        self.assertIn('menuButton("Generate Corkboard…"', file_pane_tools)
+        self.assertIn('runAction("generateCorkboard", () => {});', file_pane_tools)
+        self.assertIn('scope: { type: "file", path:', documents)
+        self.assertIn("function generatePaneDocumentCorkboard()", pane_window)
+        self.assertIn("generateCorkboard: generatePaneDocumentCorkboard", pane_window)
+        self.assertIn('data.action === "generate-corkboard"', documents)
         self.assertIn('menu("File", "pane-tool-file-menu")', file_pane_tools)
         self.assertIn('menu("Mode", "pane-tool-mode-menu")', file_pane_tools)
         self.assertIn('menu("Export", "pane-tool-export-menu")', file_pane_tools)
@@ -1355,6 +1375,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertLess(
             file_menu_source.index('menuButton("New"'),
+            file_menu_source.index('menuButton("Generate Corkboard…"'),
+        )
+        self.assertLess(
+            file_menu_source.index('menuButton("Generate Corkboard…"'),
             file_menu_source.index('menuButton("Close"'),
         )
         self.assertLess(
@@ -1381,6 +1405,7 @@ class ServiceTests(unittest.TestCase):
             file_pane_tools.index('["docx", "DOCX"]'),
         )
         self.assertIn("frame.contentWindow.find(", file_pane_tools)
+        self.assertIn(".corkboard-generation-progress {", shell_css)
         self.assertIn(
             'contextUrl("/api/agents/documentation/start")',
             file_pane_tools,
@@ -2241,6 +2266,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNotNone(clear_recent_match)
         self.assertEqual(clear_recent_match.owner, "recent_projects")
         self.assertEqual(clear_recent_match.handler_name, "clear")
+        generation_match = dispatcher.match("POST", "/api/corkboard-generation")
+        self.assertIsNotNone(generation_match)
+        self.assertEqual(generation_match.owner, "corkboard")
+        self.assertEqual(generation_match.handler_name, "start_generation")
+        generation_status = dispatcher.match("GET", "/api/corkboard-generation")
+        self.assertIsNotNone(generation_status)
+        self.assertEqual(generation_status.handler_name, "generation_status")
 
     def test_all_registered_routes_have_executable_handlers(self) -> None:
         modules = build_module_registry()

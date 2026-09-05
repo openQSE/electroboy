@@ -243,6 +243,223 @@
     return created;
   }
 
+  function generationPicker() {
+    let dialog = document.getElementById("corkboardGenerationPicker");
+    if (dialog) return dialog;
+    dialog = document.createElement("dialog");
+    dialog.id = "corkboardGenerationPicker";
+    dialog.className = "ad-hoc-session-dialog corkboard-picker-dialog";
+    dialog.innerHTML = `
+      <form method="dialog" class="ad-hoc-session-form">
+        <header class="ad-hoc-session-header">
+          <div><h2>Generate Corkboard</h2>
+            <p class="corkboard-generation-scope"></p></div>
+          <button class="ad-hoc-session-close" type="button"
+                  aria-label="Close">&times;</button>
+        </header>
+        <fieldset class="ad-hoc-session-options">
+          <legend>Analysis pass</legend>
+          <div class="ad-hoc-session-list corkboard-generation-passes"></div>
+        </fieldset>
+        <label class="ad-hoc-session-custom">Board name <span>(optional)</span>
+          <input class="ad-hoc-session-uuid corkboard-generation-title"
+                 maxlength="200" autocomplete="off"
+                 placeholder="Use the suggested name"></label>
+        <section class="corkboard-generation-progress" hidden>
+          <progress max="100" value="0"></progress>
+          <p class="ad-hoc-session-details corkboard-generation-step"></p>
+        </section>
+        <p class="ad-hoc-session-error corkboard-generation-error" hidden></p>
+        <footer class="ad-hoc-session-footer">
+          <button class="corkboard-generation-cancel" type="button">Cancel</button>
+          <button class="ad-hoc-session-submit corkboard-generation-submit"
+                  type="submit">Generate</button>
+        </footer>
+      </form>`;
+    document.body.append(dialog);
+    return dialog;
+  }
+
+  async function generationPasses(runtime) {
+    const response = await fetch(
+      contextUrl(runtime, "/api/corkboard-generation/passes"),
+      { cache: "no-store", headers: { Accept: "application/json" } },
+    );
+    const payload = await response.json().catch(() => ({
+      error: "generation passes failed",
+    }));
+    if (!response.ok) {
+      throw new Error(payload.error || "generation passes failed");
+    }
+    return Array.isArray(payload.passes) ? payload.passes : [];
+  }
+
+  function generationScopeLabel(scope) {
+    return scope.type === "file"
+      ? `Source file: ${scope.path}`
+      : "Source: Entire active project";
+  }
+
+  function generationDelay(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  async function generationStatus(runtime, jobId) {
+    const parameters = new URLSearchParams({ job_id: jobId });
+    const response = await fetch(contextUrl(
+      runtime,
+      `/api/corkboard-generation?${parameters.toString()}`,
+    ), { cache: "no-store" });
+    const payload = await response.json().catch(() => ({
+      error: "generation status failed",
+    }));
+    if (!response.ok) throw new Error(payload.error || "generation status failed");
+    return payload;
+  }
+
+  async function generate(runtime, options = {}) {
+    const scope = options.scope && typeof options.scope === "object"
+      ? { ...options.scope }
+      : { type: "project" };
+    scope.type = scope.type === "file" ? "file" : "project";
+    scope.path = String(scope.path || "").trim();
+    if (scope.type === "file" && !scope.path) {
+      throw new Error("Select a source file before generating a corkboard.");
+    }
+    const dialog = generationPicker();
+    const form = dialog.querySelector("form");
+    const passList = dialog.querySelector(".corkboard-generation-passes");
+    const title = dialog.querySelector(".corkboard-generation-title");
+    const progress = dialog.querySelector(".corkboard-generation-progress");
+    const progressBar = progress.querySelector("progress");
+    const step = dialog.querySelector(".corkboard-generation-step");
+    const error = dialog.querySelector(".corkboard-generation-error");
+    const close = dialog.querySelector(".ad-hoc-session-close");
+    const cancel = dialog.querySelector(".corkboard-generation-cancel");
+    const submit = dialog.querySelector(".corkboard-generation-submit");
+    dialog.querySelector(".corkboard-generation-scope").textContent =
+      generationScopeLabel(scope);
+    passList.textContent = "Loading passes…";
+    title.value = "";
+    title.disabled = false;
+    progress.hidden = true;
+    error.hidden = true;
+    submit.disabled = true;
+    close.disabled = false;
+    cancel.disabled = false;
+    const passes = await generationPasses(runtime);
+    if (!passes.length) throw new Error("No corkboard generation passes are available.");
+    passList.replaceChildren(...passes.map((entry, index) => {
+      const option = document.createElement("label");
+      option.className = "ad-hoc-session-option";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "corkboard-generation-pass";
+      input.value = String(entry.id || "");
+      input.checked = index === 0;
+      const copy = document.createElement("span");
+      copy.className = "ad-hoc-session-option-copy";
+      const label = document.createElement("strong");
+      label.textContent = String(entry.label || entry.id || "Generation pass");
+      const description = document.createElement("span");
+      description.className = "ad-hoc-session-details";
+      description.textContent = String(entry.description || "");
+      copy.append(label, description);
+      option.append(input, copy);
+      return option;
+    }));
+    submit.disabled = false;
+
+    return new Promise((resolve) => {
+      let finished = false;
+      let running = false;
+      const finish = (value) => {
+        if (finished) return;
+        finished = true;
+        if (dialog.open) dialog.close();
+        resolve(value);
+      };
+      close.onclick = () => {
+        if (!running) finish(null);
+      };
+      cancel.onclick = () => {
+        if (!running) finish(null);
+      };
+      dialog.oncancel = (event) => {
+        event.preventDefault();
+        if (!running) finish(null);
+      };
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        if (running) return;
+        const selected = passList.querySelector(
+          'input[name="corkboard-generation-pass"]:checked',
+        );
+        if (!selected) return;
+        running = true;
+        close.disabled = true;
+        cancel.disabled = true;
+        submit.disabled = true;
+        title.disabled = true;
+        progress.hidden = false;
+        progressBar.value = 5;
+        step.textContent = "Starting non-interactive agent…";
+        error.hidden = true;
+        try {
+          const response = await fetch(contextUrl(runtime, "/api/corkboard-generation"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              scope,
+              pass: selected.value,
+              title: title.value.trim(),
+              provider: options.provider || "",
+            }),
+          });
+          let job = await response.json().catch(() => ({
+            error: "corkboard generation failed",
+          }));
+          if (!response.ok) throw new Error(job.error || "corkboard generation failed");
+          while (job.status === "queued" || job.status === "running") {
+            progressBar.value = Number(job.progress || 0);
+            step.textContent = String(job.step || "Generating…");
+            await generationDelay(750);
+            job = await generationStatus(runtime, job.job_id);
+          }
+          progressBar.value = Number(job.progress || 100);
+          step.textContent = String(job.step || job.status || "Complete");
+          if (job.status !== "complete" || !job.result) {
+            throw new Error(job.error || "corkboard generation failed");
+          }
+          const generated = {
+            ...job.result,
+            board_id: job.result.board_id || job.board_id,
+            provider: job.result.provider || job.provider,
+            title: job.result.title || job.title,
+          };
+          if (options.show !== false) {
+            show(runtime, generated, { ...options, freeform: true });
+          }
+          window.postMessage({
+            type: "electroboy-corkboard-generated",
+            board: generated,
+          }, window.location.origin);
+          finish(generated);
+        } catch (generationError) {
+          running = false;
+          error.textContent = generationError.message || String(generationError);
+          error.hidden = false;
+          close.disabled = false;
+          cancel.disabled = false;
+          submit.disabled = false;
+          title.disabled = false;
+          progress.hidden = true;
+        }
+      };
+      dialog.showModal();
+    });
+  }
+
   window.ElectroBoyFrontend.registerModule({
     id: "corkboard",
     label: "Corkboard",
@@ -253,7 +470,8 @@
       "selectable-corkboard-layout",
       "corkboard-auto-organize",
       "corkboard-board-selector",
+      "corkboard-generation",
     ],
-    actions: { show, openDocument, newDocument },
+    actions: { show, openDocument, newDocument, generate },
   });
 })();

@@ -252,6 +252,42 @@ def _create_creative_corkboard(
     return normalized_path
 
 
+def create_generated_creative_corkboard(
+    project_root: Path | str,
+    relative_path: str,
+    *,
+    title: str,
+    cards: list[dict[str, object]],
+    connectors: list[dict[str, object]],
+) -> str:
+    """Atomically create a validated freeform corkboard from a generated plan."""
+
+    normalized_path, corkboard_path = _creative_path(project_root, relative_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
+        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
+    if corkboard_path.exists():
+        raise StateError(f"corkboard path already exists: {normalized_path}")
+    document = _empty_creative_corkboard_document(title)
+    document["cards"] = _freeform_corkboard_cards({"cards": cards})
+    document["connectors"] = _freeform_corkboard_connectors(
+        {"connectors": connectors},
+        document["cards"],
+    )
+    corkboard_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = corkboard_path.with_name(
+        f".{corkboard_path.name}.{uuid4().hex}.tmp"
+    )
+    try:
+        temporary.write_text(
+            json.dumps(document, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(corkboard_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return normalized_path
+
+
 def _is_creative_corkboard_document(path: Path) -> bool:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -4693,6 +4729,16 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
             "color": color,
             "card_type": card_type,
         }
+        source_path = str(raw_card.get("path") or "").strip()
+        if source_path:
+            card["path"] = source_path
+            card["type"] = str(raw_card.get("type") or "file")
+        target = raw_card.get("target")
+        if isinstance(target, dict):
+            card["target"] = dict(target)
+        metadata = raw_card.get("metadata")
+        if isinstance(metadata, dict):
+            card["metadata"] = dict(metadata)
         if card_type == "group":
             board_path = _normalize_creative_corkboard_reference(
                 raw_card.get("board_path")
