@@ -1799,36 +1799,36 @@ Boundary 1 validation notes:
 
 ### Boundary 2: Phase 3 Domain Contracts And Schemas
 
-14. [ ] Define the Phase 3 source manifest schema and generation metadata.
-15. [ ] Define `source_file` records with normalized path, hash, size,
+14. [x] Define the Phase 3 source manifest schema and generation metadata.
+15. [x] Define `source_file` records with normalized path, hash, size,
     language, and source status.
-16. [ ] Define source-oriented symbol locators, canonical comparison tuples,
+16. [x] Define source-oriented symbol locators, canonical comparison tuples,
     and validation provenance without a standalone normalized symbol catalog.
-17. [ ] Define reusable hard source-reference and file-disposition fields.
-18. [ ] Define `component_candidate` records and invocation-local candidate ID
+17. [x] Define reusable hard source-reference and file-disposition fields.
+18. [x] Define `component_candidate` records and invocation-local candidate ID
     rules.
-19. [ ] Define overlap-group records containing exact shared-symbol edges.
-20. [ ] Define reconciliation input and output records with only `same` and
+19. [x] Define overlap-group records containing exact shared-symbol edges.
+20. [x] Define reconciliation input and output records with only `same` and
     `distinct` decisions.
-21. [ ] Define canonical component records with opaque persisted IDs, aliases,
+21. [x] Define canonical component records with opaque persisted IDs, aliases,
     provenance, and reconciliation links.
-22. [ ] Define component-manifest metadata, file-coverage reports, warning
+22. [x] Define component-manifest metadata, file-coverage reports, warning
     diagnostics, and completion states.
-23. [ ] Define module records, component membership, optional hierarchy, and
+23. [x] Define module records, component membership, optional hierarchy, and
     repeated-membership rationale.
-24. [ ] Define module-manifest metadata and freeze state.
-25. [ ] Define module relationship records with supporting components and
+24. [x] Define module-manifest metadata and freeze state.
+25. [x] Define module relationship records with supporting components and
     source evidence.
-26. [ ] Define component-discovery, missing-file investigation, and
+26. [x] Define component-discovery, missing-file investigation, and
     missing-endpoint request records.
-27. [ ] Define Architecture, Module, and Function knowledge references to
+27. [x] Define Architecture, Module, and Function knowledge references to
     Phase 3 IDs.
-28. [ ] Define schema-version and learner-generation discrimination.
-29. [ ] Implement schema loading without coupling it to routes or rendering.
-30. [ ] Add valid and invalid fixtures for every Phase 3 record type.
-31. [ ] Test unknown IDs, stale revisions, invalid ranges, malformed
+28. [x] Define schema-version and learner-generation discrimination.
+29. [x] Implement schema loading without coupling it to routes or rendering.
+30. [x] Add valid and invalid fixtures for every Phase 3 record type.
+31. [x] Test unknown IDs, stale revisions, invalid ranges, malformed
     partitions, file dispositions, terminal states, cycles, and mixed records.
-32. [ ] Commit Phase 3 contracts, schemas, fixtures, and validators.
+32. [x] Commit Phase 3 contracts, schemas, fixtures, and validators.
 
 ### Boundary 3: Source File Manifest
 
