@@ -1352,20 +1352,20 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 10: Symbol Index And Analysis Adapters
 
-114. [ ] Define a reusable symbol-analysis adapter contract.
-115. [ ] Implement a repository-search fallback available for every language.
-116. [ ] Detect optional language servers, tags, Tree-sitter, compiler indexes,
+114. [x] Define a reusable symbol-analysis adapter contract.
+115. [x] Implement a repository-search fallback available for every language.
+116. [x] Detect optional language servers, tags, Tree-sitter, compiler indexes,
     or call-graph tools.
-117. [ ] Add adapters only where they materially improve evidence quality.
-118. [ ] Normalize adapter output into language-independent symbol records.
-119. [ ] Record qualified names, kinds, owners, locations, signatures, and
+117. [x] Add adapters only where they materially improve evidence quality.
+118. [x] Normalize adapter output into language-independent symbol records.
+119. [x] Record qualified names, kinds, owners, locations, signatures, and
     visibility.
-120. [ ] Record known callers, callees, types, tests, state, and limitations.
-121. [ ] Distinguish verified, inferred, and unresolved call edges.
-122. [ ] Avoid a hard dependency on Vim or any editor integration.
-123. [ ] Test overloaded names, methods, generated symbols, dynamic dispatch,
+120. [x] Record known callers, callees, types, tests, state, and limitations.
+121. [x] Distinguish verified, inferred, and unresolved call edges.
+122. [x] Avoid a hard dependency on Vim or any editor integration.
+123. [x] Test overloaded names, methods, generated symbols, dynamic dispatch,
     function pointers, and symbols absent from optional indexes.
-124. [ ] Commit symbol indexing and adapter boundary.
+124. [x] Commit symbol indexing and adapter boundary.
 
 ### Boundary 11: Knowledge Validation And Enrichment
 

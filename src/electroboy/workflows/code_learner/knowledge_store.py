@@ -40,6 +40,8 @@ class KnowledgeStore:
         self.state_root = self.root / STATE_ROOT
         self.knowledge_root = self.state_root / "knowledge"
         self.courses_root = self.state_root / "courses"
+        self.analysis_root = self.state_root / "analysis"
+        self.symbol_evidence_path = self.analysis_root / "symbol-evidence.jsonl"
         self.progress_path = self.state_root / "progress.jsonl"
         self.checkpoint_path = self.state_root / "checkpoint.json"
         self.tutor_context_path = self.state_root / "tutor-context.json"

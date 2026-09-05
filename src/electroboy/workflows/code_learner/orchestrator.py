@@ -12,6 +12,7 @@ from electroboy.adapters.base import AgentInvocation, AgentResult, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
+from .analysis_adapters import SymbolEvidenceCollector
 from .analysis_passes import (
     ANALYSIS_PASSES,
     AnalysisPass,
@@ -59,6 +60,11 @@ def analysis_pass_prompt(
     existing_text = "\n".join(f"- {path}" for path in existing) or "- none"
     scope = scope or AnalysisScope("all")
     scope_text = ", ".join(scope.entity_ids) or "repository-wide"
+    auxiliary = (
+        store.symbol_evidence_path.relative_to(root).as_posix()
+        if analysis_pass.name == "symbols" and store.symbol_evidence_path.is_file()
+        else "none"
+    )
     return f"""{skill_prompt_reference("codebase-analysis")}
 
 Repository root: {root}
@@ -67,6 +73,7 @@ Repository revision: {revision}
 Pass: {analysis_pass.name}
 Pass scope: {scope.key}
 Scoped entity IDs: {scope_text}
+Auxiliary normalized evidence: {auxiliary}
 Canonical schema: {schema}
 
 Objective:
@@ -158,6 +165,7 @@ class AnalysisOrchestrator:
         pass_state = _pass_state(checkpoint, analysis_pass.name)
         pass_state.update({"status": "running", "started_at": utc_now()})
         self.store.save_checkpoint(checkpoint)
+        self._prepare_pass(analysis_pass)
         scopes = analysis_scopes(analysis_pass, self.store.load_knowledge())
         for scope in scopes:
             self._run_scope(
@@ -191,13 +199,9 @@ class AnalysisOrchestrator:
             raise CodeLearnerError(
                 f"analysis checkpoint jobs are invalid: {analysis_pass.name}"
             )
-        job_state = jobs.setdefault(
-            scope.key, {"status": "pending", "attempts": 0}
-        )
+        job_state = jobs.setdefault(scope.key, {"status": "pending", "attempts": 0})
         if not isinstance(job_state, dict):
-            raise CodeLearnerError(
-                f"analysis checkpoint job is invalid: {scope.key}"
-            )
+            raise CodeLearnerError(f"analysis checkpoint job is invalid: {scope.key}")
         if job_state.get("status") == "completed":
             return
         job_state.update({"status": "running", "started_at": utc_now()})
@@ -231,7 +235,17 @@ class AnalysisOrchestrator:
                     context_paths=[
                         path.relative_to(self.root).as_posix()
                         for path in self.store.knowledge_root.glob("*.jsonl")
-                    ],
+                    ]
+                    + (
+                        [
+                            self.store.symbol_evidence_path.relative_to(
+                                self.root
+                            ).as_posix()
+                        ]
+                        if analysis_pass.name == "symbols"
+                        and self.store.symbol_evidence_path.is_file()
+                        else []
+                    ),
                 )
             )
             try:
@@ -283,6 +297,29 @@ class AnalysisOrchestrator:
             self.store.merge_knowledge(records)
         else:
             self.store.save_knowledge(records)
+
+    def _prepare_pass(self, analysis_pass: AnalysisPass) -> None:
+        if analysis_pass.name != "symbols":
+            return
+        records = self.store.load_knowledge()
+        manifest = next(
+            record
+            for record in records
+            if record.get("record_type") == "knowledge_manifest"
+        )
+        attributes = manifest.get("attributes")
+        inventory = (
+            attributes.get("inventory") if isinstance(attributes, dict) else None
+        )
+        exclusions = (
+            inventory.get("excluded_regions") if isinstance(inventory, dict) else []
+        )
+        excluded_paths = [
+            str(item.get("path") or "") for item in exclusions if isinstance(item, dict)
+        ]
+        SymbolEvidenceCollector(self.root, excluded_regions=excluded_paths).write(
+            self.store.symbol_evidence_path
+        )
 
     def _checkpoint(self) -> dict[str, object]:
         revision = repository_revision(self.root)

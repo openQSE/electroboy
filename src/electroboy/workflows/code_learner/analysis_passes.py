@@ -115,6 +115,30 @@ FLOW_CONTRACT = """Runtime-flow output contract:
   remain explicit and do not become invented direct edges.
 """
 
+SYMBOL_CONTRACT = """Symbol indexing output contract:
+- Read the normalized auxiliary symbol evidence when provided. Treat fallback
+  text matches as candidates requiring source verification, not proven calls.
+- Preserve the manifest and add knowledge_manifest.attributes.symbol_catalog
+  with symbol_ids, adapter_capabilities, indexed_paths, and skipped_paths.
+- Every symbol is an entity with parent_id set to its owning module and
+  attributes containing qualified_name, symbol_kind, language,
+  owning_module_id, implementation_refs, visibility, signature, caller_ids,
+  callee_ids, input_types, output_types, side_effects, state_access_ids,
+  test_ids, analysis_limitations, and call_edge_confidence.
+- caller_ids and callee_ids contain stable symbol IDs only. Unresolved names,
+  overload ambiguity, generated declarations, reflection, dynamic dispatch,
+  callbacks, and function pointers belong in analysis_limitations and a
+  diagnostic when they materially affect the index.
+- call_edge_confidence maps related symbol IDs to verified, inferred, or
+  unresolved. Emit calls relationships for resolved edges with matching
+  confidence and source evidence.
+- Index overloaded methods and same-name functions as distinct stable symbols
+  based on qualified identity and source location.
+- Do not require Vim, an editor plugin, Ctags, a language server, Tree-sitter,
+  or a compiler index. Report each capability and continue with repository
+  search when optional tools are absent.
+"""
+
 
 ANALYSIS_PASSES = (
     AnalysisPass(
@@ -162,7 +186,7 @@ ANALYSIS_PASSES = (
         "locations, signatures, callers, callees, state access, side effects, "
         "tests, and limitations.",
         "Emit symbol entities and supporting relationships or diagnostics.",
-        "Normalize tool output into language-independent symbol entities.",
+        SYMBOL_CONTRACT,
     ),
     AnalysisPass(
         "validation",
@@ -194,6 +218,8 @@ def validate_pass_output(
         _validate_relationships(normalized, tuple(scope_ids))
     elif analysis_pass.name == "flows":
         _validate_flows(normalized)
+    elif analysis_pass.name == "symbols":
+        _validate_symbols(normalized)
 
 
 def analysis_scopes(
@@ -234,8 +260,7 @@ def _validate_inventory(records: list[dict[str, object]]) -> None:
     repositories = [
         record
         for record in records
-        if record.get("record_type") == "entity"
-        and record.get("kind") == "repository"
+        if record.get("record_type") == "entity" and record.get("kind") == "repository"
     ]
     if len(manifests) != 1:
         raise CodeLearnerError("inventory pass requires exactly one manifest")
@@ -245,9 +270,7 @@ def _validate_inventory(records: list[dict[str, object]]) -> None:
     attributes = manifests[0].get("attributes")
     inventory = attributes.get("inventory") if isinstance(attributes, dict) else None
     if not isinstance(inventory, dict):
-        raise CodeLearnerError(
-            "inventory manifest requires attributes.inventory"
-        )
+        raise CodeLearnerError("inventory manifest requires attributes.inventory")
     required_arrays = (
         "languages",
         "excluded_regions",
@@ -300,11 +323,14 @@ def _validate_inventory(records: list[dict[str, object]]) -> None:
             for field in ("path", "category", "reason")
         ):
             raise CodeLearnerError(
-                f"inventory excluded_regions[{index}] requires path, category, and reason"
+                f"inventory excluded_regions[{index}] requires path, category, "
+                "and reason"
             )
     for index, item in enumerate(inventory["analysis_tools"]):
         if not isinstance(item, dict):
-            raise CodeLearnerError(f"inventory analysis_tools[{index}] must be an object")
+            raise CodeLearnerError(
+                f"inventory analysis_tools[{index}] must be an object"
+            )
         if not str(item.get("name") or "").strip():
             raise CodeLearnerError(f"inventory analysis_tools[{index}] requires name")
         if not isinstance(item.get("available"), bool):
@@ -326,9 +352,7 @@ def _validate_modules(records: list[dict[str, object]]) -> None:
     attributes = manifest.get("attributes")
     catalog = attributes.get("module_catalog") if isinstance(attributes, dict) else None
     if not isinstance(catalog, dict):
-        raise CodeLearnerError(
-            "module manifest requires attributes.module_catalog"
-        )
+        raise CodeLearnerError("module manifest requires attributes.module_catalog")
     for field in (
         "major_module_ids",
         "extension_family_ids",
@@ -364,7 +388,9 @@ def _validate_modules(records: list[dict[str, object]]) -> None:
         if record.get("record_type") == "entity"
     }
     module_ids = {
-        record_id for record_id, record in entities.items() if record.get("kind") == "module"
+        record_id
+        for record_id, record in entities.items()
+        if record.get("kind") == "module"
     }
     family_ids = {
         record_id
@@ -414,7 +440,9 @@ def _validate_modules(records: list[dict[str, object]]) -> None:
             raise CodeLearnerError(
                 f"major module {module_id} references unknown extension family"
             )
-        _require_known_ids(details["interface_ids"], set(entities), f"{module_id} interfaces")
+        _require_known_ids(
+            details["interface_ids"], set(entities), f"{module_id} interfaces"
+        )
         _require_known_ids(
             details["initial_dependency_ids"], module_ids, f"{module_id} dependencies"
         )
@@ -425,9 +453,7 @@ def _validate_modules(records: list[dict[str, object]]) -> None:
         family = entities[family_id]
         details = family.get("attributes")
         if not isinstance(details, dict):
-            raise CodeLearnerError(
-                f"extension family {family_id} requires attributes"
-            )
+            raise CodeLearnerError(f"extension family {family_id} requires attributes")
         for field in (
             "contract_ids",
             "registration_ids",
@@ -435,15 +461,17 @@ def _validate_modules(records: list[dict[str, object]]) -> None:
             "excluded_implementations",
         ):
             if not isinstance(details.get(field), list):
-                raise CodeLearnerError(
-                    f"extension family {family_id} requires {field}"
-                )
-        _require_known_ids(details["contract_ids"], set(entities), f"{family_id} contracts")
+                raise CodeLearnerError(f"extension family {family_id} requires {field}")
+        _require_known_ids(
+            details["contract_ids"], set(entities), f"{family_id} contracts"
+        )
         _require_known_ids(
             details["registration_ids"], set(entities), f"{family_id} registration"
         )
         _require_known_ids(
-            details["implementation_module_ids"], module_ids, f"{family_id} implementations"
+            details["implementation_module_ids"],
+            module_ids,
+            f"{family_id} implementations",
         )
         for implementation_id in details["implementation_module_ids"]:
             implementation = entities[implementation_id]
@@ -484,7 +512,10 @@ def _validate_modules(records: list[dict[str, object]]) -> None:
             "module catalog coverage implementation_module_count does not match "
             "family implementations"
         )
-    if coverage["implementation_candidate_count"] != implementation_count + excluded_count:
+    if (
+        coverage["implementation_candidate_count"]
+        != implementation_count + excluded_count
+    ):
         raise CodeLearnerError(
             "module catalog implementation candidates must all be modules or exclusions"
         )
@@ -548,9 +579,7 @@ def _validate_relationships(
             "diagnostic_ids",
         ):
             if not isinstance(analysis.get(field), list):
-                raise CodeLearnerError(
-                    f"scoped module {module_id} requires {field}"
-                )
+                raise CodeLearnerError(f"scoped module {module_id} requires {field}")
         _require_known_ids(
             analysis["incoming_relationship_ids"],
             set(relationships),
@@ -576,7 +605,8 @@ def _validate_relationships(
         unresolved = any(value == "unresolved" for value in categories.values())
         if unresolved and not analysis["diagnostic_ids"]:
             raise CodeLearnerError(
-                f"scoped module {module_id} requires diagnostics for unresolved categories"
+                f"scoped module {module_id} requires diagnostics for "
+                "unresolved categories"
             )
 
 
@@ -668,9 +698,7 @@ def _validate_flows(records: list[dict[str, object]]) -> None:
             if not isinstance(details.get(field), list):
                 raise CodeLearnerError(f"runtime flow {flow_id} requires {field}")
         if not isinstance(details.get("concurrency_notes"), str):
-            raise CodeLearnerError(
-                f"runtime flow {flow_id} requires concurrency_notes"
-            )
+            raise CodeLearnerError(f"runtime flow {flow_id} requires concurrency_notes")
         steps = flow.get("steps")
         if not isinstance(steps, list):
             raise CodeLearnerError(f"runtime flow {flow_id} requires steps")
@@ -678,6 +706,94 @@ def _validate_flows(records: list[dict[str, object]]) -> None:
         if orders != list(range(1, len(steps) + 1)):
             raise CodeLearnerError(
                 f"runtime flow {flow_id} steps must have contiguous order"
+            )
+
+
+def _validate_symbols(records: list[dict[str, object]]) -> None:
+    manifest = _single_manifest(records, "symbol")
+    manifest_attributes = manifest.get("attributes")
+    catalog = (
+        manifest_attributes.get("symbol_catalog")
+        if isinstance(manifest_attributes, dict)
+        else None
+    )
+    if not isinstance(catalog, dict):
+        raise CodeLearnerError("symbol manifest requires attributes.symbol_catalog")
+    for field in (
+        "symbol_ids",
+        "adapter_capabilities",
+        "indexed_paths",
+        "skipped_paths",
+    ):
+        if not isinstance(catalog.get(field), list):
+            raise CodeLearnerError(f"symbol catalog requires array {field}")
+    entities = {
+        str(record.get("id")): record
+        for record in records
+        if record.get("record_type") == "entity"
+    }
+    symbol_ids = {
+        record_id
+        for record_id, record in entities.items()
+        if record.get("kind") == "symbol"
+    }
+    _require_known_ids(catalog["symbol_ids"], symbol_ids, "symbol catalog")
+    required_fields = (
+        "qualified_name",
+        "symbol_kind",
+        "language",
+        "owning_module_id",
+        "implementation_refs",
+        "visibility",
+        "signature",
+        "caller_ids",
+        "callee_ids",
+        "input_types",
+        "output_types",
+        "side_effects",
+        "state_access_ids",
+        "test_ids",
+        "analysis_limitations",
+        "call_edge_confidence",
+    )
+    for symbol_id in catalog["symbol_ids"]:
+        symbol = entities[symbol_id]
+        attributes = symbol.get("attributes")
+        if not isinstance(attributes, dict):
+            raise CodeLearnerError(f"symbol {symbol_id} requires attributes")
+        missing = [field for field in required_fields if field not in attributes]
+        if missing:
+            raise CodeLearnerError(
+                f"symbol {symbol_id} requires fields: {', '.join(missing)}"
+            )
+        owner = attributes["owning_module_id"]
+        if owner not in entities or entities[owner].get("kind") != "module":
+            raise CodeLearnerError(f"symbol {symbol_id} has unknown owning module")
+        if symbol.get("parent_id") != owner:
+            raise CodeLearnerError(
+                f"symbol {symbol_id} parent_id must match owning_module_id"
+            )
+        for field in (
+            "implementation_refs",
+            "caller_ids",
+            "callee_ids",
+            "input_types",
+            "output_types",
+            "side_effects",
+            "state_access_ids",
+            "test_ids",
+            "analysis_limitations",
+        ):
+            if not isinstance(attributes[field], list):
+                raise CodeLearnerError(f"symbol {symbol_id} requires array {field}")
+        _require_known_ids(attributes["caller_ids"], symbol_ids, f"{symbol_id} callers")
+        _require_known_ids(attributes["callee_ids"], symbol_ids, f"{symbol_id} callees")
+        if not isinstance(attributes["call_edge_confidence"], dict) or any(
+            value not in {"verified", "inferred", "unresolved"}
+            for value in attributes["call_edge_confidence"].values()
+        ):
+            raise CodeLearnerError(
+                f"symbol {symbol_id} has invalid call_edge_confidence"
             )
 
 
@@ -699,6 +815,4 @@ def _require_known_ids(values: object, known: set[str], label: str) -> None:
         raise CodeLearnerError(f"{label} must be an array")
     unknown = [str(value) for value in values if value not in known]
     if unknown:
-        raise CodeLearnerError(
-            f"{label} contain unknown IDs: {', '.join(unknown)}"
-        )
+        raise CodeLearnerError(f"{label} contain unknown IDs: {', '.join(unknown)}")
