@@ -2044,26 +2044,26 @@ Boundary 1 validation notes:
 
 ### Boundary 11: Module Relationship Generation
 
-163. [ ] Remove component reconciliation from all relationship-generation code.
-164. [ ] Define bounded relationship scopes by module or module pair.
-165. [ ] Build prompts with frozen module, component, and source manifest paths.
-166. [ ] Restrict relationship endpoints to frozen module IDs.
-167. [ ] Require supporting component IDs and hard source references.
-168. [ ] Require direction, kind, summary, condition, confidence, and
+163. [x] Remove component reconciliation from all relationship-generation code.
+164. [x] Define bounded relationship scopes by module or module pair.
+165. [x] Build prompts with frozen module, component, and source manifest paths.
+166. [x] Restrict relationship endpoints to frozen module IDs.
+167. [x] Require supporting component IDs and hard source references.
+168. [x] Require direction, kind, summary, condition, confidence, and
      limitations.
-169. [ ] Validate endpoint existence and source revision.
-170. [ ] Validate supporting component membership against endpoint modules.
-171. [ ] Reject inline component or module creation.
-172. [ ] Convert unknown endpoint discoveries into targeted requests.
-173. [ ] Detect exact duplicate module edges.
-174. [ ] Add a focused AI reconciliation path for contradictory module edges.
-175. [ ] Preserve dynamic and uncertain relationship limitations.
-176. [ ] Persist successful relationship scopes independently.
-177. [ ] Resume and retry one failed relationship scope without rebuilding
+169. [x] Validate endpoint existence and source revision.
+170. [x] Validate supporting component membership against endpoint modules.
+171. [x] Reject inline component or module creation.
+172. [x] Convert unknown endpoint discoveries into targeted requests.
+173. [x] Detect exact duplicate module edges.
+174. [x] Add a focused AI reconciliation path for contradictory module edges.
+175. [x] Preserve dynamic and uncertain relationship limitations.
+176. [x] Persist successful relationship scopes independently.
+177. [x] Resume and retry one failed relationship scope without rebuilding
      manifests.
-178. [ ] Test direct, conditional, dynamic, duplicate, contradictory, unknown,
+178. [x] Test direct, conditional, dynamic, duplicate, contradictory, unknown,
      self-referential, and failed relationships.
-179. [ ] Commit module relationship generation.
+179. [x] Commit module relationship generation.
 
 ### Boundary 12: Horizontal And Vertical Architecture Knowledge
 

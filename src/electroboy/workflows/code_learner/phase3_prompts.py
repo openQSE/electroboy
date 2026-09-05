@@ -230,3 +230,70 @@ Return strict JSONL containing only module and knowledge_request records. Do
 not alter components or emit relationships, flows, diagrams, course prose, or
 repository changes.
 """.strip()
+
+
+def module_relationship_prompt(
+    root: Path | str,
+    *,
+    analysis_run_id: str,
+    repository_revision: str,
+    scope_id: str,
+    source_manifest_path: Path | str,
+    component_manifest_path: Path | str,
+    components_path: Path | str,
+    module_manifest_path: Path | str,
+    modules_path: Path | str,
+    relationship_kinds: Sequence[str],
+) -> str:
+    """Create one independently retryable module-relationship scope prompt."""
+
+    repository = Path(root).expanduser().resolve()
+    return f"""You are the ElectroBoy Phase 3 module relationship analyst.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {repository}
+Analysis run ID: {analysis_run_id}
+Repository revision: {repository_revision}
+Relationship scope module ID: {scope_id}
+Source manifest: {source_manifest_path}
+Frozen component manifest: {component_manifest_path}
+Canonical components: {components_path}
+Frozen module manifest: {module_manifest_path}
+Canonical modules: {modules_path}
+Allowed relationship kinds: {json.dumps(list(relationship_kinds))}
+
+Analyze only relationships touching the scoped module. Relationship endpoints
+must be frozen module IDs. Components and hard source references are supporting
+evidence only; they are not relationship endpoints.
+
+Each module_relationship requires invocation-local ID, from/to module IDs,
+kind, summary, direction, condition (empty when unconditional), confidence,
+supporting component IDs, source references, and limitations. Preserve dynamic,
+conditional, inferred, and unresolved behavior explicitly. A self relationship
+requires `self_relationship_reason`.
+
+If evidence identifies an unknown endpoint, emit an open knowledge_request with
+request_type `missing_endpoint` and hard source references instead of creating
+a module or component. Return strict JSONL containing only
+module_relationship and knowledge_request records. Do not reconcile components,
+change manifests, or emit modules, flows, diagrams, courses, or prose.
+""".strip()
+
+
+def relationship_conflict_prompt(
+    *,
+    left: Mapping[str, object],
+    right: Mapping[str, object],
+) -> str:
+    """Create a focused contradiction-only relationship repair prompt."""
+
+    return f"""Resolve one contradictory Phase 3 module relationship pair.
+
+Both records use the same frozen endpoints, kind, and condition:
+{json.dumps([dict(left), dict(right)], indent=2, sort_keys=True)}
+
+Read their cited source and return exactly one corrected module_relationship
+JSON object using only the existing endpoint, component, and source IDs. Do not
+create or reconcile components or modules and do not inspect unrelated scope.
+""".strip()

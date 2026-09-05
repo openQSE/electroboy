@@ -1,6 +1,6 @@
 # Relationships And Runtime Flows
 
-Use the canonical relationship enum. Select the narrowest accurate type and
+Use the supplied canonical relationship enum. Select the narrowest accurate type and
 support it with source evidence. Capture ownership and containment, compile and
 runtime dependencies, calls and dynamic dispatch, implementation, creation and
 lifecycle, state reads and writes, events, configuration, persistence, tests,
@@ -15,3 +15,9 @@ Each flow step names known participants and supporting relationship IDs.
 Represent branches and alternate flows. Mark function pointers, reflection,
 generated calls, runtime registration, external code, and other unresolved
 boundaries explicitly rather than presenting them as verified static calls.
+
+For Phase 3 module relationship passes, endpoints are frozen module IDs only.
+Components and symbols are evidence, never endpoints. Do not perform component
+reconciliation or create inline components or modules. Unknown endpoints become
+targeted requests. Preserve conditions, direction, confidence, limitations, and
+dynamic or unresolved behavior.
