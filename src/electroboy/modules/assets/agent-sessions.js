@@ -619,6 +619,7 @@
       runtimeApi.input.history.record(message);
       runtimeApi.elements.agentInput.value = "";
       publishAgentInputState();
+      runtimeApi.agent.followOutput(session.session_id);
       const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -643,6 +644,9 @@
       const session = selectedInputSession();
       if (!session) {
         return Promise.resolve();
+      }
+      if (key === "enter") {
+        runtimeApi.agent.followOutput(session.session_id);
       }
       return queueTerminalInput(async () => {
         const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/key"), {

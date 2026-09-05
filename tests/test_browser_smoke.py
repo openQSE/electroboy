@@ -157,6 +157,7 @@ function fakeTerminal() {
   const scrollHandlers = [];
   let pendingWrite = null;
   const terminal = {
+    rows: 20,
     buffer: {
       active: {
         baseY: 100,
@@ -250,6 +251,66 @@ if (
   bottomTerminal.scrollCalls.some((call) => call[0] === "line" && call[1] === 40)
 ) {
   throw new Error("stale historical viewport was restored after returning bottom");
+}
+
+const draggingTerminal = fakeTerminal();
+draggingTerminal.buffer.active.cursorY = 19;
+behavior.install(draggingTerminal);
+behavior.write(draggingTerminal, "streamed output", () => {});
+draggingTerminal.emit("pointerdown");
+draggingTerminal.emitScroll(42);
+draggingTerminal.emit("pointermove", { buttons: 1 });
+draggingTerminal.emitScroll(70);
+draggingTerminal.emit("pointerup");
+draggingTerminal.buffer.active.baseY = 108;
+draggingTerminal.buffer.active.viewportY = 108;
+draggingTerminal.completeWrite();
+const draggingScroll = draggingTerminal.scrollCalls.at(-1);
+if (!draggingScroll || draggingScroll[0] !== "line" || draggingScroll[1] !== 70) {
+  throw new Error("active scrollbar drag did not preserve its latest viewport");
+}
+
+const visibleTailTerminal = fakeTerminal();
+visibleTailTerminal.buffer.active.cursorY = 10;
+visibleTailTerminal.buffer.active.viewportY = 92;
+behavior.install(visibleTailTerminal);
+behavior.write(visibleTailTerminal, "streamed output", () => {});
+visibleTailTerminal.buffer.active.baseY = 108;
+visibleTailTerminal.buffer.active.viewportY = 100;
+visibleTailTerminal.completeWrite();
+const visibleTailScroll = visibleTailTerminal.scrollCalls.at(-1);
+if (
+  !visibleTailScroll ||
+  visibleTailScroll[0] !== "line" ||
+  visibleTailScroll[1] !== 100
+) {
+  throw new Error("visible live output did not advance naturally");
+}
+
+const followTerminal = fakeTerminal();
+followTerminal.buffer.active.cursorY = 19;
+followTerminal.buffer.active.viewportY = 42;
+behavior.install(followTerminal);
+followTerminal.emitScroll(42);
+behavior.write(followTerminal, "historical output", () => {});
+followTerminal.buffer.active.baseY = 108;
+followTerminal.buffer.active.viewportY = 108;
+followTerminal.completeWrite();
+if (!followTerminal.scrollCalls.some((call) => call[0] === "line" && call[1] === 42)) {
+  throw new Error("hidden live output did not preserve the historical viewport");
+}
+const followCallCount = followTerminal.scrollCalls.length;
+behavior.followOutput(followTerminal);
+behavior.write(followTerminal, "new prompt output", () => {});
+followTerminal.buffer.active.baseY = 116;
+followTerminal.buffer.active.viewportY = 116;
+followTerminal.completeWrite();
+if (
+  followTerminal.scrollCalls
+    .slice(followCallCount)
+    .some((call) => call[0] === "line" && call[1] === 42)
+) {
+  throw new Error("submitting input did not release the historical viewport");
 }
 """
 

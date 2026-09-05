@@ -4,7 +4,6 @@
   const CURSOR_HIDE_SEQUENCE = "\x1b[?25l";
   const cursorlessTerminals = new WeakSet();
   const terminalWriteStates = new WeakMap();
-  const VIEWPORT_INTERACTION_EVENTS = ["wheel", "pointerdown", "touchstart"];
   const VIEWPORT_SCROLL_KEYS = new Set([
     "ArrowDown",
     "ArrowUp",
@@ -24,6 +23,7 @@
         lockedViewport: null,
         viewportLockRefreshTimer: null,
         viewportInteractionEpoch: 0,
+        viewportPointerActive: false,
         viewportScrollPending: false,
         trackingInstalled: false,
       };
@@ -37,6 +37,16 @@
     state.viewportInteractionEpoch += 1;
     state.viewportScrollPending = true;
     scheduleViewportLockRefresh(terminal, state);
+  }
+
+  function beginViewportPointerInteraction(terminal) {
+    const state = writeStateFor(terminal);
+    state.viewportPointerActive = true;
+    noteViewportInteraction(terminal);
+  }
+
+  function endViewportPointerInteraction(terminal) {
+    writeStateFor(terminal).viewportPointerActive = false;
   }
 
   function clearViewportLock(state) {
@@ -131,13 +141,55 @@
     }
     state.trackingInstalled = true;
     if (terminal.element) {
-      for (const eventName of VIEWPORT_INTERACTION_EVENTS) {
-        terminal.element.addEventListener(
-          eventName,
-          () => noteViewportInteraction(terminal),
-          { passive: true },
-        );
-      }
+      terminal.element.addEventListener(
+        "wheel",
+        () => noteViewportInteraction(terminal),
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "pointerdown",
+        () => beginViewportPointerInteraction(terminal),
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "pointermove",
+        (event) => {
+          if (state.viewportPointerActive || event.buttons) {
+            noteViewportInteraction(terminal);
+          }
+        },
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "pointerup",
+        () => endViewportPointerInteraction(terminal),
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "pointercancel",
+        () => endViewportPointerInteraction(terminal),
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "touchstart",
+        () => beginViewportPointerInteraction(terminal),
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "touchmove",
+        () => noteViewportInteraction(terminal),
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "touchend",
+        () => endViewportPointerInteraction(terminal),
+        { passive: true },
+      );
+      terminal.element.addEventListener(
+        "touchcancel",
+        () => endViewportPointerInteraction(terminal),
+        { passive: true },
+      );
       terminal.element.addEventListener("keydown", (event) => {
         if (VIEWPORT_SCROLL_KEYS.has(event.key)) {
           noteViewportInteraction(terminal);
@@ -160,6 +212,15 @@
     snapshot.marker.dispose();
   }
 
+  function liveTailVisible(terminal, buffer) {
+    const rows = Number(terminal.rows || 0);
+    if (rows <= 0) {
+      return buffer.viewportY >= buffer.baseY;
+    }
+    const cursorLine = buffer.baseY + buffer.cursorY;
+    return cursorLine >= buffer.viewportY && cursorLine < buffer.viewportY + rows;
+  }
+
   function viewportSnapshot(terminal) {
     const buffer = activeBuffer(terminal);
     if (!buffer) {
@@ -168,14 +229,16 @@
     const baseY = buffer.baseY;
     const viewportY = buffer.viewportY;
     const atBottom = viewportY >= baseY;
+    const tailVisible = liveTailVisible(terminal, buffer);
     let marker = null;
-    if (!atBottom && typeof terminal.registerMarker === "function") {
+    if (!tailVisible && typeof terminal.registerMarker === "function") {
       marker = terminal.registerMarker(viewportY - (baseY + buffer.cursorY));
     }
     return {
       atBottom,
       distanceFromBottom: Math.max(0, baseY - viewportY),
       marker,
+      tailVisible,
     };
   }
 
@@ -189,6 +252,12 @@
     }
     if (snapshot.atBottom) {
       terminal.scrollToBottom();
+    } else if (snapshot.tailVisible) {
+      // Keep the same distance from the bottom so every new row pushes the
+      // complete visible viewport upward while the live tail remains visible.
+      terminal.scrollToLine(
+        Math.max(0, buffer.baseY - snapshot.distanceFromBottom),
+      );
     } else if (snapshot.marker && snapshot.marker.line >= 0) {
       terminal.scrollToLine(snapshot.marker.line);
     } else {
@@ -294,9 +363,26 @@
     }
     state.queue = [];
     state.generation += 1;
+    state.viewportPointerActive = false;
     state.viewportScrollPending = false;
     clearViewportLockRefresh(state);
     clearViewportLock(state);
+  }
+
+  function followOutput(terminal) {
+    if (!terminal) {
+      return false;
+    }
+    const state = writeStateFor(terminal);
+    state.viewportInteractionEpoch += 1;
+    state.viewportPointerActive = false;
+    state.viewportScrollPending = false;
+    clearViewportLockRefresh(state);
+    clearViewportLock(state);
+    if (typeof terminal.scrollToBottom === "function") {
+      terminal.scrollToBottom();
+    }
+    return true;
   }
 
   function legacyCopy(text) {
@@ -419,5 +505,12 @@
     return didReset;
   }
 
-  window.ElectroBoyTerminalBehavior = { clearWrites, fit, install, reset, write };
+  window.ElectroBoyTerminalBehavior = {
+    clearWrites,
+    fit,
+    followOutput,
+    install,
+    reset,
+    write,
+  };
 })();

@@ -4466,6 +4466,25 @@
       fitTerminal();
     }
 
+    function followAgentOutput(sessionId = "") {
+      const context = sessionId
+        ? agentTerminalContext(sessionId)
+        : currentAgentTerminalContext();
+      if (!context) {
+        return false;
+      }
+      if (
+        window.ElectroBoyTerminalBehavior &&
+        typeof window.ElectroBoyTerminalBehavior.followOutput === "function"
+      ) {
+        return window.ElectroBoyTerminalBehavior.followOutput(context.terminal);
+      }
+      if (typeof context.terminal.scrollToBottom === "function") {
+        context.terminal.scrollToBottom();
+      }
+      return true;
+    }
+
     function paneIsVisible(element) {
       return Boolean(
         element &&
@@ -8623,6 +8642,7 @@
       agent: {
         appendOutput: appendAgentOutput,
         clearOutput: clearAgentOutput,
+        followOutput: followAgentOutput,
         prepareTerminal: prepareTerminalStream,
         sendResize: sendTerminalResize,
         insertFileLink,

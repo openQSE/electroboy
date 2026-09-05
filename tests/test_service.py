@@ -1049,10 +1049,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function write(terminal, text, callback = null)", terminal_behavior)
         self.assertIn("function refreshViewportLock(terminal", terminal_behavior)
         self.assertIn("function restoreLockedViewport(terminal, state)", terminal_behavior)
+        self.assertIn("function followOutput(terminal)", terminal_behavior)
+        self.assertIn("snapshot.tailVisible", terminal_behavior)
+        self.assertIn("state.viewportPointerActive", terminal_behavior)
         self.assertIn("state.viewportScrollPending = true;", terminal_behavior)
         self.assertIn("terminal.onScroll", terminal_behavior)
         self.assertIn("restoreViewport(terminal, snapshot);", terminal_behavior)
-        self.assertIn("{ clearWrites, fit, install, reset, write }", terminal_behavior)
+        self.assertIn("followOutput,\n    install,", terminal_behavior)
+        self.assertIn("followOutput: followAgentOutput", app)
+        self.assertIn("runtimeApi.agent.followOutput(session.session_id);", sessions)
         self.assertIn(
             "ElectroBoyTerminalBehavior.install(nextTerminal, {\n"
             "        hideCursor: true,",
