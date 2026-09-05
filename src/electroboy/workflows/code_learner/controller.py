@@ -31,6 +31,7 @@ from .domain import (
     repository_revision,
     resolve_symbol,
 )
+from .generation import clear_phase3_cache
 from .initialization import (
     InitializationLease,
     InitializationPipeline,
@@ -553,15 +554,18 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 f"clear-course-cache-{uuid4().hex}",
             )
             try:
+                phase3_cleared = clear_phase3_cache(root)
                 phase2_cleared = KnowledgeStore(root).clear_course_cache()
                 legacy_cleared = CodeLearnerStore(root).clear_course_cache()
                 cleared = {
                     "removed_file_count": (
-                        phase2_cleared["removed_file_count"]
+                        phase3_cleared["removed_file_count"]
+                        + phase2_cleared["removed_file_count"]
                         + legacy_cleared["removed_file_count"]
                     ),
                     "removed_bytes": (
-                        phase2_cleared["removed_bytes"]
+                        phase3_cleared["removed_bytes"]
+                        + phase2_cleared["removed_bytes"]
                         + legacy_cleared["removed_bytes"]
                     ),
                 }

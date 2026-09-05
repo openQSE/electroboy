@@ -108,3 +108,22 @@ class LearnerGenerationStore:
             repository_revision="",
             selected_at="",
         )
+
+
+def clear_phase3_cache(root: Path | str) -> dict[str, int]:
+    """Remove all Phase 3 artifacts and its active generation marker."""
+
+    from .phase3_store import Phase3Store
+
+    repository = Path(root).expanduser().resolve()
+    generation = LearnerGenerationStore(repository)
+    result = Phase3Store(repository).clear()
+    selected = generation.load()
+    if selected is not None and selected.generation == "phase3":
+        size = generation.path.stat().st_size if generation.path.is_file() else 0
+        generation.clear()
+        result = {
+            "removed_file_count": result["removed_file_count"] + int(bool(size)),
+            "removed_bytes": result["removed_bytes"] + size,
+        }
+    return result

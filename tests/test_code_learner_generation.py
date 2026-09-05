@@ -27,6 +27,7 @@ def test_generation_store_detects_unmarked_phase2_state(tmp_path: Path) -> None:
 
     assert selected is not None
     assert selected.generation == "phase2"
+    assert (manifest / "manifest.jsonl").read_text(encoding="utf-8") == "{}\n"
 
 
 def test_generation_store_rejects_implicit_cross_generation_writes(

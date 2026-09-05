@@ -17,6 +17,7 @@ from .components import ComponentCandidateService
 from .ctags_evidence import CtagsEvidenceService
 from .domain import CodeLearnerError
 from .function_knowledge import FunctionKnowledgeService
+from .generation import LearnerGenerationStore
 from .initialization import InitializationLease
 from .module_knowledge import ModuleKnowledgeService
 from .modules import ModuleSynthesisService
@@ -24,6 +25,7 @@ from .overlap import ComponentOverlapService
 from .phase3_contracts import parse_phase3_jsonl
 from .phase3_courses import Phase3CourseService
 from .phase3_prompts import component_discovery_prompt
+from .phase3_revision import Phase3RevisionInvalidator
 from .phase3_store import Phase3Store
 from .progress import AgentActivityReporter
 from .reconciliation import ComponentReconciliationService
@@ -82,7 +84,9 @@ class Phase3InitializationPipeline:
     ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.store = Phase3Store(self.root)
+        self.generation = LearnerGenerationStore(self.root)
         self.source = SourceManifestService(self.root)
+        self.invalidator = Phase3RevisionInvalidator(self.root, store=self.store)
         self.ctags = CtagsEvidenceService(self.root)
         self.candidates = ComponentCandidateService(self.root, source=self.source)
         self.overlaps = ComponentOverlapService(self.root, store=self.store)
@@ -148,6 +152,7 @@ class Phase3InitializationPipeline:
         lease = None
         revision = "unknown"
         try:
+            previous_source = self.source.load()
             source = self.source.generate()
             revision = source.revision
             if acquire_lease:
@@ -156,6 +161,7 @@ class Phase3InitializationPipeline:
                     job_id,
                     repository_revision=revision,
                 )
+            self.invalidator.run(previous_source, source)
             checkpoint = self._checkpoint(revision, job_id)
             self._complete_stage(
                 checkpoint,
@@ -552,6 +558,7 @@ class Phase3InitializationPipeline:
             "completed_at": utc_now(),
         }
         self.store.save_terminal_result(result)
+        self.generation.select("phase3", revision, replace=True)
         self._emit("activation", f"Initialization {status}.")
         return result
 
@@ -764,6 +771,9 @@ class _ObservedRuntime(AgentRuntime):
 
 def phase3_initialization_ready(root: Path | str) -> bool:
     store = Phase3Store(root)
+    generation = LearnerGenerationStore(root).load()
+    if generation is None or generation.generation != "phase3":
+        return False
     result = store.load_terminal_result()
     if result is None or result.get("status") not in {
         "complete",
@@ -773,6 +783,7 @@ def phase3_initialization_ready(root: Path | str) -> bool:
     source = SourceManifestService(root).load()
     return bool(
         source
+        and generation.repository_revision == source.revision
         and result.get("repository_revision") == source.revision
         and Phase3CourseService(root, store=store).target_status(
             "course:architecture:architecture:current"

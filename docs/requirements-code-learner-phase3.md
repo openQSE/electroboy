@@ -2214,17 +2214,17 @@ Boundary 1 validation notes:
 
 ### Boundary 18: Revision, Cache, And Phase 2 Compatibility
 
-267. [ ] Add learner-generation metadata to project state.
-268. [ ] Prevent Phase 2 entities from entering a Phase 3 component or module
+267. [x] Add learner-generation metadata to project state.
+268. [x] Prevent Phase 2 entities from entering a Phase 3 component or module
      manifest implicitly.
-269. [ ] Define read-only compatibility for completed Phase 2 courses.
-270. [ ] Define explicit reinitialize-to-Phase-3 behavior.
-271. [ ] Invalidate changed file Ctags evidence and resolved locators by
+269. [x] Define read-only compatibility for completed Phase 2 courses.
+270. [x] Define explicit reinitialize-to-Phase-3 behavior.
+271. [x] Invalidate changed file Ctags evidence and resolved locators by
      revision and hash.
-272. [ ] Propagate invalidation from resolved locators to components, modules,
+272. [x] Propagate invalidation from resolved locators to components, modules,
      relationships, knowledge, and courses.
-273. [ ] Preserve unaffected Phase 3 artifacts.
-274. [ ] Update `Clear Cache` to remove every Phase 3 source, component, module,
+273. [x] Preserve unaffected Phase 3 artifacts.
+274. [x] Update `Clear Cache` to remove every Phase 3 source, component, module,
      relationship, knowledge, course, checkpoint, progress, and tutor artifact.
 275. [ ] Clear frontend outlines and active learner content immediately after
      cache removal.
