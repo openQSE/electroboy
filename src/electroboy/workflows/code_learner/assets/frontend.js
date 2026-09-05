@@ -627,6 +627,23 @@
         nav.recent.append(button);
       }
     }
+    const separator = document.createElement("div");
+    separator.className = "stage-action-separator";
+    separator.setAttribute("role", "separator");
+    nav.recent.append(separator);
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "stage-action-button";
+    clearButton.textContent = "Clear list";
+    clearButton.title = "Remove these recent projects from the list.";
+    clearButton.disabled = entries.length === 0;
+    clearButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      runtimeApi.recent.clear(entries).catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+    });
+    nav.recent.append(clearButton);
   }
 
   function renderOutline() {

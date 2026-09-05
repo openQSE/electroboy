@@ -59,6 +59,10 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="clear-cache"' in frontend
     assert 'contextUrl("/api/code-learner/cache/clear")' in frontend
     assert "async function clearCourseCache()" in frontend
+    assert 'clearButton.textContent = "Clear list";' in frontend
+    assert 'separator.className = "stage-action-separator";' in frontend
+    assert "runtimeApi.recent.clear(entries)" in frontend
+    assert "clearButton.disabled = entries.length === 0;" in frontend
     assert (
         'runtime.modules.invoke("file-browser", "openProjectBrowser", "open", true);'
         in frontend
