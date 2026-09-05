@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pytest
 
+from electroboy.workflows.code_learner.component_contract import (
+    COMPONENT_CANDIDATE_REQUIRED_FIELDS,
+    component_candidate_example,
+    validate_component_schema_alignment,
+)
 from electroboy.workflows.code_learner.phase3_contracts import (
     Phase3ContractError,
     SymbolLocator,
@@ -43,9 +49,11 @@ def _candidate() -> dict[str, object]:
     return {
         "schema_version": 1,
         "record_type": "component_candidate",
+        "analysis_run_id": "run-1",
         "repository_revision": REVISION,
         "candidate_id": "candidate-app",
         "name": "Application",
+        "name_origin": "source_defined",
         "kind": "service",
         "responsibility": "Runs the application.",
         "file_ids": ["file:src/app.py"],
@@ -58,9 +66,17 @@ def _candidate() -> dict[str, object]:
                 "end_line": 2,
             }
         ],
-        "owned_source_refs": [],
+        "owned_source_refs": [
+            {
+                "file_id": "file:src/app.py",
+                "start_line": 1,
+                "end_line": 2,
+                "reason": "Defines the application entry point.",
+            }
+        ],
         "supporting_source_refs": [],
         "confidence": "high",
+        "limitations": [],
     }
 
 
@@ -68,6 +84,33 @@ def test_phase3_schema_and_single_record_jsonl_are_loadable() -> None:
     assert load_phase3_schema()["title"].endswith("Phase 3 Record")
     record = _candidate()
     assert parse_phase3_jsonl(json.dumps(record), artifact="candidate") == [record]
+
+
+def test_component_schema_example_and_runtime_validator_share_one_contract() -> None:
+    schema = load_phase3_schema()
+    validate_component_schema_alignment(schema)
+    example = component_candidate_example(
+        analysis_run_id="run-1",
+        repository_revision=REVISION,
+        file_id="file:src/app.py",
+    )
+
+    accepted = validate_component_candidates(
+        [example],
+        repository_revision=REVISION,
+        files={"file:src/app.py": _file()},
+    )
+
+    assert set(COMPONENT_CANDIDATE_REQUIRED_FIELDS) <= set(accepted[0])
+
+
+def test_component_schema_alignment_rejects_contract_drift() -> None:
+    schema = deepcopy(load_phase3_schema())
+    candidate = schema["$defs"]["component_candidate"]["allOf"][1]
+    candidate["required"].remove("confidence")
+
+    with pytest.raises(RuntimeError, match="required fields do not match"):
+        validate_component_schema_alignment(schema)
 
 
 def test_source_and_candidate_contracts_validate_grounding() -> None:

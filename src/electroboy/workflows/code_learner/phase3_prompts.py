@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from .component_contract import component_candidate_contract_text
 from .skills import skill_prompt_reference
 
 
@@ -18,6 +19,7 @@ def component_discovery_prompt(
     files_path: Path | str,
     ctags_path: Path | str,
     schema_path: Path | str,
+    example_file_id: str = "file:replace-with-real-file-id",
     prior_artifact_paths: tuple[Path | str, ...] = (),
 ) -> str:
     """Create the complete Phase 3 component-candidate invocation."""
@@ -68,6 +70,12 @@ Output contract:
   whole file.
 - Report limitations on the candidate; do not emit separate modules,
   relationships, diagrams, courses, or lesson prose.
+
+{component_candidate_contract_text(
+    analysis_run_id=analysis_run_id,
+    repository_revision=repository_revision,
+    example_file_id=example_file_id,
+)}
 
 Runtime rules:
 - Read the repository and supplied artifacts only.

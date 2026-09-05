@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from electroboy.workflows.code_learner.component_contract import (
+    COMPONENT_CANDIDATE_REQUIRED_FIELDS,
+    COMPONENT_CONFIDENCE_VALUES,
+)
 from electroboy.workflows.code_learner.phase3_prompts import (
     component_discovery_prompt,
 )
@@ -34,14 +38,26 @@ def test_component_discovery_prompt_is_bounded_file_backed_and_read_only(
     assert "at least every five seconds" in prompt
     assert "exactly one plain-text sentence" in prompt
     assert "Never include source code, commands, command output" in prompt
+    assert "Use `reason`, never `role`" in prompt
+    assert "Do not use a numeric score" in prompt
+    for field in COMPONENT_CANDIDATE_REQUIRED_FIELDS:
+        assert field in prompt
+    for confidence in COMPONENT_CONFIDENCE_VALUES:
+        assert f"`{confidence}`" in prompt
 
 
 def test_component_discovery_skill_describes_phase3_boundaries() -> None:
-    skill = (
+    skill_root = (
         Path(__file__).parents[1]
-        / "src/electroboy/workflows/code_learner/skills/codebase-analysis/SKILL.md"
-    ).read_text(encoding="utf-8")
+        / "src/electroboy/workflows/code_learner/skills/codebase-analysis"
+    )
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    schema_reference = (skill_root / "references/knowledge-schema.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "Component discovery must not" in skill
     assert "same` or `distinct" in skill
     assert "do not write output or checkpoints directly" in skill
+    for field in COMPONENT_CANDIDATE_REQUIRED_FIELDS:
+        assert f"`{field}`" in schema_reference

@@ -10,6 +10,7 @@ from typing import Protocol
 
 from electroboy.models import utc_now
 
+from .component_contract import component_candidate_contract_text
 from .ctags_evidence import LocatorResolution, SymbolLocatorResolver
 from .domain import CodeLearnerError
 from .phase3_contracts import (
@@ -18,6 +19,7 @@ from .phase3_contracts import (
     validate_component_candidates,
 )
 from .phase3_store import Phase3Store
+from .skills import skill_prompt_reference
 from .source_manifest import SourceManifestService
 
 
@@ -111,16 +113,38 @@ class ComponentCandidateService:
     def load(self) -> list[dict[str, object]]:
         return self.store.read_jsonl(self.candidates_path)
 
-    def repair_prompt(self, rejected: RejectedCandidate) -> str:
+    def repair_prompt(
+        self, rejected: RejectedCandidate, *, schema_path: Path | str
+    ) -> str:
         """Build a bounded repair request that cannot rewrite accepted records."""
+
+        candidate = rejected.candidate
+        file_ids = candidate.get("file_ids")
+        example_file_id = (
+            str(file_ids[0])
+            if isinstance(file_ids, list) and file_ids
+            else "file:replace-with-real-file-id"
+        )
 
         return f"""Repair exactly one Phase 3 component candidate.
 
+{skill_prompt_reference("codebase-analysis")}
+
+Authoritative Phase 3 schema: {Path(schema_path).resolve()}
+
 Rejected candidate:
-{json.dumps(rejected.candidate, indent=2, sort_keys=True)}
+{json.dumps(candidate, indent=2, sort_keys=True)}
 
 Validation errors:
 {chr(10).join(f"- {error}" for error in rejected.errors)}
+
+{component_candidate_contract_text(
+    analysis_run_id=str(candidate.get("analysis_run_id") or "run-required"),
+    repository_revision=str(
+        candidate.get("repository_revision") or "revision-required"
+    ),
+    example_file_id=example_file_id,
+)}
 
 Return one corrected component_candidate JSON object only. Preserve its
 semantic name, kind, and responsibility unless an error explicitly concerns

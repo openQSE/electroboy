@@ -7,6 +7,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .component_contract import (
+    COMPONENT_CONFIDENCE_VALUES,
+    COMPONENT_NAME_ORIGIN_VALUES,
+    validate_component_schema_alignment,
+)
 from .domain import CodeLearnerError
 
 PHASE3_SCHEMA_VERSION = 1
@@ -15,7 +20,7 @@ COMPLETION_STATES = frozenset(
     {"pending", "running", "complete", "complete_with_warnings", "failed"}
 )
 TERMINAL_STATES = frozenset({"complete", "complete_with_warnings", "failed"})
-CONFIDENCE_VALUES = frozenset({"verified", "high", "medium", "low", "unknown"})
+CONFIDENCE_VALUES = frozenset(COMPONENT_CONFIDENCE_VALUES)
 FILE_DISPOSITIONS = frozenset(
     {"owned", "supporting", "repository_infrastructure", "excluded", "unresolved"}
 )
@@ -114,6 +119,7 @@ def load_phase3_schema() -> dict[str, object]:
         raise RuntimeError(f"could not load Code Learner Phase 3 schema: {error}")
     if not isinstance(value, dict):
         raise RuntimeError("Code Learner Phase 3 schema is not an object")
+    validate_component_schema_alignment(value)
     return value
 
 
@@ -188,8 +194,16 @@ def validate_component_candidates(
     for index, record in enumerate(normalized):
         prefix = f"records[{index}]"
         _header(record, prefix, "component_candidate", repository_revision, issues)
+        _required_string(record, prefix, "analysis_run_id", issues)
         candidate_id = _required_string(record, prefix, "candidate_id", issues)
         _required_string(record, prefix, "name", issues)
+        _required_enum(
+            record,
+            prefix,
+            "name_origin",
+            COMPONENT_NAME_ORIGIN_VALUES,
+            issues,
+        )
         _required_string(record, prefix, "kind", issues)
         _required_string(record, prefix, "responsibility", issues)
         if candidate_id in seen:
@@ -203,7 +217,9 @@ def validate_component_candidates(
                         f"{prefix}.file_ids[{file_index}]", "unknown source file ID"
                     )
                 )
-        symbols = _mapping_list(record, prefix, "symbols", issues)
+        symbols = _mapping_list(
+            record, prefix, "symbols", issues, field_required=True
+        )
         for symbol_index, symbol in enumerate(symbols):
             _validate_locator(
                 symbol,
@@ -213,7 +229,14 @@ def validate_component_candidates(
             )
         for field in ("owned_source_refs", "supporting_source_refs"):
             for ref_index, reference in enumerate(
-                _mapping_list(record, prefix, field, issues)
+                _mapping_list(
+                    record,
+                    prefix,
+                    field,
+                    issues,
+                    field_required=True,
+                    item_required=field == "owned_source_refs",
+                )
             ):
                 _validate_source_reference(
                     reference,
@@ -221,7 +244,12 @@ def validate_component_candidates(
                     files,
                     issues,
                 )
-        _optional_enum(record, prefix, "confidence", CONFIDENCE_VALUES, issues)
+        _required_enum(
+            record, prefix, "confidence", COMPONENT_CONFIDENCE_VALUES, issues
+        )
+        if "limitations" not in record:
+            issues.append(Phase3Issue(f"{prefix}.limitations", "field is required"))
+        _string_list(record, prefix, "limitations", issues)
     _raise("component candidates", issues)
     return normalized
 
@@ -760,13 +788,20 @@ def _mapping_list(
     prefix: str,
     field: str,
     issues: list[Phase3Issue],
+    *,
+    field_required: bool = False,
+    item_required: bool = False,
 ) -> list[Mapping[str, object]]:
+    if field_required and field not in record:
+        issues.append(Phase3Issue(f"{prefix}.{field}", "field is required"))
     value = record.get(field, [])
     if not isinstance(value, list) or any(
         not isinstance(item, Mapping) for item in value
     ):
         issues.append(Phase3Issue(f"{prefix}.{field}", "must be an array of objects"))
         return []
+    if item_required and not value:
+        issues.append(Phase3Issue(f"{prefix}.{field}", "must not be empty"))
     return list(value)
 
 
@@ -782,6 +817,21 @@ def _optional_enum(
         return
     if value not in choices:
         issues.append(Phase3Issue(f"{prefix}.{field}", "unsupported value"))
+
+
+def _required_enum(
+    record: Mapping[str, object],
+    prefix: str,
+    field: str,
+    choices: Sequence[str] | set[str] | frozenset[str],
+    issues: list[Phase3Issue],
+) -> None:
+    value = _required_string(record, prefix, field, issues)
+    if value and value not in choices:
+        accepted = ", ".join(sorted(choices))
+        issues.append(
+            Phase3Issue(f"{prefix}.{field}", f"must be one of: {accepted}")
+        )
 
 
 def _positive_integer(

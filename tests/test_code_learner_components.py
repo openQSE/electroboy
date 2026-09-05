@@ -35,9 +35,11 @@ def _candidate(revision: str, *, name: str = "main") -> dict[str, object]:
     return {
         "schema_version": 1,
         "record_type": "component_candidate",
+        "analysis_run_id": "run-1",
         "repository_revision": revision,
         "candidate_id": f"candidate-{name}",
         "name": "Application",
+        "name_origin": "source_defined",
         "kind": "service",
         "responsibility": "Runs the application.",
         "file_ids": ["file:app.py"],
@@ -100,10 +102,15 @@ def test_candidate_service_isolates_invalid_records_and_builds_bounded_repair(
     assert [item["candidate_id"] for item in result.accepted] == ["candidate-main"]
     assert len(result.rejected) == 1
     assert [item["candidate_id"] for item in service.load()] == ["candidate-main"]
-    prompt = service.repair_prompt(result.rejected[0])
+    prompt = service.repair_prompt(
+        result.rejected[0], schema_path="phase3.schema.json"
+    )
     assert "candidate-missing" in prompt
     assert "not found" in prompt
     assert "Do not emit or modify any other candidate" in prompt
+    assert "Use `reason`, never `role`" in prompt
+    assert "Do not use a numeric score" in prompt
+    assert "verified" in prompt and "unknown" in prompt
 
 
 def test_candidate_service_rejects_mixed_types_stale_and_bad_ranges(

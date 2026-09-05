@@ -25,7 +25,7 @@ from .isolated_runtime import IsolatedAnalysisWorkspace
 from .module_knowledge import ModuleKnowledgeService
 from .modules import ModuleSynthesisService
 from .overlap import ComponentOverlapService
-from .phase3_contracts import parse_phase3_jsonl
+from .phase3_contracts import load_phase3_schema, parse_phase3_jsonl
 from .phase3_courses import Phase3CourseService
 from .phase3_prompts import component_discovery_prompt
 from .phase3_revision import Phase3RevisionInvalidator
@@ -33,6 +33,7 @@ from .phase3_store import Phase3Store
 from .progress import AgentActivityReporter
 from .reconciliation import ComponentReconciliationService
 from .relationships import ModuleRelationshipService
+from .skills import validate_packaged_skill
 from .source_manifest import SourceManifestService
 
 ProgressCallback = Callable[[dict[str, object]], None]
@@ -165,6 +166,8 @@ class Phase3InitializationPipeline:
         revision = "unknown"
         try:
             self._check_cancelled()
+            load_phase3_schema()
+            validate_packaged_skill("codebase-analysis")
             source_started = perf_counter()
             previous_source = self.source.load()
             source = self.source.generate()
@@ -459,6 +462,7 @@ class Phase3InitializationPipeline:
 
     def _discover_components(self, run_id: str, revision: str):
         runtime = self._observed_runtime("code_learner_analysis", self.root)
+        source = self.source.load()
         prompt = component_discovery_prompt(
             self.root,
             analysis_run_id=run_id,
@@ -467,6 +471,11 @@ class Phase3InitializationPipeline:
             files_path=self.source.files_path,
             ctags_path=self.ctags.raw_path,
             schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
+            example_file_id=(
+                str(source.files[0]["id"])
+                if source is not None and source.files
+                else "file:replace-with-real-file-id"
+            ),
         )
         result = runtime.invoke(
             AgentInvocation(
@@ -503,7 +512,12 @@ class Phase3InitializationPipeline:
         result = runtime.invoke(
             AgentInvocation(
                 role="code_learner_analysis",
-                prompt=self.candidates.repair_prompt(rejected),
+                prompt=self.candidates.repair_prompt(
+                    rejected,
+                    schema_path=(
+                        Path(__file__).with_name("schemas") / "phase3.schema.json"
+                    ),
+                ),
                 context_paths=[
                     self.source.files_path.relative_to(self.root).as_posix(),
                     self.ctags.raw_path.relative_to(self.root).as_posix(),

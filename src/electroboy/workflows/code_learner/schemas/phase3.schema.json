@@ -45,6 +45,16 @@
         "end_line": { "type": "integer", "minimum": 1 }
       }
     },
+    "source_reference": {
+      "type": "object",
+      "required": ["file_id", "start_line", "end_line", "reason"],
+      "properties": {
+        "file_id": { "type": "string", "minLength": 1 },
+        "start_line": { "type": "integer", "minimum": 1 },
+        "end_line": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
     "source_file": {
       "allOf": [
         { "$ref": "#/$defs/header" },
@@ -67,15 +77,43 @@
         { "$ref": "#/$defs/header" },
         {
           "type": "object",
-          "required": ["candidate_id", "name", "kind", "responsibility", "file_ids"],
+          "required": [
+            "analysis_run_id",
+            "repository_revision",
+            "candidate_id",
+            "name",
+            "name_origin",
+            "kind",
+            "responsibility",
+            "file_ids",
+            "symbols",
+            "owned_source_refs",
+            "supporting_source_refs",
+            "confidence",
+            "limitations"
+          ],
           "properties": {
             "record_type": { "const": "component_candidate" },
+            "analysis_run_id": { "type": "string", "minLength": 1 },
+            "repository_revision": { "type": "string", "minLength": 1 },
             "candidate_id": { "type": "string", "minLength": 1 },
             "name": { "type": "string", "minLength": 1 },
+            "name_origin": { "enum": ["source_defined", "inferred"] },
             "kind": { "type": "string", "minLength": 1 },
             "responsibility": { "type": "string", "minLength": 1 },
             "file_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-            "symbols": { "type": "array", "items": { "$ref": "#/$defs/symbol_locator" } }
+            "symbols": { "type": "array", "items": { "$ref": "#/$defs/symbol_locator" } },
+            "owned_source_refs": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/source_reference" }
+            },
+            "supporting_source_refs": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/source_reference" }
+            },
+            "confidence": { "enum": ["verified", "high", "medium", "low", "unknown"] },
+            "limitations": { "type": "array", "items": { "type": "string" } }
           }
         }
       ]
