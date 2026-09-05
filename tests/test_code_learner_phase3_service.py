@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from code_learner_phase3_fixtures import build_catalog, build_course_records
 
 from electroboy.service.app import ServiceState
 from electroboy.service.registry import build_module_registry, build_workflow_registry
+from electroboy.workflows.code_learner.domain import CodeLearnerError
 from electroboy.workflows.code_learner.phase3_courses import Phase3CourseService
 from electroboy.workflows.code_learner.phase3_pipeline import (
     Phase3InitializationPipeline,
@@ -93,6 +95,14 @@ def test_phase3_clear_cache_removes_backend_and_visible_course_state(
     assert cleared["code_learner"]["walkthroughs"] == []
     assert cleared["code_learner"]["source"] is None
     assert (root / ".electroboy/code-learner/phase3").exists() is False
+
+
+def test_phase3_selection_quarantines_legacy_phase2_imports(tmp_path: Path) -> None:
+    controller, context_id, root = _controller(tmp_path)
+    _activate_fixture(root)
+
+    with pytest.raises(CodeLearnerError, match="explicitly migrate"):
+        controller.initialize_from_jsonl(context_id, "{}")
 
 
 def _controller(tmp_path: Path):

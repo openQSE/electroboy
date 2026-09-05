@@ -629,6 +629,10 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root: Path,
         corpus_jsonl: str,
     ) -> dict[str, object]:
+        LearnerGenerationStore(root).select(
+            "phase2",
+            "legacy-jsonl-import",
+        )
         self._save_initialized_corpus(root, corpus_jsonl)
         state = self._state_payload(root)
         return {

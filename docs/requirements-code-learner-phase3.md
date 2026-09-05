@@ -2259,55 +2259,55 @@ Boundary 1 validation notes:
 
 ### Boundary 20: End-To-End Validation And Cutover
 
-293. [ ] Add a C fixture with multiple components in one file and overlapping
+293. [x] Add a C fixture with multiple components in one file and overlapping
      component symbols.
-294. [ ] Add a C fixture with two components sharing a file but no symbols.
-295. [ ] Add an object-oriented fixture with classes, methods, and inheritance.
-296. [ ] Add a dynamic-language fixture with incomplete symbol resolution.
-297. [ ] Add a mixed-language fixture with modules spanning language
+294. [x] Add a C fixture with two components sharing a file but no symbols.
+295. [x] Add an object-oriented fixture with classes, methods, and inheritance.
+296. [x] Add a dynamic-language fixture with incomplete symbol resolution.
+297. [x] Add a mixed-language fixture with modules spanning language
      boundaries.
-298. [ ] Verify initialization completes without configuring or building every
+298. [x] Verify initialization completes without configuring or building every
      fixture and that each file receives a disposition.
-299. [ ] Verify component candidates are complete enough to synthesize useful
+299. [x] Verify component candidates are complete enough to synthesize useful
      modules.
-300. [ ] Verify exact symbol overlap triggers reconciliation and file overlap
+300. [x] Verify exact symbol overlap triggers reconciliation and file overlap
      does not.
-301. [ ] Verify `same` and `distinct` decisions produce the expected component
+301. [x] Verify `same` and `distinct` decisions produce the expected component
      manifest.
-302. [ ] Verify no relationships are produced before the module manifest.
-303. [ ] Verify module relationship endpoints and evidence remain grounded.
-304. [ ] Verify Architecture horizontal coverage across every fixture module.
-305. [ ] Verify Architecture vertical slices traverse modules, components, and
+302. [x] Verify no relationships are produced before the module manifest.
+303. [x] Verify module relationship endpoints and evidence remain grounded.
+304. [x] Verify Architecture horizontal coverage across every fixture module.
+305. [x] Verify Architecture vertical slices traverse modules, components, and
      functions.
-306. [ ] Verify Module courses support horizontal peer movement and vertical
+306. [x] Verify Module courses support horizontal peer movement and vertical
      deep dives.
-307. [ ] Verify important and on-demand Function courses render and cache.
-308. [ ] Verify Mermaid component, sequence, flow, state, class, dependency, and
+307. [x] Verify important and on-demand Function courses render and cache.
+308. [x] Verify Mermaid component, sequence, flow, state, class, dependency, and
      call examples through the existing renderer where applicable.
-309. [ ] Verify the tutor follows the current Phase 3 context without prompt
+309. [x] Verify the tutor follows the current Phase 3 context without prompt
      duplication.
-310. [ ] Verify direct AI writes are prevented in a real runtime invocation.
-311. [ ] Verify single-object and multi-record AI outputs both reach domain
+310. [x] Verify direct AI writes are prevented in a real runtime invocation.
+311. [x] Verify single-object and multi-record AI outputs both reach domain
      validation intact.
-312. [ ] Verify one missing-file investigation receives persisted prior context,
+312. [x] Verify one missing-file investigation receives persisted prior context,
      unresolved files remain warnings, and targeted failures remain isolated.
-313. [ ] Verify restart and resume at representative long-running boundaries.
-314. [ ] Verify `Clear Cache` resets backend state and visible UI state.
-315. [ ] Run the complete Code Learner test suite.
-316. [ ] Run the complete repository test suite and classify unrelated
+313. [x] Verify restart and resume at representative long-running boundaries.
+314. [x] Verify `Clear Cache` resets backend state and visible UI state.
+315. [x] Run the complete Code Learner test suite.
+316. [x] Run the complete repository test suite and classify unrelated
      failures.
 317. [ ] Measure file manifest, Ctags evidence capture and lookup, component
      discovery, reconciliation, file investigation, module synthesis,
      relationship, course, and rendering time on a representative repository.
 318. [ ] Inspect desktop and mobile screenshots for overlap, clipping,
      navigation, and Mermaid rendering.
-319. [ ] Confirm no learned repository source files were modified.
+319. [x] Confirm no learned repository source files were modified.
 320. [ ] Verify `complete`, `complete_with_warnings`, and `failed` GUI behavior,
      then review all unresolved diagnostics and open decisions with the
      operator.
-321. [ ] Remove or quarantine obsolete Phase 2 write paths only after Phase 3
+321. [x] Remove or quarantine obsolete Phase 2 write paths only after Phase 3
      acceptance passes.
-322. [ ] Commit final Phase 3 integration fixes and cutover.
+322. [x] Commit final Phase 3 integration fixes and cutover.
 
 ## Open Decisions
 
