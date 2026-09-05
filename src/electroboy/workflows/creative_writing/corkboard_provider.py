@@ -62,7 +62,9 @@ class CreativeWritingCorkboardProvider:
                 "capabilities": [
                     "change-color",
                     "change-layout",
+                    "connect-card",
                     "create-card",
+                    "delete-connector",
                     "delete-card",
                     "edit-card",
                     "group-card",
@@ -70,6 +72,7 @@ class CreativeWritingCorkboardProvider:
                     "open-card",
                     "rename-board",
                     "reorder-card",
+                    "update-connector",
                 ],
             },
             provider_id=self.provider_id,
@@ -99,10 +102,15 @@ class CreativeWritingCorkboardProvider:
         action = str(payload.get("action") or "").strip()
         if not board_id or action not in {
             "change-layout",
+            "create-connector",
+            "create-card",
             "delete-card",
+            "delete-connector",
+            "patch-card",
             "rename-board",
             "reorder-cards",
             "update-card",
+            "update-connector",
         }:
             return payload
         board_type = str(payload.get("board_type") or "freeform")
@@ -126,6 +134,20 @@ class CreativeWritingCorkboardProvider:
                 "action": "delete",
                 "corkboard": board_id,
                 "card_id": payload.get("card_id"),
+            }
+        if action == "delete-connector":
+            return {
+                "board_type": "freeform",
+                "action": "delete-connector",
+                "corkboard": board_id,
+                "connector_id": payload.get("connector_id"),
+            }
+        if action in {"create-connector", "update-connector"}:
+            return {
+                "board_type": "freeform",
+                "action": "save-connector",
+                "corkboard": board_id,
+                "connector": payload.get("connector"),
             }
         if action == "reorder-cards":
             return {

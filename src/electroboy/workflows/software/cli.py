@@ -195,6 +195,10 @@ CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
 )
 CREATIVE_CARD_PALETTE_IDS = frozenset(entry["id"] for entry in CREATIVE_CARD_PALETTE)
 CREATIVE_CARD_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
+CREATIVE_CARD_MIN_WIDTH = 160
+CREATIVE_CARD_MAX_WIDTH = 1600
+CREATIVE_CARD_MIN_HEIGHT = 120
+CREATIVE_CARD_MAX_HEIGHT = 1200
 META_MANAGEMENT_COMMANDS = {"add", "start"}
 SERVICE_ROOT_ENV = "ELECTROBOY_SERVICE_ROOT"
 SERVICE_STATE_ROOT_ENV = "ELECTROBOY_SERVICE_STATE_ROOT"
@@ -983,6 +987,8 @@ def build_parser() -> argparse.ArgumentParser:
     corkboard_card_add.add_argument("--x", type=float, default=36.0, help="card x position")
     corkboard_card_add.add_argument("--y", type=float, default=36.0, help="card y position")
     corkboard_card_add.add_argument("--color", help="card color")
+    corkboard_card_add.add_argument("--width", type=float, help="card width")
+    corkboard_card_add.add_argument("--height", type=float, help="card height")
     corkboard_card_add.add_argument(
         "--rotation",
         type=float,
@@ -1016,6 +1022,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="new card rotation in degrees",
     )
+    corkboard_card_resize = corkboard_card_subparsers.add_parser(
+        "resize",
+        help="resize a freeform card",
+    )
+    corkboard_card_resize.add_argument("path", help="freeform corkboard path")
+    corkboard_card_resize.add_argument("card_id", help="card id")
+    corkboard_card_resize.add_argument("--width", type=float, required=True)
+    corkboard_card_resize.add_argument("--height", type=float, required=True)
     corkboard_card_group = corkboard_card_subparsers.add_parser(
         "group",
         help="convert a freeform card into a nested corkboard group",
@@ -1032,6 +1046,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     corkboard_card_delete.add_argument("path", help="freeform corkboard path")
     corkboard_card_delete.add_argument("card_id", help="card id")
+
+    corkboard_connector = corkboard_subparsers.add_parser(
+        "connector",
+        help="manage connections between freeform cards",
+    )
+    corkboard_connector_subparsers = corkboard_connector.add_subparsers(
+        dest="corkboard_connector_command",
+        required=True,
+    )
+    corkboard_connector_add = corkboard_connector_subparsers.add_parser(
+        "add",
+        help="connect two freeform cards",
+    )
+    corkboard_connector_add.add_argument("path", help="freeform corkboard path")
+    corkboard_connector_add.add_argument("source_card_id")
+    corkboard_connector_add.add_argument("target_card_id")
+    corkboard_connector_add.add_argument("--id", dest="connector_id")
+    connector_sides = ("auto", "top", "right", "bottom", "left")
+    corkboard_connector_add.add_argument(
+        "--source-side", choices=connector_sides, default="auto"
+    )
+    corkboard_connector_add.add_argument(
+        "--target-side", choices=connector_sides, default="auto"
+    )
+    corkboard_connector_add.add_argument("--color", default="#ead8b0")
+    corkboard_connector_add.add_argument("--thickness", type=float, default=3)
+    corkboard_connector_add.add_argument("--curve", type=float, default=0.18)
+    corkboard_connector_add.add_argument(
+        "--style", choices=("string", "line", "dashed"), default="string"
+    )
+    corkboard_connector_add.add_argument("--label", default="")
+    corkboard_connector_delete = corkboard_connector_subparsers.add_parser(
+        "delete",
+        help="delete a card connector",
+    )
+    corkboard_connector_delete.add_argument("path", help="freeform corkboard path")
+    corkboard_connector_delete.add_argument("connector_id")
 
     corkboard_folder = corkboard_subparsers.add_parser(
         "folder",
@@ -6509,6 +6560,8 @@ def _cmd_corkboard(store: StateStore, args: argparse.Namespace) -> int:
         return 0
     if args.corkboard_command == "card":
         return _cmd_corkboard_card(store, args)
+    if args.corkboard_command == "connector":
+        return _cmd_corkboard_connector(store, args)
     if args.corkboard_command == "folder":
         return _cmd_corkboard_folder(store, args)
     return 2
@@ -6548,6 +6601,8 @@ def _cmd_corkboard_card(store: StateStore, args: argparse.Namespace) -> int:
             y=args.y,
             color=args.color,
             rotation=args.rotation,
+            width=args.width,
+            height=args.height,
         )
         print(f"added card: {card['id']}")
         return 0
@@ -6581,6 +6636,16 @@ def _cmd_corkboard_card(store: StateStore, args: argparse.Namespace) -> int:
         )
         print(f"styled card: {card['id']}")
         return 0
+    if args.corkboard_card_command == "resize":
+        card = _update_freeform_corkboard_card(
+            store.root,
+            args.path,
+            args.card_id,
+            width=args.width,
+            height=args.height,
+        )
+        print(f"resized card: {card['id']}")
+        return 0
     if args.corkboard_card_command == "group":
         card = _convert_freeform_corkboard_card_to_group(
             store.root,
@@ -6594,6 +6659,35 @@ def _cmd_corkboard_card(store: StateStore, args: argparse.Namespace) -> int:
     if args.corkboard_card_command == "delete":
         _delete_freeform_corkboard_card(store.root, args.path, args.card_id)
         print(f"deleted card: {args.card_id}")
+        return 0
+    return 2
+
+
+def _cmd_corkboard_connector(store: StateStore, args: argparse.Namespace) -> int:
+    if args.corkboard_connector_command == "add":
+        connector = _add_freeform_corkboard_connector(
+            store.root,
+            args.path,
+            source_card_id=args.source_card_id,
+            target_card_id=args.target_card_id,
+            connector_id=args.connector_id,
+            source_side=args.source_side,
+            target_side=args.target_side,
+            color=args.color,
+            thickness=args.thickness,
+            curve=args.curve,
+            style=args.style,
+            label=args.label,
+        )
+        print(f"added connector: {connector['id']}")
+        return 0
+    if args.corkboard_connector_command == "delete":
+        _delete_freeform_corkboard_connector(
+            store.root,
+            args.path,
+            args.connector_id,
+        )
+        print(f"deleted connector: {args.connector_id}")
         return 0
     return 2
 
@@ -6657,9 +6751,10 @@ def _corkboard_files(root: Path) -> list[str]:
 
 def _empty_corkboard_document() -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "type": "electroboy.creative.corkboard",
         "cards": [],
+        "connectors": [],
     }
 
 
@@ -6684,10 +6779,12 @@ def _load_corkboard_document(path: Path) -> dict[str, object]:
         return _empty_corkboard_document()
     if not isinstance(data, dict):
         return _empty_corkboard_document()
-    data["schema_version"] = 1
+    data["schema_version"] = 2
     data["type"] = "electroboy.creative.corkboard"
     if not isinstance(data.get("cards"), list):
         data["cards"] = []
+    if not isinstance(data.get("connectors"), list):
+        data["connectors"] = []
     return data
 
 
@@ -6707,7 +6804,7 @@ def _freeform_corkboard_payload(
         raise StateError(f"corkboard does not exist: {relative_path}")
     data = _load_corkboard_document(path)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "board_type": "freeform",
         "palette": _corkboard_card_palette_payload(),
         "corkboard": {
@@ -6715,6 +6812,7 @@ def _freeform_corkboard_payload(
             "path": relative_path,
         },
         "cards": _freeform_cards(data),
+        "connectors": _freeform_connectors(data),
     }
 
 
@@ -6752,8 +6850,157 @@ def _freeform_cards(data: dict[str, object]) -> list[dict[str, object]]:
             board_path = _normalize_corkboard_reference(raw_card.get("board_path"))
             if board_path:
                 card["board_path"] = board_path
+        if raw_card.get("width") is not None:
+            card["width"] = _bounded_float(
+                raw_card.get("width"),
+                320,
+                CREATIVE_CARD_MIN_WIDTH,
+                CREATIVE_CARD_MAX_WIDTH,
+            )
+        if raw_card.get("height") is not None:
+            card["height"] = _bounded_float(
+                raw_card.get("height"),
+                200,
+                CREATIVE_CARD_MIN_HEIGHT,
+                CREATIVE_CARD_MAX_HEIGHT,
+            )
         normalized_cards.append(card)
     return normalized_cards
+
+
+def _normalize_connector_anchor(value: object) -> dict[str, object]:
+    anchor = value if isinstance(value, dict) else {}
+    side = str(anchor.get("side") or "auto").strip().lower()
+    if side not in {"auto", "top", "right", "bottom", "left"}:
+        side = "auto"
+    return {
+        "card_id": str(anchor.get("card_id") or "").strip()[:100],
+        "side": side,
+        "offset": _bounded_float(anchor.get("offset"), 0.5, 0, 1),
+    }
+
+
+def _freeform_connectors(
+    data: dict[str, object],
+    cards: list[dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    raw_connectors = data.get("connectors")
+    if not isinstance(raw_connectors, list):
+        return []
+    card_ids = {
+        str(card.get("id") or "")
+        for card in (cards if cards is not None else _freeform_cards(data))
+    }
+    connectors: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for index, raw_connector in enumerate(raw_connectors):
+        if not isinstance(raw_connector, dict):
+            continue
+        connector_id = str(
+            raw_connector.get("id") or f"connector-{index + 1}"
+        ).strip()[:100]
+        source = _normalize_connector_anchor(raw_connector.get("source"))
+        target = _normalize_connector_anchor(raw_connector.get("target"))
+        if (
+            not connector_id
+            or connector_id in seen
+            or source["card_id"] not in card_ids
+            or target["card_id"] not in card_ids
+            or source["card_id"] == target["card_id"]
+        ):
+            continue
+        style = str(raw_connector.get("style") or "string").strip().lower()
+        if style not in {"string", "line", "dashed"}:
+            style = "string"
+        raw_color = str(raw_connector.get("color") or "").strip().lower()
+        connectors.append(
+            {
+                "id": connector_id,
+                "source": source,
+                "target": target,
+                "color": raw_color
+                if CREATIVE_CARD_COLOR_RE.fullmatch(raw_color)
+                else "#ead8b0",
+                "thickness": _bounded_float(
+                    raw_connector.get("thickness"), 3, 1, 12
+                ),
+                "curve": _bounded_float(raw_connector.get("curve"), 0.18, -0.75, 0.75),
+                "style": style,
+                "label": str(raw_connector.get("label") or "")[:200],
+            }
+        )
+        seen.add(connector_id)
+    return connectors
+
+
+def _add_freeform_corkboard_connector(
+    root: Path,
+    relative_path: str,
+    *,
+    source_card_id: str,
+    target_card_id: str,
+    connector_id: str | None,
+    source_side: str,
+    target_side: str,
+    color: str,
+    thickness: float,
+    curve: float,
+    style: str,
+    label: str,
+) -> dict[str, object]:
+    normalized, path = _creative_path(root, relative_path)
+    if not normalized.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized}")
+    data = _load_corkboard_document(path)
+    cards = _freeform_cards(data)
+    card_ids = {str(card.get("id") or "") for card in cards}
+    if source_card_id not in card_ids or target_card_id not in card_ids:
+        raise StateError("connector endpoints must reference existing cards")
+    if source_card_id == target_card_id:
+        raise StateError("connector endpoints must reference different cards")
+    connectors = _freeform_connectors(data, cards)
+    next_id = _unique_card_id(
+        connectors,
+        connector_id or f"{source_card_id}-to-{target_card_id}",
+    )
+    raw_color = str(color or "").strip().lower()
+    connector = {
+        "id": next_id,
+        "source": _normalize_connector_anchor(
+            {"card_id": source_card_id, "side": source_side, "offset": 0.5}
+        ),
+        "target": _normalize_connector_anchor(
+            {"card_id": target_card_id, "side": target_side, "offset": 0.5}
+        ),
+        "color": raw_color
+        if CREATIVE_CARD_COLOR_RE.fullmatch(raw_color)
+        else "#ead8b0",
+        "thickness": _bounded_float(thickness, 3, 1, 12),
+        "curve": _bounded_float(curve, 0.18, -0.75, 0.75),
+        "style": style,
+        "label": str(label or "")[:200],
+    }
+    connectors.append(connector)
+    data["connectors"] = connectors
+    _write_json(path, data)
+    return connector
+
+
+def _delete_freeform_corkboard_connector(
+    root: Path,
+    relative_path: str,
+    connector_id: str,
+) -> None:
+    normalized, path = _creative_path(root, relative_path)
+    if not normalized.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized}")
+    data = _load_corkboard_document(path)
+    connectors = _freeform_connectors(data)
+    remaining = [item for item in connectors if item["id"] != connector_id]
+    if len(remaining) == len(connectors):
+        raise StateError(f"connector does not exist: {connector_id}")
+    data["connectors"] = remaining
+    _write_json(path, data)
 
 
 def _add_freeform_corkboard_card(
@@ -6767,6 +7014,8 @@ def _add_freeform_corkboard_card(
     y: float,
     color: str | None,
     rotation: float | None,
+    width: float | None,
+    height: float | None,
 ) -> dict[str, object]:
     normalized, path = _creative_path(root, relative_path)
     _create_corkboard_file(root, normalized)
@@ -6789,6 +7038,14 @@ def _add_freeform_corkboard_card(
         "color": _normalize_corkboard_card_color(color, str(style["color"])),
         "card_type": "card",
     }
+    if width is not None:
+        card["width"] = _bounded_float(
+            width, 320, CREATIVE_CARD_MIN_WIDTH, CREATIVE_CARD_MAX_WIDTH
+        )
+    if height is not None:
+        card["height"] = _bounded_float(
+            height, 200, CREATIVE_CARD_MIN_HEIGHT, CREATIVE_CARD_MAX_HEIGHT
+        )
     cards.append(card)
     data["cards"] = cards
     _write_json(path, data)
@@ -6808,6 +7065,8 @@ def _update_freeform_corkboard_card(
     rotation: float | None = None,
     card_type: str | None = None,
     board_path: str | None = None,
+    width: float | None = None,
+    height: float | None = None,
 ) -> dict[str, object]:
     normalized, path = _creative_path(root, relative_path)
     if not normalized.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
@@ -6832,6 +7091,20 @@ def _update_freeform_corkboard_card(
             )
         if rotation is not None:
             card["rotation"] = _bounded_float(rotation, float(card["rotation"]), -8, 8)
+        if width is not None:
+            card["width"] = _bounded_float(
+                width,
+                float(card.get("width") or 320),
+                CREATIVE_CARD_MIN_WIDTH,
+                CREATIVE_CARD_MAX_WIDTH,
+            )
+        if height is not None:
+            card["height"] = _bounded_float(
+                height,
+                float(card.get("height") or 200),
+                CREATIVE_CARD_MIN_HEIGHT,
+                CREATIVE_CARD_MAX_HEIGHT,
+            )
         if card_type is not None:
             card["card_type"] = _freeform_card_type(card_type)
         if card.get("card_type") == "group":
@@ -6879,6 +7152,12 @@ def _delete_freeform_corkboard_card(
     if len(next_cards) == len(cards):
         raise StateError(f"card does not exist: {card_id}")
     data["cards"] = next_cards
+    data["connectors"] = [
+        connector
+        for connector in _freeform_connectors(data, cards)
+        if connector["source"]["card_id"] != card_id
+        and connector["target"]["card_id"] != card_id
+    ]
     _write_json(path, data)
 
 

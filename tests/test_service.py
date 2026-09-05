@@ -5247,6 +5247,110 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(deleted["card_id"], "opening-beat")
             self.assertEqual(deleted_document["cards"], [])
 
+    def test_creative_corkboard_persists_resized_cards_and_connectors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            board_path = "corkboard/scenes.corkboard.json"
+            state.create_creative_corkboard(context_id, board_path)
+            for card_id, x in (("scene-one", 80), ("scene-two", 560)):
+                state.save_creative_corkboard(
+                    context_id,
+                    {
+                        "board_type": "freeform",
+                        "corkboard": board_path,
+                        "card": {
+                            "id": card_id,
+                            "title": card_id.replace("-", " ").title(),
+                            "x": x,
+                            "y": 120,
+                            "width": 400 if card_id == "scene-one" else 320,
+                            "height": 240,
+                        },
+                    },
+                )
+            provider = state.workflow_controller(
+                "creative-writing"
+            ).get_corkboard_provider()
+            patched = provider.apply_operation(
+                context_id,
+                {
+                    "provider": "creative-files",
+                    "board_type": "freeform",
+                    "action": "patch-card",
+                    "board_id": board_path,
+                    "card": {"id": "scene-one", "width": 420},
+                },
+            )
+            saved = provider.apply_operation(
+                context_id,
+                {
+                    "provider": "creative-files",
+                    "board_type": "freeform",
+                    "action": "create-connector",
+                    "board_id": board_path,
+                    "connector": {
+                        "id": "scene-one-to-scene-two",
+                        "source": {
+                            "card_id": "scene-one",
+                            "side": "right",
+                            "offset": 0.5,
+                        },
+                        "target": {
+                            "card_id": "scene-two",
+                            "side": "left",
+                            "offset": 0.5,
+                        },
+                    },
+                },
+            )
+            page, status = creative_corkboard_html(
+                project_root,
+                board_path,
+                context_id=context_id,
+            )
+            document_path = project_root / board_path
+            document = json.loads(document_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertEqual(document["schema_version"], 2)
+            self.assertEqual(document["cards"][0]["width"], 420)
+            self.assertEqual(document["cards"][0]["height"], 240)
+            self.assertEqual(patched["card"]["title"], "Scene One")
+            self.assertEqual(saved["connector"]["source"]["card_id"], "scene-one")
+            self.assertEqual(
+                document["connectors"][0]["id"], "scene-one-to-scene-two"
+            )
+            self.assertIn(
+                "function startConnectorDrag(event, card, cardElement, side)",
+                page,
+            )
+            self.assertIn("function startConnectorCut(event)", page)
+            self.assertIn("function renderConnectors()", page)
+            self.assertIn(
+                'for (const side of ["right", "bottom", "left"])',
+                page,
+            )
+            self.assertNotIn('for (const side of ["top", "right"', page)
+            self.assertIn('action = "create-connector"', page)
+            self.assertIn('action: "delete-connector"', page)
+
+            state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "action": "delete",
+                    "corkboard": board_path,
+                    "card_id": "scene-one",
+                },
+            )
+            deleted = json.loads(document_path.read_text(encoding="utf-8"))
+            self.assertEqual(deleted["connectors"], [])
+
     def test_creative_corkboard_provider_renders_through_generic_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"

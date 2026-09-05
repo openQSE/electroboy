@@ -369,6 +369,86 @@ class CliTests(unittest.TestCase):
         self.assertEqual(card["rotation"], -2.0)
         self.assertEqual(card["color"], "#fff6cf")
 
+    def test_corkboard_cli_resizes_cards_and_manages_connectors(self) -> None:
+        with temp_project() as root:
+            board = "corkboard/scenes.corkboard.json"
+            self.run_cli(["--root", str(root), "corkboard", "create", board])
+            for card_id in ("scene-one", "scene-two"):
+                result = self.run_cli(
+                    [
+                        "--root",
+                        str(root),
+                        "corkboard",
+                        "card",
+                        "add",
+                        board,
+                        "--id",
+                        card_id,
+                        "--title",
+                        card_id,
+                    ]
+                )
+                self.assertEqual(result[0], 0, result[2])
+            resize = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "card",
+                    "resize",
+                    board,
+                    "scene-one",
+                    "--width",
+                    "420",
+                    "--height",
+                    "260",
+                ]
+            )
+            connect = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "connector",
+                    "add",
+                    board,
+                    "scene-one",
+                    "scene-two",
+                    "--id",
+                    "story-thread",
+                    "--source-side",
+                    "right",
+                    "--target-side",
+                    "left",
+                ]
+            )
+            show = self.run_cli(
+                ["--root", str(root), "corkboard", "show", board]
+            )
+            remove = self.run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "corkboard",
+                    "connector",
+                    "delete",
+                    board,
+                    "story-thread",
+                ]
+            )
+
+        payload = json.loads(show[1])
+        self.assertEqual(resize[0], 0, resize[2])
+        self.assertEqual(connect[0], 0, connect[2])
+        self.assertEqual(remove[0], 0, remove[2])
+        self.assertEqual(payload["schema_version"], 2)
+        self.assertEqual(payload["cards"][0]["width"], 420)
+        self.assertEqual(payload["cards"][0]["height"], 260)
+        self.assertEqual(payload["connectors"][0]["id"], "story-thread")
+        self.assertEqual(
+            payload["connectors"][0]["source"]["card_id"], "scene-one"
+        )
+
     def test_corkboard_cli_converts_card_to_group(self) -> None:
         with temp_project() as root:
             self.run_cli(

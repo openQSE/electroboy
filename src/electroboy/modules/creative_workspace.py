@@ -79,6 +79,16 @@ CREATIVE_CARD_PALETTE_IDS = frozenset(entry["id"] for entry in CREATIVE_CARD_PAL
 
 CREATIVE_CARD_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
+CREATIVE_CONNECTOR_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
+
+CREATIVE_CARD_MIN_WIDTH = 160
+
+CREATIVE_CARD_MAX_WIDTH = 1600
+
+CREATIVE_CARD_MIN_HEIGHT = 120
+
+CREATIVE_CARD_MAX_HEIGHT = 1200
+
 CREATIVE_FOLDER_PALETTE: tuple[dict[str, str], ...] = (
     {"id": "navy", "label": "Navy", "value": "#1f3f5f", "border": "#18324d"},
     {"id": "blue", "label": "Blue", "value": "#285c8f", "border": "#1d456d"},
@@ -198,11 +208,12 @@ def _empty_creative_corkboard_document(
     title: str = "Untitled corkboard",
 ) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "type": "electroboy.creative.corkboard",
         "title": _normalize_creative_corkboard_title(title, "Untitled corkboard"),
         "layout": "freeform",
         "cards": [],
+        "connectors": [],
     }
 
 
@@ -880,6 +891,49 @@ def render_corkboard_html(
       transform-origin: 0 0;
     }}
 
+    .connector-layer {{
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+      z-index: 1;
+    }}
+
+    .corkboard-connector {{
+      fill: none;
+      stroke: var(--connector-color, #ead8b0);
+      stroke-linecap: round;
+      stroke-width: var(--connector-thickness, 3px);
+      filter: drop-shadow(0 2px 2px rgba(48, 28, 22, 0.48));
+    }}
+
+    .corkboard-connector.string {{
+      stroke-dasharray: 2 2;
+    }}
+
+    .corkboard-connector.dashed {{
+      stroke-dasharray: 10 7;
+    }}
+
+    .connector-draft {{
+      fill: none;
+      stroke: #66d9e8;
+      stroke-dasharray: 7 5;
+      stroke-linecap: round;
+      stroke-width: 3px;
+      filter: drop-shadow(0 0 4px rgba(102, 217, 232, 0.72));
+    }}
+
+    .connector-cut-line {{
+      stroke: #ff5f6d;
+      stroke-dasharray: 8 5;
+      stroke-linecap: round;
+      stroke-width: 4px;
+      filter: drop-shadow(0 0 5px rgba(255, 95, 109, 0.72));
+    }}
+
     body.canvas-panning,
     body.canvas-panning .canvas-viewport {{
       cursor: grabbing;
@@ -990,7 +1044,41 @@ def render_corkboard_html(
     .board.freeform .index-card {{
       position: absolute;
       width: var(--card-width, 320px);
+      z-index: 2;
     }}
+
+    .board.freeform .index-card.connector-hover,
+    .board.freeform .index-card.connector-target {{
+      outline: 5px solid #66d9e8;
+      outline-offset: 7px;
+    }}
+
+    .card-connector-handle {{
+      position: absolute;
+      z-index: 20;
+      display: block;
+      border: 0;
+      background: transparent;
+      cursor: crosshair;
+      padding: 0;
+    }}
+
+    .card-connector-handle.bottom {{
+      right: 10px;
+      left: 10px;
+      height: 12px;
+    }}
+
+    .card-connector-handle.left,
+    .card-connector-handle.right {{
+      top: 10px;
+      bottom: 10px;
+      width: 12px;
+    }}
+
+    .card-connector-handle.right {{ right: 0; }}
+    .card-connector-handle.bottom {{ bottom: 0; }}
+    .card-connector-handle.left {{ left: 0; }}
 
     body.fixed-card-ratio .board.freeform .index-card,
     body.fixed-card-ratio .board.grid .index-card {{
@@ -1472,6 +1560,9 @@ def render_corkboard_html(
     const cardFontValue = document.getElementById("cardFontValue");
     const boardType = CORKBOARD_DATA.board_type || "folder";
     const cards = Array.isArray(CORKBOARD_DATA.cards) ? CORKBOARD_DATA.cards : [];
+    const connectors = Array.isArray(CORKBOARD_DATA.connectors)
+      ? CORKBOARD_DATA.connectors
+      : [];
     const BOARD_CAPABILITIES = new Set(
       Array.isArray(CORKBOARD_DATA.capabilities) ? CORKBOARD_DATA.capabilities : [],
     );
@@ -1527,6 +1618,9 @@ def render_corkboard_html(
       ? CORKBOARD_DATA.default_layout_mode
       : AVAILABLE_LAYOUT_MODES[0];
     let dragState = null;
+    let connectorLayer = null;
+    let connectorState = null;
+    let connectorCutState = null;
     let canvasPanState = null;
     let draggedPath = "";
     let folderInsertionMarker = null;
@@ -2173,8 +2267,334 @@ def render_corkboard_html(
     function applyCardPosition(cardElement, card) {{
       cardElement.style.left = `${{Number(card.x) || 0}}px`;
       cardElement.style.top = `${{Number(card.y) || 0}}px`;
+      cardElement.style.width = Number(card.width) > 0
+        ? `${{Number(card.width)}}px`
+        : "";
+      cardElement.style.height = Number(card.height) > 0
+        ? `${{Number(card.height)}}px`
+        : "";
+      cardElement.style.minHeight = Number(card.height) > 0
+        ? `${{Number(card.height)}}px`
+        : "";
+      cardElement.style.overflow = Number(card.height) > 0 ? "auto" : "";
       cardElement.style.setProperty("--rotation", `${{Number(card.rotation) || 0}}deg`);
       cardElement.style.setProperty("--paper", cardColor(card));
+    }}
+
+    function svgElement(name, className = "") {{
+      const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+      if (className) element.setAttribute("class", className);
+      return element;
+    }}
+
+    function ensureConnectorLayer() {{
+      if (connectorLayer && connectorLayer.parentElement === board) {{
+        return connectorLayer;
+      }}
+      connectorLayer = svgElement("svg", "connector-layer");
+      connectorLayer.setAttribute("aria-hidden", "true");
+      board.prepend(connectorLayer);
+      return connectorLayer;
+    }}
+
+    function cardWorldGeometry(card) {{
+      const element = cardElementFor(card);
+      const width = element ? element.offsetWidth : Number(card.width) || BASE_CARD_WIDTH;
+      const height = element
+        ? element.offsetHeight
+        : Number(card.height) || BASE_CARD_MIN_HEIGHT;
+      const x = Number(card.x) || 0;
+      const y = Number(card.y) || 0;
+      return {{
+        x,
+        y,
+        width,
+        height,
+        center: {{ x: x + width / 2, y: y + height / 2 }},
+        rotation: Number(card.rotation) || 0,
+      }};
+    }}
+
+    function rotatePoint(point, geometry) {{
+      if (!geometry.rotation) return point;
+      const origin = {{ x: geometry.x + geometry.width / 2, y: geometry.y + 22 }};
+      const radians = geometry.rotation * Math.PI / 180;
+      const cosine = Math.cos(radians);
+      const sine = Math.sin(radians);
+      const dx = point.x - origin.x;
+      const dy = point.y - origin.y;
+      return {{
+        x: origin.x + dx * cosine - dy * sine,
+        y: origin.y + dx * sine + dy * cosine,
+      }};
+    }}
+
+    function resolvedAnchorSide(anchor, geometry, otherPoint) {{
+      if (anchor.side && anchor.side !== "auto") return anchor.side;
+      const dx = otherPoint.x - geometry.center.x;
+      const dy = otherPoint.y - geometry.center.y;
+      return Math.abs(dx / geometry.width) >= Math.abs(dy / geometry.height)
+        ? (dx >= 0 ? "right" : "left")
+        : (dy >= 0 ? "bottom" : "top");
+    }}
+
+    function anchorWorldPoint(anchor, otherPoint) {{
+      const card = cards.find((candidate) => cardKey(candidate) === anchor.card_id);
+      if (!card) return null;
+      const geometry = cardWorldGeometry(card);
+      const side = resolvedAnchorSide(anchor, geometry, otherPoint || geometry.center);
+      const requestedOffset = Number(anchor.offset);
+      const offset = Number.isFinite(requestedOffset)
+        ? Math.max(0, Math.min(1, requestedOffset))
+        : 0.5;
+      const point = {{ x: geometry.center.x, y: geometry.center.y }};
+      if (side === "top" || side === "bottom") {{
+        point.x = geometry.x + geometry.width * offset;
+        point.y = side === "top" ? geometry.y : geometry.y + geometry.height;
+      }} else {{
+        point.x = side === "left" ? geometry.x : geometry.x + geometry.width;
+        point.y = geometry.y + geometry.height * offset;
+      }}
+      return rotatePoint(point, geometry);
+    }}
+
+    function connectorPoints(connector) {{
+      const sourceCard = cards.find((card) => cardKey(card) === connector.source.card_id);
+      const targetCard = cards.find((card) => cardKey(card) === connector.target.card_id);
+      if (!sourceCard || !targetCard) return null;
+      const sourceCenter = cardWorldGeometry(sourceCard).center;
+      const targetCenter = cardWorldGeometry(targetCard).center;
+      const source = anchorWorldPoint(connector.source, targetCenter);
+      const target = anchorWorldPoint(connector.target, sourceCenter);
+      return source && target ? {{ source, target }} : null;
+    }}
+
+    function curvedPath(source, target, curve = 0.18) {{
+      const dx = target.x - source.x;
+      const dy = target.y - source.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const bend = distance * Number(curve || 0);
+      const control = {{
+        x: (source.x + target.x) / 2 - dy / distance * bend,
+        y: (source.y + target.y) / 2 + dx / distance * bend,
+      }};
+      return `M ${{source.x}} ${{source.y}} Q ${{control.x}} ${{control.y}} ${{target.x}} ${{target.y}}`;
+    }}
+
+    function renderConnectors() {{
+      if (!usesFreeformLayout()) {{
+        if (connectorLayer) connectorLayer.remove();
+        connectorLayer = null;
+        return;
+      }}
+      const layer = ensureConnectorLayer();
+      layer.replaceChildren();
+      for (const connector of connectors) {{
+        if (!connector.source || !connector.target) continue;
+        const points = connectorPoints(connector);
+        if (!points) continue;
+        const path = svgElement(
+          "path",
+          `corkboard-connector ${{connector.style || "string"}}`,
+        );
+        path.dataset.connectorId = String(connector.id || "");
+        path.setAttribute("d", curvedPath(points.source, points.target, connector.curve));
+        path.style.setProperty("--connector-color", connector.color || "#ead8b0");
+        path.style.setProperty(
+          "--connector-thickness",
+          `${{Math.max(1, Number(connector.thickness) || 3)}}px`,
+        );
+        layer.append(path);
+      }}
+      if (connectorState) {{
+        const sourceCard = cards.find(
+          (card) => cardKey(card) === connectorState.source.card_id,
+        );
+        const otherPoint = connectorState.pointer;
+        const source = sourceCard && otherPoint
+          ? anchorWorldPoint(connectorState.source, otherPoint)
+          : null;
+        if (source && otherPoint) {{
+          const draft = svgElement("path", "connector-draft");
+          draft.setAttribute("d", curvedPath(source, otherPoint, 0.12));
+          layer.append(draft);
+        }}
+      }}
+      if (connectorCutState) {{
+        const cut = svgElement("line", "connector-cut-line");
+        cut.setAttribute("x1", String(connectorCutState.start.x));
+        cut.setAttribute("y1", String(connectorCutState.start.y));
+        cut.setAttribute("x2", String(connectorCutState.end.x));
+        cut.setAttribute("y2", String(connectorCutState.end.y));
+        layer.append(cut);
+      }}
+    }}
+
+    function boardPoint(clientX, clientY) {{
+      const rect = canvasViewport.getBoundingClientRect();
+      const scale = boardZoomFactor();
+      return {{
+        x: (clientX - rect.left - canvasPan.x) / scale,
+        y: (clientY - rect.top - canvasPan.y) / scale,
+      }};
+    }}
+
+    function anchorFromPointer(card, cardElement, side, event) {{
+      const rect = cardElement.getBoundingClientRect();
+      const offset = side === "top" || side === "bottom"
+        ? (event.clientX - rect.left) / Math.max(1, rect.width)
+        : (event.clientY - rect.top) / Math.max(1, rect.height);
+      return {{
+        card_id: cardKey(card),
+        side,
+        offset: Math.max(0, Math.min(1, offset)),
+      }};
+    }}
+
+    function closestCardSide(cardElement, event) {{
+      const rect = cardElement.getBoundingClientRect();
+      const distances = [
+        ["top", Math.abs(event.clientY - rect.top)],
+        ["right", Math.abs(event.clientX - rect.right)],
+        ["bottom", Math.abs(event.clientY - rect.bottom)],
+        ["left", Math.abs(event.clientX - rect.left)],
+      ];
+      distances.sort((left, right) => left[1] - right[1]);
+      return distances[0][0];
+    }}
+
+    function connectorTargetAt(event) {{
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const cardElement = element && element.closest(".index-card");
+      if (!cardElement || cardElement.dataset.key === connectorState.source.card_id) {{
+        return null;
+      }}
+      const card = cards.find((candidate) => cardKey(candidate) === cardElement.dataset.key);
+      return card ? {{ card, cardElement }} : null;
+    }}
+
+    function clearConnectorTargets() {{
+      for (const element of board.querySelectorAll(".connector-target")) {{
+        element.classList.remove("connector-target");
+      }}
+    }}
+
+    function startConnectorDrag(event, card, cardElement, side) {{
+      if (!usesFreeformLayout() || !supports("connect-card") || event.button !== 0) {{
+        return;
+      }}
+      event.preventDefault();
+      event.stopPropagation();
+      connectorState = {{
+        pointerId: event.pointerId,
+        source: anchorFromPointer(card, cardElement, side, event),
+        pointer: boardPoint(event.clientX, event.clientY),
+        target: null,
+        handle: event.currentTarget,
+      }};
+      event.currentTarget.setPointerCapture(event.pointerId);
+      renderConnectors();
+    }}
+
+    function updateConnectorDrag(event) {{
+      if (!connectorState || event.pointerId !== connectorState.pointerId) return;
+      connectorState.pointer = boardPoint(event.clientX, event.clientY);
+      clearConnectorTargets();
+      connectorState.target = connectorTargetAt(event);
+      if (connectorState.target) {{
+        connectorState.target.cardElement.classList.add("connector-target");
+      }}
+      renderConnectors();
+    }}
+
+    async function saveConnector(connector, action = "create-connector") {{
+      if (!CORKBOARD_DATA.context_id) return null;
+      const response = await fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          provider: CORKBOARD_DATA.provider || "",
+          board_id: boardStoragePath(),
+          board_type: boardType,
+          action,
+          connector,
+        }}),
+      }}).catch(() => null);
+      return response && response.ok ? response.json().catch(() => null) : null;
+    }}
+
+    async function deleteConnector(connectorId) {{
+      if (!CORKBOARD_DATA.context_id) return null;
+      return fetch(contextUrl(CORKBOARD_OPERATION_URL), {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          provider: CORKBOARD_DATA.provider || "",
+          board_id: boardStoragePath(),
+          board_type: boardType,
+          action: "delete-connector",
+          connector_id: connectorId,
+        }}),
+      }}).catch(() => null);
+    }}
+
+    async function finishConnectorDrag(event) {{
+      if (!connectorState || event.pointerId !== connectorState.pointerId) return;
+      const state = connectorState;
+      connectorState = null;
+      clearConnectorTargets();
+      for (const element of board.querySelectorAll(".connector-hover")) {{
+        element.classList.remove("connector-hover");
+      }}
+      try {{ state.handle.releasePointerCapture(event.pointerId); }} catch (error) {{}}
+      if (state.target) {{
+        const side = closestCardSide(state.target.cardElement, event);
+        const connector = {{
+          id: `connector-${{Date.now().toString(36)}}-${{Math.random().toString(36).slice(2, 8)}}`,
+          source: state.source,
+          target: anchorFromPointer(
+            state.target.card,
+            state.target.cardElement,
+            side,
+            event,
+          ),
+          color: "#ead8b0",
+          thickness: 3,
+          curve: 0.18,
+          style: "string",
+          label: "",
+        }};
+        connectors.push(connector);
+        renderConnectors();
+        const saved = await saveConnector(connector);
+        if (!saved && CORKBOARD_DATA.context_id) {{
+          const index = connectors.indexOf(connector);
+          if (index >= 0) connectors.splice(index, 1);
+        }}
+      }}
+      renderConnectors();
+    }}
+
+    function buildConnectorHandles(card, cardElement) {{
+      if (!usesFreeformLayout() || !supports("connect-card")) return;
+      for (const side of ["right", "bottom", "left"]) {{
+        const handle = document.createElement("button");
+        handle.className = `card-connector-handle ${{side}}`;
+        handle.type = "button";
+        handle.title = `Drag to connect from ${{side}} edge`;
+        handle.setAttribute("aria-label", handle.title);
+        handle.addEventListener("pointerenter", () =>
+          cardElement.classList.add("connector-hover"));
+        handle.addEventListener("pointerleave", () => {{
+          if (!connectorState) cardElement.classList.remove("connector-hover");
+        }});
+        handle.addEventListener("pointerdown", (event) =>
+          startConnectorDrag(event, card, cardElement, side));
+        handle.addEventListener("pointermove", updateConnectorDrag);
+        handle.addEventListener("pointerup", finishConnectorDrag);
+        handle.addEventListener("pointercancel", finishConnectorDrag);
+        cardElement.append(handle);
+      }}
     }}
 
     function selectedCard() {{
@@ -2652,6 +3072,94 @@ def render_corkboard_html(
     function sizeBoard() {{
       applyCanvasPan();
       applyGridColumns();
+      renderConnectors();
+    }}
+
+    function lineSegmentsIntersect(firstStart, firstEnd, secondStart, secondEnd) {{
+      function orientation(a, b, c) {{
+        return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+      }}
+      function onSegment(start, end, point) {{
+        const epsilon = 0.001;
+        return point.x >= Math.min(start.x, end.x) - epsilon
+          && point.x <= Math.max(start.x, end.x) + epsilon
+          && point.y >= Math.min(start.y, end.y) - epsilon
+          && point.y <= Math.max(start.y, end.y) + epsilon;
+      }}
+      const firstA = orientation(firstStart, firstEnd, secondStart);
+      const firstB = orientation(firstStart, firstEnd, secondEnd);
+      const secondA = orientation(secondStart, secondEnd, firstStart);
+      const secondB = orientation(secondStart, secondEnd, firstEnd);
+      if (firstA * firstB < 0 && secondA * secondB < 0) return true;
+      const epsilon = 0.001;
+      return (Math.abs(firstA) <= epsilon && onSegment(firstStart, firstEnd, secondStart))
+        || (Math.abs(firstB) <= epsilon && onSegment(firstStart, firstEnd, secondEnd))
+        || (Math.abs(secondA) <= epsilon && onSegment(secondStart, secondEnd, firstStart))
+        || (Math.abs(secondB) <= epsilon && onSegment(secondStart, secondEnd, firstEnd));
+    }}
+
+    function cutConnectorIds(start, end) {{
+      const result = [];
+      const layer = ensureConnectorLayer();
+      for (const path of layer.querySelectorAll(".corkboard-connector")) {{
+        const length = path.getTotalLength();
+        const step = Math.max(6, Math.min(18, length / 24));
+        let previous = path.getPointAtLength(0);
+        for (let distance = step; distance <= length + step; distance += step) {{
+          const point = path.getPointAtLength(Math.min(distance, length));
+          if (lineSegmentsIntersect(start, end, previous, point)) {{
+            result.push(path.dataset.connectorId);
+            break;
+          }}
+          previous = point;
+        }}
+      }}
+      return result.filter(Boolean);
+    }}
+
+    function startConnectorCut(event) {{
+      if (!usesFreeformLayout() || !supports("delete-connector") || event.button !== 2) {{
+        return;
+      }}
+      event.preventDefault();
+      const point = boardPoint(event.clientX, event.clientY);
+      connectorCutState = {{
+        pointerId: event.pointerId,
+        start: point,
+        end: point,
+      }};
+      canvasViewport.setPointerCapture(event.pointerId);
+      renderConnectors();
+    }}
+
+    function updateConnectorCut(event) {{
+      if (!connectorCutState || event.pointerId !== connectorCutState.pointerId) return;
+      connectorCutState.end = boardPoint(event.clientX, event.clientY);
+      renderConnectors();
+    }}
+
+    async function finishConnectorCut(event) {{
+      if (!connectorCutState || event.pointerId !== connectorCutState.pointerId) return;
+      const state = connectorCutState;
+      const cutDistance = Math.hypot(
+        state.end.x - state.start.x,
+        state.end.y - state.start.y,
+      );
+      const connectorIds = cutDistance >= 4 ? cutConnectorIds(state.start, state.end) : [];
+      connectorCutState = null;
+      try {{ canvasViewport.releasePointerCapture(event.pointerId); }} catch (error) {{}}
+      if (connectorIds.length) {{
+        const removed = new Set(connectorIds);
+        connectors.splice(
+          0,
+          connectors.length,
+          ...connectors.filter((connector) => !removed.has(String(connector.id))),
+        );
+        for (const connectorId of connectorIds) {{
+          await deleteConnector(connectorId);
+        }}
+      }}
+      renderConnectors();
     }}
 
     function startCanvasPan(event) {{
@@ -2796,6 +3304,12 @@ def render_corkboard_html(
       if (index >= 0) {{
         cards.splice(index, 1);
       }}
+      connectors.splice(
+        0,
+        connectors.length,
+        ...connectors.filter((connector) =>
+          connector.source.card_id !== key && connector.target.card_id !== key),
+      );
       if (selectedCardKey === key) {{
         selectedCardKey = "";
       }}
@@ -3141,6 +3655,8 @@ def render_corkboard_html(
 
     function renderCards() {{
       board.replaceChildren();
+      connectorLayer = null;
+      if (usesFreeformLayout()) ensureConnectorLayer();
       folderInsertionMarker = null;
       clearFolderInsertionMarker();
       const renderedLayout = boardType === "folder" ? "folder" : layoutMode;
@@ -3313,6 +3829,7 @@ def render_corkboard_html(
         if (metadata) {{
           cardElement.append(metadata);
         }}
+        buildConnectorHandles(card, cardElement);
         board.append(cardElement);
       }}
       sizeBoard();
@@ -3381,9 +3898,16 @@ def render_corkboard_html(
     );
     canvasViewport.addEventListener("wheel", handleBoardWheel, {{ passive: false }});
     canvasViewport.addEventListener("pointerdown", startCanvasPan);
+    canvasViewport.addEventListener("pointerdown", startConnectorCut);
     canvasViewport.addEventListener("pointermove", updateCanvasPan);
+    canvasViewport.addEventListener("pointermove", updateConnectorCut);
     canvasViewport.addEventListener("pointerup", finishCanvasPan);
+    canvasViewport.addEventListener("pointerup", finishConnectorCut);
     canvasViewport.addEventListener("pointercancel", finishCanvasPan);
+    canvasViewport.addEventListener("pointercancel", finishConnectorCut);
+    canvasViewport.addEventListener("contextmenu", (event) => {{
+      if (usesFreeformLayout()) event.preventDefault();
+    }});
     canvasViewport.addEventListener("auxclick", (event) => {{
       if (event.button === 1) {{
         event.preventDefault();
@@ -3506,7 +4030,7 @@ def _creative_freeform_corkboard_payload(
         stored_layout = "freeform"
     group_title = _creative_card_group_title(project_root, normalized_path)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "board_type": "freeform",
         "layout_modes": ["grid", "freeform"],
         "default_layout_mode": stored_layout,
@@ -3523,6 +4047,7 @@ def _creative_freeform_corkboard_payload(
             "path": normalized_path,
         },
         "cards": _freeform_corkboard_cards(data),
+        "connectors": _freeform_corkboard_connectors(data),
     }
 
 
@@ -3932,11 +4457,13 @@ def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
         return _empty_creative_corkboard_document()
     if data.get("type") != "electroboy.creative.corkboard":
         data["type"] = "electroboy.creative.corkboard"
-    data["schema_version"] = 1
+    data["schema_version"] = 2
     if str(data.get("layout") or "").strip().lower() not in {"grid", "freeform"}:
         data["layout"] = "freeform"
     if not isinstance(data.get("cards"), list):
         data["cards"] = []
+    if not isinstance(data.get("connectors"), list):
+        data["connectors"] = []
     return data
 
 
@@ -4008,8 +4535,94 @@ def _freeform_corkboard_cards(data: dict[str, object]) -> list[dict[str, object]
             )
             if board_path:
                 card["board_path"] = board_path
+        if raw_card.get("width") is not None:
+            card["width"] = _bounded_float(
+                raw_card.get("width"),
+                320,
+                CREATIVE_CARD_MIN_WIDTH,
+                CREATIVE_CARD_MAX_WIDTH,
+            )
+        if raw_card.get("height") is not None:
+            card["height"] = _bounded_float(
+                raw_card.get("height"),
+                200,
+                CREATIVE_CARD_MIN_HEIGHT,
+                CREATIVE_CARD_MAX_HEIGHT,
+            )
         normalized_cards.append(card)
     return normalized_cards
+
+
+def _normalize_creative_connector_anchor(
+    value: object,
+) -> dict[str, object]:
+    anchor = value if isinstance(value, dict) else {}
+    card_id = str(anchor.get("card_id") or "").strip()[:100]
+    side = str(anchor.get("side") or "auto").strip().lower()
+    if side not in {"auto", "top", "right", "bottom", "left"}:
+        side = "auto"
+    return {
+        "card_id": card_id,
+        "side": side,
+        "offset": _bounded_float(anchor.get("offset"), 0.5, 0, 1),
+    }
+
+
+def _normalize_creative_connector_color(value: object) -> str:
+    color = str(value or "").strip().lower()
+    return color if CREATIVE_CONNECTOR_COLOR_RE.fullmatch(color) else "#ead8b0"
+
+
+def _freeform_corkboard_connectors(
+    data: dict[str, object],
+    cards: list[dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    raw_connectors = data.get("connectors")
+    if not isinstance(raw_connectors, list):
+        return []
+    card_ids = {
+        str(card.get("id") or "")
+        for card in (cards if cards is not None else _freeform_corkboard_cards(data))
+    }
+    connectors: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    for index, raw_connector in enumerate(raw_connectors):
+        if not isinstance(raw_connector, dict):
+            continue
+        connector_id = str(
+            raw_connector.get("id") or f"connector-{index + 1}"
+        ).strip()[:100]
+        if not connector_id or connector_id in seen_ids:
+            continue
+        source = _normalize_creative_connector_anchor(raw_connector.get("source"))
+        target = _normalize_creative_connector_anchor(raw_connector.get("target"))
+        if (
+            source["card_id"] not in card_ids
+            or target["card_id"] not in card_ids
+            or source["card_id"] == target["card_id"]
+        ):
+            continue
+        style = str(raw_connector.get("style") or "string").strip().lower()
+        if style not in {"string", "line", "dashed"}:
+            style = "string"
+        connectors.append(
+            {
+                "id": connector_id,
+                "source": source,
+                "target": target,
+                "color": _normalize_creative_connector_color(
+                    raw_connector.get("color")
+                ),
+                "thickness": _bounded_float(
+                    raw_connector.get("thickness"), 3, 1, 12
+                ),
+                "curve": _bounded_float(raw_connector.get("curve"), 0.18, -0.75, 0.75),
+                "style": style,
+                "label": str(raw_connector.get("label") or "")[:200],
+            }
+        )
+        seen_ids.add(connector_id)
+    return connectors
 
 
 def _save_creative_freeform_corkboard_card(
@@ -4036,34 +4649,35 @@ def _save_creative_freeform_corkboard_card(
             existing_card = existing
             existing_color = existing.get("color")
             break
+    merged_card = {**existing_card, **card_payload}
     default_color = _normalize_creative_card_color(existing_color, str(style["color"]))
     card_type = _creative_freeform_card_type(
-        card_payload.get("card_type") or existing_card.get("card_type")
+        merged_card.get("card_type")
     )
     card = {
         "id": card_id,
-        "title": str(card_payload.get("title") or "Untitled card")[:200],
-        "note": str(card_payload.get("note") or "")[:5000],
+        "title": str(merged_card.get("title") or "Untitled card")[:200],
+        "note": str(merged_card.get("note") or "")[:5000],
         "x": _bounded_float(
-            card_payload.get("x"),
+            merged_card.get("x"),
             36,
             -1_000_000,
             1_000_000,
         ),
         "y": _bounded_float(
-            card_payload.get("y"),
+            merged_card.get("y"),
             36,
             -1_000_000,
             1_000_000,
         ),
         "rotation": _bounded_float(
-            card_payload.get("rotation"),
+            merged_card.get("rotation"),
             float(style["rotation"]),
             -8,
             8,
         ),
         "color": _normalize_creative_card_color(
-            card_payload.get("color"),
+            merged_card.get("color"),
             default_color,
         ),
         "card_type": card_type,
@@ -4075,9 +4689,22 @@ def _save_creative_freeform_corkboard_card(
             card_id=card_id,
             board_title=str(card["title"]),
             board_path=(
-                card_payload.get("board_path")
-                or existing_card.get("board_path")
+                merged_card.get("board_path")
             ),
+        )
+    if merged_card.get("width") is not None:
+        card["width"] = _bounded_float(
+            merged_card.get("width"),
+            320,
+            CREATIVE_CARD_MIN_WIDTH,
+            CREATIVE_CARD_MAX_WIDTH,
+        )
+    if merged_card.get("height") is not None:
+        card["height"] = _bounded_float(
+            merged_card.get("height"),
+            200,
+            CREATIVE_CARD_MIN_HEIGHT,
+            CREATIVE_CARD_MAX_HEIGHT,
         )
     replaced = False
     for index, existing in enumerate(cards):
@@ -4114,8 +4741,89 @@ def _delete_creative_freeform_corkboard_card(
     if len(remaining_cards) == len(cards):
         raise StateError(f"card does not exist: {normalized_card_id}")
     data["cards"] = remaining_cards
+    data["connectors"] = [
+        connector
+        for connector in _freeform_corkboard_connectors(data, cards)
+        if connector["source"]["card_id"] != normalized_card_id
+        and connector["target"]["card_id"] != normalized_card_id
+    ]
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return normalized_card_id
+
+
+def _save_creative_freeform_corkboard_connector(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    connector_payload: dict[str, object],
+) -> dict[str, object]:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    data = _load_creative_corkboard_document(path)
+    cards = _freeform_corkboard_cards(data)
+    card_ids = {str(card.get("id") or "") for card in cards}
+    connectors = _freeform_corkboard_connectors(data, cards)
+    connector_id = str(connector_payload.get("id") or uuid4().hex).strip()[:100]
+    if not connector_id:
+        raise StateError("corkboard connector id is required")
+    existing = next(
+        (connector for connector in connectors if connector["id"] == connector_id),
+        {},
+    )
+    merged = {**existing, **connector_payload, "id": connector_id}
+    source = _normalize_creative_connector_anchor(merged.get("source"))
+    target = _normalize_creative_connector_anchor(merged.get("target"))
+    if source["card_id"] not in card_ids or target["card_id"] not in card_ids:
+        raise StateError("connector endpoints must reference existing cards")
+    if source["card_id"] == target["card_id"]:
+        raise StateError("connector endpoints must reference different cards")
+    style = str(merged.get("style") or "string").strip().lower()
+    if style not in {"string", "line", "dashed"}:
+        raise StateError(f"unknown connector style: {style}")
+    connector = {
+        "id": connector_id,
+        "source": source,
+        "target": target,
+        "color": _normalize_creative_connector_color(merged.get("color")),
+        "thickness": _bounded_float(merged.get("thickness"), 3, 1, 12),
+        "curve": _bounded_float(merged.get("curve"), 0.18, -0.75, 0.75),
+        "style": style,
+        "label": str(merged.get("label") or "")[:200],
+    }
+    replaced = False
+    for index, current in enumerate(connectors):
+        if current["id"] == connector_id:
+            connectors[index] = connector
+            replaced = True
+            break
+    if not replaced:
+        connectors.append(connector)
+    data["connectors"] = connectors
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return connector
+
+
+def _delete_creative_freeform_corkboard_connector(
+    project_root: Path | str,
+    *,
+    corkboard_path: str,
+    connector_id: str,
+) -> str:
+    normalized_path, path = _creative_path(project_root, corkboard_path)
+    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+        raise StateError(f"corkboard does not exist: {normalized_path}")
+    normalized_id = connector_id.strip()[:100]
+    if not normalized_id:
+        raise StateError("corkboard connector id is required")
+    data = _load_creative_corkboard_document(path)
+    connectors = _freeform_corkboard_connectors(data)
+    remaining = [item for item in connectors if item["id"] != normalized_id]
+    if len(remaining) == len(connectors):
+        raise StateError(f"connector does not exist: {normalized_id}")
+    data["connectors"] = remaining
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return normalized_id
 
 
 def _save_creative_freeform_corkboard_title(
@@ -4224,6 +4932,23 @@ def save_creative_corkboard(
                 card_id=str(payload.get("card_id") or ""),
             )
             return {"status": "deleted", "card_id": card_id}
+        if action in {"save-connector", "create-connector", "update-connector"}:
+            connector_payload = payload.get("connector")
+            if not isinstance(connector_payload, dict):
+                raise StateError("freeform corkboard connector is required")
+            connector = _save_creative_freeform_corkboard_connector(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                connector_payload=connector_payload,
+            )
+            return {"status": "saved", "connector": connector}
+        if action == "delete-connector":
+            connector_id = _delete_creative_freeform_corkboard_connector(
+                project_root,
+                corkboard_path=str(payload.get("corkboard") or ""),
+                connector_id=str(payload.get("connector_id") or ""),
+            )
+            return {"status": "deleted", "connector_id": connector_id}
         card_payload = payload.get("card")
         if not isinstance(card_payload, dict):
             raise StateError("freeform corkboard card is required")
@@ -4410,7 +5135,7 @@ def _creative_writing_target_prompt_lines(
             f"Current active target: freeform corkboard {target_path}.",
             "This board contains arbitrary cards with x/y positions.",
             "Use `electroboy corkboard` commands from docs/corkboard-api.md",
-            "for card additions, edits, moves, styling, and deletes.",
+            "for card additions, edits, moves, resizing, connectors, and deletes.",
         ]
     if target_type == "folder-corkboard":
         return [

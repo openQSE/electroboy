@@ -100,11 +100,14 @@ class ProjectCorkboardProvider:
                 **payload,
                 "capabilities": [
                     "change-color",
+                    "connect-card",
                     "create-card",
                     "delete-card",
+                    "delete-connector",
                     "edit-card",
                     "move-card",
                     "rename-board",
+                    "update-connector",
                 ],
             },
             provider_id=self.provider_id,
@@ -129,8 +132,18 @@ class ProjectCorkboardProvider:
             operation.update(action="title", title=payload.get("title"))
         elif action == "delete-card":
             operation.update(action="delete", card_id=payload.get("card_id"))
-        elif action == "update-card":
+        elif action in {"create-card", "update-card", "patch-card"}:
             operation["card"] = payload.get("card")
+        elif action in {"create-connector", "update-connector"}:
+            operation.update(
+                action="save-connector",
+                connector=payload.get("connector"),
+            )
+        elif action == "delete-connector":
+            operation.update(
+                action="delete-connector",
+                connector_id=payload.get("connector_id"),
+            )
         else:
             raise StateError(f"unsupported project corkboard action: {action}")
         return save_creative_corkboard(root, operation)

@@ -78,6 +78,15 @@ def normalize_board_snapshot(
             or f"card-{index + 1}"
         ).strip()
         normalized_cards.append({**card, "id": card_id})
+    connectors = payload.get("connectors", [])
+    if not isinstance(connectors, list):
+        raise StateError("corkboard connectors must be a list")
+    normalized_connectors: list[dict[str, object]] = []
+    for index, connector in enumerate(connectors):
+        if not isinstance(connector, dict):
+            raise StateError(f"corkboard connector {index + 1} must be an object")
+        connector_id = str(connector.get("id") or f"connector-{index + 1}").strip()
+        normalized_connectors.append({**connector, "id": connector_id})
     title = str(payload.get("title") or "").strip()
     if not title:
         raise StateError("corkboard title is required")
@@ -117,7 +126,7 @@ def normalize_board_snapshot(
             raise StateError("corkboard card aspect ratio is out of range")
     return {
         **payload,
-        "schema_version": 1,
+        "schema_version": 2,
         "provider": provider_id,
         "board_id": board_id,
         "title": title,
@@ -125,6 +134,7 @@ def normalize_board_snapshot(
         "layout_modes": layout_modes,
         "default_layout_mode": default_layout_mode,
         "cards": normalized_cards,
+        "connectors": normalized_connectors,
         "capabilities": [str(item) for item in capabilities],
         **(
             {"card_aspect_ratio": normalized_ratio}
