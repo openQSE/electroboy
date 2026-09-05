@@ -2142,25 +2142,25 @@ Boundary 1 validation notes:
 
 ### Boundary 15: Course Skill, Rendering, And Navigation
 
-225. [ ] Update `code-learner-course` guidance to consume Phase 3 source,
+225. [x] Update `code-learner-course` guidance to consume Phase 3 source,
      component, module, relationship, and knowledge manifests.
-226. [ ] Remove assumptions that a generic Phase 2 entity graph is canonical.
-227. [ ] Preserve separate Architecture, Module, and Function course
+226. [x] Remove assumptions that a generic Phase 2 entity graph is canonical.
+227. [x] Preserve separate Architecture, Module, and Function course
      invocations.
-228. [ ] Preserve structured JSONL document and section records.
-229. [ ] Preserve deterministic JSONL-to-Markdown rendering.
-230. [ ] Preserve the shared file-pane Markdown and Mermaid renderer.
-231. [ ] Map horizontal Previous and Next to the current abstraction level.
-232. [ ] Map vertical Deep Dive and Back to Architecture, Module, component, and
+228. [x] Preserve structured JSONL document and section records.
+229. [x] Preserve deterministic JSONL-to-Markdown rendering.
+230. [x] Preserve the shared file-pane Markdown and Mermaid renderer.
+231. [x] Map horizontal Previous and Next to the current abstraction level.
+232. [x] Map vertical Deep Dive and Back to Architecture, Module, component, and
      Function targets.
-233. [ ] Preserve return position across vertical navigation.
-234. [ ] Synchronize selected sections with primary source references.
-235. [ ] Add missing, generating, stale, failed, and unresolved target states.
-236. [ ] Validate all course links against Phase 3 IDs.
-237. [ ] Ensure course prompts cannot restart component or module discovery.
-238. [ ] Test headings, sections, source links, diagrams, horizontal navigation,
+233. [x] Preserve return position across vertical navigation.
+234. [x] Synchronize selected sections with primary source references.
+235. [x] Add missing, generating, stale, failed, and unresolved target states.
+236. [x] Validate all course links against Phase 3 IDs.
+237. [x] Ensure course prompts cannot restart component or module discovery.
+238. [x] Test headings, sections, source links, diagrams, horizontal navigation,
      vertical navigation, and reload restoration.
-239. [ ] Commit Phase 3 course skill, projection, rendering, and navigation.
+239. [x] Commit Phase 3 course skill, projection, rendering, and navigation.
 
 ### Boundary 16: Contextual Tutor Integration
 

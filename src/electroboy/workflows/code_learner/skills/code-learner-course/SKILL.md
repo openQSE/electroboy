@@ -11,17 +11,21 @@ rediscovery or invent facts for narrative completeness.
 
 ## Operating Contract
 
-- Read the canonical course schema and supplied knowledge subgraph.
+- Read the canonical course schema and supplied Phase 3 source, component,
+  module, relationship, and scoped knowledge manifests.
 - Emit strict document/section JSONL only, with Markdown in section bodies.
 - Link every section and diagram to knowledge IDs and source evidence.
 - Preserve uncertainty from the knowledge model.
 - Keep sections slide-sized while providing enough detail for a real lesson.
-- Treat the supplied knowledge subgraph as the factual boundary. Read only the
+- Treat the supplied frozen Phase 3 manifests and scoped knowledge as the
+  factual boundary. Do not assume a generic entity graph is canonical. Read only the
   source references it names for targeted verification. Do not inspect
   ElectroBoy implementation code, validators, tests, other courses, or
   unrelated repository files to discover more context or infer output fields.
 - If required evidence is missing, follow the request-only behavior below
   instead of guessing or embedding a knowledge request in lesson prose.
+- Never restart component discovery, component reconciliation, module
+  synthesis, or relationship generation from a course invocation.
 
 ## Mode Routing
 
