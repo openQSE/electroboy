@@ -30,6 +30,7 @@ def _candidate(candidate_id: str, keys: tuple[str, ...]) -> dict[str, object]:
     return {
         "schema_version": 1,
         "record_type": "component_candidate",
+        "analysis_run_id": "run-1",
         "repository_revision": "revision-1",
         "candidate_id": candidate_id,
         "name": f"Name {candidate_id}",

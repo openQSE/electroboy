@@ -10,6 +10,10 @@ from electroboy.workflows.code_learner.component_contract import (
     component_candidate_example,
     validate_component_schema_alignment,
 )
+from electroboy.workflows.code_learner.phase3_contract_catalog import (
+    AGENT_RECORD_REQUIRED_FIELDS,
+    validate_phase3_schema_alignment,
+)
 from electroboy.workflows.code_learner.phase3_contracts import (
     Phase3ContractError,
     SymbolLocator,
@@ -113,6 +117,30 @@ def test_component_schema_alignment_rejects_contract_drift() -> None:
         validate_component_schema_alignment(schema)
 
 
+def test_all_ai_record_schemas_match_runtime_contract_catalog() -> None:
+    schema = load_phase3_schema()
+
+    validate_phase3_schema_alignment(schema)
+
+    assert set(AGENT_RECORD_REQUIRED_FIELDS) == {
+        "component_reconciliation",
+        "module",
+        "module_relationship",
+        "architecture_knowledge",
+        "module_knowledge",
+        "function_knowledge",
+    }
+
+
+def test_phase3_schema_alignment_rejects_later_record_drift() -> None:
+    schema = deepcopy(load_phase3_schema())
+    relationship = schema["$defs"]["module_relationship"]["allOf"][1]
+    relationship["required"].remove("source_refs")
+
+    with pytest.raises(RuntimeError, match="required fields do not match"):
+        validate_phase3_schema_alignment(schema)
+
+
 def test_source_and_candidate_contracts_validate_grounding() -> None:
     files = validate_source_files([_file()], repository_revision=REVISION)
     candidates = validate_component_candidates(
@@ -160,9 +188,15 @@ def test_reconciliation_requires_complete_distinct_partition() -> None:
     reconciliation = {
         "schema_version": 1,
         "record_type": "component_reconciliation",
+        "repository_revision": REVISION,
+        "analysis_run_id": "run-1",
         "overlap_group_id": "overlap:1",
         "decision": "distinct",
-        "partitions": [{"candidate_ids": ["a", "b"]}],
+        "partitions": [
+            {"candidate_ids": ["a", "b"], "reason": "Incorrectly combined."}
+        ],
+        "reason": "Fixture decision.",
+        "limitations": [],
     }
 
     with pytest.raises(Phase3ContractError, match="at least two partitions"):
@@ -258,7 +292,12 @@ def test_relationship_knowledge_and_request_contracts_validate_ids() -> None:
         "to_module_id": "module:2",
         "kind": "calls",
         "summary": "One module calls another.",
+        "direction": "directed",
+        "condition": "",
+        "confidence": "high",
         "supporting_component_ids": ["component:1"],
+        "source_refs": [],
+        "limitations": [],
     }
     knowledge = {
         "schema_version": 1,
@@ -269,7 +308,29 @@ def test_relationship_knowledge_and_request_contracts_validate_ids() -> None:
         "body": "Architecture body.",
         "component_ids": ["component:1"],
         "module_ids": ["module:1"],
-        "diagrams": [{"type": "component", "mermaid": "flowchart LR\nA-->B"}],
+        "horizontal": {
+            "repository_purpose": "Fixture.",
+            "external_boundaries": [],
+            "entry_surfaces": [],
+            "modules": [],
+            "relationships": [],
+            "state": [],
+            "build": [],
+            "tests": [],
+            "constraints": [],
+        },
+        "vertical_slices": [],
+        "diagrams": [
+            {
+                "id": "diagram:1",
+                "type": "component",
+                "node_ids": [],
+                "relationship_ids": [],
+                "mermaid": "flowchart LR\nA-->B",
+            }
+        ],
+        "deep_links": [],
+        "limitations": [],
     }
     request = {
         "schema_version": 1,

@@ -17,6 +17,10 @@ from .component_manifest import ComponentManifestService
 from .contracts import RELATIONSHIP_KINDS
 from .domain import CodeLearnerError
 from .modules import ModuleSynthesisService
+from .phase3_contract_catalog import (
+    EVIDENCE_CONFIDENCE_VALUES,
+    RELATIONSHIP_DIRECTION_VALUES,
+)
 from .phase3_contracts import (
     parse_phase3_jsonl,
     validate_knowledge_requests,
@@ -260,19 +264,24 @@ class ModuleRelationshipService:
         for index, record in enumerate(records):
             if record.get("kind") not in RELATIONSHIP_KINDS:
                 raise CodeLearnerError(f"relationships[{index}].kind is unsupported")
-            if record.get("direction") not in {"directed", "bidirectional"}:
+            if record.get("direction") not in RELATIONSHIP_DIRECTION_VALUES:
                 raise CodeLearnerError(f"relationships[{index}].direction is required")
-            if record.get("confidence") not in {
-                "verified",
-                "high",
-                "medium",
-                "low",
-                "unknown",
-            }:
+            if record.get("confidence") not in EVIDENCE_CONFIDENCE_VALUES:
                 raise CodeLearnerError(f"relationships[{index}].confidence is required")
             if "condition" not in record or "limitations" not in record:
                 raise CodeLearnerError(
                     f"relationships[{index}] needs condition and limitations"
+                )
+            if not isinstance(record.get("condition"), str):
+                raise CodeLearnerError(
+                    f"relationships[{index}].condition must be a string"
+                )
+            limitations = record.get("limitations")
+            if not isinstance(limitations, list) or any(
+                not isinstance(item, str) for item in limitations
+            ):
+                raise CodeLearnerError(
+                    f"relationships[{index}].limitations must be strings"
                 )
             source_id = str(record.get("from_module_id") or "")
             target_id = str(record.get("to_module_id") or "")
@@ -295,9 +304,16 @@ class ModuleRelationshipService:
                 file_id = str(reference.get("file_id") or "")
                 if file_id not in files:
                     raise CodeLearnerError("relationship cites an unknown source file")
-                start = int(reference.get("start_line") or 0)
-                end = int(reference.get("end_line") or 0)
-                if start < 1 or end < start:
+                start = reference.get("start_line")
+                end = reference.get("end_line")
+                if (
+                    not isinstance(start, int)
+                    or isinstance(start, bool)
+                    or not isinstance(end, int)
+                    or isinstance(end, bool)
+                    or start < 1
+                    or end < start
+                ):
                     raise CodeLearnerError("relationship source range is invalid")
                 if not str(reference.get("reason") or "").strip():
                     raise CodeLearnerError(
@@ -333,7 +349,12 @@ class ModuleRelationshipService:
                 raise CodeLearnerError(
                     "contradictory module edges require focused reconciliation"
                 )
-            prompt = relationship_conflict_prompt(left=existing, right=payload)
+            prompt = relationship_conflict_prompt(
+                left=existing,
+                right=payload,
+                schema_path=Path(__file__).with_name("schemas")
+                / "phase3.schema.json",
+            )
             resolved = dict(resolver(existing, payload, prompt))
             revision, modules, components, files = self._catalogs()
             self._validate_details([resolved], modules, components, files, revision)
@@ -354,6 +375,7 @@ class ModuleRelationshipService:
             module_manifest_path=self.modules.manifest_path,
             modules_path=self.modules.modules_path,
             relationship_kinds=sorted(RELATIONSHIP_KINDS),
+            schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
         )
 
     def _catalogs(self):

@@ -12,24 +12,18 @@ from electroboy.runtime import runtime_for_role
 
 from .domain import CodeLearnerError
 from .knowledge import Phase3KnowledgeContext
+from .phase3_contract_catalog import (
+    ARCHITECTURE_HORIZONTAL_FIELDS,
+    ARCHITECTURE_KNOWLEDGE_REQUIRED_FIELDS,
+    ARCHITECTURE_STEP_FIELDS,
+    ARCHITECTURE_VERTICAL_SLICE_FIELDS,
+    missing_required_fields,
+)
 from .phase3_contracts import parse_phase3_jsonl
 from .phase3_prompts import architecture_knowledge_prompt
 from .phase3_store import Phase3Store
 
 ARCHITECTURE_ROLE = "code_learner_analysis"
-_HORIZONTAL_FIELDS = (
-    "repository_purpose",
-    "external_boundaries",
-    "entry_surfaces",
-    "modules",
-    "relationships",
-    "state",
-    "build",
-    "tests",
-    "constraints",
-)
-
-
 class RuntimeFactory(Protocol):
     def __call__(self, role: str, root: Path) -> AgentRuntime: ...
 
@@ -120,10 +114,13 @@ class ArchitectureKnowledgeService:
         context.validate_common(payload)
         if payload.get("record_type") != "architecture_knowledge":
             raise CodeLearnerError("expected architecture_knowledge")
+        self._require_fields(
+            payload, ARCHITECTURE_KNOWLEDGE_REQUIRED_FIELDS, "Architecture"
+        )
         horizontal = payload.get("horizontal")
         if not isinstance(horizontal, Mapping):
             raise CodeLearnerError("Architecture horizontal knowledge is required")
-        for field in _HORIZONTAL_FIELDS:
+        for field in ARCHITECTURE_HORIZONTAL_FIELDS:
             if field not in horizontal:
                 raise CodeLearnerError(f"Architecture horizontal.{field} is required")
         covered_modules = set(payload.get("module_ids", []))
@@ -147,11 +144,35 @@ class ArchitectureKnowledgeService:
         for slice_index, vertical in enumerate(payload.get("vertical_slices", [])):
             if not isinstance(vertical, Mapping):
                 raise CodeLearnerError("vertical_slices must contain objects")
+            self._require_fields(
+                vertical,
+                ARCHITECTURE_VERTICAL_SLICE_FIELDS,
+                f"vertical_slices[{slice_index}]",
+            )
+            for field in ("id", "title"):
+                if not str(vertical.get(field) or "").strip():
+                    raise CodeLearnerError(
+                        f"vertical_slices[{slice_index}].{field} is required"
+                    )
             steps = vertical.get("ordered_steps", [])
+            if not isinstance(steps, list) or not steps:
+                raise CodeLearnerError(
+                    f"vertical_slices[{slice_index}].ordered_steps must not be empty"
+                )
             modules_in_flow = set()
             for step_index, step in enumerate(steps):
                 if not isinstance(step, Mapping):
                     raise CodeLearnerError("ordered_steps must contain objects")
+                self._require_fields(
+                    step,
+                    ARCHITECTURE_STEP_FIELDS,
+                    f"vertical_slices[{slice_index}].ordered_steps[{step_index}]",
+                )
+                order = step.get("order")
+                if not isinstance(order, int) or isinstance(order, bool) or order < 1:
+                    raise CodeLearnerError("vertical step order must be positive")
+                if not str(step.get("summary") or "").strip():
+                    raise CodeLearnerError("vertical step summary is required")
                 module_id = str(step.get("module_id") or "")
                 if module_id not in context.modules:
                     raise CodeLearnerError("vertical step has an unknown module")
@@ -194,6 +215,16 @@ class ArchitectureKnowledgeService:
         payload["validated_at"] = utc_now()
         self.store.write_jsonl(self.path, [payload])
         return payload
+
+    @staticmethod
+    def _require_fields(
+        record: Mapping[str, object], fields: tuple[str, ...], path: str
+    ) -> None:
+        missing = missing_required_fields(record, fields)
+        if missing:
+            raise CodeLearnerError(
+                f"{path} is missing required fields: {', '.join(missing)}"
+            )
 
     def load(self) -> dict[str, object] | None:
         records = self.store.read_jsonl(self.path)

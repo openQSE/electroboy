@@ -13,6 +13,11 @@ from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
 from .domain import CodeLearnerError
+from .phase3_contract_catalog import (
+    RECONCILIATION_PARTITION_REQUIRED_FIELDS,
+    RECONCILIATION_REQUIRED_FIELDS,
+    missing_required_fields,
+)
 from .phase3_contracts import (
     Phase3ContractError,
     parse_phase3_jsonl,
@@ -221,17 +226,27 @@ record types.
         record: Mapping[str, object],
         candidates: Sequence[Mapping[str, object]],
     ) -> None:
-        allowed_top = {
-            "schema_version",
-            "record_type",
-            "repository_revision",
-            "analysis_run_id",
-            "overlap_group_id",
-            "decision",
-            "partitions",
-            "reason",
-            "limitations",
+        allowed_top = set(RECONCILIATION_REQUIRED_FIELDS)
+        missing = missing_required_fields(record, RECONCILIATION_REQUIRED_FIELDS)
+        if missing:
+            raise CodeLearnerError(
+                "reconciliation is missing required fields: " + ", ".join(missing)
+            )
+        revisions = {
+            str(candidate.get("repository_revision") or "")
+            for candidate in candidates
         }
+        if revisions != {str(record.get("repository_revision") or "")}:
+            raise CodeLearnerError(
+                "reconciliation repository revision does not match its candidates"
+            )
+        run_ids = {
+            str(candidate.get("analysis_run_id") or "") for candidate in candidates
+        }
+        if run_ids != {str(record.get("analysis_run_id") or "")}:
+            raise CodeLearnerError(
+                "reconciliation analysis run ID does not match its candidates"
+            )
         unknown = sorted(set(record) - allowed_top)
         if unknown:
             raise CodeLearnerError(
@@ -262,6 +277,14 @@ record types.
             "limitations",
         }
         for index, partition in enumerate(record.get("partitions", [])):
+            missing = missing_required_fields(
+                partition, RECONCILIATION_PARTITION_REQUIRED_FIELDS
+            )
+            if missing:
+                raise CodeLearnerError(
+                    f"partitions[{index}] is missing required fields: "
+                    + ", ".join(missing)
+                )
             unknown = sorted(set(partition) - allowed_partition)
             if unknown:
                 raise CodeLearnerError(

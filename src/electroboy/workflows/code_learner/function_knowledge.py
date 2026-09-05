@@ -17,6 +17,13 @@ from .architecture_knowledge import ArchitectureKnowledgeService
 from .domain import CodeLearnerError
 from .knowledge import Phase3KnowledgeContext
 from .module_knowledge import ModuleKnowledgeService
+from .phase3_contract_catalog import (
+    CALL_CONFIDENCE_VALUES,
+    CALL_EDGE_REQUIRED_FIELDS,
+    FUNCTION_DETAIL_FIELDS,
+    FUNCTION_KNOWLEDGE_REQUIRED_FIELDS,
+    missing_required_fields,
+)
 from .phase3_contracts import parse_phase3_jsonl
 from .phase3_prompts import (
     function_knowledge_prompt,
@@ -25,21 +32,6 @@ from .phase3_prompts import (
 from .phase3_store import Phase3Store
 
 FUNCTION_ROLE = "code_learner_analysis"
-CALL_CONFIDENCE = frozenset({"direct", "inferred", "dynamic", "unresolved"})
-_FUNCTION_FIELDS = (
-    "purpose",
-    "contract",
-    "local_flow",
-    "callers",
-    "callees",
-    "state",
-    "errors",
-    "concurrency",
-    "tests",
-    "limitations",
-)
-
-
 class RuntimeFactory(Protocol):
     def __call__(self, role: str, root: Path) -> AgentRuntime: ...
 
@@ -255,6 +247,8 @@ class FunctionKnowledgeService:
                 module_knowledge_path=ModuleKnowledgeService(
                     self.root, store=self.store
                 ).root_path,
+                schema_path=Path(__file__).with_name("schemas")
+                / "phase3.schema.json",
             )
             if last_error:
                 prompt += f"\n\nPrevious output error:\n- {last_error}"
@@ -303,6 +297,12 @@ class FunctionKnowledgeService:
         context.validate_common(payload)
         if payload.get("record_type") != "function_knowledge":
             raise CodeLearnerError("expected function_knowledge")
+        missing = missing_required_fields(payload, FUNCTION_KNOWLEDGE_REQUIRED_FIELDS)
+        if missing:
+            raise CodeLearnerError(
+                "Function knowledge is missing required fields: "
+                + ", ".join(missing)
+            )
         symbol = payload.get("symbol")
         if not isinstance(symbol, Mapping):
             raise CodeLearnerError("Function knowledge symbol is required")
@@ -315,7 +315,7 @@ class FunctionKnowledgeService:
             raise CodeLearnerError("Function component context is incomplete")
         if set(payload.get("module_ids", [])) != set(module_ids):
             raise CodeLearnerError("Function module context is incomplete")
-        for field in _FUNCTION_FIELDS:
+        for field in FUNCTION_DETAIL_FIELDS:
             if field not in payload:
                 raise CodeLearnerError(f"Function {field} is required")
         related_symbols = [canonical_key]
@@ -325,14 +325,22 @@ class FunctionKnowledgeService:
                 str(item["canonical_key"]) for item in payload[field]
             )
         for index, edge in enumerate(payload.get("call_edges", [])):
-            if (
-                not isinstance(edge, Mapping)
-                or edge.get("confidence") not in CALL_CONFIDENCE
-            ):
+            if not isinstance(edge, Mapping):
+                raise CodeLearnerError(f"call_edges[{index}] must be an object")
+            missing = missing_required_fields(edge, CALL_EDGE_REQUIRED_FIELDS)
+            if missing:
+                raise CodeLearnerError(
+                    f"call_edges[{index}] is missing required fields: "
+                    + ", ".join(missing)
+                )
+            if edge.get("confidence") not in CALL_CONFIDENCE_VALUES:
                 raise CodeLearnerError(
                     f"call_edges[{index}] needs "
                     "direct/inferred/dynamic/unresolved confidence"
                 )
+            for field in ("from_symbol_key", "to_symbol_key", "summary"):
+                if not str(edge.get(field) or "").strip():
+                    raise CodeLearnerError(f"call_edges[{index}].{field} is required")
         context.validate_diagrams(
             payload.get("diagrams", []), additional_node_ids=related_symbols
         )

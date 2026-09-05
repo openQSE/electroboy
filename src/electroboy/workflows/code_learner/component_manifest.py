@@ -88,6 +88,8 @@ class ComponentManifestService:
                 ),
                 context_path=self.context_path,
                 unresolved_file_ids=unresolved,
+                schema_path=Path(__file__).with_name("schemas")
+                / "phase3.schema.json",
             )
             output = investigator(prompt)
             self._apply_investigation(

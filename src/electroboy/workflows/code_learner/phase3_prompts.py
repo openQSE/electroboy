@@ -7,6 +7,11 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .component_contract import component_candidate_contract_text
+from .phase3_contract_catalog import (
+    CALL_CONFIDENCE_VALUES,
+    RELATIONSHIP_DIRECTION_VALUES,
+    contract_field_text,
+)
 from .skills import skill_prompt_reference
 
 
@@ -124,6 +129,8 @@ and limitations are evidence, not overlap triggers.
 
 Output contract:
 - Return exactly one component_reconciliation JSON object and no other text.
+{contract_field_text("component_reconciliation")}
+- Every partition must contain `candidate_ids` and a non-empty `reason`.
 - Use decision `same` only when every candidate is one component and emit one
   partition.
 - Otherwise use decision `distinct`; each partition is one same-component set
@@ -148,6 +155,7 @@ def missing_file_investigation_prompt(
     repository_revision: str,
     context_path: Path | str,
     unresolved_file_ids: Sequence[str],
+    schema_path: Path | str,
 ) -> str:
     """Create the one allowed focused file-coverage investigation prompt."""
 
@@ -160,6 +168,7 @@ Repository root: {repository}
 Analysis run ID: {analysis_run_id}
 Repository revision: {repository_revision}
 Authoritative investigation context: {context_path}
+Phase 3 output schema: {schema_path}
 Unresolved file IDs: {json.dumps(list(unresolved_file_ids))}
 
 Read the complete investigation context first. It references all source,
@@ -177,6 +186,21 @@ Return strict JSONL containing only component_candidate and file_disposition
 records. Do not create catch-all miscellaneous or unclassified components just
 to force full coverage. Do not emit modules, relationships, diagrams, courses,
 or prose, and do not modify the repository or .electroboy state.
+
+Any component_candidate must satisfy this complete contract:
+{component_candidate_contract_text(
+    analysis_run_id=analysis_run_id,
+    repository_revision=repository_revision,
+    example_file_id=(
+        unresolved_file_ids[0]
+        if unresolved_file_ids
+        else "file:replace-with-real-file-id"
+    ),
+)}
+
+Every file_disposition must contain `schema_version`, `record_type`,
+`repository_revision`, `file_id`, `disposition`, and `component_ids`. Include a
+non-empty `reason` for repository_infrastructure, excluded, or unresolved.
 """.strip()
 
 
@@ -237,6 +261,9 @@ and emit the complete resulting module set.
 Return strict JSONL containing only module and knowledge_request records. Do
 not alter components or emit relationships, flows, diagrams, course prose, or
 repository changes.
+
+Exact record contract:
+{contract_field_text("module")}
 """.strip()
 
 
@@ -252,6 +279,7 @@ def module_relationship_prompt(
     module_manifest_path: Path | str,
     modules_path: Path | str,
     relationship_kinds: Sequence[str],
+    schema_path: Path | str,
 ) -> str:
     """Create one independently retryable module-relationship scope prompt."""
 
@@ -269,6 +297,7 @@ Frozen component manifest: {component_manifest_path}
 Canonical components: {components_path}
 Frozen module manifest: {module_manifest_path}
 Canonical modules: {modules_path}
+Phase 3 output schema: {schema_path}
 Allowed relationship kinds: {json.dumps(list(relationship_kinds))}
 
 Analyze only relationships touching the scoped module. Relationship endpoints
@@ -286,6 +315,11 @@ request_type `missing_endpoint` and hard source references instead of creating
 a module or component. Return strict JSONL containing only
 module_relationship and knowledge_request records. Do not reconcile components,
 change manifests, or emit modules, flows, diagrams, courses, or prose.
+
+Exact record contract:
+{contract_field_text("module_relationship")}
+Direction must be one of {json.dumps(list(RELATIONSHIP_DIRECTION_VALUES))};
+confidence must be categorical, never numeric.
 """.strip()
 
 
@@ -293,10 +327,15 @@ def relationship_conflict_prompt(
     *,
     left: Mapping[str, object],
     right: Mapping[str, object],
+    schema_path: Path | str,
 ) -> str:
     """Create a focused contradiction-only relationship repair prompt."""
 
     return f"""Resolve one contradictory Phase 3 module relationship pair.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Authoritative Phase 3 schema: {schema_path}
 
 Both records use the same frozen endpoints, kind, and condition:
 {json.dumps([dict(left), dict(right)], indent=2, sort_keys=True)}
@@ -304,6 +343,8 @@ Both records use the same frozen endpoints, kind, and condition:
 Read their cited source and return exactly one corrected module_relationship
 JSON object using only the existing endpoint, component, and source IDs. Do not
 create or reconcile components or modules and do not inspect unrelated scope.
+
+{contract_field_text("module_relationship")}
 """.strip()
 
 
@@ -353,6 +394,9 @@ Other evidence-grounded Mermaid diagram types are allowed. Every diagram must
 list node_ids and relationship_ids separately so ElectroBoy can validate the
 graph before rendering.
 
+Exact record contract:
+{contract_field_text("architecture_knowledge")}
+
 Return strict JSONL only. Preserve limitations and unsupported paths. Do not
 create or modify source, components, modules, relationships, courses, or state.
 """.strip()
@@ -397,6 +441,9 @@ Keep horizontal peer navigation separate from vertical deep-dive links.
 Preserve intentional component overlap, dynamic behavior, uncertainty, and
 limitations. Select any Mermaid diagram types useful for this module and list
 canonical node_ids and relationship_ids for validation. Use only frozen IDs.
+
+Exact record contract:
+{contract_field_text("module_knowledge")}
 
 Return strict JSONL only. Do not rebuild components, modules, relationships, or
 other module scopes, and do not emit course prose or modify state.
@@ -449,6 +496,7 @@ def function_knowledge_prompt(
     module_manifest_path: Path | str,
     architecture_knowledge_path: Path | str,
     module_knowledge_path: Path | str,
+    schema_path: Path | str,
 ) -> str:
     """Create an exact-locator Function knowledge prompt."""
 
@@ -467,6 +515,7 @@ Frozen component manifest: {component_manifest_path}
 Frozen module manifest: {module_manifest_path}
 Architecture knowledge: {architecture_knowledge_path}
 Per-module knowledge directory: {module_knowledge_path}
+Phase 3 output schema: {schema_path}
 
 Generate exactly one function_knowledge record for this symbol. Include
 purpose, contract, local_flow, callers, callees, state, errors, concurrency,
@@ -474,6 +523,12 @@ tests, and limitations. Resolve caller and callee locators where evidence
 allows. Label every call as direct, inferred, dynamic, or unresolved in prose
 and structured call_edges. Add a Mermaid call or flow graph when evidence makes
 one useful, listing canonical symbol node IDs separately for validation.
+
+Exact record contract:
+{contract_field_text("function_knowledge")}
+Every call edge must contain `from_symbol_key`, `to_symbol_key`, `confidence`,
+and `summary`. Confidence must be one of
+{json.dumps(list(CALL_CONFIDENCE_VALUES))}.
 
 Return strict JSONL only. Do not analyze an alternate symbol, restart
 initialization, rebuild manifests, or emit course prose or repository changes.

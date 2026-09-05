@@ -55,6 +55,121 @@
         "reason": { "type": "string", "minLength": 1 }
       }
     },
+    "reconciliation_partition": {
+      "type": "object",
+      "required": ["candidate_ids", "reason"],
+      "properties": {
+        "candidate_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "name": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "kind": { "type": "string" },
+        "responsibility": { "type": "string" },
+        "file_ids": { "type": "array", "items": { "type": "string" } },
+        "symbol_canonical_keys": { "type": "array", "items": { "type": "string" } },
+        "owned_source_refs": { "type": "array", "items": { "$ref": "#/$defs/source_reference" } },
+        "supporting_source_refs": { "type": "array", "items": { "$ref": "#/$defs/source_reference" } },
+        "reason": { "type": "string", "minLength": 1 },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_horizontal": {
+      "type": "object",
+      "required": ["repository_purpose", "external_boundaries", "entry_surfaces", "modules", "relationships", "state", "build", "tests", "constraints"],
+      "properties": {
+        "repository_purpose": {},
+        "external_boundaries": { "type": "array" },
+        "entry_surfaces": { "type": "array" },
+        "modules": { "type": "array" },
+        "relationships": { "type": "array", "items": { "type": "string" } },
+        "state": {},
+        "build": {},
+        "tests": {},
+        "constraints": {}
+      }
+    },
+    "architecture_step": {
+      "type": "object",
+      "required": ["order", "module_id", "component_ids", "summary", "symbol_locators", "source_refs"],
+      "properties": {
+        "order": { "type": "integer", "minimum": 1 },
+        "module_id": { "type": "string", "minLength": 1 },
+        "component_ids": { "type": "array", "items": { "type": "string" } },
+        "summary": { "type": "string", "minLength": 1 },
+        "symbol_locators": { "type": "array", "items": { "$ref": "#/$defs/symbol_locator" } },
+        "source_refs": { "type": "array", "items": { "$ref": "#/$defs/source_reference" } }
+      }
+    },
+    "architecture_vertical_slice": {
+      "type": "object",
+      "required": ["id", "title", "ordered_steps", "alternate_flows", "error_flows", "dynamic_behavior", "unresolved"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "ordered_steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/architecture_step" } },
+        "alternate_flows": { "type": "array" },
+        "error_flows": { "type": "array" },
+        "dynamic_behavior": { "type": "array" },
+        "unresolved": { "type": "array" }
+      }
+    },
+    "module_horizontal": {
+      "type": "object",
+      "required": ["purpose", "interfaces", "relationship_ids", "configuration", "state", "tests", "risks", "peer_navigation"],
+      "properties": {
+        "purpose": {},
+        "interfaces": { "type": "array" },
+        "relationship_ids": { "type": "array", "items": { "type": "string" } },
+        "configuration": {},
+        "state": {},
+        "tests": {},
+        "risks": {},
+        "peer_navigation": { "type": "array" }
+      }
+    },
+    "module_vertical": {
+      "type": "object",
+      "required": ["components", "initialization", "normal_flow", "alternate_flow", "errors", "data", "concurrency", "important_functions"],
+      "properties": {
+        "components": { "type": "array" },
+        "initialization": {},
+        "normal_flow": {},
+        "alternate_flow": {},
+        "errors": {},
+        "data": {},
+        "concurrency": {},
+        "important_functions": { "type": "array", "items": { "$ref": "#/$defs/symbol_locator" } }
+      }
+    },
+    "call_edge": {
+      "type": "object",
+      "required": ["from_symbol_key", "to_symbol_key", "confidence", "summary"],
+      "properties": {
+        "from_symbol_key": { "type": "string", "minLength": 1 },
+        "to_symbol_key": { "type": "string", "minLength": 1 },
+        "confidence": { "enum": ["direct", "inferred", "dynamic", "unresolved"] },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "diagram": {
+      "type": "object",
+      "required": ["id", "type", "node_ids", "relationship_ids", "mermaid"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "node_ids": { "type": "array", "items": { "type": "string" } },
+        "relationship_ids": { "type": "array", "items": { "type": "string" } },
+        "mermaid": { "type": "string", "minLength": 1 }
+      }
+    },
+    "deep_link": {
+      "type": "object",
+      "required": ["target_type", "target_id"],
+      "properties": {
+        "target_type": { "type": "string", "minLength": 1 },
+        "target_id": { "type": "string", "minLength": 1 }
+      }
+    },
     "source_file": {
       "allOf": [
         { "$ref": "#/$defs/header" },
@@ -138,12 +253,16 @@
         { "$ref": "#/$defs/header" },
         {
           "type": "object",
-          "required": ["overlap_group_id", "decision", "partitions"],
+          "required": ["repository_revision", "analysis_run_id", "overlap_group_id", "decision", "partitions", "reason", "limitations"],
           "properties": {
             "record_type": { "const": "component_reconciliation" },
-            "overlap_group_id": { "type": "string" },
+            "repository_revision": { "type": "string", "minLength": 1 },
+            "analysis_run_id": { "type": "string", "minLength": 1 },
+            "overlap_group_id": { "type": "string", "minLength": 1 },
             "decision": { "enum": ["same", "distinct"] },
-            "partitions": { "type": "array", "minItems": 1, "items": { "type": "object" } }
+            "partitions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/reconciliation_partition" } },
+            "reason": { "type": "string", "minLength": 1 },
+            "limitations": { "type": "array", "items": { "type": "string" } }
           }
         }
       ]
@@ -211,15 +330,25 @@
         { "$ref": "#/$defs/header" },
         {
           "type": "object",
-          "required": ["id", "name", "kind", "purpose", "component_ids"],
+          "required": ["repository_revision", "id", "name", "kind", "purpose", "responsibility", "component_ids", "primary_component_ids", "entry_component_ids", "primary_for_component_ids", "grouping_rationale", "source_refs", "confidence", "limitations"],
           "properties": {
             "record_type": { "const": "module" },
-            "id": { "type": "string" },
-            "name": { "type": "string" },
-            "kind": { "type": "string" },
-            "purpose": { "type": "string" },
+            "repository_revision": { "type": "string", "minLength": 1 },
+            "id": { "type": "string", "minLength": 1 },
+            "name": { "type": "string", "minLength": 1 },
+            "kind": { "type": "string", "minLength": 1 },
+            "purpose": { "type": "string", "minLength": 1 },
+            "responsibility": { "type": "string", "minLength": 1 },
             "component_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-            "parent_module_id": { "type": ["string", "null"] }
+            "primary_component_ids": { "type": "array", "items": { "type": "string" } },
+            "entry_component_ids": { "type": "array", "items": { "type": "string" } },
+            "primary_for_component_ids": { "type": "array", "items": { "type": "string" } },
+            "grouping_rationale": { "type": "string", "minLength": 1 },
+            "source_refs": { "type": "array", "items": { "$ref": "#/$defs/source_reference" } },
+            "confidence": { "enum": ["verified", "high", "medium", "low", "unknown"] },
+            "limitations": { "type": "array", "items": { "type": "string" } },
+            "parent_module_id": { "type": ["string", "null"] },
+            "repeated_component_rationales": { "type": "object", "additionalProperties": { "type": "string" } }
           }
         }
       ]
@@ -229,15 +358,22 @@
         { "$ref": "#/$defs/header" },
         {
           "type": "object",
-          "required": ["id", "from_module_id", "to_module_id", "kind", "summary"],
+          "required": ["repository_revision", "id", "from_module_id", "to_module_id", "kind", "summary", "direction", "condition", "confidence", "supporting_component_ids", "source_refs", "limitations"],
           "properties": {
             "record_type": { "const": "module_relationship" },
-            "id": { "type": "string" },
-            "from_module_id": { "type": "string" },
-            "to_module_id": { "type": "string" },
-            "kind": { "type": "string" },
-            "summary": { "type": "string" },
-            "supporting_component_ids": { "type": "array", "items": { "type": "string" } }
+            "repository_revision": { "type": "string", "minLength": 1 },
+            "id": { "type": "string", "minLength": 1 },
+            "from_module_id": { "type": "string", "minLength": 1 },
+            "to_module_id": { "type": "string", "minLength": 1 },
+            "kind": { "type": "string", "minLength": 1 },
+            "summary": { "type": "string", "minLength": 1 },
+            "direction": { "enum": ["directed", "bidirectional"] },
+            "condition": { "type": "string" },
+            "confidence": { "enum": ["verified", "high", "medium", "low", "unknown"] },
+            "supporting_component_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "source_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/source_reference" } },
+            "limitations": { "type": "array", "items": { "type": "string" } },
+            "self_relationship_reason": { "type": "string" }
           }
         }
       ]
@@ -245,19 +381,81 @@
     "architecture_knowledge": {
       "allOf": [
         { "$ref": "#/$defs/header" },
-        { "type": "object", "required": ["id", "title", "body"], "properties": { "record_type": { "const": "architecture_knowledge" } } }
+        {
+          "type": "object",
+          "required": ["repository_revision", "id", "title", "body", "module_ids", "component_ids", "horizontal", "vertical_slices", "diagrams", "deep_links", "limitations"],
+          "properties": {
+            "record_type": { "const": "architecture_knowledge" },
+            "repository_revision": { "type": "string", "minLength": 1 },
+            "id": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 },
+            "body": { "type": "string", "minLength": 1 },
+            "module_ids": { "type": "array", "items": { "type": "string" } },
+            "component_ids": { "type": "array", "items": { "type": "string" } },
+            "horizontal": { "$ref": "#/$defs/architecture_horizontal" },
+            "vertical_slices": { "type": "array", "items": { "$ref": "#/$defs/architecture_vertical_slice" } },
+            "diagrams": { "type": "array", "items": { "$ref": "#/$defs/diagram" } },
+            "deep_links": { "type": "array", "items": { "$ref": "#/$defs/deep_link" } },
+            "limitations": { "type": "array", "items": { "type": "string" } }
+          }
+        }
       ]
     },
     "module_knowledge": {
       "allOf": [
         { "$ref": "#/$defs/header" },
-        { "type": "object", "required": ["id", "module_id", "title", "body"], "properties": { "record_type": { "const": "module_knowledge" } } }
+        {
+          "type": "object",
+          "required": ["repository_revision", "id", "module_id", "title", "body", "module_ids", "component_ids", "horizontal", "vertical", "diagrams", "peer_links", "deep_links", "intentional_component_overlap", "limitations"],
+          "properties": {
+            "record_type": { "const": "module_knowledge" },
+            "repository_revision": { "type": "string", "minLength": 1 },
+            "id": { "type": "string", "minLength": 1 },
+            "module_id": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 },
+            "body": { "type": "string", "minLength": 1 },
+            "module_ids": { "type": "array", "items": { "type": "string" } },
+            "component_ids": { "type": "array", "items": { "type": "string" } },
+            "horizontal": { "$ref": "#/$defs/module_horizontal" },
+            "vertical": { "$ref": "#/$defs/module_vertical" },
+            "diagrams": { "type": "array", "items": { "$ref": "#/$defs/diagram" } },
+            "peer_links": { "type": "array", "items": { "$ref": "#/$defs/deep_link" } },
+            "deep_links": { "type": "array", "items": { "$ref": "#/$defs/deep_link" } },
+            "intentional_component_overlap": { "type": "array" },
+            "limitations": { "type": "array", "items": { "type": "string" } }
+          }
+        }
       ]
     },
     "function_knowledge": {
       "allOf": [
         { "$ref": "#/$defs/header" },
-        { "type": "object", "required": ["id", "symbol", "title", "body"], "properties": { "record_type": { "const": "function_knowledge" } } }
+        {
+          "type": "object",
+          "required": ["repository_revision", "id", "title", "body", "symbol", "component_ids", "module_ids", "purpose", "contract", "local_flow", "callers", "callees", "state", "errors", "concurrency", "tests", "limitations", "call_edges", "diagrams"],
+          "properties": {
+            "record_type": { "const": "function_knowledge" },
+            "repository_revision": { "type": "string", "minLength": 1 },
+            "id": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 },
+            "body": { "type": "string", "minLength": 1 },
+            "symbol": { "$ref": "#/$defs/symbol_locator" },
+            "component_ids": { "type": "array", "items": { "type": "string" } },
+            "module_ids": { "type": "array", "items": { "type": "string" } },
+            "purpose": {},
+            "contract": {},
+            "local_flow": {},
+            "callers": { "type": "array", "items": { "$ref": "#/$defs/symbol_locator" } },
+            "callees": { "type": "array", "items": { "$ref": "#/$defs/symbol_locator" } },
+            "state": {},
+            "errors": {},
+            "concurrency": {},
+            "tests": {},
+            "limitations": { "type": "array" },
+            "call_edges": { "type": "array", "items": { "$ref": "#/$defs/call_edge" } },
+            "diagrams": { "type": "array", "items": { "$ref": "#/$defs/diagram" } }
+          }
+        }
       ]
     },
     "knowledge_request": {

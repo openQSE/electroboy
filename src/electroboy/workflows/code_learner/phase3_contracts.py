@@ -13,6 +13,16 @@ from .component_contract import (
     validate_component_schema_alignment,
 )
 from .domain import CodeLearnerError
+from .phase3_contract_catalog import (
+    ARCHITECTURE_KNOWLEDGE_REQUIRED_FIELDS,
+    FUNCTION_KNOWLEDGE_REQUIRED_FIELDS,
+    MODULE_KNOWLEDGE_REQUIRED_FIELDS,
+    MODULE_RELATIONSHIP_REQUIRED_FIELDS,
+    MODULE_REQUIRED_FIELDS,
+    RECONCILIATION_PARTITION_REQUIRED_FIELDS,
+    RECONCILIATION_REQUIRED_FIELDS,
+    validate_phase3_schema_alignment,
+)
 
 PHASE3_SCHEMA_VERSION = 1
 PHASE3_GENERATION = "phase3"
@@ -120,6 +130,7 @@ def load_phase3_schema() -> dict[str, object]:
     if not isinstance(value, dict):
         raise RuntimeError("Code Learner Phase 3 schema is not an object")
     validate_component_schema_alignment(value)
+    validate_phase3_schema_alignment(value)
     return value
 
 
@@ -305,6 +316,9 @@ def validate_reconciliations(
     for index, record in enumerate(normalized):
         prefix = f"records[{index}]"
         _header(record, prefix, "component_reconciliation", "", issues)
+        _require_fields(record, prefix, RECONCILIATION_REQUIRED_FIELDS, issues)
+        _required_string(record, prefix, "repository_revision", issues)
+        _required_string(record, prefix, "analysis_run_id", issues)
         group_id = _required_string(record, prefix, "overlap_group_id", issues)
         decision = _required_string(record, prefix, "decision", issues)
         if decision not in RECONCILIATION_DECISIONS:
@@ -317,14 +331,24 @@ def validate_reconciliations(
         partitions = _mapping_list(record, prefix, "partitions", issues)
         flattened: list[str] = []
         for part_index, partition in enumerate(partitions):
+            part_prefix = f"{prefix}.partitions[{part_index}]"
+            _require_fields(
+                partition,
+                part_prefix,
+                RECONCILIATION_PARTITION_REQUIRED_FIELDS,
+                issues,
+            )
             members = _string_list(
                 partition,
-                f"{prefix}.partitions[{part_index}]",
+                part_prefix,
                 "candidate_ids",
                 issues,
                 required=True,
             )
             flattened.extend(members)
+            _required_string(partition, part_prefix, "reason", issues)
+        _required_string(record, prefix, "reason", issues)
+        _string_list(record, prefix, "limitations", issues)
         if set(flattened) != expected or len(flattened) != len(expected):
             issues.append(
                 Phase3Issue(
@@ -439,12 +463,28 @@ def validate_modules(
     for index, record in enumerate(normalized):
         prefix = f"records[{index}]"
         _header(record, prefix, "module", repository_revision, issues)
+        _require_fields(record, prefix, MODULE_REQUIRED_FIELDS, issues)
         module_id = _required_string(record, prefix, "id", issues)
         _required_string(record, prefix, "name", issues)
         _required_string(record, prefix, "kind", issues)
         _required_string(record, prefix, "purpose", issues)
+        _required_string(record, prefix, "responsibility", issues)
+        _required_string(record, prefix, "grouping_rationale", issues)
         members = _string_list(record, prefix, "component_ids", issues, required=True)
         _known_values(members, component_ids, f"{prefix}.component_ids", issues)
+        for field in (
+            "primary_component_ids",
+            "entry_component_ids",
+            "primary_for_component_ids",
+        ):
+            _known_values(
+                _string_list(record, prefix, field, issues),
+                component_ids,
+                f"{prefix}.{field}",
+                issues,
+            )
+        _required_enum(record, prefix, "confidence", CONFIDENCE_VALUES, issues)
+        _string_list(record, prefix, "limitations", issues)
         parent = str(record.get("parent_module_id") or "")
         if parent:
             parents[module_id] = parent
@@ -481,6 +521,7 @@ def validate_module_relationships(
     for index, record in enumerate(normalized):
         prefix = f"records[{index}]"
         _header(record, prefix, "module_relationship", repository_revision, issues)
+        _require_fields(record, prefix, MODULE_RELATIONSHIP_REQUIRED_FIELDS, issues)
         _required_string(record, prefix, "id", issues)
         for field in ("from_module_id", "to_module_id"):
             endpoint = _required_string(record, prefix, field, issues)
@@ -492,6 +533,7 @@ def validate_module_relationships(
         _known_values(
             supports, component_ids, f"{prefix}.supporting_component_ids", issues
         )
+        _string_list(record, prefix, "limitations", issues)
     _raise("module relationships", issues)
     return normalized
 
@@ -589,6 +631,12 @@ def validate_knowledge_artifacts(
             )
             continue
         _header(record, prefix, record_type, repository_revision, issues)
+        required_fields = {
+            "architecture_knowledge": ARCHITECTURE_KNOWLEDGE_REQUIRED_FIELDS,
+            "module_knowledge": MODULE_KNOWLEDGE_REQUIRED_FIELDS,
+            "function_knowledge": FUNCTION_KNOWLEDGE_REQUIRED_FIELDS,
+        }[record_type]
+        _require_fields(record, prefix, required_fields, issues)
         record_id = _required_string(record, prefix, "id", issues)
         if record_id in seen:
             issues.append(Phase3Issue(f"{prefix}.id", "duplicate knowledge ID"))
@@ -715,6 +763,17 @@ def _header(
         issues.append(
             Phase3Issue(f"{prefix}.repository_revision", "revision does not match")
         )
+
+
+def _require_fields(
+    record: Mapping[str, object],
+    prefix: str,
+    fields: Sequence[str],
+    issues: list[Phase3Issue],
+) -> None:
+    for field in fields:
+        if field not in record:
+            issues.append(Phase3Issue(f"{prefix}.{field}", "field is required"))
 
 
 def _validate_locator(

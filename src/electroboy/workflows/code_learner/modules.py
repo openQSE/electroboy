@@ -365,6 +365,23 @@ class ModuleSynthesisService:
                     raise CodeLearnerError(
                         f"{prefix}.source_refs cites source outside member components"
                     )
+                start = reference.get("start_line")
+                end = reference.get("end_line")
+                if (
+                    not isinstance(start, int)
+                    or isinstance(start, bool)
+                    or not isinstance(end, int)
+                    or isinstance(end, bool)
+                    or start < 1
+                    or end < start
+                ):
+                    raise CodeLearnerError(
+                        f"{prefix}.source_refs has an invalid source range"
+                    )
+                if not str(reference.get("reason") or "").strip():
+                    raise CodeLearnerError(
+                        f"{prefix}.source_refs needs a non-empty reason"
+                    )
 
     def _canonicalize(
         self, modules: Sequence[Mapping[str, object]], *, revision: str

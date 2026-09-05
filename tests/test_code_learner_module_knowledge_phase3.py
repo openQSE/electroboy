@@ -224,6 +224,8 @@ def test_many_and_repeated_components_preserve_vertical_membership(
                 component_ids[1]: "Also shown in the supporting view."
             },
             "source_refs": [],
+            "confidence": "high",
+            "limitations": [],
         },
         {
             "schema_version": 1,
@@ -243,6 +245,8 @@ def test_many_and_repeated_components_preserve_vertical_membership(
                 component_ids[1]: "Also belongs to the main flow."
             },
             "source_refs": [],
+            "confidence": "high",
+            "limitations": [],
         },
     ]
     catalog.modules = catalog.module_service.ingest(records, analysis_run_id="run-1")

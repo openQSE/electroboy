@@ -9,6 +9,11 @@ from .component_manifest import ComponentManifestService
 from .ctags_evidence import SymbolLocatorResolver
 from .domain import CodeLearnerError
 from .modules import ModuleSynthesisService
+from .phase3_contract_catalog import (
+    DIAGRAM_REQUIRED_FIELDS,
+    LINK_REQUIRED_FIELDS,
+    missing_required_fields,
+)
 from .phase3_contracts import validate_knowledge_artifacts
 from .phase3_store import Phase3Store
 from .relationships import ModuleRelationshipService
@@ -128,6 +133,25 @@ class Phase3KnowledgeContext:
             set(self.modules) | set(self.components) | set(additional_node_ids)
         )
         for index, diagram in enumerate(diagrams):
+            if not isinstance(diagram, Mapping):
+                raise CodeLearnerError(f"diagrams[{index}] must be an object")
+            missing = missing_required_fields(diagram, DIAGRAM_REQUIRED_FIELDS)
+            if missing:
+                raise CodeLearnerError(
+                    f"diagrams[{index}] is missing required fields: "
+                    + ", ".join(missing)
+                )
+            for field in ("id", "type", "mermaid"):
+                if not str(diagram.get(field) or "").strip():
+                    raise CodeLearnerError(f"diagrams[{index}].{field} is required")
+            for field in ("node_ids", "relationship_ids"):
+                values = diagram.get(field)
+                if not isinstance(values, list) or any(
+                    not isinstance(value, str) for value in values
+                ):
+                    raise CodeLearnerError(
+                        f"diagrams[{index}].{field} must be an array of strings"
+                    )
             mermaid = str(diagram.get("mermaid") or "")
             node_ids = [str(item) for item in diagram.get("node_ids", [])]
             edge_ids = [str(item) for item in diagram.get("relationship_ids", [])]
@@ -154,7 +178,19 @@ class Phase3KnowledgeContext:
             "architecture": {"architecture:current"},
         }
         for index, link in enumerate(links):
+            if not isinstance(link, Mapping):
+                raise CodeLearnerError(f"deep_links[{index}] must be an object")
+            missing = missing_required_fields(link, LINK_REQUIRED_FIELDS)
+            if missing:
+                raise CodeLearnerError(
+                    f"deep_links[{index}] is missing required fields: "
+                    + ", ".join(missing)
+                )
             target_type = str(link.get("target_type") or "")
             target_id = str(link.get("target_id") or "")
+            if not target_type or not target_id:
+                raise CodeLearnerError(
+                    f"deep_links[{index}] needs target_type and target_id"
+                )
             if target_id not in catalogs.get(target_type, set()):
                 raise CodeLearnerError(f"deep_links[{index}] has an unknown target")

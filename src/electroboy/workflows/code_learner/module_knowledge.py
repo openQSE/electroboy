@@ -12,33 +12,17 @@ from electroboy.runtime import runtime_for_role
 
 from .domain import CodeLearnerError
 from .knowledge import Phase3KnowledgeContext
+from .phase3_contract_catalog import (
+    MODULE_HORIZONTAL_FIELDS,
+    MODULE_KNOWLEDGE_REQUIRED_FIELDS,
+    MODULE_VERTICAL_FIELDS,
+    missing_required_fields,
+)
 from .phase3_contracts import parse_phase3_jsonl
 from .phase3_prompts import module_knowledge_prompt
 from .phase3_store import Phase3Store
 
 MODULE_KNOWLEDGE_ROLE = "code_learner_analysis"
-_HORIZONTAL_FIELDS = (
-    "purpose",
-    "interfaces",
-    "relationship_ids",
-    "configuration",
-    "state",
-    "tests",
-    "risks",
-    "peer_navigation",
-)
-_VERTICAL_FIELDS = (
-    "components",
-    "initialization",
-    "normal_flow",
-    "alternate_flow",
-    "errors",
-    "data",
-    "concurrency",
-    "important_functions",
-)
-
-
 class RuntimeFactory(Protocol):
     def __call__(self, role: str, root: Path) -> AgentRuntime: ...
 
@@ -143,6 +127,11 @@ class ModuleKnowledgeService:
         context.validate_common(payload)
         if payload.get("record_type") != "module_knowledge":
             raise CodeLearnerError("expected module_knowledge")
+        missing = missing_required_fields(payload, MODULE_KNOWLEDGE_REQUIRED_FIELDS)
+        if missing:
+            raise CodeLearnerError(
+                "Module knowledge is missing required fields: " + ", ".join(missing)
+            )
         if payload.get("module_id") != module_id:
             raise CodeLearnerError("Module knowledge changed its bounded scope")
         if set(payload.get("module_ids", [])) != {module_id}:
@@ -156,10 +145,10 @@ class ModuleKnowledgeService:
             raise CodeLearnerError(
                 "Module horizontal and vertical knowledge are required"
             )
-        for field in _HORIZONTAL_FIELDS:
+        for field in MODULE_HORIZONTAL_FIELDS:
             if field not in horizontal:
                 raise CodeLearnerError(f"Module horizontal.{field} is required")
-        for field in _VERTICAL_FIELDS:
+        for field in MODULE_VERTICAL_FIELDS:
             if field not in vertical:
                 raise CodeLearnerError(f"Module vertical.{field} is required")
         valid_edges = {

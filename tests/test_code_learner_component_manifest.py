@@ -34,6 +34,7 @@ def _candidate(
     return {
         "schema_version": 1,
         "record_type": "component_candidate",
+        "analysis_run_id": "run-1",
         "repository_revision": revision,
         "candidate_id": candidate_id,
         "name": f"Name {candidate_id}",
