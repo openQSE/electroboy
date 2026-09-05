@@ -25,6 +25,8 @@
   let creativeSessionDialog = null;
   let creativeDeleteDialog = null;
   let creativeDeleteDialogFinish = null;
+  let creativeTrashUndoToast = null;
+  let creativeTrashUndoTimer = null;
   let creativeTreeRequestSequence = 0;
 
   function creativePaneKinds(layout, result = []) {
@@ -94,6 +96,7 @@
       creativeDeleteDialog.remove();
       creativeDeleteDialog = null;
     }
+    dismissCreativeTrashUndo();
     if (runtimeApi) {
       runtimeApi.updateState({
         artifactPaneRequested: false,
@@ -349,6 +352,7 @@
   let creativeAgentMenuButton = null;
   let creativeAgentActions = null;
   let creativeStartAgent = null;
+  let creativeEmptyTrash = null;
   let creativeRecentProjectsExpanded = false;
 
   function renderNavigation(container, runtime) {
@@ -438,6 +442,13 @@
                     data-creative-control="new-root-file">New File</button>
           </div>
           <div class="creative-tree" role="tree" data-creative-control="tree"></div>
+          <div class="creative-divider creative-trash-divider" aria-hidden="true"></div>
+          <div class="creative-trash-header">
+            <div class="creative-folder-title" role="heading" aria-level="2">Trash</div>
+            <button class="creative-empty-trash" type="button"
+                    data-creative-control="empty-trash">Empty Trash</button>
+          </div>
+          <div class="creative-trash" role="list" data-creative-control="trash"></div>
         </div>
       </section>
     `;
@@ -460,6 +471,9 @@
     const corkboardMenu = find("corkboard-menu");
     const corkboardActions = find("corkboard-actions");
     runtime.elements.creativeTree = find("tree");
+    runtime.elements.creativeTrash = find("trash");
+    creativeEmptyTrash = find("empty-trash");
+    runtime.elements.creativeEmptyTrash = creativeEmptyTrash;
 
     creativeProjectMenuButton.addEventListener("click", () => {
       toggleCreativeActionGroup("project");
@@ -514,6 +528,9 @@
     find("new-root-file").addEventListener("click", () => {
       createCreativeDocumentInline();
     });
+    creativeEmptyTrash.addEventListener("click", () => {
+      emptyCreativeTrash();
+    });
     creativeRecentProjectsButton.addEventListener("click", () => {
       toggleCreativeActionGroup("recent-projects");
     });
@@ -555,6 +572,8 @@
   function deactivate(runtime) {
     bindRuntime(runtime);
     runtime.elements.creativeTree = null;
+    runtime.elements.creativeTrash = null;
+    runtime.elements.creativeEmptyTrash = null;
     creativeProjectMenuButton = null;
     creativeProjectActions = null;
     creativeOpenProject = null;
@@ -568,6 +587,7 @@
     creativeAgentMenuButton = null;
     creativeAgentActions = null;
     creativeStartAgent = null;
+    creativeEmptyTrash = null;
     resetCreativeWorkflowState();
   }
 
@@ -1635,21 +1655,32 @@
       return dialog;
     }
 
-    function confirmCreativeEntryDeletion(path, type) {
+    function creativeEntryLabel(type) {
+      return type === "directory"
+        ? "folder"
+        : type === "corkboard" ? "corkboard" : "file";
+    }
+
+    function confirmCreativeAction({
+      title,
+      description,
+      path = "",
+      confirmLabel,
+      danger = false,
+    }) {
       const dialog = ensureCreativeDeleteDialog();
       if (dialog.open) {
         return Promise.resolve(false);
       }
-      const isFolder = type === "directory";
-      const label = isFolder
-        ? "folder"
-        : type === "corkboard" ? "corkboard" : "file";
+      dialog.classList.toggle("danger", danger);
       dialog.querySelector(".creative-delete-dialog-header h2").textContent =
-        `Permanently delete ${label}?`;
-      dialog.querySelector(".creative-delete-dialog-body p").textContent = isFolder
-        ? "This will permanently delete the folder and all files inside it."
-        : "This action cannot be undone.";
+        title;
+      dialog.querySelector(".creative-delete-dialog-body p").textContent =
+        description;
       dialog.querySelector(".creative-delete-dialog-path").textContent = path;
+      dialog.querySelector(".creative-delete-dialog-path").hidden = !path;
+      dialog.querySelector(".creative-delete-dialog-confirm").textContent =
+        confirmLabel;
 
       return new Promise((resolve) => {
         let finished = false;
@@ -1681,12 +1712,58 @@
       });
     }
 
+    function dismissCreativeTrashUndo() {
+      if (creativeTrashUndoTimer) {
+        window.clearTimeout(creativeTrashUndoTimer);
+        creativeTrashUndoTimer = null;
+      }
+      if (creativeTrashUndoToast) {
+        creativeTrashUndoToast.remove();
+        creativeTrashUndoToast = null;
+      }
+    }
+
+    function showCreativeTrashUndo(entry) {
+      dismissCreativeTrashUndo();
+      if (!entry || !entry.id) {
+        return;
+      }
+      const toast = document.createElement("div");
+      toast.className = "creative-trash-undo";
+      toast.setAttribute("role", "status");
+      const message = document.createElement("span");
+      message.textContent = `${entry.name || "Item"} moved to Trash.`;
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.textContent = "Undo";
+      undo.addEventListener("click", () => {
+        dismissCreativeTrashUndo();
+        restoreCreativeTrashEntry(entry.id);
+      });
+      toast.append(message, undo);
+      document.body.append(toast);
+      creativeTrashUndoToast = toast;
+      creativeTrashUndoTimer = window.setTimeout(dismissCreativeTrashUndo, 10000);
+    }
+
     async function deleteCreativeEntry(path, type) {
       if (!activeProjectRoot || !path) {
         return;
       }
-      if (!await confirmCreativeEntryDeletion(path, type)) {
+      const label = creativeEntryLabel(type);
+      if (!await confirmCreativeAction({
+        title: `Move ${label} to Trash?`,
+        description: "You can restore it later from the Trash section.",
+        path,
+        confirmLabel: "Move to Trash",
+      })) {
         return;
+      }
+      const closesActiveDocument = creativePathIsInside(creativeActiveDocument, path);
+      if (closesActiveDocument) {
+        creativeActiveDocument = "";
+        publishState();
+        hideArtifactPreview();
       }
       const response = await fetch(contextUrl("/api/creative/delete"), {
         method: "POST",
@@ -1696,11 +1773,8 @@
       const payload = await response.json().catch(() => ({ error: "delete failed" }));
       if (!response.ok) {
         appendOutput(`${payload.error || "delete failed"}\n`, "error");
+        await refreshCreativeBinder({ showLoading: false });
         return;
-      }
-      if (creativePathIsInside(creativeActiveDocument, path)) {
-        creativeActiveDocument = "";
-        hideArtifactPreview();
       }
       if (creativePathIsInside(creativeActiveFolder, path)) {
         creativeActiveFolder = creativeParentPath(path);
@@ -1721,7 +1795,86 @@
         renderCreativeTree();
       }
       await refreshCreativeBinder({ showLoading: false });
-      recordProjectStatusMessage(`deleted ${type}: ${path}`);
+      showCreativeTrashUndo(payload.trash_entry);
+      recordProjectStatusMessage(`moved ${type} to Trash: ${path}`);
+    }
+
+    async function restoreCreativeTrashEntry(trashId) {
+      if (!activeProjectRoot || !trashId) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/trash/restore"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trash_id: trashId }),
+      });
+      const payload = await response.json().catch(() => ({ error: "restore failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "restore failed"}\n`, "error");
+        return;
+      }
+      dismissCreativeTrashUndo();
+      await refreshCreativeBinder({ showLoading: false });
+      recordProjectStatusMessage(`restored: ${payload.path}`);
+    }
+
+    async function permanentlyDeleteCreativeTrashEntry(entry) {
+      if (!activeProjectRoot || !entry || !entry.id) {
+        return;
+      }
+      const label = creativeEntryLabel(entry.type);
+      if (!await confirmCreativeAction({
+        title: `Permanently delete ${label}?`,
+        description: "This action cannot be undone.",
+        path: entry.original_path || entry.name || "",
+        confirmLabel: "Delete Permanently",
+        danger: true,
+      })) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/trash/delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trash_id: entry.id }),
+      });
+      const payload = await response.json().catch(() => ({ error: "delete failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "delete failed"}\n`, "error");
+        return;
+      }
+      dismissCreativeTrashUndo();
+      await refreshCreativeBinder({ showLoading: false });
+      recordProjectStatusMessage(`permanently deleted: ${payload.path}`);
+    }
+
+    async function emptyCreativeTrash() {
+      const entries = creativeTreePayload && Array.isArray(creativeTreePayload.trash)
+        ? creativeTreePayload.trash
+        : [];
+      if (!activeProjectRoot || entries.length === 0) {
+        return;
+      }
+      if (!await confirmCreativeAction({
+        title: "Permanently empty Trash?",
+        description: `This will permanently delete ${entries.length} item${entries.length === 1 ? "" : "s"}. This action cannot be undone.`,
+        confirmLabel: "Empty Trash",
+        danger: true,
+      })) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/trash/empty"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const payload = await response.json().catch(() => ({ error: "empty Trash failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "empty Trash failed"}\n`, "error");
+        return;
+      }
+      dismissCreativeTrashUndo();
+      await refreshCreativeBinder({ showLoading: false });
+      recordProjectStatusMessage(`emptied Trash: ${payload.deleted_count || 0} items`);
     }
 
     async function startCreativeWritingAgent(options = {}) {
@@ -1808,6 +1961,10 @@
       setCreativeFolderColor: (runtime, ...args) =>
         invoke(runtime, setCreativeFolderColor, args),
       deleteCreativeEntry: (runtime, ...args) => invoke(runtime, deleteCreativeEntry, args),
+      restoreCreativeTrashEntry: (runtime, ...args) =>
+        invoke(runtime, restoreCreativeTrashEntry, args),
+      permanentlyDeleteCreativeTrashEntry: (runtime, ...args) =>
+        invoke(runtime, permanentlyDeleteCreativeTrashEntry, args),
       chooseCreativeAgentSession: (runtime, ...args) => invoke(runtime, chooseCreativeAgentSession, args),
       startCreativeWritingAgent: (runtime, ...args) => invoke(runtime, startCreativeWritingAgent, args),
     },

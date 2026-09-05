@@ -12,6 +12,13 @@
     empty.className = "creative-binder-status";
     empty.textContent = message;
     tree.append(empty);
+    const trash = runtime.elements.creativeTrash;
+    if (trash) {
+      trash.replaceChildren();
+    }
+    if (runtime.elements.creativeEmptyTrash) {
+      runtime.elements.creativeEmptyTrash.disabled = true;
+    }
   }
 
   function folderEntryVisible(entry) {
@@ -30,11 +37,13 @@
     const folderEntries = entries.filter(folderEntryVisible);
     if (folderEntries.length === 0) {
       showMessage(runtime, "No writing documents yet.");
+      renderTrash(runtime);
       return;
     }
     for (const entry of folderEntries) {
       appendEntry(runtime, entry, 0);
     }
+    renderTrash(runtime);
   }
 
   function iconSvg(name) {
@@ -72,6 +81,7 @@
     const icons = {
       rename: '<path d="m12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>',
       trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
+      restore: '<path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v6h6"></path>',
     };
     return `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || ""}</svg>`;
   }
@@ -117,7 +127,7 @@
     );
     const remove = iconButton(
       "trash",
-      `Delete ${path}`,
+      `Move ${path} to Trash`,
       () => action.deleteCreativeEntry(path, entryActionType),
       "danger",
     );
@@ -390,6 +400,64 @@
     runtime.elements.creativeTree.append(actions);
   }
 
+  function renderTrash(runtime) {
+    const trash = runtime.elements.creativeTrash;
+    if (!trash) {
+      return;
+    }
+    trash.replaceChildren();
+    const payload = runtime.getState().creativeTreePayload;
+    const entries = payload && Array.isArray(payload.trash) ? payload.trash : [];
+    const emptyButton = runtime.elements.creativeEmptyTrash;
+    if (emptyButton) {
+      emptyButton.disabled = entries.length === 0;
+    }
+    if (entries.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "creative-trash-empty";
+      empty.textContent = "Trash is empty.";
+      trash.append(empty);
+      return;
+    }
+    const action = creativeActions(runtime);
+    for (const entry of entries) {
+      const row = document.createElement("div");
+      row.className = "creative-trash-row";
+      row.setAttribute("role", "listitem");
+
+      const icon = document.createElement("span");
+      const iconType = entry.type === "directory"
+        ? "folder"
+        : entry.type === "corkboard" ? "corkboard" : "file";
+      icon.className = `creative-tree-icon ${iconType}`;
+      icon.innerHTML = iconSvg(iconType);
+
+      const details = document.createElement("span");
+      details.className = "creative-trash-details";
+      const name = document.createElement("span");
+      name.className = "creative-trash-name";
+      name.textContent = String(entry.name || "Deleted item");
+      const path = document.createElement("span");
+      path.className = "creative-trash-path";
+      path.textContent = String(entry.original_path || "");
+      details.append(name, path);
+
+      const restore = iconButton(
+        "restore",
+        `Restore ${entry.original_path || entry.name || "item"}`,
+        () => action.restoreCreativeTrashEntry(entry.id),
+      );
+      const remove = iconButton(
+        "trash",
+        `Permanently delete ${entry.original_path || entry.name || "item"}`,
+        () => action.permanentlyDeleteCreativeTrashEntry(entry),
+        "danger",
+      );
+      row.append(icon, details, restore, remove);
+      trash.append(row);
+    }
+  }
+
   function toggleFolder(runtime, path) {
     if (!path) {
       return;
@@ -422,6 +490,10 @@
       createCreativeDocument: (...args) => invoke("createCreativeDocumentInline", ...args),
       createCreativeFolder: (...args) => invoke("createCreativeFolderInline", ...args),
       deleteCreativeEntry: (...args) => invoke("deleteCreativeEntry", ...args),
+      permanentlyDeleteCreativeTrashEntry: (...args) =>
+        invoke("permanentlyDeleteCreativeTrashEntry", ...args),
+      restoreCreativeTrashEntry: (...args) =>
+        invoke("restoreCreativeTrashEntry", ...args),
       finishCreativeRename: (...args) => invoke("finishCreativeRename", ...args),
       setCreativeFolderColor: (...args) => invoke("setCreativeFolderColor", ...args),
       selectCreativeCorkboard: (...args) => invoke("selectCreativeCorkboard", ...args),
@@ -436,6 +508,7 @@
     capabilities: ["tree", "navigation", "entry-actions"],
     actions: {
       renderTree,
+      renderTrash,
       showMessage,
     },
   });

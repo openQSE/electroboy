@@ -744,6 +744,8 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('data-creative-control="new-root-folder">New Folder', creative)
         self.assertIn('data-creative-control="new-root-file">New File', creative)
+        self.assertIn('data-creative-control="empty-trash">Empty Trash', creative)
+        self.assertIn('data-creative-control="trash"', creative)
         self.assertIn("createCreativeFolderInline();", creative)
         self.assertIn("createCreativeDocumentInline();", creative)
         self.assertIn(".creative-root-actions {", creative_css)
@@ -823,6 +825,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("selectCreativeDocument(firstDocument.path", creative)
         self.assertIn('runtimeApi.layout.ensurePane("agent");', sessions)
         self.assertIn("function renderTree(runtime)", binder)
+        self.assertIn("function renderTrash(runtime)", binder)
+        self.assertIn('invoke("restoreCreativeTrashEntry", ...args)', binder)
         self.assertIn("function folderEntryVisible(entry)", binder)
         self.assertIn('String(entry.path || "") !== "corkboard"', binder)
         self.assertNotIn('["New board",', binder)
@@ -857,21 +861,24 @@ class ServiceTests(unittest.TestCase):
             "async function startCreativeWritingAgent", delete_start
         )
         delete_source = creative[delete_start:delete_end]
-        self.assertIn(
-            "function confirmCreativeEntryDeletion(path, type)",
-            creative,
-        )
-        self.assertIn(
-            "await confirmCreativeEntryDeletion(path, type)", delete_source
-        )
+        self.assertIn("function confirmCreativeAction({", creative)
+        self.assertIn("await confirmCreativeAction({", delete_source)
         self.assertNotIn("window.confirm", delete_source)
-        self.assertIn("Permanently delete ${label}?", creative)
+        self.assertIn("Move ${label} to Trash?", delete_source)
+        self.assertIn('contextUrl("/api/creative/trash/restore")', delete_source)
+        self.assertIn('contextUrl("/api/creative/trash/delete")', delete_source)
+        self.assertIn('contextUrl("/api/creative/trash/empty")', delete_source)
+        self.assertIn("showCreativeTrashUndo(payload.trash_entry);", delete_source)
         self.assertIn(".creative-delete-dialog {", creative_css)
         self.assertIn(".creative-delete-dialog::backdrop {", creative_css)
+        self.assertIn(".creative-delete-dialog.danger {", creative_css)
         self.assertIn("0 24px 64px rgb(116 16 30 / 46%)", creative_css)
         self.assertLess(
             delete_source.index("removeCreativeTreeEntry("),
-            delete_source.index("await refreshCreativeBinder({ showLoading: false });"),
+            delete_source.index(
+                "await refreshCreativeBinder({ showLoading: false });",
+                delete_source.index("removeCreativeTreeEntry("),
+            ),
         )
         self.assertIn('kind: "agenda"', agenda)
         self.assertIn('id: "agenda"', agenda)
@@ -4606,6 +4613,7 @@ class ServiceTests(unittest.TestCase):
                     "not-a-color",
                 )
             self.assertEqual(deleted_folder["path"], "chapters/act-one")
+            self.assertEqual(deleted_folder["status"], "trashed")
             self.assertFalse((project_root / "chapters" / "act-one").exists())
             creative_state = json.loads(
                 (
@@ -4613,6 +4621,35 @@ class ServiceTests(unittest.TestCase):
                 ).read_text(encoding="utf-8")
             )
             self.assertNotIn("chapters/act-one", creative_state["folders"])
+            trashed_tree = state.creative_tree(context_id)
+            self.assertEqual(len(trashed_tree["trash"]), 1)
+            trash_entry = trashed_tree["trash"][0]
+            self.assertEqual(trash_entry["original_path"], "chapters/act-one")
+            trash_container = (
+                project_root / ".electroboy" / "trash" / trash_entry["id"]
+            )
+            self.assertTrue((trash_container / "item" / "scene-02.md").is_file())
+            restored = state.restore_creative_trash_entry(
+                context_id,
+                trash_entry["id"],
+            )
+            self.assertEqual(restored["status"], "restored")
+            self.assertTrue(
+                (project_root / "chapters" / "act-one" / "scene-02.md").is_file()
+            )
+            restored_tree = state.creative_tree(context_id)
+            restored_chapters = next(
+                entry
+                for entry in restored_tree["entries"]
+                if entry["path"] == "chapters"
+            )
+            restored_folder = next(
+                entry
+                for entry in restored_chapters["children"]
+                if entry["path"] == "chapters/act-one"
+            )
+            self.assertEqual(restored_folder["folder_color"], "rose")
+            self.assertEqual(restored_tree["trash"], [])
             self.assertIn("chapters", [entry["name"] for entry in tree["entries"]])
             self.assertNotIn(".gitignore", [entry["name"] for entry in tree["entries"]])
             self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
@@ -4632,8 +4669,80 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(payload["status"], "opened")
             self.assertEqual(payload["project_mode"], "creative")
             self.assertEqual(payload["active_project_root"], str(project_root.resolve()))
-            self.assertTrue((project_root / "chapters").is_dir())
+            self.assertFalse((project_root / "chapters").exists())
             self.assertTrue((project_root / ".electroboy").is_dir())
+
+    def test_create_creative_project_only_seeds_a_new_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "existing-story"
+            service_root.mkdir()
+            project_root.mkdir()
+            (project_root / "draft.md").write_text("# Draft\n", encoding="utf-8")
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+
+            state.create_creative_project(context_id, str(project_root))
+
+            self.assertTrue((project_root / "draft.md").is_file())
+            self.assertFalse((project_root / "chapters").exists())
+            self.assertTrue((project_root / ".electroboy").is_dir())
+
+    def test_creative_trash_prevents_reseeding_and_requires_collision_free_restore(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+
+            trashed = state.delete_creative_entry(
+                context_id,
+                "chapters/chapter-01.md",
+            )
+            trash_id = str(trashed["trash_entry"]["id"])
+            state.initialize_creative_workspace(context_id)
+
+            chapter = project_root / "chapters" / "chapter-01.md"
+            self.assertFalse(chapter.exists())
+            self.assertEqual(
+                state.creative_tree(context_id)["trash"][0]["id"],
+                trash_id,
+            )
+
+            chapter.write_text("# Replacement\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                StateError,
+                "restore destination already exists",
+            ):
+                state.restore_creative_trash_entry(context_id, trash_id)
+            chapter.unlink()
+
+            restored = state.restore_creative_trash_entry(context_id, trash_id)
+            self.assertEqual(restored["path"], "chapters/chapter-01.md")
+            self.assertIn("Chapter 01", chapter.read_text(encoding="utf-8"))
+
+            trashed_again = state.delete_creative_entry(
+                context_id,
+                "chapters/chapter-01.md",
+            )
+            second_id = str(trashed_again["trash_entry"]["id"])
+            deleted = state.permanently_delete_creative_trash_entry(
+                context_id,
+                second_id,
+            )
+            self.assertEqual(deleted["status"], "deleted")
+            self.assertFalse(
+                (project_root / ".electroboy" / "trash" / second_id).exists()
+            )
+
+            state.delete_creative_entry(context_id, "characters")
+            emptied = state.empty_creative_trash(context_id)
+            self.assertEqual(emptied["deleted_count"], 1)
+            self.assertEqual(state.creative_tree(context_id)["trash"], [])
 
     def test_service_state_repairs_creative_corkboard_renamed_as_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

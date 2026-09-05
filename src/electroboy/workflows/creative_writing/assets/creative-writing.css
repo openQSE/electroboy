@@ -353,21 +353,101 @@
   background: #eef6fb;
 }
 
+.creative-trash-divider {
+  margin-top: 10px;
+}
+
+.creative-trash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.creative-empty-trash {
+  border: 0;
+  background: transparent;
+  color: #48627a;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-small-font-size);
+  padding: 2px 8px;
+}
+
+.creative-empty-trash:hover:not(:disabled) {
+  color: #a62938;
+  text-decoration: underline;
+}
+
+.creative-empty-trash:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.creative-trash {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.creative-trash-empty {
+  color: #6c8194;
+  font-size: var(--ui-small-font-size);
+  padding: 3px 8px 8px;
+}
+
+.creative-trash-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 26px 26px;
+  align-items: center;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid #c8d4df;
+  border-radius: 6px;
+  background: #f4f7fa;
+  padding: 0 8px;
+}
+
+.creative-trash-details {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.creative-trash-name,
+.creative-trash-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creative-trash-name {
+  color: #334e63;
+  font-size: var(--ui-small-font-size);
+  font-weight: 600;
+}
+
+.creative-trash-path {
+  color: #73879a;
+  font-size: calc(var(--ui-small-font-size) - 1px);
+}
+
 .creative-delete-dialog {
   width: min(460px, calc(100vw - 40px));
   padding: 0;
   overflow: hidden;
-  border: 1px solid #a62938;
+  border: 1px solid #7894aa;
   border-radius: 8px;
-  background: #fff1f2;
-  color: #49141b;
+  background: #f6f9fc;
+  color: #243f53;
   box-shadow:
-    0 24px 64px rgb(116 16 30 / 46%),
-    0 0 0 1px rgb(166 41 56 / 24%);
+    0 24px 64px rgb(15 31 48 / 36%),
+    0 0 0 1px rgb(31 63 95 / 18%);
 }
 
 .creative-delete-dialog::backdrop {
-  background: rgb(66 8 17 / 56%);
+  background: rgb(15 31 48 / 48%);
   backdrop-filter: blur(2px);
 }
 
@@ -381,16 +461,16 @@
   display: flex;
   align-items: center;
   padding: 16px 18px;
-  background: #f7d6da;
+  background: #e9f0f6;
 }
 
 .creative-delete-dialog-header {
-  border-bottom: 1px solid #d99099;
+  border-bottom: 1px solid #b8c8d7;
 }
 
 .creative-delete-dialog-header h2 {
   margin: 0;
-  color: #7d1d2a;
+  color: #1d3348;
   font-size: 16px;
   font-weight: 650;
 }
@@ -399,7 +479,7 @@
   display: grid;
   gap: 12px;
   padding: 18px;
-  background: #fff5f6;
+  background: #f8fbff;
 }
 
 .creative-delete-dialog-body p {
@@ -410,10 +490,10 @@
 .creative-delete-dialog-path {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #e3a7ae;
+  border: 1px solid #c0d0df;
   border-radius: 5px;
-  background: #fce3e6;
-  color: #72202b;
+  background: #eef4f9;
+  color: #334e63;
   font-size: var(--ui-small-font-size);
   padding: 9px 10px;
   text-overflow: ellipsis;
@@ -423,24 +503,73 @@
 .creative-delete-dialog-footer {
   justify-content: flex-end;
   gap: 8px;
-  border-top: 1px solid #d99099;
-  background: #f4cdd2;
+  border-top: 1px solid #b8c8d7;
+  background: #e4edf4;
   padding-block: 12px;
 }
 
 .creative-delete-dialog-footer button {
   min-width: 86px;
   height: 34px;
-  border: 1px solid #bb6b75;
+  border: 1px solid #8da5bb;
   border-radius: 4px;
-  background: #fff7f8;
-  color: #5e1a23;
+  background: #f8fbff;
+  color: #243f53;
   cursor: pointer;
   font: inherit;
   padding: 0 14px;
 }
 
 .creative-delete-dialog-footer .creative-delete-dialog-confirm {
+  border-color: #18324d;
+  background: #1f3f5f;
+  color: #ffffff;
+}
+
+.creative-delete-dialog.danger {
+  border-color: #a62938;
+  background: #fff1f2;
+  color: #49141b;
+  box-shadow:
+    0 24px 64px rgb(116 16 30 / 46%),
+    0 0 0 1px rgb(166 41 56 / 24%);
+}
+
+.creative-delete-dialog.danger::backdrop {
+  background: rgb(66 8 17 / 56%);
+}
+
+.creative-delete-dialog.danger .creative-delete-dialog-header {
+  border-bottom-color: #d99099;
+  background: #f7d6da;
+}
+
+.creative-delete-dialog.danger .creative-delete-dialog-header h2 {
+  color: #7d1d2a;
+}
+
+.creative-delete-dialog.danger .creative-delete-dialog-body {
+  background: #fff5f6;
+}
+
+.creative-delete-dialog.danger .creative-delete-dialog-path {
+  border-color: #e3a7ae;
+  background: #fce3e6;
+  color: #72202b;
+}
+
+.creative-delete-dialog.danger .creative-delete-dialog-footer {
+  border-top-color: #d99099;
+  background: #f4cdd2;
+}
+
+.creative-delete-dialog.danger .creative-delete-dialog-footer button {
+  border-color: #bb6b75;
+  background: #fff7f8;
+  color: #5e1a23;
+}
+
+.creative-delete-dialog.danger .creative-delete-dialog-confirm {
   border-color: #9e2635;
   background: #a62938;
   color: #ffffff;
@@ -449,6 +578,40 @@
 .creative-delete-dialog-footer button:hover,
 .creative-delete-dialog-footer button:focus-visible {
   filter: brightness(0.94);
+}
+
+.creative-trash-undo {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 1250;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: min(440px, calc(100vw - 44px));
+  border: 1px solid #7894aa;
+  border-radius: 7px;
+  background: #1f3f5f;
+  color: #ffffff;
+  box-shadow: 0 16px 36px rgb(15 31 48 / 36%);
+  padding: 11px 14px;
+}
+
+.creative-trash-undo span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creative-trash-undo button {
+  border: 1px solid #a9c7dc;
+  border-radius: 4px;
+  background: #f8fbff;
+  color: #18324d;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 5px 12px;
 }
 
 .shell.creative-workflow .creative-section > .stage-action-stage {

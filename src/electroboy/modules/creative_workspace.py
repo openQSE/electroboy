@@ -7,6 +7,7 @@ import html
 import json
 import re
 import shutil
+from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
 from uuid import uuid4
@@ -59,6 +60,10 @@ CREATIVE_CORKBOARD_GROUP_DIRECTORY = Path("corkboard") / "groups"
 CREATIVE_CORKBOARD_STATE_RELATIVE_PATH = (
     Path(".electroboy") / "creative" / "corkboards.json"
 )
+
+CREATIVE_TRASH_RELATIVE_PATH = Path(".electroboy") / "trash"
+
+CREATIVE_TRASH_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 CREATIVE_CARD_PALETTE: tuple[dict[str, str], ...] = (
     {"id": "butter", "label": "Butter", "value": "#fff6cf"},
@@ -128,10 +133,16 @@ def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, P
     return normalized_path, resolved
 
 
-def _ensure_creative_workspace(project_root: Path | str) -> None:
+def _ensure_creative_workspace(
+    project_root: Path | str,
+    *,
+    seed_defaults: bool = True,
+) -> None:
     project_root = Path(project_root).expanduser().resolve()
     (project_root / ".electroboy").mkdir(parents=True, exist_ok=True)
     _repair_misnamed_creative_corkboards(project_root)
+    if not seed_defaults:
+        return
     for folder in CREATIVE_DEFAULT_FOLDERS:
         (project_root / folder).mkdir(parents=True, exist_ok=True)
     _ensure_creative_scratchpad(project_root)
@@ -297,16 +308,181 @@ def _rename_creative_entry(
     return old_relative_path, new_relative_path
 
 
-def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
+def _creative_trash_root(project_root: Path | str) -> Path:
+    return Path(project_root).expanduser().resolve() / CREATIVE_TRASH_RELATIVE_PATH
+
+
+def _creative_trash_container(project_root: Path | str, trash_id: str) -> Path:
+    normalized_id = str(trash_id or "").strip().lower()
+    if not CREATIVE_TRASH_ID_RE.fullmatch(normalized_id):
+        raise StateError("trash entry id is invalid")
+    return _creative_trash_root(project_root) / normalized_id
+
+
+def _creative_trash_manifest(container: Path) -> dict[str, object]:
+    manifest_path = container / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise StateError("trash entry metadata is unavailable") from error
+    if not isinstance(manifest, dict):
+        raise StateError("trash entry metadata is invalid")
+    return manifest
+
+
+def _creative_trash_entries(project_root: Path | str) -> list[dict[str, object]]:
+    root = _creative_trash_root(project_root)
+    if not root.is_dir():
+        return []
+    entries: list[dict[str, object]] = []
+    for container in root.iterdir():
+        if not container.is_dir() or not CREATIVE_TRASH_ID_RE.fullmatch(container.name):
+            continue
+        try:
+            manifest = _creative_trash_manifest(container)
+        except StateError:
+            continue
+        if not (container / "item").exists():
+            continue
+        entries.append(
+            {
+                "id": container.name,
+                "name": str(manifest.get("name") or "Deleted item"),
+                "original_path": str(manifest.get("original_path") or ""),
+                "type": str(manifest.get("type") or "file"),
+                "deleted_at": str(manifest.get("deleted_at") or ""),
+            }
+        )
+    return sorted(
+        entries,
+        key=lambda entry: str(entry.get("deleted_at") or ""),
+        reverse=True,
+    )
+
+
+def _trash_creative_entry(
+    project_root: Path | str,
+    relative_path: str,
+) -> dict[str, object]:
     normalized_path, path = _creative_path(project_root, relative_path)
     if not path.exists():
         raise StateError(f"path does not exist: {normalized_path}")
-    if path.is_dir():
-        shutil.rmtree(path)
-    else:
-        path.unlink()
-    _remove_creative_corkboard_paths(project_root, normalized_path)
-    return normalized_path
+    if Path(normalized_path).parts[0] == ".electroboy":
+        raise StateError("ElectroBoy project state cannot be moved to Trash")
+    project_root = Path(project_root).expanduser().resolve()
+    trash_id = uuid4().hex
+    container = _creative_trash_container(project_root, trash_id)
+    payload_path = container / "item"
+    entry_type = (
+        "directory"
+        if path.is_dir()
+        else "corkboard"
+        if normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX)
+        else "file"
+    )
+    creative_metadata = _creative_corkboard_metadata_snapshot(
+        project_root,
+        normalized_path,
+    )
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "id": trash_id,
+        "name": path.name,
+        "original_path": normalized_path,
+        "type": entry_type,
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "creative_metadata": creative_metadata,
+    }
+    try:
+        container.mkdir(parents=True, exist_ok=False)
+        (container / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        path.replace(payload_path)
+        _remove_creative_corkboard_paths(project_root, normalized_path)
+    except Exception:
+        if payload_path.exists() and not path.exists():
+            payload_path.replace(path)
+        if creative_metadata:
+            _restore_creative_corkboard_metadata(project_root, creative_metadata)
+        if container.exists():
+            shutil.rmtree(container)
+        raise
+    return {
+        "status": "trashed",
+        "path": normalized_path,
+        "trash_entry": {
+            "id": trash_id,
+            "name": path.name,
+            "original_path": normalized_path,
+            "type": entry_type,
+            "deleted_at": manifest["deleted_at"],
+        },
+    }
+
+
+def _restore_creative_trash_entry(
+    project_root: Path | str,
+    trash_id: str,
+) -> dict[str, object]:
+    project_root = Path(project_root).expanduser().resolve()
+    container = _creative_trash_container(project_root, trash_id)
+    manifest = _creative_trash_manifest(container)
+    original_path = str(manifest.get("original_path") or "")
+    normalized_path, destination = _creative_path(project_root, original_path)
+    payload_path = container / "item"
+    if not payload_path.exists():
+        raise StateError("trash entry contents are unavailable")
+    if destination.exists():
+        raise StateError(f"restore destination already exists: {normalized_path}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload_path.replace(destination)
+    metadata = manifest.get("creative_metadata")
+    try:
+        if isinstance(metadata, dict):
+            _restore_creative_corkboard_metadata(project_root, metadata)
+    except Exception:
+        destination.replace(payload_path)
+        _remove_creative_corkboard_paths(project_root, normalized_path)
+        raise
+    shutil.rmtree(container)
+    return {
+        "status": "restored",
+        "path": normalized_path,
+        "trash_id": str(trash_id),
+    }
+
+
+def _permanently_delete_creative_trash_entry(
+    project_root: Path | str,
+    trash_id: str,
+) -> dict[str, object]:
+    container = _creative_trash_container(project_root, trash_id)
+    manifest = _creative_trash_manifest(container)
+    original_path = str(manifest.get("original_path") or "")
+    shutil.rmtree(container)
+    return {
+        "status": "deleted",
+        "path": original_path,
+        "trash_id": str(trash_id),
+    }
+
+
+def _empty_creative_trash(project_root: Path | str) -> dict[str, object]:
+    root = _creative_trash_root(project_root)
+    containers = (
+        [
+            path
+            for path in root.iterdir()
+            if path.is_dir() and CREATIVE_TRASH_ID_RE.fullmatch(path.name)
+        ]
+        if root.is_dir()
+        else []
+    )
+    for container in containers:
+        shutil.rmtree(container)
+    return {"status": "emptied", "deleted_count": len(containers)}
 
 
 def _set_creative_folder_color(
@@ -337,6 +513,7 @@ def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
     return {
         "root": str(project_root),
         "folder_palette": [dict(entry) for entry in CREATIVE_FOLDER_PALETTE],
+        "trash": _creative_trash_entries(project_root),
         "entries": _creative_tree_entries(
             project_root,
             project_root,
@@ -3516,6 +3693,104 @@ def _creative_corkboard_folder_cards(
         folder_state["cards"] = {}
         cards = folder_state["cards"]
     return cards
+
+
+def _creative_corkboard_metadata_snapshot(
+    project_root: Path | str,
+    removed_path: str,
+) -> dict[str, object]:
+    state_path = _creative_corkboard_state_path(project_root)
+    if not state_path.exists():
+        return {}
+    state = _load_creative_corkboard_state(project_root)
+    folders = state.get("folders")
+    if not isinstance(folders, dict):
+        return {}
+    removed_folders: dict[str, object] = {}
+    external_cards: dict[str, object] = {}
+    for folder_key, folder_state in folders.items():
+        if not isinstance(folder_key, str) or not isinstance(folder_state, dict):
+            continue
+        if _creative_path_is_inside(folder_key, removed_path):
+            removed_folders[folder_key] = folder_state
+            continue
+        cards = folder_state.get("cards")
+        if not isinstance(cards, dict):
+            continue
+        removed_cards = {
+            str(card_path): card_state
+            for card_path, card_state in cards.items()
+            if _creative_path_is_inside(str(card_path), removed_path)
+        }
+        if not removed_cards:
+            continue
+        order = folder_state.get("order")
+        positions = {
+            str(card_path): index
+            for index, card_path in enumerate(order if isinstance(order, list) else [])
+            if str(card_path) in removed_cards
+        }
+        external_cards[folder_key] = {
+            "cards": removed_cards,
+            "positions": positions,
+        }
+    metadata: dict[str, object] = {}
+    if removed_folders:
+        metadata["folders"] = removed_folders
+    if external_cards:
+        metadata["external_cards"] = external_cards
+    return metadata
+
+
+def _restore_creative_corkboard_metadata(
+    project_root: Path | str,
+    metadata: dict[str, object],
+) -> None:
+    removed_folders = metadata.get("folders")
+    external_cards = metadata.get("external_cards")
+    if not isinstance(removed_folders, dict) and not isinstance(external_cards, dict):
+        return
+    state = _load_creative_corkboard_state(project_root)
+    folders = state.setdefault("folders", {})
+    if not isinstance(folders, dict):
+        folders = {}
+        state["folders"] = folders
+    if isinstance(removed_folders, dict):
+        for folder_key, folder_state in removed_folders.items():
+            if isinstance(folder_key, str) and isinstance(folder_state, dict):
+                folders[folder_key] = folder_state
+    if isinstance(external_cards, dict):
+        for folder_key, saved in external_cards.items():
+            if not isinstance(folder_key, str) or not isinstance(saved, dict):
+                continue
+            folder_state = _creative_corkboard_folder_state(state, folder_key)
+            cards = _creative_corkboard_folder_cards(folder_state)
+            saved_cards = saved.get("cards")
+            if isinstance(saved_cards, dict):
+                cards.update(
+                    {
+                        str(card_path): card_state
+                        for card_path, card_state in saved_cards.items()
+                    }
+                )
+            order = folder_state.get("order")
+            if not isinstance(order, list):
+                order = []
+                folder_state["order"] = order
+            positions = saved.get("positions")
+            if isinstance(positions, dict):
+                ordered_positions = sorted(
+                    (
+                        (str(card_path), int(index))
+                        for card_path, index in positions.items()
+                    ),
+                    key=lambda item: item[1],
+                )
+                for card_path, index in ordered_positions:
+                    if card_path in order:
+                        order.remove(card_path)
+                    order.insert(min(max(index, 0), len(order)), card_path)
+    _save_creative_corkboard_state(project_root, state)
 
 
 def _save_creative_folder_corkboard_card(

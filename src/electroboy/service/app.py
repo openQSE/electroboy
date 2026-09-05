@@ -910,6 +910,29 @@ class ServiceState:
             relative_path,
         )
 
+    def restore_creative_trash_entry(
+        self,
+        context_id: str,
+        trash_id: str,
+    ) -> dict[str, object]:
+        return self.workflow_controller(
+            "creative-writing"
+        ).restore_creative_trash_entry(context_id, trash_id)
+
+    def permanently_delete_creative_trash_entry(
+        self,
+        context_id: str,
+        trash_id: str,
+    ) -> dict[str, object]:
+        return self.workflow_controller(
+            "creative-writing"
+        ).permanently_delete_creative_trash_entry(context_id, trash_id)
+
+    def empty_creative_trash(self, context_id: str) -> dict[str, object]:
+        return self.workflow_controller("creative-writing").empty_creative_trash(
+            context_id
+        )
+
     def set_creative_folder_color(
         self,
         context_id: str,

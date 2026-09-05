@@ -11,13 +11,16 @@ from electroboy.modules.creative_workspace import (
     _creative_agent_target,
     _creative_tree_payload,
     _creative_writing_command,
-    _delete_creative_entry,
     _document_target_path,
+    _empty_creative_trash,
     _ensure_creative_scratchpad,
     _ensure_creative_workspace,
     _existing_creative_project_root,
+    _permanently_delete_creative_trash_entry,
     _rename_creative_entry,
+    _restore_creative_trash_entry,
     _set_creative_folder_color,
+    _trash_creative_entry,
 )
 from electroboy.service.recent_projects import (
     remember_recent_project as _remember_recent_project,
@@ -84,7 +87,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 **self.services.contexts.project_payload(context_id),
                 "status": "resumed",
             }
-        _ensure_creative_workspace(project_root)
+        _ensure_creative_workspace(project_root, seed_defaults=False)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.reset_project(
@@ -107,6 +110,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
 
     def create_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _resolve_project_path(path)
+        project_is_new = not project_root.exists()
         context_id, resumed = self._reserve_project_workspace(
             context_id,
             project_root,
@@ -117,7 +121,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 "status": "resumed",
             }
         project_root.mkdir(parents=True, exist_ok=True)
-        _ensure_creative_workspace(project_root)
+        _ensure_creative_workspace(project_root, seed_defaults=project_is_new)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.reset_project(
@@ -140,7 +144,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
 
     def initialize_creative_workspace(self, context_id: str) -> dict[str, object]:
         project_root = self.services.contexts.active_project_root(context_id)
-        _ensure_creative_workspace(project_root)
+        _ensure_creative_workspace(project_root, seed_defaults=False)
         return self.creative_tree(context_id)
 
     def creative_tree(self, context_id: str) -> dict[str, object]:
@@ -202,11 +206,27 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         relative_path: str,
     ) -> dict[str, object]:
         project_root = self.services.contexts.active_project_root(context_id)
-        path = _delete_creative_entry(project_root, relative_path)
-        return {
-            "status": "deleted",
-            "path": path,
-        }
+        return _trash_creative_entry(project_root, relative_path)
+
+    def restore_creative_trash_entry(
+        self,
+        context_id: str,
+        trash_id: str,
+    ) -> dict[str, object]:
+        project_root = self.services.contexts.active_project_root(context_id)
+        return _restore_creative_trash_entry(project_root, trash_id)
+
+    def permanently_delete_creative_trash_entry(
+        self,
+        context_id: str,
+        trash_id: str,
+    ) -> dict[str, object]:
+        project_root = self.services.contexts.active_project_root(context_id)
+        return _permanently_delete_creative_trash_entry(project_root, trash_id)
+
+    def empty_creative_trash(self, context_id: str) -> dict[str, object]:
+        project_root = self.services.contexts.active_project_root(context_id)
+        return _empty_creative_trash(project_root)
 
     def set_creative_folder_color(
         self,
