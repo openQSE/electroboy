@@ -1919,29 +1919,29 @@ Boundary 1 validation notes:
 
 ### Boundary 6: Component Candidate Validation And Persistence
 
-83. [ ] Introduce a component-candidate service independent from module and
+83. [x] Introduce a component-candidate service independent from module and
     course services.
-84. [ ] Parse strict candidate JSONL without interpreting domain objects as
+84. [x] Parse strict candidate JSONL without interpreting domain objects as
     agent result envelopes.
-85. [ ] Validate every file ID against the active source manifest.
-86. [ ] Resolve every symbol locator against raw Ctags or targeted source
+85. [x] Validate every file ID against the active source manifest.
+86. [x] Resolve every symbol locator against raw Ctags or targeted source
     evidence and derive its canonical comparison tuple.
-87. [ ] Validate source ranges and symbol-to-file consistency.
-88. [ ] Reject cross-revision candidate references.
-89. [ ] Route resolvable missing symbols through targeted symbol resolution.
-90. [ ] Reject candidates that remain ungrounded after targeted resolution.
-91. [ ] Preserve AI-authored name, kind, responsibility, and limitations without
+87. [x] Validate source ranges and symbol-to-file consistency.
+88. [x] Reject cross-revision candidate references.
+89. [x] Route resolvable missing symbols through targeted symbol resolution.
+90. [x] Reject candidates that remain ungrounded after targeted resolution.
+91. [x] Preserve AI-authored name, kind, responsibility, and limitations without
     semantic rewriting.
-92. [ ] Persist raw attempts separately from validated candidates.
-93. [ ] Persist precise per-candidate validation results.
-94. [ ] Build bounded repair prompts containing only rejected candidates and
+92. [x] Persist raw attempts separately from validated candidates.
+93. [x] Persist precise per-candidate validation results.
+94. [x] Build bounded repair prompts containing only rejected candidates and
     exact errors.
-95. [ ] Prevent repair invocations from changing already validated candidates.
-96. [ ] Verify analysis runtime roles use read-only sandbox policy.
-97. [ ] Verify direct `.electroboy` and repository writes fail during analysis.
-98. [ ] Test valid candidates, unknown files, unresolved and ambiguous
+95. [x] Prevent repair invocations from changing already validated candidates.
+96. [x] Verify analysis runtime roles use read-only sandbox policy.
+97. [x] Verify direct `.electroboy` and repository writes fail during analysis.
+98. [x] Test valid candidates, unknown files, unresolved and ambiguous
     locators, stale evidence, bad ranges, mixed output, and targeted repairs.
-99. [ ] Commit component candidate validation, persistence, and runtime safety.
+99. [x] Commit component candidate validation, persistence, and runtime safety.
 
 ### Boundary 7: Symbol-Overlap Detection
 
