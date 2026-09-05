@@ -1480,7 +1480,7 @@ boundary so later work can be reviewed or reverted independently.
 195. [x] Persist and cache the Function course by stable symbol ID and revision.
 196. [x] Add the generated course to Module and Architecture cross-links where
     applicable.
-197. [ ] Expose resolving, analyzing, generating, validating, ready, ambiguous,
+197. [x] Expose resolving, analyzing, generating, validating, ready, ambiguous,
     missing, and failed UI states.
 198. [x] Test symbols with and without eager lessons, ambiguous names, absent
     symbols, dynamic calls, stale sources, and retry behavior.
@@ -1529,32 +1529,51 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 19: End-To-End Validation
 
-222. [ ] Run the complete Code Learner unit and integration test suites.
-223. [ ] Run distribution and packaging boundary tests for both skills and
+222. [x] Run the complete Code Learner unit and integration test suites.
+223. [x] Run distribution and packaging boundary tests for both skills and
     canonical schemas.
-224. [ ] Test a Python repository with packages, services, and persistence.
-225. [ ] Test a TypeScript or JavaScript repository with routes, components,
+224. [x] Test a Python repository with packages, services, and persistence.
+225. [x] Test a TypeScript or JavaScript repository with routes, components,
     and runtime dependencies.
-226. [ ] Test a C or C++ repository with function pointers, build targets, and
+226. [x] Test a C or C++ repository with function pointers, build targets, and
     multiple concrete implementations.
-227. [ ] Verify Architecture breadth and mandatory diagrams in every fixture.
-228. [ ] Verify every discovered extension implementation is covered or
+227. [x] Verify Architecture breadth and mandatory diagrams in every fixture.
+228. [x] Verify every discovered extension implementation is covered or
     explicitly excluded.
-229. [ ] Verify Module courses expose relationships and vertical function links.
-230. [ ] Verify an uncached Function selection generates and displays a course.
-231. [ ] Verify Mermaid component, sequence, dependency, state, class, ER, and
+229. [x] Verify Module courses expose relationships and vertical function links.
+230. [x] Verify an uncached Function selection generates and displays a course.
+231. [x] Verify Mermaid component, sequence, dependency, state, class, ER, and
     call-graph examples through the existing renderer.
 232. [ ] Verify embedded, full-pane, and pop-out layouts at desktop and mobile
     widths.
-233. [ ] Verify the read-only code pane follows selected course source links.
-234. [ ] Verify the shared Agent Input receives current layered context.
-235. [ ] Verify restart, resume, targeted retry, and stale-source regeneration.
+233. [x] Verify the read-only code pane follows selected course source links.
+234. [x] Verify the shared Agent Input receives current layered context.
+235. [x] Verify restart, resume, targeted retry, and stale-source regeneration.
 236. [ ] Measure initialization time, per-module time, function-generation time,
     knowledge size, course size, and browser rendering performance.
-237. [ ] Confirm no tracked source files in learned repositories are modified.
-238. [ ] Confirm existing v1 projects migrate or fail with actionable guidance.
-239. [ ] Review all diagnostics and unresolved requirements with the operator.
-240. [ ] Commit final integration fixes and record remaining limitations.
+237. [x] Confirm no tracked source files in learned repositories are modified.
+238. [x] Confirm existing v1 projects migrate or fail with actionable guidance.
+239. [x] Review all diagnostics and unresolved requirements with the operator.
+240. [x] Commit final integration fixes and record remaining limitations.
+
+Validation notes:
+
+- The complete Code Learner suite passes with 121 tests. A wheel built through
+  the setuptools boundary contains both skills, their references, and all
+  canonical schemas.
+- Deterministic fixture measurements completed in 1.49 seconds for the full
+  learner suite. Representative generated knowledge was 2.3-2.4 KB and the
+  Architecture course artifacts were 5.0-5.1 KB per small fixture. These are
+  fixture measurements, not estimates for a real AI-backed repository run.
+- Browser rendering is instrumented on the learner pane through
+  `data-render-milliseconds`, but the required in-app browser control surface
+  was unavailable in this session. Responsive embedded, full-pane, and pop-out
+  visual verification therefore remains open, as does collection of a real
+  browser-render sample and AI-runtime timing on a representative repository.
+- The repository-wide suite has 11 failures outside Code Learner: eight
+  corkboard or mind-map browser smoke failures, two software requirements
+  session-recovery assertions, and one environment-sensitive default-port
+  assertion. The Code Learner changes do not touch those components.
 
 ## Open Decisions
 
