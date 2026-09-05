@@ -475,7 +475,7 @@
     if (!hasProject) {
       setStatus("No project active.");
     } else if (initializing) {
-      setStatus(formatInitializationStatus(initializationState));
+      setStatus("");
     } else if (!initialized) {
       setStatus("Initialize learning context.");
     } else if (!walkthrough) {
@@ -792,7 +792,7 @@
       });
       return;
     }
-    setStatus("Initializing AI course material...");
+    setStatus("");
     setGenerating(true);
     runtimeApi.modules.invoke("progress", "closeProgressEventStream");
     runtimeApi.modules.invoke("progress", "showProgressSnapshot", {
@@ -832,7 +832,7 @@
       return;
     }
     scheduleInitializationPoll();
-    setStatus(formatInitializationStatus(initializationState));
+    setStatus("");
   }
 
   async function pollInitializationStatus(options = {}) {

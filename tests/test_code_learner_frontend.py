@@ -91,6 +91,8 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="architecture-start">Start lesson' in frontend
     assert 'generateCourse({ mode: "architecture" })' in frontend
     assert 'data-code-learner-control="init-progress"' in frontend
+    assert 'else if (initializing) {\n      setStatus("");' in frontend
+    assert ".code-learner-status:empty" in stylesheet
     assert 'runtimeApi.modules.invoke("progress", "showProgressSnapshot", {' in frontend
     assert 'runtimeApi.modules.invoke("progress", "closeProgressEventStream");' in frontend
     assert "initialization.progress_events" in frontend
