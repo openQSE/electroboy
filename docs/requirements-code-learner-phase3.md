@@ -1945,26 +1945,26 @@ Boundary 1 validation notes:
 
 ### Boundary 7: Symbol-Overlap Detection
 
-100. [ ] Build a reverse index from exact canonical symbol locator to validated
+100. [x] Build a reverse index from exact canonical symbol locator to validated
      candidate IDs.
-101. [ ] Create overlap edges only when two candidates share an exact
+101. [x] Create overlap edges only when two candidates share an exact
      canonical symbol locator.
-102. [ ] Build transitive overlap groups while retaining every direct shared
+102. [x] Build transitive overlap groups while retaining every direct shared
      symbol edge.
-103. [ ] Exclude supporting-only symbol references from overlap when they are
+103. [x] Exclude supporting-only symbol references from overlap when they are
      not declared as component members.
-104. [ ] Confirm shared file IDs without shared symbols do not create overlap
+104. [x] Confirm shared file IDs without shared symbols do not create overlap
      groups.
-105. [ ] Confirm same names without shared symbols do not create overlap groups.
-106. [ ] Confirm same descriptions or kinds do not create overlap groups.
-107. [ ] Preserve candidate-exclusive symbol sets for reconciliation prompts.
-108. [ ] Persist overlap groups atomically with source and candidate revision.
-109. [ ] Add deterministic ordering for groups, candidates, and symbol
+105. [x] Confirm same names without shared symbols do not create overlap groups.
+106. [x] Confirm same descriptions or kinds do not create overlap groups.
+107. [x] Preserve candidate-exclusive symbol sets for reconciliation prompts.
+108. [x] Persist overlap groups atomically with source and candidate revision.
+109. [x] Add deterministic ordering for groups, candidates, and symbol
      locators.
-110. [ ] Add queries for groups by candidate and symbol.
-111. [ ] Test pair overlap, transitive overlap, disjoint candidates, same-file
+110. [x] Add queries for groups by candidate and symbol.
+111. [x] Test pair overlap, transitive overlap, disjoint candidates, same-file
      disjoint symbols, and supporting-reference overlap.
-112. [ ] Commit exact symbol-overlap detection.
+112. [x] Commit exact symbol-overlap detection.
 
 ### Boundary 8: AI Component Reconciliation
 
