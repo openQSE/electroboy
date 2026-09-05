@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from uuid import uuid4
 
 from electroboy.adapters.base import AgentInvocation, AgentResult, AgentRuntime
@@ -19,6 +20,7 @@ from .domain import CodeLearnerError
 from .function_knowledge import FunctionKnowledgeService
 from .generation import LearnerGenerationStore
 from .initialization import InitializationLease
+from .isolated_runtime import IsolatedAnalysisWorkspace
 from .module_knowledge import ModuleKnowledgeService
 from .modules import ModuleSynthesisService
 from .overlap import ComponentOverlapService
@@ -91,6 +93,9 @@ class Phase3InitializationPipeline:
         self.candidates = ComponentCandidateService(self.root, source=self.source)
         self.overlaps = ComponentOverlapService(self.root, store=self.store)
         self._base_runtime_factory = runtime_factory or _runtime_factory
+        self._analysis_workspace = IsolatedAnalysisWorkspace(
+            self.root, self._base_runtime_factory
+        )
         self._callback: ProgressCallback | None = None
         self.reconciliations = ComponentReconciliationService(
             self.root, store=self.store, runtime_factory=self._observed_runtime
@@ -152,6 +157,7 @@ class Phase3InitializationPipeline:
         lease = None
         revision = "unknown"
         try:
+            source_started = perf_counter()
             previous_source = self.source.load()
             source = self.source.generate()
             revision = source.revision
@@ -167,6 +173,7 @@ class Phase3InitializationPipeline:
                 checkpoint,
                 "source_files",
                 message=f"Enumerated {len(source.files)} selected repository files.",
+                duration_seconds=perf_counter() - source_started,
             )
             run_id = str(checkpoint["analysis_run_id"])
             self._run_stage(
@@ -176,6 +183,7 @@ class Phase3InitializationPipeline:
                 ready=lambda: self.ctags.load() is not None,
                 resume=self.ctags.load,
             )
+            self._analysis_workspace.open(source.files)
             self._run_stage(
                 checkpoint,
                 "components",
@@ -319,6 +327,7 @@ class Phase3InitializationPipeline:
         finally:
             if lease is not None:
                 lease.release()
+            self._analysis_workspace.close()
             self._callback = None
 
     def _run_stage(
@@ -350,11 +359,17 @@ class Phase3InitializationPipeline:
         )
         self._save_checkpoint(checkpoint)
         self._emit(stage, f"Starting {stage.replace('_', ' ')}.")
+        started = perf_counter()
         try:
             result = operation()
         except Exception as error:
             state.update(
-                {"status": "failed", "error": str(error), "failed_at": utc_now()}
+                {
+                    "status": "failed",
+                    "error": str(error),
+                    "failed_at": utc_now(),
+                    "duration_seconds": round(perf_counter() - started, 6),
+                }
             )
             self._save_checkpoint(checkpoint)
             self._emit(
@@ -368,7 +383,14 @@ class Phase3InitializationPipeline:
                 self._save_checkpoint(checkpoint)
                 return fallback()
             raise
-        state.update({"status": "complete", "completed_at": utc_now(), "error": ""})
+        state.update(
+            {
+                "status": "complete",
+                "completed_at": utc_now(),
+                "duration_seconds": round(perf_counter() - started, 6),
+                "error": "",
+            }
+        )
         if stage == "activation" and isinstance(result, Mapping):
             checkpoint["status"] = result.get("status", "complete")
             checkpoint["activated_at"] = utc_now()
@@ -377,11 +399,21 @@ class Phase3InitializationPipeline:
         return result
 
     def _complete_stage(
-        self, checkpoint: dict[str, object], stage: str, *, message: str
+        self,
+        checkpoint: dict[str, object],
+        stage: str,
+        *,
+        message: str,
+        duration_seconds: float = 0.0,
     ) -> None:
         self._active_stage = stage
         checkpoint["stages"][stage].update(
-            {"status": "complete", "completed_at": utc_now(), "error": ""}
+            {
+                "status": "complete",
+                "completed_at": utc_now(),
+                "duration_seconds": round(duration_seconds, 6),
+                "error": "",
+            }
         )
         self._save_checkpoint(checkpoint)
         self._emit(stage, message)
@@ -585,8 +617,13 @@ class Phase3InitializationPipeline:
         self.store.write_json(self.store.checkpoint_path, checkpoint)
 
     def _observed_runtime(self, role: str, root: Path) -> AgentRuntime:
+        runtime = (
+            self._analysis_workspace.runtime(role)
+            if self._analysis_workspace.workspace is not None
+            else self._base_runtime_factory(role, root)
+        )
         return _ObservedRuntime(
-            self._base_runtime_factory(role, root),
+            runtime,
             lambda event: self._emit_activity(event),
             stage=self._active_stage,
             percent=STAGE_PERCENT.get(self._active_stage, 1),

@@ -13,6 +13,9 @@ which validates and persists it.
 
 - Read the supplied Phase 3 schema and all input manifests before source
   inspection.
+- Limit inspection to the learned repository and explicitly supplied skill,
+  schema, manifest, and prior-artifact paths. Do not inspect ElectroBoy source,
+  tests, caches, or unrelated host files to infer contracts or examples.
 - Use the supplied run ID, revision, scope, and temporary candidate IDs.
 - Emit strict JSONL only; do not write output or checkpoints directly.
 - Cite exact file IDs and source-oriented symbol locators from the supplied

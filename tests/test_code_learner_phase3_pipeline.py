@@ -56,6 +56,7 @@ def test_every_stage_checkpoints_an_interruption(tmp_path: Path, stage: str) -> 
     assert saved is not None
     assert saved["stages"][stage]["status"] == "failed"
     assert saved["stages"][stage]["error"] == "interrupted"
+    assert saved["stages"][stage]["duration_seconds"] >= 0
     progress = pipeline.store.read_jsonl(pipeline.store.progress_path)
     assert any(
         item.get("activity_kind") == "error"
@@ -80,6 +81,7 @@ def test_warning_tolerant_scope_records_error_and_continues(tmp_path: Path) -> N
 
     assert result == ["preserved"]
     assert checkpoint["stages"]["relationships"]["status"] == ("complete_with_warnings")
+    assert checkpoint["stages"]["relationships"]["duration_seconds"] >= 0
     assert pipeline.store.active_diagnostics("warning")[0]["message"] == (
         "bad endpoint"
     )
