@@ -31,6 +31,7 @@ Read only the references required for the requested pass:
 - Component discovery: [repository-discovery.md](references/repository-discovery.md)
 - Component reconciliation: [component-reconciliation.md](references/component-reconciliation.md)
 - Module synthesis: [module-synthesis.md](references/module-synthesis.md)
+- Layered knowledge: [layered-knowledge.md](references/layered-knowledge.md)
 - Record emission: [knowledge-schema.md](references/knowledge-schema.md)
 - Module relationships and flows: [relationship-types.md](references/relationship-types.md)
 - Symbol grounding: [language-tooling.md](references/language-tooling.md)

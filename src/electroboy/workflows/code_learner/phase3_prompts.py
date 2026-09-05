@@ -297,3 +297,54 @@ Read their cited source and return exactly one corrected module_relationship
 JSON object using only the existing endpoint, component, and source IDs. Do not
 create or reconcile components or modules and do not inspect unrelated scope.
 """.strip()
+
+
+def architecture_knowledge_prompt(
+    root: Path | str,
+    *,
+    analysis_run_id: str,
+    repository_revision: str,
+    source_manifest_path: Path | str,
+    component_manifest_path: Path | str,
+    module_manifest_path: Path | str,
+    relationships_path: Path | str,
+    schema_path: Path | str,
+) -> str:
+    """Build the repository-wide Phase 3 Architecture knowledge prompt."""
+
+    repository = Path(root).expanduser().resolve()
+    return f"""You are the ElectroBoy Phase 3 Architecture knowledge analyst.
+
+{skill_prompt_reference("codebase-analysis")}
+
+Repository root: {repository}
+Analysis run ID: {analysis_run_id}
+Repository revision: {repository_revision}
+Source manifest: {source_manifest_path}
+Frozen component manifest: {component_manifest_path}
+Frozen module manifest: {module_manifest_path}
+Canonical module relationships: {relationships_path}
+Phase 3 schema: {schema_path}
+
+Generate exactly one architecture_knowledge record. This is structured
+knowledge, not final course prose. Its horizontal object must cover repository
+purpose, external boundaries, entry surfaces, every major module and accepted
+relationship, state, build, tests, and constraints. Do not narrow scope to a
+recent or prominent subsystem.
+
+Add vertical_slices for important cross-module behaviors. Each slice needs
+ordered_steps with canonical module and component IDs plus source-grounded
+symbol locators where useful, and explicit alternate_flows, error_flows,
+dynamic_behavior, and unresolved items. Add deep_links to Module and Function
+targets.
+
+Include a Mermaid component or flowchart diagram using only accepted module
+and component node IDs and canonical relationship edge IDs. Include a Mermaid
+sequence diagram whenever a vertical slice has an ordered cross-module flow.
+Other evidence-grounded Mermaid diagram types are allowed. Every diagram must
+list node_ids and relationship_ids separately so ElectroBoy can validate the
+graph before rendering.
+
+Return strict JSONL only. Preserve limitations and unsupported paths. Do not
+create or modify source, components, modules, relationships, courses, or state.
+""".strip()

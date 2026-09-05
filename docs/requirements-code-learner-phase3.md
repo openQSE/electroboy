@@ -2067,28 +2067,28 @@ Boundary 1 validation notes:
 
 ### Boundary 12: Horizontal And Vertical Architecture Knowledge
 
-180. [ ] Replace the Phase 2 architecture knowledge selector with a Phase 3
+180. [x] Replace the Phase 2 architecture knowledge selector with a Phase 3
      module/component selector.
-181. [ ] Define horizontal Architecture output fields and coverage rules.
-182. [ ] Require repository purpose, external boundaries, entry surfaces, all
+181. [x] Define horizontal Architecture output fields and coverage rules.
+182. [x] Require repository purpose, external boundaries, entry surfaces, all
      major modules, relationships, state, build, tests, and constraints.
-183. [ ] Define vertical Architecture slice and ordered-step fields.
-184. [ ] Select important cross-module behaviors without reducing architecture
+183. [x] Define vertical Architecture slice and ordered-step fields.
+184. [x] Select important cross-module behaviors without reducing architecture
      scope to one recent subsystem.
-185. [ ] Resolve every horizontal module reference to the frozen manifest.
-186. [ ] Resolve every vertical component reference to manifests and every
+185. [x] Resolve every horizontal module reference to the frozen manifest.
+186. [x] Resolve every vertical component reference to manifests and every
      symbol locator through the source-evidence resolver.
-187. [ ] Require a Mermaid module/component diagram using accepted nodes and
+187. [x] Require a Mermaid module/component diagram using accepted nodes and
      edges.
-188. [ ] Require a Mermaid sequence diagram when an ordered cross-module flow
+188. [x] Require a Mermaid sequence diagram when an ordered cross-module flow
      exists.
-189. [ ] Permit additional evidence-grounded Mermaid diagrams.
-190. [ ] Validate diagram node and canonical edge references before rendering.
-191. [ ] Preserve alternate, error, dynamic, and unresolved flow information.
-192. [ ] Add deep links from Architecture sections into modules and functions.
-193. [ ] Test repository breadth, horizontal order, vertical slices, mandatory
+189. [x] Permit additional evidence-grounded Mermaid diagrams.
+190. [x] Validate diagram node and canonical edge references before rendering.
+191. [x] Preserve alternate, error, dynamic, and unresolved flow information.
+192. [x] Add deep links from Architecture sections into modules and functions.
+193. [x] Test repository breadth, horizontal order, vertical slices, mandatory
      diagrams, unsupported flows, and stale references.
-194. [ ] Commit Phase 3 Architecture knowledge generation.
+194. [x] Commit Phase 3 Architecture knowledge generation.
 
 ### Boundary 13: Horizontal And Vertical Module Knowledge
 
