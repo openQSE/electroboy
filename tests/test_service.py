@@ -1443,9 +1443,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const explicitSessionId = String(options.sessionId", creative)
         self.assertIn("choice = await chooseCreativeAgentSession({", creative)
         self.assertIn("function creativeSessionCanContinue(session)", creative)
-        self.assertIn('String(session.status || "") !== "running"', creative)
-        self.assertIn("session.resumable !== false", creative)
+        self.assertIn(
+            'String(session.status || "") !== "running"\n'
+            "        && session.resumable !== false",
+            creative,
+        )
         self.assertIn(".filter(creativeSessionCanContinue)", creative)
+        self.assertIn("CODEX_SESSION_ID_PATTERN.test(manualId)", creative)
+        self.assertIn("{ providerSessionId: manualId, startNew: false }", creative)
         self.assertIn("startNew: true,", documents)
         self.assertNotIn("function projectStageActions()", app)
         self.assertNotIn("function appendCreativeTreeEntry", app)
@@ -6475,7 +6480,7 @@ class ServiceTests(unittest.TestCase):
                     context_id,
                     scope="document",
                     active_document="chapters/chapter-01.md",
-                    session_id=provider_session_id,
+                    provider_session_id=provider_session_id,
                 )
                 resumed_again, resumed_again_started = (
                     state.start_creative_writing_agent(
@@ -6588,6 +6593,15 @@ class ServiceTests(unittest.TestCase):
                     active_document="chapters/chapter-01.md",
                     session_id=provider_session_id,
                 )
+                session.process = mock.Mock()
+                session.process.poll.return_value = None
+                running_history = state.creative_agent_sessions(
+                    context_id,
+                    scope="document",
+                    active_document="chapters/chapter-01.md",
+                )
+                session.process.poll.return_value = 0
+                state.contexts[context_id].creative_sessions.clear()
                 history = state.creative_agent_sessions(
                     context_id,
                     scope="document",
@@ -6606,6 +6620,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(session.command[-2:], ["resume", provider_session_id])
         self.assertEqual(session.metadata["provider_session_id"], provider_session_id)
         self.assertTrue(session.metadata["resumed_session"])
+        self.assertEqual(running_history["sessions"][0]["status"], "running")
         self.assertEqual(history["sessions"][0]["provider_session_id"], provider_session_id)
         self.assertEqual(history["sessions"][0]["title"], "Independent draft session.")
         self.assertEqual(

@@ -3,6 +3,8 @@
 
   const WORKFLOW_ID = "creative-writing";
   const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
+  const CODEX_SESSION_ID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let runtimeApi = null;
   let scratchPad = null;
   let activationRoot = "";
@@ -965,7 +967,12 @@
     function creativeSessionChoice(value, customInput) {
       if (value === "custom") {
         const manualId = customInput.value.trim();
-        return manualId ? { sessionId: manualId, startNew: false } : null;
+        if (!manualId) {
+          return null;
+        }
+        return CODEX_SESSION_ID_PATTERN.test(manualId)
+          ? { providerSessionId: manualId, startNew: false }
+          : { sessionId: manualId, startNew: false };
       }
       if (value.startsWith("provider:")) {
         return {
