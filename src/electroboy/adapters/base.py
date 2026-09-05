@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from threading import Event
 
 
 @dataclass
@@ -17,6 +18,7 @@ class AgentInvocation:
     provider_session_id: str | None = None
     progress_path: str | None = None
     event_callback: Callable[[dict[str, object]], None] | None = None
+    cancel_event: Event | None = None
 
 
 @dataclass

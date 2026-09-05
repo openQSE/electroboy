@@ -44,7 +44,11 @@ from .initialization import (
 from .knowledge_store import KnowledgeStore
 from .migration import LegacyCorpusMigrator
 from .phase3_courses import Phase3CourseNavigator, Phase3CourseService
-from .phase3_pipeline import Phase3InitializationPipeline, phase3_initialization_ready
+from .phase3_pipeline import (
+    Phase3InitializationCancelled,
+    Phase3InitializationPipeline,
+    phase3_initialization_ready,
+)
 from .phase3_store import Phase3Store
 from .phase3_tutor import Phase3TutorContextStore
 from .source_manifest import SourceManifestService
@@ -54,7 +58,7 @@ from .tutor_context import (
     tutor_bootstrap_prompt,
 )
 
-_INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running"})
+_INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running", "aborting"})
 _AI_PROGRESS_MAX_PERCENT = 95
 _VALIDATION_PERCENT = 97
 _FORMALIZATION_PERCENT = 99
@@ -91,6 +95,7 @@ class _InitializationJob:
     started_monotonic: float = field(default_factory=time.monotonic)
     thread: threading.Thread | None = field(default=None, repr=False)
     lease: InitializationLease | None = field(default=None, repr=False)
+    cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def is_running(self) -> bool:
@@ -108,6 +113,8 @@ class _InitializationJob:
         progress: bool = False,
     ) -> None:
         with self.lock:
+            if status == "running" and self.cancel_event.is_set():
+                return
             if status is not None:
                 self.status = status
             if phase is not None:
@@ -123,6 +130,8 @@ class _InitializationJob:
                 self.last_progress_at = self.updated_at
 
     def record_progress(self, record: dict[str, object]) -> None:
+        if self.cancel_event.is_set():
+            return
         if record.get("activity") is True:
             self._record_activity(record)
             return
@@ -141,6 +150,8 @@ class _InitializationJob:
         if not message:
             return
         with self.lock:
+            if self.cancel_event.is_set():
+                return
             scope_ids = record.get("scope_ids")
             self.updated_at = utc_now()
             self.last_progress_at = self.updated_at
@@ -166,6 +177,28 @@ class _InitializationJob:
             ):
                 return
             self.progress_events.append(event)
+            self.progress_events = self.progress_events[-250:]
+
+    def request_abort(self) -> None:
+        with self.lock:
+            if self.status not in _INITIALIZATION_RUNNING_STATUSES:
+                return
+            self.cancel_event.set()
+            self.status = "aborting"
+            self.phase = "aborting"
+            self.message = "Stopping initialization..."
+            self.updated_at = utc_now()
+            self.last_progress_at = self.updated_at
+            self.progress_events.append(
+                {
+                    "phase": "aborting",
+                    "percent": self.percent,
+                    "message": self.message,
+                    "updated_at": self.updated_at,
+                    "scope_ids": list(self.active_scope),
+                    "heartbeat": False,
+                }
+            )
             self.progress_events = self.progress_events[-250:]
 
     def record_system_progress(
@@ -196,6 +229,8 @@ class _InitializationJob:
             progress=True,
         )
         with self.lock:
+            if self.cancel_event.is_set():
+                return
             details = details or {}
             if "scope_ids" in details:
                 self.active_scope = [str(item) for item in details.get("scope_ids", [])]
@@ -281,6 +316,7 @@ class _InitializationJob:
                 "warning_count": self.warning_count,
                 "failed_scope": self.failed_scope,
                 "recovery_action": self.recovery_action,
+                "abort_requested": self.cancel_event.is_set(),
                 "checkpoint_path": str(Phase3Store(self.root).checkpoint_path),
                 "progress_path": str(Phase3Store(self.root).progress_path),
             }
@@ -327,6 +363,7 @@ def _idle_initialization_snapshot(root: Path) -> dict[str, object]:
         "warning_count": 0,
         "failed_scope": "",
         "recovery_action": "",
+        "abort_requested": False,
         "checkpoint_path": str(Phase3Store(root).checkpoint_path),
         "progress_path": str(Phase3Store(root).progress_path),
     }
@@ -556,6 +593,13 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root = self._active_project_root(context_id)
         return self._initialization_payload(context_id, root)
 
+    def abort_initialization(self, context_id: str) -> dict[str, object]:
+        root = self._active_project_root(context_id)
+        job = self._initialization_job(root)
+        if job is not None:
+            job.request_abort()
+        return self._initialization_payload(context_id, root)
+
     def clear_course_cache(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
         with self.services.contexts.lock:
@@ -682,7 +726,10 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             ),
         )
         try:
-            result = Phase3InitializationPipeline(root).run(
+            result = Phase3InitializationPipeline(
+                root,
+                cancel_event=job.cancel_event,
+            ).run(
                 lambda record: self._record_initialization_progress(job, record),
                 acquire_lease=False,
             )
@@ -708,6 +755,13 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     if job.completion_status == "complete_with_warnings"
                     else "AI course material is ready."
                 ),
+            )
+        except Phase3InitializationCancelled:
+            job.update(
+                status="aborted",
+                phase="aborted",
+                message="Initialization stopped. Run Initialize to resume.",
+                error="",
             )
         except Exception as error:
             message = str(error)
@@ -756,6 +810,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             initialization = job.snapshot()
         elif job is not None and str(job.snapshot().get("status")) == "failed":
             status = "failed"
+            initialization = job.snapshot()
+        elif job is not None and str(job.snapshot().get("status")) == "aborted":
+            status = "uninitialized"
             initialization = job.snapshot()
         elif job is not None and str(job.snapshot().get("status")) == "initialized":
             status = "initialized"

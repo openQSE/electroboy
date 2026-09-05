@@ -11,6 +11,7 @@ from electroboy.workflows.code_learner.domain import CodeLearnerError
 from electroboy.workflows.code_learner.phase3_courses import Phase3CourseService
 from electroboy.workflows.code_learner.phase3_pipeline import (
     STAGES,
+    Phase3InitializationCancelled,
     Phase3InitializationPipeline,
     _ObservedRuntime,
     phase3_initialization_ready,
@@ -85,6 +86,49 @@ def test_warning_tolerant_scope_records_error_and_continues(tmp_path: Path) -> N
     assert pipeline.store.active_diagnostics("warning")[0]["message"] == (
         "bad endpoint"
     )
+
+
+def test_cancelled_stage_is_left_pending_for_resume(tmp_path: Path) -> None:
+    pipeline = Phase3InitializationPipeline(tmp_path, eager_function_budget=0)
+    checkpoint = _checkpoint(pipeline)
+
+    def cancel() -> None:
+        pipeline.cancel_event.set()
+        raise CodeLearnerError("agent invocation aborted")
+
+    with pytest.raises(Phase3InitializationCancelled):
+        pipeline._run_stage(
+            checkpoint,
+            "components",
+            cancel,
+            ready=lambda: False,
+        )
+
+    saved = pipeline.store.read_json(pipeline.store.checkpoint_path)
+    assert saved is not None
+    assert saved["stages"]["components"]["status"] == "pending"
+    assert saved["stages"]["components"]["error"] == ""
+    assert pipeline.store.load_terminal_result() is None
+
+
+def test_completed_activation_wins_abort_race(tmp_path: Path) -> None:
+    pipeline = Phase3InitializationPipeline(tmp_path, eager_function_budget=0)
+    checkpoint = _checkpoint(pipeline)
+
+    def activate() -> dict[str, str]:
+        pipeline.cancel_event.set()
+        return {"status": "complete"}
+
+    result = pipeline._run_stage(
+        checkpoint,
+        "activation",
+        activate,
+        ready=lambda: False,
+    )
+
+    assert result == {"status": "complete"}
+    assert checkpoint["status"] == "complete"
+    assert checkpoint["stages"]["activation"]["status"] == "complete"
 
 
 def test_observed_runtime_streams_activity_and_rejects_direct_writes() -> None:

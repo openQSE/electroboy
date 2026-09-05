@@ -137,6 +137,28 @@
   line-height: 1.3;
 }
 
+.code-learner-abort {
+  justify-self: start;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--error);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-small-font-size);
+  padding: 4px 10px;
+}
+
+.code-learner-abort:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 9%, transparent);
+}
+
+.code-learner-abort:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .code-learner-completion {
   min-width: 0;
   overflow-wrap: anywhere;

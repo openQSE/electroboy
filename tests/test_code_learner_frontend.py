@@ -97,6 +97,10 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="architecture-start">Start lesson' in frontend
     assert 'generateCourse({ mode: "architecture" })' in frontend
     assert 'data-code-learner-control="init-progress"' in frontend
+    assert 'data-code-learner-control="abort-initialization"' in frontend
+    assert 'contextUrl("/api/code-learner/init/abort")' in frontend
+    assert "async function abortInitialization()" in frontend
+    assert 'status === "aborting"' in frontend
     assert 'data-code-learner-control="init-completion"' in frontend
     assert "renderInitializationCompletion()" in frontend
     assert 'terminal === "complete_with_warnings"' in frontend

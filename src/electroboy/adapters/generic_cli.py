@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import threading
 from collections.abc import Callable
@@ -24,7 +25,11 @@ class GenericCliRuntime(AgentRuntime):
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         command = self._command(invocation)
         prompt = self._build_prompt(invocation)
-        if invocation.progress_path or invocation.event_callback:
+        if (
+            invocation.progress_path
+            or invocation.event_callback
+            or invocation.cancel_event is not None
+        ):
             return self._invoke_with_progress_monitor(command, prompt, invocation)
         try:
             run_kwargs: dict[str, object] = {
@@ -71,6 +76,7 @@ class GenericCliRuntime(AgentRuntime):
                 text=True,
                 cwd=self.root,
                 env=self._runtime_env(),
+                start_new_session=True,
             )
         except (FileNotFoundError, OSError) as error:
             return AgentResult(
@@ -88,15 +94,57 @@ class GenericCliRuntime(AgentRuntime):
             stderr_chunks,
             invocation.event_callback,
         )
-        process.wait()
+        cancelled = False
+        while process.poll() is None:
+            if invocation.cancel_event is not None and invocation.cancel_event.wait(
+                0.1
+            ):
+                cancelled = True
+                self._stop_process(process)
+                break
+            try:
+                process.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:
+                continue
         for thread in threads:
             thread.join()
+        if cancelled:
+            error = "Agent invocation aborted."
+            events: list[dict[str, object]] = []
+            if stdout_chunks:
+                events.append({"stream": "stdout", "text": "".join(stdout_chunks)})
+            if stderr_chunks:
+                events.append({"stream": "stderr", "text": "".join(stderr_chunks)})
+            return AgentResult(
+                ok=False,
+                final_message=error,
+                raw_events=events,
+                commands=[" ".join(command)],
+                error=error,
+            )
         return self._result_from_process(
             command,
             process.returncode or 0,
             "".join(stdout_chunks),
             "".join(stderr_chunks),
         )
+
+    def _stop_process(self, process: subprocess.Popen[str]) -> None:
+        try:
+            if os.name == "posix":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+            process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                return
 
     def _start_io_threads(
         self,
@@ -225,7 +273,9 @@ class GenericCliRuntime(AgentRuntime):
             provider_session_id = parsed.get("provider_session_id")
             return AgentResult(
                 ok=bool(parsed.get("ok", True)),
-                final_message=str(parsed.get("final_message", parsed.get("message", ""))),
+                final_message=str(
+                    parsed.get("final_message", parsed.get("message", ""))
+                ),
                 issues=list(parsed.get("issues", [])),
                 raw_events=[parsed],
                 changed_files=list(parsed.get("changed_files", [])),
@@ -245,4 +295,6 @@ class GenericCliRuntime(AgentRuntime):
                 structured_output=True,
                 structured_payload=parsed,
             )
-        return AgentResult(ok=True, final_message=stdout, raw_events=[{"value": parsed}])
+        return AgentResult(
+            ok=True, final_message=stdout, raw_events=[{"value": parsed}]
+        )

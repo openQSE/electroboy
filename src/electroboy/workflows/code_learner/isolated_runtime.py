@@ -137,6 +137,7 @@ class _RelocatedRuntime(AgentRuntime):
             provider_session_id=invocation.provider_session_id,
             progress_path=invocation.progress_path,
             event_callback=invocation.event_callback,
+            cancel_event=invocation.cancel_event,
         )
         return self.runtime.invoke(relocated)
 

@@ -262,6 +262,8 @@
               </div>
               <div class="code-learner-progress-meta"
                    data-code-learner-control="init-progress-meta"></div>
+              <button class="code-learner-abort" type="button"
+                      data-code-learner-control="abort-initialization">Abort</button>
             </div>
             <div class="code-learner-completion" hidden role="status"
                  aria-live="polite"
@@ -315,6 +317,7 @@
       initProgress: control(container, "init-progress"),
       initProgressFill: control(container, "init-progress-fill"),
       initProgressMeta: control(container, "init-progress-meta"),
+      abortInitialization: control(container, "abort-initialization"),
       initCompletion: control(container, "init-completion"),
       outlineMenu: control(container, "outline-menu"),
       outlineActions: control(container, "outline-actions"),
@@ -357,6 +360,11 @@
     nav.close.addEventListener("click", () => runtime.project.deactivate());
     nav.initialize.addEventListener("click", () => {
       initializeCodeLearner().catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+    });
+    nav.abortInitialization.addEventListener("click", () => {
+      abortInitialization().catch((error) => {
         setStatus(error.message || String(error), "error");
       });
     });
@@ -510,7 +518,7 @@
 
   function initializationRunning() {
     const status = initializationState && initializationState.status;
-    return status === "queued" || status === "running";
+    return status === "queued" || status === "running" || status === "aborting";
   }
 
   function initializationFailed() {
@@ -554,6 +562,9 @@
     }
     const show = initializationRunning() || initializationFailed();
     nav.initProgress.hidden = !show;
+    nav.abortInitialization.hidden = !initializationRunning();
+    nav.abortInitialization.disabled =
+      !initializationRunning() || initializationState.status === "aborting";
     if (!show) {
       nav.initProgressFill.style.width = "0%";
       nav.initProgressMeta.textContent = "";
@@ -612,7 +623,7 @@
       return;
     }
     const failed = initialization.status === "failed";
-    const running = initialization.status === "queued" || initialization.status === "running";
+    const running = ["queued", "running", "aborting"].includes(initialization.status);
     const text = failed
       ? String(initialization.error || initialization.message || "Initialization failed.")
       : formatInitializationStatus(initialization);
@@ -897,6 +908,35 @@
     setStatus("");
   }
 
+  async function abortInitialization() {
+    if (!contextId || !initializationRunning()) {
+      return;
+    }
+    nav.abortInitialization.disabled = true;
+    const response = await runtimeApi.http.fetch(
+      contextUrl("/api/code-learner/init/abort"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    const payload = await response.json().catch(() => ({ error: "abort failed" }));
+    if (!response.ok) {
+      throw new Error(payload.error || "abort failed");
+    }
+    applyInitializationPayload(payload);
+    publishInitializationProgress();
+    renderNavigationState();
+    if (payload.status === "initializing") {
+      scheduleInitializationPoll();
+      return;
+    }
+    stopInitializationPolling();
+    setGenerating(false);
+    setStatus("Initialization stopped. Run Initialize to resume.");
+  }
+
   async function pollInitializationStatus(options = {}) {
     if (!contextId || !(activeProjectRoot || activationRoot)) {
       stopInitializationPolling();
@@ -931,6 +971,10 @@
     } else if (payload.status === "initializing") {
       setGenerating(true);
       scheduleInitializationPoll();
+    } else if (payload.initialization.status === "aborted") {
+      stopInitializationPolling();
+      setGenerating(false);
+      setStatus("Initialization stopped. Run Initialize to resume.");
     } else {
       stopInitializationPolling();
       setGenerating(false);

@@ -65,6 +65,12 @@ def _initialization_status(request: RouteRequest) -> ServiceResponse:
     )
 
 
+def _abort_initialization(request: RouteRequest) -> ServiceResponse:
+    return _workflow_action(
+        lambda: _controller(request).abort_initialization(request.context_id)
+    )
+
+
 def _clear_course_cache(request: RouteRequest) -> ServiceResponse:
     return _workflow_action(
         lambda: _controller(request).clear_course_cache(request.context_id)
@@ -248,6 +254,7 @@ ROUTES = (
     _route("POST", "/api/code-learner/project/open", "open_project"),
     _route("POST", "/api/code-learner/init", "initialize"),
     _route("GET", "/api/code-learner/init/status", "initialization_status"),
+    _route("POST", "/api/code-learner/init/abort", "abort_initialization"),
     _route("POST", "/api/code-learner/cache/clear", "clear_course_cache"),
     _route("GET", "/api/code-learner/analysis", "analysis"),
     _route("GET", "/api/code-learner/source", "source"),
@@ -273,6 +280,7 @@ HANDLERS: dict[str, RouteHandler] = {
     "open_project": _open_project,
     "initialize": _initialize,
     "initialization_status": _initialization_status,
+    "abort_initialization": _abort_initialization,
     "clear_course_cache": _clear_course_cache,
     "analysis": _analysis,
     "source": _source,

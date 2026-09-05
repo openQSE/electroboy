@@ -35,6 +35,9 @@ from electroboy.workflows.code_learner.generation import (  # noqa: E402
 from electroboy.workflows.code_learner.knowledge_store import (  # noqa: E402
     KnowledgeStore,
 )
+from electroboy.workflows.code_learner.phase3_pipeline import (  # noqa: E402
+    Phase3InitializationCancelled,
+)
 from electroboy.workflows.code_learner.phase3_store import Phase3Store  # noqa: E402
 from electroboy.workflows.code_learner.planner import (  # noqa: E402
     code_learner_initialize_prompt,
@@ -76,6 +79,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertIsNotNone(dispatcher.match("POST", "/api/code-learner/project/open"))
         self.assertIsNotNone(dispatcher.match("POST", "/api/code-learner/question"))
         self.assertIsNotNone(dispatcher.match("GET", "/api/code-learner/init/status"))
+        self.assertIsNotNone(dispatcher.match("POST", "/api/code-learner/init/abort"))
         self.assertIsNotNone(dispatcher.match("POST", "/api/code-learner/cache/clear"))
 
     def test_controller_opens_repo_and_prepares_walkthrough_question(
@@ -539,6 +543,50 @@ class CodeLearnerServiceTests(unittest.TestCase):
             ],
             ["setup", "final_delivery", "activation"],
         )
+
+    def test_abort_initialization_stops_job_without_reporting_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+            started = threading.Event()
+
+            def run_pipeline(pipeline, progress_callback=None, *, acquire_lease=True):
+                started.set()
+                pipeline.cancel_event.wait(timeout=2)
+                raise Phase3InitializationCancelled(
+                    "Code Learner initialization was stopped."
+                )
+
+            with mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "Phase3InitializationPipeline.run",
+                autospec=True,
+                side_effect=run_pipeline,
+            ):
+                controller.initialize(context_id)
+                self.assertTrue(started.wait(timeout=2))
+                stopping = controller.abort_initialization(context_id)
+                stopped = controller.wait_for_initialization(context_id, timeout=2)
+
+        self.assertIn(stopping["status"], {"initializing", "uninitialized"})
+        self.assertIn(stopping["initialization"]["status"], {"aborting", "aborted"})
+        self.assertTrue(stopping["initialization"]["abort_requested"])
+        self.assertEqual(stopped["status"], "uninitialized")
+        self.assertEqual(stopped["initialization"]["status"], "aborted")
+        self.assertEqual(stopped["initialization"]["completion_status"], "")
+        self.assertEqual(stopped["initialization"]["error"], "")
 
     def test_initialize_reports_failed_ai_planner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

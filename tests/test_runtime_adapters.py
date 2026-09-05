@@ -5,6 +5,8 @@ import os
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -398,6 +400,36 @@ class RuntimeAdapterTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertEqual(result.final_message, "done")
+
+    def test_generic_cli_cancellation_stops_active_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cancel_event = threading.Event()
+            runtime = GenericCliRuntime(
+                RuntimeConfig(
+                    name="test",
+                    adapter="generic_cli",
+                    command=sys.executable,
+                    args=["-c", "import time; time.sleep(30)"],
+                ),
+                tmp,
+            )
+            timer = threading.Timer(0.1, cancel_event.set)
+            started = time.monotonic()
+            timer.start()
+            try:
+                result = runtime.invoke(
+                    AgentInvocation(
+                        role="review",
+                        prompt="prompt",
+                        cancel_event=cancel_event,
+                    )
+                )
+            finally:
+                timer.cancel()
+
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "Agent invocation aborted.")
 
     def test_codex_cli_streams_structured_runtime_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

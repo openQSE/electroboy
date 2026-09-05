@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from time import perf_counter
 from uuid import uuid4
 
@@ -74,6 +75,10 @@ class Phase3InitializationResult:
     module_course_count: int
 
 
+class Phase3InitializationCancelled(RuntimeError):
+    """Raised when an operator stops an active initialization run."""
+
+
 class Phase3InitializationPipeline:
     """Run Phase 3 stages with host-owned state and independently resumable work."""
 
@@ -83,6 +88,7 @@ class Phase3InitializationPipeline:
         *,
         runtime_factory: RuntimeFactory | None = None,
         eager_function_budget: int = 24,
+        cancel_event: Event | None = None,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.store = Phase3Store(self.root)
@@ -97,6 +103,7 @@ class Phase3InitializationPipeline:
             self.root, self._base_runtime_factory
         )
         self._callback: ProgressCallback | None = None
+        self.cancel_event = cancel_event or Event()
         self.reconciliations = ComponentReconciliationService(
             self.root, store=self.store, runtime_factory=self._observed_runtime
         )
@@ -157,6 +164,7 @@ class Phase3InitializationPipeline:
         lease = None
         revision = "unknown"
         try:
+            self._check_cancelled()
             source_started = perf_counter()
             previous_source = self.source.load()
             source = self.source.generate()
@@ -175,6 +183,7 @@ class Phase3InitializationPipeline:
                 message=f"Enumerated {len(source.files)} selected repository files.",
                 duration_seconds=perf_counter() - source_started,
             )
+            self._check_cancelled()
             run_id = str(checkpoint["analysis_run_id"])
             self._run_stage(
                 checkpoint,
@@ -320,6 +329,8 @@ class Phase3InitializationPipeline:
                 str(course_summary["architecture_course_path"]),
                 int(course_summary["module_course_count"]),
             )
+        except Phase3InitializationCancelled:
+            raise
         except Exception as error:
             self._fail(revision, error)
             raise
@@ -341,6 +352,7 @@ class Phase3InitializationPipeline:
         fallback: Callable[[], object] | None = None,
     ):
         self._active_stage = stage
+        self._check_cancelled()
         state = checkpoint["stages"][stage]
         if state.get("status") in {"complete", "complete_with_warnings"} and (
             ready() or state.get("status") == "complete_with_warnings"
@@ -362,6 +374,19 @@ class Phase3InitializationPipeline:
         try:
             result = operation()
         except Exception as error:
+            if self.cancel_event.is_set():
+                state.update(
+                    {
+                        "status": "pending",
+                        "error": "",
+                        "interrupted_at": utc_now(),
+                        "duration_seconds": round(perf_counter() - started, 6),
+                    }
+                )
+                self._save_checkpoint(checkpoint)
+                raise Phase3InitializationCancelled(
+                    "Code Learner initialization was stopped."
+                ) from error
             state.update(
                 {
                     "status": "failed",
@@ -395,7 +420,15 @@ class Phase3InitializationPipeline:
             checkpoint["activated_at"] = utc_now()
         self._save_checkpoint(checkpoint)
         self._emit(stage, f"Completed {stage.replace('_', ' ')}.")
+        if stage != "activation":
+            self._check_cancelled()
         return result
+
+    def _check_cancelled(self) -> None:
+        if self.cancel_event.is_set():
+            raise Phase3InitializationCancelled(
+                "Code Learner initialization was stopped."
+            )
 
     def _complete_stage(
         self,
@@ -637,6 +670,7 @@ class Phase3InitializationPipeline:
             lambda event: self._emit_activity(event),
             stage=self._active_stage,
             percent=STAGE_PERCENT.get(self._active_stage, 1),
+            cancel_event=self.cancel_event,
         )
 
     def _emit_activity(self, event: dict[str, object]) -> None:
@@ -787,11 +821,17 @@ class _ObservedRuntime(AgentRuntime):
         *,
         stage: str,
         percent: int,
+        cancel_event: Event | None = None,
     ) -> None:
         self.runtime = runtime
         self.reporter = AgentActivityReporter(callback, phase=stage, percent=percent)
+        self.cancel_event = cancel_event
 
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            raise Phase3InitializationCancelled(
+                "Code Learner initialization was stopped."
+            )
         previous_callback = invocation.event_callback
 
         def report(event: dict[str, object]) -> None:
@@ -800,7 +840,12 @@ class _ObservedRuntime(AgentRuntime):
                 previous_callback(event)
 
         invocation.event_callback = report
+        invocation.cancel_event = self.cancel_event
         result = self.runtime.invoke(invocation)
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            raise Phase3InitializationCancelled(
+                "Code Learner initialization was stopped."
+            )
         for event in result.raw_events:
             self.reporter({"event": event})
         if result.changed_files or result.created_files:
