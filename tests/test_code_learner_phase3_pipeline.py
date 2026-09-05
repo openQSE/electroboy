@@ -86,6 +86,24 @@ def test_warning_tolerant_scope_records_error_and_continues(tmp_path: Path) -> N
     assert pipeline.store.active_diagnostics("warning")[0]["message"] == (
         "bad endpoint"
     )
+    errors = [
+        item
+        for item in pipeline.store.read_jsonl(pipeline.store.progress_path)
+        if item.get("activity_kind") == "error"
+    ]
+    assert len(errors) == 1
+    assert errors[0]["message"] == "Continuing after error: bad endpoint"
+
+
+def test_terminal_failure_progress_is_classified_as_error(tmp_path: Path) -> None:
+    pipeline = Phase3InitializationPipeline(tmp_path, eager_function_budget=0)
+    pipeline._active_stage = "ctags_evidence"
+
+    pipeline._fail("fixture-revision", CodeLearnerError("ctags unavailable"))
+
+    progress = pipeline.store.read_jsonl(pipeline.store.progress_path)
+    assert progress[-1]["activity_kind"] == "error"
+    assert progress[-1]["message"] == "Initialization failed: ctags unavailable"
 
 
 def test_cancelled_stage_is_left_pending_for_resume(tmp_path: Path) -> None:

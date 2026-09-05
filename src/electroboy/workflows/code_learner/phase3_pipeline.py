@@ -397,16 +397,16 @@ class Phase3InitializationPipeline:
                 }
             )
             self._save_checkpoint(checkpoint)
-            self._emit(
-                stage,
-                f"Validation error before retry/continuation: {error}",
-                activity_kind="error",
-            )
             if warning_tolerant and fallback is not None:
                 self._warning(stage, str(error))
                 state["status"] = "complete_with_warnings"
                 self._save_checkpoint(checkpoint)
                 return fallback()
+            self._emit(
+                stage,
+                f"Initialization error: {error}",
+                activity_kind="error",
+            )
             raise
         state.update(
             {
@@ -757,6 +757,11 @@ class Phase3InitializationPipeline:
                 "recorded_at": utc_now(),
             }
         )
+        self._emit(
+            stage,
+            f"Continuing after error: {message}",
+            activity_kind="error",
+        )
 
     def _fail(self, revision: str, error: Exception) -> None:
         self.store.save_terminal_result(
@@ -777,7 +782,11 @@ class Phase3InitializationPipeline:
                 "completed_at": utc_now(),
             }
         )
-        self._emit(self._active_stage, f"Initialization failed: {error}")
+        self._emit(
+            self._active_stage,
+            f"Initialization failed: {error}",
+            activity_kind="error",
+        )
 
     def _all_module_knowledge_ready(self) -> bool:
         modules = self.modules.load()
