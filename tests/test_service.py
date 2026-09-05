@@ -871,10 +871,33 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("requestSequence !== creativeTreeRequestSequence", creative)
         self.assertIn("function removeCreativeTreeEntry(entries, path)", creative)
         self.assertIn("function showFolderColorPicker(", binder)
+        self.assertIn("function disclosureButton(title, expanded, handler)", binder)
+        self.assertIn(
+            'button.setAttribute("aria-expanded", expanded ? "true" : "false")',
+            binder,
+        )
         self.assertIn('picker.setAttribute("role", "listbox")', binder)
         self.assertIn("action.setCreativeFolderColor(path, color.id)", binder)
         self.assertIn('contextUrl("/api/creative/folder-color")', creative)
         self.assertIn(".creative-folder-color-button", creative_css)
+        self.assertIn(".creative-tree-icon-button:active", creative_css)
+        self.assertIn(
+            ".creative-tree-row.directory .creative-tree-disclosure:hover",
+            creative_css,
+        )
+        self.assertIn(
+            ".creative-tree-row.directory .creative-tree-disclosure:active",
+            creative_css,
+        )
+        self.assertIn("left: 3px;", creative_css)
+        self.assertIn(
+            ".creative-tree-row.directory.expanded .creative-tree-disclosure::before",
+            creative_css,
+        )
+        self.assertIn(
+            '.creative-folder-color-button[aria-expanded="true"]', creative_css
+        )
+        self.assertIn(".creative-folder-color-button:active", creative_css)
         self.assertIn(".creative-folder-color-picker {", creative_css)
         self.assertIn(
             "background: var(--creative-folder-color, #1f3f5f);",

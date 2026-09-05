@@ -140,13 +140,11 @@
 
     if (isDirectory) {
       const color = folderColorButton(runtime, entry, path);
-      const disclosure = document.createElement("span");
-      disclosure.className = "creative-tree-disclosure";
-      disclosure.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleFolder(runtime, path);
-      });
+      const disclosure = disclosureButton(
+        `${expanded ? "Collapse" : "Expand"} ${path}`,
+        expanded,
+        () => toggleFolder(runtime, path),
+      );
       row.append(icon, name, color, rename, remove, disclosure);
     } else {
       row.append(icon, name, rename, remove);
@@ -340,6 +338,25 @@
     button.title = title;
     button.setAttribute("aria-label", title);
     button.innerHTML = actionIconSvg(iconName);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      handler();
+    });
+    button.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    return button;
+  }
+
+  function disclosureButton(title, expanded, handler) {
+    const button = document.createElement("button");
+    button.className = "creative-tree-disclosure";
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -583,8 +600,11 @@
       event.stopPropagation();
       action.emptyCreativeTrash();
     });
-    const disclosure = document.createElement("span");
-    disclosure.className = "creative-tree-disclosure";
+    const disclosure = disclosureButton(
+      expanded ? "Collapse Trash" : "Expand Trash",
+      expanded,
+      () => action.toggleCreativeTrash(),
+    );
     folder.append(icon, name, emptyButton, disclosure);
     folder.addEventListener("click", () => action.toggleCreativeTrash());
     folder.addEventListener("keydown", (event) => {
