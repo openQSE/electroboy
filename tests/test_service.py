@@ -1890,6 +1890,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
         for pane_kind in (
+            "empty",
             "agent",
             "artifact",
             "corkboard",
@@ -1898,7 +1899,9 @@ class ServiceTests(unittest.TestCase):
             "calendar",
             "code-learner",
             "mind-map",
+            "progress",
             "scratch",
+            "shell",
             "status",
         ):
             self.assertIn(f'"{pane_kind}",', runtime)
@@ -1969,6 +1972,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('element.dataset.paneDragIgnore = "true";', runtime)
         self.assertIn("function bindPaneLayoutCommand(button, handler)", runtime)
         self.assertIn("bindPaneLayoutCommand(close, () => closePaneLayoutLeaf(leaf.id));", runtime)
+
         self.assertIn('bumpFrontendDebugCounter("paneLayout.closeSkippedMissingLeaf")', runtime)
         self.assertIn("function renderPaneLayoutIncrementalSplit(", runtime)
         self.assertIn("parent.insertBefore(splitElement, preservedElement);", runtime)
@@ -2651,6 +2655,18 @@ class ServiceTests(unittest.TestCase):
                     ide=object(),
                 )
             )
+
+    def test_workflow_can_limit_and_label_shared_pane_kinds(self) -> None:
+        runtime = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn("function workflowPaneKinds(mode = workflowMode)", runtime)
+        self.assertIn("Array.isArray(contribution?.paneKinds)", runtime)
+        self.assertIn("function workflowPaneKind(kind, mode = workflowMode)", runtime)
+        self.assertIn("function applyWorkflowPaneLabels(mode = workflowMode)", runtime)
+        self.assertIn("for (const item of workflowPaneKinds())", runtime)
+        self.assertIn(
+            'if (kind !== "empty" && !workflowPaneKind(kind))', runtime
+        )
 
     def test_configured_workflow_endpoint_persists_extra_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
