@@ -17,6 +17,7 @@ from electroboy.modules.creative_workspace import (
     _ensure_creative_workspace,
     _existing_creative_project_root,
     _rename_creative_entry,
+    _set_creative_folder_color,
 )
 from electroboy.service.recent_projects import (
     remember_recent_project as _remember_recent_project,
@@ -205,6 +206,24 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         return {
             "status": "deleted",
             "path": path,
+        }
+
+    def set_creative_folder_color(
+        self,
+        context_id: str,
+        relative_path: str,
+        color: str,
+    ) -> dict[str, object]:
+        project_root = self.services.contexts.active_project_root(context_id)
+        path, color_id = _set_creative_folder_color(
+            project_root,
+            relative_path,
+            color,
+        )
+        return {
+            "status": "updated",
+            "path": path,
+            "color": color_id,
         }
 
     def creative_scratchpad(self, context_id: str) -> dict[str, object]:

@@ -910,6 +910,18 @@ class ServiceState:
             relative_path,
         )
 
+    def set_creative_folder_color(
+        self,
+        context_id: str,
+        relative_path: str,
+        color: str,
+    ) -> dict[str, object]:
+        return self.workflow_controller("creative-writing").set_creative_folder_color(
+            context_id,
+            relative_path,
+            color,
+        )
+
     def creative_scratchpad(self, context_id: str) -> dict[str, object]:
         return self.workflow_controller("creative-writing").creative_scratchpad(
             context_id

@@ -74,6 +74,27 @@ CREATIVE_CARD_PALETTE_IDS = frozenset(entry["id"] for entry in CREATIVE_CARD_PAL
 
 CREATIVE_CARD_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
+CREATIVE_FOLDER_PALETTE: tuple[dict[str, str], ...] = (
+    {"id": "navy", "label": "Navy", "value": "#1f3f5f", "border": "#18324d"},
+    {"id": "blue", "label": "Blue", "value": "#285c8f", "border": "#1d456d"},
+    {"id": "teal", "label": "Teal", "value": "#17666f", "border": "#104c54"},
+    {"id": "forest", "label": "Forest", "value": "#2f6248", "border": "#214a35"},
+    {"id": "olive", "label": "Olive", "value": "#566526", "border": "#404c1c"},
+    {"id": "gold", "label": "Gold", "value": "#77601f", "border": "#594817"},
+    {"id": "orange", "label": "Orange", "value": "#8a5129", "border": "#683d1e"},
+    {"id": "red", "label": "Red", "value": "#873a35", "border": "#662a27"},
+    {"id": "rose", "label": "Rose", "value": "#87434d", "border": "#66323a"},
+    {"id": "plum", "label": "Plum", "value": "#7a3f68", "border": "#5b2e4d"},
+    {"id": "violet", "label": "Violet", "value": "#694b83", "border": "#4e3862"},
+    {"id": "indigo", "label": "Indigo", "value": "#4a4f87", "border": "#373b66"},
+)
+
+CREATIVE_FOLDER_PALETTE_IDS = frozenset(
+    entry["id"] for entry in CREATIVE_FOLDER_PALETTE
+)
+
+CREATIVE_DEFAULT_FOLDER_COLOR = "navy"
+
 
 def _existing_creative_project_root(path: str) -> Path:
     project_root = _resolve_project_path(path)
@@ -288,12 +309,39 @@ def _delete_creative_entry(project_root: Path | str, relative_path: str) -> str:
     return normalized_path
 
 
+def _set_creative_folder_color(
+    project_root: Path | str,
+    relative_path: str,
+    color: object,
+) -> tuple[str, str]:
+    normalized_path, folder = _creative_path(project_root, relative_path)
+    if not folder.exists() or not folder.is_dir():
+        raise StateError(f"folder does not exist: {normalized_path}")
+    color_id = str(color or "").strip().lower()
+    if color_id not in CREATIVE_FOLDER_PALETTE_IDS:
+        raise StateError("folder color is not in the creative palette")
+    state = _load_creative_corkboard_state(project_root)
+    folder_state = _creative_corkboard_folder_state(state, normalized_path)
+    folder_state["binder_color"] = color_id
+    _save_creative_corkboard_state(project_root, state)
+    return normalized_path, color_id
+
+
 def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
     project_root = Path(project_root).expanduser().resolve()
     _repair_misnamed_creative_corkboards(project_root)
+    state = _load_creative_corkboard_state(project_root)
+    folder_states = state.get("folders")
+    if not isinstance(folder_states, dict):
+        folder_states = {}
     return {
         "root": str(project_root),
-        "entries": _creative_tree_entries(project_root, project_root),
+        "folder_palette": [dict(entry) for entry in CREATIVE_FOLDER_PALETTE],
+        "entries": _creative_tree_entries(
+            project_root,
+            project_root,
+            folder_states=folder_states,
+        ),
     }
 
 
@@ -302,6 +350,7 @@ def _creative_tree_entries(
     directory: Path,
     *,
     depth: int = 0,
+    folder_states: dict[str, object] | None = None,
 ) -> list[dict[str, object]]:
     if depth > 8:
         return []
@@ -320,15 +369,25 @@ def _creative_tree_entries(
         if relative_path == CREATIVE_CORKBOARD_GROUP_DIRECTORY.as_posix():
             continue
         if child.is_dir():
+            folder_state = (folder_states or {}).get(relative_path)
+            folder_color = (
+                str(folder_state.get("binder_color") or "")
+                if isinstance(folder_state, dict)
+                else ""
+            )
+            if folder_color not in CREATIVE_FOLDER_PALETTE_IDS:
+                folder_color = CREATIVE_DEFAULT_FOLDER_COLOR
             entries.append(
                 {
                     "name": child.name,
                     "path": relative_path,
                     "type": "directory",
+                    "folder_color": folder_color,
                     "children": _creative_tree_entries(
                         project_root,
                         child,
                         depth=depth + 1,
+                        folder_states=folder_states,
                     ),
                 }
             )

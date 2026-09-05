@@ -1573,6 +1573,31 @@
       recordProjectStatusMessage(`created board: ${payload.path || path}`);
     }
 
+    async function setCreativeFolderColor(path, color) {
+      if (!activeProjectRoot || !path) {
+        return;
+      }
+      const response = await fetch(contextUrl("/api/creative/folder-color"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, color }),
+      });
+      const payload = await response.json().catch(() => ({ error: "color failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "color failed"}\n`, "error");
+        return;
+      }
+      const entry = findCreativeEntry(
+        creativeTreePayload && creativeTreePayload.entries,
+        path,
+      );
+      if (entry) {
+        entry.folder_color = payload.color || color;
+      }
+      renderCreativeTree();
+      recordProjectStatusMessage(`updated folder color: ${path}`);
+    }
+
     function ensureCreativeDeleteDialog() {
       if (creativeDeleteDialog) {
         return creativeDeleteDialog;
@@ -1780,6 +1805,8 @@
       createCreativeFolderInline: (runtime, ...args) => invoke(runtime, createCreativeFolderInline, args),
       createCreativeDocumentInline: (runtime, ...args) => invoke(runtime, createCreativeDocumentInline, args),
       createCreativeCorkboardInline: (runtime, ...args) => invoke(runtime, createCreativeCorkboardInline, args),
+      setCreativeFolderColor: (runtime, ...args) =>
+        invoke(runtime, setCreativeFolderColor, args),
       deleteCreativeEntry: (runtime, ...args) => invoke(runtime, deleteCreativeEntry, args),
       chooseCreativeAgentSession: (runtime, ...args) => invoke(runtime, chooseCreativeAgentSession, args),
       startCreativeWritingAgent: (runtime, ...args) => invoke(runtime, startCreativeWritingAgent, args),

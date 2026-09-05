@@ -1,6 +1,10 @@
 (function () {
   "use strict";
 
+  let folderColorPicker = null;
+  let folderColorPickerAnchor = null;
+  let folderColorPickerDocumentHandler = null;
+
   function showMessage(runtime, message) {
     const tree = runtime.elements.creativeTree;
     tree.replaceChildren();
@@ -17,6 +21,7 @@
   function renderTree(runtime) {
     const tree = runtime.elements.creativeTree;
     const state = runtime.getState();
+    closeFolderColorPicker();
     tree.replaceChildren();
     const entries = state.creativeTreePayload &&
       Array.isArray(state.creativeTreePayload.entries)
@@ -84,6 +89,9 @@
     row.className = `creative-tree-row ${type}`;
     row.classList.toggle("expanded", expanded);
     row.style.setProperty("--creative-depth-indent", `${depth * 16}px`);
+    if (isDirectory) {
+      applyFolderColor(runtime, row, entry);
+    }
     row.title = path;
     row.tabIndex = 0;
     row.classList.toggle(
@@ -115,6 +123,7 @@
     );
 
     if (isDirectory) {
+      const color = folderColorButton(runtime, entry, path);
       const disclosure = document.createElement("span");
       disclosure.className = "creative-tree-disclosure";
       disclosure.addEventListener("click", (event) => {
@@ -122,7 +131,7 @@
         event.stopPropagation();
         toggleFolder(runtime, path);
       });
-      row.append(icon, name, rename, remove, disclosure);
+      row.append(icon, name, color, rename, remove, disclosure);
     } else {
       row.append(icon, name, rename, remove);
     }
@@ -182,6 +191,132 @@
       event.stopPropagation();
     });
     return button;
+  }
+
+  function folderPalette(runtime) {
+    const payload = runtime.getState().creativeTreePayload;
+    return payload && Array.isArray(payload.folder_palette)
+      ? payload.folder_palette
+      : [];
+  }
+
+  function folderPaletteEntry(runtime, colorId) {
+    const palette = folderPalette(runtime);
+    return palette.find((entry) => entry.id === colorId) || palette[0] || {
+      id: "navy",
+      label: "Navy",
+      value: "#1f3f5f",
+      border: "#18324d",
+    };
+  }
+
+  function applyFolderColor(runtime, row, entry) {
+    const color = folderPaletteEntry(runtime, entry.folder_color);
+    row.style.setProperty("--creative-folder-color", color.value);
+    row.style.setProperty("--creative-folder-border", color.border);
+  }
+
+  function folderColorButton(runtime, entry, path) {
+    const color = folderPaletteEntry(runtime, entry.folder_color);
+    const button = document.createElement("button");
+    button.className = "creative-folder-color-button";
+    button.type = "button";
+    button.title = `Change ${path} color`;
+    button.setAttribute("aria-label", `Change ${path} color`);
+    button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
+    button.style.setProperty("--creative-folder-swatch", color.value);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showFolderColorPicker(runtime, path, entry.folder_color, button);
+    });
+    button.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    return button;
+  }
+
+  function closeFolderColorPicker() {
+    if (folderColorPickerDocumentHandler) {
+      document.removeEventListener("pointerdown", folderColorPickerDocumentHandler);
+      folderColorPickerDocumentHandler = null;
+    }
+    if (folderColorPickerAnchor) {
+      folderColorPickerAnchor.setAttribute("aria-expanded", "false");
+      folderColorPickerAnchor = null;
+    }
+    if (folderColorPicker) {
+      folderColorPicker.remove();
+      folderColorPicker = null;
+    }
+  }
+
+  function positionFolderColorPicker(picker, anchor) {
+    const anchorBox = anchor.getBoundingClientRect();
+    const pickerBox = picker.getBoundingClientRect();
+    const left = Math.max(
+      8,
+      Math.min(anchorBox.left, window.innerWidth - pickerBox.width - 8),
+    );
+    const below = anchorBox.bottom + 6;
+    const top = below + pickerBox.height <= window.innerHeight - 8
+      ? below
+      : Math.max(8, anchorBox.top - pickerBox.height - 6);
+    picker.style.left = `${left}px`;
+    picker.style.top = `${top}px`;
+  }
+
+  function showFolderColorPicker(runtime, path, selectedColor, anchor) {
+    closeFolderColorPicker();
+    const picker = document.createElement("div");
+    picker.className = "creative-folder-color-picker";
+    picker.setAttribute("role", "listbox");
+    picker.setAttribute("aria-label", `Folder color for ${path}`);
+    const action = creativeActions(runtime);
+    for (const color of folderPalette(runtime)) {
+      const option = document.createElement("button");
+      option.className = "creative-folder-color-option";
+      option.type = "button";
+      option.title = color.label;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-label", color.label);
+      option.setAttribute("aria-selected", String(color.id === selectedColor));
+      option.style.setProperty("--creative-folder-swatch", color.value);
+      option.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeFolderColorPicker();
+        action.setCreativeFolderColor(path, color.id);
+      });
+      picker.append(option);
+    }
+    picker.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFolderColorPicker();
+        anchor.focus();
+      }
+    });
+    document.body.append(picker);
+    folderColorPicker = picker;
+    folderColorPickerAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
+    positionFolderColorPicker(picker, anchor);
+    const selected = picker.querySelector('[aria-selected="true"]');
+    (selected || picker.firstElementChild)?.focus();
+    window.setTimeout(() => {
+      if (folderColorPicker !== picker) {
+        return;
+      }
+      folderColorPickerDocumentHandler = (event) => {
+        if (!picker.contains(event.target) && event.target !== anchor) {
+          closeFolderColorPicker();
+        }
+      };
+      document.addEventListener("pointerdown", folderColorPickerDocumentHandler);
+    }, 0);
   }
 
   function activateEntry(runtime, entry, path, type) {
@@ -288,6 +423,7 @@
       createCreativeFolder: (...args) => invoke("createCreativeFolderInline", ...args),
       deleteCreativeEntry: (...args) => invoke("deleteCreativeEntry", ...args),
       finishCreativeRename: (...args) => invoke("finishCreativeRename", ...args),
+      setCreativeFolderColor: (...args) => invoke("setCreativeFolderColor", ...args),
       selectCreativeCorkboard: (...args) => invoke("selectCreativeCorkboard", ...args),
       selectCreativeDocument: (...args) => invoke("selectCreativeDocument", ...args),
       selectCreativeFolder: (...args) => invoke("selectCreativeFolder", ...args),

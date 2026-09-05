@@ -34,9 +34,7 @@ from electroboy.modules.mind_map_documents import (  # noqa: E402
     normalize_mind_map,
     save_mind_map,
 )
-from electroboy.modules.creative_workspace import (  # noqa: E402
-    render_corkboard_html,
-)
+from electroboy.modules.creative_workspace import render_corkboard_html  # noqa: E402
 from electroboy.service import (  # noqa: E402
     CREATIVE_SPLASH_IMAGE_ROUTE,
     FILE_BROWSER_WINDOW_HTML,
@@ -844,6 +842,16 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("requestSequence !== creativeTreeRequestSequence", creative)
         self.assertIn("function removeCreativeTreeEntry(entries, path)", creative)
+        self.assertIn("function showFolderColorPicker(", binder)
+        self.assertIn('picker.setAttribute("role", "listbox")', binder)
+        self.assertIn("action.setCreativeFolderColor(path, color.id)", binder)
+        self.assertIn('contextUrl("/api/creative/folder-color")', creative)
+        self.assertIn(".creative-folder-color-button", creative_css)
+        self.assertIn(".creative-folder-color-picker {", creative_css)
+        self.assertIn(
+            "background: var(--creative-folder-color, #1f3f5f);",
+            creative_css,
+        )
         delete_start = creative.index("async function deleteCreativeEntry(path, type)")
         delete_end = creative.index(
             "async function startCreativeWritingAgent", delete_start
@@ -4545,11 +4553,17 @@ class ServiceTests(unittest.TestCase):
                 "chapters/act-1/scene-01.md",
                 "scene-02.md",
             )
+            colored_folder = state.set_creative_folder_color(
+                context_id,
+                "chapters/act-1",
+                "rose",
+            )
             renamed_folder = state.rename_creative_entry(
                 context_id,
                 "chapters/act-1",
                 "act-one",
             )
+            colored_tree = state.creative_tree(context_id)
             deleted_folder = state.delete_creative_entry(
                 context_id,
                 "chapters/act-one",
@@ -4570,8 +4584,35 @@ class ServiceTests(unittest.TestCase):
                 "chapters/act-1/scene-02.md",
             )
             self.assertEqual(renamed_folder["path"], "chapters/act-one")
+            self.assertEqual(colored_folder["path"], "chapters/act-1")
+            self.assertEqual(colored_folder["color"], "rose")
+            self.assertEqual(len(colored_tree["folder_palette"]), 12)
+            chapters_entry = next(
+                entry
+                for entry in colored_tree["entries"]
+                if entry["path"] == "chapters"
+            )
+            act_one_entry = next(
+                entry
+                for entry in chapters_entry["children"]
+                if entry["path"] == "chapters/act-one"
+            )
+            self.assertEqual(act_one_entry["folder_color"], "rose")
+            self.assertEqual(colored_tree["folder_palette"][0]["id"], "navy")
+            with self.assertRaisesRegex(StateError, "creative palette"):
+                state.set_creative_folder_color(
+                    context_id,
+                    "chapters",
+                    "not-a-color",
+                )
             self.assertEqual(deleted_folder["path"], "chapters/act-one")
             self.assertFalse((project_root / "chapters" / "act-one").exists())
+            creative_state = json.loads(
+                (
+                    project_root / ".electroboy" / "creative" / "corkboards.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertNotIn("chapters/act-one", creative_state["folders"])
             self.assertIn("chapters", [entry["name"] for entry in tree["entries"]])
             self.assertNotIn(".gitignore", [entry["name"] for entry in tree["entries"]])
             self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")

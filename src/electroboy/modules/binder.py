@@ -16,6 +16,7 @@ from .creative_workspace import (
     _creative_tree_payload,
     _delete_creative_entry,
     _rename_creative_entry,
+    _set_creative_folder_color,
 )
 
 
@@ -74,12 +75,28 @@ def _delete(request: RouteRequest) -> ServiceResponse:
     return _path_action(request, _delete_creative_entry, "deleted")
 
 
+def _set_folder_color(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        root = request.services.contexts.active_project_root(request.context_id)
+        path, color = _set_creative_folder_color(
+            root,
+            str(payload.get("path") or ""),
+            payload.get("color"),
+        )
+        result = {"status": "updated", "path": path, "color": color}
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(result)
+
+
 _HANDLERS = {
     "tree": _tree,
     "create_folder": _create_folder,
     "create_document": _create_document,
     "rename": _rename,
     "delete": _delete,
+    "set_folder_color": _set_folder_color,
 }
 
 
@@ -93,6 +110,12 @@ def module() -> ServiceModule:
             route("POST", "/api/creative/documents", "binder", "create_document"),
             route("POST", "/api/creative/rename", "binder", "rename"),
             route("POST", "/api/creative/delete", "binder", "delete"),
+            route(
+                "POST",
+                "/api/creative/folder-color",
+                "binder",
+                "set_folder_color",
+            ),
         ),
         handlers=_HANDLERS,
         assets=("js/modules/binder.js",),

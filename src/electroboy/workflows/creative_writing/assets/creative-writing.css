@@ -89,11 +89,11 @@
 }
 
 .creative-tree-row.directory {
-  grid-template-columns: 18px minmax(0, 1fr) 26px 26px 18px;
+  grid-template-columns: 18px minmax(0, 1fr) 20px 26px 26px 18px;
   min-height: 34px;
-  border-color: #18324d;
+  border-color: var(--creative-folder-border, #18324d);
   border-radius: 999px;
-  background: #1f3f5f;
+  background: var(--creative-folder-color, #1f3f5f);
   color: #ffffff;
   font-weight: 400;
   padding: 0 10px;
@@ -104,7 +104,11 @@
 
 .creative-tree-row.directory:hover,
 .creative-tree-row.directory.expanded {
-  background: #254b70;
+  background: color-mix(
+    in srgb,
+    var(--creative-folder-color, #1f3f5f) 88%,
+    white
+  );
 }
 
 .creative-tree-row.file {
@@ -118,9 +122,13 @@
 }
 
 .creative-tree-row.directory.active {
-  border-color: #00a1ad;
-  background: #006b73;
+  border-color: var(--creative-folder-border, #18324d);
+  background: var(--creative-folder-color, #1f3f5f);
   color: #ffffff;
+}
+
+.creative-tree-row.directory.active .creative-tree-name {
+  font-weight: 650;
 }
 
 .creative-tree-icon {
@@ -242,6 +250,66 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
+}
+
+.creative-folder-color-button,
+.creative-folder-color-option {
+  display: inline-block;
+  border: 2px solid rgb(255 255 255 / 88%);
+  border-radius: 50%;
+  background: var(--creative-folder-swatch, #1f3f5f);
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 0 0 1px rgb(15 31 48 / 45%);
+}
+
+.creative-folder-color-button {
+  align-self: center;
+  justify-self: center;
+  width: 14px;
+  height: 14px;
+}
+
+.creative-folder-color-button:hover,
+.creative-folder-color-button:focus-visible {
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 4px rgb(102 217 232 / 75%);
+  outline: none;
+}
+
+.creative-folder-color-picker {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  grid-template-columns: repeat(4, 28px);
+  gap: 10px;
+  width: max-content;
+  border: 1px solid #8da5bb;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 12px;
+  box-shadow: 0 16px 36px rgb(15 31 48 / 32%);
+}
+
+.creative-folder-color-option {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+}
+
+.creative-folder-color-option:hover,
+.creative-folder-color-option:focus-visible {
+  box-shadow:
+    0 0 0 2px #f8fbff,
+    0 0 0 4px #66d9e8;
+  outline: none;
+}
+
+.creative-folder-color-option[aria-selected="true"] {
+  box-shadow:
+    0 0 0 2px #f8fbff,
+    0 0 0 4px #153d5a;
 }
 
 .creative-tree-actions {
