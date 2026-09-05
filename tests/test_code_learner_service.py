@@ -212,6 +212,8 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertIn("initialize-checkpoint.md", prompt)
         self.assertIn("remaining work", prompt)
         self.assertIn("percent", prompt)
+        self.assertIn("Never report 100 percent", prompt)
+        self.assertIn("reserves 96 through 100", prompt)
         self.assertIn('record_type: "module"', prompt)
         self.assertIn('record_type: "function_lesson"', prompt)
 
@@ -327,6 +329,79 @@ class CodeLearnerServiceTests(unittest.TestCase):
             self.assertEqual(completed["status"], "initialized")
             self.assertIn("analysis", completed["code_learner"])
             generate.assert_called_once()
+
+    def test_initialize_reserves_completion_for_host_finalization(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+            final_output_started = threading.Event()
+            release = threading.Event()
+
+            def planner(
+                root: Path,
+                *,
+                progress_path: str | None = None,
+                checkpoint_path: str | None = None,
+                progress_callback=None,
+            ) -> str:
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "record_type": "progress",
+                            "phase": "final_output",
+                            "percent": 100,
+                            "message": "Course JSONL is ready",
+                        }
+                    )
+                final_output_started.set()
+                release.wait(timeout=2)
+                return self._sample_course_jsonl()
+
+            with mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "generate_code_learner_course_corpus_jsonl",
+                side_effect=planner,
+            ):
+                controller.initialize(context_id)
+                self.assertTrue(final_output_started.wait(timeout=2))
+                delivering = controller.initialization_status(context_id)
+                release.set()
+                completed = controller.wait_for_initialization(context_id, timeout=2)
+
+        initialization = delivering["initialization"]
+        self.assertEqual(delivering["status"], "initializing")
+        self.assertEqual(initialization["status"], "running")
+        self.assertEqual(initialization["phase"], "final_delivery")
+        self.assertEqual(initialization["percent"], 95)
+        self.assertEqual(
+            initialization["message"],
+            "Receiving final course corpus from AI.",
+        )
+        self.assertIsNone(initialization["estimated_remaining_seconds"])
+
+        completed_initialization = completed["initialization"]
+        self.assertEqual(completed["status"], "initialized")
+        self.assertEqual(completed_initialization["status"], "initialized")
+        self.assertEqual(completed_initialization["percent"], 100)
+        self.assertEqual(
+            [
+                event["phase"]
+                for event in completed_initialization["progress_events"][-3:]
+            ],
+            ["final_delivery", "validation", "formalizing"],
+        )
 
     def test_initialize_reports_failed_ai_planner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

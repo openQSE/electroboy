@@ -32,6 +32,9 @@ from .domain import (
 from .planner import generate_code_learner_course_corpus_jsonl
 
 _INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running"})
+_AI_PROGRESS_MAX_PERCENT = 95
+_VALIDATION_PERCENT = 97
+_FORMALIZATION_PERCENT = 99
 
 
 @dataclass
@@ -86,7 +89,32 @@ class _InitializationJob:
     def record_progress(self, record: dict[str, object]) -> None:
         phase = str(record.get("phase") or self.phase or "running").strip()
         message = str(record.get("message") or phase).strip()
-        percent = _bounded_percent(record.get("percent"))
+        reported_percent = _bounded_percent(record.get("percent"))
+        percent = min(reported_percent, _AI_PROGRESS_MAX_PERCENT)
+        if reported_percent >= 100:
+            phase = "final_delivery"
+            message = "Receiving final course corpus from AI."
+        self._record_running_progress(phase, percent, message)
+
+    def record_system_progress(
+        self,
+        *,
+        phase: str,
+        percent: int,
+        message: str,
+    ) -> None:
+        self._record_running_progress(
+            phase,
+            min(_bounded_percent(percent), 99),
+            message,
+        )
+
+    def _record_running_progress(
+        self,
+        phase: str,
+        percent: int,
+        message: str,
+    ) -> None:
         self.update(
             status="running",
             phase=phase or "running",
@@ -143,7 +171,7 @@ def _bounded_percent(value: object) -> int:
 
 
 def _estimated_remaining_seconds(elapsed: int, percent: int) -> int | None:
-    if percent <= 0 or percent >= 100:
+    if percent <= 0 or percent >= _AI_PROGRESS_MAX_PERCENT:
         return None
     return max(0, int(elapsed * ((100 - percent) / percent)))
 
@@ -421,9 +449,27 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             "code_learner": state,
         }
 
-    def _save_initialized_corpus(self, root: Path, corpus_jsonl: str) -> None:
+    def _save_initialized_corpus(
+        self,
+        root: Path,
+        corpus_jsonl: str,
+        *,
+        job: _InitializationJob | None = None,
+    ) -> None:
         store = CodeLearnerStore(root)
+        if job is not None:
+            job.record_system_progress(
+                phase="validation",
+                percent=_VALIDATION_PERCENT,
+                message="Validating and saving AI course corpus.",
+            )
         store.save_corpus_jsonl(corpus_jsonl)
+        if job is not None:
+            job.record_system_progress(
+                phase="formalizing",
+                percent=_FORMALIZATION_PERCENT,
+                message="Building the initial architecture lesson.",
+            )
         architecture = create_walkthrough(root, learning_mode="architecture")
         store.save_walkthrough(architecture)
 
@@ -435,16 +481,14 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         store = CodeLearnerStore(root)
         progress_path = store.initialization_progress_relative_path.as_posix()
         checkpoint_path = store.initialization_checkpoint_relative_path.as_posix()
-        job.record_progress(
-            {
-                "phase": "setup",
-                "percent": 1,
-                "message": (
-                    "Resuming AI course initialization from cached findings."
-                    if job.resumed_from_checkpoint
-                    else "Starting AI course initialization with durable checkpointing."
-                ),
-            }
+        job.record_system_progress(
+            phase="setup",
+            percent=1,
+            message=(
+                "Resuming AI course initialization from cached findings."
+                if job.resumed_from_checkpoint
+                else "Starting AI course initialization with durable checkpointing."
+            ),
         )
         try:
             corpus_jsonl = generate_code_learner_course_corpus_jsonl(
@@ -456,12 +500,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     record,
                 ),
             )
-            job.update(
-                phase="formalizing",
-                percent=98,
-                message="Formalizing AI course material.",
-            )
-            self._save_initialized_corpus(root, corpus_jsonl)
+            self._save_initialized_corpus(root, corpus_jsonl, job=job)
             job.update(
                 status="initialized",
                 phase="complete",

@@ -48,12 +48,15 @@ Progress reporting:
   course section is still being examined.
 - Append an update immediately when a major discovery is made or the work
   changes phase; do not wait for the next five-second heartbeat.
-- Use integer percent values from 0 to 99 while work is in progress. Do not
-  report 100 percent until the final course JSONL is ready.
+- Use integer percent values from 0 to 95. Never report 100 percent; ElectroBoy
+  reserves 96 through 100 for receiving, validating, saving, and activating the
+  generated course after your final response is delivered.
 - Emit progress at these approximate milestones when applicable:
   2 setup, 8 repository_survey, 15 source_map, 25 architecture,
   40 module_map, 55 module_lessons, 70 function_index,
-  85 function_lessons, 94 validation, 98 final_output.
+  85 function_lessons, 92 validation, 95 final_output.
+- A 95 percent final_output update means the corpus is ready to be returned,
+  but initialization is still active until ElectroBoy receives and validates it.
 - Keep messages brief, factual, and user-safe for display.
 - Report actions and observations, not private chain-of-thought or hidden
   reasoning.
