@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://electroboy.dev/schemas/code-learner/tutor-context-v1.schema.json",
+  "title": "ElectroBoy Code Learner Tutor Context",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "context_version",
+    "project_id",
+    "repository_revision",
+    "stale",
+    "course",
+    "selection",
+    "source",
+    "artifacts",
+    "updated_at",
+    "writer_id"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "context_version": {"type": "integer", "minimum": 0},
+    "project_id": {"type": "string", "minLength": 1},
+    "repository_revision": {"type": "string", "minLength": 1},
+    "stale": {"type": "boolean"},
+    "course": {"type": "object"},
+    "selection": {"type": "object"},
+    "source": {"type": ["object", "null"]},
+    "artifacts": {"type": "object"},
+    "updated_at": {"type": "string", "minLength": 1},
+    "writer_id": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

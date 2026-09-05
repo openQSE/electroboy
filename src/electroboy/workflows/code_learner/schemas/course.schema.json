@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://electroboy.dev/schemas/code-learner/course-v1.schema.json",
+  "title": "ElectroBoy Code Learner Course Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "id",
+    "analysis_run_id",
+    "repository_revision"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"enum": ["document", "section"]},
+    "id": {"type": "string", "minLength": 1},
+    "analysis_run_id": {"type": "string", "minLength": 1},
+    "repository_revision": {"type": "string", "minLength": 1},
+    "course_mode": {"enum": ["architecture", "module", "function"]},
+    "detail_level": {"enum": ["architecture", "module", "function"]},
+    "body": {"type": "string"},
+    "previous_section_id": {"type": ["string", "null"]},
+    "next_section_id": {"type": ["string", "null"]},
+    "return_section_id": {"type": ["string", "null"]},
+    "deep_dive_ids": {"type": "array", "items": {"type": "string"}},
+    "prerequisite_section_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "related_module_ids": {"type": "array", "items": {"type": "string"}},
+    "related_symbol_ids": {"type": "array", "items": {"type": "string"}},
+    "diagrams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "question"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "type": {"type": "string", "minLength": 1},
+          "question": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -61,7 +61,11 @@ electroboy = [
 "electroboy.modules" = ["assets/*.js", "assets/*.css"]
 "electroboy.workflows.software" = ["assets/*.js", "assets/*.css"]
 "electroboy.workflows.creative_writing" = ["assets/*.js", "assets/*.css"]
-"electroboy.workflows.code_learner" = ["assets/*.js", "assets/*.css"]
+"electroboy.workflows.code_learner" = [
+  "assets/*.js",
+  "assets/*.css",
+  "schemas/*.json",
+]
 
 [tool.black]
 line-length = 88

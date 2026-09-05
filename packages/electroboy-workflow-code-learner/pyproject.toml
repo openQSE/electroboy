@@ -22,4 +22,8 @@ packages = ["electroboy.workflows.code_learner"]
 include-package-data = false
 
 [tool.setuptools.package-data]
-"electroboy.workflows.code_learner" = ["assets/*.js", "assets/*.css"]
+"electroboy.workflows.code_learner" = [
+  "assets/*.js",
+  "assets/*.css",
+  "schemas/*.json",
+]

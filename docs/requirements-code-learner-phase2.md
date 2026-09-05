@@ -1198,23 +1198,23 @@ boundary so later work can be reviewed or reverted independently.
 
 ### Boundary 2: Canonical Schemas
 
-10. [ ] Choose canonical package locations for knowledge and course schemas.
-11. [ ] Define common schema fields, ID rules, confidence values, revision
+10. [x] Choose canonical package locations for knowledge and course schemas.
+11. [x] Define common schema fields, ID rules, confidence values, revision
     metadata, and source references.
-12. [ ] Define the knowledge manifest schema.
-13. [ ] Define entity kinds and the entity schema.
-14. [ ] Define relationship kinds and the relationship schema.
-15. [ ] Define runtime-flow and ordered-step schemas.
-16. [ ] Define diagnostic, exclusion, coverage, and knowledge-request schemas.
-17. [ ] Define course document, section, diagram-metadata, and compact tutor
+12. [x] Define the knowledge manifest schema.
+13. [x] Define entity kinds and the entity schema.
+14. [x] Define relationship kinds and the relationship schema.
+15. [x] Define runtime-flow and ordered-step schemas.
+16. [x] Define diagnostic, exclusion, coverage, and knowledge-request schemas.
+17. [x] Define course document, section, diagram-metadata, and compact tutor
     context schemas.
-18. [ ] Define horizontal and vertical course-link fields.
-19. [ ] Define schema-version compatibility and migration behavior.
-20. [ ] Implement deterministic schema loading and validation.
-21. [ ] Add valid and invalid schema fixtures.
-22. [ ] Test duplicate IDs, unknown references, invalid enums, malformed source
+18. [x] Define horizontal and vertical course-link fields.
+19. [x] Define schema-version compatibility and migration behavior.
+20. [x] Implement deterministic schema loading and validation.
+21. [x] Add valid and invalid schema fixtures.
+22. [x] Test duplicate IDs, unknown references, invalid enums, malformed source
     references, and incompatible schema versions.
-23. [ ] Commit canonical schemas and validators.
+23. [x] Commit canonical schemas and validators.
 
 ### Boundary 3: `codebase-analysis` Skill
 
