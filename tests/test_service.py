@@ -1998,9 +1998,11 @@ class ServiceTests(unittest.TestCase):
             change_kind_source,
         )
         self.assertIn(
-            "swapPaneLayoutLeafAssignments(leaf, existingSingleton);",
+            "paneLayout = removePaneLayoutLeaf(paneLayout, existingSingleton.id);",
             change_kind_source,
         )
+        self.assertIn("leaf = paneLayoutLeafById(id);", change_kind_source)
+        self.assertNotIn("swapPaneLayoutLeafAssignments", change_kind_source)
         self.assertIn("function swapPaneLayoutLeafAssignments(", runtime)
         self.assertIn(
             'function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, reason = "pane-layout")',

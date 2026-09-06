@@ -2865,10 +2865,13 @@
         ? paneLayoutLeafByKind(kind)
         : null;
       if (existingSingleton && existingSingleton !== leaf) {
-        swapPaneLayoutLeafAssignments(leaf, existingSingleton);
-      } else {
-        leaf.kind = kind;
+        paneLayout = removePaneLayoutLeaf(paneLayout, existingSingleton.id);
+        leaf = paneLayoutLeafById(id);
+        if (!leaf) {
+          return;
+        }
       }
+      leaf.kind = kind;
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
       renderPaneLayout();
