@@ -130,7 +130,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         '["status", "turn", "warning", "error"].includes(event.activity_kind)'
         in frontend
     )
-    assert "!event.heartbeat" not in frontend
+    assert "!event.heartbeat" in frontend
     assert ".map((event) => ({" in frontend
     assert '["warning", "error"].includes(event.activity_kind)' in frontend
     assert "if (event.activity)" in frontend

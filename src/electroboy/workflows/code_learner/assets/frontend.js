@@ -652,7 +652,9 @@
       : [];
     const entries = progressEvents
       .filter((event) => (
-        !event.activity || ["status", "turn", "warning", "error"].includes(event.activity_kind)
+        !event.heartbeat && (
+          !event.activity || ["status", "turn", "warning", "error"].includes(event.activity_kind)
+        )
       ))
       .map((event) => ({
         text: initializationProgressEventText(event),

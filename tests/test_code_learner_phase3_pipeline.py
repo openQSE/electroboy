@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from time import perf_counter, sleep
+from time import perf_counter
 
 import pytest
 from code_learner_phase3_fixtures import build_catalog, build_course_records
@@ -11,6 +11,7 @@ from electroboy.adapters.base import AgentInvocation, AgentResult
 from electroboy.workflows.code_learner.domain import CodeLearnerError
 from electroboy.workflows.code_learner.phase3_courses import Phase3CourseService
 from electroboy.workflows.code_learner.phase3_pipeline import (
+    LIVE_AI_STATUS_CONTRACT,
     STAGES,
     Phase3InitializationCancelled,
     Phase3InitializationPipeline,
@@ -218,30 +219,31 @@ def test_observed_runtime_replays_raw_events_when_adapter_does_not_stream() -> N
     assert [event["message"] for event in events] == ["Tracing entry points"]
 
 
-def test_observed_runtime_reports_heartbeat_during_quiet_ai_work() -> None:
+def test_observed_runtime_requires_useful_ai_updates_without_fake_heartbeat() -> None:
     events: list[dict[str, object]] = []
 
-    class SlowRuntime:
+    class QuietRuntime:
+        prompt = ""
+
         def invoke(self, invocation: AgentInvocation) -> AgentResult:
-            sleep(0.035)
+            self.prompt = invocation.prompt
             return AgentResult(True, "{}")
 
+    quiet = QuietRuntime()
     runtime = _ObservedRuntime(
-        SlowRuntime(),
+        quiet,
         events.append,
         stage="components",
         percent=14,
-        heartbeat_interval=0.01,
     )
 
     result = runtime.invoke(AgentInvocation(role="code_learner_analysis", prompt="p"))
 
     assert result.ok is True
-    heartbeats = [event for event in events if event.get("heartbeat") is True]
-    assert len(heartbeats) >= 2
-    assert all(
-        "still working on components" in str(event["message"]) for event in heartbeats
-    )
+    assert events == []
+    assert LIVE_AI_STATUS_CONTRACT in quiet.prompt
+    assert "exactly what you are doing" in quiet.prompt
+    assert "Never emit a generic working" in quiet.prompt
 
 
 def test_terminal_states_distinguish_clean_warning_and_failure(tmp_path: Path) -> None:
