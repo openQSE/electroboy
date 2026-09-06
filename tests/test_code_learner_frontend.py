@@ -74,6 +74,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "reset: () => resetPaneState(state)" in frontend
     assert "function resetPaneState(state)" in frontend
     assert "state.loadSequence += 1;" in frontend
+    assert "loadSequence: 0," in frontend
     assert "const sequence = ++state.loadSequence;" in frontend
     assert "if (sequence !== state.loadSequence) {" in frontend
     assert 'if (Object.hasOwn(payload, "state_path")) {' in frontend

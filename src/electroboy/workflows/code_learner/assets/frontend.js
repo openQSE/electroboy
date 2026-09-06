@@ -1688,6 +1688,7 @@
       toolControls: null,
       courseArtifact: null,
       courseNavigation: null,
+      loadSequence: 0,
     };
 
     host.classList.add("code-learner-pane-host");
