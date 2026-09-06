@@ -122,8 +122,10 @@ class LearnerStore:
             with self.progress_path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(payload, sort_keys=True) + "\n")
 
-    def progress(self, limit: int = 250) -> list[dict[str, object]]:
+    def progress(self, limit: int | None = None) -> list[dict[str, object]]:
         records = self.read_lesson(self.progress_path)
+        if limit is None:
+            return records
         return records[-max(1, limit) :]
 
     def components(self) -> list[dict[str, object]]:

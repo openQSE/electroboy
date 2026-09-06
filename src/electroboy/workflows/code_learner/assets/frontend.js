@@ -538,17 +538,7 @@
     }
     const percent = Number(initialization.percent || 0);
     const message = String(initialization.message || "Initializing AI course material.");
-    const elapsed = formatDuration(initialization.elapsed_seconds);
-    const remaining = formatDuration(initialization.estimated_remaining_seconds);
-    const timing = [];
-    if (elapsed) {
-      timing.push(`${elapsed} elapsed`);
-    }
-    if (remaining) {
-      timing.push(`about ${remaining} left`);
-    }
-    const suffix = timing.length ? ` (${timing.join(", ")})` : "";
-    return `${percent}% ${message}${suffix}`;
+    return `${percent}% ${message}`;
   }
 
   function renderInitializationProgress() {
@@ -628,11 +618,6 @@
     if (!runtimeApi || !initialization) {
       return;
     }
-    const failed = initialization.status === "failed";
-    const running = ["queued", "running", "aborting"].includes(initialization.status);
-    const text = failed
-      ? String(initialization.error || initialization.message || "Initialization failed.")
-      : formatInitializationStatus(initialization);
     const progressEvents = Array.isArray(initialization.progress_events)
       ? initialization.progress_events
       : [];
@@ -648,12 +633,6 @@
           ? event.activity_kind
           : "",
       }));
-    if (!running) {
-      entries.push({
-        text: `${text}\r\n`,
-        className: failed ? "error" : "",
-      });
-    }
     runtimeApi.modules.invoke("progress", "showProgressSnapshot", {
       entries,
     });
@@ -677,19 +656,6 @@
       .replaceAll(/\s+/g, " ")
       .trim();
     return text.length > 200 ? `${text.slice(0, 197).trimEnd()}...` : text;
-  }
-
-  function formatDuration(value) {
-    const seconds = Number(value || 0);
-    if (!Number.isFinite(seconds) || seconds <= 0) {
-      return "";
-    }
-    if (seconds < 60) {
-      return `${Math.round(seconds)}s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    const remainder = Math.round(seconds % 60);
-    return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
   }
 
   function renderRecentProjects() {
@@ -1115,12 +1081,15 @@
       setGenerating(false);
       throw new Error(payload.error || "status failed");
     }
+    const wasInitialized = learnerInitialized();
     applyInitializationPayload(payload);
     publishInitializationProgress();
     renderNavigationState();
     if (payload.status === "initialized") {
       setGenerating(false);
-      openLearnerPane({ activate: false, refresh: true });
+      if (!wasInitialized) {
+        openLearnerPane({ activate: false, refresh: true });
+      }
       setInitializedStatus();
       if (backgroundGenerationRunning()) {
         scheduleInitializationPoll();

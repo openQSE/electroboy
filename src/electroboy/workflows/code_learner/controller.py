@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,7 +44,6 @@ class _InitializationJob:
     root: Path
     job_id: str = field(default_factory=lambda: uuid4().hex)
     cancel_event: threading.Event = field(default_factory=threading.Event)
-    started_monotonic: float = field(default_factory=time.monotonic)
     thread: threading.Thread | None = None
     lease: InitializationLease | None = None
 
@@ -658,16 +656,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 "error": "",
                 "completion_status": "",
             }
-        elapsed = (
-            max(0, int(time.monotonic() - job.started_monotonic))
-            if job is not None
-            else 0
-        )
         status.update(
             {
                 "job_id": job.job_id if job is not None else "",
-                "elapsed_seconds": elapsed,
-                "estimated_remaining_seconds": None,
                 "progress_events": store.progress(),
                 "abort_requested": bool(job and job.cancel_event.is_set()),
                 "choice_required": self._choice_required(store, status),

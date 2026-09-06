@@ -4306,6 +4306,9 @@
         (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
       ) {
         applyPaneConnectionContext(data);
+        if (PANE_KIND === "code-learner" && codeLearnerPane) {
+          codeLearnerPane.refresh();
+        }
         return;
       }
       if (

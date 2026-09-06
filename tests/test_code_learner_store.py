@@ -106,3 +106,15 @@ def test_store_clear_removes_all_visible_course_state(tmp_path: Path) -> None:
 
     assert result["removed_file_count"] == 2
     assert not store.state_root.exists()
+
+
+def test_progress_returns_complete_append_only_history(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    store = LearnerStore(root)
+
+    for index in range(275):
+        store.append_progress({"message": f"event {index}"})
+
+    assert len(store.progress()) == 275
+    assert store.progress(limit=10)[0]["message"] == "event 265"

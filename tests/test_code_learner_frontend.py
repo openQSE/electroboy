@@ -139,7 +139,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "`[AI] ${message}\\r\\n`" in frontend
     assert "initializationProgressEventText(event)" in frontend
     assert "sanitizedInitializationProgress(event.message" in frontend
-    assert "if (!running)" in frontend
+    assert "if (!running)" not in frontend
     assert 'data-code-learner-control="module"' in frontend
     assert 'data-code-learner-control="module-start"' in frontend
     assert 'data-code-learner-control="function"' in frontend
@@ -162,6 +162,10 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "function renderModuleOptions(modules, initialized)" in frontend
     assert "module.course_status" in frontend
     assert "function pollInitializationStatus(options = {})" in frontend
+    assert "const wasInitialized = learnerInitialized();" in frontend
+    assert "if (!wasInitialized) {" in frontend
+    assert "elapsed_seconds" not in frontend
+    assert "estimated_remaining_seconds" not in frontend
     assert 'state.contextUrl("/api/code-learner/init/status")' in frontend
     assert 'state.contextUrl("/api/code-learner/init"),' not in frontend
     assert 'button.classList.toggle("active"' not in frontend
@@ -278,6 +282,11 @@ def test_pane_window_loads_installed_workflow_assets_for_code_learner() -> None:
     assert 'if (kind === "code-learner") return "code-learner";' in page
     assert "paneTitle.textContent = title" in page
     assert 'if (kind === "code-learner") return "Code Learner";' in page
+    assert (
+        'if (PANE_KIND === "code-learner" && codeLearnerPane) {\n'
+        "          codeLearnerPane.refresh();"
+        in page
+    )
 
 
 def test_runtime_and_software_frontend_route_code_learner_as_separate_pane() -> None:
