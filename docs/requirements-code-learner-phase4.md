@@ -1250,29 +1250,29 @@ Commit boundary: on-demand Function courses.
 
 ### 10. Update Contextual Tutoring
 
-- [ ] Write current course, module/function target, concept, lesson, slide, code
+- [x] Write current course, module/function target, concept, lesson, slide, code
       file, and selected range to `tutor-context.json`.
-- [ ] Start the tutor with the exact tutor prompt.
-- [ ] Do not append the full context to every learner question.
-- [ ] Update context whenever navigation or code selection changes.
-- [ ] Add tutor-context tests.
+- [x] Start the tutor with the exact tutor prompt.
+- [x] Do not append the full context to every learner question.
+- [x] Update context whenever navigation or code selection changes.
+- [x] Add tutor-context tests.
 
 Commit boundary: contextual tutoring.
 
 ### 11. Simplify Progress
 
-- [ ] Keep progress instructions out of the shared prompt text.
-- [ ] Add a ten-second progress instruction tailored to the work and vocabulary
+- [x] Keep progress instructions out of the shared prompt text.
+- [x] Add a ten-second progress instruction tailored to the work and vocabulary
       of each exact AI turn.
-- [ ] Ensure discovery prompts do not request lesson, slide, or diagram progress.
-- [ ] Ensure course prompts request only progress relevant to their selected
+- [x] Ensure discovery prompts do not request lesson, slide, or diagram progress.
+- [x] Ensure course prompts request only progress relevant to their selected
       Architecture, Module, or Function course.
-- [ ] Append AI status messages rather than replacing prior messages.
-- [ ] Deduplicate identical consecutive messages.
-- [ ] Suppress generic or synthetic heartbeat messages.
-- [ ] Preserve visually distinct runtime warnings and errors.
-- [ ] Separate foreground Architecture progress from background Module progress.
-- [ ] Add progress transcript tests.
+- [x] Append AI status messages rather than replacing prior messages.
+- [x] Deduplicate identical consecutive messages.
+- [x] Suppress generic or synthetic heartbeat messages.
+- [x] Preserve visually distinct runtime warnings and errors.
+- [x] Separate foreground Architecture progress from background Module progress.
+- [x] Add progress transcript tests.
 
 Commit boundary: useful learner progress.
 
