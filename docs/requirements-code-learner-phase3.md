@@ -2377,8 +2377,10 @@ Boundary 1 validation notes:
 340. [x] Measure the revised critical path and confirm initialization no longer
      performs per-module relationship calls, AI file-coverage repair, eager
      Function analysis, or blocking Module course generation.
-341. [ ] Run the complete Code Learner and repository test suites, inspect the
-     learner at desktop and mobile sizes, and classify unrelated failures.
-342. [ ] Commit deterministic validation, session reuse, global relationships,
+341. [x] Run the complete Code Learner and repository test suites and classify
+     unrelated failures.
+342. [ ] Inspect the learner at desktop and mobile sizes through the required
+     browser-control surface.
+343. [x] Commit deterministic validation, session reuse, global relationships,
      progressive activation, background Module generation, and GUI status
      behavior along functional boundaries.
