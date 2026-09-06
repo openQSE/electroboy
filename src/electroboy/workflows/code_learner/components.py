@@ -34,10 +34,20 @@ class RejectedCandidate:
 
 
 @dataclass(frozen=True)
+class CandidateCorrection:
+    candidate_id: str
+    field: str
+    previous_value: int
+    corrected_value: int
+    reason: str
+
+
+@dataclass(frozen=True)
 class CandidateValidationResult:
     attempt_id: str
     accepted: tuple[dict[str, object], ...]
     rejected: tuple[RejectedCandidate, ...]
+    corrections: tuple[CandidateCorrection, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -93,8 +103,10 @@ class ComponentCandidateService:
         files = snapshot.by_id()
         accepted: list[dict[str, object]] = []
         rejected: list[RejectedCandidate] = []
+        corrections: list[CandidateCorrection] = []
         for record in records:
             candidate = dict(record)
+            corrections.extend(self._correct_source_ranges(candidate, files=files))
             errors = self._validate_candidate(
                 candidate,
                 repository_revision=snapshot.revision,
@@ -112,6 +124,7 @@ class ComponentCandidateService:
             attempt,
             tuple(accepted),
             tuple(rejected),
+            tuple(corrections),
         )
         self._save_validation(result)
         return result
@@ -213,20 +226,70 @@ diagram, course, repository file, or ElectroBoy state file.
             candidate["symbols"] = resolved
         return errors
 
+    def _correct_source_ranges(
+        self,
+        candidate: dict[str, object],
+        *,
+        files: Mapping[str, Mapping[str, object]],
+    ) -> list[CandidateCorrection]:
+        corrections: list[CandidateCorrection] = []
+        candidate_id = str(candidate.get("candidate_id") or "unknown")
+        for field in ("symbols", "owned_source_refs", "supporting_source_refs"):
+            records = candidate.get(field, [])
+            if not isinstance(records, list):
+                continue
+            for index, value in enumerate(records):
+                if not isinstance(value, dict):
+                    continue
+                file = files.get(str(value.get("file_id") or ""))
+                if file is None:
+                    continue
+                line_count = self._line_count(file)
+                if line_count is None:
+                    continue
+                start = value.get("start_line")
+                end = value.get("end_line")
+                if (
+                    not isinstance(start, int)
+                    or isinstance(start, bool)
+                    or start < 1
+                    or start > line_count
+                    or not isinstance(end, int)
+                    or isinstance(end, bool)
+                    or end <= line_count
+                ):
+                    continue
+                value["end_line"] = line_count
+                corrections.append(
+                    CandidateCorrection(
+                        candidate_id=candidate_id,
+                        field=f"{field}[{index}].end_line",
+                        previous_value=end,
+                        corrected_value=line_count,
+                        reason="clamped to the verified repository file length",
+                    )
+                )
+        return corrections
+
     def _range_errors(
         self,
         reference: Mapping[str, object],
         file: Mapping[str, object],
         prefix: str,
     ) -> list[str]:
-        path = self.root / str(file.get("path") or "")
-        if not path.is_file():
+        line_count = self._line_count(file)
+        if line_count is None:
             return [f"{prefix}: source file is unavailable"]
-        line_count = max(
-            1, len(path.read_text(encoding="utf-8", errors="replace").splitlines())
-        )
         end = int(reference.get("end_line") or reference.get("start_line") or 1)
         return [f"{prefix}.end_line: exceeds file length"] if end > line_count else []
+
+    def _line_count(self, file: Mapping[str, object]) -> int | None:
+        path = self.root / str(file.get("path") or "")
+        if not path.is_file():
+            return None
+        return max(
+            1, len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+        )
 
     def _promote(
         self,
@@ -256,6 +319,16 @@ diagram, course, repository file, or ElectroBoy state file.
                 "rejected": [
                     {"candidate": item.candidate, "errors": list(item.errors)}
                     for item in result.rejected
+                ],
+                "corrections": [
+                    {
+                        "candidate_id": item.candidate_id,
+                        "field": item.field,
+                        "previous_value": item.previous_value,
+                        "corrected_value": item.corrected_value,
+                        "reason": item.reason,
+                    }
+                    for item in result.corrections
                 ],
                 "complete": result.complete,
                 "validated_at": utc_now(),

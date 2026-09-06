@@ -136,6 +136,52 @@ def test_candidate_service_rejects_mixed_types_stale_and_bad_ranges(
     assert "must be component_candidate" in errors
 
 
+def test_candidate_service_corrects_ranges_beyond_verified_file_length(
+    tmp_path: Path,
+) -> None:
+    source = _setup(tmp_path)
+    service = ComponentCandidateService(
+        tmp_path, resolver=FakeResolver(), source=source
+    )
+    candidate = _candidate(source.load().revision)
+    candidate["symbols"][0]["end_line"] = 200
+    candidate["owned_source_refs"][0]["end_line"] = 100
+
+    result = service.ingest(json.dumps(candidate), attempt_id="range-correction")
+
+    assert result.complete is True
+    assert len(result.corrections) == 2
+    assert {item.field for item in result.corrections} == {
+        "symbols[0].end_line",
+        "owned_source_refs[0].end_line",
+    }
+    assert all(item.corrected_value == 2 for item in result.corrections)
+    assert result.accepted[0]["owned_source_refs"][0]["end_line"] == 2
+    report = service.store.read_json(
+        service.validation_root / "range-correction.json"
+    )
+    assert report is not None
+    assert report["corrections"][0]["reason"] == (
+        "clamped to the verified repository file length"
+    )
+
+
+def test_candidate_service_does_not_correct_a_range_starting_past_eof(
+    tmp_path: Path,
+) -> None:
+    source = _setup(tmp_path)
+    service = ComponentCandidateService(
+        tmp_path, resolver=FakeResolver(), source=source
+    )
+    candidate = _candidate(source.load().revision)
+    candidate["owned_source_refs"][0].update({"start_line": 20, "end_line": 30})
+
+    result = service.ingest(json.dumps(candidate), attempt_id="invalid-start")
+
+    assert result.complete is False
+    assert result.corrections == ()
+
+
 def test_candidate_service_preserves_semantic_fields_without_rewriting(
     tmp_path: Path,
 ) -> None:
