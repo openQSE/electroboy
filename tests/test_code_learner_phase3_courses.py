@@ -277,7 +277,7 @@ def test_course_build_prompt_uses_phase3_manifests_without_restarting_discovery(
     assert "do not return `knowledge_request`" in prompt
 
 
-def test_course_contract_failure_is_retried_and_reaches_ready_status(
+def test_course_contract_failure_is_not_retried(
     tmp_path: Path,
 ) -> None:
     catalog = build_catalog(tmp_path)
@@ -297,6 +297,28 @@ def test_course_contract_failure_is_retried_and_reaches_ready_status(
     )
     valid = "\n".join(json.dumps(item) for item in records)
     runtime = SequenceRuntime([invalid, valid])
+    service = Phase3CourseService(
+        tmp_path,
+        store=catalog.store,
+        runtime_factory=lambda role, root: runtime,
+    )
+
+    with pytest.raises(CodeLearnerError, match="Architecture course failed"):
+        service.build("architecture", "architecture:current", analysis_run_id="run-1")
+
+    assert len(runtime.invocations) == 1
+    assert service.target_status("course:architecture:architecture:current") == "failed"
+
+
+def test_malformed_course_output_is_retried(tmp_path: Path) -> None:
+    catalog = build_catalog(tmp_path)
+    catalog.store.write_jsonl(
+        catalog.store.knowledge_root / "architecture.jsonl",
+        [{"id": "architecture:current"}],
+    )
+    records = _records(catalog, "architecture", "architecture:current")
+    valid = "\n".join(json.dumps(item) for item in records)
+    runtime = SequenceRuntime(['{"record_type":"document"', valid])
     service = Phase3CourseService(
         tmp_path,
         store=catalog.store,
@@ -328,9 +350,8 @@ def test_course_contract_failures_end_in_failed_status(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CodeLearnerError, match="Architecture course failed"):
-        service.build(
-            "architecture", "architecture:current", analysis_run_id="run-1"
-        )
+        service.build("architecture", "architecture:current", analysis_run_id="run-1")
 
+    assert len(runtime.invocations) == 1
     document_id = "course:architecture:architecture:current"
     assert service.target_status(document_id) == "failed"

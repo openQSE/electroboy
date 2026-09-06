@@ -12,6 +12,7 @@ from electroboy.adapters.base import AgentInvocation, AgentResult, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .domain import CodeLearnerError
 from .phase3_contract_catalog import (
     RECONCILIATION_PARTITION_REQUIRED_FIELDS,
@@ -111,23 +112,20 @@ class ComponentReconciliationService:
             )
             result = runtime.invoke(invocation)
             attempt_id = f"{_safe_id(group_id)}-{attempt}"
-            if not result.ok:
-                previous_error = (
-                    result.error or result.final_message or "analysis runtime failed"
-                )
-                self._save_attempt(attempt_id, result, previous_error)
-                continue
             try:
-                accepted = self.ingest(
-                    group_id,
-                    result.final_message,
-                    attempt_id=attempt_id,
+                output = require_agent_output(
+                    result, operation=f"Component reconciliation {group_id}"
                 )
-            except CodeLearnerError as error:
+                parse_agent_jsonl(
+                    output,
+                    artifact=f"reconciliation {group_id}",
+                    parser=parse_phase3_jsonl,
+                )
+            except RetryableAgentError as error:
                 previous_error = str(error)
                 self._save_attempt(attempt_id, result, previous_error)
                 continue
-            return accepted
+            return self.ingest(group_id, output, attempt_id=attempt_id)
         raise CodeLearnerError(
             f"component overlap group {group_id} failed after "
             f"{self.max_attempts} attempts: {previous_error}"
@@ -230,8 +228,7 @@ record types.
                 "reconciliation is missing required fields: " + ", ".join(missing)
             )
         revisions = {
-            str(candidate.get("repository_revision") or "")
-            for candidate in candidates
+            str(candidate.get("repository_revision") or "") for candidate in candidates
         }
         if revisions != {str(record.get("repository_revision") or "")}:
             raise CodeLearnerError(
@@ -391,9 +388,7 @@ record types.
             },
         )
 
-    def _context_paths(
-        self, candidates: Sequence[Mapping[str, object]]
-    ) -> list[str]:
+    def _context_paths(self, candidates: Sequence[Mapping[str, object]]) -> list[str]:
         paths = {
             str(file_id)[len("file:") :]
             for candidate in candidates

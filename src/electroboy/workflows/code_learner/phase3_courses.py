@@ -12,6 +12,7 @@ from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 from electroboy.structured_artifacts import RenderResult, render_artifact
 
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .architecture_knowledge import ArchitectureKnowledgeService
 from .contracts import ContractError, parse_jsonl, validate_course_records
 from .domain import CodeLearnerError
@@ -109,23 +110,31 @@ class Phase3CourseService:
                     "recorded_at": utc_now(),
                 },
             )
-            if not result.ok:
-                last_error = result.error or "course runtime failed"
+            try:
+                output = require_agent_output(
+                    result, operation=f"{mode.title()} course"
+                )
+                records = parse_agent_jsonl(
+                    output, artifact="Phase 3 course", parser=parse_jsonl
+                )
+            except RetryableAgentError as error:
+                last_error = str(error)
                 continue
             try:
-                records = parse_jsonl(result.final_message, artifact="Phase 3 course")
                 path, rendered = self.save(mode, scope_id, records)
-                return {
-                    "mode": mode,
-                    "scope_id": scope_id,
-                    "document_id": _document_id(mode, scope_id),
-                    "jsonl_path": path.relative_to(self.root).as_posix(),
-                    "markdown_path": rendered.markdown_path,
-                    "record_count": len(records),
-                    "knowledge_id": knowledge["id"],
-                }
             except (CodeLearnerError, ContractError) as error:
-                last_error = str(error)
+                message = f"{mode.title()} course failed: {error}"
+                self.record_status(mode, scope_id, "failed", error=message)
+                raise CodeLearnerError(message) from error
+            return {
+                "mode": mode,
+                "scope_id": scope_id,
+                "document_id": _document_id(mode, scope_id),
+                "jsonl_path": path.relative_to(self.root).as_posix(),
+                "markdown_path": rendered.markdown_path,
+                "record_count": len(records),
+                "knowledge_id": knowledge["id"],
+            }
         message = f"{mode.title()} course failed: {last_error}"
         self.record_status(mode, scope_id, "failed", error=message)
         raise CodeLearnerError(message)
@@ -217,6 +226,7 @@ class Phase3CourseService:
     ) -> None:
         if status not in TARGET_STATES:
             raise CodeLearnerError(f"unsupported course target status: {status}")
+
         def update(index: dict[str, object]) -> dict[str, object]:
             index.setdefault("schema_version", 1)
             targets = index.setdefault("targets", {})

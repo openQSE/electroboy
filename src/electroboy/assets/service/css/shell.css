@@ -2301,6 +2301,12 @@
       color: #ffb4a9;
     }
 
+    .agent-output .warning,
+    .progress-output .warning,
+    .shell-output .warning {
+      color: #ffd166;
+    }
+
     .side-pane {
       display: grid;
       grid-template-rows:

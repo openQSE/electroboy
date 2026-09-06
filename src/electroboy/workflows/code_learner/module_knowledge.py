@@ -10,6 +10,7 @@ from electroboy.adapters.base import AgentInvocation, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .domain import CodeLearnerError
 from .knowledge import Phase3KnowledgeContext
 from .phase3_contract_catalog import (
@@ -24,6 +25,8 @@ from .phase3_prompts import module_knowledge_prompt
 from .phase3_store import Phase3Store
 
 MODULE_KNOWLEDGE_ROLE = "code_learner_analysis"
+
+
 class RuntimeFactory(Protocol):
     def __call__(self, role: str, root: Path) -> AgentRuntime: ...
 
@@ -83,8 +86,7 @@ class ModuleKnowledgeService:
                 component_manifest_path=context.component_service.manifest_path,
                 module_manifest_path=context.module_service.manifest_path,
                 relationships_path=context.relationship_service.relationships_path,
-                schema_path=Path(__file__).with_name("schemas")
-                / "phase3.schema.json",
+                schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
             )
             if last_error:
                 prompt += f"\n\nPrevious output error:\n- {last_error}"
@@ -108,20 +110,21 @@ class ModuleKnowledgeService:
                     "recorded_at": utc_now(),
                 },
             )
-            if not result.ok:
-                last_error = result.error or "Module knowledge runtime failed"
-                continue
             try:
-                records = parse_phase3_jsonl(
-                    result.final_message, artifact=f"Module knowledge {module_id}"
+                output = require_agent_output(result, operation="Module knowledge")
+                records = parse_agent_jsonl(
+                    output,
+                    artifact=f"Module knowledge {module_id}",
+                    parser=parse_phase3_jsonl,
                 )
-                if len(records) != 1:
-                    raise CodeLearnerError(
-                        "Module knowledge must return exactly one record"
-                    )
-                return self.ingest(module_id, records[0], context=context)
-            except CodeLearnerError as error:
+            except RetryableAgentError as error:
                 last_error = str(error)
+                continue
+            if len(records) != 1:
+                raise CodeLearnerError(
+                    "Module knowledge must return exactly one record"
+                )
+            return self.ingest(module_id, records[0], context=context)
         raise CodeLearnerError(
             f"Module knowledge {module_id} failed after "
             f"{self.max_attempts} attempts: {last_error}"

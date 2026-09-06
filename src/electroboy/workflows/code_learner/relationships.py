@@ -13,6 +13,7 @@ from electroboy.adapters.base import AgentInvocation, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .component_manifest import ComponentManifestService
 from .contracts import RELATIONSHIP_KINDS
 from .domain import CodeLearnerError
@@ -104,9 +105,7 @@ class ModuleRelationshipService:
                 )
             )
             self.store.write_json(
-                self.store.attempts_root
-                / "relationships"
-                / f"global-{attempt}.json",
+                self.store.attempts_root / "relationships" / f"global-{attempt}.json",
                 {
                     "scope": "global",
                     "attempt": attempt,
@@ -115,17 +114,21 @@ class ModuleRelationshipService:
                     "recorded_at": utc_now(),
                 },
             )
-            if not result.ok:
-                last_error = result.error or "relationship runtime failed"
-                continue
             try:
-                return self.ingest_scope(
-                    scope,
-                    result.final_message,
-                    conflict_resolver=conflict_resolver,
+                output = require_agent_output(result, operation="Relationship analysis")
+                parse_agent_jsonl(
+                    output,
+                    artifact=f"relationship scope {scope.key}",
+                    parser=parse_phase3_jsonl,
                 )
-            except CodeLearnerError as error:
+            except RetryableAgentError as error:
                 last_error = str(error)
+                continue
+            return self.ingest_scope(
+                scope,
+                output,
+                conflict_resolver=conflict_resolver,
+            )
         raise CodeLearnerError(
             "global relationship model failed after "
             f"{self.max_attempts} attempts: {last_error}"
@@ -353,8 +356,7 @@ class ModuleRelationshipService:
             prompt = relationship_conflict_prompt(
                 left=existing,
                 right=payload,
-                schema_path=Path(__file__).with_name("schemas")
-                / "phase3.schema.json",
+                schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
             )
             resolved = dict(resolver(existing, payload, prompt))
             revision, modules, components, files = self._catalogs()

@@ -10,6 +10,7 @@ from electroboy.adapters.base import AgentInvocation, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .domain import CodeLearnerError
 from .knowledge import Phase3KnowledgeContext
 from .phase3_contract_catalog import (
@@ -25,6 +26,8 @@ from .phase3_prompts import architecture_knowledge_prompt
 from .phase3_store import Phase3Store
 
 ARCHITECTURE_ROLE = "code_learner_analysis"
+
+
 class RuntimeFactory(Protocol):
     def __call__(self, role: str, root: Path) -> AgentRuntime: ...
 
@@ -83,20 +86,23 @@ class ArchitectureKnowledgeService:
                     "recorded_at": utc_now(),
                 },
             )
-            if not result.ok:
-                last_error = result.error or "Architecture runtime failed"
-                continue
             try:
-                records = parse_phase3_jsonl(
-                    result.final_message, artifact="Architecture knowledge"
+                output = require_agent_output(
+                    result, operation="Architecture knowledge"
                 )
-                if len(records) != 1:
-                    raise CodeLearnerError(
-                        "Architecture generation must return exactly one record"
-                    )
-                return self.ingest(records[0], context=context)
-            except CodeLearnerError as error:
+                records = parse_agent_jsonl(
+                    output,
+                    artifact="Architecture knowledge",
+                    parser=parse_phase3_jsonl,
+                )
+            except RetryableAgentError as error:
                 last_error = str(error)
+                continue
+            if len(records) != 1:
+                raise CodeLearnerError(
+                    "Architecture generation must return exactly one record"
+                )
+            return self.ingest(records[0], context=context)
         raise CodeLearnerError(
             f"Architecture knowledge failed after {self.max_attempts} attempts: "
             f"{last_error}"

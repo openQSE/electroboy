@@ -652,11 +652,13 @@
       : [];
     const entries = progressEvents
       .filter((event) => (
-        !event.activity || ["status", "turn", "error"].includes(event.activity_kind)
+        !event.activity || ["status", "turn", "warning", "error"].includes(event.activity_kind)
       ))
       .map((event) => ({
         text: initializationProgressEventText(event),
-        className: event.activity_kind === "error" ? "error" : "",
+        className: ["warning", "error"].includes(event.activity_kind)
+          ? event.activity_kind
+          : "",
       }));
     if (!running) {
       entries.push({

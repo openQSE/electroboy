@@ -203,7 +203,7 @@ class ModuleCourseScheduler:
             self._emit(
                 f"Module course {module_id} failed: {message}",
                 module_id=module_id,
-                activity_kind="error",
+                activity_kind="warning",
             )
 
     def _worker_runtime_factory(self, index: int) -> RuntimeFactory:
@@ -343,5 +343,8 @@ class _CancellableRuntime(AgentRuntime):
 
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         return self.runtime.invoke(
-            replace(invocation, cancel_event=invocation.cancel_event or self.cancel_event)
+            replace(
+                invocation,
+                cancel_event=invocation.cancel_event or self.cancel_event,
+            )
         )

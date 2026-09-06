@@ -13,6 +13,7 @@ from electroboy.adapters.base import AgentInvocation, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .architecture_knowledge import ArchitectureKnowledgeService
 from .domain import CodeLearnerError
 from .knowledge import Phase3KnowledgeContext
@@ -32,6 +33,8 @@ from .phase3_prompts import (
 from .phase3_store import Phase3Store
 
 FUNCTION_ROLE = "code_learner_analysis"
+
+
 class RuntimeFactory(Protocol):
     def __call__(self, role: str, root: Path) -> AgentRuntime: ...
 
@@ -247,8 +250,7 @@ class FunctionKnowledgeService:
                 module_knowledge_path=ModuleKnowledgeService(
                     self.root, store=self.store
                 ).root_path,
-                schema_path=Path(__file__).with_name("schemas")
-                / "phase3.schema.json",
+                schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
             )
             if last_error:
                 prompt += f"\n\nPrevious output error:\n- {last_error}"
@@ -259,24 +261,25 @@ class FunctionKnowledgeService:
                     context_paths=self._context_paths(context),
                 )
             )
-            if not result.ok:
-                last_error = result.error or "Function knowledge runtime failed"
-                continue
             try:
-                records = parse_phase3_jsonl(
-                    result.final_message, artifact="Function knowledge"
+                output = require_agent_output(result, operation="Function knowledge")
+                records = parse_agent_jsonl(
+                    output,
+                    artifact="Function knowledge",
+                    parser=parse_phase3_jsonl,
                 )
-                if len(records) != 1:
-                    raise CodeLearnerError(
-                        "Function knowledge must return exactly one record"
-                    )
-                return self.ingest(
-                    str(symbol["canonical_key"]),
-                    records[0],
-                    context=context,
-                )
-            except CodeLearnerError as error:
+            except RetryableAgentError as error:
                 last_error = str(error)
+                continue
+            if len(records) != 1:
+                raise CodeLearnerError(
+                    "Function knowledge must return exactly one record"
+                )
+            return self.ingest(
+                str(symbol["canonical_key"]),
+                records[0],
+                context=context,
+            )
         raise CodeLearnerError(
             f"Function knowledge failed after {self.max_attempts} attempts: "
             f"{last_error}"
@@ -300,8 +303,7 @@ class FunctionKnowledgeService:
         missing = missing_required_fields(payload, FUNCTION_KNOWLEDGE_REQUIRED_FIELDS)
         if missing:
             raise CodeLearnerError(
-                "Function knowledge is missing required fields: "
-                + ", ".join(missing)
+                "Function knowledge is missing required fields: " + ", ".join(missing)
             )
         symbol = payload.get("symbol")
         if not isinstance(symbol, Mapping):

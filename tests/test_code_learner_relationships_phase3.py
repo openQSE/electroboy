@@ -225,11 +225,11 @@ def test_self_relationship_requires_explicit_reason(tmp_path: Path) -> None:
 def test_global_relationship_generation_retries_as_one_coherent_operation(
     tmp_path: Path,
 ) -> None:
-    _setup(tmp_path)
+    source, components, modules = _setup(tmp_path)
     runtime = FakeRuntime(
         [
-            AgentResult(False, "", error="temporary failure"),
-            AgentResult(True, ""),
+            AgentResult(False, "partial", error="analysis process timed out"),
+            AgentResult(True, json.dumps(_relationship(source, components, modules))),
         ]
     )
     service = ModuleRelationshipService(
@@ -238,7 +238,7 @@ def test_global_relationship_generation_retries_as_one_coherent_operation(
         max_attempts=2,
     )
 
-    assert service.generate(analysis_run_id="run-1") == []
+    assert len(service.generate(analysis_run_id="run-1")) == 1
     assert len(runtime.invocations) == 2
     assert "complete frozen module catalog" in runtime.invocations[0].prompt
     assert "Relationship scope module ID" not in runtime.invocations[0].prompt

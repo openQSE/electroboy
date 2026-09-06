@@ -5359,6 +5359,9 @@
       if (className === "error") {
         return `\x1b[31m${text}\x1b[0m`;
       }
+      if (className === "warning") {
+        return `\x1b[33m${text}\x1b[0m`;
+      }
       if (className === "system") {
         return `\x1b[36m${text}\x1b[0m`;
       }

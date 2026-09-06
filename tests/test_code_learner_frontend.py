@@ -103,8 +103,8 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "function ensureInitializationChoiceDialog()" in frontend
     assert "function chooseInitializationMode()" in frontend
     assert "code-learner-initialization-dialog" in frontend
-    assert '<strong>Continue</strong>' in frontend
-    assert '<strong>Replace</strong>' in frontend
+    assert "<strong>Continue</strong>" in frontend
+    assert "<strong>Replace</strong>" in frontend
     assert "statusPayload.initialization.choice_required" in frontend
     assert "body: JSON.stringify({ mode })" in frontend
     assert 'if (mode === "replace") {' in frontend
@@ -126,12 +126,15 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     )
     assert "initialization.progress_events" in frontend
     assert ".filter((event) => (" in frontend
-    assert '["status", "turn", "error"].includes(event.activity_kind)' in frontend
+    assert (
+        '["status", "turn", "warning", "error"].includes(event.activity_kind)'
+        in frontend
+    )
     assert "!event.heartbeat" not in frontend
     assert ".map((event) => ({" in frontend
-    assert 'className: event.activity_kind === "error" ? "error" : ""' in frontend
+    assert '["warning", "error"].includes(event.activity_kind)' in frontend
     assert "if (event.activity)" in frontend
-    assert '`[AI] ${message}\\r\\n`' in frontend
+    assert "`[AI] ${message}\\r\\n`" in frontend
     assert "initializationProgressEventText(event)" in frontend
     assert "sanitizedInitializationProgress(event.message" in frontend
     assert "if (!running)" in frontend
@@ -207,6 +210,25 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert ".code-learner-question-form" not in stylesheet
     assert ".code-learner-question-actions" not in stylesheet
     assert ".code-learner-initialization-dialog" in stylesheet
+
+
+def test_progress_output_distinguishes_warning_and_error_colors() -> None:
+    runtime = (ROOT / "src/electroboy/assets/service/js/core/runtime.js").read_text(
+        encoding="utf-8"
+    )
+    progress = (ROOT / "src/electroboy/modules/assets/progress.js").read_text(
+        encoding="utf-8"
+    )
+    stylesheet = (ROOT / "src/electroboy/assets/service/css/shell.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'className === "warning"' in runtime
+    assert r"\x1b[33m" in runtime
+    assert r"\x1b[31m" in runtime
+    assert '["warning", "error"].includes(payload.type)' in progress
+    assert ".progress-output .warning" in stylesheet
+    assert ".progress-output .error" in stylesheet
 
 
 def test_code_learner_navigation_uses_shared_shell_menu_treatment() -> None:

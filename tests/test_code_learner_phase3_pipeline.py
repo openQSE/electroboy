@@ -68,7 +68,7 @@ def test_every_stage_checkpoints_an_interruption(tmp_path: Path, stage: str) -> 
     assert all(int(item.get("percent") or 0) < 100 for item in progress)
 
 
-def test_warning_tolerant_scope_records_error_and_continues(tmp_path: Path) -> None:
+def test_warning_tolerant_scope_records_warning_and_continues(tmp_path: Path) -> None:
     pipeline = Phase3InitializationPipeline(tmp_path, eager_function_budget=0)
     checkpoint = _checkpoint(pipeline)
 
@@ -87,13 +87,13 @@ def test_warning_tolerant_scope_records_error_and_continues(tmp_path: Path) -> N
     assert pipeline.store.active_diagnostics("warning")[0]["message"] == (
         "bad endpoint"
     )
-    errors = [
+    warnings = [
         item
         for item in pipeline.store.read_jsonl(pipeline.store.progress_path)
-        if item.get("activity_kind") == "error"
+        if item.get("activity_kind") == "warning"
     ]
-    assert len(errors) == 1
-    assert errors[0]["message"] == "Continuing after error: bad endpoint"
+    assert len(warnings) == 1
+    assert warnings[0]["message"] == "Warning: bad endpoint"
 
 
 def test_terminal_failure_progress_is_classified_as_error(tmp_path: Path) -> None:
@@ -240,8 +240,7 @@ def test_observed_runtime_reports_heartbeat_during_quiet_ai_work() -> None:
     heartbeats = [event for event in events if event.get("heartbeat") is True]
     assert len(heartbeats) >= 2
     assert all(
-        "still working on components" in str(event["message"])
-        for event in heartbeats
+        "still working on components" in str(event["message"]) for event in heartbeats
     )
 
 

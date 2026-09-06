@@ -16,8 +16,8 @@ from electroboy.service.sessions import AgentSession
 from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError
 
-from .course_artifacts import render_saved_course
 from .background_courses import ModuleCourseScheduler, module_generation_status
+from .course_artifacts import render_saved_course
 from .course_builder import CourseBuilder
 from .course_graph import CourseGraph, CourseNavigator
 from .course_projection import (
@@ -150,7 +150,7 @@ class _InitializationJob:
 
     def _record_activity(self, record: dict[str, object]) -> None:
         activity_kind = str(record.get("activity_kind") or "status")
-        if activity_kind not in {"status", "turn", "error"}:
+        if activity_kind not in {"status", "turn", "warning", "error"}:
             return
         message = sanitize_progress_message(record.get("message"))
         if not message:

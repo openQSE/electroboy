@@ -124,7 +124,9 @@
       renderProgressState(runtime, {
         entries: [{
           text: payload.text || "",
-          className: payload.type === "error" ? "error" : "",
+          className: ["warning", "error"].includes(payload.type)
+            ? payload.type
+            : "",
         }],
       }, true);
       if (payload.running === false) {
@@ -139,7 +141,9 @@
           ...latestProgressState.entries,
           {
             text: `\r\nISSUE FOUND - ${severity} - ${payload.summary || ""}\r\n`,
-            className: "error",
+            className: String(payload.severity || "").toLowerCase() === "warning"
+              ? "warning"
+              : "error",
           },
         ],
       }, true);

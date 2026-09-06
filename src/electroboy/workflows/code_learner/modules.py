@@ -13,10 +13,10 @@ from electroboy.adapters.base import AgentInvocation, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .component_manifest import ComponentManifestService, ComponentManifestSnapshot
 from .domain import CodeLearnerError
 from .phase3_contracts import (
-    Phase3ContractError,
     parse_phase3_jsonl,
     validate_knowledge_requests,
     validate_manifest,
@@ -109,89 +109,86 @@ class ModuleSynthesisService:
                 )
             )
             self._save_attempt(attempt, result.final_message, result.error or "")
-            if not result.ok:
-                previous_error = (
-                    result.error or result.final_message or "analysis runtime failed"
-                )
-                continue
             try:
-                records = parse_phase3_jsonl(
-                    result.final_message, artifact="module synthesis"
+                output = require_agent_output(result, operation="Module synthesis")
+                records = parse_agent_jsonl(
+                    output,
+                    artifact="module synthesis",
+                    parser=parse_phase3_jsonl,
                 )
-                requests = [
-                    record
-                    for record in records
-                    if record.get("record_type") == "knowledge_request"
-                ]
-                modules = [
-                    record
-                    for record in records
-                    if record.get("record_type") == "module"
-                ]
-                if len(requests) + len(modules) != len(records):
-                    raise CodeLearnerError(
-                        "module synthesis emitted a prohibited record type"
-                    )
-                known_components = set(component_snapshot.manifest["component_ids"])
-                for module in modules:
-                    unknown = sorted(
-                        {
-                            str(item)
-                            for item in module.get("component_ids", [])
-                            if item not in known_components
-                        }
-                    )
-                    if not unknown:
-                        continue
-                    source_refs = list(module.get("source_refs", []))
-                    if not source_refs:
-                        raise CodeLearnerError(
-                            "unknown component IDs require hard source references"
-                        )
-                    requests.append(
-                        {
-                            "schema_version": 1,
-                            "record_type": "knowledge_request",
-                            "repository_revision": component_snapshot.manifest[
-                                "repository_revision"
-                            ],
-                            "id": f"request:inline-module-{attempt}",
-                            "request_type": "missing_component",
-                            "status": "open",
-                            "reason": (
-                                "Module synthesis referenced missing components: "
-                                + ", ".join(unknown)
-                            ),
-                            "missing_component_ids": unknown,
-                            "source_refs": source_refs,
-                        }
-                    )
-                if requests:
-                    validate_knowledge_requests(
-                        requests,
-                        repository_revision=str(
-                            component_snapshot.manifest["repository_revision"]
-                        ),
-                    )
-                    if targeted_discovery is None or discovery_used:
-                        raise CodeLearnerError(
-                            "module synthesis has unresolved missing-component requests"
-                        )
-                    self.store.write_jsonl(self.requests_path, requests)
-                    before = set(component_snapshot.manifest["component_ids"])
-                    component_snapshot = targeted_discovery(requests)
-                    after = set(component_snapshot.manifest["component_ids"])
-                    affected = sorted(str(item) for item in after - before)
-                    discovery_used = True
-                    previous_error = ""
-                    continue
-                return self.ingest(
-                    modules,
-                    analysis_run_id=analysis_run_id,
-                    component_snapshot=component_snapshot,
-                )
-            except (CodeLearnerError, Phase3ContractError) as error:
+            except RetryableAgentError as error:
                 previous_error = str(error)
+                continue
+            requests = [
+                record
+                for record in records
+                if record.get("record_type") == "knowledge_request"
+            ]
+            modules = [
+                record for record in records if record.get("record_type") == "module"
+            ]
+            if len(requests) + len(modules) != len(records):
+                raise CodeLearnerError(
+                    "module synthesis emitted a prohibited record type"
+                )
+            known_components = set(component_snapshot.manifest["component_ids"])
+            for module in modules:
+                unknown = sorted(
+                    {
+                        str(item)
+                        for item in module.get("component_ids", [])
+                        if item not in known_components
+                    }
+                )
+                if not unknown:
+                    continue
+                source_refs = list(module.get("source_refs", []))
+                if not source_refs:
+                    raise CodeLearnerError(
+                        "unknown component IDs require hard source references"
+                    )
+                requests.append(
+                    {
+                        "schema_version": 1,
+                        "record_type": "knowledge_request",
+                        "repository_revision": component_snapshot.manifest[
+                            "repository_revision"
+                        ],
+                        "id": f"request:inline-module-{attempt}",
+                        "request_type": "missing_component",
+                        "status": "open",
+                        "reason": (
+                            "Module synthesis referenced missing components: "
+                            + ", ".join(unknown)
+                        ),
+                        "missing_component_ids": unknown,
+                        "source_refs": source_refs,
+                    }
+                )
+            if requests:
+                validate_knowledge_requests(
+                    requests,
+                    repository_revision=str(
+                        component_snapshot.manifest["repository_revision"]
+                    ),
+                )
+                if targeted_discovery is None or discovery_used:
+                    raise CodeLearnerError(
+                        "module synthesis has unresolved missing-component requests"
+                    )
+                self.store.write_jsonl(self.requests_path, requests)
+                before = set(component_snapshot.manifest["component_ids"])
+                component_snapshot = targeted_discovery(requests)
+                after = set(component_snapshot.manifest["component_ids"])
+                affected = sorted(str(item) for item in after - before)
+                discovery_used = True
+                previous_error = ""
+                continue
+            return self.ingest(
+                modules,
+                analysis_run_id=analysis_run_id,
+                component_snapshot=component_snapshot,
+            )
         raise CodeLearnerError(
             f"module synthesis failed after {self.max_attempts} attempts: "
             f"{previous_error}"

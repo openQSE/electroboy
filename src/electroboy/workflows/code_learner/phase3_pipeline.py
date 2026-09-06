@@ -13,8 +13,9 @@ from electroboy.adapters.base import AgentInvocation, AgentResult, AgentRuntime
 from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
-from .architecture_knowledge import ArchitectureKnowledgeService
+from .agent_retry import RetryableAgentError, parse_agent_jsonl, require_agent_output
 from .agent_sessions import AgentSessionRegistry, ReusableAgentRuntime
+from .architecture_knowledge import ArchitectureKnowledgeService
 from .component_manifest import ComponentManifestService
 from .components import ComponentCandidateService
 from .ctags_evidence import CtagsEvidenceService
@@ -26,7 +27,7 @@ from .isolated_runtime import IsolatedAnalysisWorkspace
 from .module_knowledge import ModuleKnowledgeService
 from .modules import ModuleSynthesisService
 from .overlap import ComponentOverlapService
-from .phase3_contracts import load_phase3_schema
+from .phase3_contracts import load_phase3_schema, parse_phase3_jsonl
 from .phase3_courses import Phase3CourseService
 from .phase3_prompts import component_discovery_prompt
 from .phase3_revision import Phase3RevisionInvalidator
@@ -445,76 +446,78 @@ class Phase3InitializationPipeline:
     def _discover_components(self, run_id: str, revision: str):
         runtime = self._observed_runtime("code_learner_analysis", self.root)
         source = self.source.load()
-        prompt = component_discovery_prompt(
-            self.root,
-            analysis_run_id=run_id,
-            repository_revision=revision,
-            source_manifest_path=self.source.manifest_path,
-            files_path=self.source.files_path,
-            ctags_path=self.ctags.raw_path,
-            schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
-            example_file_id=(
-                str(source.files[0]["id"])
-                if source is not None and source.files
-                else "file:replace-with-real-file-id"
-            ),
-        )
-        result = runtime.invoke(
-            AgentInvocation(
-                role="code_learner_analysis",
-                prompt=prompt,
-                context_paths=[
-                    self.source.manifest_path.relative_to(self.root).as_posix(),
-                    self.source.files_path.relative_to(self.root).as_posix(),
-                    self.ctags.raw_path.relative_to(self.root).as_posix(),
-                ],
+        previous_error = ""
+        for attempt in range(1, 3):
+            prompt = component_discovery_prompt(
+                self.root,
+                analysis_run_id=run_id,
+                repository_revision=revision,
+                source_manifest_path=self.source.manifest_path,
+                files_path=self.source.files_path,
+                ctags_path=self.ctags.raw_path,
+                schema_path=Path(__file__).with_name("schemas") / "phase3.schema.json",
+                example_file_id=(
+                    str(source.files[0]["id"])
+                    if source is not None and source.files
+                    else "file:replace-with-real-file-id"
+                ),
             )
-        )
-        if not result.ok or not result.final_message.strip():
+            if previous_error:
+                prompt += (
+                    f"\n\nPrevious output was not valid JSONL:\n- {previous_error}"
+                )
+            result = runtime.invoke(
+                AgentInvocation(
+                    role="code_learner_analysis",
+                    prompt=prompt,
+                    context_paths=[
+                        self.source.manifest_path.relative_to(self.root).as_posix(),
+                        self.source.files_path.relative_to(self.root).as_posix(),
+                        self.ctags.raw_path.relative_to(self.root).as_posix(),
+                    ],
+                )
+            )
+            self.store.write_json(
+                self.store.attempts_root
+                / "components"
+                / f"discovery-{run_id}-{attempt}.json",
+                {
+                    "attempt": attempt,
+                    "output": result.final_message,
+                    "error": result.error or "",
+                    "recorded_at": utc_now(),
+                },
+            )
+            try:
+                output = require_agent_output(result, operation="Component discovery")
+                parse_agent_jsonl(
+                    output,
+                    artifact=f"component discovery {run_id}",
+                    parser=parse_phase3_jsonl,
+                )
+            except RetryableAgentError as error:
+                previous_error = str(error)
+                continue
+            break
+        else:
             raise CodeLearnerError(
-                result.error or "component discovery returned no JSONL"
+                f"Component discovery failed after 2 attempts: {previous_error}"
             )
         validation = self.candidates.ingest(
-            result.final_message,
+            output,
             attempt_id=f"discovery-{run_id}",
             replace_existing=True,
         )
         for rejected in validation.rejected:
-            repaired = self._repair_candidate(runtime, rejected)
-            if not repaired:
-                candidate_id = rejected.candidate.get("candidate_id", "unknown")
-                self._warning(
-                    "components",
-                    "; ".join(rejected.errors),
-                    suffix=str(candidate_id),
-                )
+            candidate_id = rejected.candidate.get("candidate_id", "unknown")
+            self._warning(
+                "components",
+                "; ".join(rejected.errors),
+                suffix=str(candidate_id),
+            )
         if not self.candidates.load():
             raise CodeLearnerError("component discovery produced no usable candidates")
         return self.candidates.load()
-
-    def _repair_candidate(self, runtime: AgentRuntime, rejected) -> bool:
-        result = runtime.invoke(
-            AgentInvocation(
-                role="code_learner_analysis",
-                prompt=self.candidates.repair_prompt(
-                    rejected,
-                    schema_path=(
-                        Path(__file__).with_name("schemas") / "phase3.schema.json"
-                    ),
-                ),
-                context_paths=[
-                    self.source.files_path.relative_to(self.root).as_posix(),
-                    self.ctags.raw_path.relative_to(self.root).as_posix(),
-                ],
-            )
-        )
-        if not result.ok or not result.final_message.strip():
-            return False
-        repaired = self.candidates.ingest(
-            result.final_message,
-            attempt_id=f"repair-{rejected.candidate.get('candidate_id', uuid4().hex)}",
-        )
-        return repaired.complete
 
     def _reconcile_all(self, run_id: str):
         failures = []
@@ -534,9 +537,7 @@ class Phase3InitializationPipeline:
         )
         return {
             "architecture_course_path": architecture["jsonl_path"],
-            "module_course_count": self._resume_course_summary()[
-                "module_course_count"
-            ],
+            "module_course_count": self._resume_course_summary()["module_course_count"],
         }
 
     def _verify_rendered_courses(self):
@@ -718,8 +719,8 @@ class Phase3InitializationPipeline:
         )
         self._emit(
             stage,
-            f"Continuing after error: {message}",
-            activity_kind="error",
+            f"Warning: {message}",
+            activity_kind="warning",
         )
 
     def _fail(self, revision: str, error: Exception) -> None:

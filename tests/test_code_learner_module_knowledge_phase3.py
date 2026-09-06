@@ -196,7 +196,7 @@ def test_module_generation_retries_only_uncached_module(tmp_path: Path) -> None:
     service.ingest(str(first["module_id"]), first)
     runtime = FakeRuntime(
         [
-            AgentResult(False, "", error="temporary module failure"),
+            AgentResult(False, "partial", error="module analysis timed out"),
             AgentResult(True, json.dumps(second)),
         ]
     )
@@ -213,6 +213,49 @@ def test_module_generation_retries_only_uncached_module(tmp_path: Path) -> None:
         .prompt.split("Module scope ID: ", 1)[1]
         .splitlines()[0]
     )
+
+
+def test_module_generation_retries_malformed_json(tmp_path: Path) -> None:
+    catalog = build_catalog(tmp_path)
+    artifact = _artifact(catalog)
+    runtime = FakeRuntime(
+        [
+            AgentResult(True, '{"record_type":"module_knowledge"'),
+            AgentResult(True, json.dumps(artifact)),
+        ]
+    )
+    service = ModuleKnowledgeService(
+        tmp_path,
+        store=catalog.store,
+        runtime_factory=lambda role, root: runtime,
+    )
+
+    accepted = service.generate(str(artifact["module_id"]), analysis_run_id="run-1")
+
+    assert accepted["module_id"] == artifact["module_id"]
+    assert len(runtime.invocations) == 2
+
+
+def test_module_generation_does_not_retry_semantic_failure(tmp_path: Path) -> None:
+    catalog = build_catalog(tmp_path)
+    invalid = _artifact(catalog)
+    invalid["component_ids"] = []
+    runtime = FakeRuntime(
+        [
+            AgentResult(True, json.dumps(invalid)),
+            AgentResult(True, json.dumps(_artifact(catalog))),
+        ]
+    )
+    service = ModuleKnowledgeService(
+        tmp_path,
+        store=catalog.store,
+        runtime_factory=lambda role, root: runtime,
+    )
+
+    with pytest.raises(CodeLearnerError, match="cover every member component"):
+        service.generate(str(invalid["module_id"]), analysis_run_id="run-1")
+
+    assert len(runtime.invocations) == 1
 
 
 def test_many_and_repeated_components_preserve_vertical_membership(
