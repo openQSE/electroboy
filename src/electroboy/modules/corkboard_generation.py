@@ -301,6 +301,7 @@ Return exactly one JSON object with this shape and no Markdown fence:
 Rules:
 - Return between 1 and {MAX_GENERATED_CARDS} cards.
 - Keep titles compact and notes specific.
+- Do not prefix titles with sequence numbers; the service adds visible numbering.
 - Sequence must increase in reading, narrative, chronological, dependency,
   or data-flow order.
 - The service computes collision-free coordinates; do not return x or y values.
@@ -336,6 +337,11 @@ def _json_plan(result: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise StateError("agent corkboard plan must be an object")
     return payload
+
+
+def _numbered_card_title(title: str, sequence: int) -> str:
+    unnumbered = re.sub(r"^\s*\d+\s*[.):\-]\s+", "", title).strip() or title
+    return f"{sequence}. {unnumbered}"[:200]
 
 
 def normalize_generation_plan(
@@ -396,6 +402,11 @@ def normalize_generation_plan(
     prepared.sort(key=lambda item: (item[0], item[1]))
     cards: list[dict[str, object]] = []
     for position, (_, _, card) in enumerate(prepared):
+        sequence = position + 1
+        card["title"] = _numbered_card_title(str(card["title"]), sequence)
+        metadata = card.get("metadata")
+        if isinstance(metadata, dict):
+            metadata["sequence"] = sequence
         card["x"] = 60 + position * 360
         card["y"] = 60
         cards.append(card)

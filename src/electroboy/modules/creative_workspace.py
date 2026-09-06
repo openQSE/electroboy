@@ -3226,11 +3226,15 @@ def render_corkboard_html(
     function resolveFreeformOverlaps() {{
       if (!usesFreeformLayout() || cards.length < 2) return [];
       const gap = Math.max(14, scaledCardValue(BASE_CARD_GAP));
-      const entries = cards.map((card, index) => ({{
-        card,
-        index,
-        geometry: cardWorldGeometry(card),
-      }})).sort((left, right) => {{
+      const entries = cards.map((card, index) => {{
+        const geometry = cardWorldGeometry(card);
+        return {{
+          card,
+          index,
+          geometry,
+          originalCenter: {{ ...geometry.center }},
+        }};
+      }}).sort((left, right) => {{
         const yDifference = left.geometry.y - right.geometry.y;
         if (Math.abs(yDifference) > 1) return yDifference;
         const xDifference = left.geometry.x - right.geometry.x;
@@ -3257,17 +3261,26 @@ def render_corkboard_html(
               moving.y + moving.height + gap,
             ) - Math.max(fixed.y, moving.y);
             if (overlapX <= 0 || overlapY <= 0) continue;
-            const fixedCenterX = fixed.x + fixed.width / 2;
-            const fixedCenterY = fixed.y + fixed.height / 2;
-            const movingCenterX = moving.x + moving.width / 2;
-            const movingCenterY = moving.y + moving.height / 2;
-            const shiftX = movingCenterX >= fixedCenterX
+            const fixedEntry = entries[fixedIndex];
+            const movingEntry = entries[movingIndex];
+            const originalDx = movingEntry.originalCenter.x
+              - fixedEntry.originalCenter.x;
+            const originalDy = movingEntry.originalCenter.y
+              - fixedEntry.originalCenter.y;
+            const horizontalDistance = Math.abs(originalDx)
+              / Math.max(1, (fixed.width + moving.width) / 2);
+            const verticalDistance = Math.abs(originalDy)
+              / Math.max(1, (fixed.height + moving.height) / 2);
+            const separateHorizontally = Math.abs(originalDy) <= 1
+              || (Math.abs(originalDx) > 1
+                && horizontalDistance >= verticalDistance);
+            const shiftX = originalDx >= 0
               ? fixed.x + fixed.width + gap - moving.x
               : fixed.x - gap - moving.width - moving.x;
-            const shiftY = movingCenterY >= fixedCenterY
+            const shiftY = originalDy >= 0
               ? fixed.y + fixed.height + gap - moving.y
               : fixed.y - gap - moving.height - moving.y;
-            if (Math.abs(shiftX) <= Math.abs(shiftY)) {{
+            if (separateHorizontally) {{
               moving.x += shiftX;
             }} else {{
               moving.y += shiftY;

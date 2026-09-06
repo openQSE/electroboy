@@ -631,7 +631,8 @@ def test_browser_corkboard_layout_and_resize_prevent_overlaps(
             "capabilities": ["move-card"],
             "cards": [
                 {"id": "a", "title": "A", "x": 20, "y": 20},
-                {"id": "b", "title": "B", "x": 80, "y": 60},
+                {"id": "b", "title": "B", "x": 80, "y": 20},
+                {"id": "c", "title": "C", "x": 140, "y": 20},
             ],
             "connectors": [],
         }
@@ -675,9 +676,13 @@ def test_browser_corkboard_layout_and_resize_prevent_overlaps(
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert 'data-layout-positions="a:20px,20px|b:80px,248px"' in completed.stdout
     assert (
-        'data-resize-positions="a:20px,20px,640x400|b:140px,476px,640x400"'
+        'data-layout-positions="a:20px,20px|b:368px,20px|c:716px,20px"'
+        in completed.stdout
+    )
+    assert (
+        'data-resize-positions="a:20px,20px,640x400|b:716px,20px,640x400|'
+        'c:1412px,20px,640x400"'
         in completed.stdout
     )
 

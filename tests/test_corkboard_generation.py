@@ -157,6 +157,14 @@ class CorkboardGenerationTests(unittest.TestCase):
             )
 
         self.assertEqual([card["id"] for card in cards], ["cause", "effect"])
+        self.assertEqual(
+            [card["title"] for card in cards],
+            ["1. Cause", "2. Effect"],
+        )
+        self.assertEqual(
+            [card["metadata"]["sequence"] for card in cards],
+            [1, 2],
+        )
         self.assertLess(cards[0]["x"], cards[1]["x"])
         self.assertEqual(cards[0]["y"], cards[1]["y"])
         self.assertNotIn("width", cards[0])
@@ -238,6 +246,7 @@ class CorkboardGenerationTests(unittest.TestCase):
         self.assertIn("do not modify any file", runtime.invocation.prompt)
         self.assertEqual(runtime.invocation.context_paths, [str(source)])
         self.assertIsNotNone(provider.generated)
+        self.assertEqual(provider.generated["cards"][0]["title"], "1. Arrival")
         self.assertEqual(provider.generated["cards"][0]["path"], "chapter.md")
         self.assertEqual(len(provider.generated["connectors"]), 1)
 
