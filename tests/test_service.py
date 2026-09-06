@@ -847,7 +847,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function migratePaneLayout(layout)", creative)
         self.assertNotIn("selectCreativeDocument(firstDocument.path", creative)
-        self.assertIn('runtimeApi.layout.ensurePane("agent");', sessions)
+        self.assertNotIn("layout.ensurePane", sessions)
         self.assertIn("function renderTree(runtime)", binder)
         self.assertIn("function addEntryDragBehavior(", binder)
         self.assertIn('row.addEventListener("pointerdown"', binder)
@@ -979,11 +979,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id: "agenda"', agenda)
         self.assertIn('id: "assignments"', assignments)
         self.assertIn('kind: "route"', assignments)
-        self.assertIn('runtime.layout.ensurePane(', assignments)
+        self.assertNotIn("layout.ensurePane", assignments)
         self.assertIn("const activate = options.activate !== false;", assignments)
-        self.assertIn("activateExisting: activate", assignments)
-        self.assertIn('runtime.layout.assignPane("assignments", item, "", {', assignments)
-        self.assertIn('targetPane || "agenda"', assignments)
+        self.assertIn(
+            'runtime.layout.assignPane("assignments", item, "", {',
+            assignments,
+        )
         self.assertIn('kind: "calendar"', calendar)
         self.assertIn('id: "calendar"', calendar)
         self.assertIn("runtime.layout.assignWorkspacePane", calendar)
@@ -1164,9 +1165,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function ensureRunningSessionStreams()", sessions)
         self.assertIn("appendAgentOutput(outputText, sessionId);", sessions)
         self.assertIn("prepareTerminalStream(sessionId);", sessions)
-        self.assertIn("if (options.ensurePane !== false)", sessions)
+        self.assertIn("if (options.focusPane !== false)", sessions)
         self.assertIn(
-            "connectSessionEvents(runtimeState.selectedSessionId, { ensurePane: false })",
+            "connectSessionEvents(runtimeState.selectedSessionId, "
+            "{ focusPane: false })",
             sessions,
         )
         self.assertIn("response.status === 404", sessions)
@@ -1285,14 +1287,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("no active agent stream", pane_window)
         self.assertIn('if (session && session.status === "running")', app)
         self.assertIn("showProgressPane(true, {", app)
-        self.assertIn("ensureRequestedPanes: false,", app)
         self.assertIn("updateOutputSplit: false,", app)
         self.assertIn(
-            'connectSessionEvents(session.session_id, { ensurePane: false })',
+            'connectSessionEvents(session.session_id, { focusPane: false })',
             app,
         )
         self.assertIn("connectProgressEvents({", app)
-        self.assertIn("ensureRequestedPanes: false,", app)
         self.assertIn("updateOutputSplit: false,", app)
         self.assertIn("if (!session) {", sessions)
         self.assertIn("terminate_agents: terminateAgents", app)
@@ -1933,20 +1933,11 @@ class ServiceTests(unittest.TestCase):
             runtime,
         )
         self.assertIn("scheduleFitTerminal();", runtime)
-        self.assertIn(
-            "function ensurePaneInLayout(kind, targetKind = \"agent\", direction = \"row\", options = {})",
-            runtime,
-        )
-        self.assertIn("const existing = paneLayoutLeafByKind(kind);", runtime)
-        self.assertIn("setActivePaneLayoutLeaf(existing.id);", runtime)
-        self.assertIn("const shouldActivate = options.activate !== false;", runtime)
-        self.assertIn(
-            "if (shouldActivate && options.activateExisting !== false)",
-            runtime,
-        )
+        self.assertNotIn("ensurePaneInLayout", runtime)
+        self.assertNotIn("ensurePane:", runtime)
+        self.assertNotIn("layout.ensurePane", project_shell)
         self.assertIn("refreshPaneLayoutVisibility();", runtime)
         self.assertIn("const manualChangeOptions = {", runtime)
-        self.assertIn("ensureRequestedPanes: false,", runtime)
         self.assertIn("updateOutputSplit: false,", runtime)
         self.assertIn("activatePaneLayoutKind(kind, manualChangeOptions);", runtime)
         self.assertIn(
@@ -1962,39 +1953,18 @@ class ServiceTests(unittest.TestCase):
         )
         visibility_source = runtime[visibility_start:visibility_end]
         self.assertIn(
-            "const ensureRequestedPanes = options.ensureRequestedPanes !== false;",
-            visibility_source,
-        )
-        self.assertIn(
             "const updateOutputSplit = options.updateOutputSplit !== false;",
             visibility_source,
         )
-        self.assertIn(
-            'if (ensureRequestedPanes && artifactVisible)',
-            visibility_source,
-        )
-        self.assertIn(
-            'ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false })',
-            visibility_source,
-        )
-        self.assertIn(
-            'if (ensureRequestedPanes && progressVisible)',
-            visibility_source,
-        )
-        self.assertIn(
-            'ensurePaneInLayout("progress", "agent", "row", { activateExisting: false })',
-            visibility_source,
-        )
+        self.assertNotIn("ensureRequestedPanes", visibility_source)
+        self.assertNotIn("paneLayoutSplit", visibility_source)
+        self.assertNotIn("splitPaneLayoutLeaf", visibility_source)
         self.assertIn("if (!updateOutputSplit)", visibility_source)
         self.assertIn(
             'outputSplit.classList.remove("artifact-visible", "split");',
             visibility_source,
         )
-        self.assertIn(
-            'runtime.layout.ensurePane("shell", "agent", "column", { activateExisting: false })',
-            project_shell,
-        )
-        self.assertIn("activePaneLayoutLeafId = newLeaf.id;", runtime)
+        self.assertEqual(runtime.count("splitPaneLayoutLeaf("), 4)
         self.assertIn('message.type === "electroboy:pane-activate"', runtime)
         self.assertIn("function paneLayoutArtifactIsProjectScoped(item)", runtime)
         self.assertIn('item.kind === "agenda"', runtime)
@@ -2019,6 +1989,8 @@ class ServiceTests(unittest.TestCase):
             change_kind_start,
         )
         change_kind_source = runtime[change_kind_start:change_kind_end]
+        self.assertNotIn("paneLayoutSplit", change_kind_source)
+        self.assertNotIn("splitPaneLayoutLeaf", change_kind_source)
         self.assertNotIn("leaf.content = null", change_kind_source)
         self.assertNotIn('leaf.projectRoot = ""', change_kind_source)
         self.assertIn(
@@ -2043,7 +2015,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function paneLayoutContribution(mode = workflowMode)", runtime)
         self.assertIn("function migratePaneLayoutForWorkflow(layout", runtime)
         self.assertIn("contribution.migratePaneLayout(paneLayoutDescription(layout))", runtime)
-        self.assertIn('availableEmpty.kind = kind;', runtime)
+        self.assertNotIn("availableEmpty", runtime)
         self.assertIn("storedPaneLayout(mode = workflowMode)", runtime)
         self.assertIn("key.startsWith(`${PANE_LAYOUT_STORAGE_KEY}.`)", runtime)
         self.assertIn("loadPaneLayoutForWorkflow();", runtime)

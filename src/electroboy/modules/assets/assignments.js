@@ -23,25 +23,8 @@
       path,
     };
     const activate = options.activate !== false;
-    const targetPane = String(options.targetPane || "agenda");
-    const ratio = Number(options.ratio || 0.72);
-    if (runtime.layout.ensurePane) {
-      runtime.layout.ensurePane(
-        "assignments",
-        targetPane,
-        "row",
-        {
-          ratio,
-          activate,
-          activateExisting: activate,
-        },
-      );
-    }
     runtime.layout.assignPane("assignments", item, "", {
       activate,
-      targetPane,
-      direction: "row",
-      ratio,
     });
   }
 

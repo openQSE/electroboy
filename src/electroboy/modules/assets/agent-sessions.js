@@ -184,10 +184,6 @@
     if (typeof runtimeApi.layout.focusAgentSession === "function") {
       return runtimeApi.layout.focusAgentSession(requestedSessionId);
     }
-    if (typeof runtimeApi.layout.ensurePane === "function") {
-      runtimeApi.layout.ensurePane("agent");
-      return true;
-    }
     return false;
   }
 
@@ -384,7 +380,7 @@
       }
       connectSessionEvents(
         runtimeState.selectedSessionId,
-        { ensurePane: focusPane && !paneFocused },
+        { focusPane: focusPane && !paneFocused },
       );
       updateAgentControls();
       sendTerminalResize();
@@ -409,7 +405,7 @@
         if (!session || (runningOnly && !sessionIsRunning(session))) {
           return;
         }
-        connectSessionEvents(runtimeState.selectedSessionId, { ensurePane: false });
+        connectSessionEvents(runtimeState.selectedSessionId, { focusPane: false });
         updateAgentControls();
         sendTerminalResize();
       }, 0);
@@ -425,7 +421,7 @@
       }
       if (sessionId === runtimeState.selectedSessionId) {
         const paneFocused = focusAgentSessionPane(sessionId);
-        connectSessionEvents(sessionId, { ensurePane: !paneFocused });
+        connectSessionEvents(sessionId, { focusPane: !paneFocused });
         updateAgentControls();
         sendTerminalResize();
         return;
@@ -515,8 +511,8 @@
       if (!sessionId) {
         return;
       }
-      if (options.ensurePane !== false) {
-        runtimeApi.layout.ensurePane("agent");
+      if (options.focusPane !== false) {
+        focusAgentSessionPane(sessionId);
       }
       const previousSessionId = runtimeState.selectedSessionId || "";
       if (previousSessionId && previousSessionId !== sessionId) {

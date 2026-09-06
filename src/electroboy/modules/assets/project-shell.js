@@ -87,9 +87,6 @@
   function applyProjectShellPaneVisibility(runtime) {
     const state = shellState(runtime);
     const visible = state.projectShellPaneRequested && !runtime.layout.isPopped("shell");
-    if (visible) {
-      runtime.layout.ensurePane("shell", "agent", "column", { activateExisting: false });
-    }
     runtime.elements.projectShellPane.hidden = !visible;
     runtime.elements.shellPaneDivider.hidden = !visible;
     runtime.elements.leftOutputPane.classList.toggle("shell-visible", visible);
@@ -98,6 +95,7 @@
       initializeProjectShellTerminal(runtime);
     }
     window.requestAnimationFrame(() => runtime.terminals.fitAll());
+    runtime.layout.reconcile("project-shell-visibility");
     updateProjectShellToggle(runtime);
   }
 

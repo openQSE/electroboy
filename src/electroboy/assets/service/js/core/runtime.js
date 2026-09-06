@@ -2441,10 +2441,6 @@
         }
       }
       if (!leaf) {
-        ensurePaneInLayout("agent", "agent", "row");
-        leaf = paneLayoutLeafByKind("agent");
-      }
-      if (!leaf) {
         return false;
       }
       setActivePaneLayoutLeaf(leaf.id);
@@ -2877,7 +2873,6 @@
       savePaneLayout();
       renderPaneLayout();
       const manualChangeOptions = {
-        ensureRequestedPanes: false,
         updateOutputSplit: false,
       };
       activatePaneLayoutKind(kind, manualChangeOptions);
@@ -2977,75 +2972,6 @@
       }
     }
 
-    function ensurePaneInLayout(kind, targetKind = "agent", direction = "row", options = {}) {
-      if (!paneLayout) {
-        return;
-      }
-      const shouldActivate = options.activate !== false;
-      const previousActiveLeafId = activePaneLayoutLeafId;
-      const existing = paneLayoutLeafByKind(kind);
-      if (existing) {
-        if (shouldActivate && options.activateExisting !== false) {
-          setActivePaneLayoutLeaf(existing.id);
-          activatePaneLayoutKind(kind);
-        } else {
-          reconcilePaneLayout(`ensurePaneInLayout:${kind}:existing`);
-        }
-        return;
-      }
-      const activeLeaf = paneLayoutLeafById(activePaneLayoutLeafId);
-      const availableEmpty = activeLeaf && activeLeaf.kind === "empty"
-        ? activeLeaf
-        : paneLayoutLeafByKind("empty");
-      if (availableEmpty) {
-        availableEmpty.kind = kind;
-        availableEmpty.content = null;
-        availableEmpty.projectRoot = "";
-        if (shouldActivate) {
-          setActivePaneLayoutLeaf(availableEmpty.id);
-        } else if (paneLayoutLeafById(previousActiveLeafId)) {
-          activePaneLayoutLeafId = previousActiveLeafId;
-        } else {
-          activePaneLayoutLeafId = availableEmpty.id;
-        }
-        savePaneLayout();
-        renderPaneLayout();
-        if (shouldActivate) {
-          activatePaneLayoutKind(kind);
-        }
-        return;
-      }
-      const target = paneLayoutLeafByKind(targetKind) || paneLayoutLeaves()[0];
-      const ratio = Number.isFinite(Number(options.ratio))
-        ? Number(options.ratio)
-        : 0.5;
-      if (!target) {
-        paneLayout = paneLayoutLeaf(kind);
-        activePaneLayoutLeafId = paneLayout.id;
-      } else {
-        const newLeaf = paneLayoutLeaf(kind);
-        const replacement = paneLayoutSplit(
-          direction,
-          { ...target },
-          newLeaf,
-          Math.max(0.15, Math.min(0.85, ratio)),
-        );
-        paneLayout = replacePaneLayoutNode(paneLayout, target.id, replacement);
-        if (shouldActivate) {
-          activePaneLayoutLeafId = newLeaf.id;
-        } else if (paneLayoutLeafById(previousActiveLeafId)) {
-          activePaneLayoutLeafId = previousActiveLeafId;
-        } else {
-          activePaneLayoutLeafId = target.id;
-        }
-      }
-      savePaneLayout();
-      renderPaneLayout();
-      if (shouldActivate) {
-        activatePaneLayoutKind(kind);
-      }
-    }
-
     function clonePaneLayoutContent(content) {
       if (!content || typeof content !== "object") {
         return null;
@@ -3081,15 +3007,6 @@
       const previousActiveLeafId = activePaneLayoutLeafId;
       let leaf = paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId);
       if (!leaf || leaf.kind !== kind) {
-        leaf = paneLayoutLeafByKind(kind);
-      }
-      if (!leaf) {
-        ensurePaneInLayout(
-          kind,
-          String(options.targetPane || "agent"),
-          String(options.direction || "row"),
-          options,
-        );
         leaf = paneLayoutLeafByKind(kind);
       }
       if (!leaf) {
@@ -3142,9 +3059,7 @@
         assignPaneLeafContent(leaf, kind, item);
         return;
       }
-      ensurePaneInLayout(kind, "agent", "row");
-      leaf = paneLayoutLeafByKind(kind);
-      assignPaneLeafContent(leaf, kind, item);
+      return;
     }
 
     function handlePaneLayoutMessage(event) {
@@ -3193,15 +3108,6 @@
       paneLayout = defaultPaneLayout(workflowMode);
       savePaneLayout();
       renderPaneLayout();
-      if (progressPaneRequested) {
-        ensurePaneInLayout("progress", "agent", "row", { activateExisting: false });
-      }
-      if (artifactPaneRequested && artifactPreviewItems.length > 0) {
-        ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false });
-      }
-      if (projectShellPaneRequested) {
-        ensurePaneInLayout("shell", "agent", "column", { activateExisting: false });
-      }
     }
 
     function loadPaneLayoutForWorkflow(mode = workflowMode) {
@@ -5229,21 +5135,15 @@
     }
 
     function applyOutputPaneVisibility(options = {}) {
-      const ensureRequestedPanes = options.ensureRequestedPanes !== false;
       const updateOutputSplit = options.updateOutputSplit !== false;
       const agentVisible = !poppedPanes.has("agent");
       const artifactVisible =
         artifactPaneRequested && !poppedPanes.has("artifact");
       const progressVisible = progressPaneRequested && !poppedPanes.has("progress");
-      if (ensureRequestedPanes && artifactVisible) {
-        ensurePaneInLayout("artifact", "agent", "row", { activateExisting: false });
-      }
-      if (ensureRequestedPanes && progressVisible) {
-        ensurePaneInLayout("progress", "agent", "row", { activateExisting: false });
-      }
       agentOutputPane.hidden = !agentVisible;
       artifactPreviewPane.hidden = !artifactVisible;
       progressOutputPane.hidden = !progressVisible;
+      refreshPaneLayoutVisibility();
       if (!updateOutputSplit) {
         artifactPaneResizeHandle.hidden = true;
         outputResizeHandle.hidden = true;
@@ -6424,16 +6324,14 @@
         } else {
           clearProgressOutput();
           showProgressPane(true, {
-            ensureRequestedPanes: false,
             updateOutputSplit: false,
           });
           setAgentInputVisible(false);
         }
         activeAgentKind = session.kind || "";
-        connectSessionEvents(session.session_id, { ensurePane: false });
+        connectSessionEvents(session.session_id, { focusPane: false });
         if (!isInteractive && session.status === "running") {
           connectProgressEvents({
-            ensureRequestedPanes: false,
             updateOutputSplit: false,
           });
         }
@@ -8602,7 +8500,6 @@
         timestamp: timestampForDownload,
       },
       layout: {
-        ensurePane: ensurePaneInLayout,
         focusAgentSession: focusAgentSessionPane,
         assignArtifact: assignArtifactToPane,
         assignPane: assignPaneContent,
