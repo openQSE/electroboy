@@ -1,4 +1,4 @@
-"""Durable reusable AI sessions for Code Learner analysis work."""
+"""Durable reusable AI sessions for Code Learner generation work."""
 
 from __future__ import annotations
 
@@ -9,28 +9,31 @@ from pathlib import Path
 from electroboy.adapters.base import AgentInvocation, AgentResult, AgentRuntime
 from electroboy.models import utc_now
 
-from .phase3_store import Phase3Store
+from .store import LearnerStore
 
 
 class AgentSessionRegistry:
-    """Persist provider session identities by repository revision and slot."""
+    """Persist provider session identities by repository and worker slot."""
 
-    def __init__(self, root: Path | str, *, store: Phase3Store | None = None) -> None:
+    def __init__(
+        self, root: Path | str, *, store: LearnerStore | None = None
+    ) -> None:
         self.root = Path(root).expanduser().resolve()
-        self.store = store or Phase3Store(self.root)
-        self.path = self.store.state_root / "agent-sessions.json"
+        self.store = store or LearnerStore(self.root)
+        self.path = self.store.sessions_path
         self._lock = threading.RLock()
         self._slot_locks: dict[str, threading.Lock] = {}
 
-    def prepare(self, repository_revision: str) -> None:
+    def prepare(self, repository_identity: str = "") -> None:
         with self._lock:
             state = self._load()
-            if state.get("repository_revision") == repository_revision:
+            identity = repository_identity or str(self.root)
+            if state.get("repository_identity") == identity:
                 return
             self._save(
                 {
                     "schema_version": 1,
-                    "repository_revision": repository_revision,
+                    "repository_identity": identity,
                     "sessions": {},
                     "updated_at": utc_now(),
                 }
@@ -67,14 +70,14 @@ class AgentSessionRegistry:
             return self._load()
 
     def _load(self) -> dict[str, object]:
-        return self.store.read_json(self.path) or {
+        return self.store.read_object(self.path) or {
             "schema_version": 1,
-            "repository_revision": "",
+            "repository_identity": "",
             "sessions": {},
         }
 
     def _save(self, state: dict[str, object]) -> None:
-        self.store.write_json(self.path, state)
+        self.store.write_state(self.path, state)
 
 
 class ReusableAgentRuntime(AgentRuntime):

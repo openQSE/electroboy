@@ -1080,32 +1080,32 @@ it is completed and commit at the stated functional boundaries.
 
 ### 1. Characterize the Replacement Boundary
 
-- [ ] Record the current GUI, Abort, Continue, Replace, Clear Cache, tutor, and
+- [x] Record the current GUI, Abort, Continue, Replace, Clear Cache, tutor, and
       navigation behaviors that must remain.
-- [ ] Identify all Phase 3 imports and state-path dependencies in the controller,
+- [x] Identify all Phase 3 imports and state-path dependencies in the controller,
       routes, workflow registration, frontend, and tests.
-- [ ] Confirm the new persistent layout has no phase-numbered names.
-- [ ] Confirm no implementation file or symbol is named with `phase4`.
+- [x] Confirm the new persistent layout has no phase-numbered names.
+- [x] Confirm no implementation file or symbol is named with `phase4`.
 
 Commit boundary: characterization tests and replacement boundary.
 
 ### 2. Add the Simple Store
 
-- [ ] Derive the repository name from the repository root directory's basename.
-- [ ] Create `.electroboy/code-learner/courses/<repository-name>/` before the
+- [x] Derive the repository name from the repository root directory's basename.
+- [x] Create `.electroboy/code-learner/courses/<repository-name>/` before the
       first AI turn.
-- [ ] Create `<repository-name>/raw-ai-knowledge/` before the first AI turn.
-- [ ] Do not rewrite, slugify, or otherwise normalize the repository name used
+- [x] Create `<repository-name>/raw-ai-knowledge/` before the first AI turn.
+- [x] Do not rewrite, slugify, or otherwise normalize the repository name used
       for the master directory.
-- [ ] Supply exact paths beneath the master directory to every AI turn.
-- [ ] Add responsibility-named accessors for AI-written `components.json`,
+- [x] Supply exact paths beneath the master directory to every AI turn.
+- [x] Add responsibility-named accessors for AI-written `components.json`,
       `modules.json`, `course.json`, and lesson JSONL files.
-- [ ] Expose the absolute raw-knowledge path without parsing, indexing, or
+- [x] Expose the absolute raw-knowledge path without parsing, indexing, or
       validating its contents.
-- [ ] Keep ElectroBoy-owned `status.json`, `progress.jsonl`, and
+- [x] Keep ElectroBoy-owned `status.json`, `progress.jsonl`, and
       `tutor-context.json` outside the repository-named course directory.
-- [ ] Add cache clearing for the replacement layout.
-- [ ] Add focused tests for repository-name derivation, directory creation,
+- [x] Add cache clearing for the replacement layout.
+- [x] Add focused tests for repository-name derivation, directory creation,
       path handoff, file access, and cache clearing.
 
 Commit boundary: repository-named course storage.

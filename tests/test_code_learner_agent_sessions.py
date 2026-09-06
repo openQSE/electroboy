@@ -75,4 +75,4 @@ def test_new_revision_discards_stale_session_slots(tmp_path: Path) -> None:
     registry.prepare("revision-2")
 
     assert registry.session_id("primary") == ""
-    assert registry.snapshot()["repository_revision"] == "revision-2"
+    assert registry.snapshot()["repository_identity"] == "revision-2"
