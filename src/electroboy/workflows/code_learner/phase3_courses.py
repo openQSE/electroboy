@@ -13,7 +13,7 @@ from electroboy.runtime import runtime_for_role
 from electroboy.structured_artifacts import RenderResult, render_artifact
 
 from .architecture_knowledge import ArchitectureKnowledgeService
-from .contracts import parse_jsonl, validate_course_records
+from .contracts import ContractError, parse_jsonl, validate_course_records
 from .domain import CodeLearnerError
 from .function_knowledge import FunctionKnowledgeService
 from .knowledge import Phase3KnowledgeContext
@@ -124,7 +124,7 @@ class Phase3CourseService:
                     "record_count": len(records),
                     "knowledge_id": knowledge["id"],
                 }
-            except CodeLearnerError as error:
+            except (CodeLearnerError, ContractError) as error:
                 last_error = str(error)
         message = f"{mode.title()} course failed: {last_error}"
         self.record_status(mode, scope_id, "failed", error=message)
@@ -380,9 +380,14 @@ Scoped layered knowledge: {knowledge_path}
 Return one document followed by ordered slide-sized section records as strict
 JSONL. Use Markdown and fenced Mermaid in section bodies. Previous/Next stay in
 this {mode} course. Deep-dive targets use known Phase 3 course document IDs;
-record component targets in deep_dive_targets. Preserve source links,
+record component targets in `deep_dive_targets`, where every object contains
+exactly `target_type` and `target_id`. Allowed target types are `architecture`,
+`module`, `component`, and `function`. Preserve source links,
 uncertainty, and return targets. Do not restart discovery, reconciliation,
 module synthesis, relationship generation, or knowledge generation.
+
+Always return a usable course. Preserve missing or uncertain evidence as
+explicit limitations; do not return `knowledge_request` records from this pass.
 """.strip()
 
     def _context_paths(

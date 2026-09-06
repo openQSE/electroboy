@@ -38,6 +38,10 @@
     "next_section_id": {"type": ["string", "null"]},
     "return_section_id": {"type": ["string", "null"]},
     "deep_dive_ids": {"$ref": "#/$defs/stringArray"},
+    "deep_dive_targets": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/deepDiveTarget"}
+    },
     "prerequisite_section_ids": {"$ref": "#/$defs/stringArray"},
     "knowledge_entity_ids": {"$ref": "#/$defs/stringArray"},
     "relationship_ids": {"$ref": "#/$defs/stringArray"},
@@ -110,6 +114,17 @@
         "question": {"type": "string", "minLength": 1}
       },
       "additionalProperties": true
+    },
+    "deepDiveTarget": {
+      "type": "object",
+      "required": ["target_type", "target_id"],
+      "properties": {
+        "target_type": {
+          "enum": ["architecture", "module", "component", "function"]
+        },
+        "target_id": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": true

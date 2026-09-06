@@ -7,6 +7,7 @@ import pytest
 from code_learner_phase3_fixtures import build_catalog
 
 from electroboy.adapters.base import AgentResult
+from electroboy.workflows.code_learner.contracts import load_contract_schema
 from electroboy.workflows.code_learner.domain import CodeLearnerError
 from electroboy.workflows.code_learner.phase3_courses import (
     Phase3CourseNavigator,
@@ -22,6 +23,16 @@ class FakeRuntime:
     def invoke(self, invocation):
         self.invocations.append(invocation)
         return AgentResult(True, "\n".join(json.dumps(item) for item in self.output))
+
+
+class SequenceRuntime:
+    def __init__(self, outputs: list[str]) -> None:
+        self.outputs = outputs
+        self.invocations = []
+
+    def invoke(self, invocation):
+        self.invocations.append(invocation)
+        return AgentResult(True, self.outputs.pop(0))
 
 
 def _records(catalog, mode: str, scope_id: str) -> list[dict[str, object]]:
@@ -158,6 +169,16 @@ def test_phase3_course_uses_shared_renderer_and_preserves_structured_source(
     assert service.target_status("course:architecture:architecture:current") == "ready"
 
 
+def test_course_schema_defines_deep_dive_target_shape() -> None:
+    schema = load_contract_schema("course")
+
+    target = schema["$defs"]["deepDiveTarget"]
+    assert target["required"] == ["target_type", "target_id"]
+    assert schema["properties"]["deep_dive_targets"]["items"] == {
+        "$ref": "#/$defs/deepDiveTarget"
+    }
+
+
 def test_course_navigation_moves_horizontally_and_restores_vertical_position(
     tmp_path: Path,
 ) -> None:
@@ -253,3 +274,63 @@ def test_course_build_prompt_uses_phase3_manifests_without_restarting_discovery(
     assert "Module manifest" in prompt
     assert "Scoped layered knowledge" in prompt
     assert "Do not restart discovery" in prompt
+    assert "do not return `knowledge_request`" in prompt
+
+
+def test_course_contract_failure_is_retried_and_reaches_ready_status(
+    tmp_path: Path,
+) -> None:
+    catalog = build_catalog(tmp_path)
+    catalog.store.write_jsonl(
+        catalog.store.knowledge_root / "architecture.jsonl",
+        [{"id": "architecture:current"}],
+    )
+    records = _records(catalog, "architecture", "architecture:current")
+    invalid = json.dumps(
+        {
+            "schema_version": 1,
+            "record_type": "knowledge_request",
+            "id": "request:course",
+            "analysis_run_id": "run-1",
+            "repository_revision": catalog.source.revision,
+        }
+    )
+    valid = "\n".join(json.dumps(item) for item in records)
+    runtime = SequenceRuntime([invalid, valid])
+    service = Phase3CourseService(
+        tmp_path,
+        store=catalog.store,
+        runtime_factory=lambda role, root: runtime,
+    )
+
+    result = service.build(
+        "architecture", "architecture:current", analysis_run_id="run-1"
+    )
+
+    assert result["record_count"] == len(records)
+    assert len(runtime.invocations) == 2
+    assert "Previous course output error" in runtime.invocations[1].prompt
+    assert service.target_status(result["document_id"]) == "ready"
+
+
+def test_course_contract_failures_end_in_failed_status(tmp_path: Path) -> None:
+    catalog = build_catalog(tmp_path)
+    catalog.store.write_jsonl(
+        catalog.store.knowledge_root / "architecture.jsonl",
+        [{"id": "architecture:current"}],
+    )
+    invalid = json.dumps({"record_type": "knowledge_request"})
+    runtime = SequenceRuntime([invalid, invalid])
+    service = Phase3CourseService(
+        tmp_path,
+        store=catalog.store,
+        runtime_factory=lambda role, root: runtime,
+    )
+
+    with pytest.raises(CodeLearnerError, match="Architecture course failed"):
+        service.build(
+            "architecture", "architecture:current", analysis_run_id="run-1"
+        )
+
+    document_id = "course:architecture:architecture:current"
+    assert service.target_status(document_id) == "failed"

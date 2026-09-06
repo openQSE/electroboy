@@ -14,7 +14,7 @@ def test_course_skill_routes_by_mode_and_keeps_diagrams_capability_driven() -> N
     assert "architecture-course.md" in text
     assert "module-course.md" in text
     assert "function-course.md" in text
-    assert "knowledge-request.md" in text
+    assert "Do not emit `knowledge_request` records" in text
     assert all(path.is_file() for path in (skill.parent / "references").glob("*.md"))
     mermaid = (skill.parent / "references" / "mermaid-guidelines.md").read_text(
         encoding="utf-8"
