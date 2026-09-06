@@ -1748,6 +1748,7 @@ class ServiceTests(unittest.TestCase):
             availability_start,
         )
         availability_source = runtime[availability_start:availability_end]
+        self.assertNotIn("SINGLETON_PANE_LAYOUT_KINDS", availability_source)
         self.assertIn('if (kind === "agenda")', availability_source)
         self.assertIn('if (kind === "calendar")', availability_source)
         self.assertIn("return true;", availability_source)
@@ -2020,6 +2021,15 @@ class ServiceTests(unittest.TestCase):
         change_kind_source = runtime[change_kind_start:change_kind_end]
         self.assertNotIn("leaf.content = null", change_kind_source)
         self.assertNotIn('leaf.projectRoot = ""', change_kind_source)
+        self.assertIn(
+            "const existingSingleton = SINGLETON_PANE_LAYOUT_KINDS.has(kind)",
+            change_kind_source,
+        )
+        self.assertIn(
+            "swapPaneLayoutLeafAssignments(leaf, existingSingleton);",
+            change_kind_source,
+        )
+        self.assertIn("function swapPaneLayoutLeafAssignments(", runtime)
         self.assertIn(
             'function updateLoadedPaneLayoutFrame(frame, leaf, nextUrl, reason = "pane-layout")',
             runtime,

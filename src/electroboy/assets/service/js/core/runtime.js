@@ -2014,10 +2014,6 @@
     }
 
     function paneLayoutKindAvailable(kind, leaf = null) {
-      if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
-        const existingLeaf = paneLayoutLeafByKind(kind);
-        return !existingLeaf || existingLeaf === leaf;
-      }
       if (kind === "agenda") {
         return Boolean(window.ElectroBoyFrontend?.module("agenda"));
       }
@@ -2031,6 +2027,20 @@
         return Boolean(window.ElectroBoyFrontend?.module("mind_map"));
       }
       return true;
+    }
+
+    function swapPaneLayoutLeafAssignments(first, second) {
+      const firstAssignment = {
+        kind: first.kind,
+        content: first.content,
+        projectRoot: first.projectRoot,
+      };
+      first.kind = second.kind;
+      first.content = second.content;
+      first.projectRoot = second.projectRoot;
+      second.kind = firstAssignment.kind;
+      second.content = firstAssignment.content;
+      second.projectRoot = firstAssignment.projectRoot;
     }
 
     function markPaneLayoutControl(element) {
@@ -2855,7 +2865,14 @@
         return;
       }
       const previousKind = leaf.kind;
-      leaf.kind = kind;
+      const existingSingleton = SINGLETON_PANE_LAYOUT_KINDS.has(kind)
+        ? paneLayoutLeafByKind(kind)
+        : null;
+      if (existingSingleton && existingSingleton !== leaf) {
+        swapPaneLayoutLeafAssignments(leaf, existingSingleton);
+      } else {
+        leaf.kind = kind;
+      }
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
       renderPaneLayout();
@@ -2900,15 +2917,7 @@
         return;
       }
       if (position === "center") {
-        const sourceKind = source.kind;
-        source.kind = target.kind;
-        target.kind = sourceKind;
-        const sourceContent = source.content;
-        source.content = target.content;
-        target.content = sourceContent;
-        const sourceProjectRoot = source.projectRoot;
-        source.projectRoot = target.projectRoot;
-        target.projectRoot = sourceProjectRoot;
+        swapPaneLayoutLeafAssignments(source, target);
       } else {
         const movedLeaf = { ...source };
         paneLayout = removePaneLayoutLeaf(paneLayout, sourceId);
