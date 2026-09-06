@@ -26,7 +26,7 @@ from .isolated_runtime import IsolatedAnalysisWorkspace
 from .module_knowledge import ModuleKnowledgeService
 from .modules import ModuleSynthesisService
 from .overlap import ComponentOverlapService
-from .phase3_contracts import load_phase3_schema, parse_phase3_jsonl
+from .phase3_contracts import load_phase3_schema
 from .phase3_courses import Phase3CourseService
 from .phase3_prompts import component_discovery_prompt
 from .phase3_revision import Phase3RevisionInvalidator
@@ -89,7 +89,7 @@ class Phase3InitializationPipeline:
         root: Path | str,
         *,
         runtime_factory: RuntimeFactory | None = None,
-        eager_function_budget: int = 24,
+        eager_function_budget: int = 0,
         cancel_event: Event | None = None,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
@@ -229,29 +229,19 @@ class Phase3InitializationPipeline:
                 ready=lambda: self.components.load() is not None,
                 resume=self.components.load,
             )
-            if component_snapshot.coverage.get("unresolved_count"):
-                component_snapshot = self._run_stage(
-                    checkpoint,
-                    "missing_file_investigation",
-                    lambda: self.components.build(
-                        analysis_run_id=run_id,
-                        investigator=self._investigate_missing_files,
-                    ),
-                    ready=lambda: bool(
-                        (self.store.read_json(self.components.context_path) or {}).get(
-                            "attempted"
-                        )
-                    ),
-                    warning_tolerant=True,
-                    resume=self.components.load,
-                    fallback=lambda: self.components.load(),
-                )
-            else:
-                self._complete_stage(
-                    checkpoint,
-                    "missing_file_investigation",
-                    message="No unresolved files require investigation.",
-                )
+            unresolved_count = int(
+                component_snapshot.coverage.get("unresolved_count") or 0
+            )
+            self._complete_stage(
+                checkpoint,
+                "missing_file_investigation",
+                message=(
+                    "Skipped AI file-coverage investigation; "
+                    f"retained {unresolved_count} uncovered files as warnings."
+                    if unresolved_count
+                    else "No uncovered files require a coverage warning."
+                ),
+            )
             self._run_stage(
                 checkpoint,
                 "component_manifest",
@@ -259,7 +249,7 @@ class Phase3InitializationPipeline:
                 ready=lambda: self.components.load() is not None,
                 resume=self.components.load,
             )
-            module_snapshot = self._run_stage(
+            self._run_stage(
                 checkpoint,
                 "modules",
                 lambda: self.modules.synthesize(analysis_run_id=run_id),
@@ -284,31 +274,20 @@ class Phase3InitializationPipeline:
                 ready=lambda: self.architecture.load() is not None,
                 resume=self.architecture.load,
             )
-            self._run_stage(
+            self._complete_stage(
                 checkpoint,
                 "module_knowledge",
-                lambda: self.module_knowledge.generate_all(analysis_run_id=run_id),
-                ready=self._all_module_knowledge_ready,
-                warning_tolerant=True,
-                resume=self._loaded_module_knowledge,
-                fallback=self._loaded_module_knowledge,
+                message="Deferred Module knowledge to background generation.",
             )
-            self._run_stage(
+            self._complete_stage(
                 checkpoint,
                 "important_functions",
-                lambda: self.functions.eager_generate(analysis_run_id=run_id),
-                ready=lambda: (
-                    self.functions.selection_path.is_file()
-                    or self.functions.eager_budget == 0
-                ),
-                warning_tolerant=True,
-                resume=lambda: list(self.functions.root_path.glob("*.jsonl")),
-                fallback=list,
+                message="Deferred Function knowledge until a symbol is requested.",
             )
             course_summary = self._run_stage(
                 checkpoint,
                 "courses",
-                lambda: self._build_courses(run_id, module_snapshot),
+                lambda: self._build_architecture_course(run_id),
                 ready=self._required_courses_ready,
                 resume=self._resume_course_summary,
             )
@@ -549,43 +528,15 @@ class Phase3InitializationPipeline:
             raise CodeLearnerError("; ".join(failures))
         return self.reconciliations.load()
 
-    def _investigate_missing_files(self, prompt: str) -> str:
-        result = self._observed_runtime("code_learner_analysis", self.root).invoke(
-            AgentInvocation(
-                role="code_learner_analysis",
-                prompt=prompt,
-                context_paths=[
-                    self.components.context_path.relative_to(self.root).as_posix()
-                ],
-            )
-        )
-        if not result.ok:
-            raise CodeLearnerError(result.error or "missing-file investigation failed")
-        parse_phase3_jsonl(result.final_message, artifact="missing-file investigation")
-        return result.final_message
-
-    def _build_courses(self, run_id: str, module_snapshot):
+    def _build_architecture_course(self, run_id: str):
         architecture = self.courses.build(
             "architecture", "architecture:current", analysis_run_id=run_id
         )
-        built_modules = 0
-        for module in module_snapshot.modules:
-            module_id = str(module["id"])
-            if self.module_knowledge.load(module_id) is None:
-                self._warning(
-                    "courses",
-                    f"Skipped Module course without valid knowledge: {module_id}",
-                    suffix=module_id,
-                )
-                continue
-            try:
-                self.courses.build("module", module_id, analysis_run_id=run_id)
-                built_modules += 1
-            except CodeLearnerError as error:
-                self._warning("courses", str(error), suffix=module_id)
         return {
             "architecture_course_path": architecture["jsonl_path"],
-            "module_course_count": built_modules,
+            "module_course_count": self._resume_course_summary()[
+                "module_course_count"
+            ],
         }
 
     def _verify_rendered_courses(self):
@@ -594,17 +545,6 @@ class Phase3InitializationPipeline:
         )
         if not architecture.is_file():
             raise CodeLearnerError("Architecture course Markdown is missing")
-        missing = [
-            str(module["id"])
-            for module in self.modules.load().modules
-            if self.module_knowledge.load(str(module["id"])) is not None
-            and not self.courses.markdown_path("module", str(module["id"])).is_file()
-        ]
-        if missing:
-            self._warning(
-                "rendering",
-                "Module course rendering is incomplete: " + ", ".join(missing),
-            )
         return architecture
 
     def _resume_course_summary(self) -> dict[str, object]:

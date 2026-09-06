@@ -2346,12 +2346,12 @@ Boundary 1 validation notes:
      relationship invocation over the frozen component and module manifests.
 329. [x] Validate every global relationship endpoint and source reference
      against canonical manifests before publishing any relationship records.
-330. [ ] Remove the AI missing-file investigation pass; preserve uncovered
+330. [x] Remove the AI missing-file investigation pass; preserve uncovered
      files and other coverage discrepancies as non-blocking diagnostics.
-331. [ ] Stop eager Function selection and Function knowledge generation
+331. [x] Stop eager Function selection and Function knowledge generation
      during initialization; generate Function material only when a user asks
      for a resolvable symbol.
-332. [ ] Split Architecture course generation from Module course generation
+332. [x] Split Architecture course generation from Module course generation
      and activate the learner as soon as the Architecture course is rendered
      and valid.
 333. [ ] Define durable per-module target states for `queued`,
