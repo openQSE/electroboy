@@ -996,6 +996,61 @@ def render_corkboard_html(
       z-index: 1;
     }}
 
+    .save-the-cat-structure {{
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }}
+
+    .save-the-cat-row {{
+      position: absolute;
+      min-width: 100%;
+      border: 2px solid rgba(255, 249, 232, 0.78);
+      border-radius: 8px;
+      background: rgba(56, 61, 69, 0.48);
+      box-shadow: 0 14px 32px rgba(15, 20, 32, 0.16) inset;
+    }}
+
+    .save-the-cat-act {{
+      position: absolute;
+      top: 18px;
+      bottom: 18px;
+      left: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 249, 232, 0.9);
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }}
+
+    .save-the-cat-beat,
+    .save-the-cat-finale {{
+      position: absolute;
+      overflow: hidden;
+      color: rgba(255, 249, 232, 0.88);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-align: center;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }}
+
+    .save-the-cat-beat {{ top: 44px; }}
+
+    .save-the-cat-finale {{
+      top: 13px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 249, 232, 0.58);
+    }}
+
     .corkboard-connector {{
       fill: none;
       stroke: var(--connector-color, #ead8b0);
@@ -1080,6 +1135,14 @@ def render_corkboard_html(
         0 24px 46px rgba(15, 20, 32, 0.34),
         0 2px 0 rgba(255, 255, 255, 0.55) inset;
       z-index: 10;
+    }}
+
+    .index-card.structural-gap {{
+      border: 3px dashed #e0545e;
+      box-shadow:
+        0 0 0 4px rgba(224, 84, 94, 0.2),
+        0 18px 38px rgba(122, 24, 36, 0.42),
+        0 2px 0 rgba(255, 255, 255, 0.55) inset;
     }}
 
     .index-card.group {{
@@ -1793,6 +1856,7 @@ def render_corkboard_html(
       : AVAILABLE_LAYOUT_MODES[0];
     let dragState = null;
     let connectorLayer = null;
+    let saveTheCatStructureLayer = null;
     let connectorState = null;
     let connectorCutState = null;
     let canvasPanState = null;
@@ -1943,6 +2007,20 @@ def render_corkboard_html(
 
     function usesGridLayout() {{
       return boardType === "folder" || layoutMode === "grid";
+    }}
+
+    function saveTheCatMetadata(card) {{
+      const metadata = card && card.metadata;
+      return metadata
+        && typeof metadata === "object"
+        && !Array.isArray(metadata)
+        && metadata.method === "save-the-cat"
+        ? metadata
+        : null;
+    }}
+
+    function usesSaveTheCatLayout() {{
+      return usesFreeformLayout() && cards.some(saveTheCatMetadata);
     }}
 
     async function saveBoardTitle() {{
@@ -2517,6 +2595,101 @@ def render_corkboard_html(
       connectorLayer.setAttribute("aria-hidden", "true");
       board.prepend(connectorLayer);
       return connectorLayer;
+    }}
+
+    function ensureSaveTheCatStructureLayer() {{
+      if (
+        saveTheCatStructureLayer
+        && saveTheCatStructureLayer.parentElement === board
+      ) {{
+        return saveTheCatStructureLayer;
+      }}
+      saveTheCatStructureLayer = document.createElement("div");
+      saveTheCatStructureLayer.className = "save-the-cat-structure";
+      saveTheCatStructureLayer.setAttribute("aria-hidden", "true");
+      board.prepend(saveTheCatStructureLayer);
+      return saveTheCatStructureLayer;
+    }}
+
+    function renderSaveTheCatStructure() {{
+      if (!usesSaveTheCatLayout()) {{
+        if (saveTheCatStructureLayer) saveTheCatStructureLayer.remove();
+        saveTheCatStructureLayer = null;
+        return;
+      }}
+      const layer = ensureSaveTheCatStructureLayer();
+      layer.replaceChildren();
+      const rowOrder = ["act-1", "act-2a", "act-2b", "act-3"];
+      for (const act of rowOrder) {{
+        const entries = cards
+          .filter((card) => saveTheCatMetadata(card)?.act === act)
+          .map((card) => ({{
+            card,
+            metadata: saveTheCatMetadata(card),
+            geometry: cardWorldGeometry(card),
+          }}));
+        if (!entries.length) continue;
+        const left = Math.min(...entries.map((entry) => entry.geometry.x)) - 130;
+        const top = Math.min(...entries.map((entry) => entry.geometry.y)) - 82;
+        const right = Math.max(
+          ...entries.map((entry) => entry.geometry.x + entry.geometry.width),
+        ) + 44;
+        const bottom = Math.max(
+          ...entries.map((entry) => entry.geometry.y + entry.geometry.height),
+        ) + 42;
+        const row = document.createElement("section");
+        row.className = "save-the-cat-row";
+        row.dataset.act = act;
+        row.style.left = `${{left}}px`;
+        row.style.top = `${{top}}px`;
+        row.style.width = `${{Math.max(right - left, canvasViewport.clientWidth)}}px`;
+        row.style.height = `${{bottom - top}}px`;
+        const actLabel = document.createElement("div");
+        actLabel.className = "save-the-cat-act";
+        actLabel.textContent = entries[0].metadata.act_label || act;
+        row.append(actLabel);
+
+        const beatGroups = new Map();
+        for (const entry of entries) {{
+          const beat = entry.metadata.beat;
+          if (!beatGroups.has(beat)) beatGroups.set(beat, []);
+          beatGroups.get(beat).push(entry);
+        }}
+        for (const group of beatGroups.values()) {{
+          const heading = document.createElement("div");
+          heading.className = "save-the-cat-beat";
+          const groupLeft = Math.min(...group.map((entry) => entry.geometry.x));
+          const groupRight = Math.max(
+            ...group.map((entry) => entry.geometry.x + entry.geometry.width),
+          );
+          heading.style.left = `${{groupLeft - left}}px`;
+          heading.style.width = `${{groupRight - groupLeft}}px`;
+          heading.textContent = group[0].metadata.beat_label || group[0].metadata.beat;
+          row.append(heading);
+        }}
+        if (act === "act-3") {{
+          const finaleEntries = entries.filter(
+            (entry) => entry.metadata.beat !== "final-image",
+          );
+          if (finaleEntries.length) {{
+            const finale = document.createElement("div");
+            finale.className = "save-the-cat-finale";
+            const finaleLeft = Math.min(
+              ...finaleEntries.map((entry) => entry.geometry.x),
+            );
+            const finaleRight = Math.max(
+              ...finaleEntries.map(
+                (entry) => entry.geometry.x + entry.geometry.width,
+              ),
+            );
+            finale.style.left = `${{finaleLeft - left}}px`;
+            finale.style.width = `${{finaleRight - finaleLeft}}px`;
+            finale.textContent = "Finale";
+            row.append(finale);
+          }}
+        }}
+        layer.append(row);
+      }}
     }}
 
     function cardWorldGeometry(card) {{
@@ -3223,8 +3396,59 @@ def render_corkboard_html(
       return changed;
     }}
 
+    function resolveSaveTheCatLayout() {{
+      const gap = Math.max(14, scaledCardValue(BASE_CARD_GAP));
+      const beatGap = Math.max(42, Math.round(gap * 2.5));
+      const rowGap = Math.max(100, Math.round(gap * 3.5));
+      const rowOrder = ["act-1", "act-2a", "act-2b", "act-3"];
+      const changed = new Set();
+      let previousBottom = null;
+      for (const act of rowOrder) {{
+        const rowCards = cards
+          .filter((card) => saveTheCatMetadata(card)?.act === act)
+          .sort((left, right) => {{
+            const sequenceDifference = Number(saveTheCatMetadata(left)?.sequence)
+              - Number(saveTheCatMetadata(right)?.sequence);
+            return Number.isFinite(sequenceDifference) && sequenceDifference !== 0
+              ? sequenceDifference
+              : (Number(left.x) || 0) - (Number(right.x) || 0);
+          }});
+        if (!rowCards.length) continue;
+        let rowY = Math.min(...rowCards.map((card) => Number(card.y) || 0));
+        const tallest = Math.max(
+          ...rowCards.map((card) => cardWorldGeometry(card).height),
+        );
+        if (previousBottom !== null) {{
+          rowY = Math.max(rowY, previousBottom + rowGap);
+        }}
+        let previousRight = null;
+        let previousBeat = "";
+        for (const card of rowCards) {{
+          const geometry = cardWorldGeometry(card);
+          const beat = saveTheCatMetadata(card)?.beat || "";
+          const minimumX = previousRight === null
+            ? Number(card.x) || 0
+            : previousRight + gap + (beat !== previousBeat ? beatGap : 0);
+          const nextX = Math.max(Number(card.x) || 0, minimumX);
+          if (Math.abs((Number(card.x) || 0) - nextX) > 0.5) {{
+            card.x = nextX;
+            changed.add(card);
+          }}
+          if (Math.abs((Number(card.y) || 0) - rowY) > 0.5) {{
+            card.y = rowY;
+            changed.add(card);
+          }}
+          previousRight = nextX + geometry.width;
+          previousBeat = beat;
+        }}
+        previousBottom = rowY + tallest;
+      }}
+      return Array.from(changed);
+    }}
+
     function resolveFreeformOverlaps() {{
       if (!usesFreeformLayout() || cards.length < 2) return [];
+      if (usesSaveTheCatLayout()) return resolveSaveTheCatLayout();
       const gap = Math.max(14, scaledCardValue(BASE_CARD_GAP));
       const entries = cards.map((card, index) => {{
         const geometry = cardWorldGeometry(card);
@@ -3444,6 +3668,7 @@ def render_corkboard_html(
     function sizeBoard() {{
       applyCanvasPan();
       applyGridColumns();
+      renderSaveTheCatStructure();
       renderConnectors();
     }}
 
@@ -4140,8 +4365,20 @@ def render_corkboard_html(
       if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {{
         return null;
       }}
-      const entries = Object.entries(metadata).filter(([, value]) =>
-        value !== null && value !== undefined && String(value).trim() !== "",
+      const structuralKeys = new Set([
+        "method",
+        "act",
+        "act_label",
+        "beat",
+        "beat_label",
+        "missing",
+        "sequence",
+      ]);
+      const entries = Object.entries(metadata).filter(([key, value]) =>
+        !structuralKeys.has(key)
+        && value !== null
+        && value !== undefined
+        && String(value).trim() !== "",
       );
       if (entries.length === 0) {{
         return null;
@@ -4167,6 +4404,7 @@ def render_corkboard_html(
     function renderCards() {{
       board.replaceChildren();
       connectorLayer = null;
+      saveTheCatStructureLayer = null;
       if (usesFreeformLayout()) ensureConnectorLayer();
       folderInsertionMarker = null;
       clearFolderInsertionMarker();
@@ -4190,6 +4428,10 @@ def render_corkboard_html(
       for (const card of cards) {{
         const cardElement = document.createElement("article");
         cardElement.className = `index-card ${{cardCssType(card)}}`;
+        cardElement.classList.toggle(
+          "structural-gap",
+          Boolean(saveTheCatMetadata(card)?.missing),
+        );
         cardElement.dataset.key = cardKey(card);
         cardElement.tabIndex = 0;
         cardElement.classList.toggle("selected", selectedCardKey === cardElement.dataset.key);

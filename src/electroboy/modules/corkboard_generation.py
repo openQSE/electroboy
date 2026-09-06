@@ -18,6 +18,7 @@ from electroboy.service.services import ServiceServices
 from electroboy.state_store import StateError
 
 MAX_GENERATED_CARDS = 75
+MAX_SAVE_THE_CAT_CARDS = 240
 GENERATION_ACTIVITY_INTERVAL_SECONDS = 5.0
 IGNORED_PARTS = frozenset(
     {".electroboy", ".git", ".hg", ".svn", "__pycache__", "node_modules"}
@@ -69,6 +70,13 @@ PASS_DEFINITIONS: dict[str, tuple[dict[str, str], ...]] = {
                 "Arrange events chronologically and connect causes to effects."
             ),
         },
+        {
+            "id": "save-the-cat",
+            "label": "Save the Cat",
+            "description": (
+                "Map the story to a four-row beat sheet and identify missing beats."
+            ),
+        },
     ),
     "software": (
         {
@@ -91,6 +99,145 @@ PASS_DEFINITIONS: dict[str, tuple[dict[str, str], ...]] = {
             ),
         },
     ),
+}
+
+SAVE_THE_CAT_ROWS: tuple[dict[str, object], ...] = (
+    {
+        "id": "act-1",
+        "label": "Act 1",
+        "beats": (
+            ("opening-image", "Opening Image", "Show the story's before-state."),
+            (
+                "theme-stated",
+                "Theme Stated",
+                "Hint at the truth the protagonist must learn.",
+            ),
+            (
+                "setup",
+                "Setup",
+                "Establish the ordinary world, relationships, flaws, and pressures.",
+            ),
+            (
+                "catalyst",
+                "Catalyst",
+                "Disrupt the existing order with an event that demands a response.",
+            ),
+            (
+                "debate",
+                "Debate",
+                "Test uncertainty about entering the central conflict.",
+            ),
+            (
+                "break-into-two",
+                "Break into Two",
+                "Make the active choice that enters Act 2's new world.",
+            ),
+        ),
+    },
+    {
+        "id": "act-2a",
+        "label": "Act 2A",
+        "beats": (
+            (
+                "b-story",
+                "B Story",
+                "Introduce the relationship or thread that carries the theme.",
+            ),
+            (
+                "fun-and-games",
+                "Fun and Games",
+                "Deliver the escalating promise of the premise.",
+            ),
+            ("midpoint", "Midpoint", "Create a major reversal that raises the stakes."),
+        ),
+    },
+    {
+        "id": "act-2b",
+        "label": "Act 2B",
+        "beats": (
+            (
+                "bad-guys-close-in",
+                "Bad Guys Close In",
+                "Tighten internal and external pressure as the plan fails.",
+            ),
+            (
+                "all-is-lost",
+                "All Is Lost",
+                "Bring the old plan to an apparent and consequential defeat.",
+            ),
+            (
+                "dark-night-of-the-soul",
+                "Dark Night of the Soul",
+                "Let the protagonist confront what the defeat means.",
+            ),
+            (
+                "break-into-three",
+                "Break into Three",
+                "Turn the story's lessons into a new decision or plan.",
+            ),
+        ),
+    },
+    {
+        "id": "act-3",
+        "label": "Act 3",
+        "beats": (
+            (
+                "gathering-the-team",
+                "Gathering the Team",
+                "Assemble the allies, tools, and roles for the final attempt.",
+            ),
+            (
+                "executing-the-plan",
+                "Executing the Plan",
+                "Begin the final plan and establish credible hope.",
+            ),
+            (
+                "high-tower-surprise",
+                "High Tower Surprise",
+                "Break the apparent solution with the final reversal.",
+            ),
+            (
+                "dig-deep-down",
+                "Dig Deep Down",
+                "Have the protagonist internalize the theme and choose differently.",
+            ),
+            (
+                "execution-of-the-new-plan",
+                "Execution of the New Plan",
+                "Resolve the conflict through decisive, transformed action.",
+            ),
+            (
+                "final-image",
+                "Final Image",
+                "Show the after-state in contrast with the opening.",
+            ),
+        ),
+    },
+)
+
+SAVE_THE_CAT_BEATS = {
+    beat_id: {
+        "label": beat_label,
+        "suggestion": suggestion,
+        "act": str(row["id"]),
+        "act_label": str(row["label"]),
+        "row": row_index,
+        "slot": slot_index,
+    }
+    for row_index, row in enumerate(SAVE_THE_CAT_ROWS)
+    for slot_index, (beat_id, beat_label, suggestion) in enumerate(row["beats"])
+}
+
+SAVE_THE_CAT_BEAT_ALIASES = {
+    "break-into-2": "break-into-two",
+    "break-into-3": "break-into-three",
+    "dark-night": "dark-night-of-the-soul",
+    "gathering-team": "gathering-the-team",
+    "execute-plan": "executing-the-plan",
+    "high-tower": "high-tower-surprise",
+    "dig-deep": "dig-deep-down",
+    "new-plan": "execution-of-the-new-plan",
+    "finale": "executing-the-plan",
 }
 
 ROLE_COLORS = {
@@ -232,6 +379,71 @@ def _prompt(
         if scope["type"] == "file"
         else "Analyze the project as a whole using the supplied source manifest."
     )
+    if pass_definition["id"] == "save-the-cat":
+        manifest_text = "\n".join(f"- {path}" for path in manifest)
+        beat_rows = "\n".join(
+            f"- {row['label']}: " + ", ".join(beat_id for beat_id, _, _ in row["beats"])
+            for row in SAVE_THE_CAT_ROWS
+        )
+        return f"""You are generating an ElectroBoy Save the Cat corkboard from
+creative writing source material.
+
+Use $save-the-cat-story-structure if it is available. {scope_instruction}
+Map source-supported story events onto this exact four-row board, progressing left
+to right within each row:
+{beat_rows}
+
+The five Act 3 beats before final-image are the five sub-beats of Finale. Broad beats
+such as setup, debate, fun-and-games, and bad-guys-close-in may contain any number
+of cards; do not collapse a sequence of distinct scenes into one vague card.
+
+Read the source files, but do not modify any file and do not run destructive commands.
+While working, emit a concise one-line commentary update whenever your activity
+changes so the user can follow the analysis. Do not repeat an unchanged status.
+Return exactly one JSON object with this shape and no Markdown fence:
+{{
+  "title": "concise board title",
+  "cards": [
+    {{
+      "id": "stable-short-id",
+      "title": "short source-supported scene or beat title",
+      "note": "concise explanation of how this event performs the beat",
+      "role": "scene, story, storyline, timeline, event, or character",
+      "beat": "one exact beat id from the rows above",
+      "sequence": 1,
+      "lane": "optional storyline or character arc",
+      "source_path": "project-relative source path"
+    }}
+  ],
+  "missing_beats": [
+    {{
+      "beat": "an exact unrepresented beat id",
+      "suggestion": "a concrete story-specific possibility for this missing function"
+    }}
+  ],
+  "connectors": [
+    {{
+      "source": "source-card-id",
+      "target": "target-card-id",
+      "relation": "short causal relation",
+      "label": "optional connector label"
+    }}
+  ]
+}}
+
+Rules:
+- Return between 1 and {MAX_SAVE_THE_CAT_CARDS} source-supported cards.
+- Include every absent beat in missing_beats. Do not invent an event as source fact.
+- Keep titles compact and notes specific.
+- Do not prefix titles with sequence numbers; the service adds visible numbering.
+- Sequence preserves narrative order within a beat.
+- Do not return x or y values; the service assigns the four fixed rows.
+- Include only connectors supported by the source; adjacency alone is not causality.
+- Every source_path must be one of the paths below.
+
+Source manifest:
+{manifest_text}
+"""
     pass_instructions = {
         "story-scenes": (
             "Break the content into meaningful scenes, beats, ideas, and storylines. "
@@ -344,24 +556,52 @@ def _numbered_card_title(title: str, sequence: int) -> str:
     return f"{sequence}. {unnumbered}"[:200]
 
 
-def normalize_generation_plan(
+def _save_the_cat_beat_id(value: object) -> str:
+    beat_id = _slug(value, "")
+    beat_id = SAVE_THE_CAT_BEAT_ALIASES.get(beat_id, beat_id)
+    if beat_id not in SAVE_THE_CAT_BEATS:
+        raise StateError(f"unknown Save the Cat beat: {value}")
+    return beat_id
+
+
+def _save_the_cat_suggestions(plan: dict[str, object]) -> dict[str, str]:
+    raw_suggestions = plan.get("missing_beats", [])
+    if not isinstance(raw_suggestions, list):
+        raise StateError("Save the Cat missing_beats must be a list")
+    suggestions: dict[str, str] = {}
+    for raw in raw_suggestions:
+        if not isinstance(raw, dict) or not raw.get("beat"):
+            continue
+        beat_id = _save_the_cat_beat_id(raw["beat"])
+        suggestion = str(raw.get("suggestion") or raw.get("note") or "").strip()
+        if suggestion:
+            suggestions[beat_id] = suggestion[:5000]
+    return suggestions
+
+
+def _normalize_save_the_cat_cards(
     root: Path,
+    raw_cards: list[object],
     plan: dict[str, object],
     *,
-    default_source: str = "",
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Validate semantic agent output and assign collision-free positions."""
-
-    raw_cards = plan.get("cards")
-    if not isinstance(raw_cards, list) or not raw_cards:
-        raise StateError("agent corkboard plan contains no cards")
-    if len(raw_cards) > MAX_GENERATED_CARDS:
-        raise StateError(f"agent corkboard plan exceeds {MAX_GENERATED_CARDS} cards")
+    default_source: str,
+) -> tuple[list[dict[str, object]], set[str]]:
+    if len(raw_cards) > MAX_SAVE_THE_CAT_CARDS:
+        raise StateError(f"agent corkboard plan exceeds {MAX_SAVE_THE_CAT_CARDS} cards")
     seen: set[str] = set()
-    prepared: list[tuple[float, int, dict[str, object]]] = []
+    suggestions = _save_the_cat_suggestions(plan)
+    prepared: dict[str, list[tuple[float, int, dict[str, object]]]] = {
+        beat_id: [] for beat_id in SAVE_THE_CAT_BEATS
+    }
     for index, raw in enumerate(raw_cards):
         if not isinstance(raw, dict):
             raise StateError(f"generated card {index + 1} must be an object")
+        beat_id = _save_the_cat_beat_id(raw.get("beat"))
+        if raw.get("missing"):
+            suggestion = str(raw.get("note") or raw.get("suggestion") or "").strip()
+            if suggestion:
+                suggestions[beat_id] = suggestion[:5000]
+            continue
         title = str(raw.get("title") or "").strip()
         if not title:
             raise StateError(f"generated card {index + 1} has no title")
@@ -376,10 +616,11 @@ def normalize_generation_plan(
             sequence = float(raw.get("sequence", index + 1))
         except (TypeError, ValueError):
             sequence = float(index + 1)
-        role = _slug(raw.get("role") or "idea", "idea")
+        role = _slug(raw.get("role") or "scene", "scene")
         lane = str(raw.get("lane") or role).strip()[:100] or role
         source = str(raw.get("source_path") or default_source).strip()
         source = _safe_source_path(root, source) if source else ""
+        beat = SAVE_THE_CAT_BEATS[beat_id]
         card: dict[str, object] = {
             "id": card_id,
             "title": title[:200],
@@ -389,6 +630,12 @@ def normalize_generation_plan(
             "metadata": {
                 "role": role,
                 "lane": lane,
+                "method": "save-the-cat",
+                "act": beat["act"],
+                "act_label": beat["act_label"],
+                "beat": beat_id,
+                "beat_label": beat["label"],
+                "missing": False,
                 **({"source": source} if source else {}),
             },
         }
@@ -398,18 +645,135 @@ def normalize_generation_plan(
                 type="file",
                 target={"type": "document", "path": source},
             )
-        prepared.append((sequence, index, card))
-    prepared.sort(key=lambda item: (item[0], item[1]))
-    cards: list[dict[str, object]] = []
-    for position, (_, _, card) in enumerate(prepared):
-        sequence = position + 1
-        card["title"] = _numbered_card_title(str(card["title"]), sequence)
-        metadata = card.get("metadata")
-        if isinstance(metadata, dict):
-            metadata["sequence"] = sequence
-        card["x"] = 60 + position * 360
-        card["y"] = 60
-        cards.append(card)
+        prepared[beat_id].append((sequence, index, card))
+
+    ordered: list[dict[str, object]] = []
+    for row in SAVE_THE_CAT_ROWS:
+        for beat_id, beat_label, default_suggestion in row["beats"]:
+            beat_cards = sorted(prepared[beat_id], key=lambda item: (item[0], item[1]))
+            if beat_cards:
+                ordered.extend(card for _, _, card in beat_cards)
+                continue
+            placeholder_id = f"missing-{beat_id}"
+            suffix = 2
+            while placeholder_id in seen:
+                placeholder_id = f"missing-{beat_id}-{suffix}"
+                suffix += 1
+            beat = SAVE_THE_CAT_BEATS[beat_id]
+            suggestion = suggestions.get(beat_id, default_suggestion)
+            ordered.append(
+                {
+                    "id": placeholder_id,
+                    "title": f"Missing beat: {beat_label}",
+                    "note": suggestion,
+                    "color": "rose",
+                    "card_type": "card",
+                    "metadata": {
+                        "role": "structural-gap",
+                        "lane": beat["act_label"],
+                        "method": "save-the-cat",
+                        "act": beat["act"],
+                        "act_label": beat["act_label"],
+                        "beat": beat_id,
+                        "beat_label": beat_label,
+                        "missing": True,
+                    },
+                }
+            )
+
+    row_positions = {str(row["id"]): 0 for row in SAVE_THE_CAT_ROWS}
+    previous_beat = {str(row["id"]): "" for row in SAVE_THE_CAT_ROWS}
+    for position, card in enumerate(ordered):
+        metadata = card["metadata"]
+        act = str(metadata["act"])
+        beat_id = str(metadata["beat"])
+        row_position = row_positions[act]
+        if previous_beat[act] and previous_beat[act] != beat_id:
+            row_position += 70
+        card["title"] = _numbered_card_title(str(card["title"]), position + 1)
+        metadata["sequence"] = position + 1
+        card["x"] = 180 + row_position
+        card["y"] = 120 + int(SAVE_THE_CAT_BEATS[beat_id]["row"]) * 390
+        row_positions[act] = row_position + 360
+        previous_beat[act] = beat_id
+    return ordered, seen
+
+
+def normalize_generation_plan(
+    root: Path,
+    plan: dict[str, object],
+    *,
+    default_source: str = "",
+    generation_pass: str = "",
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Validate semantic agent output and assign collision-free positions."""
+
+    raw_cards = plan.get("cards")
+    if not isinstance(raw_cards, list) or not raw_cards:
+        raise StateError("agent corkboard plan contains no cards")
+    if generation_pass == "save-the-cat":
+        cards, seen = _normalize_save_the_cat_cards(
+            root,
+            raw_cards,
+            plan,
+            default_source=default_source,
+        )
+    elif len(raw_cards) > MAX_GENERATED_CARDS:
+        raise StateError(f"agent corkboard plan exceeds {MAX_GENERATED_CARDS} cards")
+    else:
+        seen = set()
+        prepared: list[tuple[float, int, dict[str, object]]] = []
+        for index, raw in enumerate(raw_cards):
+            if not isinstance(raw, dict):
+                raise StateError(f"generated card {index + 1} must be an object")
+            title = str(raw.get("title") or "").strip()
+            if not title:
+                raise StateError(f"generated card {index + 1} has no title")
+            base_id = _slug(raw.get("id") or title, f"card-{index + 1}")[:80]
+            card_id = base_id
+            suffix = 2
+            while card_id in seen:
+                card_id = f"{base_id}-{suffix}"[:100]
+                suffix += 1
+            seen.add(card_id)
+            try:
+                sequence = float(raw.get("sequence", index + 1))
+            except (TypeError, ValueError):
+                sequence = float(index + 1)
+            role = _slug(raw.get("role") or "idea", "idea")
+            lane = str(raw.get("lane") or role).strip()[:100] or role
+            source = str(raw.get("source_path") or default_source).strip()
+            source = _safe_source_path(root, source) if source else ""
+            card = {
+                "id": card_id,
+                "title": title[:200],
+                "note": str(raw.get("note") or raw.get("summary") or "")[:5000],
+                "color": ROLE_COLORS.get(role, "slate"),
+                "card_type": "card",
+                "metadata": {
+                    "role": role,
+                    "lane": lane,
+                    **({"source": source} if source else {}),
+                },
+            }
+            if source:
+                card.update(
+                    path=source,
+                    type="file",
+                    target={"type": "document", "path": source},
+                )
+            prepared.append((sequence, index, card))
+        prepared.sort(key=lambda item: (item[0], item[1]))
+        cards = []
+        for position, (_, _, card) in enumerate(prepared):
+            sequence = position + 1
+            card["title"] = _numbered_card_title(str(card["title"]), sequence)
+            metadata = card.get("metadata")
+            if isinstance(metadata, dict):
+                metadata["sequence"] = sequence
+            card["x"] = 60 + position * 360
+            card["y"] = 60
+            cards.append(card)
 
     raw_connectors = plan.get("connectors", [])
     if not isinstance(raw_connectors, list):
@@ -730,6 +1094,7 @@ class CorkboardGenerationManager:
                 root,
                 plan,
                 default_source=job.scope.get("path", ""),
+                generation_pass=job.pass_id,
             )
             self._update(
                 job,

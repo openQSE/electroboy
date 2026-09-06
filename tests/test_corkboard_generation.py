@@ -110,7 +110,7 @@ class CorkboardGenerationTests(unittest.TestCase):
 
         self.assertEqual(
             [item["id"] for item in creative],
-            ["story-scenes", "characters", "events-timeline"],
+            ["story-scenes", "characters", "events-timeline", "save-the-cat"],
         )
         self.assertEqual(
             [item["id"] for item in software],
@@ -175,6 +175,149 @@ class CorkboardGenerationTests(unittest.TestCase):
         self.assertEqual(cards[0]["path"], "chapter.md")
         self.assertEqual(connectors[0]["source"]["side"], "right")
         self.assertEqual(connectors[0]["target"]["side"], "left")
+
+    def test_save_the_cat_plan_uses_four_rows_and_fills_missing_beats(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "story.md").write_text("# Story\n", encoding="utf-8")
+            source_cards = [
+                {
+                    "id": "opening",
+                    "title": "A locked observatory",
+                    "beat": "opening-image",
+                    "sequence": 1,
+                    "source_path": "story.md",
+                },
+                *[
+                    {
+                        "id": f"promise-{index}",
+                        "title": f"Impossible experiment {index}",
+                        "beat": "fun-and-games",
+                        "sequence": index,
+                        "source_path": "story.md",
+                    }
+                    for index in range(1, 26)
+                ],
+                {
+                    "id": "final",
+                    "title": "The observatory opens",
+                    "beat": "final-image",
+                    "sequence": 1,
+                    "source_path": "story.md",
+                },
+            ]
+            cards, connectors = normalize_generation_plan(
+                root,
+                {
+                    "cards": source_cards,
+                    "missing_beats": [
+                        {
+                            "beat": "theme-stated",
+                            "suggestion": "Let Mara challenge the cost of knowing.",
+                        }
+                    ],
+                    "connectors": [
+                        {
+                            "source": "opening",
+                            "target": "promise-1",
+                            "relation": "motivates",
+                        }
+                    ],
+                },
+                generation_pass="save-the-cat",
+            )
+
+        metadata = [card["metadata"] for card in cards]
+        self.assertEqual(
+            {item["act"] for item in metadata},
+            {"act-1", "act-2a", "act-2b", "act-3"},
+        )
+        self.assertEqual(len({card["y"] for card in cards}), 4)
+        self.assertEqual(
+            len([item for item in metadata if item["beat"] == "fun-and-games"]), 25
+        )
+        theme = next(
+            item for item in cards if item["metadata"]["beat"] == "theme-stated"
+        )
+        self.assertTrue(theme["metadata"]["missing"])
+        self.assertEqual(theme["color"], "rose")
+        self.assertEqual(theme["note"], "Let Mara challenge the cost of knowing.")
+        self.assertIn("Missing beat: Theme Stated", theme["title"])
+        self.assertFalse(cards[0]["metadata"]["missing"])
+        self.assertEqual(cards[0]["metadata"]["method"], "save-the-cat")
+        self.assertTrue(
+            all(
+                card["title"].startswith(f"{index}. ")
+                for index, card in enumerate(cards, 1)
+            )
+        )
+        self.assertEqual(connectors[0]["source"]["card_id"], "opening")
+
+        for act in ("act-1", "act-2a", "act-2b", "act-3"):
+            row = [card for card in cards if card["metadata"]["act"] == act]
+            self.assertEqual(
+                [card["x"] for card in row], sorted(card["x"] for card in row)
+            )
+
+    def test_save_the_cat_generation_uses_structural_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "story.md"
+            source.write_text("# Story\nA beginning and ending.\n", encoding="utf-8")
+            runtime = FakeRuntime(
+                {
+                    "cards": [
+                        {
+                            "id": "opening",
+                            "title": "Closed door",
+                            "beat": "opening-image",
+                        },
+                        {
+                            "id": "ending",
+                            "title": "Open door",
+                            "beat": "final-image",
+                        },
+                    ]
+                }
+            )
+            manager = CorkboardGenerationManager(
+                runtime_factory=lambda role, project_root: runtime
+            )
+            dependency = object()
+            services = ServiceServices(
+                contexts=FakeContexts(root),
+                workspaces=dependency,
+                sessions=dependency,
+                files=dependency,
+                workflows=dependency,
+            )
+            provider = FakeProvider()
+            started = manager.start(
+                services,
+                provider,
+                "context-1",
+                {
+                    "scope": {"type": "file", "path": "story.md"},
+                    "pass": "save-the-cat",
+                },
+            )
+            deadline = time.monotonic() + 2
+            status = manager.get("context-1", str(started["job_id"]))
+            while status["status"] in {"queued", "running"}:
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+                status = manager.get("context-1", str(started["job_id"]))
+
+        self.assertEqual(status["status"], "complete")
+        self.assertIn("$save-the-cat-story-structure", runtime.invocation.prompt)
+        self.assertIn("exact four-row board", runtime.invocation.prompt)
+        self.assertIsNotNone(provider.generated)
+        self.assertEqual(
+            {card["metadata"]["act"] for card in provider.generated["cards"]},
+            {"act-1", "act-2a", "act-2b", "act-3"},
+        )
 
     def test_file_generation_runs_non_interactively_and_applies_atomically(
         self,
