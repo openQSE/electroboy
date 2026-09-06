@@ -2337,9 +2337,9 @@ Boundary 1 validation notes:
      because they share a file.
 325. [x] Test deterministic range correction, correction diagnostics, exact
      symbol overlap, and non-overlapping symbols in one file.
-326. [ ] Add runtime support for resuming a Codex session and forking a worker
+326. [x] Add runtime support for resuming a Codex session and forking a worker
      session while preserving provider session identifiers in durable state.
-327. [ ] Keep one primary AI session across component discovery, module
+327. [x] Keep one primary AI session across component discovery, module
      synthesis, global relationship analysis, and Architecture generation so
      repository understanding is not rebuilt for every stage.
 328. [ ] Replace per-module relationship invocations with one global

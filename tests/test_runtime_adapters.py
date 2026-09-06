@@ -59,6 +59,73 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result.final_message, "done")
         self.assertEqual(result.raw_events[0]["type"], "turn.completed")
 
+    def test_codex_exec_extracts_provider_session_from_thread_event(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        result = runtime._parse_stdout(
+            '{"type":"thread.started","thread_id":"session-123"}\n'
+            '{"type":"turn.completed","message":"done"}\n'
+        )
+
+        self.assertEqual(result.provider, "codex")
+        self.assertEqual(result.provider_session_id, "session-123")
+
+    def test_codex_exec_builds_resume_and_fork_commands(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        resumed = runtime._command(
+            AgentInvocation(
+                role="code_learner_analysis",
+                prompt="continue",
+                provider_session_id="primary-session",
+            )
+        )
+        forked = runtime._command(
+            AgentInvocation(
+                role="code_learner_course",
+                prompt="build",
+                fork_provider_session_id="primary-session",
+            )
+        )
+
+        self.assertEqual(resumed[-3:], ["resume", "primary-session", "-"])
+        self.assertEqual(forked[-3:], ["fork", "primary-session", "-"])
+        self.assertEqual(resumed[-5:-3], ["--sandbox", "read-only"])
+
+    def test_codex_exec_rejects_resume_and_fork_together(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "cannot resume and fork"):
+            runtime.invoke(
+                AgentInvocation(
+                    role="code_learner_analysis",
+                    prompt="invalid",
+                    provider_session_id="one",
+                    fork_provider_session_id="two",
+                )
+            )
+
     def test_generic_cli_runtime_errors_return_agent_result(self) -> None:
         runtime = GenericCliRuntime(
             RuntimeConfig(

@@ -135,6 +135,7 @@ class _RelocatedRuntime(AgentRuntime):
             ],
             output_schema=invocation.output_schema,
             provider_session_id=invocation.provider_session_id,
+            fork_provider_session_id=invocation.fork_provider_session_id,
             progress_path=invocation.progress_path,
             event_callback=invocation.event_callback,
             cancel_event=invocation.cancel_event,

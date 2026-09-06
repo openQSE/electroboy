@@ -14,6 +14,7 @@ from electroboy.models import utc_now
 from electroboy.runtime import runtime_for_role
 
 from .architecture_knowledge import ArchitectureKnowledgeService
+from .agent_sessions import AgentSessionRegistry, ReusableAgentRuntime
 from .component_manifest import ComponentManifestService
 from .components import ComponentCandidateService
 from .ctags_evidence import CtagsEvidenceService
@@ -94,6 +95,7 @@ class Phase3InitializationPipeline:
         self.root = Path(root).expanduser().resolve()
         self.store = Phase3Store(self.root)
         self.generation = LearnerGenerationStore(self.root)
+        self.agent_sessions = AgentSessionRegistry(self.root, store=self.store)
         self.source = SourceManifestService(self.root)
         self.invalidator = Phase3RevisionInvalidator(self.root, store=self.store)
         self.ctags = CtagsEvidenceService(self.root)
@@ -172,6 +174,7 @@ class Phase3InitializationPipeline:
             previous_source = self.source.load()
             source = self.source.generate()
             revision = source.revision
+            self.agent_sessions.prepare(revision)
             if acquire_lease:
                 lease = InitializationLease.acquire(
                     self.root,
@@ -683,7 +686,7 @@ class Phase3InitializationPipeline:
             else self._base_runtime_factory(role, root)
         )
         return _ObservedRuntime(
-            runtime,
+            ReusableAgentRuntime(runtime, self.agent_sessions, slot="primary"),
             lambda event: self._emit_activity(event),
             stage=self._active_stage,
             percent=STAGE_PERCENT.get(self._active_stage, 1),
