@@ -1291,19 +1291,19 @@ Commit boundary: simplified workflow cutover.
 
 ### 13. Remove Phase 3 and Validation Infrastructure
 
-- [ ] Remove all Phase 3 Code Learner code and artifacts, including production
+- [x] Remove all Phase 3 Code Learner code and artifacts, including production
       modules, tests, schemas, imports, fallback or compatibility branches, and
       Phase 3 state-path handling.
-- [ ] Delete all `phase3_*` implementation modules and schema files.
-- [ ] Delete Ctags, source-manifest, reconciliation, relationship, knowledge,
+- [x] Delete all `phase3_*` implementation modules and schema files.
+- [x] Delete Ctags, source-manifest, reconciliation, relationship, knowledge,
       and semantic course-validation code no longer used.
-- [ ] Remove Universal Ctags and Jansson dependencies when unused.
-- [ ] Delete obsolete Phase 2/Phase 3 selection and migration branches.
-- [ ] Delete obsolete tests and replace them with behavior-focused tests for the
+- [x] Remove Universal Ctags and Jansson dependencies when unused.
+- [x] Delete obsolete Phase 2/Phase 3 selection and migration branches.
+- [x] Delete obsolete tests and replace them with behavior-focused tests for the
       simplified implementation.
-- [ ] Confirm no active source or test imports a removed module.
-- [ ] Confirm no active state path contains `/phase3/`.
-- [ ] Confirm no implementation identifier contains `phase4`.
+- [x] Confirm no active source or test imports a removed module.
+- [x] Confirm no active state path contains `/phase3/`.
+- [x] Confirm no implementation identifier contains `phase4`.
 
 Commit boundary: obsolete learner pipeline removal.
 
