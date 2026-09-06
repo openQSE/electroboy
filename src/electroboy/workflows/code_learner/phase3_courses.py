@@ -148,7 +148,7 @@ class Phase3CourseService:
         context = Phase3KnowledgeContext(self.root, store=self.store)
         normalized = validate_course_records(
             records,
-            knowledge_ids=self._known_knowledge_ids(context),
+            knowledge_ids=(),
             root=self.root,
         )
         document = next(
@@ -189,13 +189,12 @@ class Phase3CourseService:
         path = self.course_path(mode, scope_id)
         if not path.is_file():
             return []
-        context = Phase3KnowledgeContext(self.root, store=self.store)
         return validate_course_records(
             parse_jsonl(
                 path.read_text(encoding="utf-8"),
                 artifact=path.relative_to(self.root).as_posix(),
             ),
-            knowledge_ids=self._known_knowledge_ids(context),
+            knowledge_ids=(),
             root=self.root,
         )
 
@@ -273,30 +272,9 @@ class Phase3CourseService:
                 raise CodeLearnerError("Next navigation leaves horizontal order")
             section["previous_section_id"] = expected_previous
             section["next_section_id"] = expected_next
-            for target in section.get("deep_dive_ids", []):
-                if not self._known_document_id(str(target), context=context):
-                    raise CodeLearnerError(
-                        f"course has an unknown deep-dive target: {target}"
-                    )
             for target in section.get("deep_dive_targets", []):
                 if not isinstance(target, Mapping):
                     raise CodeLearnerError("deep_dive_targets must contain objects")
-                target_type = str(target.get("target_type") or "")
-                target_id = str(target.get("target_id") or "")
-                catalogs = {
-                    "architecture": {"architecture:current"},
-                    "module": set(context.modules),
-                    "component": set(context.components),
-                    "function": set(context.symbols),
-                }
-                if target_id not in catalogs.get(target_type, set()):
-                    raise CodeLearnerError("course has an unknown vertical target")
-            for related in section.get("related_module_ids", []):
-                if related not in context.modules:
-                    raise CodeLearnerError("course has an unknown related module")
-            for related in section.get("related_symbol_ids", []):
-                if related not in context.symbols:
-                    raise CodeLearnerError("course has an unknown related symbol")
         expected_detail = mode
         if any(item.get("detail_level") != expected_detail for item in sections):
             raise CodeLearnerError("course section detail level does not match mode")

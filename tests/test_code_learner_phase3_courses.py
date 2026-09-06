@@ -169,6 +169,21 @@ def test_phase3_course_uses_shared_renderer_and_preserves_structured_source(
     assert service.target_status("course:architecture:architecture:current") == "ready"
 
 
+def test_phase3_course_preserves_ai_authored_knowledge_links(tmp_path: Path) -> None:
+    catalog = build_catalog(tmp_path)
+    service = Phase3CourseService(tmp_path, store=catalog.store)
+    scope = "architecture:current"
+    records = _records(catalog, "architecture", scope)
+    records[1]["runtime_flow_ids"] = ["flow:ai-authored"]
+    records[1]["knowledge_entity_ids"] = ["entity:ai-authored"]
+
+    service.save("architecture", scope, records)
+
+    loaded = service.load("architecture", scope)
+    assert loaded[1]["runtime_flow_ids"] == ["flow:ai-authored"]
+    assert loaded[1]["knowledge_entity_ids"] == ["entity:ai-authored"]
+
+
 def test_course_schema_defines_deep_dive_target_shape() -> None:
     schema = load_contract_schema("course")
 
@@ -230,7 +245,7 @@ def test_navigation_reports_missing_and_all_explicit_target_states(
         assert service.target_status(missing_target) == status
 
 
-def test_course_rejects_unknown_links_and_cross_level_navigation(
+def test_course_preserves_unknown_links_but_rejects_cross_level_navigation(
     tmp_path: Path,
 ) -> None:
     catalog = build_catalog(tmp_path)
@@ -238,9 +253,20 @@ def test_course_rejects_unknown_links_and_cross_level_navigation(
     scope = "architecture:current"
     records = _records(catalog, "architecture", scope)
     records[1]["deep_dive_ids"] = ["course:module:missing"]
+    records[1]["deep_dive_targets"] = [
+        {"target_type": "function", "target_id": "course:function:missing"}
+    ]
+    records[1]["related_module_ids"] = ["module:ai-authored"]
+    records[1]["related_symbol_ids"] = ["function:file.py#ai_authored"]
 
-    with pytest.raises(CodeLearnerError, match="unknown deep-dive"):
-        service.save("architecture", scope, records)
+    service.save("architecture", scope, records)
+    loaded = service.load("architecture", scope)
+    assert loaded[1]["deep_dive_ids"] == ["course:module:missing"]
+    assert loaded[1]["deep_dive_targets"] == [
+        {"target_type": "function", "target_id": "course:function:missing"}
+    ]
+    assert loaded[1]["related_module_ids"] == ["module:ai-authored"]
+    assert loaded[1]["related_symbol_ids"] == ["function:file.py#ai_authored"]
 
     records = _records(catalog, "architecture", scope)
     records[1]["detail_level"] = "module"
