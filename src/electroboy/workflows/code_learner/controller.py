@@ -195,12 +195,12 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         with self._lock:
             job = self._jobs.get(str(root))
         if job is not None and job.running():
-            job.cancel_event.set()
             LearnerStore(root).save_status(
                 status="aborting",
                 phase="aborting",
                 message="Stopping initialization...",
             )
+            job.cancel_event.set()
         return self._initialization_payload(context_id, root)
 
     def wait_for_initialization(

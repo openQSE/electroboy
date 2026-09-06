@@ -108,7 +108,10 @@ def _write_architecture(store: LearnerStore) -> None:
                 "parent_id": "architecture-overview",
                 "order": 10,
                 "title": "Purpose",
-                "body": "Architecture details.",
+                "body": (
+                    "Architecture details.\n\n"
+                    "```mermaid\nflowchart LR\nCore --> Runtime\n```"
+                ),
             }
         )
         + "\n",
@@ -119,8 +122,12 @@ def _write_architecture(store: LearnerStore) -> None:
 def test_initialization_uses_three_turns_and_resumes_primary_session(
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "repository"
+    root = tmp_path / "qhw-datastructures"
     root.mkdir()
+    store = LearnerStore(root)
+    store.initialize_layout()
+    existing = store.raw_knowledge_root / "existing-knowledge.md"
+    existing.write_text("# Existing knowledge\n", encoding="utf-8")
     runtime = DirectWriteRuntime(root)
     service = CourseGenerationService(
         root, runtime_factory=lambda _role, _root: runtime
@@ -139,8 +146,15 @@ def test_initialization_uses_three_turns_and_resumes_primary_session(
         for prompt in prompts
     }
     assert len(invocation_ids) == 3
-    assert len(list(LearnerStore(root).raw_knowledge_root.glob("*.md"))) == 3
-    assert LearnerStore(root).load_status()["status"] == "initialized"
+    assert store.course_root.name == "qhw-datastructures"
+    assert store.components()[0]["eb_comp_id"] == "comp-001"
+    assert store.modules()[0]["eb_module_id"] == "mod-001"
+    assert len(list(store.raw_knowledge_root.glob("*.md"))) == 4
+    assert existing.read_text(encoding="utf-8") == "# Existing knowledge\n"
+    assert "```mermaid" in store.read_lesson(
+        store.architecture_root / "01.System" / "01.Overview.jsonl"
+    )[1]["body"]
+    assert store.load_status()["status"] == "initialized"
 
 
 def test_continue_skips_ai_outputs_already_written(tmp_path: Path) -> None:

@@ -62,8 +62,8 @@ class LearnerStore:
             return None
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise CodeLearnerError(f"could not read {self.relative(path)}: {error}")
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def read_object(self, path: Path) -> dict[str, object]:
         value = self.read_value(path)

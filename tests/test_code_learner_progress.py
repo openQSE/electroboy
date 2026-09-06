@@ -27,11 +27,14 @@ def test_progress_keeps_specific_messages_and_deduplicates_consecutive() -> None
     ]
 
 
-def test_progress_preserves_runtime_errors() -> None:
+def test_progress_preserves_runtime_warning_and_error_severity() -> None:
     events: list[dict[str, object]] = []
     reporter = AgentActivityReporter(events.append, phase="module_course", percent=100)
 
     reporter({"event": {"type": "error", "message": "provider disconnected"}})
+    reporter({"event": {"type": "warning", "message": "output delayed"}})
 
     assert events[0]["activity_kind"] == "error"
     assert events[0]["message"] == "AI runtime error: provider disconnected"
+    assert events[1]["activity_kind"] == "warning"
+    assert events[1]["message"] == "AI runtime warning: output delayed"

@@ -60,6 +60,9 @@ def _runtime_activity(raw_event: dict[str, object]) -> tuple[str, str] | None:
     if event_type in {"error", "turn.failed"}:
         detail = sanitize_progress_message(event.get("message") or event.get("error"))
         return ("error", f"AI runtime error: {detail or event_type}")
+    if event_type == "warning":
+        detail = sanitize_progress_message(event.get("message") or event.get("warning"))
+        return ("warning", f"AI runtime warning: {detail or event_type}")
     item = event.get("item")
     if not isinstance(item, Mapping):
         return None

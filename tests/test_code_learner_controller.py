@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from electroboy.service.app import ServiceState
 from electroboy.service.registry import build_module_registry, build_workflow_registry
 from electroboy.workflows.code_learner import controller as controller_module
+from electroboy.workflows.code_learner.course_generation import (
+    CourseGenerationCancelled,
+)
 from electroboy.workflows.code_learner.plugin import workflow
 from electroboy.workflows.code_learner.store import LearnerStore
 
@@ -210,3 +214,38 @@ def test_initialization_job_activates_architecture_without_content_validation(
     assert completed["status"] == "initialized"
     assert completed["code_learner"]["initialized"] is True
     assert completed["initialization"]["choice_required"] is False
+
+
+def test_abort_stops_active_initialization_and_preserves_continue_choice(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller, context_id, _root = _controller(tmp_path)
+
+    class BlockingInitialization:
+        def __init__(self, _root: Path, *, cancel_event) -> None:
+            self.cancel_event = cancel_event
+
+        def run(self) -> None:
+            while not self.cancel_event.wait(0.01):
+                pass
+            raise CourseGenerationCancelled("aborted")
+
+    monkeypatch.setattr(
+        controller_module,
+        "CourseGenerationService",
+        BlockingInitialization,
+    )
+
+    started = controller.initialize(context_id)
+    assert started["status"] == "initializing"
+    controller.abort_initialization(context_id)
+    deadline = time.monotonic() + 2
+    stopped = controller.initialization_status(context_id)
+    while stopped["initialization"]["status"] != "aborted":
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+        stopped = controller.initialization_status(context_id)
+
+    assert stopped["status"] == "uninitialized"
+    assert stopped["initialization"]["choice_required"] is True

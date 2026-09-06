@@ -1309,28 +1309,28 @@ Commit boundary: obsolete learner pipeline removal.
 
 ### 14. End-to-End Verification
 
-- [ ] Initialize `qhw-datastructures` from an empty cache.
-- [ ] Confirm ElectroBoy creates
+- [x] Initialize `qhw-datastructures` from an empty cache.
+- [x] Confirm ElectroBoy creates
       `.electroboy/code-learner/courses/qhw-datastructures/` before invoking the
       AI.
-- [ ] Confirm ElectroBoy creates `raw-ai-knowledge/` under that master directory.
-- [ ] Confirm every discovery and course-generation invocation receives the same
+- [x] Confirm ElectroBoy creates `raw-ai-knowledge/` under that master directory.
+- [x] Confirm every discovery and course-generation invocation receives the same
       raw-knowledge path and a distinct invocation UUID.
-- [ ] Confirm AI sessions add UUID-suffixed Markdown knowledge files without
+- [x] Confirm AI sessions add UUID-suffixed Markdown knowledge files without
       changing existing files.
-- [ ] Confirm exactly three foreground AI turns produce visible Architecture.
-- [ ] Confirm the AI writes component and module arrays with `comp-*` and
+- [x] Confirm exactly three foreground AI turns produce visible Architecture.
+- [x] Confirm the AI writes component and module arrays with `comp-*` and
       `mod-*` IDs at the paths supplied by ElectroBoy.
-- [ ] Confirm the Architecture outline and first slide display immediately.
-- [ ] Confirm Mermaid diagrams render from section bodies.
-- [ ] Confirm Module courses continue in the background.
-- [ ] Confirm a manually entered Function symbol generates a course on demand.
-- [ ] Confirm the tutor answers using `tutor-context.json`.
-- [ ] Confirm progress contains detailed, nonrepeating AI messages and no
+- [x] Confirm the Architecture outline and first slide display immediately.
+- [x] Confirm Mermaid diagrams render from section bodies.
+- [x] Confirm Module courses continue in the background.
+- [x] Confirm a manually entered Function symbol generates a course on demand.
+- [x] Confirm the tutor answers using `tutor-context.json`.
+- [x] Confirm progress contains detailed, nonrepeating AI messages and no
       fabricated heartbeat sentence.
-- [ ] Confirm Clear Cache returns the GUI to Initialize-only state.
-- [ ] Run the complete Code Learner test suite.
-- [ ] Run the complete repository test suite and report unrelated baseline
+- [x] Confirm Clear Cache returns the GUI to Initialize-only state.
+- [x] Run the complete Code Learner test suite.
+- [x] Run the complete repository test suite and report unrelated baseline
       failures separately.
 
 Commit boundary: end-to-end simplified Code Learner verification.
