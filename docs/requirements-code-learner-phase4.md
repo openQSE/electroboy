@@ -1198,13 +1198,13 @@ Commit boundary: Architecture course generation and activation.
 
 ### 7. Implement Direct Slide Navigation
 
-- [ ] Read lesson JSONL directly.
-- [ ] Treat each `section` record as one slide.
-- [ ] Traverse sections, lessons, and concepts with Previous and Next.
-- [ ] Render `body` as Markdown and Mermaid without creating `.md` files.
-- [ ] Display content as best as possible without changing course readiness.
-- [ ] Update the outline from course concept and lesson indexes.
-- [ ] Add navigation and rendering tests.
+- [x] Read lesson JSONL directly.
+- [x] Treat each `section` record as one slide.
+- [x] Traverse sections, lessons, and concepts with Previous and Next.
+- [x] Render `body` as Markdown and Mermaid without creating `.md` files.
+- [x] Display content as best as possible without changing course readiness.
+- [x] Update the outline from course concept and lesson indexes.
+- [x] Add navigation and rendering tests.
 
 Commit boundary: direct JSONL lesson presentation.
 
