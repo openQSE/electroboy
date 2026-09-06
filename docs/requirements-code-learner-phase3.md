@@ -2342,9 +2342,9 @@ Boundary 1 validation notes:
 327. [x] Keep one primary AI session across component discovery, module
      synthesis, global relationship analysis, and Architecture generation so
      repository understanding is not rebuilt for every stage.
-328. [ ] Replace per-module relationship invocations with one global
+328. [x] Replace per-module relationship invocations with one global
      relationship invocation over the frozen component and module manifests.
-329. [ ] Validate every global relationship endpoint and source reference
+329. [x] Validate every global relationship endpoint and source reference
      against canonical manifests before publishing any relationship records.
 330. [ ] Remove the AI missing-file investigation pass; preserve uncovered
      files and other coverage discrepancies as non-blocking diagnostics.

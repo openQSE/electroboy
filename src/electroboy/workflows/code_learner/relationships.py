@@ -52,7 +52,7 @@ class RelationshipScope:
 
 
 class ModuleRelationshipService:
-    """Generate, validate, and persist independent module-edge scopes."""
+    """Generate, validate, and atomically persist one global module graph."""
 
     def __init__(
         self,
@@ -90,53 +90,46 @@ class ModuleRelationshipService:
         conflict_resolver: ConflictResolver | None = None,
     ) -> list[dict[str, object]]:
         runtime = self.runtime_factory(RELATIONSHIP_ROLE, self.root)
-        for scope in self.scopes():
-            scope_path = self.scope_root / f"{_safe(scope.key)}.jsonl"
-            if scope_path.is_file():
+        scope = RelationshipScope("global", "")
+        last_error = ""
+        for attempt in range(1, self.max_attempts + 1):
+            prompt = self._prompt(analysis_run_id)
+            if last_error:
+                prompt += f"\n\nPrevious output error:\n- {last_error}"
+            result = runtime.invoke(
+                AgentInvocation(
+                    role=RELATIONSHIP_ROLE,
+                    prompt=prompt,
+                    context_paths=self._context_paths(),
+                )
+            )
+            self.store.write_json(
+                self.store.attempts_root
+                / "relationships"
+                / f"global-{attempt}.json",
+                {
+                    "scope": "global",
+                    "attempt": attempt,
+                    "output": result.final_message,
+                    "error": result.error or "",
+                    "recorded_at": utc_now(),
+                },
+            )
+            if not result.ok:
+                last_error = result.error or "relationship runtime failed"
                 continue
-            last_error = ""
-            for attempt in range(1, self.max_attempts + 1):
-                prompt = self._prompt(scope, analysis_run_id)
-                if last_error:
-                    prompt += f"\n\nPrevious output error:\n- {last_error}"
-                result = runtime.invoke(
-                    AgentInvocation(
-                        role=RELATIONSHIP_ROLE,
-                        prompt=prompt,
-                        context_paths=self._context_paths(),
-                    )
+            try:
+                return self.ingest_scope(
+                    scope,
+                    result.final_message,
+                    conflict_resolver=conflict_resolver,
                 )
-                self.store.write_json(
-                    self.store.attempts_root
-                    / "relationships"
-                    / f"{_safe(scope.key)}-{attempt}.json",
-                    {
-                        "scope": scope.key,
-                        "attempt": attempt,
-                        "output": result.final_message,
-                        "error": result.error or "",
-                        "recorded_at": utc_now(),
-                    },
-                )
-                if not result.ok:
-                    last_error = result.error or "relationship runtime failed"
-                    continue
-                try:
-                    self.ingest_scope(
-                        scope,
-                        result.final_message,
-                        conflict_resolver=conflict_resolver,
-                    )
-                except CodeLearnerError as error:
-                    last_error = str(error)
-                    continue
-                break
-            else:
-                raise CodeLearnerError(
-                    f"relationship scope {scope.key} failed after "
-                    f"{self.max_attempts} attempts: {last_error}"
-                )
-        return self.rebuild()
+            except CodeLearnerError as error:
+                last_error = str(error)
+        raise CodeLearnerError(
+            "global relationship model failed after "
+            f"{self.max_attempts} attempts: {last_error}"
+        )
 
     def ingest_scope(
         self,
@@ -208,7 +201,7 @@ class ModuleRelationshipService:
                 self.requests_path, [existing[key] for key in sorted(existing)]
             )
         normalized = [dict(record) for record in relationships]
-        if any(
+        if scope.module_id and any(
             scope.module_id
             not in {record.get("from_module_id"), record.get("to_module_id")}
             for record in normalized
@@ -232,6 +225,14 @@ class ModuleRelationshipService:
             self.scope_root / f"{_safe(scope.key)}.jsonl",
             sorted(normalized, key=lambda item: str(item["id"])),
         )
+        if scope.key == "global":
+            for path in self.scope_root.glob("*.jsonl"):
+                if path.name != "global.jsonl":
+                    path.unlink(missing_ok=True)
+            self.store.write_jsonl(
+                self.relationships_path,
+                sorted(normalized, key=lambda item: str(item["id"])),
+            )
         return normalized
 
     def rebuild(self) -> list[dict[str, object]]:
@@ -361,14 +362,13 @@ class ModuleRelationshipService:
             accepted[key] = resolved
         return [accepted[key] for key in sorted(accepted)]
 
-    def _prompt(self, scope: RelationshipScope, run_id: str) -> str:
+    def _prompt(self, run_id: str) -> str:
         module_snapshot = self._module_snapshot()
         revision = str(module_snapshot.manifest["repository_revision"])
         return module_relationship_prompt(
             self.root,
             analysis_run_id=run_id,
             repository_revision=revision,
-            scope_id=scope.module_id,
             source_manifest_path=self.source.manifest_path,
             component_manifest_path=self.components.manifest_path,
             components_path=self.components.components_path,

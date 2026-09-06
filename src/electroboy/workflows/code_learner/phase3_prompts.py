@@ -282,7 +282,6 @@ def module_relationship_prompt(
     *,
     analysis_run_id: str,
     repository_revision: str,
-    scope_id: str,
     source_manifest_path: Path | str,
     component_manifest_path: Path | str,
     components_path: Path | str,
@@ -291,7 +290,7 @@ def module_relationship_prompt(
     relationship_kinds: Sequence[str],
     schema_path: Path | str,
 ) -> str:
-    """Create one independently retryable module-relationship scope prompt."""
+    """Create one coherent relationship-model prompt over all frozen modules."""
 
     repository = Path(root).expanduser().resolve()
     return f"""You are the ElectroBoy Phase 3 module relationship analyst.
@@ -301,7 +300,6 @@ def module_relationship_prompt(
 Repository root: {repository}
 Analysis run ID: {analysis_run_id}
 Repository revision: {repository_revision}
-Relationship scope module ID: {scope_id}
 Source manifest: {source_manifest_path}
 Frozen component manifest: {component_manifest_path}
 Canonical components: {components_path}
@@ -310,9 +308,13 @@ Canonical modules: {modules_path}
 Phase 3 output schema: {schema_path}
 Allowed relationship kinds: {json.dumps(list(relationship_kinds))}
 
-Analyze only relationships touching the scoped module. Relationship endpoints
-must be frozen module IDs. Components and hard source references are supporting
-evidence only; they are not relationship endpoints.
+Analyze the complete frozen module catalog as one coherent architectural model.
+Return every evidence-backed relationship needed to explain how those modules
+collaborate. Relationship endpoints must be frozen module IDs. Components and
+hard source references are supporting evidence only; they are not relationship
+endpoints. Read relevant implementation source in addition to repository
+documentation, and avoid emitting duplicate edges from each endpoint's point of
+view.
 
 Each module_relationship requires invocation-local ID, from/to module IDs,
 kind, summary, direction, condition (empty when unconditional), confidence,

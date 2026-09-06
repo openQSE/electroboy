@@ -101,7 +101,6 @@ def test_every_ai_prompt_includes_its_complete_record_contract(
         "module_relationship": module_relationship_prompt(
             tmp_path,
             **common,
-            scope_id="module:1",
             source_manifest_path="source/manifest.json",
             component_manifest_path="components/manifest.json",
             components_path="components/components.jsonl",

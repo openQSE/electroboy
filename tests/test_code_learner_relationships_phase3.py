@@ -222,13 +222,10 @@ def test_self_relationship_requires_explicit_reason(tmp_path: Path) -> None:
     assert service.ingest_scope(scope, json.dumps(self_edge))
 
 
-def test_failed_scope_retries_without_rebuilding_completed_scope(
+def test_global_relationship_generation_retries_as_one_coherent_operation(
     tmp_path: Path,
 ) -> None:
     _setup(tmp_path)
-    bootstrap = ModuleRelationshipService(tmp_path)
-    first, second = bootstrap.scopes()
-    bootstrap.ingest_scope(first, "")
     runtime = FakeRuntime(
         [
             AgentResult(False, "", error="temporary failure"),
@@ -243,10 +240,6 @@ def test_failed_scope_retries_without_rebuilding_completed_scope(
 
     assert service.generate(analysis_run_id="run-1") == []
     assert len(runtime.invocations) == 2
-    assert second.module_id in runtime.invocations[0].prompt
-    assert (
-        first.module_id
-        not in runtime.invocations[0]
-        .prompt.split("Relationship scope module ID: ", 1)[1]
-        .splitlines()[0]
-    )
+    assert "complete frozen module catalog" in runtime.invocations[0].prompt
+    assert "Relationship scope module ID" not in runtime.invocations[0].prompt
+    assert (service.scope_root / "global.jsonl").is_file()
