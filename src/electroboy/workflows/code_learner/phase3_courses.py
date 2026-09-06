@@ -23,7 +23,17 @@ from .skills import skill_prompt_reference, validate_packaged_skill
 
 COURSE_ROLE = "code_learner_course"
 TARGET_STATES = frozenset(
-    {"missing", "generating", "ready", "stale", "failed", "unresolved"}
+    {
+        "missing",
+        "queued",
+        "generating",
+        "generating_knowledge",
+        "building_course",
+        "ready",
+        "stale",
+        "failed",
+        "unresolved",
+    }
 )
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -61,7 +71,11 @@ class Phase3CourseService:
         validate_packaged_skill("code-learner-course")
         context = Phase3KnowledgeContext(self.root, store=self.store)
         knowledge_path, knowledge = self._knowledge(mode, scope_id)
-        self.record_status(mode, scope_id, "generating")
+        self.record_status(
+            mode,
+            scope_id,
+            "building_course" if mode == "module" else "generating",
+        )
         runtime = self.runtime_factory(COURSE_ROLE, self.root)
         last_error = ""
         for attempt in range(1, self.max_attempts + 1):
@@ -203,17 +217,23 @@ class Phase3CourseService:
     ) -> None:
         if status not in TARGET_STATES:
             raise CodeLearnerError(f"unsupported course target status: {status}")
-        index = self.index()
-        targets = index.setdefault("targets", {})
-        targets[_document_id(mode, scope_id)] = {
-            "mode": mode,
-            "scope_id": scope_id,
-            "status": status,
-            "path": path,
-            "error": error,
-            "updated_at": utc_now(),
-        }
-        self.store.write_json(self.index_path, index)
+        def update(index: dict[str, object]) -> dict[str, object]:
+            index.setdefault("schema_version", 1)
+            targets = index.setdefault("targets", {})
+            if not isinstance(targets, dict):
+                targets = {}
+                index["targets"] = targets
+            targets[_document_id(mode, scope_id)] = {
+                "mode": mode,
+                "scope_id": scope_id,
+                "status": status,
+                "path": path,
+                "error": error,
+                "updated_at": utc_now(),
+            }
+            return index
+
+        self.store.update_json(self.index_path, update)
 
     def target_status(self, document_id: str) -> str:
         target = self.index().get("targets", {}).get(document_id, {})

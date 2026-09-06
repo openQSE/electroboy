@@ -97,6 +97,57 @@ def test_phase3_clear_cache_removes_backend_and_visible_course_state(
     assert (root / ".electroboy/code-learner/phase3").exists() is False
 
 
+def test_selecting_unready_module_prioritizes_background_target(
+    tmp_path: Path,
+) -> None:
+    controller, context_id, root = _controller(tmp_path)
+    catalog = _activate_fixture(root)
+    module_id = str(catalog.modules.modules[0]["id"])
+    Phase3CourseService(root).record_status("module", module_id, "queued")
+
+    class Scheduler:
+        def __init__(self) -> None:
+            self.prioritized: list[str] = []
+
+        def start(self):
+            return self._status("queued")
+
+        def prioritize(self, target):
+            self.prioritized.append(target)
+            return self._status("generating_knowledge")
+
+        def _status(self, status):
+            return {
+                "status": "running",
+                "total": 2,
+                "ready": 1,
+                "failed": 0,
+                "active": 1,
+                "counts": {status: 1, "ready": 1},
+                "targets": [
+                    {
+                        "module_id": module_id,
+                        "document_id": f"course:module:{module_id}",
+                        "status": status,
+                        "error": "",
+                    }
+                ],
+            }
+
+    scheduler = Scheduler()
+    controller._module_schedulers[str(root)] = scheduler
+
+    result = controller.create_walkthrough(
+        context_id,
+        learning_mode="module",
+        target=module_id,
+    )
+
+    assert result["status"] == "generating_knowledge"
+    assert result["course_target"]["module_id"] == module_id
+    assert scheduler.prioritized == [module_id]
+
+
 def test_phase3_selection_quarantines_legacy_phase2_imports(tmp_path: Path) -> None:
     controller, context_id, root = _controller(tmp_path)
     _activate_fixture(root)

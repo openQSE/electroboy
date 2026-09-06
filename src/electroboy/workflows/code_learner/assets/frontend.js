@@ -67,6 +67,7 @@
       phase2Initialized: false,
       phase3Present: false,
       phase3Initialized: false,
+      backgroundModules: null,
       completionStatus: "",
       warningCount: 0,
       failedScope: "",
@@ -522,6 +523,13 @@
     return status === "queued" || status === "running" || status === "aborting";
   }
 
+  function backgroundGenerationRunning() {
+    return Boolean(
+      learnerState.backgroundModules
+      && learnerState.backgroundModules.status === "running"
+    );
+  }
+
   function initializationFailed() {
     return initializationState && initializationState.status === "failed";
   }
@@ -614,13 +622,19 @@
       || learnerState.recoveryAction
       || "",
     );
+    const background = initializationState && initializationState.background_modules
+      || learnerState.backgroundModules;
+    const moduleStatus = background && Number(background.total || 0) > 0
+      ? ` · Modules ${Number(background.ready || 0)}/${Number(background.total || 0)}`
+        + (Number(background.failed || 0) ? `, ${Number(background.failed)} failed` : "")
+      : "";
     if (terminal === "complete_with_warnings") {
-      nav.initCompletion.textContent = `Complete with warnings (${warnings})`;
+      nav.initCompletion.textContent = `Complete with warnings (${warnings})${moduleStatus}`;
     } else if (terminal === "failed") {
       const scope = failedScope ? ` at ${failedScope.replaceAll("_", " ")}` : "";
       nav.initCompletion.textContent = `Failed${scope}${recovery ? `: ${recovery}` : ""}`;
     } else {
-      nav.initCompletion.textContent = "Complete";
+      nav.initCompletion.textContent = `Architecture ready${moduleStatus}`;
     }
   }
 
@@ -1048,6 +1062,9 @@
       openLearnerPane({ activate: false, refresh: true });
       openCourseDocument(payload.code_learner || {});
       setInitializedStatus();
+      if (backgroundGenerationRunning()) {
+        scheduleInitializationPoll();
+      }
       return;
     }
     if (payload.status === "failed") {
@@ -1110,11 +1127,15 @@
     publishInitializationProgress();
     renderNavigationState();
     if (payload.status === "initialized") {
-      stopInitializationPolling();
       setGenerating(false);
       openLearnerPane({ activate: false, refresh: true });
       openCourseDocument(payload.code_learner || {});
       setInitializedStatus();
+      if (backgroundGenerationRunning()) {
+        scheduleInitializationPoll();
+      } else {
+        stopInitializationPolling();
+      }
     } else if (payload.status === "failed") {
       stopInitializationPolling();
       setGenerating(false);
@@ -1291,6 +1312,14 @@
     const payload = await response.json().catch(() => ({ error: "generation failed" }));
     if (!response.ok) {
       throw new Error(payload.error || "generation failed");
+    }
+    if (payload.course_target && payload.status !== "ready") {
+      const state = String(payload.course_target.status || payload.status || "queued");
+      learnerState.backgroundModules = payload.background_modules || learnerState.backgroundModules;
+      renderNavigationState();
+      setStatus(`Module course is ${state.replaceAll("_", " ")}.`, state);
+      scheduleInitializationPoll();
+      return;
     }
     applyLearnerPayload(payload);
     renderNavigationState();
@@ -1475,6 +1504,9 @@
       learnerState.warningCount = Number(payload.warning_count || 0);
       learnerState.failedScope = String(payload.failed_scope || "");
       learnerState.recoveryAction = String(payload.recovery_action || "");
+    }
+    if (Object.hasOwn(payload, "background_modules")) {
+      learnerState.backgroundModules = payload.background_modules || null;
     }
     if (Array.isArray(payload.walkthroughs)) {
       learnerState.walkthroughs = payload.walkthroughs;

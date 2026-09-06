@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from time import sleep
+from time import perf_counter, sleep
 
 import pytest
 from code_learner_phase3_fixtures import build_catalog, build_course_records
@@ -312,6 +312,56 @@ def test_pipeline_resumes_completed_scopes_without_invoking_ai(tmp_path: Path) -
     assert resumed is not None
     assert resumed["status"] == "complete"
     assert resumed["stages"]["activation"]["status"] == "complete"
+
+
+def test_architecture_ready_pipeline_does_not_block_on_deferred_course_work(
+    tmp_path: Path,
+) -> None:
+    pipeline, catalog = _ready_pipeline(tmp_path)
+    for module in catalog.modules.modules:
+        module_id = str(module["id"])
+        pipeline.module_knowledge._path(module_id).unlink(missing_ok=True)
+        pipeline.courses.course_path("module", module_id).unlink(missing_ok=True)
+        pipeline.courses.markdown_path("module", module_id).unlink(missing_ok=True)
+    index = pipeline.courses.index()
+    index["targets"] = {
+        key: value
+        for key, value in index.get("targets", {}).items()
+        if value.get("mode") != "module"
+    }
+    pipeline.store.write_json(pipeline.courses.index_path, index)
+    pipeline.ctags.raw_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline.ctags.raw_path.write_bytes(b"")
+    pipeline.ctags.invocation_path.write_text(
+        json.dumps(
+            {
+                "repository_revision": catalog.source.revision,
+                "raw_tag_count": 0,
+                "warnings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    checkpoint = pipeline._checkpoint(catalog.source.revision, "performance-job")
+    for stage in STAGES:
+        checkpoint["stages"][stage]["status"] = (
+            "pending" if stage == "activation" else "complete"
+        )
+    pipeline.store.write_json(pipeline.store.checkpoint_path, checkpoint)
+
+    started = perf_counter()
+    result = pipeline.run(acquire_lease=False)
+    elapsed = perf_counter() - started
+
+    assert result.status == "complete"
+    assert result.module_course_count == 0
+    assert elapsed < 2
+    checkpoint = pipeline.store.read_json(pipeline.store.checkpoint_path)
+    assert checkpoint is not None
+    assert checkpoint["stages"]["missing_file_investigation"]["status"] == "complete"
+    assert checkpoint["stages"]["module_knowledge"]["status"] == "complete"
+    assert checkpoint["stages"]["important_functions"]["status"] == "complete"
+    assert not list(pipeline.module_knowledge.root_path.glob("*.jsonl"))
 
 
 def test_progress_counts_expose_every_phase3_catalog(tmp_path: Path) -> None:

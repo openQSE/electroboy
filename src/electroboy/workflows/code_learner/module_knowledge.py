@@ -48,70 +48,81 @@ class ModuleKnowledgeService:
 
     def generate_all(self, *, analysis_run_id: str) -> list[dict[str, object]]:
         context = self._context()
-        runtime = self.runtime_factory(MODULE_KNOWLEDGE_ROLE, self.root)
         results = []
         for module_id in sorted(context.modules):
-            cached = self.load(module_id)
-            if cached and cached.get("repository_revision") == context.revision:
-                results.append(cached)
-                continue
-            last_error = ""
-            for attempt in range(1, self.max_attempts + 1):
-                prompt = module_knowledge_prompt(
-                    self.root,
-                    analysis_run_id=analysis_run_id,
-                    repository_revision=context.revision,
-                    module_id=module_id,
-                    source_manifest_path=context.source_service.manifest_path,
-                    component_manifest_path=context.component_service.manifest_path,
-                    module_manifest_path=context.module_service.manifest_path,
-                    relationships_path=context.relationship_service.relationships_path,
-                    schema_path=Path(__file__).with_name("schemas")
-                    / "phase3.schema.json",
-                )
-                if last_error:
-                    prompt += f"\n\nPrevious output error:\n- {last_error}"
-                result = runtime.invoke(
-                    AgentInvocation(
-                        role=MODULE_KNOWLEDGE_ROLE,
-                        prompt=prompt,
-                        context_paths=self._context_paths(context),
-                    )
-                )
-                self.store.write_json(
-                    self.store.attempts_root
-                    / "knowledge"
-                    / "modules"
-                    / f"{_safe(module_id)}-{attempt}.json",
-                    {
-                        "module_id": module_id,
-                        "attempt": attempt,
-                        "output": result.final_message,
-                        "error": result.error or "",
-                        "recorded_at": utc_now(),
-                    },
-                )
-                if not result.ok:
-                    last_error = result.error or "Module knowledge runtime failed"
-                    continue
-                try:
-                    records = parse_phase3_jsonl(
-                        result.final_message, artifact=f"Module knowledge {module_id}"
-                    )
-                    if len(records) != 1:
-                        raise CodeLearnerError(
-                            "Module knowledge must return exactly one record"
-                        )
-                    results.append(self.ingest(module_id, records[0], context=context))
-                    break
-                except CodeLearnerError as error:
-                    last_error = str(error)
-            else:
-                raise CodeLearnerError(
-                    f"Module knowledge {module_id} failed after "
-                    f"{self.max_attempts} attempts: {last_error}"
-                )
+            results.append(
+                self.generate(module_id, analysis_run_id=analysis_run_id, context=context)
+            )
         return results
+
+    def generate(
+        self,
+        module_id: str,
+        *,
+        analysis_run_id: str,
+        context: Phase3KnowledgeContext | None = None,
+    ) -> dict[str, object]:
+        context = context or self._context()
+        if module_id not in context.modules:
+            raise CodeLearnerError(f"unknown Module knowledge target: {module_id}")
+        cached = self.load(module_id)
+        if cached and cached.get("repository_revision") == context.revision:
+            return cached
+        runtime = self.runtime_factory(MODULE_KNOWLEDGE_ROLE, self.root)
+        last_error = ""
+        for attempt in range(1, self.max_attempts + 1):
+            prompt = module_knowledge_prompt(
+                self.root,
+                analysis_run_id=analysis_run_id,
+                repository_revision=context.revision,
+                module_id=module_id,
+                source_manifest_path=context.source_service.manifest_path,
+                component_manifest_path=context.component_service.manifest_path,
+                module_manifest_path=context.module_service.manifest_path,
+                relationships_path=context.relationship_service.relationships_path,
+                schema_path=Path(__file__).with_name("schemas")
+                / "phase3.schema.json",
+            )
+            if last_error:
+                prompt += f"\n\nPrevious output error:\n- {last_error}"
+            result = runtime.invoke(
+                AgentInvocation(
+                    role=MODULE_KNOWLEDGE_ROLE,
+                    prompt=prompt,
+                    context_paths=self._context_paths(context),
+                )
+            )
+            self.store.write_json(
+                self.store.attempts_root
+                / "knowledge"
+                / "modules"
+                / f"{_safe(module_id)}-{attempt}.json",
+                {
+                    "module_id": module_id,
+                    "attempt": attempt,
+                    "output": result.final_message,
+                    "error": result.error or "",
+                    "recorded_at": utc_now(),
+                },
+            )
+            if not result.ok:
+                last_error = result.error or "Module knowledge runtime failed"
+                continue
+            try:
+                records = parse_phase3_jsonl(
+                    result.final_message, artifact=f"Module knowledge {module_id}"
+                )
+                if len(records) != 1:
+                    raise CodeLearnerError(
+                        "Module knowledge must return exactly one record"
+                    )
+                return self.ingest(module_id, records[0], context=context)
+            except CodeLearnerError as error:
+                last_error = str(error)
+        raise CodeLearnerError(
+            f"Module knowledge {module_id} failed after "
+            f"{self.max_attempts} attempts: {last_error}"
+        )
 
     def ingest(
         self,

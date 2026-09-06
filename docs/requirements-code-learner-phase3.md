@@ -2354,27 +2354,27 @@ Boundary 1 validation notes:
 332. [x] Split Architecture course generation from Module course generation
      and activate the learner as soon as the Architecture course is rendered
      and valid.
-333. [ ] Define durable per-module target states for `queued`,
+333. [x] Define durable per-module target states for `queued`,
      `generating_knowledge`, `building_course`, `ready`, `failed`, and `stale`,
      and publish each target atomically.
-334. [ ] Add a bounded reusable worker-session pool, defaulting to three
+334. [x] Add a bounded reusable worker-session pool, defaulting to three
      concurrent workers, that forks from the primary analysis session and
      prevents duplicate jobs for the same module and revision.
-335. [ ] Generate independent Module knowledge and course targets concurrently
+335. [x] Generate independent Module knowledge and course targets concurrently
      after Architecture activation, while preserving dependency order within
      each target.
-336. [ ] Prioritize a queued Module target when the user selects it, and show
+336. [x] Prioritize a queued Module target when the user selects it, and show
      its current queued or generation state instead of reporting that course
      information is missing.
-337. [ ] Resume unfinished background Module targets after a service restart
+337. [x] Resume unfinished background Module targets after a service restart
      without rebuilding ready targets.
-338. [ ] Report Architecture readiness, aggregate background Module progress,
+338. [x] Report Architecture readiness, aggregate background Module progress,
      individual target failures, and final completion status in service state
      and the learner GUI.
-339. [ ] Test session resume and fork commands, durable session recovery,
+339. [x] Test session resume and fork commands, durable session recovery,
      bounded concurrency, priority changes, duplicate suppression, atomic
      publication, target failure isolation, and restart recovery.
-340. [ ] Measure the revised critical path and confirm initialization no longer
+340. [x] Measure the revised critical path and confirm initialization no longer
      performs per-module relationship calls, AI file-coverage repair, eager
      Function analysis, or blocking Module course generation.
 341. [ ] Run the complete Code Learner and repository test suites, inspect the

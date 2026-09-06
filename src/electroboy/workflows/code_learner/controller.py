@@ -17,6 +17,7 @@ from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError
 
 from .course_artifacts import render_saved_course
+from .background_courses import ModuleCourseScheduler, module_generation_status
 from .course_builder import CourseBuilder
 from .course_graph import CourseGraph, CourseNavigator
 from .course_projection import (
@@ -326,6 +327,28 @@ class _InitializationJob:
                 "progress_path": str(Phase3Store(self.root).progress_path),
             }
 
+    def record_background_progress(self, record: dict[str, object]) -> None:
+        with self.lock:
+            event = {
+                "phase": "module_courses",
+                "percent": 100,
+                "message": str(record.get("message") or "Building Module courses."),
+                "activity_kind": str(record.get("activity_kind") or "background"),
+                "updated_at": str(record.get("updated_at") or utc_now()),
+                "scope_ids": list(record.get("scope_ids") or []),
+                "record_counts": {},
+                "completed_analysis_jobs": self.completed_analysis_jobs,
+                "remaining_analysis_jobs": self.remaining_analysis_jobs,
+                "completed_analysis_scopes": [],
+                "remaining_analysis_scopes": [],
+                "completed_module_courses": [],
+                "remaining_module_courses": [],
+                "heartbeat": False,
+            }
+            self.progress_events.append(event)
+            self.progress_events = self.progress_events[-250:]
+            self.updated_at = event["updated_at"]
+
 
 def _bounded_percent(value: object) -> int:
     try:
@@ -499,6 +522,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         super().__init__(services)
         self._initialization_lock = threading.RLock()
         self._initialization_jobs: dict[str, _InitializationJob] = {}
+        self._module_schedulers: dict[str, ModuleCourseScheduler] = {}
 
     def _reserve_project_workspace(
         self,
@@ -581,6 +605,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         if initialization_mode == "replace":
             self._require_course_cache_clearable(context_id)
         with self._initialization_lock:
+            scheduler = self._module_schedulers.pop(str(root), None)
+            if scheduler is not None:
+                scheduler.stop()
             job = self._initialization_jobs.get(str(root))
             if job is not None and job.is_running():
                 if initialization_mode == "replace":
@@ -633,6 +660,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         root = self._active_project_root(context_id)
         self._require_course_cache_clearable(context_id)
         with self._initialization_lock:
+            scheduler = self._module_schedulers.pop(str(root), None)
+            if scheduler is not None:
+                scheduler.stop()
             job = self._initialization_jobs.get(str(root))
             if job is not None and job.is_running():
                 raise CodeLearnerError(
@@ -791,6 +821,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     else "AI course material is ready."
                 ),
             )
+            self._start_module_scheduler(root, job=job)
         except Phase3InitializationCancelled:
             job.update(
                 status="aborted",
@@ -840,6 +871,13 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         job = self._initialization_job(root)
         state = self._state_payload(root)
         initialized = phase3_initialization_ready(root)
+        background = module_generation_status(root)
+        if initialized and background["status"] not in {
+            "complete",
+            "complete_with_warnings",
+        }:
+            background = self._start_module_scheduler(root)
+            state["background_modules"] = background
         if job is not None and job.is_running():
             status = "initializing"
             initialization = job.snapshot()
@@ -883,6 +921,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             "initialization": {
                 **initialization,
                 "choice_required": _learner_state_present(root),
+                "background_modules": background,
             },
             "code_learner": state,
         }
@@ -1234,6 +1273,26 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             elif mode == "module":
                 if not scope_id:
                     raise CodeLearnerError("Module target is required")
+                courses = Phase3CourseService(root)
+                document_id = f"course:module:{scope_id}"
+                if courses.target_status(document_id) != "ready":
+                    background = self._start_module_scheduler(root)
+                    background = self._module_schedulers[str(root)].prioritize(
+                        scope_id
+                    )
+                    target_state = next(
+                        (
+                            item
+                            for item in background["targets"]
+                            if item["module_id"] == scope_id
+                        ),
+                        {"module_id": scope_id, "status": "queued"},
+                    )
+                    return {
+                        "status": str(target_state["status"]),
+                        "course_target": target_state,
+                        "background_modules": background,
+                    }
             elif mode == "function":
                 result = self.build_function_course(
                     context_id, target, intended_audience
@@ -1578,6 +1637,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     "source": None,
                     "analysis": phase3_analysis_payload(root) if ready else None,
                     "phase3": _phase3_manifest_status(root),
+                    "background_modules": module_generation_status(root),
                 }
             )
             if ready and Phase3CourseService(root).navigation_path.is_file():
@@ -1615,6 +1675,25 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         except CodeLearnerError as error:
             payload["source_error"] = str(error)
         return payload
+
+    def _start_module_scheduler(
+        self,
+        root: Path,
+        *,
+        job: _InitializationJob | None = None,
+    ) -> dict[str, object]:
+        key = str(root)
+        with self._initialization_lock:
+            scheduler = self._module_schedulers.get(key)
+            if scheduler is None:
+                scheduler = ModuleCourseScheduler(
+                    root,
+                    progress_callback=(
+                        job.record_background_progress if job is not None else None
+                    ),
+                )
+                self._module_schedulers[key] = scheduler
+            return scheduler.start()
 
     def _walkthrough_summaries(self, root: Path) -> list[dict[str, object]]:
         return [

@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 import threading
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 from electroboy.models import utc_now
@@ -18,6 +18,9 @@ from .source_manifest import PHASE3_ROOT
 
 class Phase3Store:
     """Own Phase 3 storage paths without leaking them into domain services."""
+
+    _locks_guard = threading.Lock()
+    _locks: dict[str, threading.RLock] = {}
 
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root).expanduser().resolve()
@@ -32,7 +35,9 @@ class Phase3Store:
         self.progress_path = self.state_root / "progress.jsonl"
         self.result_path = self.state_root / "initialization-result.json"
         self.tutor_context_path = self.state_root / "tutor-context.json"
-        self._lock = threading.RLock()
+        key = str(self.state_root)
+        with self._locks_guard:
+            self._lock = self._locks.setdefault(key, threading.RLock())
 
     def read_json(self, path: Path) -> dict[str, object] | None:
         if not path.is_file():
@@ -78,6 +83,19 @@ class Phase3Store:
             )
             os.replace(temporary, path)
 
+    def update_json(
+        self,
+        path: Path,
+        update: Callable[[dict[str, object]], dict[str, object]],
+    ) -> dict[str, object]:
+        """Read, update, and atomically replace one object under the store lock."""
+
+        with self._lock:
+            current = self.read_json(path) or {}
+            value = update(dict(current))
+            self.write_json(path, value)
+            return value
+
     def write_jsonl(
         self,
         path: Path,
@@ -101,15 +119,16 @@ class Phase3Store:
 
     def save_diagnostic(self, record: Mapping[str, object]) -> dict[str, object]:
         normalized = validate_diagnostic(record)
-        current = {
-            str(item.get("id") or ""): item
-            for item in self.read_jsonl(self.diagnostics_path)
-        }
-        current[str(normalized["id"])] = normalized
-        self.write_jsonl(
-            self.diagnostics_path,
-            sorted(current.values(), key=lambda item: str(item.get("id") or "")),
-        )
+        with self._lock:
+            current = {
+                str(item.get("id") or ""): item
+                for item in self.read_jsonl(self.diagnostics_path)
+            }
+            current[str(normalized["id"])] = normalized
+            self.write_jsonl(
+                self.diagnostics_path,
+                sorted(current.values(), key=lambda item: str(item.get("id") or "")),
+            )
         return normalized
 
     def active_diagnostics(self, severity: str = "") -> list[dict[str, object]]:
