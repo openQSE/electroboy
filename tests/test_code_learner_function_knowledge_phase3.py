@@ -136,6 +136,21 @@ def test_function_artifact_validates_flow_call_confidence_diagram_and_links(
     )
 
 
+def test_function_preserves_unresolved_call_edge_endpoints(tmp_path: Path) -> None:
+    catalog = build_catalog(tmp_path)
+    artifact = _artifact(catalog)
+    external = "external:runtime-dispatch"
+    artifact["call_edges"][0]["to_symbol_key"] = external
+    artifact["diagrams"][0]["node_ids"].append(external)
+    artifact["diagrams"][0]["mermaid"] += f'\n B --> C["{external}"]'
+
+    accepted = FunctionKnowledgeService(tmp_path, store=catalog.store).ingest(
+        "symbol-0", artifact
+    )
+
+    assert accepted["call_edges"][0]["to_symbol_key"] == external
+
+
 def test_important_selection_requires_canonical_keys_and_obeys_budget(
     tmp_path: Path,
 ) -> None:

@@ -14,6 +14,7 @@ from .domain import CodeLearnerError
 from .knowledge import Phase3KnowledgeContext
 from .phase3_contract_catalog import (
     ARCHITECTURE_HORIZONTAL_FIELDS,
+    ARCHITECTURE_HORIZONTAL_MODULE_FIELDS,
     ARCHITECTURE_KNOWLEDGE_REQUIRED_FIELDS,
     ARCHITECTURE_STEP_FIELDS,
     ARCHITECTURE_VERTICAL_SLICE_FIELDS,
@@ -123,17 +124,23 @@ class ArchitectureKnowledgeService:
         for field in ARCHITECTURE_HORIZONTAL_FIELDS:
             if field not in horizontal:
                 raise CodeLearnerError(f"Architecture horizontal.{field} is required")
+        generated_id = str(payload["id"])
+        payload["generated_id"] = generated_id
+        payload["id"] = "architecture:current"
         covered_modules = set(payload.get("module_ids", []))
         if covered_modules != set(context.modules):
             raise CodeLearnerError("Architecture must cover every frozen module")
-        horizontal_modules = {
-            str(item.get("module_id") or "")
-            for item in horizontal.get("modules", [])
-            if isinstance(item, Mapping)
-        }
+        module_entries = self._normalize_horizontal_modules(
+            horizontal.get("modules", []), context=context
+        )
+        horizontal["modules"] = module_entries
+        horizontal_modules = {str(item["module_id"]) for item in module_entries}
         if horizontal_modules != set(context.modules):
+            missing_ids = sorted(set(context.modules) - horizontal_modules)
+            unknown_ids = sorted(horizontal_modules - set(context.modules))
             raise CodeLearnerError(
-                "Architecture horizontal modules do not cover the manifest"
+                "Architecture horizontal modules do not cover the manifest; "
+                f"missing={missing_ids}; unknown={unknown_ids}"
             )
         horizontal_edges = {str(item) for item in horizontal.get("relationships", [])}
         if horizontal_edges != set(context.relationships):
@@ -215,6 +222,47 @@ class ArchitectureKnowledgeService:
         payload["validated_at"] = utc_now()
         self.store.write_jsonl(self.path, [payload])
         return payload
+
+    def _normalize_horizontal_modules(
+        self,
+        entries: object,
+        *,
+        context: Phase3KnowledgeContext,
+    ) -> list[dict[str, object]]:
+        if not isinstance(entries, list):
+            raise CodeLearnerError("Architecture horizontal.modules must be an array")
+        normalized = []
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, Mapping):
+                raise CodeLearnerError(
+                    f"Architecture horizontal.modules[{index}] must be an object"
+                )
+            item = dict(entry)
+            if "module_id" not in item and str(item.get("id") or "") in context.modules:
+                item["module_id"] = item["id"]
+            missing = missing_required_fields(
+                item, ARCHITECTURE_HORIZONTAL_MODULE_FIELDS
+            )
+            if missing:
+                raise CodeLearnerError(
+                    f"Architecture horizontal.modules[{index}] is missing required "
+                    "fields: " + ", ".join(missing)
+                )
+            for field in ("module_id", "name", "summary"):
+                if not str(item.get(field) or "").strip():
+                    raise CodeLearnerError(
+                        f"Architecture horizontal.modules[{index}].{field} is required"
+                    )
+            component_ids = item.get("component_ids")
+            if not isinstance(component_ids, list) or any(
+                not isinstance(value, str) for value in component_ids
+            ):
+                raise CodeLearnerError(
+                    f"Architecture horizontal.modules[{index}].component_ids "
+                    "must be an array of strings"
+                )
+            normalized.append(item)
+        return normalized
 
     @staticmethod
     def _require_fields(

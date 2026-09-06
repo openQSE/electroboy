@@ -72,6 +72,16 @@
         "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "architecture_horizontal_module": {
+      "type": "object",
+      "required": ["module_id", "name", "summary", "component_ids"],
+      "properties": {
+        "module_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "component_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "architecture_horizontal": {
       "type": "object",
       "required": ["repository_purpose", "external_boundaries", "entry_surfaces", "modules", "relationships", "state", "build", "tests", "constraints"],
@@ -79,7 +89,7 @@
         "repository_purpose": {},
         "external_boundaries": { "type": "array" },
         "entry_surfaces": { "type": "array" },
-        "modules": { "type": "array" },
+        "modules": { "type": "array", "items": { "$ref": "#/$defs/architecture_horizontal_module" } },
         "relationships": { "type": "array", "items": { "type": "string" } },
         "state": {},
         "build": {},
@@ -126,11 +136,19 @@
         "peer_navigation": { "type": "array" }
       }
     },
+    "module_vertical_component": {
+      "type": "object",
+      "required": ["component_id", "summary"],
+      "properties": {
+        "component_id": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
     "module_vertical": {
       "type": "object",
       "required": ["components", "initialization", "normal_flow", "alternate_flow", "errors", "data", "concurrency", "important_functions"],
       "properties": {
-        "components": { "type": "array" },
+        "components": { "type": "array", "items": { "$ref": "#/$defs/module_vertical_component" } },
         "initialization": {},
         "normal_flow": {},
         "alternate_flow": {},
@@ -388,6 +406,7 @@
             "record_type": { "const": "architecture_knowledge" },
             "repository_revision": { "type": "string", "minLength": 1 },
             "id": { "type": "string", "minLength": 1 },
+            "generated_id": { "type": "string", "minLength": 1 },
             "title": { "type": "string", "minLength": 1 },
             "body": { "type": "string", "minLength": 1 },
             "module_ids": { "type": "array", "items": { "type": "string" } },
@@ -461,7 +480,20 @@
     "knowledge_request": {
       "allOf": [
         { "$ref": "#/$defs/header" },
-        { "type": "object", "required": ["id", "request_type", "status", "reason"], "properties": { "record_type": { "const": "knowledge_request" } } }
+        {
+          "type": "object",
+          "required": ["repository_revision", "id", "request_type", "status", "reason"],
+          "properties": {
+            "record_type": { "const": "knowledge_request" },
+            "repository_revision": { "type": "string", "minLength": 1 },
+            "id": { "type": "string", "minLength": 1 },
+            "request_type": { "enum": ["missing_file", "missing_component", "missing_endpoint", "missing_knowledge"] },
+            "status": { "enum": ["open", "resolved", "dismissed"] },
+            "reason": { "type": "string", "minLength": 1 },
+            "source_refs": { "type": "array", "items": { "$ref": "#/$defs/source_reference" } },
+            "related_record_ids": { "type": "array", "items": { "type": "string" } }
+          }
+        }
       ]
     },
     "diagnostic": {

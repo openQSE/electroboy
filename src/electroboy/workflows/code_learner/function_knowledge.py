@@ -341,6 +341,9 @@ class FunctionKnowledgeService:
             for field in ("from_symbol_key", "to_symbol_key", "summary"):
                 if not str(edge.get(field) or "").strip():
                     raise CodeLearnerError(f"call_edges[{index}].{field} is required")
+            related_symbols.extend(
+                str(edge[field]) for field in ("from_symbol_key", "to_symbol_key")
+            )
         context.validate_diagrams(
             payload.get("diagrams", []), additional_node_ids=related_symbols
         )

@@ -66,6 +66,12 @@ ARCHITECTURE_HORIZONTAL_FIELDS = (
     "tests",
     "constraints",
 )
+ARCHITECTURE_HORIZONTAL_MODULE_FIELDS = (
+    "module_id",
+    "name",
+    "summary",
+    "component_ids",
+)
 ARCHITECTURE_VERTICAL_SLICE_FIELDS = (
     "id",
     "title",
@@ -119,6 +125,10 @@ MODULE_VERTICAL_FIELDS = (
     "concurrency",
     "important_functions",
 )
+MODULE_VERTICAL_COMPONENT_FIELDS = (
+    "component_id",
+    "summary",
+)
 MODULE_KNOWLEDGE_REQUIRED_FIELDS = (
     "schema_version",
     "record_type",
@@ -171,6 +181,22 @@ CALL_EDGE_REQUIRED_FIELDS = (
     "confidence",
     "summary",
 )
+KNOWLEDGE_REQUEST_REQUIRED_FIELDS = (
+    "schema_version",
+    "record_type",
+    "repository_revision",
+    "id",
+    "request_type",
+    "status",
+    "reason",
+)
+KNOWLEDGE_REQUEST_TYPE_VALUES = (
+    "missing_file",
+    "missing_component",
+    "missing_endpoint",
+    "missing_knowledge",
+)
+KNOWLEDGE_REQUEST_STATUS_VALUES = ("open", "resolved", "dismissed")
 DIAGRAM_REQUIRED_FIELDS = (
     "id",
     "type",
@@ -187,18 +213,25 @@ AGENT_RECORD_REQUIRED_FIELDS = {
     "architecture_knowledge": ARCHITECTURE_KNOWLEDGE_REQUIRED_FIELDS,
     "module_knowledge": MODULE_KNOWLEDGE_REQUIRED_FIELDS,
     "function_knowledge": FUNCTION_KNOWLEDGE_REQUIRED_FIELDS,
+    "knowledge_request": KNOWLEDGE_REQUEST_REQUIRED_FIELDS,
 }
 NESTED_REQUIRED_FIELDS = {
     "reconciliation_partition": RECONCILIATION_PARTITION_REQUIRED_FIELDS,
     "architecture_horizontal": ARCHITECTURE_HORIZONTAL_FIELDS,
+    "architecture_horizontal_module": ARCHITECTURE_HORIZONTAL_MODULE_FIELDS,
     "architecture_vertical_slice": ARCHITECTURE_VERTICAL_SLICE_FIELDS,
     "architecture_step": ARCHITECTURE_STEP_FIELDS,
     "module_horizontal": MODULE_HORIZONTAL_FIELDS,
     "module_vertical": MODULE_VERTICAL_FIELDS,
+    "module_vertical_component": MODULE_VERTICAL_COMPONENT_FIELDS,
     "call_edge": CALL_EDGE_REQUIRED_FIELDS,
     "diagram": DIAGRAM_REQUIRED_FIELDS,
     "deep_link": LINK_REQUIRED_FIELDS,
 }
+NESTED_ARRAY_REFS = (
+    ("architecture_horizontal", "modules", "architecture_horizontal_module"),
+    ("module_vertical", "components", "module_vertical_component"),
+)
 
 
 def contract_field_text(record_type: str) -> str:
@@ -207,6 +240,17 @@ def contract_field_text(record_type: str) -> str:
     fields = AGENT_RECORD_REQUIRED_FIELDS[record_type]
     return (
         f"Every `{record_type}` record must contain: "
+        + ", ".join(f"`{field}`" for field in fields)
+        + "."
+    )
+
+
+def nested_contract_field_text(record_type: str) -> str:
+    """Return an exact required-field sentence for one nested AI object."""
+
+    fields = NESTED_REQUIRED_FIELDS[record_type]
+    return (
+        f"Every `{record_type}` object must contain: "
         + ", ".join(f"`{field}`" for field in fields)
         + "."
     )
@@ -257,6 +301,15 @@ def validate_phase3_schema_alignment(schema: Mapping[str, object]) -> None:
                 f"{name} schema has required fields without properties: "
                 f"{sorted(missing_properties)}"
             )
+    for owner, field, target in NESTED_ARRAY_REFS:
+        properties = _properties(_definition(definitions, owner))
+        value = properties.get(field)
+        items = value.get("items") if isinstance(value, Mapping) else None
+        expected_ref = f"#/$defs/{target}"
+        if not isinstance(items, Mapping) or items.get("$ref") != expected_ref:
+            raise RuntimeError(
+                f"{owner}.{field} must reference the {target} contract"
+            )
     _enum(
         _composed_definition(definitions, "module_relationship"),
         "direction",
@@ -272,6 +325,16 @@ def validate_phase3_schema_alignment(schema: Mapping[str, object]) -> None:
         _definition(definitions, "call_edge"),
         "confidence",
         CALL_CONFIDENCE_VALUES,
+    )
+    _enum(
+        _composed_definition(definitions, "knowledge_request"),
+        "request_type",
+        KNOWLEDGE_REQUEST_TYPE_VALUES,
+    )
+    _enum(
+        _composed_definition(definitions, "knowledge_request"),
+        "status",
+        KNOWLEDGE_REQUEST_STATUS_VALUES,
     )
 
 

@@ -151,6 +151,22 @@ def test_module_without_relationships_or_diagrams_is_valid(tmp_path: Path) -> No
     assert accepted["diagrams"] == []
 
 
+def test_module_normalizes_legacy_component_ids(tmp_path: Path) -> None:
+    catalog = build_catalog(tmp_path)
+    artifact = _artifact(catalog)
+    for component in artifact["vertical"]["components"]:
+        component["id"] = component.pop("component_id")
+
+    accepted = ModuleKnowledgeService(tmp_path, store=catalog.store).ingest(
+        str(artifact["module_id"]), artifact
+    )
+
+    assert all(
+        item["component_id"] in accepted["component_ids"]
+        for item in accepted["vertical"]["components"]
+    )
+
+
 @pytest.mark.parametrize("failure", ["member", "neighbor", "diagram", "navigation"])
 def test_module_knowledge_rejects_stale_or_conflated_references(
     tmp_path: Path, failure: str

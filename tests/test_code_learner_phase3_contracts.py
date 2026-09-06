@@ -129,7 +129,20 @@ def test_all_ai_record_schemas_match_runtime_contract_catalog() -> None:
         "architecture_knowledge",
         "module_knowledge",
         "function_knowledge",
+        "knowledge_request",
     }
+
+
+def test_nested_ai_arrays_reference_complete_item_contracts() -> None:
+    schema = load_phase3_schema()
+    definitions = schema["$defs"]
+
+    assert definitions["architecture_horizontal"]["properties"]["modules"][
+        "items"
+    ] == {"$ref": "#/$defs/architecture_horizontal_module"}
+    assert definitions["module_vertical"]["properties"]["components"][
+        "items"
+    ] == {"$ref": "#/$defs/module_vertical_component"}
 
 
 def test_phase3_schema_alignment_rejects_later_record_drift() -> None:

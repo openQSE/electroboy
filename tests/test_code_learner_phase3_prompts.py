@@ -141,6 +141,14 @@ def test_every_ai_prompt_includes_its_complete_record_contract(
             module_knowledge_path="knowledge/modules",
             schema_path="schemas/phase3.schema.json",
         ),
+        "knowledge_request": module_synthesis_prompt(
+            tmp_path,
+            **common,
+            source_manifest_path="source/manifest.json",
+            component_manifest_path="components/manifest.json",
+            components_path="components/components.jsonl",
+            schema_path="schemas/phase3.schema.json",
+        ),
     }
 
     for record_type, fields in AGENT_RECORD_REQUIRED_FIELDS.items():

@@ -43,8 +43,13 @@ def _architecture(catalog) -> dict[str, object]:
             "external_boundaries": [],
             "entry_surfaces": ["function0"],
             "modules": [
-                {"module_id": module_id, "summary": f"Covers {module_id}."}
-                for module_id in modules
+                {
+                    "module_id": str(module["id"]),
+                    "name": str(module["name"]),
+                    "summary": f"Covers {module['id']}.",
+                    "component_ids": list(module["component_ids"]),
+                }
+                for module in catalog.modules.modules
             ],
             "relationships": [relationship],
             "state": [],
@@ -142,6 +147,28 @@ def test_architecture_validates_repository_breadth_vertical_flow_and_diagrams(
         == "symbol-0"
     )
     assert service.load()["id"] == "architecture:current"
+    assert accepted["generated_id"] == "architecture:current"
+
+
+def test_architecture_normalizes_ai_identity_and_legacy_nested_ids(
+    tmp_path: Path,
+) -> None:
+    catalog = build_catalog(tmp_path)
+    artifact = _architecture(catalog)
+    artifact["id"] = "architecture-generated:run-1"
+    for module in artifact["horizontal"]["modules"]:
+        module["id"] = module.pop("module_id")
+
+    accepted = ArchitectureKnowledgeService(tmp_path, store=catalog.store).ingest(
+        artifact
+    )
+
+    assert accepted["id"] == "architecture:current"
+    assert accepted["generated_id"] == "architecture-generated:run-1"
+    assert all(
+        item["module_id"] in accepted["module_ids"]
+        for item in accepted["horizontal"]["modules"]
+    )
 
 
 @pytest.mark.parametrize("failure", ["breadth", "sequence", "stale-node", "fields"])

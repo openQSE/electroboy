@@ -15,6 +15,7 @@ from .knowledge import Phase3KnowledgeContext
 from .phase3_contract_catalog import (
     MODULE_HORIZONTAL_FIELDS,
     MODULE_KNOWLEDGE_REQUIRED_FIELDS,
+    MODULE_VERTICAL_COMPONENT_FIELDS,
     MODULE_VERTICAL_FIELDS,
     missing_required_fields,
 )
@@ -51,7 +52,9 @@ class ModuleKnowledgeService:
         results = []
         for module_id in sorted(context.modules):
             results.append(
-                self.generate(module_id, analysis_run_id=analysis_run_id, context=context)
+                self.generate(
+                    module_id, analysis_run_id=analysis_run_id, context=context
+                )
             )
         return results
 
@@ -175,7 +178,10 @@ class ModuleKnowledgeService:
             raise CodeLearnerError(
                 "Module horizontal relationships must match canonical neighbors"
             )
-        component_entries = vertical.get("components", [])
+        component_entries = self._normalize_vertical_components(
+            vertical.get("components", []), context=context
+        )
+        vertical["components"] = component_entries
         vertical_ids = {
             str(item.get("component_id") or "")
             for item in component_entries
@@ -212,6 +218,40 @@ class ModuleKnowledgeService:
         payload["validated_at"] = utc_now()
         self.store.write_jsonl(self._path(module_id), [payload])
         return payload
+
+    @staticmethod
+    def _normalize_vertical_components(
+        entries: object,
+        *,
+        context: Phase3KnowledgeContext,
+    ) -> list[dict[str, object]]:
+        if not isinstance(entries, list):
+            raise CodeLearnerError("Module vertical.components must be an array")
+        normalized = []
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, Mapping):
+                raise CodeLearnerError(
+                    f"Module vertical.components[{index}] must be an object"
+                )
+            item = dict(entry)
+            if (
+                "component_id" not in item
+                and str(item.get("id") or "") in context.components
+            ):
+                item["component_id"] = item["id"]
+            missing = missing_required_fields(item, MODULE_VERTICAL_COMPONENT_FIELDS)
+            if missing:
+                raise CodeLearnerError(
+                    f"Module vertical.components[{index}] is missing required fields: "
+                    + ", ".join(missing)
+                )
+            for field in MODULE_VERTICAL_COMPONENT_FIELDS:
+                if not str(item.get(field) or "").strip():
+                    raise CodeLearnerError(
+                        f"Module vertical.components[{index}].{field} is required"
+                    )
+            normalized.append(item)
+        return normalized
 
     def load(self, module_id: str) -> dict[str, object] | None:
         records = self.store.read_jsonl(self._path(module_id))

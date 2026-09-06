@@ -16,6 +16,9 @@ from .domain import CodeLearnerError
 from .phase3_contract_catalog import (
     ARCHITECTURE_KNOWLEDGE_REQUIRED_FIELDS,
     FUNCTION_KNOWLEDGE_REQUIRED_FIELDS,
+    KNOWLEDGE_REQUEST_REQUIRED_FIELDS,
+    KNOWLEDGE_REQUEST_STATUS_VALUES,
+    KNOWLEDGE_REQUEST_TYPE_VALUES,
     MODULE_KNOWLEDGE_REQUIRED_FIELDS,
     MODULE_RELATIONSHIP_REQUIRED_FIELDS,
     MODULE_REQUIRED_FIELDS,
@@ -40,10 +43,8 @@ MANIFEST_TYPES = frozenset({"source_manifest", "component_manifest", "module_man
 KNOWLEDGE_TYPES = frozenset(
     {"architecture_knowledge", "module_knowledge", "function_knowledge"}
 )
-REQUEST_TYPES = frozenset(
-    {"missing_file", "missing_component", "missing_endpoint", "missing_knowledge"}
-)
-REQUEST_STATUSES = frozenset({"open", "resolved", "dismissed"})
+REQUEST_TYPES = frozenset(KNOWLEDGE_REQUEST_TYPE_VALUES)
+REQUEST_STATUSES = frozenset(KNOWLEDGE_REQUEST_STATUS_VALUES)
 
 
 @dataclass(frozen=True)
@@ -687,6 +688,9 @@ def validate_knowledge_requests(
     for index, record in enumerate(normalized):
         prefix = f"records[{index}]"
         _header(record, prefix, "knowledge_request", repository_revision, issues)
+        _require_fields(
+            record, prefix, KNOWLEDGE_REQUEST_REQUIRED_FIELDS, issues
+        )
         _required_string(record, prefix, "id", issues)
         request_type = _required_string(record, prefix, "request_type", issues)
         if request_type not in REQUEST_TYPES:

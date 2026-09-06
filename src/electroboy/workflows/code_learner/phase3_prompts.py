@@ -11,6 +11,7 @@ from .phase3_contract_catalog import (
     CALL_CONFIDENCE_VALUES,
     RELATIONSHIP_DIRECTION_VALUES,
     contract_field_text,
+    nested_contract_field_text,
 )
 from .skills import skill_prompt_reference
 
@@ -274,6 +275,8 @@ repository changes.
 
 Exact record contract:
 {contract_field_text("module")}
+If you emit a `knowledge_request`, it must use this complete contract:
+{contract_field_text("knowledge_request")}
 """.strip()
 
 
@@ -330,6 +333,8 @@ change manifests, or emit modules, flows, diagrams, courses, or prose.
 
 Exact record contract:
 {contract_field_text("module_relationship")}
+If you emit a `knowledge_request`, it must use this complete contract:
+{contract_field_text("knowledge_request")}
 Direction must be one of {json.dumps(list(RELATIONSHIP_DIRECTION_VALUES))};
 confidence must be categorical, never numeric.
 """.strip()
@@ -393,6 +398,14 @@ purpose, external boundaries, entry surfaces, every major module and accepted
 relationship, state, build, tests, and constraints. Do not narrow scope to a
 recent or prominent subsystem.
 
+Use `architecture:current` as the record `id`. Include exactly one
+`horizontal.modules` object for every frozen module. Use this nested contract:
+{nested_contract_field_text("architecture_horizontal_module")}
+For example:
+{{"module_id":"module:...","name":"Module name",
+"summary":"Architectural responsibility.",
+"component_ids":["component:..."]}}
+
 Add vertical_slices for important cross-module behaviors. Each slice needs
 ordered_steps with canonical module and component IDs plus source-grounded
 symbol locators where useful, and explicit alternate_flows, error_flows,
@@ -448,6 +461,12 @@ Horizontal knowledge covers purpose, interfaces, canonical neighbor edges,
 configuration, state, tests, risks, and peer-module navigation. Vertical
 knowledge covers member components, initialization, normal and alternate flow,
 errors, data, concurrency, and important exact symbol locators.
+
+Include exactly one `vertical.components` object for every member component.
+Use this nested contract:
+{nested_contract_field_text("module_vertical_component")}
+For example:
+{{"component_id":"component:...","summary":"Role inside this module."}}
 
 Keep horizontal peer navigation separate from vertical deep-dive links.
 Preserve intentional component overlap, dynamic behavior, uncertainty, and
