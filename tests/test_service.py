@@ -1731,12 +1731,13 @@ class ServiceTests(unittest.TestCase):
 
         self.assertNotIn("existing.kind = previousKind", runtime)
         self.assertIn(
-            'const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress"]);',
+            'const SINGLETON_PANE_LAYOUT_KINDS = new Set('
+            '["progress", "corkboard"]);',
             runtime,
         )
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
         self.assertIn(
-            '"agent",\n      "artifact",\n      "agenda",\n'
+            '"agent",\n      "artifact",\n      "corkboard",\n      "agenda",\n'
             '      "assignments",\n      "calendar",\n'
             '      "mind-map",\n      "scratch",\n'
             '      "status"',
@@ -1751,6 +1752,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("SINGLETON_PANE_LAYOUT_KINDS", availability_source)
         self.assertIn('if (kind === "agenda")', availability_source)
         self.assertIn('if (kind === "calendar")', availability_source)
+        self.assertIn('if (kind === "corkboard")', availability_source)
         self.assertIn("return true;", availability_source)
         self.assertNotIn('kind !== "artifact"', availability_source)
         self.assertNotIn("artifactPreviewItems.length", availability_source)
@@ -1758,8 +1760,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('["agenda", "calendar", "mind-map"].includes(content?.kind)', runtime)
         self.assertIn('item.kind === "agenda"', runtime)
         self.assertIn('item.kind === "calendar"', runtime)
-        self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind)", runtime)
-        self.assertIn("if (validKind && duplicateSingleton)", runtime)
+        self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
+        self.assertIn("if (duplicateSingleton)", runtime)
         self.assertIn("return null;", runtime)
         self.assertIn("if (!first) {\n        return second;\n      }", runtime)
         self.assertIn("if (!second) {\n        return first;\n      }", runtime)
@@ -2070,6 +2072,17 @@ class ServiceTests(unittest.TestCase):
         assign_start = runtime.index("function assignArtifactToPane(")
         assign_end = runtime.index("function assignPaneLeafContent(", assign_start)
         assign_source = runtime[assign_start:assign_end]
+        self.assertIn(
+            'assignPaneContent("corkboard", item, requestedLeafId, {',
+            assign_source,
+        )
+        self.assertIn("createIfMissing: true", assign_source)
+        self.assertIn("function createPaneLayoutLeafForItem", assign_source)
+        self.assertIn("const replacement = paneLayoutSplit(", assign_source)
+        self.assertIn(
+            "if (!leaf && options.createIfMissing === true)",
+            assign_source,
+        )
         self.assertIn("refreshPaneLayoutInstanceFrameForLeaf(", assign_source)
         self.assertIn("reconcilePaneLayout(`assignPaneContent:${kind}`);", assign_source)
         self.assertIn("function paneLayoutConsistencyPayload()", runtime)
@@ -2774,6 +2787,11 @@ class ServiceTests(unittest.TestCase):
                     mind_map_body,
                     mind_map_content_type,
                 ) = request(server, "/pane/mind-map")
+                (
+                    corkboard_status,
+                    corkboard_body,
+                    corkboard_content_type,
+                ) = request(server, "/pane/corkboard")
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -2791,6 +2809,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(mind_map_status, 200)
         self.assertEqual(mind_map_content_type, "text/html; charset=utf-8")
         self.assertIn('const PANE_KIND = "mind-map";', mind_map_body)
+        self.assertEqual(corkboard_status, 200)
+        self.assertEqual(corkboard_content_type, "text/html; charset=utf-8")
+        self.assertIn('const PANE_KIND = "corkboard";', corkboard_body)
+        self.assertIn('PANE_KIND === "corkboard"', corkboard_body)
 
     def test_pane_window_supports_persistent_split_workspaces(self) -> None:
         page = pane_window_html("agent")
@@ -2831,6 +2853,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('second: { type: "leaf", kind: "input" }', page)
         self.assertIn('initialLayout: initialPaneWorkspaceLayout()', page)
         self.assertIn('{ id: "mind-map", label: "Mind Map" }', page)
+        self.assertIn('{ id: "corkboard", label: "Corkboard" }', page)
         self.assertIn("function hasNonEmptyLeaf(node)", workspace)
         self.assertIn("return defaultLayout();", workspace)
         self.assertIn('function splitLeaf(', workspace)
@@ -2956,7 +2979,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function exportBlob(url, suggestedName, format = \"markdown\")", page)
         self.assertIn("function exportMarkdown(url, suggestedName)", page)
         self.assertIn("function exportCurrentPaneOutput()", page)
-        self.assertIn("exportPaneFormat.hidden = PANE_KIND !== \"artifact\";", page)
+        self.assertIn("exportPaneFormat.hidden = !IS_ARTIFACT_PANE;", page)
         self.assertIn(
             "exportPaneOutput.hidden = Boolean(agentPaneTools) || !canExportPaneOutput();",
             page,

@@ -2833,6 +2833,7 @@ def _handler_for(
                 "assignments",
                 "artifact",
                 "calendar",
+                "corkboard",
                 "mind-map",
                 "progress",
                 "scratch",

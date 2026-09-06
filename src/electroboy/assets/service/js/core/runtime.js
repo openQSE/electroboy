@@ -366,6 +366,7 @@
       agent: { label: "Agent", element: agentOutputPane },
       progress: { label: "Progress", element: progressOutputPane },
       artifact: { label: "File", element: artifactPreviewPane },
+      corkboard: { label: "Corkboard", element: null },
       agenda: { label: "Agenda", element: null },
       assignments: { label: "Assignments", element: null },
       calendar: { label: "Calendar", element: null },
@@ -376,6 +377,7 @@
     };
     const INSTANCE_PANE_LAYOUT_KINDS = new Set([
       "artifact",
+      "corkboard",
       "agenda",
       "assignments",
       "calendar",
@@ -386,11 +388,12 @@
       "calendar",
       "mind-map",
     ]);
-    const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress"]);
+    const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress", "corkboard"]);
     const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
       "empty",
       "agent",
       "artifact",
+      "corkboard",
       "agenda",
       "assignments",
       "calendar",
@@ -530,18 +533,24 @@
       if (value.type === "leaf") {
         const requestedKind = String(value.kind || "empty");
         const validKind = requestedKind === "empty" || PANE_LAYOUT_KINDS[requestedKind];
-        const duplicateSingleton = SINGLETON_PANE_LAYOUT_KINDS.has(requestedKind) &&
-          seenKinds.has(requestedKind);
-        if (validKind && duplicateSingleton) {
-          return null;
-        }
         const content = value.content && typeof value.content === "object"
           ? value.content
           : null;
+        const dedicatedArtifactKind =
+          ["agenda", "calendar", "mind-map"].includes(content?.kind)
+            ? content.kind
+            : ["corkboard", "creative-corkboard"].includes(content?.kind)
+              ? "corkboard"
+              : "";
         const kind = validKind && requestedKind === "artifact" &&
-            ["agenda", "calendar", "mind-map"].includes(content?.kind)
-          ? content.kind
+            dedicatedArtifactKind
+          ? dedicatedArtifactKind
           : validKind ? requestedKind : "empty";
+        const duplicateSingleton = SINGLETON_PANE_LAYOUT_KINDS.has(kind) &&
+          seenKinds.has(kind);
+        if (duplicateSingleton) {
+          return null;
+        }
         if (SINGLETON_PANE_LAYOUT_KINDS.has(kind)) {
           seenKinds.add(kind);
         }
@@ -2026,6 +2035,9 @@
       if (kind === "mind-map") {
         return Boolean(window.ElectroBoyFrontend?.module("mind_map"));
       }
+      if (kind === "corkboard") {
+        return Boolean(window.ElectroBoyFrontend?.module("corkboard"));
+      }
       return true;
     }
 
@@ -2357,13 +2369,20 @@
     }
 
     function paneLayoutRequestedArtifact(leaf) {
-      if (leaf.kind !== "artifact") {
+      if (leaf.kind !== "artifact" && leaf.kind !== "corkboard") {
         return undefined;
       }
       const content = leaf.content && typeof leaf.content === "object"
         ? leaf.content
         : null;
       if (!content) {
+        return null;
+      }
+      if (
+        leaf.kind === "corkboard" &&
+        content.kind !== "corkboard" &&
+        content.kind !== "creative-corkboard"
+      ) {
         return null;
       }
       if (!paneLayoutArtifactIsProjectScoped(content)) {
@@ -2590,7 +2609,7 @@
             ),
           }
           : {
-            type: leaf.kind === "artifact"
+            type: leaf.kind === "artifact" || leaf.kind === "corkboard"
               ? "electroboy:pane-set-artifact"
               : "electroboy:pane-set-content",
             paneInstanceId: leaf.id,
@@ -2999,7 +3018,40 @@
         assignPaneContent("mind-map", item, requestedLeafId);
         return;
       }
+      if (
+        item &&
+        (item.kind === "corkboard" || item.kind === "creative-corkboard")
+      ) {
+        assignPaneContent("corkboard", item, requestedLeafId, {
+          createIfMissing: true,
+          direction: "row",
+        });
+        return;
+      }
       assignPaneContent("artifact", item, requestedLeafId);
+    }
+
+    function createPaneLayoutLeafForItem(kind, options = {}) {
+      const activeLeaf = paneLayoutLeafById(activePaneLayoutLeafId);
+      const target = activeLeaf || paneLayoutLeaves()[0] || null;
+      if (!target) {
+        paneLayout = paneLayoutLeaf(kind);
+        return paneLayout;
+      }
+      if (target.kind === "empty") {
+        target.kind = kind;
+        return target;
+      }
+      const created = paneLayoutLeaf(kind);
+      const direction = options.direction === "column" ? "column" : "row";
+      const replacement = paneLayoutSplit(
+        direction,
+        { ...target },
+        created,
+        0.5,
+      );
+      paneLayout = replacePaneLayoutNode(paneLayout, target.id, replacement);
+      return created;
     }
 
     function assignPaneContent(kind, item, requestedLeafId = "", options = {}) {
@@ -3011,6 +3063,11 @@
       let leaf = paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId);
       if (!leaf || leaf.kind !== kind) {
         leaf = paneLayoutLeafByKind(kind);
+      }
+      if (!leaf && options.createIfMissing === true) {
+        leaf = createPaneLayoutLeafForItem(kind, options);
+        assignPaneLeafContent(leaf, kind, item);
+        return;
       }
       if (!leaf) {
         return;

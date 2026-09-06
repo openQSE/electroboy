@@ -926,6 +926,8 @@
   <script src="/assets/service/js/modules/mind-map-pane-tools.js"></script>
   <script>
     const PANE_KIND = __PANE_KIND__;
+    const IS_ARTIFACT_PANE =
+      PANE_KIND === "artifact" || PANE_KIND === "corkboard";
     const params = new URLSearchParams(window.location.search);
     const EMBEDDED_PANE = params.get("embedded") === "1";
     const paneInstanceId = params.get("pane_instance_id") || "";
@@ -946,7 +948,8 @@
         ? "calendar"
         : PANE_KIND === "mind-map"
           ? "mind-map"
-          : params.get("artifact") || "requirements";
+          : params.get("artifact") ||
+            (PANE_KIND === "corkboard" ? "empty" : "requirements");
     let artifactDocumentPath = params.get("document_path") || "";
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactDocumentFragment = "";
@@ -1187,7 +1190,7 @@
         terminal.options.fontSize = fontSize;
         window.requestAnimationFrame(fitTerminal);
       }
-      paneFontControls.hidden = PANE_KIND === "artifact" || PANE_KIND === "agenda";
+      paneFontControls.hidden = IS_ARTIFACT_PANE || PANE_KIND === "agenda";
       if (document.activeElement !== paneFontLevel) {
         paneFontLevel.value = displayFontSize(fontSize);
       }
@@ -1260,6 +1263,7 @@
       if (kind === "artifact") {
         return "File";
       }
+      if (kind === "corkboard") return "Corkboard";
       if (kind === "agenda") return "Agenda";
       if (kind === "assignments") return "Assignments";
       if (kind === "calendar") return "Calendar";
@@ -2685,7 +2689,7 @@
     function canExportPaneOutput() {
       return PANE_KIND === "agent"
         || PANE_KIND === "progress"
-        || PANE_KIND === "artifact";
+        || IS_ARTIFACT_PANE;
     }
 
     function artifactExportBaseName() {
@@ -2699,7 +2703,7 @@
     }
 
     function paneExportFileName(format = "markdown") {
-      if (PANE_KIND === "artifact") {
+      if (IS_ARTIFACT_PANE) {
         const selected = documentExportFormat(format);
         return `${artifactExportBaseName()}.${selected.extension}`;
       }
@@ -2723,7 +2727,7 @@
     }
 
     async function exportCurrentPaneOutput() {
-      if (PANE_KIND === "artifact") {
+      if (IS_ARTIFACT_PANE) {
         const format = exportPaneFormat.value || "markdown";
         await exportBlob(
           artifactDocumentExportUrl(format),
@@ -4148,6 +4152,7 @@
           { id: "agent", label: "Agent" },
           { id: "progress", label: "Progress" },
           { id: "artifact", label: "File" },
+          { id: "corkboard", label: "Corkboard" },
           { id: "agenda", label: "Agenda" },
           { id: "calendar", label: "Calendar" },
           { id: "mind-map", label: "Mind Map" },
@@ -4357,7 +4362,7 @@
       if (
         (data.type === "electroboy:pane-set-artifact" ||
           data.type === "electroboy:pane-set-content") &&
-        (PANE_KIND === "artifact" ||
+        (IS_ARTIFACT_PANE ||
           PANE_KIND === "agenda" ||
           PANE_KIND === "assignments" ||
           PANE_KIND === "calendar" ||
@@ -4427,7 +4432,7 @@
       side: PANE_KIND === "agenda" ? "left" : "right",
       onResize: fitTerminal,
     });
-    if (PANE_KIND === "artifact" && window.ElectroBoyFilePaneTools) {
+    if (IS_ARTIFACT_PANE && window.ElectroBoyFilePaneTools) {
       filePaneTools = window.ElectroBoyFilePaneTools.mount({
         controller: paneToolsController,
         frame: artifactFrame,
@@ -4526,7 +4531,7 @@
       refreshArtifactButton.setAttribute("aria-label", "Refresh mind map");
     }
     initializeContentSwitcher();
-    exportPaneFormat.hidden = PANE_KIND !== "artifact";
+    exportPaneFormat.hidden = !IS_ARTIFACT_PANE;
     exportPaneOutput.hidden = Boolean(agentPaneTools) || !canExportPaneOutput();
     if (PANE_KIND === "agent") {
       refreshSessions()
@@ -4539,7 +4544,7 @@
     }
     else if (PANE_KIND === "progress") connectProgressStream();
     else if (
-      PANE_KIND === "artifact" ||
+      IS_ARTIFACT_PANE ||
       PANE_KIND === "agenda" ||
       PANE_KIND === "assignments" ||
       PANE_KIND === "calendar" ||
