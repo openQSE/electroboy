@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
 
@@ -42,12 +42,14 @@ class ArchitectureKnowledgeService:
         store: Phase3Store | None = None,
         runtime_factory: RuntimeFactory | None = None,
         symbol_resolver=None,
+        warning_callback: Callable[[str], None] | None = None,
         max_attempts: int = 2,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.store = store or Phase3Store(self.root)
         self.runtime_factory = runtime_factory or _runtime_factory
         self.symbol_resolver = symbol_resolver
+        self.warning_callback = warning_callback
         self.max_attempts = max(1, max_attempts)
         self.path = self.store.knowledge_root / "architecture.jsonl"
 
@@ -206,6 +208,7 @@ class ArchitectureKnowledgeService:
                         f"vertical_slices[{slice_index}].ordered_steps"
                         f"[{step_index}].symbol_locators"
                     ),
+                    warning_callback=self.warning_callback,
                 )
             cross_module_ordered |= len(modules_in_flow) > 1 and len(steps) > 1
             for field in (
@@ -224,7 +227,10 @@ class ArchitectureKnowledgeService:
             require_component=True,
             require_sequence=cross_module_ordered,
         )
-        context.validate_links(payload.get("deep_links", []))
+        context.validate_links(
+            payload.get("deep_links", []),
+            warning_callback=self.warning_callback,
+        )
         payload["validated_at"] = utc_now()
         self.store.write_jsonl(self.path, [payload])
         return payload

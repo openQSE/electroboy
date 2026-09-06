@@ -11,6 +11,7 @@ from electroboy.adapters.base import AgentResult
 from electroboy.workflows.code_learner.architecture_knowledge import (
     ArchitectureKnowledgeService,
 )
+from electroboy.workflows.code_learner.ctags_evidence import LocatorResolution
 from electroboy.workflows.code_learner.domain import CodeLearnerError
 
 
@@ -22,6 +23,17 @@ class FakeRuntime:
     def invoke(self, invocation):
         self.invocations.append(invocation)
         return AgentResult(True, json.dumps(self.output))
+
+
+class UnconfirmedResolver:
+    def resolve(self, locator):
+        return LocatorResolution(
+            "unresolved",
+            dict(locator),
+            "",
+            "repository-search",
+            message="symbol was not confirmed",
+        )
 
 
 def _architecture(catalog) -> dict[str, object]:
@@ -169,6 +181,63 @@ def test_architecture_normalizes_ai_identity_and_legacy_nested_ids(
         item["module_id"] in accepted["module_ids"]
         for item in accepted["horizontal"]["modules"]
     )
+
+
+def test_architecture_preserves_unconfirmed_symbol_locator_as_warning(
+    tmp_path: Path,
+) -> None:
+    catalog = build_catalog(tmp_path)
+    artifact = _architecture(catalog)
+    locator = artifact["vertical_slices"][0]["ordered_steps"][0][
+        "symbol_locators"
+    ][0]
+    locator.pop("canonical_key")
+    warnings = []
+    service = ArchitectureKnowledgeService(
+        tmp_path,
+        store=catalog.store,
+        symbol_resolver=UnconfirmedResolver(),
+        warning_callback=warnings.append,
+    )
+
+    accepted = service.ingest(artifact)
+
+    preserved = accepted["vertical_slices"][0]["ordered_steps"][0][
+        "symbol_locators"
+    ][0]
+    assert preserved["name"] == locator["name"]
+    assert preserved["validated_by"] == "ai-authored"
+    assert preserved["confirmation_status"] == "unresolved"
+    assert preserved["canonical_key"]
+    assert warnings == [
+        "vertical_slices[0].ordered_steps[0].symbol_locators[0] is unresolved: "
+        "symbol was not confirmed"
+    ]
+
+
+def test_architecture_preserves_noncanonical_deep_link_as_warning(
+    tmp_path: Path,
+) -> None:
+    catalog = build_catalog(tmp_path)
+    artifact = _architecture(catalog)
+    artifact["deep_links"] = [
+        {"target_type": "Function", "target_id": "file:file0.py#function0"}
+    ]
+    warnings = []
+
+    accepted = ArchitectureKnowledgeService(
+        tmp_path,
+        store=catalog.store,
+        warning_callback=warnings.append,
+    ).ingest(artifact)
+
+    assert accepted["deep_links"] == [
+        {"target_type": "function", "target_id": "file:file0.py#function0"}
+    ]
+    assert warnings == [
+        "deep_links[0] target is not in the canonical catalog; preserving the "
+        "AI-authored link"
+    ]
 
 
 @pytest.mark.parametrize("failure", ["breadth", "sequence", "stale-node", "fields"])

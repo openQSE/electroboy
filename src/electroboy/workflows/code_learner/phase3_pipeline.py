@@ -138,16 +138,25 @@ class Phase3InitializationPipeline:
             self.root,
             store=self.store,
             runtime_factory=self._observed_runtime,
+            warning_callback=lambda message: self._warning(
+                "architecture_knowledge", message
+            ),
         )
         self.module_knowledge = ModuleKnowledgeService(
             self.root,
             store=self.store,
             runtime_factory=self._observed_runtime,
+            warning_callback=lambda message: self._warning(
+                "module_knowledge", message
+            ),
         )
         self.functions = FunctionKnowledgeService(
             self.root,
             store=self.store,
             runtime_factory=self._observed_runtime,
+            warning_callback=lambda message: self._warning(
+                "important_functions", message
+            ),
             eager_budget=eager_function_budget,
         )
         self.courses = Phase3CourseService(

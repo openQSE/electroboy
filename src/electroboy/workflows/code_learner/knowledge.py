@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .component_manifest import ComponentManifestService
@@ -14,7 +14,7 @@ from .phase3_contract_catalog import (
     LINK_REQUIRED_FIELDS,
     missing_required_fields,
 )
-from .phase3_contracts import validate_knowledge_artifacts
+from .phase3_contracts import SymbolLocator, validate_knowledge_artifacts
 from .phase3_store import Phase3Store
 from .relationships import ModuleRelationshipService
 from .source_manifest import SourceManifestService
@@ -94,7 +94,12 @@ class Phase3KnowledgeContext:
                 raise CodeLearnerError(f"{path}[{index}] needs a reason")
 
     def resolve_symbols(
-        self, locators: Sequence[Mapping[str, object]], *, path: str
+        self,
+        locators: Sequence[Mapping[str, object]],
+        *,
+        path: str,
+        require_confirmation: bool = False,
+        warning_callback: Callable[[str], None] | None = None,
     ) -> list[dict[str, object]]:
         resolved = []
         for index, locator in enumerate(locators):
@@ -104,9 +109,27 @@ class Phase3KnowledgeContext:
                 continue
             result = self.symbol_resolver.resolve(locator)
             if result.status != "exact":
-                raise CodeLearnerError(
-                    f"{path}[{index}] is {result.status}: {result.message}"
+                message = f"{path}[{index}] is {result.status}: {result.message}"
+                if require_confirmation:
+                    raise CodeLearnerError(message)
+                accepted = SymbolLocator.from_mapping(result.locator)
+                file = self.files.get(accepted.file_id)
+                if file is None:
+                    raise CodeLearnerError(
+                        f"{path}[{index}] cites an unknown source file"
+                    )
+                if accepted.start_line < 1 or accepted.end_line < accepted.start_line:
+                    raise CodeLearnerError(f"{path}[{index}] has an invalid range")
+                preserved = accepted.to_dict()
+                preserved["canonical_key"] = canonical or accepted.canonical_key(
+                    self.revision, str(file["path"])
                 )
+                preserved["validated_by"] = "ai-authored"
+                preserved["confirmation_status"] = result.status
+                resolved.append(preserved)
+                if warning_callback is not None:
+                    warning_callback(message)
+                continue
             resolved.append(
                 {
                     **result.locator,
@@ -170,7 +193,12 @@ class Phase3KnowledgeContext:
                     + ", ".join(missing_tokens)
                 )
 
-    def validate_links(self, links: Sequence[Mapping[str, object]]) -> None:
+    def validate_links(
+        self,
+        links: Sequence[Mapping[str, object]],
+        *,
+        warning_callback: Callable[[str], None] | None = None,
+    ) -> None:
         catalogs = {
             "module": set(self.modules),
             "component": set(self.components),
@@ -186,11 +214,17 @@ class Phase3KnowledgeContext:
                     f"deep_links[{index}] is missing required fields: "
                     + ", ".join(missing)
                 )
-            target_type = str(link.get("target_type") or "")
+            target_type = str(link.get("target_type") or "").lower()
             target_id = str(link.get("target_id") or "")
             if not target_type or not target_id:
                 raise CodeLearnerError(
                     f"deep_links[{index}] needs target_type and target_id"
                 )
+            if isinstance(link, dict):
+                link["target_type"] = target_type
             if target_id not in catalogs.get(target_type, set()):
-                raise CodeLearnerError(f"deep_links[{index}] has an unknown target")
+                if warning_callback is not None:
+                    warning_callback(
+                        f"deep_links[{index}] target is not in the canonical catalog; "
+                        "preserving the AI-authored link"
+                    )

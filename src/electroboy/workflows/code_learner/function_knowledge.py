@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -63,6 +63,7 @@ class FunctionKnowledgeService:
         store: Phase3Store | None = None,
         runtime_factory: RuntimeFactory | None = None,
         symbol_resolver=None,
+        warning_callback: Callable[[str], None] | None = None,
         eager_budget: int = 24,
         max_attempts: int = 2,
     ) -> None:
@@ -70,6 +71,7 @@ class FunctionKnowledgeService:
         self.store = store or Phase3Store(self.root)
         self.runtime_factory = runtime_factory or _runtime_factory
         self.symbol_resolver = symbol_resolver
+        self.warning_callback = warning_callback
         self.eager_budget = max(0, eager_budget)
         self.max_attempts = max(1, max_attempts)
         self.root_path = self.store.knowledge_root / "functions"
@@ -308,7 +310,9 @@ class FunctionKnowledgeService:
         symbol = payload.get("symbol")
         if not isinstance(symbol, Mapping):
             raise CodeLearnerError("Function knowledge symbol is required")
-        resolved = context.resolve_symbols([symbol], path="symbol")[0]
+        resolved = context.resolve_symbols(
+            [symbol], path="symbol", require_confirmation=True
+        )[0]
         if resolved.get("canonical_key") != canonical_key:
             raise CodeLearnerError("Function knowledge changed its exact symbol target")
         payload["symbol"] = resolved
@@ -322,7 +326,11 @@ class FunctionKnowledgeService:
                 raise CodeLearnerError(f"Function {field} is required")
         related_symbols = [canonical_key]
         for field in ("callers", "callees"):
-            payload[field] = context.resolve_symbols(payload[field], path=field)
+            payload[field] = context.resolve_symbols(
+                payload[field],
+                path=field,
+                warning_callback=self.warning_callback,
+            )
             related_symbols.extend(
                 str(item["canonical_key"]) for item in payload[field]
             )

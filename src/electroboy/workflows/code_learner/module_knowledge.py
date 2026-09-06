@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
 
@@ -41,12 +41,14 @@ class ModuleKnowledgeService:
         store: Phase3Store | None = None,
         runtime_factory: RuntimeFactory | None = None,
         symbol_resolver=None,
+        warning_callback: Callable[[str], None] | None = None,
         max_attempts: int = 2,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.store = store or Phase3Store(self.root)
         self.runtime_factory = runtime_factory or _runtime_factory
         self.symbol_resolver = symbol_resolver
+        self.warning_callback = warning_callback
         self.max_attempts = max(1, max_attempts)
         self.root_path = self.store.knowledge_root / "modules"
 
@@ -197,13 +199,20 @@ class ModuleKnowledgeService:
         vertical["important_functions"] = context.resolve_symbols(
             vertical.get("important_functions", []),
             path="vertical.important_functions",
+            warning_callback=self.warning_callback,
         )
         context.validate_diagrams(payload.get("diagrams", []))
         for diagram in payload.get("diagrams", []):
             if set(diagram.get("relationship_ids", [])) - valid_edges:
                 raise CodeLearnerError("Module diagram uses a non-neighbor edge")
-        context.validate_links(payload.get("peer_links", []))
-        context.validate_links(payload.get("deep_links", []))
+        context.validate_links(
+            payload.get("peer_links", []),
+            warning_callback=self.warning_callback,
+        )
+        context.validate_links(
+            payload.get("deep_links", []),
+            warning_callback=self.warning_callback,
+        )
         peer_targets = {
             str(link.get("target_id") or "")
             for link in payload.get("peer_links", [])
