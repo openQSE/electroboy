@@ -35,6 +35,7 @@ class LearnerStore:
         self.status_path = self.state_root / "status.json"
         self.progress_path = self.state_root / "progress.jsonl"
         self.navigation_path = self.state_root / "navigation.json"
+        self.module_status_path = self.state_root / "module-courses.json"
         self.tutor_context_path = self.state_root / "tutor-context.json"
         self.sessions_path = self.state_root / "agent-sessions.json"
         key = str(self.state_root)
@@ -174,13 +175,29 @@ class LearnerStore:
 
     def clear(self) -> dict[str, int]:
         files = (
-            [path for path in self.state_root.rglob("*") if path.is_file()]
+            [
+                path
+                for path in self.state_root.rglob("*")
+                if path.is_file() and path.name != "initialize.lock"
+            ]
             if self.state_root.is_dir()
             else []
         )
         size = sum(path.stat().st_size for path in files)
-        if self.state_root.exists():
+        lock_path = self.state_root / "initialize.lock"
+        if self.state_root.is_dir() and not lock_path.exists():
             shutil.rmtree(self.state_root)
+            return {"removed_file_count": len(files), "removed_bytes": size}
+        children = (
+            tuple(self.state_root.iterdir()) if self.state_root.is_dir() else ()
+        )
+        for child in children:
+            if child.name == "initialize.lock":
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
         return {"removed_file_count": len(files), "removed_bytes": size}
 
     def relative(self, path: Path) -> str:

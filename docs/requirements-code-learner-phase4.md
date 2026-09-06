@@ -247,8 +247,7 @@ component IDs and writes the complete JSON array directly to that path:
 ```
 
 The AI uses `comp-001`, `comp-002`, and subsequent unique numbers. ElectroBoy
-adopts these IDs without checking or replacing them. The AI may assign a file
-to more than one component. ElectroBoy does not inspect or reconcile overlaps.
+adopts these IDs without checking or replacing them.
 
 For a repository named `qhw-datastructures`, the supplied path is:
 
@@ -1112,22 +1111,22 @@ Commit boundary: repository-named course storage.
 
 ### 3. Implement AI Sessions and Shared Knowledge
 
-- [ ] Reuse one primary provider session across component discovery, module
+- [x] Reuse one primary provider session across component discovery, module
       discovery, and Architecture generation.
-- [ ] Generate a fresh UUID for every discovery or course-generation AI
+- [x] Generate a fresh UUID for every discovery or course-generation AI
       invocation.
-- [ ] Pass the absolute `raw-ai-knowledge` path and invocation UUID through the
+- [x] Pass the absolute `raw-ai-knowledge` path and invocation UUID through the
       exact shared AI instructions.
-- [ ] Instruct every invocation to read accumulated knowledge as it sees fit.
-- [ ] Instruct every invocation to create new knowledge files only and never
+- [x] Instruct every invocation to read accumulated knowledge as it sees fit.
+- [x] Instruct every invocation to create new knowledge files only and never
       modify, rename, replace, or delete existing knowledge.
-- [ ] Require every new knowledge filename to append the invocation UUID before
+- [x] Require every new knowledge filename to append the invocation UUID before
       its `.md` extension.
-- [ ] Do not validate knowledge filenames or contents.
-- [ ] Apply the exact shared AI instructions from this document.
-- [ ] Preserve Abort behavior for the active provider process.
-- [ ] Preserve Continue by reading already persisted turn outputs.
-- [ ] Add tests proving foreground turns receive the primary provider session
+- [x] Do not validate knowledge filenames or contents.
+- [x] Apply the exact shared AI instructions from this document.
+- [x] Preserve Abort behavior for the active provider process.
+- [x] Preserve Continue by reading already persisted turn outputs.
+- [x] Add tests proving foreground turns receive the primary provider session
       ID and every invocation receives a distinct UUID and the same raw-knowledge
       path.
 
@@ -1135,64 +1134,64 @@ Commit boundary: AI sessions and append-only shared knowledge.
 
 ### 4. Implement Component Discovery
 
-- [ ] Use the exact Component Discovery prompt.
-- [ ] Give the AI the ElectroBoy-created master directory and exact
+- [x] Use the exact Component Discovery prompt.
+- [x] Give the AI the ElectroBoy-created master directory and exact
       `components.json` path.
-- [ ] Tell the AI to persist its detailed repository understanding as new
+- [x] Tell the AI to persist its detailed repository understanding as new
       UUID-suffixed Markdown files under `raw-ai-knowledge/` while it discovers
       components.
-- [ ] Explain that later Architecture, Module, and Function course sessions use
+- [x] Explain that later Architecture, Module, and Function course sessions use
       this detailed raw knowledge to avoid rediscovering the repository.
-- [ ] Require the AI to assign `comp-001`, `comp-002`, and subsequent IDs in
+- [x] Require the AI to assign `comp-001`, `comp-002`, and subsequent IDs in
       discovery order.
-- [ ] Require the AI to write the complete array directly to `components.json`.
-- [ ] Adopt the AI-written IDs and content without host-side rewriting.
-- [ ] Do not enumerate files, invoke Ctags, reconcile overlap, or investigate
+- [x] Require the AI to write the complete array directly to `components.json`.
+- [x] Adopt the AI-written IDs and content without host-side rewriting.
+- [x] Do not enumerate files, invoke Ctags, reconcile overlap, or investigate
       coverage.
-- [ ] Stream genuine nonrepeating AI progress.
-- [ ] Add focused tests for prompt content, exact output-path handoff, direct AI
+- [x] Stream genuine nonrepeating AI progress.
+- [x] Add focused tests for prompt content, exact output-path handoff, direct AI
       writing, and subsequent file visibility.
 
 Commit boundary: trusted component discovery.
 
 ### 5. Implement Module Discovery
 
-- [ ] Resume the same AI session.
-- [ ] Give the AI the exact existing `components.json` path and exact
+- [x] Resume the same AI session.
+- [x] Give the AI the exact existing `components.json` path and exact
       `modules.json` output path.
-- [ ] Require the AI to read the complete component array from disk.
-- [ ] Tell the AI to read existing raw knowledge and append new UUID-suffixed
+- [x] Require the AI to read the complete component array from disk.
+- [x] Tell the AI to read existing raw knowledge and append new UUID-suffixed
       Markdown files while it discovers modules and cross-module behavior.
-- [ ] Require component and module discovery to capture as much implementation
+- [x] Require component and module discovery to capture as much implementation
       detail as possible for later course authoring.
-- [ ] Require the AI to assign `mod-001`, `mod-002`, and subsequent IDs in
+- [x] Require the AI to assign `mod-001`, `mod-002`, and subsequent IDs in
       discovery order.
-- [ ] Require the AI to write the complete array directly to `modules.json`.
-- [ ] Adopt the AI-written IDs and content without host-side rewriting.
-- [ ] Do not validate `ai_comp_list`.
-- [ ] Add focused tests for context reuse, prompt content, exact path handoff,
+- [x] Require the AI to write the complete array directly to `modules.json`.
+- [x] Adopt the AI-written IDs and content without host-side rewriting.
+- [x] Do not validate `ai_comp_list`.
+- [x] Add focused tests for context reuse, prompt content, exact path handoff,
       direct AI writing, and subsequent file visibility.
 
 Commit boundary: trusted module discovery.
 
 ### 6. Implement Architecture Generation
 
-- [ ] Resume the same AI session.
-- [ ] Give the AI the exact `components.json`, `modules.json`, raw-knowledge, and
+- [x] Resume the same AI session.
+- [x] Give the AI the exact `components.json`, `modules.json`, raw-knowledge, and
       Architecture output-directory paths.
-- [ ] Require the AI to read both arrays from disk and write `course.json`,
+- [x] Require the AI to read both arrays from disk and write `course.json`,
       concept directories, and lesson JSONL files directly.
-- [ ] Tell the AI to read accumulated raw knowledge and append newly gathered
+- [x] Tell the AI to read accumulated raw knowledge and append newly gathered
       knowledge using its invocation UUID.
-- [ ] Use accumulated knowledge and live discovery context as the primary course
+- [x] Use accumulated knowledge and live discovery context as the primary course
       inputs; do not repeat a repository-wide source dive.
-- [ ] Permit only targeted source inspection for material knowledge gaps.
-- [ ] Require every section's instructional detail to be Markdown in its `body`
+- [x] Permit only targeted source inspection for material knowledge gaps.
+- [x] Require every section's instructional detail to be Markdown in its `body`
       field.
-- [ ] Do not generate Markdown companions.
-- [ ] Do not validate course content, diagrams, references, or IDs.
-- [ ] Activate Architecture when the Architecture turn reports completion.
-- [ ] Add a small-repository acceptance test requiring only three foreground AI
+- [x] Do not generate Markdown companions.
+- [x] Do not validate course content, diagrams, references, or IDs.
+- [x] Activate Architecture when the Architecture turn reports completion.
+- [x] Add a small-repository acceptance test requiring only three foreground AI
       turns before Architecture becomes available.
 
 Commit boundary: Architecture course generation and activation.
