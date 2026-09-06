@@ -1210,41 +1210,41 @@ Commit boundary: direct JSONL lesson presentation.
 
 ### 8. Implement Background Module Courses
 
-- [ ] Start Module generation only after Architecture is active.
-- [ ] Use a bounded worker pool to generate Module courses concurrently in
+- [x] Start Module generation only after Architecture is active.
+- [x] Use a bounded worker pool to generate Module courses concurrently in
       independent AI sessions.
-- [ ] Use the exact Module Course prompt.
-- [ ] Give each turn the component and module input paths, selected module ID,
+- [x] Use the exact Module Course prompt.
+- [x] Give each turn the component and module input paths, selected module ID,
       raw-knowledge path, invocation UUID, and exact Module course output path.
-- [ ] Tell every Module worker to read accumulated knowledge as it sees fit and
+- [x] Tell every Module worker to read accumulated knowledge as it sees fit and
       add newly gathered knowledge only through new UUID-suffixed Markdown files.
-- [ ] Require the AI to write each `course.json`, concept directory, and lesson
+- [x] Require the AI to write each `course.json`, concept directory, and lesson
       JSONL file directly.
-- [ ] Require every section's instructional detail to be Markdown in its `body`
+- [x] Require every section's instructional detail to be Markdown in its `body`
       field.
-- [ ] Expose pending, generating, and ready status in the Module selector.
-- [ ] Ensure one Module failure does not disable Architecture or other modules.
-- [ ] Add scheduler and GUI status tests.
+- [x] Expose pending, generating, and ready status in the Module selector.
+- [x] Ensure one Module failure does not disable Architecture or other modules.
+- [x] Add scheduler and GUI status tests.
 
 Commit boundary: background Module courses.
 
 ### 9. Implement On-Demand Function Courses
 
-- [ ] Accept the user's symbol text without host-side resolution.
-- [ ] Use the exact Function Course prompt.
-- [ ] Give the AI the component and module input paths and exact Function course
+- [x] Accept the user's symbol text without host-side resolution.
+- [x] Use the exact Function Course prompt.
+- [x] Give the AI the component and module input paths and exact Function course
       output path, plus the raw-knowledge path and a fresh invocation UUID.
-- [ ] Start Function generation in an independent AI session without waiting for
+- [x] Start Function generation in an independent AI session without waiting for
       a Module worker or the primary session.
-- [ ] Tell the Function worker to read accumulated knowledge as it sees fit and
+- [x] Tell the Function worker to read accumulated knowledge as it sees fit and
       add newly gathered knowledge only through new UUID-suffixed Markdown files.
-- [ ] Require the AI to write `course.json`, concept directories, and lesson
+- [x] Require the AI to write `course.json`, concept directories, and lesson
       JSONL files directly.
-- [ ] Require every section's instructional detail to be Markdown in its `body`
+- [x] Require every section's instructional detail to be Markdown in its `body`
       field.
-- [ ] Display the AI-written course directly.
-- [ ] Do not require a canonical symbol ID.
-- [ ] Add function request, persistence, and navigation tests.
+- [x] Display the AI-written course directly.
+- [x] Do not require a canonical symbol ID.
+- [x] Add function request, persistence, and navigation tests.
 
 Commit boundary: on-demand Function courses.
 
