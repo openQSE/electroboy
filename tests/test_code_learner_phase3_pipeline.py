@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from time import sleep
 
 import pytest
 from code_learner_phase3_fixtures import build_catalog, build_course_records
@@ -215,6 +216,33 @@ def test_observed_runtime_replays_raw_events_when_adapter_does_not_stream() -> N
 
     assert result.ok is True
     assert [event["message"] for event in events] == ["Tracing entry points"]
+
+
+def test_observed_runtime_reports_heartbeat_during_quiet_ai_work() -> None:
+    events: list[dict[str, object]] = []
+
+    class SlowRuntime:
+        def invoke(self, invocation: AgentInvocation) -> AgentResult:
+            sleep(0.035)
+            return AgentResult(True, "{}")
+
+    runtime = _ObservedRuntime(
+        SlowRuntime(),
+        events.append,
+        stage="components",
+        percent=14,
+        heartbeat_interval=0.01,
+    )
+
+    result = runtime.invoke(AgentInvocation(role="code_learner_analysis", prompt="p"))
+
+    assert result.ok is True
+    heartbeats = [event for event in events if event.get("heartbeat") is True]
+    assert len(heartbeats) >= 2
+    assert all(
+        "still working on components" in str(event["message"])
+        for event in heartbeats
+    )
 
 
 def test_terminal_states_distinguish_clean_warning_and_failure(tmp_path: Path) -> None:

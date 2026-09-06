@@ -470,7 +470,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
                     event.get("activity_kind") == "command" for event in progress_events
                 )
             )
-            self.assertFalse(any(event.get("heartbeat") for event in progress_events))
+            self.assertTrue(any(event.get("heartbeat") for event in progress_events))
             self.assertEqual(completed["status"], "initialized")
             run.assert_called_once()
 

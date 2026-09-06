@@ -380,6 +380,26 @@ def test_invocation_heartbeat_repeats_bounded_progress() -> None:
     assert all(event["percent"] == 74 for event in events)
 
 
+def test_invocation_heartbeat_can_build_current_status_each_time() -> None:
+    events: list[dict[str, object]] = []
+    sequence = 0
+
+    def current_status() -> dict[str, object]:
+        nonlocal sequence
+        sequence += 1
+        return {
+            "phase": "components",
+            "percent": 14,
+            "message": f"Still discovering components ({sequence}).",
+        }
+
+    with InvocationHeartbeat(events.append, current_status, interval=0.01):
+        time.sleep(0.035)
+
+    assert len(events) >= 2
+    assert len({str(event["message"]) for event in events}) == len(events)
+
+
 def test_agent_activity_reporter_sanitizes_status_and_ignores_command_output() -> None:
     events: list[dict[str, object]] = []
     reporter = AgentActivityReporter(

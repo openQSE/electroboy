@@ -98,12 +98,12 @@ class InvocationHeartbeat(AbstractContextManager["InvocationHeartbeat"]):
     def __init__(
         self,
         callback: ProgressCallback | None,
-        event: Mapping[str, object],
+        event: Mapping[str, object] | Callable[[], Mapping[str, object]],
         *,
         interval: float = 5.0,
     ) -> None:
         self.callback = callback
-        self.event = dict(event)
+        self.event = event
         self.interval = max(0.01, interval)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -128,4 +128,5 @@ class InvocationHeartbeat(AbstractContextManager["InvocationHeartbeat"]):
     def _run(self) -> None:
         while not self._stop.wait(self.interval):
             if self.callback is not None:
-                self.callback({**self.event, "heartbeat": True})
+                event = self.event() if callable(self.event) else self.event
+                self.callback({**event, "heartbeat": True})

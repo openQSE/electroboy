@@ -30,7 +30,7 @@ from .phase3_courses import Phase3CourseService
 from .phase3_prompts import component_discovery_prompt
 from .phase3_revision import Phase3RevisionInvalidator
 from .phase3_store import Phase3Store
-from .progress import AgentActivityReporter
+from .progress import AgentActivityReporter, InvocationHeartbeat
 from .reconciliation import ComponentReconciliationService
 from .relationships import ModuleRelationshipService
 from .skills import validate_packaged_skill
@@ -848,10 +848,15 @@ class _ObservedRuntime(AgentRuntime):
         stage: str,
         percent: int,
         cancel_event: Event | None = None,
+        heartbeat_interval: float = 5.0,
     ) -> None:
         self.runtime = runtime
+        self.callback = callback
         self.reporter = AgentActivityReporter(callback, phase=stage, percent=percent)
+        self.stage = stage
+        self.percent = percent
         self.cancel_event = cancel_event
+        self.heartbeat_interval = heartbeat_interval
 
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         if self.cancel_event is not None and self.cancel_event.is_set():
@@ -860,17 +865,39 @@ class _ObservedRuntime(AgentRuntime):
             )
         previous_callback = invocation.event_callback
         reported_live_event = False
+        last_live_event_at = perf_counter()
 
         def report(event: dict[str, object]) -> None:
-            nonlocal reported_live_event
+            nonlocal last_live_event_at, reported_live_event
             reported_live_event = True
+            last_live_event_at = perf_counter()
             self.reporter(event)
             if previous_callback is not None:
                 previous_callback(event)
 
+        def heartbeat_event() -> dict[str, object]:
+            quiet_seconds = max(1, int(perf_counter() - last_live_event_at))
+            return {
+                "record_type": "activity",
+                "activity": True,
+                "activity_kind": "status",
+                "phase": self.stage,
+                "percent": self.percent,
+                "scope_ids": [],
+                "message": (
+                    f"AI is still working on {self.stage.replace('_', ' ')}; "
+                    f"last detailed update {quiet_seconds} seconds ago."
+                ),
+            }
+
         invocation.event_callback = report
         invocation.cancel_event = self.cancel_event
-        result = self.runtime.invoke(invocation)
+        with InvocationHeartbeat(
+            self.callback,
+            heartbeat_event,
+            interval=self.heartbeat_interval,
+        ):
+            result = self.runtime.invoke(invocation)
         if self.cancel_event is not None and self.cancel_event.is_set():
             raise Phase3InitializationCancelled(
                 "Code Learner initialization was stopped."

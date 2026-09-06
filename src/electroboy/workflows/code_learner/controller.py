@@ -160,6 +160,7 @@ class _InitializationJob:
             scope_ids = record.get("scope_ids")
             self.updated_at = utc_now()
             self.last_progress_at = self.updated_at
+            self.message = message
             event = {
                 "phase": str(record.get("phase") or self.phase or "running"),
                 "percent": min(
@@ -174,7 +175,7 @@ class _InitializationJob:
                 ],
                 "activity": True,
                 "activity_kind": activity_kind,
-                "heartbeat": False,
+                "heartbeat": bool(record.get("heartbeat")),
             }
             if self.progress_events and all(
                 self.progress_events[-1].get(key) == event.get(key)
@@ -268,8 +269,6 @@ class _InitializationJob:
                 self.remaining_module_courses = [
                     str(item) for item in details.get("remaining_module_courses", [])
                 ]
-            if details.get("heartbeat"):
-                return
             event = {
                 "phase": phase or "running",
                 "percent": percent,
