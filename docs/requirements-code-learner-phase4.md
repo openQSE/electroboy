@@ -1278,14 +1278,14 @@ Commit boundary: useful learner progress.
 
 ### 12. Cut Over the Controller and GUI
 
-- [ ] Replace Phase 3 branches with the single simplified implementation.
-- [ ] Preserve Project, Learn, and Outline menu behavior and styling.
-- [ ] Preserve Initialize, Abort, Continue, Replace, Clear Cache, and Clear List.
-- [ ] Populate Module choices from the repository master's `modules.json`.
-- [ ] Activate Architecture after its direct-writing AI turn completes.
-- [ ] Keep unavailable Module and Function content visibly pending rather than
+- [x] Replace Phase 3 branches with the single simplified implementation.
+- [x] Preserve Project, Learn, and Outline menu behavior and styling.
+- [x] Preserve Initialize, Abort, Continue, Replace, Clear Cache, and Clear List.
+- [x] Populate Module choices from the repository master's `modules.json`.
+- [x] Activate Architecture after its direct-writing AI turn completes.
+- [x] Keep unavailable Module and Function content visibly pending rather than
       disabling the completed Architecture course.
-- [ ] Remove phase-numbered API and payload concepts.
+- [x] Remove phase-numbered API and payload concepts.
 
 Commit boundary: simplified workflow cutover.
 

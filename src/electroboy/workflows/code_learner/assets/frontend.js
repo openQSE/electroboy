@@ -62,11 +62,7 @@
   function emptyLearnerState() {
     return {
       analysis: null,
-      learnerGeneration: "",
-      phase2Present: false,
-      phase2Initialized: false,
-      phase3Present: false,
-      phase3Initialized: false,
+      initialized: false,
       backgroundModules: null,
       completionStatus: "",
       warningCount: 0,
@@ -505,17 +501,7 @@
   }
 
   function learnerInitialized() {
-    if (learnerState.phase3Present) {
-      return learnerState.phase3Initialized;
-    }
-    if (learnerState.phase2Present) {
-      return learnerState.phase2Initialized;
-    }
-    return Boolean(
-      learnerState.analysis ||
-      learnerState.currentWalkthrough ||
-      learnerState.walkthroughs.length,
-    );
+    return learnerState.initialized;
   }
 
   function initializationRunning() {
@@ -795,7 +781,10 @@
     const signature = JSON.stringify({
       initialized,
       selectedModuleTarget,
-      modules: modules.map((module) => [module.path, module.file_count]),
+      modules: modules.map((module) => [
+        module.path,
+        module.course_status,
+      ]),
     });
     if (nav.module.dataset.signature === signature) {
       return;
@@ -855,9 +844,9 @@
   }
 
   function moduleLabel(module) {
-    const path = String(module.path || "");
-    const count = Number(module.file_count || 0);
-    return count > 0 ? `${path} (${count})` : path;
+    const name = String(module.name || module.path || "Module");
+    const status = String(module.course_status || "pending").replaceAll("_", " ");
+    return `${name} - ${status}`;
   }
 
   function learnerModules() {
@@ -1064,7 +1053,6 @@
     if (payload.status === "initialized") {
       setGenerating(false);
       openLearnerPane({ activate: false, refresh: true });
-      openCourseDocument(payload.code_learner || {});
       setInitializedStatus();
       if (backgroundGenerationRunning()) {
         scheduleInitializationPoll();
@@ -1133,7 +1121,6 @@
     if (payload.status === "initialized") {
       setGenerating(false);
       openLearnerPane({ activate: false, refresh: true });
-      openCourseDocument(payload.code_learner || {});
       setInitializedStatus();
       if (backgroundGenerationRunning()) {
         scheduleInitializationPoll();
@@ -1180,8 +1167,7 @@
   function setInitializedStatus() {
     const analysis = learnerState.analysis || {};
     const moduleCount = Array.isArray(analysis.modules) ? analysis.modules.length : 0;
-    const symbolCount = Array.isArray(analysis.symbols) ? analysis.symbols.length : 0;
-    setStatus(`AI course initialized: ${moduleCount} modules, ${symbolCount} symbols.`);
+    setStatus(`Architecture ready: ${moduleCount} modules discovered.`);
   }
 
   async function clearCourseCache() {
@@ -1209,7 +1195,6 @@
   }
 
   function resetLearnerUi(payload) {
-    const courseArtifact = learnerState.courseArtifact;
     learnerState = emptyLearnerState();
     learnerContext = null;
     courseMode = "architecture";
@@ -1222,7 +1207,6 @@
     initializationState = payload.initialization || null;
     applyLearnerPayload(payload.code_learner || {});
     renderNavigationState();
-    closeCourseDocument(courseArtifact);
     openLearnerPane({ activate: false, refresh: true, reset: true });
   }
 
@@ -1247,36 +1231,7 @@
     }
     setGenerating(true);
     if (mode === "function") {
-      setStatus("Resolving function symbol...", "resolving");
-      const resolutionResponse = await runtimeApi.http.fetch(
-        contextUrl(
-          `/api/code-learner/course/function/resolve?query=${encodeURIComponent(target)}`
-        ),
-        { cache: "no-store" },
-      );
-      const resolution = await resolutionResponse.json().catch(() => ({
-        status: "failed",
-        error: "function resolution failed",
-      }));
-      if (!resolutionResponse.ok) {
-        setGenerating(false);
-        throw new Error(`Failed: ${resolution.error || "function resolution failed"}`);
-      }
-      if (resolution.status === "ambiguous") {
-        setGenerating(false);
-        const names = (resolution.candidates || [])
-          .slice(0, 5)
-          .map((candidate) => candidate.qualified_name || candidate.name || candidate.id)
-          .join(", ");
-        setStatus(`Ambiguous function: ${names}`, "ambiguous");
-        return;
-      }
-      if (resolution.status === "missing") {
-        setGenerating(false);
-        setStatus(`Function not found: ${target}`, "missing");
-        return;
-      }
-      setStatus("Analyzing function evidence...", "analyzing");
+      setStatus(`Generating Function course for ${target}...`, "generating");
       const buildResponse = await runtimeApi.http.fetch(
         contextUrl("/api/code-learner/course/function"),
         {
@@ -1295,7 +1250,7 @@
         setGenerating(false);
         throw new Error(`Failed: ${build.error || "function generation failed"}`);
       }
-      setStatus("Validating generated Function course...", "validating");
+      setStatus("Function course is ready.", "ready");
     } else {
       setStatus(`Opening ${modeLabel(mode)} course...`, "generating");
     }
@@ -1328,28 +1283,7 @@
     applyLearnerPayload(payload);
     renderNavigationState();
     openLearnerPane({ refresh: true });
-    openCourseDocument(payload);
     setStatus(`Ready: ${payload.walkthrough.title || "course"}`, "ready");
-  }
-
-  function openCourseDocument(payload) {
-    const artifact = payload && payload.course_artifact;
-    if (!runtimeApi || !artifact || !artifact.markdown_path) {
-      return;
-    }
-    runtimeApi.modules.invoke("documents", "openDocumentTarget", {
-      path: artifact.markdown_path,
-      label: artifact.title || "Course",
-    });
-  }
-
-  function closeCourseDocument(artifact) {
-    if (!runtimeApi || !artifact || !artifact.markdown_path) {
-      return;
-    }
-    runtimeApi.modules.invoke("documents", "closeDocumentTarget", {
-      path: artifact.markdown_path,
-    });
   }
 
   function setGenerating(isGenerating) {
@@ -1492,16 +1426,8 @@
     if (Object.hasOwn(payload, "analysis")) {
       learnerState.analysis = payload.analysis;
     }
-    if (Object.hasOwn(payload, "phase2_initialized")) {
-      learnerState.phase2Present = true;
-      learnerState.phase2Initialized = Boolean(payload.phase2_initialized);
-    }
-    if (Object.hasOwn(payload, "learner_generation")) {
-      learnerState.learnerGeneration = String(payload.learner_generation || "");
-    }
-    if (Object.hasOwn(payload, "phase3_initialized")) {
-      learnerState.phase3Present = true;
-      learnerState.phase3Initialized = Boolean(payload.phase3_initialized);
+    if (Object.hasOwn(payload, "initialized")) {
+      learnerState.initialized = Boolean(payload.initialized);
     }
     if (Object.hasOwn(payload, "completion_status")) {
       learnerState.completionStatus = String(payload.completion_status || "");
@@ -1669,7 +1595,7 @@
       return true;
     }
     if (data.type === "electroboy-code-learner-course-artifact") {
-      openCourseDocument(data.payload || {});
+      applyLearnerPayload(data.payload || {});
       return true;
     }
     return false;
@@ -2012,6 +1938,7 @@
     bindPaneEvents(state);
     updatePaneToolbar(state);
     scrollToActivePaneLine(state);
+    renderMermaidDiagrams(state.host);
     state.host.dataset.renderMilliseconds = (
       window.performance.now() - renderStarted
     ).toFixed(2);
@@ -2102,7 +2029,9 @@
           ${escapeHtml(modeLabel(state.walkthrough.learning_mode))}
         </div>
         <h1>${escapeHtml(step.title || "Step")}</h1>
-        <p>${escapeHtml(step.explanation || "")}</p>
+        <div class="code-learner-slide-body">
+          ${renderSlideMarkdown(step.explanation || "")}
+        </div>
         <div class="code-learner-reference">
           ${escapeHtml(referenceLabel(reference))}
         </div>
@@ -2110,6 +2039,107 @@
         ${renderDeepDiveActions(step)}
       </div>
     `;
+  }
+
+  function renderSlideMarkdown(markdown) {
+    const blocks = [];
+    const source = String(markdown || "");
+    const fenced = source.replace(
+      /```([A-Za-z0-9_-]*)\n([\s\S]*?)```/g,
+      (_match, language, body) => {
+        const token = `@@CODE_LEARNER_BLOCK_${blocks.length}@@`;
+        const normalized = String(language || "").toLowerCase();
+        blocks.push(
+          normalized === "mermaid"
+            ? `<div class="mermaid">${escapeHtml(body.trim())}</div>`
+            : `<pre><code class="language-${escapeHtml(normalized || "plain")}">${escapeHtml(body)}</code></pre>`,
+        );
+        return token;
+      },
+    );
+    const rendered = sourceBlocksToHtml(fenced);
+    return blocks.reduce(
+      (html, block, index) => html.replace(`@@CODE_LEARNER_BLOCK_${index}@@`, block),
+      rendered,
+    );
+  }
+
+  function sourceBlocksToHtml(markdown) {
+    const lines = String(markdown || "").split("\n");
+    const html = [];
+    let listOpen = false;
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+      if (heading) {
+        if (listOpen) {
+          html.push("</ul>");
+          listOpen = false;
+        }
+        const level = heading[1].length;
+        html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      } else if (/^[-*]\s+/.test(line)) {
+        if (!listOpen) {
+          html.push("<ul>");
+          listOpen = true;
+        }
+        html.push(`<li>${renderInlineMarkdown(line.slice(2))}</li>`);
+      } else if (line.startsWith("@@CODE_LEARNER_BLOCK_")) {
+        if (listOpen) {
+          html.push("</ul>");
+          listOpen = false;
+        }
+        html.push(line);
+      } else if (line) {
+        if (listOpen) {
+          html.push("</ul>");
+          listOpen = false;
+        }
+        html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+      } else if (listOpen) {
+        html.push("</ul>");
+        listOpen = false;
+      }
+    }
+    if (listOpen) {
+      html.push("</ul>");
+    }
+    return html.join("");
+  }
+
+  function renderInlineMarkdown(value) {
+    return escapeHtml(value)
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  }
+
+  function renderMermaidDiagrams(host) {
+    const diagrams = host.querySelectorAll(".mermaid");
+    if (!diagrams.length) {
+      return;
+    }
+    loadMermaid().then(() => {
+      window.mermaid.initialize({ startOnLoad: false, theme: "dark" });
+      window.mermaid.run({ nodes: Array.from(diagrams) }).catch(() => {});
+    }).catch(() => {});
+  }
+
+  function loadMermaid() {
+    if (window.mermaid) {
+      return Promise.resolve(window.mermaid);
+    }
+    if (window.__electroboyCodeLearnerMermaid) {
+      return window.__electroboyCodeLearnerMermaid;
+    }
+    window.__electroboyCodeLearnerMermaid = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
+      script.onload = () => resolve(window.mermaid);
+      script.onerror = reject;
+      document.head.append(script);
+    });
+    return window.__electroboyCodeLearnerMermaid;
   }
 
   function renderRelatedReferences(step) {

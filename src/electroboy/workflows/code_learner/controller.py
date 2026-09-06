@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -17,484 +19,47 @@ from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError
 
 from .background_courses import ModuleCourseScheduler, module_generation_status
-from .course_artifacts import render_saved_course
-from .course_builder import CourseBuilder
-from .course_graph import CourseGraph, CourseNavigator
-from .course_projection import (
-    phase2_analysis_payload,
-    phase3_analysis_payload,
-    project_navigation,
-    project_phase3_navigation,
+from .course_generation import (
+    CourseGenerationCancelled,
+    CourseGenerationService,
+    CourseWorkerService,
 )
-from .domain import (
-    WORKFLOW_ID,
-    CodeLearnerError,
-    CodeLearnerStore,
-    RepositoryAnalysis,
-    SourceAdapter,
-    Walkthrough,
-    create_walkthrough,
-    resolve_symbol,
-)
-from .function_knowledge import FunctionKnowledgeService
-from .generation import LearnerGenerationStore, clear_phase3_cache
-from .initialization import (
-    InitializationLease,
-    initialization_ready,
-)
-from .knowledge_store import KnowledgeStore
-from .migration import LegacyCorpusMigrator
-from .phase3_courses import Phase3CourseNavigator, Phase3CourseService
-from .phase3_pipeline import (
-    Phase3InitializationCancelled,
-    Phase3InitializationPipeline,
-    phase3_initialization_ready,
-)
-from .phase3_store import Phase3Store
-from .phase3_tutor import Phase3TutorContextStore
-from .progress import sanitize_progress_message
-from .source_manifest import SourceManifestService
+from .domain import CodeLearnerError, SourceAdapter
+from .initialization import InitializationLease
+from .navigation import CourseNavigator
+from .store import LearnerStore
 from .tutor_context import (
+    TUTOR_CONTEXT_RELATIVE_PATH,
     TutorContextStore,
     require_repository_read_capability,
     tutor_bootstrap_prompt,
 )
 
-_INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running", "aborting"})
+WORKFLOW_ID = "code-learner"
+_RUNNING_STATUSES = frozenset({"queued", "running", "aborting"})
 _INITIALIZATION_MODES = frozenset({"continue", "replace"})
-_AI_PROGRESS_MAX_PERCENT = 95
-_VALIDATION_PERCENT = 97
-_FORMALIZATION_PERCENT = 99
 
 
 @dataclass
 class _InitializationJob:
-    """In-memory status for one Code Learner course initialization."""
-
     root: Path
     job_id: str = field(default_factory=lambda: uuid4().hex)
-    status: str = "queued"
-    phase: str = "queued"
-    percent: int = 0
-    message: str = "Queued AI course initialization."
-    started_at: str = field(default_factory=utc_now)
-    updated_at: str = field(default_factory=utc_now)
-    last_progress_at: str = ""
-    error: str = ""
-    progress_events: list[dict[str, object]] = field(default_factory=list)
-    active_scope: list[str] = field(default_factory=list)
-    record_counts: dict[str, int] = field(default_factory=dict)
-    completed_analysis_jobs: int = 0
-    remaining_analysis_jobs: int = 0
-    completed_analysis_scopes: list[str] = field(default_factory=list)
-    remaining_analysis_scopes: list[str] = field(default_factory=list)
-    completed_module_courses: list[str] = field(default_factory=list)
-    remaining_module_courses: list[str] = field(default_factory=list)
-    resumed_from_checkpoint: bool = False
-    completion_status: str = ""
-    warning_count: int = 0
-    failed_scope: str = ""
-    recovery_action: str = ""
+    cancel_event: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = field(default_factory=time.monotonic)
-    thread: threading.Thread | None = field(default=None, repr=False)
-    lease: InitializationLease | None = field(default=None, repr=False)
-    cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
-    lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
+    thread: threading.Thread | None = None
+    lease: InitializationLease | None = None
 
-    def is_running(self) -> bool:
-        with self.lock:
-            return self.status in _INITIALIZATION_RUNNING_STATUSES
-
-    def update(
-        self,
-        *,
-        status: str | None = None,
-        phase: str | None = None,
-        percent: int | None = None,
-        message: str | None = None,
-        error: str | None = None,
-        progress: bool = False,
-    ) -> None:
-        with self.lock:
-            if status == "running" and self.cancel_event.is_set():
-                return
-            if status is not None:
-                self.status = status
-            if phase is not None:
-                self.phase = phase
-            if percent is not None:
-                self.percent = max(self.percent, _bounded_percent(percent))
-            if message is not None:
-                self.message = message
-            if error is not None:
-                self.error = error
-            self.updated_at = utc_now()
-            if progress:
-                self.last_progress_at = self.updated_at
-
-    def record_progress(self, record: dict[str, object]) -> None:
-        if self.cancel_event.is_set():
-            return
-        if record.get("activity") is True:
-            self._record_activity(record)
-            return
-        phase = str(record.get("phase") or self.phase or "running").strip()
-        message = str(record.get("message") or phase).strip()
-        reported_percent = _bounded_percent(record.get("percent"))
-        host_owned = record.get("host_owned") is True
-        percent = min(reported_percent, 99 if host_owned else _AI_PROGRESS_MAX_PERCENT)
-        if reported_percent >= 100 and not host_owned:
-            phase = "final_delivery"
-            message = "Receiving final course corpus from AI."
-        self._record_running_progress(phase, percent, message, details=record)
-
-    def _record_activity(self, record: dict[str, object]) -> None:
-        activity_kind = str(record.get("activity_kind") or "status")
-        if activity_kind not in {"status", "turn", "warning", "error"}:
-            return
-        message = sanitize_progress_message(record.get("message"))
-        if not message:
-            return
-        with self.lock:
-            if self.cancel_event.is_set():
-                return
-            scope_ids = record.get("scope_ids")
-            self.updated_at = utc_now()
-            self.last_progress_at = self.updated_at
-            self.message = message
-            event = {
-                "phase": str(record.get("phase") or self.phase or "running"),
-                "percent": min(
-                    _bounded_percent(record.get("percent")),
-                    _AI_PROGRESS_MAX_PERCENT,
-                ),
-                "message": message,
-                "updated_at": self.updated_at,
-                "scope_ids": [
-                    str(item)
-                    for item in (scope_ids if isinstance(scope_ids, list) else [])
-                ],
-                "activity": True,
-                "activity_kind": activity_kind,
-                "heartbeat": bool(record.get("heartbeat")),
-            }
-            if self.progress_events and all(
-                self.progress_events[-1].get(key) == event.get(key)
-                for key in ("message", "scope_ids", "activity_kind")
-            ):
-                return
-            self.progress_events.append(event)
-            self.progress_events = self.progress_events[-250:]
-
-    def request_abort(self) -> None:
-        with self.lock:
-            if self.status not in _INITIALIZATION_RUNNING_STATUSES:
-                return
-            self.cancel_event.set()
-            self.status = "aborting"
-            self.phase = "aborting"
-            self.message = "Stopping initialization..."
-            self.updated_at = utc_now()
-            self.last_progress_at = self.updated_at
-            self.progress_events.append(
-                {
-                    "phase": "aborting",
-                    "percent": self.percent,
-                    "message": self.message,
-                    "updated_at": self.updated_at,
-                    "scope_ids": list(self.active_scope),
-                    "heartbeat": False,
-                }
-            )
-            self.progress_events = self.progress_events[-250:]
-
-    def record_system_progress(
-        self,
-        *,
-        phase: str,
-        percent: int,
-        message: str,
-    ) -> None:
-        self._record_running_progress(
-            phase,
-            min(_bounded_percent(percent), 99),
-            message,
-        )
-
-    def _record_running_progress(
-        self,
-        phase: str,
-        percent: int,
-        message: str,
-        details: dict[str, object] | None = None,
-    ) -> None:
-        self.update(
-            status="running",
-            phase=phase or "running",
-            percent=percent,
-            message=message or "Initializing AI course material.",
-            progress=True,
-        )
-        with self.lock:
-            if self.cancel_event.is_set():
-                return
-            details = details or {}
-            if "scope_ids" in details:
-                self.active_scope = [str(item) for item in details.get("scope_ids", [])]
-            counts = details.get("counts", details.get("record_counts"))
-            if isinstance(counts, dict):
-                self.record_counts = {
-                    str(key): int(value) for key, value in counts.items()
-                }
-            if "completed_analysis_jobs" in details:
-                self.completed_analysis_jobs = int(
-                    details.get("completed_analysis_jobs") or 0
-                )
-            if "remaining_analysis_jobs" in details:
-                self.remaining_analysis_jobs = int(
-                    details.get("remaining_analysis_jobs") or 0
-                )
-            if "completed_analysis_scopes" in details:
-                self.completed_analysis_scopes = [
-                    str(item) for item in details.get("completed_analysis_scopes", [])
-                ]
-            if "remaining_analysis_scopes" in details:
-                self.remaining_analysis_scopes = [
-                    str(item) for item in details.get("remaining_analysis_scopes", [])
-                ]
-            if "completed_module_courses" in details:
-                self.completed_module_courses = [
-                    str(item) for item in details.get("completed_module_courses", [])
-                ]
-            if "remaining_module_courses" in details:
-                self.remaining_module_courses = [
-                    str(item) for item in details.get("remaining_module_courses", [])
-                ]
-            event = {
-                "phase": phase or "running",
-                "percent": percent,
-                "message": message or "Initializing AI course material.",
-                "activity_kind": str(details.get("activity_kind") or "stage"),
-                "updated_at": self.updated_at,
-                "scope_ids": list(self.active_scope),
-                "record_counts": dict(self.record_counts),
-                "completed_analysis_jobs": self.completed_analysis_jobs,
-                "remaining_analysis_jobs": self.remaining_analysis_jobs,
-                "completed_analysis_scopes": list(self.completed_analysis_scopes),
-                "remaining_analysis_scopes": list(self.remaining_analysis_scopes),
-                "completed_module_courses": list(self.completed_module_courses),
-                "remaining_module_courses": list(self.remaining_module_courses),
-                "heartbeat": bool(details.get("heartbeat")),
-            }
-            if self.progress_events and self.progress_events[-1] == event:
-                return
-            self.progress_events.append(event)
-            self.progress_events = self.progress_events[-250:]
-
-    def snapshot(self) -> dict[str, object]:
-        with self.lock:
-            elapsed = max(0, int(time.monotonic() - self.started_monotonic))
-            percent = _bounded_percent(self.percent)
-            remaining = _estimated_remaining_seconds(elapsed, percent)
-            return {
-                "job_id": self.job_id,
-                "status": self.status,
-                "phase": self.phase,
-                "percent": percent,
-                "message": self.message,
-                "started_at": self.started_at,
-                "updated_at": self.updated_at,
-                "last_progress_at": self.last_progress_at,
-                "elapsed_seconds": elapsed,
-                "estimated_remaining_seconds": remaining,
-                "error": self.error,
-                "progress_events": [dict(event) for event in self.progress_events],
-                "active_scope": list(self.active_scope),
-                "record_counts": dict(self.record_counts),
-                "completed_analysis_jobs": self.completed_analysis_jobs,
-                "remaining_analysis_jobs": self.remaining_analysis_jobs,
-                "completed_analysis_scopes": list(self.completed_analysis_scopes),
-                "remaining_analysis_scopes": list(self.remaining_analysis_scopes),
-                "completed_module_courses": list(self.completed_module_courses),
-                "remaining_module_courses": list(self.remaining_module_courses),
-                "resumed_from_checkpoint": self.resumed_from_checkpoint,
-                "completion_status": self.completion_status,
-                "warning_count": self.warning_count,
-                "failed_scope": self.failed_scope,
-                "recovery_action": self.recovery_action,
-                "abort_requested": self.cancel_event.is_set(),
-                "checkpoint_path": str(Phase3Store(self.root).checkpoint_path),
-                "progress_path": str(Phase3Store(self.root).progress_path),
-            }
-
-    def record_background_progress(self, record: dict[str, object]) -> None:
-        with self.lock:
-            event = {
-                "phase": "module_courses",
-                "percent": 100,
-                "message": str(record.get("message") or "Building Module courses."),
-                "activity_kind": str(record.get("activity_kind") or "background"),
-                "updated_at": str(record.get("updated_at") or utc_now()),
-                "scope_ids": list(record.get("scope_ids") or []),
-                "record_counts": {},
-                "completed_analysis_jobs": self.completed_analysis_jobs,
-                "remaining_analysis_jobs": self.remaining_analysis_jobs,
-                "completed_analysis_scopes": [],
-                "remaining_analysis_scopes": [],
-                "completed_module_courses": [],
-                "remaining_module_courses": [],
-                "heartbeat": False,
-            }
-            self.progress_events.append(event)
-            self.progress_events = self.progress_events[-250:]
-            self.updated_at = event["updated_at"]
-
-
-def _bounded_percent(value: object) -> int:
-    try:
-        percent = int(value)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, min(100, percent))
-
-
-def _estimated_remaining_seconds(elapsed: int, percent: int) -> int | None:
-    if percent <= 0 or percent >= _AI_PROGRESS_MAX_PERCENT:
-        return None
-    return max(0, int(elapsed * ((100 - percent) / percent)))
-
-
-def _idle_initialization_snapshot(root: Path) -> dict[str, object]:
-    return {
-        "job_id": "",
-        "status": "idle",
-        "phase": "idle",
-        "percent": 0,
-        "message": "Initialize Code Learner to generate AI course material.",
-        "started_at": "",
-        "updated_at": "",
-        "last_progress_at": "",
-        "elapsed_seconds": 0,
-        "estimated_remaining_seconds": None,
-        "error": "",
-        "progress_events": [],
-        "active_scope": [],
-        "record_counts": {},
-        "completed_analysis_jobs": 0,
-        "remaining_analysis_jobs": 0,
-        "completed_analysis_scopes": [],
-        "remaining_analysis_scopes": [],
-        "completed_module_courses": [],
-        "remaining_module_courses": [],
-        "resumed_from_checkpoint": False,
-        "completion_status": "",
-        "warning_count": 0,
-        "failed_scope": "",
-        "recovery_action": "",
-        "abort_requested": False,
-        "checkpoint_path": str(Phase3Store(root).checkpoint_path),
-        "progress_path": str(Phase3Store(root).progress_path),
-    }
-
-
-def _completed_initialization_snapshot(root: Path) -> dict[str, object]:
-    terminal = Phase3Store(root).load_terminal_result() or {}
-    completion_status = str(terminal.get("status") or "complete")
-    warning_count = int(terminal.get("warning_count") or 0)
-    return {
-        "job_id": "",
-        "status": "initialized",
-        "phase": "complete",
-        "percent": 100,
-        "message": (
-            "AI course material is ready with warnings."
-            if completion_status == "complete_with_warnings"
-            else "AI course material is ready."
-        ),
-        "started_at": "",
-        "updated_at": utc_now(),
-        "last_progress_at": "",
-        "elapsed_seconds": 0,
-        "estimated_remaining_seconds": None,
-        "error": "",
-        "progress_events": [],
-        "active_scope": [],
-        "record_counts": {},
-        "completed_analysis_jobs": 0,
-        "remaining_analysis_jobs": 0,
-        "completed_analysis_scopes": [],
-        "remaining_analysis_scopes": [],
-        "completed_module_courses": [],
-        "remaining_module_courses": [],
-        "resumed_from_checkpoint": False,
-        "completion_status": completion_status,
-        "warning_count": warning_count,
-        "failed_scope": str(terminal.get("failed_scope") or ""),
-        "recovery_action": str(terminal.get("recovery_action") or ""),
-        "checkpoint_path": str(Phase3Store(root).checkpoint_path),
-        "progress_path": str(Phase3Store(root).progress_path),
-    }
+    def running(self) -> bool:
+        return self.thread is not None and self.thread.is_alive()
 
 
 def _existing_project_root(path: str) -> Path:
-    project_root = Path(path).expanduser().resolve()
-    if not project_root.exists():
-        raise StateError(f"project path does not exist: {project_root}")
-    if not project_root.is_dir():
-        raise StateError(f"project path is not a directory: {project_root}")
-    return project_root
-
-
-def _walkthrough_summary(walkthrough: Walkthrough) -> dict[str, object]:
-    return {
-        "id": walkthrough.id,
-        "title": walkthrough.title,
-        "learning_mode": walkthrough.learning_mode,
-        "mode_target": walkthrough.mode_target,
-        "current_step_id": walkthrough.current_step_id,
-        "generated_at": walkthrough.generated_at,
-        "source_revision": walkthrough.source_revision,
-        "review_status": walkthrough.review_status,
-        "step_count": len(walkthrough.steps),
-        "qa_count": len(walkthrough.qa_history),
-    }
-
-
-def _walkthrough_source_payload(
-    root: Path,
-    walkthrough: Walkthrough | None,
-) -> dict[str, object] | None:
-    if walkthrough is None:
-        return None
-    step = walkthrough.current_step()
-    if step is None:
-        return None
-    reference = step.primary_reference
-    return SourceAdapter(root).source_payload(
-        reference.file_path,
-        start_line=reference.start_line,
-        end_line=reference.end_line,
-    )
-
-
-def _empty_analysis(root: Path) -> RepositoryAnalysis:
-    return RepositoryAnalysis(
-        source_root=str(root),
-        source_files=(),
-        language_counts={},
-        modules=(),
-        symbols=(),
-        truncated=False,
-    )
-
-
-def _code_learner_agent_prompt(
-    root: Path,
-    _context: dict[str, object] | None = None,
-) -> str:
-    selected = LearnerGenerationStore(root).load()
-    generation = selected.generation if selected is not None else "phase2"
-    return tutor_bootstrap_prompt(root, generation=generation)
+    root = Path(path).expanduser().resolve()
+    if not root.exists():
+        raise StateError(f"project path does not exist: {root}")
+    if not root.is_dir():
+        raise StateError(f"project path is not a directory: {root}")
+    return root
 
 
 def code_learner_agent_command(
@@ -507,68 +72,53 @@ def code_learner_agent_command(
         str(root),
         "--sandbox",
         "read-only",
-        _code_learner_agent_prompt(root),
+        tutor_bootstrap_prompt(root),
     ]
     require_repository_read_capability(command, root)
     return command
 
 
 class CodeLearnerWorkflowController(BoundWorkflowController):
-    """Own Code Learner source walkthroughs and tutor sessions."""
+    """Coordinate trusted AI course files with browser workflow state."""
 
     workflow_id = WORKFLOW_ID
 
     def __init__(self, services: ServiceServices) -> None:
         super().__init__(services)
-        self._initialization_lock = threading.RLock()
-        self._initialization_jobs: dict[str, _InitializationJob] = {}
+        self._lock = threading.RLock()
+        self._jobs: dict[str, _InitializationJob] = {}
         self._module_schedulers: dict[str, ModuleCourseScheduler] = {}
 
-    def _reserve_project_workspace(
-        self,
-        context_id: str,
-        project_root: Path,
-    ) -> tuple[str, bool]:
-        with self.services.contexts.lock:
-            current = self.services.contexts.require(context_id)
-            self.services.contexts.require_no_active_agent(current)
-        workspace, resumed = self.services.workspaces.reserve_project(
-            context_id,
-            workflow_id=self.workflow_id,
-            project_kind="code-learner",
-            project_identity=str(project_root),
-            name=project_root.name,
-        )
-        return workspace.context_id, resumed
+    def close(self) -> None:
+        with self._lock:
+            jobs = tuple(self._jobs.values())
+            schedulers = tuple(self._module_schedulers.values())
+        for job in jobs:
+            job.cancel_event.set()
+        for scheduler in schedulers:
+            scheduler.stop()
 
     def open_project(self, context_id: str, path: str) -> dict[str, object]:
-        project_root = _existing_project_root(path)
-        context_id, resumed = self._reserve_project_workspace(
-            context_id,
-            project_root,
-        )
+        root = _existing_project_root(path)
+        workspace_id, resumed = self._reserve_project_workspace(context_id, root)
         if resumed:
             return {
-                **self.services.contexts.project_payload(context_id),
+                **self.services.contexts.project_payload(workspace_id),
                 "status": "resumed",
             }
         with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
+            context = self.services.contexts.require(workspace_id)
             context.reset_project(
                 workflow_id=self.workflow_id,
                 project_mode="code-learner",
-                activation_root=project_root,
-                active_project_root=project_root,
+                activation_root=root,
+                active_project_root=root,
                 workflow_stage="project",
             )
-            self.services.workspaces.persist(context_id)
-        remember_recent_project(
-            self.services.files.state_root,
-            project_root,
-            "code-learner",
-        )
+            self.services.workspaces.persist(workspace_id)
+        remember_recent_project(self.services.files.state_root, root, self.workflow_id)
         return {
-            **self.services.contexts.project_payload(context_id),
+            **self.services.contexts.project_payload(workspace_id),
             "status": "opened",
         }
 
@@ -577,16 +127,8 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             context = self.services.contexts.require(context_id)
             root = context.active_project_root
         if root is None:
-            return {
-                "code_learner": {
-                    "state_path": "",
-                    "walkthroughs": [],
-                    "current_walkthrough_id": "",
-                    "current_walkthrough": None,
-                    "source": None,
-                }
-            }
-        return {"code_learner": self._state_payload(root)}
+            return {"code_learner": _empty_state()}
+        return {"code_learner": self._state_payload(Path(root))}
 
     def initialize(
         self,
@@ -595,123 +137,71 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         mode: str = "continue",
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        initialization_mode = str(mode or "continue").strip().lower()
-        if initialization_mode not in _INITIALIZATION_MODES:
-            raise CodeLearnerError(
-                f"invalid initialization mode: {initialization_mode or '<empty>'}"
-            )
-        if initialization_mode == "continue" and phase3_initialization_ready(root):
+        requested_mode = str(mode or "continue").strip().lower()
+        if requested_mode not in _INITIALIZATION_MODES:
+            raise CodeLearnerError(f"invalid initialization mode: {requested_mode}")
+        store = LearnerStore(root)
+        if requested_mode == "continue" and store.course_ready("architecture"):
+            self._start_module_scheduler(root)
             return self._initialization_payload(context_id, root)
-        if initialization_mode == "replace":
-            self._require_course_cache_clearable(context_id)
-        with self._initialization_lock:
-            scheduler = self._module_schedulers.pop(str(root), None)
-            if scheduler is not None:
-                scheduler.stop()
-            job = self._initialization_jobs.get(str(root))
-            if job is not None and job.is_running():
-                if initialization_mode == "replace":
+        self._require_cache_clearable(context_id)
+        with self._lock:
+            active = self._jobs.get(str(root))
+            if active is not None and active.running():
+                if requested_mode == "replace":
                     raise CodeLearnerError(
                         "stop the current initialization before replacing it"
                     )
-            else:
-                job = _InitializationJob(root=root)
-                source = SourceManifestService(root).load()
-                job.lease = InitializationLease.acquire(
-                    root,
-                    job.job_id,
-                    repository_revision=source.revision if source else "",
+                return self._initialization_payload(context_id, root)
+            scheduler = self._module_schedulers.pop(str(root), None)
+            if scheduler is not None:
+                scheduler.stop()
+            job = _InitializationJob(root)
+            job.lease = InitializationLease.acquire(root, job.job_id)
+            try:
+                if requested_mode == "replace":
+                    store.clear()
+                store.initialize_layout()
+                store.save_status(
+                    status="queued",
+                    phase="setup",
+                    percent=1,
+                    completion_status="",
+                    message="Queued Code Learner initialization.",
+                    error="",
+                    started_at=utc_now(),
                 )
-                try:
-                    if initialization_mode == "replace":
-                        self._clear_course_cache_artifacts(root)
-                    else:
-                        Phase3Store(root).discard_failed_terminal_result()
-                    job.resumed_from_checkpoint = (
-                        Phase3Store(root).checkpoint_path.is_file()
-                    )
-                except Exception:
-                    job.lease.release()
-                    job.lease = None
-                    raise
-                thread = threading.Thread(
-                    target=self._run_initialization_job,
-                    args=(context_id, root, job),
-                    name=f"code-learner-init-{job.job_id[:8]}",
-                    daemon=True,
-                )
-                job.thread = thread
-                self._initialization_jobs[str(root)] = job
-                thread.start()
+            except Exception:
+                job.lease.release()
+                raise
+            job.thread = threading.Thread(
+                target=self._run_initialization,
+                args=(root, job),
+                name=f"code-learner-init-{job.job_id[:8]}",
+                daemon=True,
+            )
+            self._jobs[str(root)] = job
+            job.thread.start()
         return self._initialization_payload(context_id, root)
 
     def initialization_status(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
+        if LearnerStore(root).course_ready("architecture"):
+            self._start_module_scheduler(root)
         return self._initialization_payload(context_id, root)
 
     def abort_initialization(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        job = self._initialization_job(root)
-        if job is not None:
-            job.request_abort()
-        return self._initialization_payload(context_id, root)
-
-    def clear_course_cache(self, context_id: str) -> dict[str, object]:
-        root = self._active_project_root(context_id)
-        self._require_course_cache_clearable(context_id)
-        with self._initialization_lock:
-            scheduler = self._module_schedulers.pop(str(root), None)
-            if scheduler is not None:
-                scheduler.stop()
-            job = self._initialization_jobs.get(str(root))
-            if job is not None and job.is_running():
-                raise CodeLearnerError(
-                    "wait for Code Learner initialization before clearing the cache"
-                )
-            lease = InitializationLease.acquire(
-                root,
-                f"clear-course-cache-{uuid4().hex}",
+        with self._lock:
+            job = self._jobs.get(str(root))
+        if job is not None and job.running():
+            job.cancel_event.set()
+            LearnerStore(root).save_status(
+                status="aborting",
+                phase="aborting",
+                message="Stopping initialization...",
             )
-            try:
-                cleared = self._clear_course_cache_artifacts(root)
-            finally:
-                lease.release()
-            self._initialization_jobs.pop(str(root), None)
-        return {
-            **self.services.contexts.project_payload(context_id),
-            "status": "cache_cleared",
-            "cache": cleared,
-            "initialization": {
-                **_idle_initialization_snapshot(root),
-                "choice_required": False,
-            },
-            "code_learner": self._state_payload(root),
-        }
-
-    def _require_course_cache_clearable(self, context_id: str) -> None:
-        with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
-            if any(
-                session.is_active()
-                for session in context.code_learner_sessions.values()
-            ):
-                raise CodeLearnerError(
-                    "stop the Code Learner tutor before clearing the course cache"
-                )
-
-    @staticmethod
-    def _clear_course_cache_artifacts(root: Path) -> dict[str, int]:
-        results = (
-            clear_phase3_cache(root),
-            KnowledgeStore(root).clear_course_cache(),
-            CodeLearnerStore(root).clear_course_cache(),
-        )
-        return {
-            "removed_file_count": sum(
-                result["removed_file_count"] for result in results
-            ),
-            "removed_bytes": sum(result["removed_bytes"] for result in results),
-        }
+        return self._initialization_payload(context_id, root)
 
     def wait_for_initialization(
         self,
@@ -719,231 +209,44 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         timeout: float | None = None,
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        job = self._initialization_job(root)
+        with self._lock:
+            job = self._jobs.get(str(root))
         if job is not None and job.thread is not None:
             job.thread.join(timeout=timeout)
         return self._initialization_payload(context_id, root)
 
-    def initialize_from_jsonl(
-        self,
-        context_id: str,
-        corpus_jsonl: str,
-    ) -> dict[str, object]:
+    def clear_course_cache(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        return self._initialize_from_corpus_jsonl(context_id, root, corpus_jsonl)
-
-    def _initialize_from_corpus_jsonl(
-        self,
-        context_id: str,
-        root: Path,
-        corpus_jsonl: str,
-    ) -> dict[str, object]:
-        LearnerGenerationStore(root).select(
-            "phase2",
-            "legacy-jsonl-import",
-        )
-        self._save_initialized_corpus(root, corpus_jsonl)
-        state = self._state_payload(root)
+        self._require_cache_clearable(context_id)
+        with self._lock:
+            job = self._jobs.get(str(root))
+            if job is not None and job.running():
+                raise CodeLearnerError(
+                    "stop Code Learner initialization before clearing the cache"
+                )
+            scheduler = self._module_schedulers.pop(str(root), None)
+            if scheduler is not None:
+                scheduler.stop()
+            lease = InitializationLease.acquire(root, f"clear-{uuid4().hex}")
+            try:
+                cleared = LearnerStore(root).clear()
+            finally:
+                lease.release()
+            self._jobs.pop(str(root), None)
         return {
             **self.services.contexts.project_payload(context_id),
-            "status": "initialized",
-            "initialization": _completed_initialization_snapshot(root),
-            "code_learner": state,
-        }
-
-    def _save_initialized_corpus(
-        self,
-        root: Path,
-        corpus_jsonl: str,
-        *,
-        job: _InitializationJob | None = None,
-    ) -> None:
-        store = CodeLearnerStore(root)
-        if job is not None:
-            job.record_system_progress(
-                phase="validation",
-                percent=_VALIDATION_PERCENT,
-                message="Validating and saving AI course corpus.",
-            )
-        store.save_corpus_jsonl(corpus_jsonl)
-        if job is not None:
-            job.record_system_progress(
-                phase="formalizing",
-                percent=_FORMALIZATION_PERCENT,
-                message="Building the initial architecture lesson.",
-            )
-        architecture = create_walkthrough(root, learning_mode="architecture")
-        store.save_walkthrough(architecture)
-
-    def _run_initialization_job(
-        self,
-        context_id: str,
-        root: Path,
-        job: _InitializationJob,
-    ) -> None:
-        job.record_system_progress(
-            phase="setup",
-            percent=1,
-            message=(
-                "Resuming AI course initialization from cached findings."
-                if job.resumed_from_checkpoint
-                else "Starting AI course initialization with durable checkpointing."
-            ),
-        )
-        try:
-            result = Phase3InitializationPipeline(
-                root,
-                cancel_event=job.cancel_event,
-            ).run(
-                lambda record: self._record_initialization_progress(job, record),
-                acquire_lease=False,
-            )
-            navigation = Phase3CourseNavigator(root).open(
-                "architecture", "architecture:current"
-            )
-            Phase3TutorContextStore(root).write_navigation(
-                navigation,
-                project_id=context_id,
-                writer_id=f"electroboy:{context_id}",
-            )
-            terminal = Phase3Store(root).load_terminal_result() or {}
-            job.completion_status = str(terminal.get("status") or result.status)
-            job.warning_count = int(terminal.get("warning_count") or 0)
-            job.failed_scope = str(terminal.get("failed_scope") or "")
-            job.recovery_action = str(terminal.get("recovery_action") or "")
-            job.update(
-                status="initialized",
-                phase="complete",
-                percent=100,
-                message=(
-                    "AI course material is ready with warnings."
-                    if job.completion_status == "complete_with_warnings"
-                    else "AI course material is ready."
-                ),
-            )
-            self._start_module_scheduler(root, job=job)
-        except Phase3InitializationCancelled:
-            job.update(
-                status="aborted",
-                phase="aborted",
-                message="Initialization stopped. Run Initialize to resume.",
-                error="",
-            )
-        except Exception as error:
-            message = str(error)
-            terminal = Phase3Store(root).load_terminal_result() or {}
-            job.completion_status = str(terminal.get("status") or "failed")
-            job.warning_count = int(terminal.get("warning_count") or 0)
-            job.failed_scope = str(
-                terminal.get("failed_scope") or job.phase or "initialization"
-            )
-            job.recovery_action = str(
-                terminal.get("recovery_action")
-                or "Resume initialization after correcting the reported failure."
-            )
-            job.update(
-                status="failed",
-                phase="failed",
-                message=message,
-                error=message,
-            )
-        finally:
-            if job.lease is not None:
-                job.lease.release()
-                job.lease = None
-
-    def _record_initialization_progress(
-        self,
-        job: _InitializationJob,
-        record: dict[str, object],
-    ) -> None:
-        job.record_progress(record)
-
-    def _initialization_job(self, root: Path) -> _InitializationJob | None:
-        with self._initialization_lock:
-            return self._initialization_jobs.get(str(root))
-
-    def _initialization_payload(
-        self,
-        context_id: str,
-        root: Path,
-    ) -> dict[str, object]:
-        job = self._initialization_job(root)
-        state = self._state_payload(root)
-        initialized = phase3_initialization_ready(root)
-        background = module_generation_status(root)
-        if initialized and background["status"] not in {
-            "complete",
-            "complete_with_warnings",
-        }:
-            background = self._start_module_scheduler(root)
-            state["background_modules"] = background
-        if job is not None and job.is_running():
-            status = "initializing"
-            initialization = job.snapshot()
-        elif job is not None and str(job.snapshot().get("status")) == "failed":
-            status = "failed"
-            initialization = job.snapshot()
-        elif job is not None and str(job.snapshot().get("status")) == "aborted":
-            status = "uninitialized"
-            initialization = job.snapshot()
-        elif job is not None and str(job.snapshot().get("status")) == "initialized":
-            status = "initialized"
-            initialization = job.snapshot()
-        elif initialized:
-            status = "initialized"
-            initialization = (
-                job.snapshot()
-                if job is not None
-                else _completed_initialization_snapshot(root)
-            )
-        else:
-            status = "uninitialized"
-            terminal = Phase3Store(root).load_terminal_result()
-            if terminal and terminal.get("status") == "failed":
-                status = "failed"
-                initialization = {
-                    **_idle_initialization_snapshot(root),
-                    "status": "failed",
-                    "phase": str(terminal.get("failed_scope") or "failed"),
-                    "message": str(terminal.get("recovery_action") or "failed"),
-                    "error": str(terminal.get("recovery_action") or "failed"),
-                    "completion_status": "failed",
-                    "warning_count": int(terminal.get("warning_count") or 0),
-                    "failed_scope": str(terminal.get("failed_scope") or ""),
-                    "recovery_action": str(terminal.get("recovery_action") or ""),
-                }
-            else:
-                initialization = _idle_initialization_snapshot(root)
-        return {
-            **self.services.contexts.project_payload(context_id),
-            "status": status,
-            "initialization": {
-                **initialization,
-                "choice_required": _learner_state_present(root),
-                "background_modules": background,
-            },
-            "code_learner": state,
+            "status": "cache_cleared",
+            "cache": cleared,
+            "initialization": self._initialization_snapshot(root),
+            "code_learner": self._state_payload(root),
         }
 
     def analysis(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            return {
-                "status": "analyzed"
-                if phase3_initialization_ready(root)
-                else "uninitialized",
-                "analysis": phase3_analysis_payload(root),
-            }
-        if KnowledgeStore(root).load_knowledge(validate_sources=False):
-            return {
-                "status": "analyzed",
-                "analysis": phase2_analysis_payload(root),
-            }
-        analysis = CodeLearnerStore(root).corpus_analysis()
+        state = self._state_payload(root)
         return {
-            "status": "analyzed" if analysis is not None else "uninitialized",
-            "analysis": (analysis or _empty_analysis(root)).to_dict(),
+            "status": "analyzed" if state["initialized"] else "uninitialized",
+            "analysis": state["analysis"],
         }
 
     def source_file(
@@ -967,291 +270,96 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         }
 
     def course_artifact(
-        self, context_id: str, mode: str, scope_id: str
+        self,
+        context_id: str,
+        mode: str,
+        scope_id: str,
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            service = Phase3CourseService(root)
-            records = service.load(mode, scope_id)
-            if not records:
-                raise CodeLearnerError("Phase 3 course artifact is missing")
-            return {
-                "status": "rendered",
-                "artifact": "course",
-                "jsonl_path": service.course_path(mode, scope_id)
-                .relative_to(root)
-                .as_posix(),
-                "markdown_path": service.markdown_path(mode, scope_id)
-                .relative_to(root)
-                .as_posix(),
-                "record_count": len(records),
-            }
-        result = render_saved_course(root, mode, scope_id)
-        return {
-            "status": "rendered",
-            "artifact": result.artifact,
-            "jsonl_path": result.jsonl_path,
-            "markdown_path": result.markdown_path,
-            "record_count": result.record_count,
-        }
+        view = CourseNavigator(root).open(mode, _scope_for_mode(mode, scope_id))
+        return {"status": "loaded", **CourseNavigator(root).artifact(view)}
 
     def course_graph(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            return {
-                "status": "loaded",
-                "graph": {
-                    "generation": "phase3",
-                    "targets": Phase3CourseService(root).index().get("targets", {}),
-                },
-            }
+        store = LearnerStore(root)
         return {
             "status": "loaded",
-            "graph": CourseGraph.from_store(KnowledgeStore(root)).to_dict(),
-        }
-
-    def resolve_function_course(self, context_id: str, query: str) -> dict[str, object]:
-        root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            service = FunctionKnowledgeService(root)
-            resolution = service.resolve(query)
-            payload = resolution.to_dict()
-            symbol = resolution.symbol
-            if symbol:
-                key = str(symbol.get("canonical_key") or "")
-                payload["course_status"] = Phase3CourseService(root).target_status(
-                    f"course:function:{key}"
-                )
-            else:
-                payload["course_status"] = "missing"
-            payload["candidates"] = [
-                _phase3_symbol_payload(root, item) for item in resolution.candidates
-            ]
-            payload["symbol"] = (
-                _phase3_symbol_payload(root, symbol) if symbol is not None else None
-            )
-            return payload
-        resolution = CourseBuilder(root).resolve_function(query)
-        payload = resolution.to_dict()
-        symbol = resolution.symbol
-        if symbol:
-            symbol_id = str(symbol.get("id") or "")
-            index = KnowledgeStore(root).load_course_index().get("courses", {})
-            course = (
-                index.get(f"function:{symbol_id}", {})
-                if isinstance(index, dict)
-                else {}
-            )
-            payload["course_status"] = (
-                course.get("status", "missing")
-                if isinstance(course, dict)
-                else "missing"
-            )
-        else:
-            payload["course_status"] = "missing"
-        return payload
-
-    def build_function_course(
-        self, context_id: str, query: str, audience: str = ""
-    ) -> dict[str, object]:
-        root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            if not phase3_initialization_ready(root):
-                raise CodeLearnerError(
-                    "initialize Phase 3 before generating a function"
-                )
-            knowledge = FunctionKnowledgeService(root)
-            resolution = knowledge.resolve(query)
-            if resolution.symbol is None or resolution.status == "ambiguous":
-                raise CodeLearnerError(f"function target is {resolution.status}")
-            canonical_key = str(resolution.symbol["canonical_key"])
-            checkpoint = (
-                Phase3Store(root).read_json(Phase3Store(root).checkpoint_path) or {}
-            )
-            run_id = str(checkpoint.get("analysis_run_id") or uuid4().hex)
-            knowledge.generate(canonical_key, analysis_run_id=run_id)
-            courses = Phase3CourseService(root)
-            document_id = f"course:function:{canonical_key}"
-            if courses.target_status(document_id) != "ready":
-                courses.build(
-                    "function",
-                    canonical_key,
-                    analysis_run_id=run_id,
-                    audience=audience or "software engineer",
-                )
-            records = courses.load("function", canonical_key)
-            return {
-                "status": "ready",
-                "course": {
-                    "mode": "function",
-                    "scope_id": canonical_key,
-                    "jsonl_path": courses.course_path("function", canonical_key)
-                    .relative_to(root)
-                    .as_posix(),
-                    "markdown_path": courses.markdown_path("function", canonical_key)
-                    .relative_to(root)
-                    .as_posix(),
-                    "record_count": len(records),
-                },
-            }
-        result = CourseBuilder(root).build_function(query, audience=audience)
-        return {
-            "status": "ready",
-            "course": {
-                "mode": result.mode,
-                "scope_id": result.scope_id,
-                "jsonl_path": result.jsonl_path,
-                "markdown_path": result.markdown_path,
-                "record_count": result.record_count,
+            "graph": {
+                "architecture": store.course_index("architecture"),
+                "modules": store.modules(),
+                "background_modules": module_generation_status(root),
             },
         }
 
-    def navigate_course(
+    def resolve_function_course(
         self,
         context_id: str,
-        action: str,
-        *,
-        course_id: str = "",
-        section_id: str = "",
-        target_id: str = "",
-        code_view: dict[str, object] | None = None,
+        query: str,
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            navigator = Phase3CourseNavigator(root)
-            if action == "open":
-                mode, scope_id = _phase3_course_identity(course_id)
-                result = navigator.open(mode, scope_id, section_id)
-            elif action in {"previous", "next"}:
-                result = navigator.move(action)
-            elif action == "deep-dive":
-                result = navigator.deep_dive(target_id)
-            elif action == "back":
-                result = navigator.back()
-            elif action == "code-view":
-                result = navigator.update_code_view(code_view or {})
-            elif action == "state":
-                result = navigator.state()
-            else:
-                raise CodeLearnerError(f"unknown course navigation action: {action}")
-            if result.get("current"):
-                result["tutor_context"] = Phase3TutorContextStore(
-                    root
-                ).write_navigation(
-                    result,
-                    project_id=context_id,
-                    writer_id=f"electroboy:{context_id}",
-                )
-                return project_phase3_navigation(root, result)
-            return result
-        navigator = CourseNavigator(root)
-        if action == "open":
-            result = navigator.open(course_id, section_id)
-        elif action in {"previous", "next"}:
-            result = navigator.move(action)
-        elif action == "deep-dive":
-            result = navigator.deep_dive(target_id)
-        elif action == "back":
-            result = navigator.back()
-        elif action == "code-view":
-            result = navigator.update_code_view(code_view or {})
-        elif action == "state":
-            result = navigator.state()
-        else:
-            raise CodeLearnerError(f"unknown course navigation action: {action}")
-        if result.get("current"):
-            result["tutor_context"] = TutorContextStore(root).write_navigation(
-                result,
-                project_id=context_id,
-                writer_id=f"electroboy:{context_id}",
-            )
-            return project_navigation(root, result)
-        return result
+        symbol = str(query or "").strip()
+        if not symbol:
+            raise CodeLearnerError("Function symbol is required")
+        scope_id = _function_course_id(symbol)
+        return {
+            "status": "resolved",
+            "symbol": {
+                "id": scope_id,
+                "canonical_key": scope_id,
+                "name": symbol,
+                "qualified_name": symbol,
+            },
+            "candidates": [],
+            "course_status": (
+                "ready"
+                if LearnerStore(root).course_ready("function", scope_id)
+                else "missing"
+            ),
+        }
+
+    def build_function_course(
+        self,
+        context_id: str,
+        query: str,
+        audience: str = "",
+    ) -> dict[str, object]:
+        del audience
+        root = self._active_project_root(context_id)
+        if not LearnerStore(root).course_ready("architecture"):
+            raise CodeLearnerError("initialize Code Learner first")
+        symbol = str(query or "").strip()
+        if not symbol:
+            raise CodeLearnerError("Function symbol is required")
+        scope_id = _function_course_id(symbol)
+        store = LearnerStore(root)
+        if not store.course_ready("function", scope_id):
+            CourseWorkerService(root).generate_function(symbol, scope_id)
+        return {
+            "status": "ready",
+            "course": {
+                "mode": "function",
+                "scope_id": scope_id,
+                "jsonl_path": store.relative(
+                    store.course_index_path("function", scope_id)
+                ),
+            },
+        }
 
     def modules(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            analysis = phase3_analysis_payload(root)
-            return {
-                "status": "listed",
-                "modules": analysis["modules"],
-                "truncated": False,
-            }
-        if KnowledgeStore(root).load_knowledge(validate_sources=False):
-            analysis = phase2_analysis_payload(root)
-            return {
-                "status": "listed",
-                "modules": analysis["modules"],
-                "truncated": False,
-            }
-        analysis = CodeLearnerStore(root).corpus_analysis() or _empty_analysis(root)
         return {
             "status": "listed",
-            "modules": list(analysis.to_dict()["modules"]),
-            "truncated": analysis.truncated,
+            "modules": self._module_payloads(root),
+            "truncated": False,
         }
 
     def symbols(self, context_id: str, query: str = "") -> dict[str, object]:
-        root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            analysis = phase3_analysis_payload(root)
-            symbols = list(analysis["symbols"])
-            requested = query.strip().lower()
-            if requested:
-                symbols = [
-                    symbol
-                    for symbol in symbols
-                    if requested in str(symbol.get("qualified_name") or "").lower()
-                    or requested in str(symbol.get("name") or "").lower()
-                ]
-            return {
-                "status": "listed",
-                "symbols": symbols[:80],
-                "truncated": len(symbols) > 80,
-                "resolution": (
-                    self.resolve_function_course(context_id, query)
-                    if requested
-                    else None
-                ),
-            }
-        if KnowledgeStore(root).load_knowledge(validate_sources=False):
-            analysis = phase2_analysis_payload(root)
-            symbols = list(analysis["symbols"])
-            requested = query.strip().lower()
-            if requested:
-                symbols = [
-                    symbol
-                    for symbol in symbols
-                    if requested in str(symbol.get("qualified_name") or "").lower()
-                    or requested in str(symbol.get("name") or "").lower()
-                ]
-            return {
-                "status": "listed",
-                "symbols": symbols[:80],
-                "truncated": len(symbols) > 80,
-                "resolution": (
-                    CourseBuilder(root).resolve_function(query).to_dict()
-                    if requested
-                    else None
-                ),
-            }
-        analysis = CodeLearnerStore(root).corpus_analysis() or _empty_analysis(root)
-        symbols = list(analysis.symbols)
-        requested = query.strip().lower()
-        if requested:
-            symbols = [
-                symbol
-                for symbol in symbols
-                if requested in symbol.qualified_name.lower()
-                or requested in symbol.name.lower()
-            ]
+        resolution = self.resolve_function_course(context_id, query) if query else None
         return {
             "status": "listed",
-            "symbols": [symbol.to_dict() for symbol in symbols[:80]],
-            "truncated": len(symbols) > 80 or analysis.truncated,
-            "resolution": resolve_symbol(analysis, query).to_dict()
-            if query.strip()
-            else None,
+            "symbols": [],
+            "truncated": False,
+            "resolution": resolution,
         }
 
     def create_walkthrough(
@@ -1263,83 +371,75 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         intended_audience: str = "",
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if _phase3_selected(root):
-            if not phase3_initialization_ready(root):
-                raise CodeLearnerError("initialize Phase 3 before opening a course")
-            mode = str(learning_mode or "").strip().lower()
-            scope_id = target
-            if mode == "architecture":
-                scope_id = "architecture:current"
-            elif mode == "module":
-                if not scope_id:
-                    raise CodeLearnerError("Module target is required")
-                courses = Phase3CourseService(root)
-                document_id = f"course:module:{scope_id}"
-                if courses.target_status(document_id) != "ready":
-                    background = self._start_module_scheduler(root)
-                    background = self._module_schedulers[str(root)].prioritize(
-                        scope_id
-                    )
-                    target_state = next(
-                        (
-                            item
-                            for item in background["targets"]
-                            if item["module_id"] == scope_id
-                        ),
-                        {"module_id": scope_id, "status": "queued"},
-                    )
-                    return {
-                        "status": str(target_state["status"]),
-                        "course_target": target_state,
-                        "background_modules": background,
-                    }
-            elif mode == "function":
-                result = self.build_function_course(
-                    context_id, target, intended_audience
+        store = LearnerStore(root)
+        if not store.course_ready("architecture"):
+            raise CodeLearnerError("initialize Code Learner first")
+        mode = str(learning_mode or "").strip().lower()
+        scope_id = str(target or "").strip()
+        if mode == "architecture":
+            scope_id = ""
+        elif mode == "module":
+            if not scope_id:
+                raise CodeLearnerError("Module target is required")
+            if not store.course_ready("module", scope_id):
+                background = self._start_module_scheduler(root)
+                scheduler = self._module_schedulers[str(root)]
+                background = scheduler.prioritize(scope_id)
+                target_state = next(
+                    (
+                        item
+                        for item in background["targets"]
+                        if item["module_id"] == scope_id
+                    ),
+                    {"module_id": scope_id, "status": "pending"},
                 )
-                scope_id = str(result["course"]["scope_id"])
-            else:
-                raise CodeLearnerError(f"unknown course mode: {learning_mode}")
-            return self.navigate_course(
+                return {
+                    "status": str(target_state["status"]),
+                    "course_target": target_state,
+                    "background_modules": background,
+                }
+        elif mode == "function":
+            result = self.build_function_course(
                 context_id,
-                "open",
-                course_id=f"course:{mode}:{scope_id}",
+                scope_id,
+                intended_audience,
             )
-        store = KnowledgeStore(root)
-        if store.load_knowledge(validate_sources=False):
-            mode = str(learning_mode or "").strip().lower()
-            if mode == "architecture":
-                course_id = "course.architecture.repository.root"
-            elif mode == "module":
-                if not target:
-                    raise CodeLearnerError("Module target is required")
-                course_id = f"course.module.{target}"
-            elif mode == "function":
-                result = CourseBuilder(root).build_function(
-                    target,
-                    audience=intended_audience,
-                )
-                course_id = f"course.function.{result.scope_id}"
-            else:
-                raise CodeLearnerError(f"unknown course mode: {learning_mode}")
-            return self.navigate_course(
-                context_id,
-                "open",
-                course_id=course_id,
-            )
-        walkthrough = create_walkthrough(
+            scope_id = str(result["course"]["scope_id"])
+        else:
+            raise CodeLearnerError(f"unknown course mode: {learning_mode}")
+        return self._navigation_payload(
+            context_id,
             root,
-            learning_mode=learning_mode,
-            target=target,
-            intended_audience=intended_audience,
+            CourseNavigator(root).open(mode, scope_id),
         )
-        saved = CodeLearnerStore(root).save_walkthrough(walkthrough)
-        TutorContextStore(root).write_walkthrough(
-            saved,
-            project_id=context_id,
-            writer_id=f"electroboy:{context_id}",
-        )
-        return self._walkthrough_payload(root, saved)
+
+    def navigate_course(
+        self,
+        context_id: str,
+        action: str,
+        *,
+        course_id: str = "",
+        section_id: str = "",
+        target_id: str = "",
+        code_view: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        del target_id
+        root = self._active_project_root(context_id)
+        navigator = CourseNavigator(root)
+        if action == "open":
+            mode, scope_id = _course_identity(course_id)
+            view = navigator.open(mode, scope_id, section_id)
+        elif action in {"previous", "next"}:
+            view = navigator.move(action)
+        elif action == "code-view":
+            view = navigator.update_code_view(code_view or {})
+        elif action in {"state", "back", "deep-dive"}:
+            view = navigator.state()
+        else:
+            raise CodeLearnerError(f"unknown course navigation action: {action}")
+        if not view:
+            return {}
+        return self._navigation_payload(context_id, root, view)
 
     def set_current_step(
         self,
@@ -1347,31 +447,10 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         walkthrough_id: str,
         step_id: str,
     ) -> dict[str, object]:
+        del walkthrough_id
         root = self._active_project_root(context_id)
-        if walkthrough_id.startswith("course:"):
-            return self.navigate_course(
-                context_id,
-                "open",
-                course_id=walkthrough_id,
-                section_id=step_id,
-            )
-        if walkthrough_id.startswith("course."):
-            return self.navigate_course(
-                context_id,
-                "open",
-                course_id=walkthrough_id,
-                section_id=step_id,
-            )
-        walkthrough = CodeLearnerStore(root).set_current_step(
-            walkthrough_id,
-            step_id,
-        )
-        TutorContextStore(root).write_walkthrough(
-            walkthrough,
-            project_id=context_id,
-            writer_id=f"electroboy:{context_id}",
-        )
-        return self._walkthrough_payload(root, walkthrough)
+        view = CourseNavigator(root).select(step_id)
+        return self._navigation_payload(context_id, root, view)
 
     def learner_context(
         self,
@@ -1379,38 +458,16 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         walkthrough_id: str = "",
         **context_options: object,
     ) -> dict[str, object]:
+        del walkthrough_id
         root = self._active_project_root(context_id)
-        if walkthrough_id.startswith("course:"):
-            navigation = Phase3CourseNavigator(root).update_code_view(
-                _phase3_code_view_from_options(root, context_options)
-            )
-            context = Phase3TutorContextStore(root).write_navigation(
-                navigation,
-                project_id=context_id,
-                writer_id=f"electroboy:{context_id}",
-            )
-            return {"status": "prepared", "context": context}
-        if walkthrough_id.startswith("course."):
-            navigation = CourseNavigator(root).update_code_view(
-                _code_view_from_options(root, context_options)
-            )
-            context = TutorContextStore(root).write_navigation(
-                navigation,
-                project_id=context_id,
-                writer_id=f"electroboy:{context_id}",
-            )
-            return {"status": "prepared", "context": context}
-        walkthrough = CodeLearnerStore(root).get(walkthrough_id)
-        context = TutorContextStore(root).write_walkthrough(
-            walkthrough,
+        navigator = CourseNavigator(root)
+        view = navigator.update_code_view(_code_view(root, context_options))
+        context = TutorContextStore(root).write_navigation(
+            view,
             project_id=context_id,
             writer_id=f"electroboy:{context_id}",
-            context_options=context_options,
         )
-        return {
-            "status": "prepared",
-            "context": context,
-        }
+        return {"status": "prepared", "context": context}
 
     def prepare_question(
         self,
@@ -1419,54 +476,20 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         walkthrough_id: str = "",
         **context_options: object,
     ) -> dict[str, object]:
-        root = self._active_project_root(context_id)
-        store = CodeLearnerStore(root)
-        question = str(question or "").strip()
-        if not question:
+        text = str(question or "").strip()
+        if not text:
             raise CodeLearnerError("learner question is required")
-        if walkthrough_id.startswith("course:"):
-            context = self.learner_context(
-                context_id,
-                walkthrough_id,
-                **context_options,
-            )["context"]
-            return {
-                **project_phase3_navigation(root, Phase3CourseNavigator(root).state()),
-                "status": "prepared",
-                "question": question,
-                "prompt": question,
-                "context_version": context["context_version"],
-                "context_path": (".electroboy/code-learner/phase3/tutor-context.json"),
-            }
-        if walkthrough_id.startswith("course."):
-            context = self.learner_context(
-                context_id,
-                walkthrough_id,
-                **context_options,
-            )["context"]
-            return {
-                **project_navigation(root, CourseNavigator(root).state()),
-                "status": "prepared",
-                "question": question,
-                "prompt": question,
-                "context_version": context["context_version"],
-                "context_path": ".electroboy/code-learner/tutor-context.json",
-            }
-        walkthrough = store.get(walkthrough_id)
-        context = TutorContextStore(root).write_walkthrough(
-            walkthrough,
-            project_id=context_id,
-            writer_id=f"electroboy:{context_id}",
-            context_options=context_options,
-        )
+        context = self.learner_context(
+            context_id,
+            walkthrough_id,
+            **context_options,
+        )["context"]
         return {
             "status": "prepared",
-            "question": question,
-            "prompt": question,
+            "question": text,
+            "prompt": text,
             "context_version": context["context_version"],
-            "context_path": ".electroboy/code-learner/tutor-context.json",
-            "walkthrough": walkthrough.to_dict(),
-            "walkthroughs": self._walkthrough_summaries(root),
+            "context_path": TUTOR_CONTEXT_RELATIVE_PATH,
         }
 
     def start_agent(
@@ -1476,48 +499,20 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         **context_options: object,
     ) -> tuple[AgentSession, bool]:
         root = self._active_project_root(context_id)
-        store = CodeLearnerStore(root)
-        tutor_context = TutorContextStore(root)
-        phase3 = walkthrough_id.startswith("course:")
-        if phase3:
-            navigation = Phase3CourseNavigator(root).update_code_view(
-                _phase3_code_view_from_options(root, context_options)
-            )
-            compact_context = Phase3TutorContextStore(root).write_navigation(
-                navigation,
-                project_id=context_id,
-                writer_id=f"electroboy:{context_id}",
-            )
-            course = compact_context["course"]
-            learning_mode = str(course["mode"])
-            mode_target = str(course["scope_id"])
-        elif walkthrough_id.startswith("course."):
+        navigation = CourseNavigator(root).state()
+        if not navigation:
+            raise CodeLearnerError("open a course before starting the tutor")
+        if context_options:
             navigation = CourseNavigator(root).update_code_view(
-                _code_view_from_options(root, context_options)
+                _code_view(root, context_options)
             )
-            compact_context = tutor_context.write_navigation(
-                navigation,
-                project_id=context_id,
-                writer_id=f"electroboy:{context_id}",
-            )
-            course = compact_context["course"]
-            learning_mode = str(course["mode"])
-            mode_target = str(course["scope_id"])
-        else:
-            walkthrough = store.get(walkthrough_id)
-            tutor_context.write_walkthrough(
-                walkthrough,
-                project_id=context_id,
-                writer_id=f"electroboy:{context_id}",
-                context_options=context_options,
-            )
-            learning_mode = walkthrough.learning_mode
-            mode_target = walkthrough.mode_target
+        course = navigation.get("current")
+        course = course if isinstance(course, dict) else {}
         with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
-            for session in context.code_learner_sessions.values():
+            browser = self.services.contexts.require(context_id)
+            for session in browser.code_learner_sessions.values():
                 if session.is_active():
-                    context.selected_session_id = session.session_id
+                    browser.selected_session_id = session.session_id
                     return session, False
             session = AgentSession(
                 command=code_learner_agent_command(root),
@@ -1527,47 +522,26 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 interactive=True,
                 metadata={
                     "walkthrough_id": walkthrough_id,
-                    "learning_mode": learning_mode,
-                    "mode_target": mode_target,
-                    "tutor_context_path": (
-                        ".electroboy/code-learner/phase3/tutor-context.json"
-                        if phase3
-                        else ".electroboy/code-learner/tutor-context.json"
-                    ),
+                    "learning_mode": navigation.get("mode"),
+                    "mode_target": navigation.get("scope_id"),
+                    "tutor_context_path": TUTOR_CONTEXT_RELATIVE_PATH,
                 },
             )
-            session = self.services.sessions.prepare(context, session)
-            context.code_learner_sessions[session.session_id] = session
-            context.selected_session_id = session.session_id
-            self.services.sessions.record(context, session)
-        if phase3:
-            Phase3TutorContextStore(root).write_navigation(
-                Phase3CourseNavigator(root).state(),
-                project_id=context_id,
-                writer_id=session.session_id,
-            )
-        elif walkthrough_id.startswith("course."):
-            tutor_context.write_navigation(
-                CourseNavigator(root).state(),
-                project_id=context_id,
-                writer_id=session.session_id,
-            )
-        else:
-            tutor_context.write_walkthrough(
-                walkthrough,
-                project_id=context_id,
-                writer_id=session.session_id,
-                context_options=context_options,
-            )
+            session = self.services.sessions.prepare(browser, session)
+            browser.code_learner_sessions[session.session_id] = session
+            browser.selected_session_id = session.session_id
+            self.services.sessions.record(browser, session)
+        TutorContextStore(root).write_navigation(
+            navigation,
+            project_id=context_id,
+            writer_id=session.session_id,
+        )
         try:
             session.start()
         except Exception:
             with self.services.contexts.lock:
-                try:
-                    context = self.services.contexts.require(context_id)
-                except StateError:
-                    raise
-                self.services.sessions.clear(context, [session])
+                browser = self.services.contexts.require(context_id)
+                self.services.sessions.clear(browser, [session])
             raise
         return session, True
 
@@ -1586,120 +560,242 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         )
         return str(question or "").strip() + "\n"
 
-    def _walkthrough_payload(
+    def _reserve_project_workspace(
         self,
+        context_id: str,
         root: Path,
-        walkthrough: Walkthrough,
+    ) -> tuple[str, bool]:
+        with self.services.contexts.lock:
+            current = self.services.contexts.require(context_id)
+            self.services.contexts.require_no_active_agent(current)
+        workspace, resumed = self.services.workspaces.reserve_project(
+            context_id,
+            workflow_id=self.workflow_id,
+            project_kind="code-learner",
+            project_identity=str(root),
+            name=root.name,
+        )
+        return workspace.context_id, resumed
+
+    def _run_initialization(self, root: Path, job: _InitializationJob) -> None:
+        store = LearnerStore(root)
+        try:
+            CourseGenerationService(root, cancel_event=job.cancel_event).run()
+            self._start_module_scheduler(root)
+        except CourseGenerationCancelled:
+            store.save_status(
+                status="aborted",
+                phase="aborted",
+                message="Initialization stopped. Run Initialize to resume.",
+                error="",
+            )
+        except Exception as error:
+            message = str(error)
+            store.append_progress(
+                {
+                    "activity_kind": "error",
+                    "phase": "initialization",
+                    "percent": int(store.load_status().get("percent") or 0),
+                    "message": message,
+                }
+            )
+            store.save_status(
+                status="failed",
+                completion_status="failed",
+                message=message,
+                error=message,
+            )
+        finally:
+            if job.lease is not None:
+                job.lease.release()
+                job.lease = None
+
+    def _initialization_payload(
+        self,
+        context_id: str,
+        root: Path,
     ) -> dict[str, object]:
+        snapshot = self._initialization_snapshot(root)
+        status = str(snapshot["status"])
+        outer = (
+            "initializing"
+            if status in _RUNNING_STATUSES
+            else "initialized"
+            if status == "initialized"
+            else "failed"
+            if status == "failed"
+            else "uninitialized"
+        )
         return {
-            "status": "ready",
-            "walkthrough": walkthrough.to_dict(),
-            "walkthroughs": self._walkthrough_summaries(root),
-            "source": _walkthrough_source_payload(root, walkthrough),
+            **self.services.contexts.project_payload(context_id),
+            "status": outer,
+            "initialization": snapshot,
+            "code_learner": self._state_payload(root),
         }
+
+    def _initialization_snapshot(self, root: Path) -> dict[str, object]:
+        store = LearnerStore(root)
+        status = store.load_status()
+        with self._lock:
+            job = self._jobs.get(str(root))
+        if store.course_ready("architecture"):
+            status.update(
+                {
+                    "status": "initialized",
+                    "phase": "complete",
+                    "percent": 100,
+                    "completion_status": "complete",
+                    "message": "Architecture course is ready.",
+                    "error": "",
+                }
+            )
+        elif not status:
+            status = {
+                "status": "idle",
+                "phase": "idle",
+                "percent": 0,
+                "message": "Initialize Code Learner to generate a course.",
+                "error": "",
+                "completion_status": "",
+            }
+        elapsed = (
+            max(0, int(time.monotonic() - job.started_monotonic))
+            if job is not None
+            else 0
+        )
+        status.update(
+            {
+                "job_id": job.job_id if job is not None else "",
+                "elapsed_seconds": elapsed,
+                "estimated_remaining_seconds": None,
+                "progress_events": store.progress(),
+                "abort_requested": bool(job and job.cancel_event.is_set()),
+                "choice_required": self._choice_required(store, status),
+                "background_modules": module_generation_status(root),
+                "progress_path": str(store.progress_path),
+            }
+        )
+        return status
 
     def _state_payload(self, root: Path) -> dict[str, object]:
-        store = CodeLearnerStore(root)
-        walkthroughs = store.walkthroughs()
-        current = store.current()
-        payload: dict[str, object] = {
-            "state_path": str(store.path),
-            "walkthroughs": [
-                _walkthrough_summary(walkthrough) for walkthrough in walkthroughs
-            ],
-            "current_walkthrough_id": current.id if current else "",
-            "current_walkthrough": current.to_dict() if current else None,
+        store = LearnerStore(root)
+        initialized = store.course_ready("architecture")
+        navigation = CourseNavigator(root).state() if initialized else {}
+        payload = {
+            **_empty_state(),
+            "state_path": store.relative(store.status_path),
+            "initialized": initialized,
+            "completion_status": "complete" if initialized else "",
+            "analysis": {
+                "source_root": str(root),
+                "source_files": [],
+                "language_counts": {},
+                "modules": self._module_payloads(root) if initialized else [],
+                "symbols": [],
+                "truncated": False,
+            },
+            "background_modules": module_generation_status(root),
         }
-        phase3_store = Phase3Store(root)
-        if _phase3_state_present(root):
-            terminal = phase3_store.load_terminal_result()
-            ready = phase3_initialization_ready(root)
-            payload.update(
-                {
-                    "learner_generation": "phase3",
-                    "phase3_initialized": ready,
-                    "phase2_initialized": False,
-                    "completion_status": (
-                        str(terminal.get("status") or "") if terminal else ""
-                    ),
-                    "warning_count": (
-                        int(terminal.get("warning_count") or 0) if terminal else 0
-                    ),
-                    "failed_scope": (
-                        str(terminal.get("failed_scope") or "") if terminal else ""
-                    ),
-                    "recovery_action": (
-                        str(terminal.get("recovery_action") or "") if terminal else ""
-                    ),
-                    "walkthroughs": [],
-                    "current_walkthrough_id": "",
-                    "current_walkthrough": None,
-                    "source": None,
-                    "analysis": phase3_analysis_payload(root) if ready else None,
-                    "phase3": _phase3_manifest_status(root),
-                    "background_modules": module_generation_status(root),
-                }
-            )
-            if ready and Phase3CourseService(root).navigation_path.is_file():
-                navigation = Phase3CourseNavigator(root).state()
-                payload.update(project_phase3_navigation(root, navigation))
-            return payload
-        phase2_store = KnowledgeStore(root)
-        if phase2_store.load_knowledge(validate_sources=False):
-            payload.update(
-                {
-                    "walkthroughs": [],
-                    "current_walkthrough_id": "",
-                    "current_walkthrough": None,
-                    "source": None,
-                }
-            )
-            payload["analysis"] = phase2_analysis_payload(root)
-            payload["phase2_initialized"] = initialization_ready(root)
-            payload["course_graph"] = CourseGraph.from_store(phase2_store).to_dict()
-            navigation = CourseNavigator(root).state()
-            if navigation.get("current"):
-                payload.update(project_navigation(root, navigation))
-            return payload
-        migration = LegacyCorpusMigrator(root).status()
-        payload["phase2_initialized"] = False
-        payload["migration"] = migration.to_dict()
-        analysis = store.corpus_analysis()
-        if analysis is not None:
-            payload["analysis"] = analysis.to_dict()
-        corpus = store.course_corpus_payload()
-        if corpus is not None:
-            payload["corpus"] = corpus
-        try:
-            payload["source"] = _walkthrough_source_payload(root, current)
-        except CodeLearnerError as error:
-            payload["source_error"] = str(error)
+        if navigation:
+            payload.update(self._navigation_projection(root, navigation))
         return payload
 
-    def _start_module_scheduler(
+    def _module_payloads(self, root: Path) -> list[dict[str, object]]:
+        status = module_generation_status(root)
+        target_by_id = {
+            str(target.get("module_id")): target
+            for target in status["targets"]
+            if isinstance(target, dict)
+        }
+        result = []
+        for module in LearnerStore(root).modules():
+            module_id = str(module.get("eb_module_id") or "")
+            components = module.get("ai_comp_list")
+            result.append(
+                {
+                    "id": module_id,
+                    "path": module_id,
+                    "name": str(module.get("ai_module_name") or module_id),
+                    "summary": "",
+                    "file_count": 0,
+                    "component_count": (
+                        len(components) if isinstance(components, list) else 0
+                    ),
+                    "course_status": str(
+                        target_by_id.get(module_id, {}).get("status") or "pending"
+                    ),
+                }
+            )
+        return result
+
+    def _navigation_payload(
+        self,
+        context_id: str,
+        root: Path,
+        navigation: dict[str, object],
+    ) -> dict[str, object]:
+        context = TutorContextStore(root).write_navigation(
+            navigation,
+            project_id=context_id,
+            writer_id=f"electroboy:{context_id}",
+        )
+        payload = self._navigation_projection(root, navigation)
+        payload["tutor_context"] = context
+        return {"status": "ready", **payload}
+
+    def _navigation_projection(
         self,
         root: Path,
-        *,
-        job: _InitializationJob | None = None,
+        navigation: dict[str, object],
     ) -> dict[str, object]:
+        navigator = CourseNavigator(root)
+        walkthrough = navigator.walkthrough(navigation)
+        walkthrough["source_root"] = str(root)
+        walkthrough["intended_audience"] = ""
+        source = _source_for_walkthrough(root, walkthrough, navigation)
+        return {
+            "walkthrough": walkthrough,
+            "current_walkthrough": walkthrough,
+            "walkthroughs": [_walkthrough_summary(walkthrough)],
+            "source": source,
+            "course_navigation": navigation,
+            "course_artifact": navigator.artifact(navigation),
+        }
+
+    def _start_module_scheduler(self, root: Path) -> dict[str, object]:
+        if not LearnerStore(root).course_ready("architecture"):
+            return module_generation_status(root)
         key = str(root)
-        with self._initialization_lock:
+        with self._lock:
             scheduler = self._module_schedulers.get(key)
             if scheduler is None:
-                scheduler = ModuleCourseScheduler(
-                    root,
-                    progress_callback=(
-                        job.record_background_progress if job is not None else None
-                    ),
-                )
+                scheduler = ModuleCourseScheduler(root)
                 self._module_schedulers[key] = scheduler
-            return scheduler.start()
+        return scheduler.start()
 
-    def _walkthrough_summaries(self, root: Path) -> list[dict[str, object]]:
-        return [
-            _walkthrough_summary(walkthrough)
-            for walkthrough in CodeLearnerStore(root).walkthroughs()
-        ]
+    def _require_cache_clearable(self, context_id: str) -> None:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            if any(
+                session.is_active()
+                for session in context.code_learner_sessions.values()
+            ):
+                raise CodeLearnerError(
+                    "stop the Code Learner tutor before clearing the course cache"
+                )
+
+    @staticmethod
+    def _choice_required(
+        store: LearnerStore,
+        status: dict[str, object],
+    ) -> bool:
+        if str(status.get("status") or "") in _RUNNING_STATUSES | {"initialized"}:
+            return False
+        if str(status.get("status") or "") in {"failed", "aborted"}:
+            return True
+        return store.course_root.is_dir() and any(
+            path.is_file() for path in store.course_root.rglob("*")
+        )
 
     def _active_project_root(self, context_id: str) -> Path:
         with self.services.contexts.lock:
@@ -1712,11 +808,102 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         return Path(root).expanduser().resolve()
 
 
-def _code_view_from_options(
+def _empty_state() -> dict[str, object]:
+    return {
+        "state_path": "",
+        "initialized": False,
+        "completion_status": "",
+        "analysis": None,
+        "background_modules": None,
+        "walkthroughs": [],
+        "current_walkthrough_id": "",
+        "current_walkthrough": None,
+        "source": None,
+        "course_artifact": None,
+        "course_navigation": None,
+    }
+
+
+def _course_identity(course_id: str) -> tuple[str, str]:
+    for mode in ("architecture", "module", "function"):
+        prefix = f"course:{mode}:"
+        if course_id.startswith(prefix):
+            scope_id = course_id[len(prefix) :]
+            return mode, _scope_for_mode(mode, scope_id)
+    raise CodeLearnerError(f"invalid course ID: {course_id}")
+
+
+def _scope_for_mode(mode: str, scope_id: str) -> str:
+    if mode == "architecture" and scope_id in {"", "current"}:
+        return ""
+    return scope_id
+
+
+def _function_course_id(symbol: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", symbol).strip("-").lower() or "symbol"
+    digest = hashlib.sha256(symbol.encode("utf-8")).hexdigest()[:10]
+    return f"fn-{slug[:48]}-{digest}"
+
+
+def _walkthrough_summary(walkthrough: dict[str, object]) -> dict[str, object]:
+    steps = walkthrough.get("steps")
+    return {
+        "id": walkthrough.get("id"),
+        "title": walkthrough.get("title"),
+        "learning_mode": walkthrough.get("learning_mode"),
+        "mode_target": walkthrough.get("mode_target"),
+        "current_step_id": walkthrough.get("current_step_id"),
+        "review_status": walkthrough.get("review_status"),
+        "step_count": len(steps) if isinstance(steps, list) else 0,
+        "qa_count": 0,
+    }
+
+
+def _source_for_walkthrough(
     root: Path,
-    options: dict[str, object],
-) -> dict[str, object]:
-    navigation = CourseNavigator(root).state().get("navigation")
+    walkthrough: dict[str, object],
+    navigation: dict[str, object],
+) -> dict[str, object] | None:
+    steps = walkthrough.get("steps")
+    steps = steps if isinstance(steps, list) else []
+    current_id = str(walkthrough.get("current_step_id") or "")
+    step = next(
+        (
+            item
+            for item in steps
+            if isinstance(item, dict) and item.get("id") == current_id
+        ),
+        {},
+    )
+    reference = step.get("primary_reference")
+    reference = reference if isinstance(reference, dict) else {}
+    nav = navigation.get("navigation")
+    nav = nav if isinstance(nav, dict) else {}
+    code_view = nav.get("code_view")
+    code_view = code_view if isinstance(code_view, dict) else {}
+    path = str(code_view.get("path") or reference.get("file_path") or "")
+    if not path:
+        return None
+    start = _safe_int(
+        code_view.get("selected_start_line") or reference.get("start_line"), 1
+    )
+    end = _safe_int(
+        code_view.get("selected_end_line") or reference.get("end_line"), start
+    )
+    try:
+        return SourceAdapter(root).source_payload(
+            path,
+            start_line=start,
+            end_line=end,
+            padding=80,
+        )
+    except (OSError, StateError, CodeLearnerError, ValueError):
+        return None
+
+
+def _code_view(root: Path, options: dict[str, object]) -> dict[str, object]:
+    state = CourseNavigator(root).state()
+    navigation = state.get("navigation")
     navigation = navigation if isinstance(navigation, dict) else {}
     current = navigation.get("code_view")
     current = current if isinstance(current, dict) else {}
@@ -1724,126 +911,20 @@ def _code_view_from_options(
         "path": options.get("selected_file_path") or current.get("path") or "",
         "selected_start_line": options.get("selected_start_line"),
         "selected_end_line": options.get("selected_end_line"),
-        "visible_start_line": options.get("visible_start_line")
-        or current.get("visible_start_line"),
-        "visible_end_line": options.get("visible_end_line")
-        or current.get("visible_end_line"),
-    }
-
-
-def _phase3_code_view_from_options(
-    root: Path,
-    options: dict[str, object],
-) -> dict[str, object]:
-    navigation = Phase3CourseNavigator(root).state()
-    current = navigation.get("code_view")
-    current = current if isinstance(current, dict) else {}
-    return {
-        "path": options.get("selected_file_path") or current.get("path") or "",
-        "selected_start_line": options.get("selected_start_line"),
-        "selected_end_line": options.get("selected_end_line"),
-        "start_line": options.get("selected_start_line")
-        or current.get("start_line")
-        or 1,
-        "end_line": options.get("selected_end_line")
-        or current.get("end_line")
-        or options.get("selected_start_line")
-        or current.get("start_line")
-        or 1,
-        "visible_start_line": options.get("visible_start_line")
-        or current.get("visible_start_line"),
-        "visible_end_line": options.get("visible_end_line")
-        or current.get("visible_end_line"),
-    }
-
-
-def _phase3_selected(root: Path) -> bool:
-    selected = LearnerGenerationStore(root).load()
-    return selected is not None and selected.generation == "phase3"
-
-
-def _phase3_state_present(root: Path) -> bool:
-    store = Phase3Store(root)
-    return _phase3_selected(root) or any(
-        path.exists()
-        for path in (
-            store.checkpoint_path,
-            store.result_path,
-            store.state_root / "source" / "manifest.json",
-        )
-    )
-
-
-def _learner_state_present(root: Path) -> bool:
-    store = Phase3Store(root)
-    return _phase3_selected(root) or (
-        store.state_root.is_dir()
-        and any(path.is_file() for path in store.state_root.rglob("*"))
-    )
-
-
-def _phase3_course_identity(course_id: str) -> tuple[str, str]:
-    for mode in ("architecture", "module", "function"):
-        prefix = f"course:{mode}:"
-        if course_id.startswith(prefix):
-            scope_id = course_id[len(prefix) :]
-            if scope_id:
-                return mode, scope_id
-    raise CodeLearnerError(f"invalid Phase 3 course ID: {course_id}")
-
-
-def _phase3_symbol_payload(root: Path, symbol: dict[str, object]) -> dict[str, object]:
-    source = SourceManifestService(root).load()
-    file = source.by_id().get(str(symbol.get("file_id") or ""), {}) if source else {}
-    scope = str(symbol.get("scope") or "")
-    name = str(symbol.get("name") or "")
-    return {
-        **symbol,
-        "id": symbol.get("canonical_key"),
-        "qualified_name": f"{scope}.{name}" if scope else name,
-        "file_path": file.get("path") or "",
-    }
-
-
-def _phase3_manifest_status(root: Path) -> dict[str, object]:
-    store = Phase3Store(root)
-    checkpoint = store.read_json(store.checkpoint_path) or {}
-    terminal = store.load_terminal_result() or {}
-    manifests = {
-        "source": store.read_json(store.state_root / "source" / "manifest.json"),
-        "components": store.read_json(store.components_root / "manifest.json"),
-        "modules": store.read_json(store.modules_root / "manifest.json"),
-    }
-    count_fields = {
-        "source": "file_count",
-        "components": "component_count",
-        "modules": "module_count",
-    }
-    return {
-        "generation": "phase3",
-        "checkpoint_status": str(checkpoint.get("status") or ""),
-        "analysis_run_id": str(checkpoint.get("analysis_run_id") or ""),
-        "repository_revision": str(
-            terminal.get("repository_revision")
-            or checkpoint.get("repository_revision")
-            or ""
+        "visible_start_line": (
+            options.get("visible_start_line") or current.get("visible_start_line")
         ),
-        "stages": dict(checkpoint.get("stages") or {}),
-        "manifests": {
-            name: (
-                {
-                    "id": value.get("id"),
-                    "status": value.get("status"),
-                    "repository_revision": value.get("repository_revision"),
-                    "count": value.get(count_fields[name]),
-                }
-                if value
-                else None
-            )
-            for name, value in manifests.items()
-        },
-        "terminal": terminal or None,
+        "visible_end_line": (
+            options.get("visible_end_line") or current.get("visible_end_line")
+        ),
     }
+
+
+def _safe_int(value: object, default: int) -> int:
+    try:
+        return int(value or default)
+    except (TypeError, ValueError):
+        return default
 
 
 def context_options_from_payload(payload: dict[str, Any]) -> dict[str, object]:
@@ -1861,5 +942,7 @@ def _optional_int(value: object) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
-        raise CodeLearnerError(f"expected an integer line number, got: {value}")
+    except (TypeError, ValueError) as error:
+        raise CodeLearnerError(
+            f"expected an integer line number, got: {value}"
+        ) from error

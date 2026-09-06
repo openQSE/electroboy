@@ -66,8 +66,8 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         "nav.clearCache.disabled = !hasProject || initializing || !initialized;"
         in frontend
     )
-    assert "const courseArtifact = learnerState.courseArtifact;" in frontend
-    assert "closeCourseDocument(courseArtifact);" in frontend
+    assert "function openCourseDocument" not in frontend
+    assert "function closeCourseDocument" not in frontend
     assert (
         "openLearnerPane({ activate: false, refresh: true, reset: true });" in frontend
     )
@@ -117,7 +117,9 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "priorCompletionApplies && learnerState.completionStatus" in frontend
     assert 'terminal === "complete_with_warnings"' in frontend
     assert 'terminal === "failed"' in frontend
-    assert "learnerState.phase3Initialized" in frontend
+    assert "return learnerState.initialized;" in frontend
+    assert "phase2_initialized" not in frontend
+    assert "phase3_initialized" not in frontend
     assert 'else if (initializing) {\n      setStatus("");' in frontend
     assert ".code-learner-status:empty" in stylesheet
     assert 'runtimeApi.modules.invoke("progress", "showProgressSnapshot", {' in frontend
@@ -158,6 +160,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     )
     assert "nav.outlineMenu.disabled = !Boolean(walkthrough);" in frontend
     assert "function renderModuleOptions(modules, initialized)" in frontend
+    assert "module.course_status" in frontend
     assert "function pollInitializationStatus(options = {})" in frontend
     assert 'state.contextUrl("/api/code-learner/init/status")' in frontend
     assert 'state.contextUrl("/api/code-learner/init"),' not in frontend
@@ -201,7 +204,11 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-kind="missing"' in stylesheet
     assert 'data-kind="failed"' in stylesheet
     assert "state.host.dataset.renderMilliseconds" in frontend
-    assert "white-space: pre-wrap;" in stylesheet
+    assert "function renderSlideMarkdown(markdown)" in frontend
+    assert 'normalized === "mermaid"' in frontend
+    assert "renderMermaidDiagrams(state.host);" in frontend
+    assert ".code-learner-slide-body .mermaid" in stylesheet
+    assert "markdown_path" not in frontend
     assert "--code-learner-code-font-size: calc(var(--font-size) - 2px);" in stylesheet
     assert "font-size: var(--code-learner-code-font-size);" in stylesheet
     assert "font-size: calc(var(--font-size) + 9px);" in stylesheet
