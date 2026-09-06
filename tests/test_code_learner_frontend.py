@@ -100,6 +100,16 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-code-learner-control="abort-initialization"' in frontend
     assert 'contextUrl("/api/code-learner/init/abort")' in frontend
     assert "async function abortInitialization()" in frontend
+    assert "function ensureInitializationChoiceDialog()" in frontend
+    assert "function chooseInitializationMode()" in frontend
+    assert "code-learner-initialization-dialog" in frontend
+    assert '<strong>Continue</strong>' in frontend
+    assert '<strong>Replace</strong>' in frontend
+    assert "statusPayload.initialization.choice_required" in frontend
+    assert "body: JSON.stringify({ mode })" in frontend
+    assert 'if (mode === "replace") {' in frontend
+    assert "resetLearnerUi(payload);" in frontend
+    assert "window.confirm" not in frontend
     assert 'status === "aborting"' in frontend
     assert 'data-code-learner-control="init-completion"' in frontend
     assert "renderInitializationCompletion()" in frontend
@@ -195,6 +205,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "line-height: var(--code-learner-code-line-height);" in stylesheet
     assert ".code-learner-question-form" not in stylesheet
     assert ".code-learner-question-actions" not in stylesheet
+    assert ".code-learner-initialization-dialog" in stylesheet
 
 
 def test_code_learner_navigation_uses_shared_shell_menu_treatment() -> None:

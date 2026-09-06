@@ -468,6 +468,16 @@
   text-align: center;
 }
 
+.code-learner-initialization-dialog .code-learner-replace-action {
+  border-color: var(--error);
+  background: var(--error);
+  color: #ffffff;
+}
+
+.code-learner-initialization-dialog .ad-hoc-session-form {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 @media (max-width: 860px) {
   .code-learner-pane-grid {
     grid-template-columns: minmax(0, 1fr);

@@ -45,6 +45,7 @@
   let courseMode = "architecture";
   let initializationState = null;
   let initializationPollTimer = null;
+  let initializationChoiceDialog = null;
   const INITIALIZATION_POLL_INTERVAL_MS = 1500;
   const navigationExpanded = {
     project: true,
@@ -871,6 +872,110 @@
     }
   }
 
+  function ensureInitializationChoiceDialog() {
+    if (initializationChoiceDialog) {
+      return initializationChoiceDialog;
+    }
+    const dialog = document.createElement("dialog");
+    dialog.className = (
+      "ad-hoc-session-dialog code-learner-initialization-dialog"
+    );
+    dialog.innerHTML = `
+      <form method="dialog" class="ad-hoc-session-form">
+        <header class="ad-hoc-session-header">
+          <div>
+            <h2>Initialize Code Learner</h2>
+            <p>Saved course data was found for this project.</p>
+          </div>
+          <button
+            type="button"
+            class="ad-hoc-session-close"
+            aria-label="Close"
+          >&times;</button>
+        </header>
+        <fieldset class="ad-hoc-session-options">
+          <legend>Initialization</legend>
+          <div class="ad-hoc-session-list">
+            <label class="ad-hoc-session-option">
+              <input
+                type="radio"
+                name="code-learner-initialization"
+                value="continue"
+                checked
+              >
+              <span class="ad-hoc-session-option-copy">
+                <strong>Continue</strong>
+                <span class="ad-hoc-session-details">
+                  Keep saved findings and resume from the current checkpoint.
+                </span>
+              </span>
+            </label>
+            <label class="ad-hoc-session-option">
+              <input
+                type="radio"
+                name="code-learner-initialization"
+                value="replace"
+              >
+              <span class="ad-hoc-session-option-copy">
+                <strong>Replace</strong>
+                <span class="ad-hoc-session-details">
+                  Clear saved course data and start analysis from the beginning.
+                </span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+        <footer class="ad-hoc-session-footer">
+          <button type="button" class="ad-hoc-session-cancel">Cancel</button>
+          <button type="submit" class="ad-hoc-session-submit">Continue</button>
+        </footer>
+      </form>
+    `;
+    document.body.append(dialog);
+    initializationChoiceDialog = dialog;
+    return dialog;
+  }
+
+  function chooseInitializationMode() {
+    const dialog = ensureInitializationChoiceDialog();
+    const form = dialog.querySelector("form");
+    const options = dialog.querySelector(".ad-hoc-session-options");
+    const submit = dialog.querySelector(".ad-hoc-session-submit");
+    const continuing = dialog.querySelector('input[value="continue"]');
+    continuing.checked = true;
+    submit.textContent = "Continue";
+    submit.classList.remove("code-learner-replace-action");
+
+    return new Promise((resolve) => {
+      const finish = (choice) => {
+        dialog.close();
+        resolve(choice);
+      };
+      dialog.querySelector(".ad-hoc-session-close").onclick = () => finish(null);
+      dialog.querySelector(".ad-hoc-session-cancel").onclick = () => finish(null);
+      dialog.oncancel = (event) => {
+        event.preventDefault();
+        finish(null);
+      };
+      options.onchange = () => {
+        const selected = dialog.querySelector(
+          'input[name="code-learner-initialization"]:checked',
+        );
+        const replacing = Boolean(selected && selected.value === "replace");
+        submit.textContent = replacing ? "Replace" : "Continue";
+        submit.classList.toggle("code-learner-replace-action", replacing);
+      };
+      form.onsubmit = (event) => {
+        event.preventDefault();
+        const selected = dialog.querySelector(
+          'input[name="code-learner-initialization"]:checked',
+        );
+        finish(selected ? selected.value : "continue");
+      };
+      dialog.showModal();
+    });
+  }
+
   async function initializeCodeLearner() {
     if (!contextId || !(activeProjectRoot || activationRoot)) {
       return;
@@ -880,6 +985,33 @@
         setStatus(error.message || String(error), "error");
       });
       return;
+    }
+    const statusResponse = await runtimeApi.http.fetch(
+      contextUrl("/api/code-learner/init/status"),
+      { cache: "no-store" },
+    );
+    const statusPayload = await statusResponse.json().catch(() => ({
+      error: "status failed",
+    }));
+    if (!statusResponse.ok) {
+      throw new Error(statusPayload.error || "status failed");
+    }
+    applyInitializationPayload(statusPayload);
+    renderNavigationState();
+    if (statusPayload.status === "initializing") {
+      setGenerating(true);
+      scheduleInitializationPoll();
+      return;
+    }
+    let mode = "continue";
+    if (
+      statusPayload.initialization
+      && statusPayload.initialization.choice_required
+    ) {
+      mode = await chooseInitializationMode();
+      if (!mode) {
+        return;
+      }
     }
     setStatus("");
     setGenerating(true);
@@ -894,7 +1026,7 @@
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ mode }),
         },
       );
       payload = await response.json().catch(() => ({ error: "load failed" }));
@@ -905,7 +1037,11 @@
       setGenerating(false);
       throw error;
     }
-    applyInitializationPayload(payload);
+    if (mode === "replace") {
+      resetLearnerUi(payload);
+    } else {
+      applyInitializationPayload(payload);
+    }
     publishInitializationProgress();
     renderNavigationState();
     if (payload.status === "initialized") {
@@ -1043,6 +1179,12 @@
     if (!response.ok) {
       throw new Error(payload.error || "course cache clear failed");
     }
+    resetLearnerUi(payload);
+    const count = Number(payload.cache && payload.cache.removed_file_count || 0);
+    setStatus(`Course cache cleared (${count} files). Run Initialize to rebuild.`);
+  }
+
+  function resetLearnerUi(payload) {
     const courseArtifact = learnerState.courseArtifact;
     learnerState = emptyLearnerState();
     learnerContext = null;
@@ -1058,8 +1200,6 @@
     renderNavigationState();
     closeCourseDocument(courseArtifact);
     openLearnerPane({ activate: false, refresh: true, reset: true });
-    const count = Number(payload.cache && payload.cache.removed_file_count || 0);
-    setStatus(`Course cache cleared (${count} files). Run Initialize to rebuild.`);
   }
 
   async function generateCourse(options = {}) {

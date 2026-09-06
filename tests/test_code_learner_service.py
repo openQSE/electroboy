@@ -218,6 +218,7 @@ class CodeLearnerServiceTests(unittest.TestCase):
         self.assertEqual(cleared["status"], "cache_cleared")
         self.assertEqual(cleared["cache"]["removed_file_count"], 5)
         self.assertEqual(cleared["initialization"]["status"], "idle")
+        self.assertFalse(cleared["initialization"]["choice_required"])
         self.assertFalse(cleared["code_learner"]["phase2_initialized"])
         self.assertEqual(cleared["code_learner"]["walkthroughs"], [])
         self.assertIsNone(cleared["code_learner"]["current_walkthrough"])
@@ -472,6 +473,99 @@ class CodeLearnerServiceTests(unittest.TestCase):
             self.assertFalse(any(event.get("heartbeat") for event in progress_events))
             self.assertEqual(completed["status"], "initialized")
             run.assert_called_once()
+
+    def test_initialization_status_reports_when_a_choice_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+
+            fresh = controller.initialization_status(context_id)
+            Phase3Store(source_root).write_json(
+                Phase3Store(source_root).checkpoint_path,
+                {"schema_version": 1, "status": "running"},
+            )
+            saved = controller.initialization_status(context_id)
+
+        self.assertFalse(fresh["initialization"]["choice_required"])
+        self.assertTrue(saved["initialization"]["choice_required"])
+
+    def test_replace_initialization_clears_saved_state_before_starting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+            phase3 = Phase3Store(source_root)
+            phase3.write_json(
+                phase3.checkpoint_path,
+                {"schema_version": 1, "status": "running"},
+            )
+            stale = phase3.components_root / "candidates.jsonl"
+            phase3.write_jsonl(stale, [{"candidate_id": "stale"}])
+            observed: dict[str, bool] = {}
+
+            def run_pipeline(_pipeline, progress_callback=None, *, acquire_lease=True):
+                observed["checkpoint_removed"] = not phase3.checkpoint_path.exists()
+                observed["candidate_removed"] = not stale.exists()
+                raise Phase3InitializationCancelled("stopped")
+
+            with mock.patch(
+                "electroboy.workflows.code_learner.controller."
+                "Phase3InitializationPipeline.run",
+                autospec=True,
+                side_effect=run_pipeline,
+            ):
+                started = controller.initialize(context_id, mode="replace")
+                completed = controller.wait_for_initialization(context_id, timeout=2)
+
+        self.assertFalse(started["initialization"]["resumed_from_checkpoint"])
+        self.assertTrue(observed["checkpoint_removed"])
+        self.assertTrue(observed["candidate_removed"])
+        self.assertEqual(completed["initialization"]["status"], "aborted")
+
+    def test_initialize_rejects_an_unknown_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            source_root = self._sample_repo(Path(tmp))
+            state = ServiceState(
+                service_root,
+                workflow_registry=build_workflow_registry(
+                    build_module_registry(),
+                    (code_learner_workflow(),),
+                ),
+            )
+            context_id = str(
+                state.create_context(workflow_id="code-learner")["context_id"]
+            )
+            controller = state.workflow_controller("code-learner")
+            controller.open_project(context_id, str(source_root))
+
+            with self.assertRaisesRegex(
+                CodeLearnerError, "invalid initialization mode"
+            ):
+                controller.initialize(context_id, mode="merge")
 
     def test_initialize_retry_hides_prior_terminal_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

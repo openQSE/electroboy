@@ -60,6 +60,7 @@ from .tutor_context import (
 )
 
 _INITIALIZATION_RUNNING_STATUSES = frozenset({"queued", "running", "aborting"})
+_INITIALIZATION_MODES = frozenset({"continue", "replace"})
 _AI_PROGRESS_MAX_PERCENT = 95
 _VALIDATION_PERCENT = 97
 _FORMALIZATION_PERCENT = 99
@@ -564,26 +565,49 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             }
         return {"code_learner": self._state_payload(root)}
 
-    def initialize(self, context_id: str) -> dict[str, object]:
+    def initialize(
+        self,
+        context_id: str,
+        *,
+        mode: str = "continue",
+    ) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        if phase3_initialization_ready(root):
+        initialization_mode = str(mode or "continue").strip().lower()
+        if initialization_mode not in _INITIALIZATION_MODES:
+            raise CodeLearnerError(
+                f"invalid initialization mode: {initialization_mode or '<empty>'}"
+            )
+        if initialization_mode == "continue" and phase3_initialization_ready(root):
             return self._initialization_payload(context_id, root)
+        if initialization_mode == "replace":
+            self._require_course_cache_clearable(context_id)
         with self._initialization_lock:
             job = self._initialization_jobs.get(str(root))
-            if job is None or not job.is_running():
-                job = _InitializationJob(
-                    root=root,
-                    resumed_from_checkpoint=(
-                        Phase3Store(root).checkpoint_path.is_file()
-                    ),
-                )
+            if job is not None and job.is_running():
+                if initialization_mode == "replace":
+                    raise CodeLearnerError(
+                        "stop the current initialization before replacing it"
+                    )
+            else:
+                job = _InitializationJob(root=root)
                 source = SourceManifestService(root).load()
                 job.lease = InitializationLease.acquire(
                     root,
                     job.job_id,
                     repository_revision=source.revision if source else "",
                 )
-                Phase3Store(root).discard_failed_terminal_result()
+                try:
+                    if initialization_mode == "replace":
+                        self._clear_course_cache_artifacts(root)
+                    else:
+                        Phase3Store(root).discard_failed_terminal_result()
+                    job.resumed_from_checkpoint = (
+                        Phase3Store(root).checkpoint_path.is_file()
+                    )
+                except Exception:
+                    job.lease.release()
+                    job.lease = None
+                    raise
                 thread = threading.Thread(
                     target=self._run_initialization_job,
                     args=(context_id, root, job),
@@ -608,15 +632,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
 
     def clear_course_cache(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
-        with self.services.contexts.lock:
-            context = self.services.contexts.require(context_id)
-            if any(
-                session.is_active()
-                for session in context.code_learner_sessions.values()
-            ):
-                raise CodeLearnerError(
-                    "stop the Code Learner tutor before clearing the course cache"
-                )
+        self._require_course_cache_clearable(context_id)
         with self._initialization_lock:
             job = self._initialization_jobs.get(str(root))
             if job is not None and job.is_running():
@@ -628,21 +644,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 f"clear-course-cache-{uuid4().hex}",
             )
             try:
-                phase3_cleared = clear_phase3_cache(root)
-                phase2_cleared = KnowledgeStore(root).clear_course_cache()
-                legacy_cleared = CodeLearnerStore(root).clear_course_cache()
-                cleared = {
-                    "removed_file_count": (
-                        phase3_cleared["removed_file_count"]
-                        + phase2_cleared["removed_file_count"]
-                        + legacy_cleared["removed_file_count"]
-                    ),
-                    "removed_bytes": (
-                        phase3_cleared["removed_bytes"]
-                        + phase2_cleared["removed_bytes"]
-                        + legacy_cleared["removed_bytes"]
-                    ),
-                }
+                cleared = self._clear_course_cache_artifacts(root)
             finally:
                 lease.release()
             self._initialization_jobs.pop(str(root), None)
@@ -650,8 +652,36 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             **self.services.contexts.project_payload(context_id),
             "status": "cache_cleared",
             "cache": cleared,
-            "initialization": _idle_initialization_snapshot(root),
+            "initialization": {
+                **_idle_initialization_snapshot(root),
+                "choice_required": False,
+            },
             "code_learner": self._state_payload(root),
+        }
+
+    def _require_course_cache_clearable(self, context_id: str) -> None:
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            if any(
+                session.is_active()
+                for session in context.code_learner_sessions.values()
+            ):
+                raise CodeLearnerError(
+                    "stop the Code Learner tutor before clearing the course cache"
+                )
+
+    @staticmethod
+    def _clear_course_cache_artifacts(root: Path) -> dict[str, int]:
+        results = (
+            clear_phase3_cache(root),
+            KnowledgeStore(root).clear_course_cache(),
+            CodeLearnerStore(root).clear_course_cache(),
+        )
+        return {
+            "removed_file_count": sum(
+                result["removed_file_count"] for result in results
+            ),
+            "removed_bytes": sum(result["removed_bytes"] for result in results),
         }
 
     def wait_for_initialization(
@@ -851,7 +881,10 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         return {
             **self.services.contexts.project_payload(context_id),
             "status": status,
-            "initialization": initialization,
+            "initialization": {
+                **initialization,
+                "choice_required": _learner_state_present(root),
+            },
             "code_learner": state,
         }
 
@@ -1660,6 +1693,14 @@ def _phase3_state_present(root: Path) -> bool:
             store.result_path,
             store.state_root / "source" / "manifest.json",
         )
+    )
+
+
+def _learner_state_present(root: Path) -> bool:
+    store = Phase3Store(root)
+    return _phase3_selected(root) or (
+        store.state_root.is_dir()
+        and any(path.is_file() for path in store.state_root.rglob("*"))
     )
 
 

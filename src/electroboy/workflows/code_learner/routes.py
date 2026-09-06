@@ -56,7 +56,15 @@ def _open_project(request: RouteRequest) -> ServiceResponse:
 
 
 def _initialize(request: RouteRequest) -> ServiceResponse:
-    return _workflow_action(lambda: _controller(request).initialize(request.context_id))
+    try:
+        payload = request.body()
+        result = _controller(request).initialize(
+            request.context_id,
+            mode=str(payload.get("mode") or "continue"),
+        )
+    except Exception as error:
+        return _error(error)
+    return JsonResponse(result)
 
 
 def _initialization_status(request: RouteRequest) -> ServiceResponse:
