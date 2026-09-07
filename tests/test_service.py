@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -7741,6 +7742,88 @@ class ServiceTests(unittest.TestCase):
             {item["session_id"] for item in shell_payloads},
             {session.session_id, second_session.session_id},
         )
+
+    def test_project_shell_editors_are_independent_of_ide_and_cleaned_up(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            check_script = project_root / "terminal-editor-check.sh"
+            commands = [
+                "set -eu",
+                "vim --clean -Nu NONE -n -es +'qa!'",
+                "printf '__VIM_OK__\\n'",
+                (
+                    "tmux -L electroboy-terminal-test new-session -d "
+                    "'sleep 5'"
+                ),
+                "tmux -L electroboy-terminal-test list-sessions >/dev/null",
+                "tmux -L electroboy-terminal-test kill-server",
+                "printf '__TMUX_OK__\\n'",
+            ]
+            if shutil.which("nvim"):
+                commands.extend(
+                    [
+                        "nvim --clean -u NONE -n --headless +'qa!'",
+                        "printf '__NVIM_OK__\\n'",
+                    ]
+                )
+            else:
+                commands.append("printf '__NVIM_UNAVAILABLE__\\n'")
+            commands.append("printf '__TERMINAL_CHECK_DONE__\\n'")
+            check_script.write_text("\n".join(commands) + "\n", encoding="utf-8")
+
+            with mock.patch.dict(
+                os.environ,
+                {"ELECTROBOY_IDE_RUNTIME_MODE": "disabled"},
+            ):
+                state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session, _ = state.start_project_shell(context_id)
+
+            try:
+                self.assertEqual(state.ide_runtime_status()["status"], "disabled")
+                state.send_project_shell_input(
+                    context_id,
+                    f"/bin/bash {check_script}\n",
+                    session.session_id,
+                )
+                deadline = time.monotonic() + 10
+                output = ""
+                while time.monotonic() < deadline:
+                    output = "".join(
+                        str(event.get("terminal", event.get("text", "")))
+                        for event in session.events()
+                    )
+                    if "__TERMINAL_CHECK_DONE__" in output:
+                        break
+                    time.sleep(0.05)
+
+                self.assertIn("__VIM_OK__", output)
+                self.assertIn("__TMUX_OK__", output)
+                expected_neovim = (
+                    "__NVIM_OK__" if shutil.which("nvim") else "__NVIM_UNAVAILABLE__"
+                )
+                self.assertIn(expected_neovim, output)
+                state.deactivate_project(context_id, terminate_agents=True)
+                self.assertFalse(session.is_active())
+                self.assertEqual(
+                    state.contexts[context_id].project_shell_sessions,
+                    {},
+                )
+            finally:
+                if session.is_active():
+                    session.terminate()
+                subprocess.run(
+                    ["tmux", "-L", "electroboy-terminal-test", "kill-server"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                state.ide_service.close()
 
     def test_project_payload_clears_stale_selected_session_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

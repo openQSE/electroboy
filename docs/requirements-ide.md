@@ -821,10 +821,10 @@ Commit boundary: default Neovim IDE profile and configuration controls.
 ### 12. Preserve the Terminal Editing Path
 
 - [ ] Confirm xterm.js continues to launch Vim, Neovim, and tmux correctly.
-- [ ] Keep terminal-editor startup independent of IDE runtime availability.
-- [ ] Ensure IDE additions do not change project shell ownership or cleanup.
-- [ ] Document the functional distinction between IDE and terminal panes.
-- [ ] Add regression coverage for terminal startup and project deactivation.
+- [x] Keep terminal-editor startup independent of IDE runtime availability.
+- [x] Ensure IDE additions do not change project shell ownership or cleanup.
+- [x] Document the functional distinction between IDE and terminal panes.
+- [x] Add regression coverage for terminal startup and project deactivation.
 
 Commit boundary: terminal editing regression protection.
 
