@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "provider": "openvscode",
+  "version": "1.109.5",
+  "artifacts": [
+    {
+      "platform": "linux",
+      "architecture": "x86_64",
+      "url": "https://github.com/gitpod-io/openvscode-server/releases/download/openvscode-server-v1.109.5/openvscode-server-v1.109.5-linux-x64.tar.gz",
+      "sha256": "b433bf4f0227321a7014d8460d10a8f958adc0f45aa79bd889e84e65e8f88363",
+      "size": 76686959,
+      "archive_format": "tar.gz",
+      "archive_root": "openvscode-server-v1.109.5-linux-x64",
+      "executable": "bin/openvscode-server"
+    },
+    {
+      "platform": "linux",
+      "architecture": "arm64",
+      "url": "https://github.com/gitpod-io/openvscode-server/releases/download/openvscode-server-v1.109.5/openvscode-server-v1.109.5-linux-arm64.tar.gz",
+      "sha256": "36d9c14036489b63de84ebace837fcacf7e60e669a0dc715802c5443684ea4dc",
+      "size": 74488835,
+      "archive_format": "tar.gz",
+      "archive_root": "openvscode-server-v1.109.5-linux-arm64",
+      "executable": "bin/openvscode-server"
+    },
+    {
+      "platform": "linux",
+      "architecture": "armhf",
+      "url": "https://github.com/gitpod-io/openvscode-server/releases/download/openvscode-server-v1.109.5/openvscode-server-v1.109.5-linux-armhf.tar.gz",
+      "sha256": "f84ac0dcea0bdeac07e172e58903b38bc5ef0ac94b0bf2ab2ce4eca325ab98bb",
+      "size": 68994573,
+      "archive_format": "tar.gz",
+      "archive_root": "openvscode-server-v1.109.5-linux-armhf",
+      "executable": "bin/openvscode-server"
+    }
+  ]
+}

@@ -16,6 +16,7 @@ from .domain import (
     IDEWorkspace,
 )
 from .ownership import IDEInstanceRegistry
+from .resolver import OpenVSCodeRuntimeResolver
 
 __all__ = [
     "IDEEditorContext",
@@ -32,6 +33,7 @@ __all__ = [
     "IDERuntimeMode",
     "IDERuntimeOrigin",
     "IDEWorkspace",
+    "OpenVSCodeRuntimeResolver",
     "RuntimeInstaller",
     "RuntimeResolver",
 ]

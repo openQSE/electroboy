@@ -647,13 +647,13 @@ Commit boundary: IDE domain and provider contracts.
 
 ### 3. Implement Runtime Resolution
 
-- [ ] Define the pinned runtime artifact manifest schema.
-- [ ] Add platform and architecture resolution.
-- [ ] Implement configured system executable discovery and version reporting.
-- [ ] Implement managed runtime lookup.
-- [ ] Implement disabled mode.
-- [ ] Expose the resolution result through diagnostics.
-- [ ] Add supported, unsupported, missing, and incompatible runtime tests.
+- [x] Define the pinned runtime artifact manifest schema.
+- [x] Add platform and architecture resolution.
+- [x] Implement configured system executable discovery and version reporting.
+- [x] Implement managed runtime lookup.
+- [x] Implement disabled mode.
+- [x] Expose the resolution result through diagnostics.
+- [x] Add supported, unsupported, missing, and incompatible runtime tests.
 
 Commit boundary: IDE runtime resolution.
 
