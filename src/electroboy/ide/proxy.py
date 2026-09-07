@@ -130,6 +130,8 @@ class IDEUnixProxy:
         endpoint: IDEEndpoint,
         *,
         set_cookie: str | None = None,
+        egress_mode: IDEEgressMode | None = None,
+        report_uri: str = "",
     ) -> None:
         if endpoint.transport != "unix":
             raise IDEError(
@@ -152,6 +154,8 @@ class IDEUnixProxy:
                 headers,
                 set_cookie=set_cookie,
                 websocket=upgrade and status == 101,
+                egress_mode=egress_mode,
+                report_uri=report_uri,
             )
             if remainder:
                 handler.wfile.write(remainder)
@@ -197,6 +201,8 @@ class IDEUnixProxy:
         *,
         set_cookie: str | None,
         websocket: bool,
+        egress_mode: IDEEgressMode | None,
+        report_uri: str,
     ) -> None:
         handler.send_response(status, reason)
         for name, value in headers:
@@ -211,7 +217,10 @@ class IDEUnixProxy:
             if not websocket and lower in _HOP_HEADERS - {"transfer-encoding"}:
                 continue
             handler.send_header(name, value)
-        csp_name, csp_value = ide_content_security_policy(self.egress_mode)
+        csp_name, csp_value = ide_content_security_policy(
+            egress_mode or self.egress_mode,
+            report_uri=report_uri,
+        )
         handler.send_header(csp_name, csp_value)
         if set_cookie:
             handler.send_header("Set-Cookie", set_cookie)

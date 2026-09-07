@@ -16,11 +16,17 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .domain import IDEError, IDEErrorCategory, IDEProfile
-from .processes import IDEProcessLaunch
+from .processes import IDEProcessLaunch, IDEProcessLauncher
 
 _CONNECT = re.compile(
     r"(?:\[pid\s+(?P<pid>\d+)(?:<(?P<process>[^>]+)>)?\]\s+)?"
     r"connect\([^,]+,\s+\{sa_family=AF_INET,\s+sin_port=htons\((?P<port>\d+)\),"
+    r'\s+sin_addr=inet_addr\("(?P<address>[^"\s]+)"\)'
+)
+_SENDTO = re.compile(
+    r"(?:\[pid\s+(?P<pid>\d+)(?:<(?P<process>[^>]+)>)?\]\s+)?"
+    r"sendto\([^,]+,.*?,\s*\d+,\s*[^,]+,\s*"
+    r"\{sa_family=AF_INET,\s+sin_port=htons\((?P<port>\d+)\),"
     r'\s+sin_addr=inet_addr\("(?P<address>[^"\s]+)"\)'
 )
 
@@ -101,7 +107,12 @@ class CSPViolationStore:
         self._events: deque[dict[str, object]] = deque(maxlen=max(10, limit))
         self._lock = threading.Lock()
 
-    def record(self, payload: object) -> dict[str, object] | None:
+    def record(
+        self,
+        payload: object,
+        *,
+        workspace_id: str = "",
+    ) -> dict[str, object] | None:
         if not isinstance(payload, dict):
             return None
         report = payload.get("csp-report", payload)
@@ -109,6 +120,7 @@ class CSPViolationStore:
             return None
         event = {
             "timestamp": time.time(),
+            "workspace_id": workspace_id,
             "effective_directive": _bounded_text(
                 report.get("effective-directive")
                 or report.get("effectiveDirective")
@@ -122,13 +134,27 @@ class CSPViolationStore:
             self._events.append(event)
         return event
 
-    def events(self) -> list[dict[str, object]]:
+    def events(self, workspace_id: str | None = None) -> list[dict[str, object]]:
         with self._lock:
-            return list(self._events)
+            events = list(self._events)
+        if workspace_id is None:
+            return events
+        return [
+            event for event in events if event.get("workspace_id") == workspace_id
+        ]
 
-    def clear(self) -> None:
+    def clear(self, workspace_id: str | None = None) -> None:
         with self._lock:
+            if workspace_id is None:
+                self._events.clear()
+                return
+            retained = [
+                event
+                for event in self._events
+                if event.get("workspace_id") != workspace_id
+            ]
             self._events.clear()
+            self._events.extend(retained)
 
 
 class LinuxNetworkSandbox:
@@ -256,13 +282,18 @@ class LinuxNetworkSandbox:
         with self._events_lock:
             self._events.clear()
 
+
     def observe_line(self, line: str) -> None:
         match = _CONNECT.search(line)
+        protocol = "tcp"
+        if match is None:
+            match = _SENDTO.search(line)
+            protocol = "udp"
         if match is None:
             return
         address = match.group("address")
         port = int(match.group("port"))
-        rule = self._resolved_rules.get((address, port, "tcp"))
+        rule = self._resolved_rules.get((address, port, protocol))
         if self.policy.mode is IDEEgressMode.DENY:
             disposition = "blocked"
         elif self.policy.mode is IDEEgressMode.AUDIT:
@@ -273,7 +304,7 @@ class LinuxNetworkSandbox:
             timestamp=time.time(),
             process_id=(int(match.group("pid")) if match.group("pid") else None),
             process=match.group("process"),
-            protocol="tcp",
+            protocol=protocol,
             destination=address,
             port=port,
             rule=rule,
@@ -295,7 +326,7 @@ class LinuxNetworkSandbox:
             "strace",
             "-f",
             "-e",
-            "trace=connect",
+            "trace=network",
             "-s",
             "0",
             "-Y",
@@ -443,6 +474,89 @@ class LinuxNetworkSandbox:
             _namespace_command(namespace_pid, command)
 
 
+class WorkspaceNetworkSandbox(IDEProcessLauncher):
+    """Route launches and diagnostics through one sandbox per IDE profile."""
+
+    def __init__(self, default_policy: IDEEgressPolicy | None = None) -> None:
+        self.default_policy = default_policy or IDEEgressPolicy()
+        self._sandboxes: dict[Path, LinuxNetworkSandbox] = {}
+        self._workspaces: dict[Path, str] = {}
+        self._lock = threading.RLock()
+
+    def configure(
+        self,
+        workspace_id: str,
+        profile: IDEProfile,
+        policy: IDEEgressPolicy,
+    ) -> LinuxNetworkSandbox:
+        key = profile.root.resolve()
+        with self._lock:
+            sandbox = LinuxNetworkSandbox(policy)
+            self._sandboxes[key] = sandbox
+            self._workspaces[key] = workspace_id
+            return sandbox
+
+    def launch(
+        self,
+        arguments: list[str],
+        *,
+        cwd: Path,
+        profile: IDEProfile,
+    ) -> IDEProcessLaunch:
+        return self._sandbox(profile).launch(arguments, cwd=cwd, profile=profile)
+
+    def availability(self, profile: IDEProfile | None = None) -> dict[str, object]:
+        if profile is None:
+            return LinuxNetworkSandbox(self.default_policy).availability()
+        return self._sandbox(profile).availability()
+
+    def events(self, profile: IDEProfile | None = None) -> list[dict[str, object]]:
+        if profile is not None:
+            key = profile.root.resolve()
+            sandbox = self._sandbox(profile)
+            workspace_id = self._workspace_id(key)
+            return [
+                {**event, "workspace_id": workspace_id}
+                for event in sandbox.events()
+            ]
+        with self._lock:
+            entries = tuple(self._sandboxes.items())
+            workspaces = dict(self._workspaces)
+        events = [
+            {**event, "workspace_id": workspaces.get(key, "")}
+            for key, sandbox in entries
+            for event in sandbox.events()
+        ]
+        return sorted(events, key=lambda event: float(event["timestamp"]))
+
+    def clear_events(self, profile: IDEProfile | None = None) -> None:
+        if profile is not None:
+            self._sandbox(profile).clear_events()
+            return
+        with self._lock:
+            sandboxes = tuple(self._sandboxes.values())
+        for sandbox in sandboxes:
+            sandbox.clear_events()
+
+    def remove(self, profile: IDEProfile) -> None:
+        key = profile.root.resolve()
+        with self._lock:
+            self._sandboxes.pop(key, None)
+            self._workspaces.pop(key, None)
+
+    def _sandbox(self, profile: IDEProfile) -> LinuxNetworkSandbox:
+        key = profile.root.resolve()
+        with self._lock:
+            return self._sandboxes.setdefault(
+                key,
+                LinuxNetworkSandbox(self.default_policy),
+            )
+
+    def _workspace_id(self, key: Path) -> str:
+        with self._lock:
+            return self._workspaces.get(key, "")
+
+
 def _resolve_ipv4(destination: str) -> tuple[str, ...]:
     try:
         address = ipaddress.ip_address(destination)
@@ -507,11 +621,14 @@ def _wait_for_path(path: Path, process: subprocess.Popen[str], timeout: float) -
     )
 
 
-def ide_content_security_policy(mode: IDEEgressMode) -> tuple[str, str]:
+def ide_content_security_policy(
+    mode: IDEEgressMode,
+    *,
+    report_uri: str = "",
+) -> tuple[str, str]:
     """Return the enforced or report-only CSP header for proxied IDE pages."""
 
-    value = "; ".join(
-        (
+    directives = [
             "default-src 'self'",
             "connect-src 'self'",
             "frame-src 'self' blob:",
@@ -522,8 +639,10 @@ def ide_content_security_policy(mode: IDEEgressMode) -> tuple[str, str]:
             "font-src 'self' data:",
             "object-src 'none'",
             "base-uri 'self'",
-        )
-    )
+    ]
+    if report_uri:
+        directives.append(f"report-uri {report_uri}")
+    value = "; ".join(directives)
     header = (
         "Content-Security-Policy-Report-Only"
         if mode is IDEEgressMode.AUDIT

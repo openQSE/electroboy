@@ -52,6 +52,42 @@ class FakeIDEService:
         self.calls.append(("diagnostics", workspace_id))
         return {"instance": None, "provider_output": []}
 
+    def network_status(self, workspace_id):
+        self.calls.append(("network_status", workspace_id))
+        return {
+            "mode": "deny",
+            "rules": [],
+            "temporary_rules": [],
+            "events": [],
+        }
+
+    def configure_network(
+        self,
+        workspace_id,
+        *,
+        mode,
+        rules,
+        temporary_rules,
+        audit_acknowledged,
+    ):
+        self.calls.append(
+            (
+                "configure_network",
+                (
+                    workspace_id,
+                    mode,
+                    rules,
+                    temporary_rules,
+                    audit_acknowledged,
+                ),
+            )
+        )
+        return {"mode": mode, "restart_required": True}
+
+    def clear_network_events(self, workspace_id):
+        self.calls.append(("clear_network_events", workspace_id))
+        return {"mode": "deny", "events": []}
+
     def editor_context(self, workspace_id):
         self.calls.append(("editor_context", workspace_id))
         return {"workspace_id": workspace_id, "path": "src/main.py"}
@@ -64,8 +100,8 @@ class FakeIDEService:
         self.calls.append(("configure_neovim", (enabled, executable)))
         return {"status": "enabled" if enabled else "disabled", "enabled": enabled}
 
-    def record_csp_violation(self, payload):
-        self.calls.append(("csp", payload))
+    def record_csp_violation(self, payload, workspace_id=""):
+        self.calls.append(("csp", (workspace_id, payload)))
         return {"status": "recorded"}
 
     def attach_view(self, workspace_id, view_id):
@@ -202,6 +238,34 @@ class IDEServiceAPITests(unittest.TestCase):
         self.assertEqual(
             self.ide.calls[-1],
             ("configure_neovim", (False, "/usr/bin/nvim")),
+        )
+
+    def test_network_policy_configuration_and_clear_routes(self) -> None:
+        status = self.request("GET", "/api/ide/network")
+        configured = self.request(
+            "POST",
+            "/api/ide/network/configure",
+            {
+                "mode": "allowlist",
+                "rules": [
+                    {
+                        "destination": "example.com",
+                        "ports": [443],
+                        "protocols": ["tcp"],
+                    }
+                ],
+                "temporary_rules": [],
+            },
+        )
+        cleared = self.request("POST", "/api/ide/network/events/clear", {})
+
+        self.assertEqual(status[1]["mode"], "deny")
+        self.assertEqual(configured[1]["mode"], "allowlist")
+        self.assertTrue(configured[1]["restart_required"])
+        self.assertEqual(cleared[1]["events"], [])
+        self.assertEqual(
+            [call[0] for call in self.ide.calls[-3:]],
+            ["network_status", "configure_network", "clear_network_events"],
         )
 
     def test_routes_reject_wrong_workspace_lease(self) -> None:

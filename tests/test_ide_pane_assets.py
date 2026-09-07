@@ -45,6 +45,10 @@ class IDEPaneAssetTests(unittest.TestCase):
             self.assertIn(state, script)
         for action in ("IDE configuration", "Diagnostics", "Restart IDE", "Stop IDE"):
             self.assertIn(action, script)
+        self.assertIn("Network access", script)
+        self.assertIn("/api/ide/network/configure", script)
+        self.assertIn("/api/ide/network/events/clear", script)
+        self.assertIn("Audit mode permits", script)
         self.assertIn(".ide-frame", stylesheet)
         self.assertIn(".ide-context-menu", stylesheet)
 

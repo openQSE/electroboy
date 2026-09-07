@@ -66,10 +66,23 @@ class ProxyIDEService:
         self.endpoint = endpoint
         self.proxy_sessions = IDEProxySessionStore()
         self.proxy = IDEUnixProxy(IDEEgressMode.DENY)
+        self.reports: list[object] = []
 
     def proxy_endpoint(self, workspace_id: str) -> IDEEndpoint:
         del workspace_id
         return self.endpoint
+
+    def proxy_egress_mode(self, workspace_id: str) -> IDEEgressMode:
+        del workspace_id
+        return IDEEgressMode.DENY
+
+    def record_csp_violation(
+        self,
+        payload: object,
+        workspace_id: str = "",
+    ) -> dict[str, object]:
+        self.reports.append((workspace_id, payload))
+        return {"status": "recorded"}
 
     def close(self) -> None:
         return
@@ -119,6 +132,10 @@ class IDEProxyTests(unittest.TestCase):
         self.assertIn(b"200 OK", response)
         self.assertIn(b"Set-Cookie: electroboy_ide_session=", response)
         self.assertIn(b"Content-Security-Policy: default-src 'self'", response)
+        self.assertIn(
+            f"report-uri /ide/{self.workspace_id}/_electroboy/csp-report".encode(),
+            response,
+        )
         self.assertNotIn(b"provider_token", response)
         self.assertNotIn(b"provider-secret", response)
         backend_request = self.provider.requests[-1]
@@ -146,6 +163,29 @@ class IDEProxyTests(unittest.TestCase):
         self.assertIn(b"409 Conflict", response)
         self.assertNotIn(b"provider-secret", response)
 
+    def test_authenticated_csp_reports_are_recorded_without_relay(self) -> None:
+        first = self.http_request(f"/ide/{self.workspace_id}/?{self.query}")
+        cookie = next(
+            line.split(b";", 1)[0]
+            for line in first.split(b"\r\n")
+            if line.startswith(b"Set-Cookie: ")
+        ).removeprefix(b"Set-Cookie: ")
+        body = b'{"csp-report":{"blocked-uri":"https://example.com/private"}}'
+        response = self.raw_request(
+            "POST",
+            f"/ide/{self.workspace_id}/_electroboy/csp-report",
+            body=body,
+            headers=[
+                b"Cookie: " + cookie,
+                b"Content-Type: application/csp-report",
+            ],
+        )
+
+        self.assertIn(b"200 OK", response)
+        service = self.state.ide_service
+        self.assertEqual(len(service.reports), 1)
+        self.assertEqual(len(self.provider.requests), 1)
+
     def test_websocket_upgrade_relays_bidirectionally(self) -> None:
         host, port = self.server.server_address[:2]
         client = socket.create_connection((host, port), timeout=3)
@@ -163,18 +203,29 @@ class IDEProxyTests(unittest.TestCase):
             self.assertEqual(client.recv(4096), b"websocket-frame")
 
     def http_request(self, path: str, headers: list[bytes] | None = None) -> bytes:
+        return self.raw_request("GET", path, headers=headers)
+
+    def raw_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: bytes = b"",
+        headers: list[bytes] | None = None,
+    ) -> bytes:
         host, port = self.server.server_address[:2]
         client = socket.create_connection((host, port), timeout=3)
         with client:
             lines = [
-                f"GET {path} HTTP/1.1".encode(),
+                f"{method} {path} HTTP/1.1".encode(),
                 f"Host: {host}:{port}".encode(),
                 *(headers or []),
+                f"Content-Length: {len(body)}".encode(),
                 b"Connection: close",
                 b"",
                 b"",
             ]
-            client.sendall(b"\r\n".join(lines))
+            client.sendall(b"\r\n".join(lines) + body)
             return read_all(client)
 
 

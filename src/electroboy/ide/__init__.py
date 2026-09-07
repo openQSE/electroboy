@@ -16,6 +16,7 @@ from .domain import (
     IDERuntimeOrigin,
     IDEWorkspace,
 )
+from .egress import IDEEgressPolicyRegistry, IDEWorkspaceEgress
 from .installer import ManagedRuntimeInstaller
 from .manager import IDEInstanceManager
 from .openvscode import OpenVSCodeProvider
@@ -28,6 +29,7 @@ from .sandbox import (
     IDEEgressPolicy,
     IDEEgressRule,
     LinuxNetworkSandbox,
+    WorkspaceNetworkSandbox,
     ide_content_security_policy,
 )
 
@@ -40,6 +42,7 @@ __all__ = [
     "IDEEgressEvent",
     "IDEEgressMode",
     "IDEEgressPolicy",
+    "IDEEgressPolicyRegistry",
     "IDEEgressRule",
     "IDEEndpoint",
     "IDEError",
@@ -55,8 +58,10 @@ __all__ = [
     "IDERuntimeMode",
     "IDERuntimeOrigin",
     "IDEWorkspace",
+    "IDEWorkspaceEgress",
     "ManagedRuntimeInstaller",
     "LinuxNetworkSandbox",
+    "WorkspaceNetworkSandbox",
     "OpenVSCodeRuntimeResolver",
     "OpenVSCodeProvider",
     "RuntimeInstaller",

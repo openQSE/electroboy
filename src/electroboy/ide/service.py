@@ -22,6 +22,7 @@ from .domain import (
     IDEWorkspace,
 )
 from .downloads import AuditedDownloadClient
+from .egress import IDEEgressPolicyRegistry
 from .installer import ManagedRuntimeInstaller
 from .manager import IDEInstanceManager
 from .neovim import NeovimProfileManager
@@ -32,7 +33,7 @@ from .sandbox import (
     CSPViolationStore,
     IDEEgressMode,
     IDEEgressPolicy,
-    LinuxNetworkSandbox,
+    WorkspaceNetworkSandbox,
 )
 
 
@@ -110,12 +111,15 @@ class IDEService:
             self.download_client,
             platform=self.resolver.platform,
         )
-        policy = IDEEgressPolicy(
+        default_policy = IDEEgressPolicy(
             self.configuration.egress_mode,
             audit_acknowledged=self.configuration.egress_mode
             is IDEEgressMode.AUDIT,
         )
-        self.sandbox = LinuxNetworkSandbox(policy)
+        self.egress_policies = IDEEgressPolicyRegistry(
+            self.configuration.egress_mode
+        )
+        self.sandbox = WorkspaceNetworkSandbox(default_policy)
         self.bridge = IDEBridge()
         self.provider = OpenVSCodeProvider(
             process_launcher=self.sandbox,
@@ -170,7 +174,13 @@ class IDEService:
     def start(self, workspace_id: str, project_root: Path) -> dict[str, object]:
         current = self.manager.status(workspace_id)
         if current is None or current.workspace.project_root != project_root.resolve():
-            self.neovim.prepare(self.manager.profile_for(workspace_id))
+            profile = self.manager.profile_for(workspace_id)
+            self.sandbox.configure(
+                workspace_id,
+                profile,
+                self.egress_policies.get(workspace_id).policy(),
+            )
+            self.neovim.prepare(profile)
         instance, started = self.manager.start(
             IDEWorkspace(workspace_id, project_root.resolve()),
             mode=self.configuration.runtime_mode,
@@ -201,7 +211,9 @@ class IDEService:
             "status": instance.status.value if instance else "stopped",
             "instance": instance.public_payload() if instance else None,
             "runtime": self.runtime_status(),
-            "sandbox": self.sandbox.availability(),
+            "sandbox": self.sandbox.availability(
+                self.manager.profile_for(workspace_id)
+            ),
         }
 
     def stop(self, workspace_id: str, reason: str = "requested") -> dict[str, object]:
@@ -212,6 +224,10 @@ class IDEService:
         with self._context_lock:
             self._context_revisions.pop(workspace_id, None)
         self._publish_context(workspace_id, None)
+        if reason == "project deactivated":
+            profile = self.manager.profile_for(workspace_id)
+            self.sandbox.remove(profile)
+            self.egress_policies.clear(workspace_id)
         return {
             "status": "stopped",
             "instance": instance.public_payload() if instance else None,
@@ -235,10 +251,12 @@ class IDEService:
 
     def diagnostics(self, workspace_id: str) -> dict[str, object]:
         instance = self.manager.status(workspace_id)
+        profile = self.manager.profile_for(workspace_id)
+        egress = self.egress_policies.get(workspace_id)
         return {
             "configuration": {
                 "runtime_mode": self.configuration.runtime_mode.value,
-                "egress_mode": self.configuration.egress_mode.value,
+                "egress_mode": egress.mode.value,
                 "managed_profile": True,
                 "theme": "ElectroBoy",
             },
@@ -250,10 +268,11 @@ class IDEService:
             "sandbox": (
                 self.provider.enforcement(instance.instance_id)
                 if instance
-                else self.sandbox.availability()
+                else self.sandbox.availability(profile)
             ),
-            "egress_events": self.sandbox.events(),
-            "csp_violations": self.csp_violations.events(),
+            "egress": egress.payload(),
+            "egress_events": self.sandbox.events(profile),
+            "csp_violations": self.csp_violations.events(workspace_id),
             "limits": {
                 "maximum_instances": self.configuration.maximum_instances,
                 "maximum_views_per_instance": (
@@ -266,6 +285,51 @@ class IDEService:
             "neovim": self.neovim.diagnostics(),
             "managed_downloads": self.download_client.events(),
         }
+
+    def network_status(self, workspace_id: str) -> dict[str, object]:
+        instance = self.manager.status(workspace_id)
+        profile = self.manager.profile_for(workspace_id)
+        configured = self.egress_policies.get(workspace_id)
+        return {
+            **configured.payload(),
+            "enforcement": (
+                self.provider.enforcement(instance.instance_id)
+                if instance
+                else self.sandbox.availability(profile)
+            ),
+            "events": self.sandbox.events(profile),
+            "csp_violations": self.csp_violations.events(workspace_id),
+            "restart_required": bool(instance),
+        }
+
+    def configure_network(
+        self,
+        workspace_id: str,
+        *,
+        mode: str,
+        rules: object,
+        temporary_rules: object,
+        audit_acknowledged: bool,
+    ) -> dict[str, object]:
+        configured = self.egress_policies.configure(
+            workspace_id,
+            mode=mode,
+            rules=rules,
+            temporary_rules=temporary_rules,
+            audit_acknowledged=audit_acknowledged,
+        )
+        if self.manager.status(workspace_id) is None:
+            profile = self.manager.profile_for(workspace_id)
+            self.sandbox.configure(workspace_id, profile, configured.policy())
+        return self.network_status(workspace_id)
+
+    def clear_network_events(self, workspace_id: str) -> dict[str, object]:
+        self.sandbox.clear_events(self.manager.profile_for(workspace_id))
+        self.csp_violations.clear(workspace_id)
+        return self.network_status(workspace_id)
+
+    def proxy_egress_mode(self, workspace_id: str) -> IDEEgressMode:
+        return self.egress_policies.get(workspace_id).mode
 
     def neovim_status(self) -> dict[str, object]:
         return self.neovim.status()
@@ -287,8 +351,12 @@ class IDEService:
             self._accept_context(context)
         return context.payload() if context else None
 
-    def record_csp_violation(self, payload: object) -> dict[str, object]:
-        event = self.csp_violations.record(payload)
+    def record_csp_violation(
+        self,
+        payload: object,
+        workspace_id: str = "",
+    ) -> dict[str, object]:
+        event = self.csp_violations.record(payload, workspace_id=workspace_id)
         return {"status": "recorded" if event else "ignored"}
 
     def proxy_endpoint(self, workspace_id: str) -> IDEEndpoint:

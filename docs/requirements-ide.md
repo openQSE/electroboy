@@ -727,9 +727,9 @@ Commit boundary: OpenVSCode instance lifecycle.
 - [x] Redact credentials, tokens, query values, headers, and repository content.
 - [x] Add workspace-scoped destination and port rules for `allowlist` mode.
 - [x] Add an explicit warning before enabling permissive `audit` mode.
-- [ ] Apply restrictive CSP and same-origin proxy rules to IDE pages, webviews,
+- [x] Apply restrictive CSP and same-origin proxy rules to IDE pages, webviews,
       service workers, and extension browser code.
-- [ ] Apply the equivalent report-only CSP and proxy logging in `audit` mode.
+- [x] Apply the equivalent report-only CSP and proxy logging in `audit` mode.
 - [x] Collect and sanitize browser CSP violation reports.
 - [x] Package required browser assets locally or route them through explicit,
       logged broker rules.
@@ -737,7 +737,7 @@ Commit boundary: OpenVSCode instance lifecycle.
       automatic extension updates in the managed profile.
 - [x] Route ElectroBoy-managed runtime and extension downloads through the
       shared audited download client.
-- [ ] Expose mode, enforcement status, recent events, rule management, temporary
+- [x] Expose mode, enforcement status, recent events, rule management, temporary
       exceptions, and log clearing through the IDE pane context menu.
 - [x] Report unsupported enforcement instead of silently degrading to an
       unenforced policy.

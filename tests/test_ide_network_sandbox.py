@@ -12,6 +12,7 @@ from electroboy.ide import (
     CSPViolationStore,
     IDEEgressMode,
     IDEEgressPolicy,
+    IDEEgressPolicyRegistry,
     IDEEgressRule,
     IDEError,
     IDEInstanceManager,
@@ -80,6 +81,46 @@ class IDENetworkSandboxTests(unittest.TestCase):
         )
         self.assertEqual(policy.mode, IDEEgressMode.AUDIT)
 
+    def test_workspace_registry_keeps_rules_isolated_and_temporary(self) -> None:
+        registry = IDEEgressPolicyRegistry()
+        configured = registry.configure(
+            "workspace-a",
+            mode="allowlist",
+            rules=[
+                {
+                    "destination": "example.com",
+                    "ports": [443],
+                    "protocols": ["tcp"],
+                }
+            ],
+            temporary_rules=[
+                {
+                    "destination": "192.0.2.10",
+                    "ports": [22],
+                    "protocols": ["tcp"],
+                }
+            ],
+            audit_acknowledged=False,
+        )
+
+        self.assertEqual(configured.mode, IDEEgressMode.ALLOWLIST)
+        self.assertEqual(len(configured.policy().rules), 2)
+        self.assertEqual(registry.get("workspace-b").mode, IDEEgressMode.DENY)
+        registry.clear("workspace-a")
+        self.assertEqual(registry.get("workspace-a").mode, IDEEgressMode.DENY)
+
+    def test_workspace_registry_rejects_unacknowledged_audit_mode(self) -> None:
+        registry = IDEEgressPolicyRegistry()
+
+        with self.assertRaisesRegex(IDEError, "explicit acknowledgement"):
+            registry.configure(
+                "workspace-a",
+                mode="audit",
+                rules=[],
+                temporary_rules=[],
+                audit_acknowledged=False,
+            )
+
     def test_reports_missing_enforcement_tools(self) -> None:
         sandbox = LinuxNetworkSandbox()
         with mock.patch("electroboy.ide.sandbox.shutil.which", return_value=None):
@@ -119,6 +160,21 @@ class IDENetworkSandboxTests(unittest.TestCase):
         self.assertEqual(sandbox.events()[0]["disposition"], "allowed")
         self.assertEqual(sandbox.events()[0]["rule"], "rule-1")
 
+    def test_udp_dns_attempt_is_logged_without_payload(self) -> None:
+        sandbox = LinuxNetworkSandbox()
+        sandbox.observe_line(
+            '[pid 420<node>] sendto(7, "redacted", 32, MSG_NOSIGNAL, '
+            '{sa_family=AF_INET, sin_port=htons(53), '
+            'sin_addr=inet_addr("1.1.1.1")}, 16) = -1 ENETUNREACH'
+        )
+
+        event = sandbox.events()[0]
+        self.assertEqual(event["process_id"], 420)
+        self.assertEqual(event["protocol"], "udp")
+        self.assertTrue(event["dns"])
+        self.assertEqual(event["destination"], "1.1.1.1")
+        self.assertNotIn("redacted", str(event))
+
     def test_csp_is_enforced_except_in_explicit_audit_mode(self) -> None:
         deny_header, deny_value = ide_content_security_policy(IDEEgressMode.DENY)
         audit_header, _audit_value = ide_content_security_policy(
@@ -139,12 +195,15 @@ class IDENetworkSandboxTests(unittest.TestCase):
                     "document-uri": "http://127.0.0.1:9001/ide/workspace/file.py#L9",
                     "status-code": 200,
                 }
-            }
+            },
+            workspace_id="workspace-a",
         )
 
         assert event is not None
         self.assertEqual(event["blocked_origin"], "https://example.com")
         self.assertEqual(event["document_origin"], "http://127.0.0.1:9001")
+        self.assertEqual(event["workspace_id"], "workspace-a")
+        self.assertEqual(store.events("workspace-b"), [])
         self.assertNotIn("private", str(event))
         self.assertNotIn("secret", str(event))
 

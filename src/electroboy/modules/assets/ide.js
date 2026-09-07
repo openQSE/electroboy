@@ -290,6 +290,147 @@
       }
     }
 
+    function formatEgressRules(rules) {
+      return (rules || []).map((rule) => [
+        String(rule.destination || ""),
+        (rule.ports || []).join(","),
+        (rule.protocols || ["tcp"]).join(","),
+      ].join(" ")).join("\n");
+    }
+
+    function parseEgressRules(value) {
+      return String(value || "").split("\n").map((line) => line.trim())
+        .filter(Boolean).map((line) => {
+          const [destination, portsText = "", protocolsText = "tcp"] =
+            line.split(/\s+/);
+          const ports = portsText.split(",").filter(Boolean).map(Number);
+          const protocols = protocolsText.split(",").filter(Boolean);
+          if (!destination || ports.some((port) => !Number.isInteger(port))) {
+            throw new Error(`Invalid network rule: ${line}`);
+          }
+          return { destination, ports, protocols };
+        });
+    }
+
+    async function showNetworkSettings() {
+      const section = toolsSection;
+      section.replaceChildren();
+      options.toolsController?.open("ide-diagnostics");
+      try {
+        const payload = await request("/api/ide/network");
+        const modeLabel = element("label", "ide-setting-field");
+        modeLabel.append(element("span", "", "Network mode"));
+        const mode = element("select");
+        ["deny", "allowlist", "audit"].forEach((value) => {
+          const option = element("option", "", value);
+          option.value = value;
+          option.selected = payload.mode === value;
+          mode.append(option);
+        });
+        modeLabel.append(mode);
+
+        const rulesLabel = element("label", "ide-setting-field");
+        rulesLabel.append(element("span", "", "Workspace rules"));
+        const rules = element("textarea");
+        rules.rows = 4;
+        rules.placeholder = "example.com 443 tcp";
+        rules.value = formatEgressRules(payload.rules);
+        rulesLabel.append(rules);
+
+        const temporaryLabel = element("label", "ide-setting-field");
+        temporaryLabel.append(element("span", "", "Temporary exceptions"));
+        const temporary = element("textarea");
+        temporary.rows = 3;
+        temporary.placeholder = "192.0.2.10 443 tcp";
+        temporary.value = formatEgressRules(payload.temporary_rules);
+        temporaryLabel.append(temporary);
+
+        const enforcement = element(
+          "div",
+          `ide-network-status ${payload.enforcement?.enforced ? "enabled" : ""}`,
+          payload.enforcement?.enforced
+            ? `Enforced: ${payload.enforcement.implementation}`
+            : `Unavailable: ${(payload.enforcement?.missing_tools || []).join(", ")}`,
+        );
+        const apply = element("button", "ide-command", "Apply");
+        apply.type = "button";
+        const clear = element("button", "ide-command", "Clear events");
+        clear.type = "button";
+        const actions = element("div", "ide-setting-actions");
+        actions.append(apply, clear);
+        const result = element("div", "ide-setting-result");
+        const events = element("pre", "ide-network-events");
+        events.textContent = JSON.stringify(
+          {
+            connections: payload.events || [],
+            browser: payload.csp_violations || [],
+          },
+          null,
+          2,
+        );
+
+        apply.addEventListener("click", async () => {
+          const audit = mode.value === "audit";
+          const acknowledged = !audit || window.confirm(
+            "Audit mode permits the IDE and its tools to transmit source code and credentials.",
+          );
+          if (!acknowledged) return;
+          apply.disabled = true;
+          try {
+            const updated = await request("/api/ide/network/configure", {
+              method: "POST",
+              body: JSON.stringify({
+                mode: mode.value,
+                rules: parseEgressRules(rules.value),
+                temporary_rules: parseEgressRules(temporary.value),
+                audit_acknowledged: acknowledged,
+              }),
+            });
+            result.textContent = updated.restart_required
+              ? "Saved. Restart the IDE to apply this network policy."
+              : "Saved.";
+          } catch (error) {
+            result.textContent = error.message || String(error);
+          } finally {
+            apply.disabled = false;
+          }
+        });
+        clear.addEventListener("click", async () => {
+          clear.disabled = true;
+          try {
+            const updated = await request("/api/ide/network/events/clear", {
+              method: "POST",
+              body: "{}",
+            });
+            events.textContent = JSON.stringify(
+              {
+                connections: updated.events || [],
+                browser: updated.csp_violations || [],
+              },
+              null,
+              2,
+            );
+            result.textContent = "Network events cleared.";
+          } catch (error) {
+            result.textContent = error.message || String(error);
+          } finally {
+            clear.disabled = false;
+          }
+        });
+        section.append(
+          modeLabel,
+          rulesLabel,
+          temporaryLabel,
+          enforcement,
+          actions,
+          result,
+          events,
+        );
+      } catch (error) {
+        section.textContent = error.message || String(error);
+      }
+    }
+
     function menuButton(label, action, disabled = false) {
       const button = element("button", "ide-menu-item", label);
       button.type = "button";
@@ -309,6 +450,7 @@
       contextMenu.replaceChildren(
         menuButton("IDE configuration", showConfiguration),
         menuButton("Neovim settings", showNeovimSettings),
+        menuButton("Network access", showNetworkSettings),
         menuButton("Diagnostics", showDiagnostics),
         menuButton("Restart IDE", restartIDE, !workspaceId),
         menuButton("Stop IDE", stopIDE, currentStatus?.status === "stopped"),

@@ -844,8 +844,43 @@ class ServiceState:
             self._context_locked(context_id)
         return self.ide_service.diagnostics(context_id)
 
-    def record_ide_csp_violation(self, payload: object) -> dict[str, object]:
-        return self.ide_service.record_csp_violation(payload)
+    def ide_network_status(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.network_status(context_id)
+
+    def configure_ide_network(
+        self,
+        context_id: str,
+        *,
+        mode: str,
+        rules: object,
+        temporary_rules: object,
+        audit_acknowledged: bool,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configure_network(
+            context_id,
+            mode=mode,
+            rules=rules,
+            temporary_rules=temporary_rules,
+            audit_acknowledged=audit_acknowledged,
+        )
+
+    def clear_ide_network_events(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.clear_network_events(context_id)
+
+    def record_ide_csp_violation(
+        self,
+        context_id: str,
+        payload: object,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.record_csp_violation(payload, context_id)
 
     def ide_editor_context(self, context_id: str) -> dict[str, object] | None:
         with self.lock:
@@ -2874,11 +2909,32 @@ def _handler_for(
                     )
                     return
             try:
+                report_path = f"/ide/{workspace_id}/_electroboy/csp-report"
+                if path.rstrip("/") == report_path:
+                    length = min(
+                        int(self.headers.get("Content-Length", "0") or 0),
+                        64 * 1024,
+                    )
+                    raw = self.rfile.read(length) if length else b"{}"
+                    try:
+                        report = json.loads(raw)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        report = {}
+                    payload = state.ide_service.record_csp_violation(
+                        report,
+                        workspace_id,
+                    )
+                    self._send_json(payload)
+                    return
                 endpoint = state.ide_service.proxy_endpoint(workspace_id)
                 state.ide_service.proxy.relay(
                     self,
                     endpoint,
                     set_cookie=set_cookie,
+                    egress_mode=state.ide_service.proxy_egress_mode(
+                        workspace_id
+                    ),
+                    report_uri=report_path,
                 )
             except Exception as error:
                 self._send_json(

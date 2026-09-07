@@ -66,6 +66,37 @@ def _diagnostics(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _network_status(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.network_status(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
+def _configure_network(request: RouteRequest) -> ServiceResponse:
+    try:
+        body = request.body()
+        payload = request.services.ide.configure_network(
+            request.context_id,
+            mode=str(body.get("mode") or "deny"),
+            rules=body.get("rules"),
+            temporary_rules=body.get("temporary_rules"),
+            audit_acknowledged=bool(body.get("audit_acknowledged", False)),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
+def _clear_network_events(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.clear_network_events(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
 def _editor_context(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.services.ide.editor_context(request.context_id)
@@ -97,7 +128,10 @@ def _configure_neovim(request: RouteRequest) -> ServiceResponse:
 
 def _csp_report(request: RouteRequest) -> ServiceResponse:
     try:
-        payload = request.services.ide.record_csp_violation(request.body())
+        payload = request.services.ide.record_csp_violation(
+            request.context_id,
+            request.body(),
+        )
     except Exception as error:
         return conflict(error)
     return JsonResponse(payload)
@@ -133,6 +167,9 @@ _HANDLERS = {
     "stop": _stop,
     "open": _open,
     "diagnostics": _diagnostics,
+    "network_status": _network_status,
+    "configure_network": _configure_network,
+    "clear_network_events": _clear_network_events,
     "editor_context": _editor_context,
     "neovim_status": _neovim_status,
     "configure_neovim": _configure_neovim,
@@ -154,6 +191,19 @@ def module() -> ServiceModule:
             route("POST", "/api/ide/stop", "ide", "stop"),
             route("POST", "/api/ide/open", "ide", "open"),
             route("GET", "/api/ide/diagnostics", "ide", "diagnostics"),
+            route("GET", "/api/ide/network", "ide", "network_status"),
+            route(
+                "POST",
+                "/api/ide/network/configure",
+                "ide",
+                "configure_network",
+            ),
+            route(
+                "POST",
+                "/api/ide/network/events/clear",
+                "ide",
+                "clear_network_events",
+            ),
             route("GET", "/api/ide/context", "ide", "editor_context"),
             route("GET", "/api/ide/neovim", "ide", "neovim_status"),
             route(
