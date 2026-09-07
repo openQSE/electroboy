@@ -245,9 +245,13 @@ class IDEService:
                 message="start the workspace IDE before opening a location",
                 recoverable=True,
             )
-        self.provider.open_location(instance, location)
+        request_id = self.provider.open_location(instance, location)
         self.manager.touch(workspace_id)
-        return {"status": "opened", "location": location.__dict__}
+        return {
+            "status": "queued",
+            "request_id": request_id,
+            "location": location.__dict__,
+        }
 
     def diagnostics(self, workspace_id: str) -> dict[str, object]:
         instance = self.manager.status(workspace_id)
@@ -265,6 +269,7 @@ class IDEService:
             "provider_output": (
                 self.provider.diagnostics(instance.instance_id) if instance else []
             ),
+            "bridge": self.bridge.diagnostics(instance) if instance else None,
             "sandbox": (
                 self.provider.enforcement(instance.instance_id)
                 if instance

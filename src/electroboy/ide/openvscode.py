@@ -207,8 +207,8 @@ class OpenVSCodeProvider:
         self,
         instance: IDEInstance,
         location: IDELocation,
-    ) -> None:
-        self.bridge.open_location(instance, location)
+    ) -> str:
+        return self.bridge.open_location(instance, location)
 
     def stop(self, instance: IDEInstance, reason: str) -> IDEInstance:
         del reason

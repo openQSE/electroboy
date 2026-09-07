@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import secrets
 import threading
-import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,7 +79,7 @@ class IDEBridge:
             "electroboy.bridge.directory": str(registration.directory),
         }
 
-    def open_location(self, instance: IDEInstance, location: IDELocation) -> None:
+    def open_location(self, instance: IDEInstance, location: IDELocation) -> str:
         registration = self._registration(instance)
         request_id = uuid.uuid4().hex
         command = {
@@ -99,13 +98,41 @@ class IDEBridge:
         lock = self._locks[instance.instance_id]
         with lock:
             _append_jsonl(registration.directory / "commands.jsonl", command)
-        response = self._wait_for_response(registration, request_id)
-        if not bool(response.get("ok")):
-            raise IDEError(
-                IDEErrorCategory.NAVIGATION_FAILED,
-                str(response.get("error") or "IDE navigation failed"),
-                recoverable=True,
-            )
+        return request_id
+
+    def diagnostics(self, instance: IDEInstance) -> dict[str, object]:
+        registration = self._registration(instance)
+        commands = [
+            record
+            for record in _read_jsonl(registration.directory / "commands.jsonl")
+            if self._authenticated(record, registration)
+        ]
+        responses = [
+            record
+            for record in _read_jsonl(registration.directory / "responses.jsonl")
+            if self._authenticated(record, registration)
+        ]
+        completed = {
+            str(response.get("request_id") or "") for response in responses
+        }
+        return {
+            "protocol_version": registration.protocol_version,
+            "registered": True,
+            "queued_command_count": len(commands),
+            "completed_command_count": len(responses),
+            "pending_command_count": sum(
+                1
+                for command in commands
+                if str(command.get("request_id") or "") not in completed
+            ),
+            "recent_results": [
+                {
+                    "request_id": str(response.get("request_id") or ""),
+                    "ok": bool(response.get("ok")),
+                }
+                for response in responses[-10:]
+            ],
+        }
 
     def context(self, instance: IDEInstance) -> IDEEditorContext | None:
         registration = self._registration(instance)
@@ -162,26 +189,6 @@ class IDEBridge:
                 "the IDE bridge registration belongs to another workspace",
             )
         return registration
-
-    def _wait_for_response(
-        self,
-        registration: IDEBridgeRegistration,
-        request_id: str,
-    ) -> dict[str, object]:
-        deadline = time.monotonic() + self.response_timeout
-        while time.monotonic() < deadline:
-            for response in _read_jsonl(registration.directory / "responses.jsonl"):
-                if (
-                    response.get("request_id") == request_id
-                    and self._authenticated(response, registration)
-                ):
-                    return response
-            time.sleep(0.05)
-        raise IDEError(
-            IDEErrorCategory.NAVIGATION_FAILED,
-            "the IDE bridge did not answer the navigation command",
-            recoverable=True,
-        )
 
     @staticmethod
     def _envelope(registration: IDEBridgeRegistration) -> dict[str, object]:

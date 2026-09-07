@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
-import threading
-import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -101,28 +99,10 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertIsNone(self.bridge.context(self.instance))
 
     def test_navigation_uses_request_id_and_authenticated_response(self) -> None:
-        def respond() -> None:
-            commands = self.registration.directory / "commands.jsonl"
-            while not commands.read_text().strip():
-                time.sleep(0.01)
-            command = json.loads(commands.read_text().splitlines()[-1])
-            response = self.envelope(
-                {
-                    "request_id": command["request_id"],
-                    "ok": True,
-                    "error": None,
-                }
-            )
-            with (self.registration.directory / "responses.jsonl").open("a") as file:
-                file.write(json.dumps(response) + "\n")
-
-        thread = threading.Thread(target=respond)
-        thread.start()
-        self.bridge.open_location(
+        request_id = self.bridge.open_location(
             self.instance,
             IDELocation("src/main.py", line=4, end_line=6, symbol="main"),
         )
-        thread.join(timeout=2)
 
         command = json.loads(
             (self.registration.directory / "commands.jsonl")
@@ -131,8 +111,10 @@ class IDEBridgeTests(unittest.TestCase):
         )
         self.assertEqual(command["command"], "open_location")
         self.assertEqual(command["location"]["symbol"], "main")
-        self.assertTrue(command["request_id"])
+        self.assertEqual(command["request_id"], request_id)
         self.assertEqual(command["auth"], self.registration.secret)
+        diagnostics = self.bridge.diagnostics(self.instance)
+        self.assertEqual(diagnostics["pending_command_count"], 1)
 
     def test_vsix_build_is_reproducible_and_contains_extension(self) -> None:
         source = (
