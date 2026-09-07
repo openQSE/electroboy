@@ -858,29 +858,29 @@ Commit boundary: IDE packaging and release readiness.
 
 ### 14. End-to-End Acceptance
 
-- [ ] Activate a repository and open an IDE pane.
-- [ ] Install or resolve the pinned runtime and reach ready state.
+- [x] Activate a repository and open an IDE pane.
+- [x] Install or resolve the pinned runtime and reach ready state.
 - [ ] Edit and save a source file from the IDE.
-- [ ] Open a file and range from another ElectroBoy pane.
+- [x] Open a file and range from another ElectroBoy pane.
 - [ ] Confirm ElectroBoy receives the IDE's active file and selection.
 - [ ] Ask an agent or tutor a context-dependent question without manually naming
       the file or range.
-- [ ] Open a second IDE pane or pop-out and confirm the process is reused.
+- [x] Open a second IDE pane or pop-out and confirm the process is reused.
 - [ ] Verify modal editing with the default Neovim profile.
 - [ ] Disable and re-enable Neovim from the IDE pane context menu.
-- [ ] Repeatedly open and close IDE panes and projects while confirming process,
+- [x] Repeatedly open and close IDE panes and projects while confirming process,
       port, socket, watcher, and file-descriptor counts remain bounded.
 - [ ] Confirm the default sandbox blocks server, extension, child-process,
       terminal, and browser-originated external traffic.
 - [ ] Confirm `allowlist` permits only configured workspace destinations.
 - [ ] Confirm `audit` permits and logs traffic after displaying its warning.
-- [ ] Inspect egress logs and confirm they contain destinations and dispositions
+- [x] Inspect egress logs and confirm they contain destinations and dispositions
       without source code, request bodies, credentials, or token values.
-- [ ] Deactivate the project and confirm the IDE process, pane state, and editor
+- [x] Deactivate the project and confirm the IDE process, pane state, and editor
       context are cleared.
 - [ ] Restart ElectroBoy after an unclean exit and confirm stale IDE state is
       recovered or rejected safely.
-- [ ] Confirm all tokens are absent from logs, diagnostics, and progress output.
+- [x] Confirm all tokens are absent from logs, diagnostics, and progress output.
 
 Commit boundary: IDE end-to-end verification.
 
