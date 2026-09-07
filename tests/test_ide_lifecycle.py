@@ -184,6 +184,13 @@ class IDELifecycleTests(unittest.TestCase):
         self.assertTrue(started)
         self.assertEqual(instance.status, IDEInstanceStatus.READY)
         self.assertTrue(Path(instance.endpoint.address).exists())
+        self.assertTrue(
+            (
+                instance.profile.extensions
+                / "electroboy-bridge"
+                / "extension.js"
+            ).is_file()
+        )
         time.sleep(0.05)
         diagnostics = provider.diagnostics(instance.instance_id)
         self.assertIn("[REDACTED]", diagnostics[0])

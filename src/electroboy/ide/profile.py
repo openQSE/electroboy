@@ -21,7 +21,10 @@ MANAGED_IDE_SETTINGS: dict[str, object] = {
 }
 
 
-def configure_managed_profile(profile: IDEProfile) -> None:
+def configure_managed_profile(
+    profile: IDEProfile,
+    additional_settings: dict[str, object] | None = None,
+) -> None:
     """Apply privacy-preserving defaults without reading user VS Code state."""
 
     settings_path = profile.user_data / "User" / "settings.json"
@@ -35,6 +38,7 @@ def configure_managed_profile(profile: IDEProfile) -> None:
         except (OSError, json.JSONDecodeError):
             existing = {}
     existing.update(MANAGED_IDE_SETTINGS)
+    existing.update(additional_settings or {})
     settings_path.write_text(
         json.dumps(existing, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

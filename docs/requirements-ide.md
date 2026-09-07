@@ -764,17 +764,17 @@ Commit boundary: IDE pane presentation.
 
 ### 9. Build the ElectroBoy IDE Bridge Extension
 
-- [ ] Create a separately packaged VS Code extension in the ElectroBoy source
+- [x] Create a separately packaged VS Code extension in the ElectroBoy source
       tree.
-- [ ] Define and version the bridge protocol.
-- [ ] Authenticate registration to one workspace and IDE instance.
-- [ ] Report active file, language, cursor, selection, and dirty state.
-- [ ] Implement file, line, range, and symbol navigation commands.
-- [ ] Implement command request IDs and success or failure responses.
-- [ ] Handle reconnection without duplicating event streams.
-- [ ] Build a reproducible VSIX artifact.
-- [ ] Install the bridge into managed IDE profiles.
-- [ ] Add extension unit and OpenVSCode integration tests.
+- [x] Define and version the bridge protocol.
+- [x] Authenticate registration to one workspace and IDE instance.
+- [x] Report active file, language, cursor, selection, and dirty state.
+- [x] Implement file, line, range, and symbol navigation commands.
+- [x] Implement command request IDs and success or failure responses.
+- [x] Handle reconnection without duplicating event streams.
+- [x] Build a reproducible VSIX artifact.
+- [x] Install the bridge into managed IDE profiles.
+- [x] Add extension unit and OpenVSCode integration tests.
 
 Commit boundary: ElectroBoy IDE bridge.
 

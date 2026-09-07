@@ -15,6 +15,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
+from .bridge import IDEBridge
 from .domain import (
     IDEEndpoint,
     IDEError,
@@ -52,9 +53,11 @@ class OpenVSCodeProvider:
         *,
         diagnostic_limit: int = 200,
         process_launcher: IDEProcessLauncher | None = None,
+        bridge: IDEBridge | None = None,
     ) -> None:
         self.diagnostic_limit = max(10, diagnostic_limit)
         self.process_launcher = process_launcher or DirectIDEProcessLauncher()
+        self.bridge = bridge or IDEBridge()
         self._processes: dict[str, _ProviderProcess] = {}
         self._lock = threading.RLock()
 
@@ -72,11 +75,12 @@ class OpenVSCodeProvider:
             profile.logs,
         ):
             path.mkdir(parents=True, exist_ok=True)
-        configure_managed_profile(profile)
         socket_path = profile.root / "openvscode.sock"
         socket_path.unlink(missing_ok=True)
         token = secrets.token_urlsafe(32)
         instance_id = f"ide-{uuid.uuid4().hex}"
+        registration = self.bridge.prepare(profile, workspace, instance_id)
+        configure_managed_profile(profile, self.bridge.settings(registration))
         arguments = self.command(
             workspace,
             runtime,
@@ -176,6 +180,7 @@ class OpenVSCodeProvider:
             if status is IDEInstanceStatus.FAILED:
                 diagnostics = self.diagnostics(instance.instance_id)
                 self._cleanup_process(instance.instance_id)
+                self.bridge.unregister(instance.instance_id)
                 detail = diagnostics[-1] if diagnostics else "process exited"
                 raise IDEError(
                     IDEErrorCategory.START_FAILED,
@@ -203,12 +208,7 @@ class OpenVSCodeProvider:
         instance: IDEInstance,
         location: IDELocation,
     ) -> None:
-        del instance, location
-        raise IDEError(
-            IDEErrorCategory.NAVIGATION_FAILED,
-            "the IDE bridge is not connected",
-            recoverable=True,
-        )
+        self.bridge.open_location(instance, location)
 
     def stop(self, instance: IDEInstance, reason: str) -> IDEInstance:
         del reason
@@ -233,6 +233,7 @@ class OpenVSCodeProvider:
                         pass
                     process.wait(timeout=2)
         self._cleanup_process(instance.instance_id)
+        self.bridge.unregister(instance.instance_id)
         return instance.with_status(
             IDEInstanceStatus.STOPPED,
             stopped_at=time.time(),
