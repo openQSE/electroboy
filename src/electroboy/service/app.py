@@ -22,6 +22,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
+from ..ide import IDELocation
+from ..ide.service import IDEService
 from ..models import utc_now
 from ..state_store import StateError
 from .context import BrowserContext, ContextStore
@@ -56,6 +58,7 @@ from .registry import (
     installed_workflow_factories,
 )
 from .routes import RouteOperations, RouteRequest, build_route_dispatcher
+from .services import build_service_services
 from .sessions import (
     SESSION_BACKEND_PTY,
     SESSION_BACKEND_TMUX,
@@ -68,7 +71,6 @@ from .sessions import (
     _subprocess_output_text,
     _tmux_has_session,
 )
-from .services import build_service_services
 from .workflow_config import (
     configured_workflows,
     workflow_config_payload,
@@ -165,6 +167,12 @@ def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
     )
 
 
+def _ide_optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
 @dataclass
 class ServiceState:
     root: Path
@@ -177,6 +185,7 @@ class ServiceState:
         init=False,
         default_factory=dict,
     )
+    ide_service: IDEService = field(init=False)
 
     @property
     def lock(self) -> threading.RLock:
@@ -193,6 +202,7 @@ class ServiceState:
             self.state_root,
             self.context_store,
         )
+        self.ide_service = IDEService()
         self.session_backend = _normalize_session_backend(self.session_backend)
         if self.workflow_registry is None:
             module_registry = build_module_registry()
@@ -741,6 +751,7 @@ class ServiceState:
                     f"{active_labels}{extra}"
                 )
         self._terminate_sessions(sessions)
+        self.ide_service.stop(context_id, "project deactivated")
         with self.lock:
             context = self._context_locked(context_id)
             context.reset_project(
@@ -759,6 +770,59 @@ class ServiceState:
             ),
             "status": "deactivated",
         }
+
+    def ide_runtime_status(self) -> dict[str, object]:
+        return self.ide_service.runtime_status()
+
+    def install_ide_runtime(self) -> dict[str, object]:
+        return self.ide_service.install()
+
+    def start_ide(self, context_id: str) -> dict[str, object]:
+        return self.ide_service.start(
+            context_id,
+            self.active_project_root(context_id),
+        )
+
+    def ide_status(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.status(context_id)
+
+    def stop_ide(
+        self,
+        context_id: str,
+        reason: str = "requested",
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.stop(context_id, reason)
+
+    def open_ide_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.open_location(
+            context_id,
+            IDELocation(
+                path=str(location.get("path") or ""),
+                line=_ide_optional_int(location.get("line")),
+                column=_ide_optional_int(location.get("column")),
+                end_line=_ide_optional_int(location.get("end_line")),
+                end_column=_ide_optional_int(location.get("end_column")),
+                symbol=str(location.get("symbol") or "") or None,
+            ),
+        )
+
+    def ide_diagnostics(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.diagnostics(context_id)
+
+    def record_ide_csp_violation(self, payload: object) -> dict[str, object]:
+        return self.ide_service.record_csp_violation(payload)
 
     def start_requirements_agent(
         self,
@@ -1829,6 +1893,7 @@ class ElectroBoyHTTPServer(ThreadingHTTPServer):
         ):
             self.service_state.terminate_all_sessions()
         if self.service_state is not None:
+            self.service_state.ide_service.close()
             self.service_state.close_workflow_controllers()
         super().server_close()
 

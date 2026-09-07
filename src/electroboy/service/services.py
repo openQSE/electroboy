@@ -308,6 +308,33 @@ class WorkflowServices(Protocol):
     def bind_registry(self, registry: WorkflowRegistry) -> None: ...
 
 
+class IDEServices(Protocol):
+    """Workspace-scoped IDE operations exposed to capability modules."""
+
+    def runtime_status(self) -> dict[str, object]: ...
+
+    def install(self) -> dict[str, object]: ...
+
+    def start(self, context_id: str) -> dict[str, object]: ...
+
+    def status(self, context_id: str) -> dict[str, object]: ...
+
+    def stop(self, context_id: str, reason: str = "requested") -> dict[str, object]: ...
+
+    def open_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def diagnostics(self, context_id: str) -> dict[str, object]: ...
+
+    def record_csp_violation(
+        self,
+        payload: object,
+    ) -> dict[str, object]: ...
+
+
 @dataclass(frozen=True)
 class ServiceServices:
     """The complete, typed dependency surface passed to plugins."""
@@ -317,6 +344,7 @@ class ServiceServices:
     sessions: SessionServices
     files: ProjectFileServices
     workflows: WorkflowServices
+    ide: IDEServices
 
 
 class ServiceRuntimeBackend(Protocol):
@@ -589,6 +617,30 @@ class ServiceRuntimeBackend(Protocol):
     ) -> dict[str, object]: ...
 
     def bind_workflow_registry(self, registry: WorkflowRegistry) -> None: ...
+
+    def ide_runtime_status(self) -> dict[str, object]: ...
+
+    def install_ide_runtime(self) -> dict[str, object]: ...
+
+    def start_ide(self, context_id: str) -> dict[str, object]: ...
+
+    def ide_status(self, context_id: str) -> dict[str, object]: ...
+
+    def stop_ide(
+        self,
+        context_id: str,
+        reason: str = "requested",
+    ) -> dict[str, object]: ...
+
+    def open_ide_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def ide_diagnostics(self, context_id: str) -> dict[str, object]: ...
+
+    def record_ide_csp_violation(self, payload: object) -> dict[str, object]: ...
 
 
 @dataclass(frozen=True)
@@ -1044,6 +1096,39 @@ class RuntimeWorkflowServices:
         self._registry = registry
 
 
+@dataclass(frozen=True)
+class RuntimeIDEServices:
+    runtime: ServiceRuntimeBackend
+
+    def runtime_status(self) -> dict[str, object]:
+        return self.runtime.ide_runtime_status()
+
+    def install(self) -> dict[str, object]:
+        return self.runtime.install_ide_runtime()
+
+    def start(self, context_id: str) -> dict[str, object]:
+        return self.runtime.start_ide(context_id)
+
+    def status(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_status(context_id)
+
+    def stop(self, context_id: str, reason: str = "requested") -> dict[str, object]:
+        return self.runtime.stop_ide(context_id, reason)
+
+    def open_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]:
+        return self.runtime.open_ide_location(context_id, location)
+
+    def diagnostics(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_diagnostics(context_id)
+
+    def record_csp_violation(self, payload: object) -> dict[str, object]:
+        return self.runtime.record_ide_csp_violation(payload)
+
+
 def build_service_services(
     runtime: ServiceRuntimeBackend,
     workflow_registry: WorkflowRegistry,
@@ -1056,4 +1141,5 @@ def build_service_services(
         sessions=RuntimeSessionServices(runtime),
         files=RuntimeProjectFileServices(runtime),
         workflows=RuntimeWorkflowServices(runtime, workflow_registry),
+        ide=RuntimeIDEServices(runtime),
     )

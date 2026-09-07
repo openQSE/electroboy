@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+import http.client
+import json
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+from urllib.parse import urlencode
+
+from electroboy.service import create_server
+
+
+class FakeIDEService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self.closed = False
+
+    def runtime_status(self):
+        self.calls.append(("runtime", None))
+        return {"status": "ready", "runtime": {"provider": "fake"}}
+
+    def install(self):
+        self.calls.append(("install", None))
+        return {"status": "ready"}
+
+    def start(self, workspace_id, project_root):
+        self.calls.append(("start", (workspace_id, project_root)))
+        return {
+            "status": "started",
+            "instance": {
+                "workspace_id": workspace_id,
+                "status": "ready",
+                "endpoint": {"authentication": "managed"},
+            },
+            "view_path": f"/ide/{workspace_id}/",
+        }
+
+    def status(self, workspace_id):
+        self.calls.append(("status", workspace_id))
+        return {"status": "ready", "instance": {"workspace_id": workspace_id}}
+
+    def stop(self, workspace_id, reason="requested"):
+        self.calls.append(("stop", (workspace_id, reason)))
+        return {"status": "stopped"}
+
+    def open_location(self, workspace_id, location):
+        self.calls.append(("open", (workspace_id, location)))
+        return {"status": "opened", "location": location.__dict__}
+
+    def diagnostics(self, workspace_id):
+        self.calls.append(("diagnostics", workspace_id))
+        return {"instance": None, "provider_output": []}
+
+    def record_csp_violation(self, payload):
+        self.calls.append(("csp", payload))
+        return {"status": "recorded"}
+
+    def close(self):
+        self.closed = True
+
+
+class IDEServiceAPITests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.server = create_server(self.root, port=0, state_root=self.root / "state")
+        assert self.server.service_state is not None
+        self.state = self.server.service_state
+        self.ide = FakeIDEService()
+        self.state.ide_service = self.ide
+        context = self.state.create_context("tab-1", "software")
+        self.workspace_id = str(context["workspace_id"])
+        self.lease_token = str(context["lease_token"])
+        with self.state.lock:
+            active = self.state.context_store.require(self.workspace_id)
+            active.reset_project(
+                workflow_id="software",
+                project_mode="existing",
+                activation_root=self.root,
+                active_project_root=self.root,
+            )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.thread.join(timeout=2)
+        self.server.server_close()
+        self.temporary.cleanup()
+
+    def query(self, *, lease_token: str | None = None) -> str:
+        return urlencode(
+            {
+                "workspace_id": self.workspace_id,
+                "connection_id": "tab-1",
+                "lease_token": lease_token or self.lease_token,
+            }
+        )
+
+    def request(self, method: str, path: str, payload=None):
+        host, port = self.server.server_address[:2]
+        connection = http.client.HTTPConnection(host, port, timeout=3)
+        try:
+            connection.request(
+                method,
+                f"{path}?{self.query()}",
+                body=json.dumps(payload).encode() if payload is not None else None,
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def test_runtime_start_status_stop_and_diagnostics_routes(self) -> None:
+        runtime = self.request("GET", "/api/ide/runtime")
+        started = self.request("POST", "/api/ide/start", {})
+        status = self.request("GET", "/api/ide/status")
+        diagnostics = self.request("GET", "/api/ide/diagnostics")
+        stopped = self.request("POST", "/api/ide/stop", {"reason": "test"})
+
+        self.assertEqual([row[0] for row in self.ide.calls], [
+            "runtime",
+            "start",
+            "status",
+            "diagnostics",
+            "stop",
+        ])
+        self.assertTrue(all(result[0] == 200 for result in (
+            runtime,
+            started,
+            status,
+            diagnostics,
+            stopped,
+        )))
+        self.assertNotIn("token", json.dumps(started[1]))
+
+    def test_open_location_is_provider_neutral(self) -> None:
+        status, payload = self.request(
+            "POST",
+            "/api/ide/open",
+            {"path": "src/main.py", "line": 12, "end_line": 14},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["location"]["path"], "src/main.py")
+        location = self.ide.calls[-1][1][1]
+        self.assertEqual(location.line, 12)
+
+    def test_routes_reject_wrong_workspace_lease(self) -> None:
+        host, port = self.server.server_address[:2]
+        connection = http.client.HTTPConnection(host, port, timeout=3)
+        try:
+            connection.request(
+                "POST",
+                f"/api/ide/start?{self.query(lease_token='wrong')}",
+                body=b"{}",
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            response.read()
+        finally:
+            connection.close()
+
+        self.assertEqual(response.status, 409)
+        self.assertFalse(any(name == "start" for name, _value in self.ide.calls))
+
+    def test_deactivation_and_server_close_stop_owned_ide(self) -> None:
+        self.state.deactivate_project(self.workspace_id)
+        self.server.server_close()
+
+        self.assertIn(
+            ("stop", (self.workspace_id, "project deactivated")),
+            self.ide.calls,
+        )
+        self.assertTrue(self.ide.closed)
+
+
+if __name__ == "__main__":
+    unittest.main()

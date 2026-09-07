@@ -24,6 +24,7 @@ class ServiceInterfaceTests(unittest.TestCase):
             sessions=dependency,
             files=dependency,
             workflows=dependency,
+            ide=dependency,
         )
 
         controller = BoundWorkflowController(services)
@@ -62,6 +63,7 @@ class ServiceInterfaceTests(unittest.TestCase):
         self.assertIn("CorkboardWorkflowController", plugin_api.__all__)
         self.assertIn("SessionServices", plugin_api.__all__)
         self.assertIn("WorkflowServices", plugin_api.__all__)
+        self.assertIn("IDEServices", plugin_api.__all__)
 
 
 if __name__ == "__main__":

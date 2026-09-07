@@ -43,6 +43,7 @@ from .registry import (
 from .routes import RouteRequest
 from .services import (
     ContextServices,
+    IDEServices,
     ProjectFileServices,
     ServiceServices,
     SessionServices,
@@ -63,6 +64,7 @@ __all__ = [
     "CorkboardWorkflowController",
     "DocumentSchemaDefinition",
     "HtmlResponse",
+    "IDEServices",
     "JsonResponse",
     "MindMapProvider",
     "MindMapWorkflowController",

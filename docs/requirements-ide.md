@@ -688,7 +688,7 @@ Commit boundary: managed OpenVSCode runtime installer.
       instance stops, crashes, or fails startup.
 - [x] Add repeated open, close, project-switch, and restart tests that monitor
       file-descriptor counts and prove resource use remains bounded.
-- [ ] Stop instances on project deactivation and service shutdown.
+- [x] Stop instances on project deactivation and service shutdown.
 - [x] Add lifecycle, concurrency, crash, restart, and shutdown tests.
 
 Commit boundary: OpenVSCode instance lifecycle.
@@ -730,13 +730,13 @@ Commit boundary: IDE network sandbox and egress observability.
 
 ### 7. Add IDE Service APIs
 
-- [ ] Add routes for runtime status and managed installation.
-- [ ] Add routes for instance start, status, and stop.
-- [ ] Add a provider-neutral open-location command route.
-- [ ] Bind every operation to the current workspace lease.
-- [ ] Redact endpoint authentication data from ordinary payloads.
-- [ ] Expose structured diagnostics and recovery actions.
-- [ ] Add route ownership, workspace isolation, and authorization tests.
+- [x] Add routes for runtime status and managed installation.
+- [x] Add routes for instance start, status, and stop.
+- [x] Add a provider-neutral open-location command route.
+- [x] Bind every operation to the current workspace lease.
+- [x] Redact endpoint authentication data from ordinary payloads.
+- [x] Expose structured diagnostics and recovery actions.
+- [x] Add route ownership, workspace isolation, and authorization tests.
 
 Commit boundary: IDE service API.
 

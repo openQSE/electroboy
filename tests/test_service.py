@@ -2163,6 +2163,7 @@ class ServiceTests(unittest.TestCase):
             sessions=dependency,
             files=dependency,
             workflows=dependency,
+            ide=dependency,
         )
         definition = WorkflowDefinition(
             id="sample",
@@ -2214,6 +2215,7 @@ class ServiceTests(unittest.TestCase):
                     sessions=object(),
                     files=object(),
                     workflows=object(),
+                    ide=object(),
                 )
             )
 
