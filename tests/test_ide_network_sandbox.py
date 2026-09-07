@@ -177,13 +177,23 @@ class IDENetworkSandboxTests(unittest.TestCase):
         self.assertNotIn("redacted", str(event))
 
     def test_csp_is_enforced_except_in_explicit_audit_mode(self) -> None:
-        deny_header, deny_value = ide_content_security_policy(IDEEgressMode.DENY)
+        deny_header, deny_value = ide_content_security_policy(
+            IDEEgressMode.DENY,
+            provider_policy=(
+                "script-src 'self' 'nonce-bootstrap' 'sha256-dGVzdA==' "
+                "'unsafe-inline' https://unsafe.example"
+            ),
+        )
         audit_header, _audit_value = ide_content_security_policy(
             IDEEgressMode.AUDIT
         )
 
         self.assertEqual(deny_header, "Content-Security-Policy")
         self.assertIn("connect-src 'self'", deny_value)
+        self.assertIn("'nonce-bootstrap'", deny_value)
+        self.assertIn("'sha256-dGVzdA=='", deny_value)
+        self.assertNotIn("'unsafe-inline'", deny_value.split("; ")[4])
+        self.assertNotIn("unsafe.example", deny_value)
         self.assertEqual(audit_header, "Content-Security-Policy-Report-Only")
 
     def test_csp_reports_drop_paths_queries_and_fragments(self) -> None:

@@ -205,6 +205,11 @@ class IDEUnixProxy:
         egress_mode: IDEEgressMode | None,
         report_uri: str,
     ) -> None:
+        provider_policy = "; ".join(
+            value
+            for name, value in headers
+            if name.lower() == "content-security-policy"
+        )
         handler.send_response(status, reason)
         for name, value in headers:
             lower = name.lower()
@@ -221,6 +226,7 @@ class IDEUnixProxy:
         csp_name, csp_value = ide_content_security_policy(
             egress_mode or self.egress_mode,
             report_uri=report_uri,
+            provider_policy=provider_policy,
         )
         handler.send_header(csp_name, csp_value)
         if set_cookie:

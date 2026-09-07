@@ -49,7 +49,8 @@ class UnixProvider:
                     b"HTTP/1.1 200 OK\r\n"
                     + f"Content-Length: {len(body)}\r\n".encode()
                     + b"Content-Type: text/html\r\n"
-                    + b"Content-Security-Policy: connect-src https:\r\n"
+                    + b"Content-Security-Policy: connect-src https:; "
+                    + b"script-src 'self' 'sha256-dGVzdA==' https://unsafe.example\r\n"
                     + b"Set-Cookie: provider_token=secret\r\n"
                     + b"Connection: close\r\n\r\n"
                     + body
@@ -132,6 +133,8 @@ class IDEProxyTests(unittest.TestCase):
         self.assertIn(b"200 OK", response)
         self.assertIn(b"Set-Cookie: electroboy_ide_session=", response)
         self.assertIn(b"Content-Security-Policy: default-src 'self'", response)
+        self.assertIn(b"'sha256-dGVzdA=='", response)
+        self.assertNotIn(b"https://unsafe.example", response)
         self.assertIn(
             f"report-uri /ide/{self.workspace_id}/_electroboy/csp-report".encode(),
             response,

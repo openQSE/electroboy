@@ -29,6 +29,9 @@ _SENDTO = re.compile(
     r"\{sa_family=AF_INET,\s+sin_port=htons\((?P<port>\d+)\),"
     r'\s+sin_addr=inet_addr\("(?P<address>[^"\s]+)"\)'
 )
+_CSP_INLINE_SCRIPT_AUTHORIZER = re.compile(
+    r"^'(?:nonce-[A-Za-z0-9+/_=-]+|sha(?:256|384|512)-[A-Za-z0-9+/=]+)'$"
+)
 
 
 class IDEEgressMode(str, Enum):
@@ -625,20 +628,24 @@ def ide_content_security_policy(
     mode: IDEEgressMode,
     *,
     report_uri: str = "",
+    provider_policy: str = "",
 ) -> tuple[str, str]:
     """Return the enforced or report-only CSP header for proxied IDE pages."""
 
+    script_authorizers = _csp_inline_script_authorizers(provider_policy)
     directives = [
-            "default-src 'self'",
-            "connect-src 'self'",
-            "frame-src 'self' blob:",
-            "worker-src 'self' blob:",
-            "script-src 'self' 'unsafe-eval' blob:",
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: blob:",
-            "font-src 'self' data:",
-            "object-src 'none'",
-            "base-uri 'self'",
+        "default-src 'self'",
+        "connect-src 'self'",
+        "frame-src 'self' blob:",
+        "worker-src 'self' blob:",
+        " ".join(
+            ["script-src", "'self'", "'unsafe-eval'", "blob:", *script_authorizers]
+        ),
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "object-src 'none'",
+        "base-uri 'self'",
     ]
     if report_uri:
         directives.append(f"report-uri {report_uri}")
@@ -649,6 +656,23 @@ def ide_content_security_policy(
         else "Content-Security-Policy"
     )
     return header, value
+
+
+def _csp_inline_script_authorizers(policy: str) -> tuple[str, ...]:
+    authorizers: list[str] = []
+    for directive in str(policy or "").split(";"):
+        tokens = directive.strip().split()
+        if not tokens or tokens[0].lower() != "script-src":
+            continue
+        for token in tokens[1:]:
+            if (
+                len(authorizers) < 64
+                and len(token) <= 256
+                and _CSP_INLINE_SCRIPT_AUTHORIZER.fullmatch(token)
+                and token not in authorizers
+            ):
+                authorizers.append(token)
+    return tuple(authorizers)
 
 
 def _bounded_text(value: object, limit: int = 100) -> str | None:
