@@ -77,7 +77,7 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn('"ide-view"', script)
         self.assertIn('"/api/ide/configuration"', script)
         self.assertIn('"/api/ide/configure"', script)
-        self.assertIn('"Open IDE tools menu"', script)
+        self.assertNotIn('"Open IDE tools menu"', script)
         self.assertIn("payload.view_path", script)
         self.assertIn("folder=${encodeURIComponent(active)}", script)
         self.assertIn("applyZoom", script)

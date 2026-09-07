@@ -98,12 +98,6 @@
   font-size: 17px;
 }
 
-.ide-toolbar-command.ide-toolbar-tools {
-  width: auto;
-  padding: 0 9px;
-  font-size: 12px;
-}
-
 .ide-context-menu {
   position: fixed;
   z-index: 3000;

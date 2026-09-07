@@ -730,15 +730,7 @@
     toolbarRefresh.title = "Restart IDE";
     toolbarRefresh.setAttribute("aria-label", "Restart IDE");
     toolbarRefresh.addEventListener("click", () => restartIDE());
-    const toolbarTools = element("button", "ide-toolbar-command ide-toolbar-tools", "Tools");
-    toolbarTools.type = "button";
-    toolbarTools.title = "Open IDE tools menu";
-    toolbarTools.setAttribute("aria-label", "Open IDE tools menu");
-    toolbarTools.addEventListener("click", (event) => {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      showContextMenu(bounds.right - 172, bounds.bottom + 4);
-    });
-    options.toolbarHost?.append(toolbarRefresh, toolbarTools);
+    options.toolbarHost?.append(toolbarRefresh);
 
     retry.addEventListener("click", start);
     stop.addEventListener("click", stopIDE);
@@ -769,7 +761,6 @@
       if (heartbeat) window.clearInterval(heartbeat);
       contextMenu.remove();
       toolbarRefresh.remove();
-      toolbarTools.remove();
       frame.src = "about:blank";
       if (attached) {
         fetch(contextUrl("/api/ide/views/detach"), {
