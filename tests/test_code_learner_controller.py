@@ -10,6 +10,7 @@ from electroboy.workflows.code_learner import controller as controller_module
 from electroboy.workflows.code_learner.course_generation import (
     CourseGenerationCancelled,
 )
+from electroboy.workflows.code_learner.domain import SourceAdapter
 from electroboy.workflows.code_learner.plugin import workflow
 from electroboy.workflows.code_learner.store import LearnerStore
 
@@ -146,6 +147,40 @@ def test_controller_projects_direct_architecture_and_clears_cache(
     assert cleared["code_learner"]["initialized"] is False
     assert cleared["code_learner"]["current_walkthrough"] is None
     assert not store.course_root.exists()
+
+
+def test_source_file_returns_every_line_and_marks_lesson_range(
+    tmp_path: Path,
+) -> None:
+    controller, context_id, root = _controller(tmp_path)
+    source_lines = [f"line {number}" for number in range(1, 251)]
+    (root / "core.py").write_text("\n".join(source_lines) + "\n", encoding="utf-8")
+
+    payload = controller.source_file(
+        context_id,
+        "core.py",
+        start_line=120,
+        end_line=122,
+    )["source"]
+
+    assert payload["window_start_line"] == 1
+    assert payload["window_end_line"] == 250
+    assert [line["number"] for line in payload["lines"]] == list(range(1, 251))
+    assert [
+        line["number"] for line in payload["lines"] if line["active"]
+    ] == [120, 121, 122]
+
+
+def test_source_adapter_does_not_truncate_large_files(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    content = ("x" * 2_100_000) + "\ncomplete\n"
+    (root / "large.c").write_text(content, encoding="utf-8")
+
+    source = SourceAdapter(root).read_file("large.c")
+
+    assert source.text == content
+    assert source.truncated is False
 
 
 def test_function_text_is_not_resolved_before_independent_generation(

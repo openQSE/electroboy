@@ -254,7 +254,6 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         *,
         start_line: int | None = None,
         end_line: int | None = None,
-        padding: int = 80,
     ) -> dict[str, object]:
         root = self._active_project_root(context_id)
         return {
@@ -263,7 +262,6 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 path,
                 start_line=start_line,
                 end_line=end_line,
-                padding=padding,
             ),
         }
 
@@ -886,7 +884,6 @@ def _source_for_walkthrough(
             path,
             start_line=start,
             end_line=end,
-            padding=80,
         )
     except (OSError, StateError, CodeLearnerError, ValueError):
         return None

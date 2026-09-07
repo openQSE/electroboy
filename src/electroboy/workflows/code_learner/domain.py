@@ -7,7 +7,6 @@ from pathlib import Path
 
 from electroboy.service.file_watch import file_signature
 
-MAX_SOURCE_BYTES = 2_000_000
 LANGUAGE_BY_EXTENSION = {
     ".c": "c",
     ".cc": "cpp",
@@ -40,7 +39,7 @@ class CodeLearnerError(RuntimeError):
 
 @dataclass(frozen=True)
 class SourceFile:
-    """A bounded source-file read for the learner code pane."""
+    """A source file read for the learner code pane."""
 
     path: str
     language: str
@@ -61,7 +60,7 @@ class SourceFile:
 
 
 class SourceAdapter:
-    """Read a bounded repository source file for display."""
+    """Read a complete repository source file for display."""
 
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root).expanduser().resolve()
@@ -91,23 +90,14 @@ class SourceAdapter:
         if not path.is_file():
             raise CodeLearnerError(f"source file not found: {relative_path}")
         signature = file_signature(path)
-        size = int(signature.get("size") or 0)
-        truncated = size > MAX_SOURCE_BYTES
-        if truncated:
-            with path.open("rb") as handle:
-                text = handle.read(MAX_SOURCE_BYTES).decode(
-                    "utf-8",
-                    errors="replace",
-                )
-        else:
-            text = path.read_text(encoding="utf-8", errors="replace")
+        text = path.read_text(encoding="utf-8", errors="replace")
         return SourceFile(
             path=self.relative_path(path),
             language=language_for_path(path),
             text=text,
             line_count=len(text.splitlines()) or 1,
             signature=signature,
-            truncated=truncated,
+            truncated=False,
         )
 
     def source_payload(
@@ -116,20 +106,17 @@ class SourceAdapter:
         *,
         start_line: int | None = None,
         end_line: int | None = None,
-        padding: int = 80,
     ) -> dict[str, object]:
         source = self.read_file(relative_path)
         lines = source.text.splitlines() or [""]
+        window_start = 1
+        window_end = len(lines)
         if start_line is None or end_line is None:
-            window_start = 1
-            window_end = len(lines)
             active_start = None
             active_end = None
         else:
             active_start = max(1, int(start_line))
             active_end = max(active_start, int(end_line))
-            window_start = max(1, active_start - padding)
-            window_end = min(len(lines), active_end + padding)
         rows = [
             {
                 "number": number,

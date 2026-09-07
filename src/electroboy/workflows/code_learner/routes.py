@@ -94,13 +94,11 @@ def _source(request: RouteRequest) -> ServiceResponse:
         path = str((request.params.get("path") or [""])[0])
         start_line = _optional_query_int(request, "start_line")
         end_line = _optional_query_int(request, "end_line")
-        padding = _optional_query_int(request, "padding")
         payload = _controller(request).source_file(
             request.context_id,
             path,
             start_line=start_line,
             end_line=end_line,
-            padding=padding if padding is not None else 80,
         )
     except Exception as error:
         return _error(error)
