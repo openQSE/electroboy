@@ -74,6 +74,7 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("Network access", script)
         self.assertIn('"ide-configuration"', script)
         self.assertIn('"ide-neovim"', script)
+        self.assertIn('"ide-mode", "Mode"', script)
         self.assertIn('"ide-view"', script)
         self.assertIn('"/api/ide/configuration"', script)
         self.assertIn('"/api/ide/configure"', script)
@@ -85,7 +86,9 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("VSCode Neovim", script)
         self.assertIn("Launch with VSCode Neovim", script)
         self.assertIn("Use standard editor", script)
-        self.assertIn("toggleNeovimFlavor", script)
+        self.assertIn("setEditorMode", script)
+        self.assertIn('button.setAttribute("role", "radio")', script)
+        self.assertIn('button.setAttribute("aria-checked"', script)
         self.assertIn("/api/ide/neovim/launch", script)
         self.assertIn("/api/ide/network/configure", script)
         self.assertIn("/api/ide/network/events/clear", script)
@@ -93,6 +96,7 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn(".ide-frame", stylesheet)
         self.assertIn(".ide-context-menu", stylesheet)
         self.assertIn(".ide-zoom-row", stylesheet)
+        self.assertIn(".ide-mode-choices", stylesheet)
 
     def test_file_and_learner_panes_use_shared_ide_navigation(self) -> None:
         file_tools = (

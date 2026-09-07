@@ -149,6 +149,40 @@
   font-weight: 700;
 }
 
+.ide-mode-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.ide-mode-choice {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid #364156;
+  border-radius: 4px;
+  background: #10141f;
+  color: #c7d2e3;
+  cursor: pointer;
+  font: 13px/1.2 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.ide-mode-choice[aria-checked="true"] {
+  border-color: #4f9b79;
+  background: #173729;
+  color: #dff8eb;
+}
+
+.ide-mode-choice:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.ide-mode-choice:not(:disabled):hover,
+.ide-mode-choice:not(:disabled):focus-visible {
+  border-color: #66d9e8;
+  outline: none;
+}
+
 .ide-setting-row,
 .ide-setting-field {
   display: grid;
