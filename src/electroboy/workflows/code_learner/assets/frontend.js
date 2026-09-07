@@ -113,6 +113,11 @@
   }
 
   function projectChanged(payload) {
+    bindRuntime(runtimeApi);
+    if (!(activeProjectRoot || activationRoot)) {
+      resetDeactivatedProjectUi();
+      return true;
+    }
     if (payload && payload.code_learner) {
       applyLearnerPayload(payload.code_learner);
     }
@@ -121,6 +126,31 @@
       openLearnerPane({ activate: false, refresh: true });
     }
     return true;
+  }
+
+  function resetDeactivatedProjectUi() {
+    stopInitializationPolling();
+    learnerState = emptyLearnerState();
+    learnerContext = null;
+    initializationState = null;
+    courseMode = "architecture";
+    selectedModuleTarget = "";
+    activeNavigationGroup = "project";
+    navigationExpanded.learn = false;
+    navigationExpanded.architecture = false;
+    navigationExpanded.module = false;
+    navigationExpanded.function = false;
+    navigationExpanded.outline = false;
+    if (nav.function) {
+      nav.function.value = "";
+    }
+    if (nav.audience) {
+      nav.audience.value = "";
+    }
+    renderNavigationState();
+    if (runtimeApi.layout.hasPane("code-learner")) {
+      openLearnerPane({ activate: false, reset: true });
+    }
   }
 
   function activate(runtime) {
@@ -438,7 +468,11 @@
     const modules = learnerModules();
     const symbols = learnerSymbols();
     applyNavigationGroup(nav.projectMenu, nav.projectActions, navigationExpanded.project);
-    applyNavigationGroup(nav.learnMenu, nav.learnActions, navigationExpanded.learn);
+    applyNavigationGroup(
+      nav.learnMenu,
+      nav.learnActions,
+      hasProject && navigationExpanded.learn,
+    );
     applyNavigationGroup(
       nav.recentMenu,
       nav.recent,
@@ -471,6 +505,7 @@
       activeNavigationGroup === "outline" && Boolean(walkthrough),
     );
     nav.close.disabled = !Boolean(activationRoot);
+    nav.learnMenu.disabled = !hasProject;
     nav.clearCache.disabled = !hasProject || initializing || !initialized;
     nav.initialize.disabled = !hasProject || initializing;
     nav.architectureMenu.disabled = initializing || !initialized;

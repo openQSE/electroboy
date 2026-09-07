@@ -35,6 +35,19 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'navigation: "sidebar"' in frontend
     assert 'kind: "code-learner"' in frontend
     assert "window.ElectroBoyCodeLearnerPane" in frontend
+    project_changed_source = frontend[
+        frontend.index("function projectChanged") : frontend.index("function activate")
+    ]
+    assert "bindRuntime(runtimeApi);" in project_changed_source
+    assert "resetDeactivatedProjectUi();" in project_changed_source
+    assert "function resetDeactivatedProjectUi()" in project_changed_source
+    assert 'activeNavigationGroup = "project";' in project_changed_source
+    assert "navigationExpanded.learn = false;" in project_changed_source
+    assert "navigationExpanded.outline = false;" in project_changed_source
+    assert 'runtimeApi.layout.hasPane("code-learner")' in project_changed_source
+    assert "openLearnerPane({ activate: false, reset: true });" in (
+        project_changed_source
+    )
     assert "refresh: () => loadPaneState(state)" in frontend
     assert "electroboy-code-learner-context" in frontend
     assert "preparePrompt" in frontend
@@ -66,6 +79,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         "nav.clearCache.disabled = !hasProject || initializing || !initialized;"
         in frontend
     )
+    assert "nav.learnMenu.disabled = !hasProject;" in frontend
     assert "function openCourseDocument" not in frontend
     assert "function closeCourseDocument" not in frontend
     assert (
