@@ -634,14 +634,14 @@ Commit boundary: OpenVSCode integration spike and recorded decision.
 
 ### 2. Define Provider-Neutral Domain Contracts
 
-- [ ] Define runtime, instance, endpoint, status, location, and editor-context
+- [x] Define runtime, instance, endpoint, status, location, and editor-context
       value objects.
-- [ ] Define the `IDEProvider` interface.
-- [ ] Define the runtime resolver and installer interfaces separately from the
+- [x] Define the `IDEProvider` interface.
+- [x] Define the runtime resolver and installer interfaces separately from the
       provider process interface.
-- [ ] Define workspace ownership and one-instance-per-workspace semantics.
-- [ ] Define provider-neutral error categories.
-- [ ] Add unit tests using a fake IDE provider.
+- [x] Define workspace ownership and one-instance-per-workspace semantics.
+- [x] Define provider-neutral error categories.
+- [x] Add unit tests using a fake IDE provider.
 
 Commit boundary: IDE domain and provider contracts.
 
