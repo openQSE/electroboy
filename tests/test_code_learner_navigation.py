@@ -10,6 +10,30 @@ from electroboy.workflows.code_learner.store import LearnerStore
 def _write_course(root: Path) -> LearnerStore:
     store = LearnerStore(root)
     store.initialize_layout()
+    store.components_path.write_text(
+        json.dumps(
+            [
+                {
+                    "eb_comp_id": "comp-001",
+                    "ai_component_name": "Request Parser",
+                    "ai_file_list": ["src/parser.py"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    store.modules_path.write_text(
+        json.dumps(
+            [
+                {
+                    "eb_module_id": "mod-001",
+                    "ai_module_name": "Runtime",
+                    "ai_comp_list": ["comp-001"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     for concept_name, lesson_name, slide_names in (
         ("01.Context", "01.Overview.jsonl", ("Purpose", "Parts")),
         ("02.Flow", "01.Overview.jsonl", ("Request flow",)),
@@ -28,7 +52,10 @@ def _write_course(root: Path) -> LearnerStore:
                     "id": f"{concept_name}-{index}",
                     "order": index * 10,
                     "title": title,
-                    "body": f"**{title}** details",
+                    "body": (
+                        f"**{title}** details for mod-001 and comp-001\n\n"
+                        "| Item | Owner |\n| --- | --- |\n| Parse | comp-001 |"
+                    ),
                 }
                 for index, title in enumerate(slide_names, 1)
             ],
@@ -99,7 +126,13 @@ def test_navigation_projects_markdown_sections_without_companion(
     walkthrough = navigator.walkthrough(view)
     artifact = navigator.artifact(view)
 
-    assert walkthrough["steps"][0]["explanation"] == "**Purpose** details"
+    step = walkthrough["steps"][0]
+    assert step["explanation"].startswith("**Purpose** details for Runtime")
+    assert "Request Parser" in step["explanation"]
+    assert "<table>" in step["explanation_html"]
+    assert "<strong>Purpose</strong>" in step["explanation_html"]
+    assert "mod-001" not in step["explanation_html"]
+    assert "comp-001" not in step["explanation_html"]
     assert artifact["jsonl_path"].endswith("01.Overview.jsonl")
     assert "markdown_path" not in artifact
     assert not list(root.rglob("*.md"))

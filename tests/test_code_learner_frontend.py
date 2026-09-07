@@ -209,10 +209,11 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert 'data-kind="missing"' in stylesheet
     assert 'data-kind="failed"' in stylesheet
     assert "state.host.dataset.renderMilliseconds" in frontend
-    assert "function renderSlideMarkdown(markdown)" in frontend
-    assert 'normalized === "mermaid"' in frontend
+    assert "function renderSlideMarkdown(markdown)" not in frontend
+    assert "step.explanation_html" in frontend
     assert "renderMermaidDiagrams(state.host);" in frontend
     assert ".code-learner-slide-body .mermaid" in stylesheet
+    assert ".code-learner-slide-body table" in stylesheet
     assert "markdown_path" not in frontend
     assert "--code-learner-code-font-size: calc(var(--font-size) - 2px);" in stylesheet
     assert "font-size: var(--code-learner-code-font-size);" in stylesheet

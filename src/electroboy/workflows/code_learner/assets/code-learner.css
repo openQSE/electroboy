@@ -441,6 +441,27 @@
   color: #d2dde5;
 }
 
+.code-learner-slide-body table {
+  width: 100%;
+  border-collapse: collapse;
+  color: #d2dde5;
+  font-size: var(--font-size);
+}
+
+.code-learner-slide-body th,
+.code-learner-slide-body td {
+  border: 1px solid #303946;
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.code-learner-slide-body th {
+  background: #202832;
+  color: #f3f6f7;
+  font-weight: 700;
+}
+
 .code-learner-slide-body pre,
 .code-learner-slide-body .mermaid {
   max-width: 100%;

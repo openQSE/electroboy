@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from electroboy.markdown_rendering import render_markdown
+
 from .domain import CodeLearnerError
+from .presentation import CoursePresentation
 from .store import LearnerStore
 
 
@@ -15,6 +18,9 @@ class CourseNavigator:
     def __init__(self, root: Path | str, *, store: LearnerStore | None = None) -> None:
         self.root = Path(root).expanduser().resolve()
         self.store = store or LearnerStore(self.root)
+        self.presentation = CoursePresentation(
+            self.store.components(), self.store.modules()
+        )
 
     def open(
         self, mode: str, scope_id: str = "", section_id: str = ""
@@ -131,7 +137,9 @@ class CourseNavigator:
             "mode": mode,
             "scope_id": scope_id,
             "course_id": f"course:{mode}:{scope_id or 'current'}",
-            "course_title": str(index.get("course_title") or mode.title()),
+            "course_title": self.presentation.text(
+                index.get("course_title") or mode.title()
+            ),
             "current": current,
             "navigation": {
                 "position": position,
@@ -171,11 +179,12 @@ class CourseNavigator:
                     lesson.get("lesson_title") or document.get("title") or "Lesson"
                 )
                 slide["lesson_path"] = self.store.relative(path)
+                for field in ("title", "body", "concept_title", "lesson_title"):
+                    slide[field] = self.presentation.text(slide.get(field))
                 slides.append(slide)
         return slides
 
-    @staticmethod
-    def _step(slide: dict[str, Any]) -> dict[str, object]:
+    def _step(self, slide: dict[str, Any]) -> dict[str, object]:
         references = slide.get("source_refs")
         first = references[0] if isinstance(references, list) and references else {}
         first = first if isinstance(first, dict) else {}
@@ -186,6 +195,7 @@ class CourseNavigator:
             "id": str(slide.get("id") or ""),
             "title": str(slide.get("title") or "Slide"),
             "explanation": str(slide.get("body") or ""),
+            "explanation_html": render_markdown(str(slide.get("body") or "")),
             "primary_reference": {
                 "file_path": path,
                 "start_line": start,

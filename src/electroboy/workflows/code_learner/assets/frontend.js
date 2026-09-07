@@ -2000,7 +2000,7 @@
         </div>
         <h1>${escapeHtml(step.title || "Step")}</h1>
         <div class="code-learner-slide-body">
-          ${renderSlideMarkdown(step.explanation || "")}
+          ${step.explanation_html || ""}
         </div>
         <div class="code-learner-reference">
           ${escapeHtml(referenceLabel(reference))}
@@ -2009,79 +2009,6 @@
         ${renderDeepDiveActions(step)}
       </div>
     `;
-  }
-
-  function renderSlideMarkdown(markdown) {
-    const blocks = [];
-    const source = String(markdown || "");
-    const fenced = source.replace(
-      /```([A-Za-z0-9_-]*)\n([\s\S]*?)```/g,
-      (_match, language, body) => {
-        const token = `@@CODE_LEARNER_BLOCK_${blocks.length}@@`;
-        const normalized = String(language || "").toLowerCase();
-        blocks.push(
-          normalized === "mermaid"
-            ? `<div class="mermaid">${escapeHtml(body.trim())}</div>`
-            : `<pre><code class="language-${escapeHtml(normalized || "plain")}">${escapeHtml(body)}</code></pre>`,
-        );
-        return token;
-      },
-    );
-    const rendered = sourceBlocksToHtml(fenced);
-    return blocks.reduce(
-      (html, block, index) => html.replace(`@@CODE_LEARNER_BLOCK_${index}@@`, block),
-      rendered,
-    );
-  }
-
-  function sourceBlocksToHtml(markdown) {
-    const lines = String(markdown || "").split("\n");
-    const html = [];
-    let listOpen = false;
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      const heading = /^(#{1,6})\s+(.+)$/.exec(line);
-      if (heading) {
-        if (listOpen) {
-          html.push("</ul>");
-          listOpen = false;
-        }
-        const level = heading[1].length;
-        html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
-      } else if (/^[-*]\s+/.test(line)) {
-        if (!listOpen) {
-          html.push("<ul>");
-          listOpen = true;
-        }
-        html.push(`<li>${renderInlineMarkdown(line.slice(2))}</li>`);
-      } else if (line.startsWith("@@CODE_LEARNER_BLOCK_")) {
-        if (listOpen) {
-          html.push("</ul>");
-          listOpen = false;
-        }
-        html.push(line);
-      } else if (line) {
-        if (listOpen) {
-          html.push("</ul>");
-          listOpen = false;
-        }
-        html.push(`<p>${renderInlineMarkdown(line)}</p>`);
-      } else if (listOpen) {
-        html.push("</ul>");
-        listOpen = false;
-      }
-    }
-    if (listOpen) {
-      html.push("</ul>");
-    }
-    return html.join("");
-  }
-
-  function renderInlineMarkdown(value) {
-    return escapeHtml(value)
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
   }
 
   function renderMermaidDiagrams(host) {
