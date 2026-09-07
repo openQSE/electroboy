@@ -878,7 +878,7 @@ Commit boundary: IDE packaging and release readiness.
       without source code, request bodies, credentials, or token values.
 - [x] Deactivate the project and confirm the IDE process, pane state, and editor
       context are cleared.
-- [ ] Restart ElectroBoy after an unclean exit and confirm stale IDE state is
+- [x] Restart ElectroBoy after an unclean exit and confirm stale IDE state is
       recovered or rejected safely.
 - [x] Confirm all tokens are absent from logs, diagnostics, and progress output.
 

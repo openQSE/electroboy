@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -40,6 +41,7 @@ class _ProviderProcess:
     socket_path: Path
     output: deque[str]
     reader: threading.Thread
+    marker_path: Path
     stopped: bool = False
 
 
@@ -76,6 +78,8 @@ class OpenVSCodeProvider:
         ):
             path.mkdir(parents=True, exist_ok=True)
         socket_path = profile.root / "openvscode.sock"
+        marker_path = profile.root / "provider-process.json"
+        _terminate_stale_process(marker_path, socket_path, runtime.executable)
         socket_path.unlink(missing_ok=True)
         token = secrets.token_urlsafe(32)
         instance_id = f"ide-{uuid.uuid4().hex}"
@@ -107,7 +111,22 @@ class OpenVSCodeProvider:
             name=f"{instance_id}-output",
             daemon=True,
         )
-        state = _ProviderProcess(launch, token, socket_path, output, reader)
+        _write_process_marker(
+            marker_path,
+            process_id=launch.process.pid,
+            executable=runtime.executable,
+            socket_path=socket_path,
+            project_root=workspace.project_root,
+            instance_id=instance_id,
+        )
+        state = _ProviderProcess(
+            launch,
+            token,
+            socket_path,
+            output,
+            reader,
+            marker_path,
+        )
         with self._lock:
             self._processes[instance_id] = state
         reader.start()
@@ -269,6 +288,7 @@ class OpenVSCodeProvider:
         state.reader.join(timeout=1)
         state.launch.cleanup()
         state.socket_path.unlink(missing_ok=True)
+        state.marker_path.unlink(missing_ok=True)
 
     @staticmethod
     def _read_output(
@@ -305,3 +325,74 @@ def _socket_ready(path: Path) -> bool:
         return False
     finally:
         client.close()
+
+
+def _write_process_marker(
+    path: Path,
+    *,
+    process_id: int,
+    executable: Path,
+    socket_path: Path,
+    project_root: Path,
+    instance_id: str,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "process_id": process_id,
+        "executable": str(executable.resolve()),
+        "socket_path": str(socket_path.resolve()),
+        "project_root": str(project_root.resolve()),
+        "instance_id": instance_id,
+    }
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
+def _terminate_stale_process(
+    marker_path: Path,
+    socket_path: Path,
+    executable: Path,
+) -> None:
+    try:
+        payload = json.loads(marker_path.read_text(encoding="utf-8"))
+        process_id = int(payload["process_id"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        marker_path.unlink(missing_ok=True)
+        return
+    expected = {
+        str(executable.resolve()),
+        str(socket_path.resolve()),
+    }
+    try:
+        command_line = (
+            Path(f"/proc/{process_id}/cmdline")
+            .read_bytes()
+            .replace(b"\0", b" ")
+            .decode("utf-8", errors="replace")
+        )
+    except OSError:
+        marker_path.unlink(missing_ok=True)
+        return
+    if not all(value in command_line for value in expected):
+        marker_path.unlink(missing_ok=True)
+        return
+    try:
+        os.killpg(process_id, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    else:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                os.kill(process_id, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            try:
+                os.killpg(process_id, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    marker_path.unlink(missing_ok=True)

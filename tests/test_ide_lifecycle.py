@@ -239,6 +239,30 @@ class IDELifecycleTests(unittest.TestCase):
 
         self.assertLessEqual(after, before + 2)
 
+    def test_restart_rejects_and_terminates_stale_provider_process(self) -> None:
+        first_provider = OpenVSCodeProvider()
+        first_manager = self.manager(first_provider, startup_timeout=3)
+        first, _started = first_manager.start(
+            IDEWorkspace("workspace-1", self.root),
+            mode=IDERuntimeMode.SYSTEM,
+        )
+        assert first.process_id is not None
+        first_process = first_provider._processes[first.instance_id].launch.process
+
+        second_provider = OpenVSCodeProvider()
+        second_manager = self.manager(second_provider, startup_timeout=3)
+        second, restarted = second_manager.start(
+            IDEWorkspace("workspace-1", self.root),
+            mode=IDERuntimeMode.SYSTEM,
+        )
+
+        try:
+            self.assertTrue(restarted)
+            self.assertNotEqual(first.process_id, second.process_id)
+            self.assertIsNotNone(first_process.poll())
+        finally:
+            second_manager.stop_all()
+
 
 if __name__ == "__main__":
     unittest.main()
