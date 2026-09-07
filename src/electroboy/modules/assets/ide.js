@@ -38,6 +38,7 @@
     let disposed = false;
     let heartbeat = null;
     let currentStatus = null;
+    let currentNeovim = null;
     let recoveryRequested = false;
     let zoomPercent = 100;
     const telemetry = options.telemetry || null;
@@ -300,6 +301,7 @@
         });
         frame.hidden = false;
         const neovim = payload.neovim || {};
+        currentNeovim = neovim;
         const detail = neovim.status === "enabled"
           ? "Loading the editor workbench with VSCode Neovim"
           : `Loading the editor workbench; Neovim ${neovim.status || "unavailable"}`;
@@ -494,6 +496,7 @@
       if (openTools) options.toolsController?.open("ide-neovim");
       try {
         const payload = await request("/api/ide/neovim");
+        currentNeovim = payload;
         const status = element(
           "div",
           `ide-neovim-status ${payload.status || "unavailable"}`,
@@ -528,6 +531,7 @@
                 executable: executable.value.trim(),
               }),
             });
+            currentNeovim = updated;
             result.textContent = updated.restart_required
               ? "Saved. Restart the IDE to apply this setting."
               : "Saved.";
@@ -544,30 +548,45 @@
       }
     }
 
-    async function launchNeovim() {
+    async function toggleNeovimFlavor() {
       if (!workspaceId) return;
-      neovimSection.textContent = "Installing VSCode Neovim";
       options.toolsController?.open("ide-neovim");
+      const current = await request("/api/ide/neovim");
+      const disabling = Boolean(current.enabled);
+      neovimSection.textContent = disabling
+        ? "Switching to the standard editor"
+        : "Installing VSCode Neovim";
       setState(
         "starting",
-        "Launching VSCode Neovim",
-        "Preparing the managed Neovim runtime and extension",
+        disabling ? "Switching editor mode" : "Launching VSCode Neovim",
+        disabling
+          ? "Disabling the Neovim extension"
+          : "Preparing the managed Neovim runtime and extension",
       );
       try {
-        const payload = await request("/api/ide/neovim/launch", {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-        if (payload.status !== "enabled") {
+        const payload = disabling
+          ? await request("/api/ide/neovim/configure", {
+            method: "POST",
+            body: JSON.stringify({
+              enabled: false,
+              executable: current.configured_executable || "",
+            }),
+          })
+          : await request("/api/ide/neovim/launch", {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+        if (!disabling && payload.status !== "enabled") {
           throw new Error(payload.reason || "VSCode Neovim is unavailable");
         }
+        currentNeovim = payload;
         await restartIDE();
         await showNeovimSettings(false);
       } catch (error) {
         await showNeovimSettings(false);
         setState(
           "failed",
-          "VSCode Neovim could not launch",
+          "Editor mode could not change",
           error.message || String(error),
         );
       }
@@ -736,7 +755,13 @@
     function showContextMenu(clientX, clientY) {
       contextMenu.replaceChildren(
         menuButton("IDE configuration", showConfiguration),
-        menuButton("Launch with VSCode Neovim", launchNeovim, !workspaceId),
+        menuButton(
+          currentNeovim?.enabled
+            ? "Use standard editor"
+            : "Launch with VSCode Neovim",
+          toggleNeovimFlavor,
+          !workspaceId,
+        ),
         menuButton("VSCode Neovim", showNeovimSettings),
         menuButton("Network access", showNetworkSettings),
         menuButton("Diagnostics", showDiagnostics),

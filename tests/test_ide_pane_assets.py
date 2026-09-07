@@ -84,6 +84,8 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("Pop out", script)
         self.assertIn("VSCode Neovim", script)
         self.assertIn("Launch with VSCode Neovim", script)
+        self.assertIn("Use standard editor", script)
+        self.assertIn("toggleNeovimFlavor", script)
         self.assertIn("/api/ide/neovim/launch", script)
         self.assertIn("/api/ide/network/configure", script)
         self.assertIn("/api/ide/network/events/clear", script)
