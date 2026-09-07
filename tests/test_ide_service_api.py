@@ -207,6 +207,34 @@ class IDEServiceAPITests(unittest.TestCase):
         )))
         self.assertNotIn("token", json.dumps(started[1]))
 
+    def test_start_consumes_body_before_next_keep_alive_request(self) -> None:
+        host, port = self.server.server_address[:2]
+        connection = http.client.HTTPConnection(host, port, timeout=3)
+        headers = {"Content-Type": "application/json"}
+        try:
+            connection.request(
+                "POST",
+                f"/api/ide/start?{self.query()}",
+                body=b"{}",
+                headers=headers,
+            )
+            started = connection.getresponse()
+            started.read()
+            connection.request(
+                "POST",
+                f"/api/ide/views/attach?{self.query()}",
+                body=b'{"view_id":"pane-1"}',
+                headers=headers,
+            )
+            attached = connection.getresponse()
+            payload = json.loads(attached.read())
+        finally:
+            connection.close()
+
+        self.assertEqual(started.status, 200)
+        self.assertEqual(attached.status, 200)
+        self.assertEqual(payload["status"], "attached")
+
     def test_open_location_is_provider_neutral(self) -> None:
         status, payload = self.request(
             "POST",

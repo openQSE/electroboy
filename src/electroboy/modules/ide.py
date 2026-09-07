@@ -15,6 +15,7 @@ def _runtime(request: RouteRequest) -> ServiceResponse:
 
 def _install(request: RouteRequest) -> ServiceResponse:
     try:
+        request.body()
         payload = request.services.ide.install()
     except Exception as error:
         return conflict(error)
@@ -23,6 +24,7 @@ def _install(request: RouteRequest) -> ServiceResponse:
 
 def _start(request: RouteRequest) -> ServiceResponse:
     try:
+        request.body()
         payload = request.services.ide.start(request.context_id)
     except Exception as error:
         return conflict(error)
@@ -110,6 +112,7 @@ def _configure_network(request: RouteRequest) -> ServiceResponse:
 
 def _clear_network_events(request: RouteRequest) -> ServiceResponse:
     try:
+        request.body()
         payload = request.services.ide.clear_network_events(request.context_id)
     except Exception as error:
         return conflict(error)
