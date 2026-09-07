@@ -42,6 +42,7 @@ class _ProviderProcess:
     output: deque[str]
     reader: threading.Thread
     marker_path: Path
+    token_path: Path
     stopped: bool = False
 
 
@@ -76,12 +77,16 @@ class OpenVSCodeProvider:
             profile.server_data,
             profile.logs,
         ):
-            path.mkdir(parents=True, exist_ok=True)
+            path.mkdir(parents=True, exist_ok=True, mode=0o700)
+            path.chmod(0o700)
         socket_path = profile.root / "openvscode.sock"
         marker_path = profile.root / "provider-process.json"
+        token_path = profile.root / "provider-token"
         _terminate_stale_process(marker_path, socket_path, runtime.executable)
         socket_path.unlink(missing_ok=True)
         token = secrets.token_urlsafe(32)
+        token_path.write_text(token + "\n", encoding="utf-8")
+        token_path.chmod(0o600)
         instance_id = f"ide-{uuid.uuid4().hex}"
         registration = self.bridge.prepare(profile, workspace, instance_id)
         configure_managed_profile(profile, self.bridge.settings(registration))
@@ -90,7 +95,7 @@ class OpenVSCodeProvider:
             runtime,
             profile,
             socket_path=socket_path,
-            token=token,
+            token_path=token_path,
         )
         try:
             launch = self.process_launcher.launch(
@@ -99,11 +104,15 @@ class OpenVSCodeProvider:
                 profile=profile,
             )
         except OSError as error:
+            token_path.unlink(missing_ok=True)
             raise IDEError(
                 IDEErrorCategory.START_FAILED,
                 f"could not start {self.provider_id}: {error}",
                 recoverable=True,
             ) from error
+        except Exception:
+            token_path.unlink(missing_ok=True)
+            raise
         output: deque[str] = deque(maxlen=self.diagnostic_limit)
         reader = threading.Thread(
             target=self._read_output,
@@ -111,14 +120,22 @@ class OpenVSCodeProvider:
             name=f"{instance_id}-output",
             daemon=True,
         )
-        _write_process_marker(
-            marker_path,
-            process_id=launch.process.pid,
-            executable=runtime.executable,
-            socket_path=socket_path,
-            project_root=workspace.project_root,
-            instance_id=instance_id,
-        )
+        try:
+            _write_process_marker(
+                marker_path,
+                process_id=launch.process.pid,
+                executable=runtime.executable,
+                socket_path=socket_path,
+                project_root=workspace.project_root,
+                instance_id=instance_id,
+            )
+        except Exception:
+            if launch.process.poll() is None:
+                os.killpg(launch.process.pid, signal.SIGKILL)
+                launch.process.wait(timeout=2)
+            launch.cleanup()
+            token_path.unlink(missing_ok=True)
+            raise
         state = _ProviderProcess(
             launch,
             token,
@@ -126,6 +143,7 @@ class OpenVSCodeProvider:
             output,
             reader,
             marker_path,
+            token_path,
         )
         with self._lock:
             self._processes[instance_id] = state
@@ -149,14 +167,14 @@ class OpenVSCodeProvider:
         profile: IDEProfile,
         *,
         socket_path: Path,
-        token: str,
+        token_path: Path,
     ) -> list[str]:
         return [
             str(runtime.executable),
             "--socket-path",
             str(socket_path),
-            "--connection-token",
-            token,
+            "--connection-token-file",
+            str(token_path),
             "--telemetry-level",
             "off",
             "--server-base-path",
@@ -289,6 +307,7 @@ class OpenVSCodeProvider:
         state.launch.cleanup()
         state.socket_path.unlink(missing_ok=True)
         state.marker_path.unlink(missing_ok=True)
+        state.token_path.unlink(missing_ok=True)
 
     @staticmethod
     def _read_output(

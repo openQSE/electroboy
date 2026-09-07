@@ -86,8 +86,10 @@ import sys
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('--socket-path')
 parser.add_argument('--connection-token')
+parser.add_argument('--connection-token-file')
 options, rest = parser.parse_known_args()
-print('provider token=' + options.connection_token + ' ?secret=value', flush=True)
+token = options.connection_token or open(options.connection_token_file).read().strip()
+print('provider token=' + token + ' ?secret=value', flush=True)
 server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(options.socket_path)
 server.listen()
@@ -184,6 +186,12 @@ class IDELifecycleTests(unittest.TestCase):
         self.assertTrue(started)
         self.assertEqual(instance.status, IDEInstanceStatus.READY)
         self.assertTrue(Path(instance.endpoint.address).exists())
+        token_path = instance.profile.root / "provider-token"
+        self.assertTrue(token_path.is_file())
+        self.assertEqual(token_path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(instance.profile.root.stat().st_mode & 0o777, 0o700)
+        command_line = Path(f"/proc/{instance.process_id}/cmdline").read_bytes()
+        self.assertNotIn(instance.endpoint.connection_token.encode(), command_line)
         self.assertTrue(
             (
                 instance.profile.extensions
@@ -200,6 +208,7 @@ class IDELifecycleTests(unittest.TestCase):
         manager.stop_all()
 
         self.assertFalse(Path(instance.endpoint.address).exists())
+        self.assertFalse(token_path.exists())
         assert process_id is not None
         with self.assertRaises(ProcessLookupError):
             os.kill(process_id, 0)

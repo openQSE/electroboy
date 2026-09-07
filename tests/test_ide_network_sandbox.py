@@ -38,6 +38,7 @@ import sys
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('--socket-path')
 parser.add_argument('--connection-token')
+parser.add_argument('--connection-token-file')
 options, rest = parser.parse_known_args()
 probe = '''import socket
 s = socket.socket()
