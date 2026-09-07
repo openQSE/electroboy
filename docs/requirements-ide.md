@@ -616,17 +616,19 @@ Diagnostics must never print connection tokens or unredacted authenticated URLs.
 
 ### 1. Prove OpenVSCode Integration
 
-- [ ] Pin one OpenVSCode Server release for the integration spike.
-- [ ] Launch the release manually against a disposable repository.
-- [ ] Verify token-authenticated access over loopback.
-- [ ] Verify editor startup, file editing, save, terminal, source control, and
+- [x] Pin one OpenVSCode Server release for the integration spike.
+- [x] Launch the release manually against a disposable repository.
+- [x] Verify token-authenticated access over loopback.
+- [x] Verify editor startup, file editing, save, terminal, source control, and
       extension-host behavior.
-- [ ] Verify embedding in an ElectroBoy-sized pane.
-- [ ] Verify WebSockets, service workers, browser storage, keyboard input,
-      clipboard, and pop-out behavior.
-- [ ] Decide whether the production surface uses a same-origin reverse proxy,
+- [x] Verify embedding in an ElectroBoy-sized pane.
+- [x] Verify WebSockets, browser storage, keyboard input, clipboard, and pop-out
+      behavior.
+- [ ] Verify service-worker webviews, drag-and-drop, and file-dialog behavior in
+      the integrated ElectroBoy pane.
+- [x] Decide whether the production surface uses a same-origin reverse proxy,
       direct loopback endpoint, or pop-out fallback.
-- [ ] Record resource consumption and cold/warm startup times.
+- [x] Record resource consumption and cold/warm startup times.
 
 Commit boundary: OpenVSCode integration spike and recorded decision.
 
