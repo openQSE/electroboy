@@ -46,6 +46,14 @@ class FakeIDEProvider:
     def status(self, instance: IDEInstance) -> IDEInstanceStatus:
         return instance.status
 
+    def wait_until_ready(
+        self,
+        instance: IDEInstance,
+        timeout: float,
+    ) -> IDEInstance:
+        del timeout
+        return instance
+
     def endpoint(self, instance: IDEInstance) -> IDEEndpoint:
         assert instance.endpoint is not None
         return instance.endpoint

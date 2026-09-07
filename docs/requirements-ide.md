@@ -674,22 +674,22 @@ Commit boundary: managed OpenVSCode runtime installer.
 
 ### 5. Implement OpenVSCode Process Supervision
 
-- [ ] Implement the OpenVSCode provider adapter.
-- [ ] Allocate a loopback port and generated connection token.
-- [ ] Create isolated user-data, extensions, workspace-storage, and log paths.
-- [ ] Launch the active repository as the IDE workspace.
-- [ ] Capture bounded and redacted process diagnostics.
-- [ ] Implement a provider readiness check.
-- [ ] Implement startup timeout and failed-process cleanup.
-- [ ] Prevent duplicate starts for one ElectroBoy workspace.
-- [ ] Reuse a ready instance across panes and pop-outs.
-- [ ] Enforce the configured maximum live-instance count and idle cleanup.
-- [ ] Close every listener, socket, watcher, pipe, and diagnostic stream when an
+- [x] Implement the OpenVSCode provider adapter.
+- [x] Allocate a private Unix socket and generated connection token.
+- [x] Create isolated user-data, extensions, workspace-storage, and log paths.
+- [x] Launch the active repository as the IDE workspace.
+- [x] Capture bounded and redacted process diagnostics.
+- [x] Implement a provider readiness check.
+- [x] Implement startup timeout and failed-process cleanup.
+- [x] Prevent duplicate starts for one ElectroBoy workspace.
+- [x] Reuse a ready instance across panes and pop-outs.
+- [x] Enforce the configured maximum live-instance count and idle cleanup.
+- [x] Close every listener, socket, watcher, pipe, and diagnostic stream when an
       instance stops, crashes, or fails startup.
-- [ ] Add repeated open, close, project-switch, and restart tests that monitor
+- [x] Add repeated open, close, project-switch, and restart tests that monitor
       file-descriptor counts and prove resource use remains bounded.
 - [ ] Stop instances on project deactivation and service shutdown.
-- [ ] Add lifecycle, concurrency, crash, restart, and shutdown tests.
+- [x] Add lifecycle, concurrency, crash, restart, and shutdown tests.
 
 Commit boundary: OpenVSCode instance lifecycle.
 

@@ -16,6 +16,8 @@ from .domain import (
     IDEWorkspace,
 )
 from .installer import ManagedRuntimeInstaller
+from .manager import IDEInstanceManager
+from .openvscode import OpenVSCodeProvider
 from .ownership import IDEInstanceRegistry
 from .resolver import OpenVSCodeRuntimeResolver
 
@@ -25,6 +27,7 @@ __all__ = [
     "IDEError",
     "IDEErrorCategory",
     "IDEInstance",
+    "IDEInstanceManager",
     "IDEInstanceRegistry",
     "IDEInstanceStatus",
     "IDELocation",
@@ -36,6 +39,7 @@ __all__ = [
     "IDEWorkspace",
     "ManagedRuntimeInstaller",
     "OpenVSCodeRuntimeResolver",
+    "OpenVSCodeProvider",
     "RuntimeInstaller",
     "RuntimeResolver",
 ]

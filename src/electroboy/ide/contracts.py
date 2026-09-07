@@ -52,6 +52,12 @@ class IDEProvider(Protocol):
 
     def status(self, instance: IDEInstance) -> IDEInstanceStatus: ...
 
+    def wait_until_ready(
+        self,
+        instance: IDEInstance,
+        timeout: float,
+    ) -> IDEInstance: ...
+
     def endpoint(self, instance: IDEInstance) -> IDEEndpoint: ...
 
     def open_location(
