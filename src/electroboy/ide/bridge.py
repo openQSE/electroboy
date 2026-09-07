@@ -328,6 +328,8 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
         ),
         "key_group": key_group or None,
         "named_key": named_key or None,
+        "physical_code": str(payload.get("physical_code") or "")[:32] or None,
+        "key_code": max(0, _optional_int(payload.get("key_code")) or 0),
         "vim_motion": bool(payload.get("vim_motion")),
         "repeat": bool(payload.get("repeat")),
         "default_prevented": bool(payload.get("default_prevented")),

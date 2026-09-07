@@ -129,6 +129,8 @@ class IDEBridgeTests(unittest.TestCase):
                 "editor_mode": "neovim",
                 "key_group": "printable",
                 "named_key": "x",
+                "physical_code": "KeyX",
+                "key_code": 88,
                 "vim_motion": False,
                 "frame_has_focus": True,
                 "target_kind": "textarea",
@@ -141,6 +143,8 @@ class IDEBridgeTests(unittest.TestCase):
 
         self.assertEqual(event["source"], "browser")
         self.assertIsNone(event["named_key"])
+        self.assertEqual(event["physical_code"], "KeyX")
+        self.assertEqual(event["key_code"], 88)
         self.assertEqual(event["modifiers"]["control"], True)
         self.assertNotIn("source_text", event)
         self.assertNotIn("auth", event)
@@ -192,6 +196,29 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertIn('executeCommand("_getNeovimClient")', source)
         self.assertIn('recordInputEffect("neovim-state"', source)
         self.assertNotIn("contentChange.text", source)
+
+    def test_extension_owns_observable_neovim_arrow_dispatch(self) -> None:
+        extension_root = (
+            Path(__file__).resolve().parents[1]
+            / "src/electroboy/ide/extensions/electroboy-bridge"
+        )
+        package = json.loads(extension_root.joinpath("package.json").read_text())
+        bindings = package["contributes"]["keybindings"]
+
+        self.assertEqual(
+            {binding["key"] for binding in bindings},
+            {"up", "down", "left", "right"},
+        )
+        self.assertTrue(
+            all(
+                binding["command"] == "electroboy.neovim.sendKey"
+                for binding in bindings
+            )
+        )
+        source = extension_root.joinpath("extension.js").read_text()
+        self.assertIn('registerCommand(\n      "electroboy.neovim.sendKey"', source)
+        self.assertIn('recordInputEffect("neovim-keybinding-invoked"', source)
+        self.assertIn('recordInputEffect("neovim-keybinding-forwarded"', source)
 
     def envelope(self, payload: dict[str, object]) -> dict[str, object]:
         return {

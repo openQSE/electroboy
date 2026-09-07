@@ -105,6 +105,8 @@
         editor_mode: currentNeovim?.enabled ? "neovim" : "standard",
         key_group: key ? inputKeyGroup(key) : null,
         named_key: key.length > 1 ? key : null,
+        physical_code: String(event?.code || "").slice(0, 32) || null,
+        key_code: Number(event?.keyCode || 0),
         vim_motion: key.length === 1 && "hjkl".includes(key.toLowerCase()),
         repeat: Boolean(event?.repeat),
         default_prevented: Boolean(event?.defaultPrevented),

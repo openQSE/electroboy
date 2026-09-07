@@ -13,6 +13,8 @@ from .domain import IDEProfile
 MANAGED_IDE_SETTINGS: dict[str, object] = {
     # vscode-neovim 1.19 requires Monaco's textarea input path for key dispatch.
     "editor.editContext": False,
+    # Resolve browser keyboard input by logical key rather than physical layout.
+    "keyboard.dispatch": "keyCode",
     "telemetry.telemetryLevel": "off",
     "workbench.enableExperiments": False,
     "update.mode": "none",

@@ -41,11 +41,13 @@ class IDEProfileTests(unittest.TestCase):
             )
             self.assertEqual(settings["workbench.colorTheme"], "ElectroBoy")
             self.assertFalse(settings["editor.editContext"])
+            self.assertEqual(settings["keyboard.dispatch"], "keyCode")
             self.assertEqual(
                 machine_settings["workbench.colorTheme"],
                 "ElectroBoy",
             )
             self.assertFalse(machine_settings["editor.editContext"])
+            self.assertEqual(machine_settings["keyboard.dispatch"], "keyCode")
             self.assertEqual(settings["electroboy.bridge.directory"], "/tmp/bridge")
             self.assertEqual(
                 machine_settings["electroboy.bridge.directory"],
@@ -65,7 +67,7 @@ class IDEProfileTests(unittest.TestCase):
             )
             self.assertEqual(
                 registered["electroboy.electroboy-bridge"]["version"],
-                "1.3.0",
+                "1.4.0",
             )
             self.assertTrue(
                 (
