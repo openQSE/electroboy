@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -19,6 +18,11 @@ from typing import BinaryIO
 from .contracts import ProgressCallback
 from .domain import IDEError, IDEErrorCategory, IDERuntime, IDERuntimeMode
 from .resolver import OpenVSCodeRuntimeResolver
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on non-POSIX hosts
+    fcntl = None  # type: ignore[assignment]
 
 OpenURL = Callable[..., BinaryIO]
 _LOCKS: dict[Path, threading.Lock] = {}
@@ -228,11 +232,13 @@ def _lock_for(path: Path) -> threading.Lock:
 @contextlib.contextmanager
 def _file_lock(path: Path):
     with path.open("a+b") as stream:
-        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 def _report(

@@ -695,30 +695,30 @@ Commit boundary: OpenVSCode instance lifecycle.
 
 ### 6. Implement IDE Network Sandboxing
 
-- [ ] Define provider-neutral `deny`, `allowlist`, and `audit` egress policies.
-- [ ] Default the managed IDE profile to `deny`.
-- [ ] Implement the Linux network-sandbox adapter and ElectroBoy egress broker.
-- [ ] Place OpenVSCode and every descendant process in the sandbox, including
+- [x] Define provider-neutral `deny`, `allowlist`, and `audit` egress policies.
+- [x] Default the managed IDE profile to `deny`.
+- [x] Implement the Linux network-sandbox adapter and ElectroBoy egress broker.
+- [x] Place OpenVSCode and every descendant process in the sandbox, including
       extension hosts, language servers, tasks, debug adapters, and terminals.
-- [ ] Permit only authenticated ElectroBoy control traffic in `deny` mode.
-- [ ] Record process, protocol, DNS, destination, port, rule, disposition, and
+- [x] Permit only authenticated ElectroBoy control traffic in `deny` mode.
+- [x] Record process, protocol, DNS, destination, port, rule, disposition, and
       bounded connection statistics without recording transmitted content.
-- [ ] Redact credentials, tokens, query values, headers, and repository content.
-- [ ] Add workspace-scoped destination and port rules for `allowlist` mode.
-- [ ] Add an explicit warning before enabling permissive `audit` mode.
+- [x] Redact credentials, tokens, query values, headers, and repository content.
+- [x] Add workspace-scoped destination and port rules for `allowlist` mode.
+- [x] Add an explicit warning before enabling permissive `audit` mode.
 - [ ] Apply restrictive CSP and same-origin proxy rules to IDE pages, webviews,
       service workers, and extension browser code.
 - [ ] Apply the equivalent report-only CSP and proxy logging in `audit` mode.
-- [ ] Collect and sanitize browser CSP violation reports.
+- [x] Collect and sanitize browser CSP violation reports.
 - [ ] Package required browser assets locally or route them through explicit,
       logged broker rules.
-- [ ] Disable product telemetry, feedback prompts, automatic update checks, and
+- [x] Disable product telemetry, feedback prompts, automatic update checks, and
       automatic extension updates in the managed profile.
 - [ ] Route ElectroBoy-managed runtime and extension downloads through the
       shared audited download client.
 - [ ] Expose mode, enforcement status, recent events, rule management, temporary
       exceptions, and log clearing through the IDE pane context menu.
-- [ ] Report unsupported enforcement instead of silently degrading to an
+- [x] Report unsupported enforcement instead of silently degrading to an
       unenforced policy.
 - [ ] Test TCP, UDP, DNS, direct IP, proxy bypass, spawned-child, extension-host,
       terminal, task, language-server, WebSocket, webview, and service-worker

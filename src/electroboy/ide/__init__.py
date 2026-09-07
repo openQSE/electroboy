@@ -20,9 +20,23 @@ from .manager import IDEInstanceManager
 from .openvscode import OpenVSCodeProvider
 from .ownership import IDEInstanceRegistry
 from .resolver import OpenVSCodeRuntimeResolver
+from .sandbox import (
+    CSPViolationStore,
+    IDEEgressEvent,
+    IDEEgressMode,
+    IDEEgressPolicy,
+    IDEEgressRule,
+    LinuxNetworkSandbox,
+    ide_content_security_policy,
+)
 
 __all__ = [
+    "CSPViolationStore",
     "IDEEditorContext",
+    "IDEEgressEvent",
+    "IDEEgressMode",
+    "IDEEgressPolicy",
+    "IDEEgressRule",
     "IDEEndpoint",
     "IDEError",
     "IDEErrorCategory",
@@ -38,8 +52,10 @@ __all__ = [
     "IDERuntimeOrigin",
     "IDEWorkspace",
     "ManagedRuntimeInstaller",
+    "LinuxNetworkSandbox",
     "OpenVSCodeRuntimeResolver",
     "OpenVSCodeProvider",
     "RuntimeInstaller",
     "RuntimeResolver",
+    "ide_content_security_policy",
 ]

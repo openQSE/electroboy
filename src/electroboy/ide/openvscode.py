@@ -26,13 +26,15 @@ from .domain import (
     IDERuntime,
     IDEWorkspace,
 )
+from .processes import DirectIDEProcessLauncher, IDEProcessLaunch, IDEProcessLauncher
+from .profile import configure_managed_profile
 
 _QUERY_VALUE = re.compile(r"([?&][^=\s]+)=([^&\s]+)")
 
 
 @dataclass
 class _ProviderProcess:
-    process: subprocess.Popen[str]
+    launch: IDEProcessLaunch
     token: str
     socket_path: Path
     output: deque[str]
@@ -45,8 +47,14 @@ class OpenVSCodeProvider:
 
     provider_id = "openvscode"
 
-    def __init__(self, *, diagnostic_limit: int = 200) -> None:
+    def __init__(
+        self,
+        *,
+        diagnostic_limit: int = 200,
+        process_launcher: IDEProcessLauncher | None = None,
+    ) -> None:
         self.diagnostic_limit = max(10, diagnostic_limit)
+        self.process_launcher = process_launcher or DirectIDEProcessLauncher()
         self._processes: dict[str, _ProviderProcess] = {}
         self._lock = threading.RLock()
 
@@ -64,6 +72,7 @@ class OpenVSCodeProvider:
             profile.logs,
         ):
             path.mkdir(parents=True, exist_ok=True)
+        configure_managed_profile(profile)
         socket_path = profile.root / "openvscode.sock"
         socket_path.unlink(missing_ok=True)
         token = secrets.token_urlsafe(32)
@@ -76,16 +85,10 @@ class OpenVSCodeProvider:
             token=token,
         )
         try:
-            process = subprocess.Popen(
+            launch = self.process_launcher.launch(
                 arguments,
                 cwd=workspace.project_root,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                start_new_session=True,
+                profile=profile,
             )
         except OSError as error:
             raise IDEError(
@@ -96,11 +99,11 @@ class OpenVSCodeProvider:
         output: deque[str] = deque(maxlen=self.diagnostic_limit)
         reader = threading.Thread(
             target=self._read_output,
-            args=(process, output, token),
+            args=(launch, output, token),
             name=f"{instance_id}-output",
             daemon=True,
         )
-        state = _ProviderProcess(process, token, socket_path, output, reader)
+        state = _ProviderProcess(launch, token, socket_path, output, reader)
         with self._lock:
             self._processes[instance_id] = state
         reader.start()
@@ -112,7 +115,7 @@ class OpenVSCodeProvider:
             profile=profile,
             status=IDEInstanceStatus.STARTING,
             endpoint=IDEEndpoint("unix", str(socket_path), token),
-            process_id=process.pid,
+            process_id=launch.process.pid,
             started_at=time.time(),
         )
 
@@ -144,7 +147,7 @@ class OpenVSCodeProvider:
 
     def status(self, instance: IDEInstance) -> IDEInstanceStatus:
         state = self._state(instance)
-        return_code = state.process.poll()
+        return_code = state.launch.process.poll()
         if return_code is not None:
             return (
                 IDEInstanceStatus.STOPPED
@@ -215,7 +218,7 @@ class OpenVSCodeProvider:
                 stopped_at=time.time(),
             )
         state.stopped = True
-        process = state.process
+        process = state.launch.process
         if process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -238,6 +241,11 @@ class OpenVSCodeProvider:
             state = self._processes.get(instance_id)
             return list(state.output) if state is not None else []
 
+    def enforcement(self, instance_id: str) -> dict[str, object]:
+        with self._lock:
+            state = self._processes.get(instance_id)
+            return dict(state.launch.enforcement) if state is not None else {}
+
     def _state(self, instance: IDEInstance) -> _ProviderProcess:
         with self._lock:
             state = self._processes.get(instance.instance_id)
@@ -253,20 +261,23 @@ class OpenVSCodeProvider:
             state = self._processes.pop(instance_id, None)
         if state is None:
             return
-        if state.process.stdout is not None:
-            state.process.stdout.close()
+        if state.launch.process.stdout is not None:
+            state.launch.process.stdout.close()
         state.reader.join(timeout=1)
+        state.launch.cleanup()
         state.socket_path.unlink(missing_ok=True)
 
     @staticmethod
     def _read_output(
-        process: subprocess.Popen[str],
+        launch: IDEProcessLaunch,
         output: deque[str],
         token: str,
     ) -> None:
+        process = launch.process
         if process.stdout is None:
             return
         for line in process.stdout:
+            launch.line_observer(line)
             sanitized = line.strip().replace(token, "[REDACTED]")
             sanitized = _QUERY_VALUE.sub(r"\1=[REDACTED]", sanitized)
             if sanitized:
