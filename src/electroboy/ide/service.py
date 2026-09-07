@@ -139,6 +139,7 @@ class IDEService:
             self.configuration.data_root,
             self.download_client,
             platform=self.resolver.platform,
+            architecture=self.resolver.architecture,
         )
         default_policy = IDEEgressPolicy(
             self.configuration.egress_mode,
@@ -437,6 +438,14 @@ class IDEService:
         executable: str = "",
     ) -> dict[str, object]:
         return self.neovim.configure(enabled=enabled, executable=executable)
+
+    def launch_neovim(self, workspace_id: str) -> dict[str, object]:
+        profile = self.manager.profile_for(workspace_id)
+        status = self.neovim.launch(profile)
+        return {
+            **status,
+            "restart_required": self.manager.status(workspace_id) is not None,
+        }
 
     def editor_context(self, workspace_id: str) -> dict[str, object] | None:
         instance = self.manager.status(workspace_id)

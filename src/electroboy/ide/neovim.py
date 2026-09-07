@@ -14,9 +14,12 @@ from dataclasses import asdict, dataclass
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
 
+from .artifacts import RuntimeArtifactManifest, load_runtime_manifest
 from .domain import IDEProfile
 from .downloads import AuditedDownloadClient
+from .installer import ManagedRuntimeInstaller
 from .profile import configure_managed_profile
+from .resolver import ManagedRuntimeResolver
 
 _VERSION = re.compile(r"NVIM\s+v?(\d+)\.(\d+)\.(\d+)", re.IGNORECASE)
 _INSTALL_LOCK = threading.Lock()
@@ -49,11 +52,24 @@ class NeovimProfileManager:
         download_client: AuditedDownloadClient,
         *,
         platform: str = "linux",
+        architecture: str | None = None,
+        runtime_manifest: RuntimeArtifactManifest | None = None,
     ) -> None:
         self.data_root = data_root
         self.download_client = download_client
         self.platform = platform
         self.artifact = load_neovim_artifact()
+        self.runtime_resolver = ManagedRuntimeResolver(
+            runtime_manifest
+            or load_runtime_manifest(resource_name="neovim-runtime-artifacts.json"),
+            data_root,
+            platform=platform,
+            architecture=architecture,
+        )
+        self.runtime_installer = ManagedRuntimeInstaller(
+            self.runtime_resolver,
+            download_client=download_client,
+        )
         self.config_path = data_root / "ide" / "neovim.json"
         self._last_status = self.status()
 
@@ -88,6 +104,19 @@ class NeovimProfileManager:
         configuration = self.configuration()
         status = self.status(configuration)
         destination = profile.extensions / self.extension_directory_name
+        if (
+            status["status"] == "unavailable"
+            and configuration.enabled
+            and not configuration.executable
+        ):
+            try:
+                self.runtime_installer.install()
+                status = self.status(configuration)
+            except Exception as error:
+                status = {
+                    **status,
+                    "reason": f"managed Neovim installation failed: {error}",
+                }
         if status["status"] != "enabled":
             shutil.rmtree(destination, ignore_errors=True)
             self._last_status = status
@@ -121,6 +150,19 @@ class NeovimProfileManager:
         self._last_status = status
         return status
 
+    def launch(self, profile: IDEProfile) -> dict[str, object]:
+        """Enable Neovim, prepare its runtime and extension, and report readiness."""
+
+        configuration = self.configuration()
+        enabled_configuration = NeovimConfiguration(True, configuration.executable)
+        if self.status(enabled_configuration)["status"] != "enabled":
+            enabled_configuration = NeovimConfiguration(True, "")
+        self.configure(
+            enabled=enabled_configuration.enabled,
+            executable=enabled_configuration.executable,
+        )
+        return self.prepare(profile)
+
     def status(
         self,
         configuration: NeovimConfiguration | None = None,
@@ -131,6 +173,7 @@ class NeovimProfileManager:
             "enabled": selected.enabled,
             "configured_executable": selected.executable or None,
             "executable": None,
+            "origin": None,
             "version": None,
             "minimum_version": self.artifact.minimum_neovim_version,
             "extension": {
@@ -142,7 +185,7 @@ class NeovimProfileManager:
         }
         if not selected.enabled:
             return base
-        executable = self._resolve_executable(selected.executable)
+        executable, origin = self._resolve_executable(selected.executable)
         if executable is None:
             return {**base, "reason": "Neovim executable was not found"}
         version = _neovim_version(executable)
@@ -151,6 +194,7 @@ class NeovimProfileManager:
                 **base,
                 "status": "incompatible",
                 "executable": str(executable),
+                "origin": origin,
                 "reason": "Neovim returned an unrecognized version",
             }
         minimum = _version_tuple(self.artifact.minimum_neovim_version)
@@ -159,6 +203,7 @@ class NeovimProfileManager:
                 **base,
                 "status": "incompatible",
                 "executable": str(executable),
+                "origin": origin,
                 "version": ".".join(map(str, version)),
                 "reason": f"Neovim {self.artifact.minimum_neovim_version}+ is required",
             }
@@ -166,6 +211,7 @@ class NeovimProfileManager:
             **base,
             "status": "enabled",
             "executable": str(executable),
+            "origin": origin,
             "version": ".".join(map(str, version)),
         }
 
@@ -176,16 +222,21 @@ class NeovimProfileManager:
     def diagnostics(self) -> dict[str, object]:
         return dict(self._last_status)
 
-    def _resolve_executable(self, configured: str) -> Path | None:
+    def _resolve_executable(self, configured: str) -> tuple[Path | None, str | None]:
         if configured:
             candidate = Path(configured).expanduser().resolve()
             return (
-                candidate
+                (candidate, "configured")
                 if os.access(candidate, os.X_OK) and candidate.is_file()
-                else None
+                else (None, None)
             )
         discovered = shutil.which("nvim")
-        return Path(discovered).resolve() if discovered else None
+        if discovered:
+            return Path(discovered).resolve(), "system"
+        managed = self.runtime_installer.installed_runtime()
+        if managed is not None:
+            return managed.executable, "managed"
+        return None, None
 
     def _cached_extension(self) -> Path:
         target = (

@@ -47,13 +47,17 @@ class RuntimeArtifactManifest:
         )
 
 
-def load_runtime_manifest(path: Path | None = None) -> RuntimeArtifactManifest:
+def load_runtime_manifest(
+    path: Path | None = None,
+    *,
+    resource_name: str = "runtime-artifacts.json",
+) -> RuntimeArtifactManifest:
     """Load and validate the packaged runtime artifact manifest."""
 
     if path is None:
         raw = (
             resources.files("electroboy.ide")
-            .joinpath("runtime-artifacts.json")
+            .joinpath(resource_name)
             .read_text(encoding="utf-8")
         )
     else:

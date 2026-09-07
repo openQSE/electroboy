@@ -21,7 +21,7 @@ from .installer import ManagedRuntimeInstaller
 from .manager import IDEInstanceManager
 from .openvscode import OpenVSCodeProvider
 from .ownership import IDEInstanceRegistry
-from .resolver import OpenVSCodeRuntimeResolver
+from .resolver import ManagedRuntimeResolver, OpenVSCodeRuntimeResolver
 from .sandbox import (
     CSPViolationStore,
     IDEEgressEvent,
@@ -60,6 +60,7 @@ __all__ = [
     "IDEWorkspace",
     "IDEWorkspaceEgress",
     "ManagedRuntimeInstaller",
+    "ManagedRuntimeResolver",
     "LinuxNetworkSandbox",
     "WorkspaceNetworkSandbox",
     "OpenVSCodeRuntimeResolver",

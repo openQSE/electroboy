@@ -30,6 +30,7 @@ def test_ide_package_contains_runtime_metadata_extensions_and_notices() -> None:
     package = files("electroboy.ide")
 
     assert package.joinpath("runtime-artifacts.json").is_file()
+    assert package.joinpath("neovim-runtime-artifacts.json").is_file()
     assert package.joinpath("extension-artifacts.json").is_file()
     assert package.joinpath("THIRD_PARTY-NOTICES.md").is_file()
     assert package.joinpath(

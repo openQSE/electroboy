@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -11,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from electroboy.ide import IDEProfile
+from electroboy.ide.artifacts import RuntimeArtifact, RuntimeArtifactManifest
 from electroboy.ide.downloads import AuditedDownloadClient
 from electroboy.ide.neovim import NeovimProfileManager
 
@@ -43,6 +45,17 @@ def extension_archive() -> bytes:
 def fake_nvim(path: Path, version: str) -> None:
     path.write_text(f"#!/bin/sh\nprintf 'NVIM v{version}\\n'\n", encoding="utf-8")
     path.chmod(0o755)
+
+
+def neovim_archive(version: str = "0.10.4") -> bytes:
+    output = io.BytesIO()
+    content = f"#!/bin/sh\nprintf 'NVIM v{version}\\n'\n".encode()
+    with tarfile.open(fileobj=output, mode="w:gz") as bundle:
+        entry = tarfile.TarInfo("nvim-test/bin/nvim")
+        entry.mode = 0o755
+        entry.size = len(content)
+        bundle.addfile(entry, io.BytesIO(content))
+    return output.getvalue()
 
 
 class IDENeovimTests(unittest.TestCase):
@@ -118,6 +131,88 @@ class IDENeovimTests(unittest.TestCase):
         self.assertEqual(user_config.read_text(), "-- user config\n")
         stored = json.loads(self.manager.config_path.read_text())
         self.assertEqual(stored["executable"], "/custom/nvim")
+
+    def test_prepare_installs_managed_neovim_when_system_runtime_is_missing(
+        self,
+    ) -> None:
+        runtime = neovim_archive()
+        runtime_artifact = RuntimeArtifact(
+            platform="linux",
+            architecture="x86_64",
+            url="https://example.invalid/neovim.tar.gz",
+            sha256=hashlib.sha256(runtime).hexdigest(),
+            size=len(runtime),
+            archive_format="tar.gz",
+            archive_root="nvim-test",
+            executable="bin/nvim",
+        )
+        manifest = RuntimeArtifactManifest(
+            1,
+            "neovim",
+            "0.10.4",
+            (runtime_artifact,),
+        )
+
+        def open_url(request, **_kwargs):
+            return Response(
+                runtime
+                if str(request.full_url).endswith("neovim.tar.gz")
+                else self.archive
+            )
+
+        downloads = AuditedDownloadClient(open_url=open_url)
+        manager = NeovimProfileManager(
+            self.root,
+            downloads,
+            architecture="x86_64",
+            runtime_manifest=manifest,
+        )
+        manager.artifact = replace(
+            manager.artifact,
+            url="https://example.invalid/vscode-neovim.vsix",
+            size=len(self.archive),
+            sha256=hashlib.sha256(self.archive).hexdigest(),
+        )
+
+        status = manager.prepare(self.profile)
+
+        self.assertEqual(status["status"], "enabled")
+        self.assertEqual(status["origin"], "managed")
+        self.assertTrue(status["installed"])
+        self.assertEqual(
+            [event["status"] for event in downloads.events()],
+            ["verified", "verified"],
+        )
+
+    def test_managed_neovim_failure_keeps_profile_available(self) -> None:
+        runtime = neovim_archive()
+        artifact = RuntimeArtifact(
+            platform="linux",
+            architecture="x86_64",
+            url="https://example.invalid/neovim.tar.gz",
+            sha256=hashlib.sha256(runtime).hexdigest(),
+            size=len(runtime),
+            archive_format="tar.gz",
+            archive_root="nvim-test",
+            executable="bin/nvim",
+        )
+        manager = NeovimProfileManager(
+            self.root,
+            AuditedDownloadClient(open_url=lambda *_args, **_kwargs: Response(b"bad")),
+            architecture="x86_64",
+            runtime_manifest=RuntimeArtifactManifest(
+                1,
+                "neovim",
+                "0.10.4",
+                (artifact,),
+            ),
+        )
+
+        status = manager.prepare(self.profile)
+
+        self.assertEqual(status["status"], "unavailable")
+        self.assertIn("managed Neovim installation failed", status["reason"])
+        self.assertFalse(status["installed"])
 
 
 @unittest.skipUnless(

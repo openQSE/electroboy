@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 from .contracts import ProgressCallback
 from .domain import IDEError, IDEErrorCategory, IDERuntime, IDERuntimeMode
 from .downloads import AuditedDownloadClient, OpenURL
-from .resolver import OpenVSCodeRuntimeResolver
+from .resolver import ManagedRuntimeResolver
 
 try:
     import fcntl
@@ -30,7 +30,7 @@ class ManagedRuntimeInstaller:
 
     def __init__(
         self,
-        resolver: OpenVSCodeRuntimeResolver,
+        resolver: ManagedRuntimeResolver,
         *,
         open_url: OpenURL | None = None,
         download_client: AuditedDownloadClient | None = None,
@@ -68,6 +68,11 @@ class ManagedRuntimeInstaller:
             shutil.rmtree(child)
             removed.append(child)
         return removed
+
+    def installed_runtime(self) -> IDERuntime | None:
+        """Return the managed runtime only when its pinned install is intact."""
+
+        return self._verified_existing()
 
     def _verified_existing(self) -> IDERuntime | None:
         target = self.resolver.managed_install_root()

@@ -43,6 +43,7 @@ electroboy = [
 "electroboy.ide" = [
   "THIRD_PARTY-NOTICES.md",
   "runtime-artifacts.json",
+  "neovim-runtime-artifacts.json",
   "extension-artifacts.json",
   "extensions/*/*.json",
   "extensions/*/*/*.json",

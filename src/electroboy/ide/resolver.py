@@ -28,8 +28,8 @@ _ARCHITECTURE_ALIASES = {
 }
 
 
-class OpenVSCodeRuntimeResolver:
-    """Resolve a configured or managed OpenVSCode Server executable."""
+class ManagedRuntimeResolver:
+    """Resolve a configured or managed executable runtime."""
 
     def __init__(
         self,
@@ -185,3 +185,7 @@ def normalize_architecture(value: str) -> str:
 
 def _is_executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
+
+
+class OpenVSCodeRuntimeResolver(ManagedRuntimeResolver):
+    """Compatibility name for the OpenVSCode runtime resolver."""

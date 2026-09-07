@@ -3,7 +3,8 @@
 ElectroBoy can download and run the following pinned third-party software. The
 runtime and external extension are not included in the ElectroBoy source tree
 or wheel. Their artifact URLs, versions, and checksums are recorded in
-`runtime-artifacts.json` and `extension-artifacts.json`.
+`runtime-artifacts.json`, `neovim-runtime-artifacts.json`, and
+`extension-artifacts.json`.
 
 ## OpenVSCode Server
 
@@ -64,3 +65,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Neovim
+
+Project: Neovim
+
+Version: 0.10.4
+
+Source: https://github.com/neovim/neovim
+
+License: Apache-2.0
+
+The complete license and copyright notices are included in the downloaded
+Neovim distribution.

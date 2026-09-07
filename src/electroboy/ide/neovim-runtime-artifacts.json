@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "provider": "neovim",
+  "version": "0.10.4",
+  "artifacts": [
+    {
+      "platform": "linux",
+      "architecture": "x86_64",
+      "url": "https://github.com/neovim/neovim/releases/download/v0.10.4/nvim-linux-x86_64.tar.gz",
+      "sha256": "95aaa8e89473f5421114f2787c13ae0ec6e11ebbd1a13a1bd6fcf63420f8073f",
+      "size": 12007371,
+      "archive_format": "tar.gz",
+      "archive_root": "nvim-linux-x86_64",
+      "executable": "bin/nvim"
+    },
+    {
+      "platform": "linux",
+      "architecture": "arm64",
+      "url": "https://github.com/neovim/neovim/releases/download/v0.10.4/nvim-linux-arm64.tar.gz",
+      "sha256": "c819bf47a9878013ba35ceae87125dd170ede4a72844d049fb35f781045872eb",
+      "size": 11980554,
+      "archive_format": "tar.gz",
+      "archive_root": "nvim-linux-arm64",
+      "executable": "bin/nvim"
+    }
+  ]
+}
