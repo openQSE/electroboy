@@ -79,5 +79,11 @@ def test_course_prompts_use_raw_knowledge_and_markdown_body_fields() -> None:
         assert '"end_line": 95' in prompt
         assert '"symbol": "important_symbol"' in prompt
         assert '"reason": "Why this source range supports the slide"' in prompt
-        assert "always write every section as exactly that\nform of JSON object" in prompt
+        assert (
+            "always write every section as exactly that\nform of JSON object"
+            in prompt
+        )
         assert "Do not omit, rename, or alias `source_refs`" in prompt
+        assert "actually render it with Mermaid 11" in prompt
+        assert "Mermaid-generated error diagrams as failures" in prompt
+        assert "render it again" in prompt

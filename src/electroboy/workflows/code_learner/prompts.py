@@ -223,6 +223,13 @@ section record's `body` field. Put explanatory prose, lists, tables, code blocks
 symbol references, and fenced Mermaid diagrams in `body`; put structured source
 locations in `source_refs`. Do not leave lesson details only in titles,
 metadata, or the course index.
+
+Before finalizing any lesson file, extract every fenced Mermaid diagram and
+actually render it with Mermaid 11 using an available Mermaid CLI or a temporary
+browser page. Reviewing the diagram source or only checking its shape is not
+enough. Treat parser failures and Mermaid-generated error diagrams as failures.
+Correct every failing diagram and render it again. Write the lesson files only
+after every included Mermaid diagram renders successfully.
 """.strip()
 
 
