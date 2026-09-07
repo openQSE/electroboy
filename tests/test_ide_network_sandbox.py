@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 import unittest
@@ -16,6 +17,7 @@ from electroboy.ide import (
     IDEEgressRule,
     IDEError,
     IDEInstanceManager,
+    IDEProfile,
     IDERuntime,
     IDERuntimeMode,
     IDERuntimeOrigin,
@@ -25,6 +27,11 @@ from electroboy.ide import (
     ide_content_security_policy,
 )
 from electroboy.ide.profile import MANAGED_IDE_SETTINGS
+from electroboy.ide.sandbox import _prepare_runtime_directories
+
+
+def _triples(values: list[str]) -> list[list[str]]:
+    return [values[index : index + 3] for index in range(len(values) - 2)]
 
 
 def network_probe_provider(path: Path) -> None:
@@ -129,6 +136,63 @@ class IDENetworkSandboxTests(unittest.TestCase):
 
         self.assertFalse(status["enforced"])
         self.assertEqual(status["missing_tools"], ["unshare", "bwrap", "strace"])
+
+    def test_private_runtime_directories_are_writable_inside_sandbox(self) -> None:
+        profile = IDEProfile(
+            root=self.root / "profile",
+            user_data=self.root / "profile/user-data",
+            extensions=self.root / "profile/extensions",
+            server_data=self.root / "profile/server-data",
+            logs=self.root / "profile/logs",
+        )
+        sandbox_root = profile.root / "network-sandbox"
+        stale_runtime_socket = sandbox_root / "runtime/vscode-ipc-stale.sock"
+        stale_runtime_socket.parent.mkdir(parents=True)
+        stale_runtime_socket.touch()
+        temporary, runtime, cache, state = _prepare_runtime_directories(sandbox_root)
+        sandbox = LinuxNetworkSandbox()
+
+        command = sandbox._command(
+            ["provider"],
+            self.root,
+            profile,
+            sandbox_root / "namespace.ready",
+            sandbox_root / "namespace.go",
+            sandbox_root / "resolv.conf",
+            temporary,
+            runtime,
+            cache,
+            state,
+        )
+
+        self.assertTrue(temporary.is_dir())
+        self.assertTrue(runtime.is_dir())
+        self.assertFalse(stale_runtime_socket.exists())
+        self.assertTrue(cache.is_dir())
+        self.assertTrue(state.is_dir())
+        self.assertEqual(temporary.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(runtime.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(cache.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(state.stat().st_mode & 0o777, 0o700)
+        runtime_mount = f"/run/user/{os.getuid()}"
+        self.assertIn(["--bind", str(temporary), "/tmp"], _triples(command))
+        self.assertIn(
+            ["--bind", str(runtime), runtime_mount],
+            _triples(command),
+        )
+        self.assertIn(["--setenv", "TMPDIR", "/tmp"], _triples(command))
+        self.assertIn(
+            ["--setenv", "XDG_RUNTIME_DIR", runtime_mount],
+            _triples(command),
+        )
+        self.assertIn(
+            ["--setenv", "XDG_CACHE_HOME", str(cache)],
+            _triples(command),
+        )
+        self.assertIn(
+            ["--setenv", "XDG_STATE_HOME", str(state)],
+            _triples(command),
+        )
 
     def test_event_observation_is_payload_free_and_bounded(self) -> None:
         sandbox = LinuxNetworkSandbox(event_limit=10)

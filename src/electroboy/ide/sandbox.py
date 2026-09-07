@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import shutil
 import socket
@@ -210,6 +211,7 @@ class LinuxNetworkSandbox:
             )
         sandbox_root = profile.root / "network-sandbox"
         sandbox_root.mkdir(parents=True, exist_ok=True)
+        temporary, runtime, cache, state = _prepare_runtime_directories(sandbox_root)
         ready = sandbox_root / "namespace.ready"
         go = sandbox_root / "namespace.go"
         ready.unlink(missing_ok=True)
@@ -223,6 +225,10 @@ class LinuxNetworkSandbox:
             ready,
             go,
             resolv_conf,
+            temporary,
+            runtime,
+            cache,
+            state,
         )
         try:
             process = subprocess.Popen(
@@ -269,6 +275,8 @@ class LinuxNetworkSandbox:
                         helper.wait(timeout=2)
             ready.unlink(missing_ok=True)
             go.unlink(missing_ok=True)
+            shutil.rmtree(temporary, ignore_errors=True)
+            shutil.rmtree(runtime, ignore_errors=True)
 
         return IDEProcessLaunch(
             process,
@@ -324,7 +332,12 @@ class LinuxNetworkSandbox:
         ready: Path,
         go: Path,
         resolv_conf: Path,
+        temporary: Path,
+        runtime: Path,
+        cache: Path,
+        state: Path,
     ) -> list[str]:
+        runtime_mount = f"/run/user/{os.getuid()}"
         trace = [
             "strace",
             "-f",
@@ -349,15 +362,33 @@ class LinuxNetworkSandbox:
             "/",
             "/",
             "--bind",
+            str(temporary),
+            "/tmp",
+            "--bind",
             str(cwd),
             str(cwd),
             "--bind",
             str(profile.root),
             str(profile.root),
+            "--bind",
+            str(runtime),
+            runtime_mount,
             "--dev",
             "/dev",
             "--proc",
             "/proc",
+            "--setenv",
+            "TMPDIR",
+            "/tmp",
+            "--setenv",
+            "XDG_RUNTIME_DIR",
+            runtime_mount,
+            "--setenv",
+            "XDG_CACHE_HOME",
+            str(cache),
+            "--setenv",
+            "XDG_STATE_HOME",
+            str(state),
         ]
         if self.policy.mode is IDEEgressMode.DENY:
             return [*command, "--", *trace]
@@ -475,6 +506,21 @@ class LinuxNetworkSandbox:
                         )
         for command in commands:
             _namespace_command(namespace_pid, command)
+
+
+def _prepare_runtime_directories(
+    sandbox_root: Path,
+) -> tuple[Path, Path, Path, Path]:
+    temporary = sandbox_root / "tmp"
+    runtime = sandbox_root / "runtime"
+    cache = sandbox_root / "cache"
+    state = sandbox_root / "state"
+    for directory in (temporary, runtime):
+        shutil.rmtree(directory, ignore_errors=True)
+    for directory in (temporary, runtime, cache, state):
+        directory.mkdir(parents=True, exist_ok=True)
+        directory.chmod(0o700)
+    return temporary, runtime, cache, state
 
 
 class WorkspaceNetworkSandbox(IDEProcessLauncher):
