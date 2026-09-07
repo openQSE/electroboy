@@ -724,7 +724,18 @@
       nav.outline.append(empty);
       return;
     }
+    let previousLesson = "";
     for (const step of steps) {
+      const lessonKey = [step.concept_title || "", step.lesson_title || ""].join("\n");
+      if (lessonKey !== previousLesson) {
+        appendOutlineLessonHeading(
+          nav.outline,
+          step.concept_title || "Course",
+          step.lesson_title || "Lesson",
+          Boolean(previousLesson),
+        );
+        previousLesson = lessonKey;
+      }
       const button = document.createElement("button");
       button.type = "button";
       button.className = "stage-action-button code-learner-step-button";
@@ -740,6 +751,22 @@
       });
       nav.outline.append(button);
     }
+  }
+
+  function appendOutlineLessonHeading(container, conceptTitle, lessonTitle, separated) {
+    if (separated) {
+      const separator = document.createElement("div");
+      separator.className = "code-learner-outline-separator";
+      separator.setAttribute("role", "separator");
+      container.append(separator);
+    }
+    const concept = document.createElement("div");
+    concept.className = "code-learner-outline-concept";
+    concept.textContent = conceptTitle;
+    const lesson = document.createElement("div");
+    lesson.className = "code-learner-outline-lesson";
+    lesson.textContent = lessonTitle;
+    container.append(concept, lesson);
   }
 
   function renderModuleOptions(modules, initialized) {

@@ -26,6 +26,31 @@
   min-width: 0;
 }
 
+.code-learner-outline-separator {
+  height: 1px;
+  margin: 8px 12px 6px 18px;
+  background: var(--border);
+}
+
+.code-learner-outline-concept,
+.code-learner-outline-lesson {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0 12px 0 18px;
+}
+
+.code-learner-outline-concept {
+  color: #24715e;
+  font-size: var(--ui-small-font-size);
+  font-weight: 700;
+}
+
+.code-learner-outline-lesson {
+  color: #48627a;
+  font-size: var(--ui-small-font-size);
+  font-weight: 600;
+}
+
 .code-learner-nav .stage-action-subgroup-trigger:hover:disabled,
 .code-learner-nav .stage-action-subgroup-trigger:disabled {
   background: transparent;

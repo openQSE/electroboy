@@ -160,6 +160,11 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         in frontend
     )
     assert "nav.outlineMenu.disabled = !Boolean(walkthrough);" in frontend
+    assert "function appendOutlineLessonHeading(" in frontend
+    assert 'separator.setAttribute("role", "separator");' in frontend
+    assert ".code-learner-outline-separator" in stylesheet
+    assert ".code-learner-outline-concept" in stylesheet
+    assert ".code-learner-outline-lesson" in stylesheet
     assert "function renderModuleOptions(modules, initialized)" in frontend
     assert "module.course_status" in frontend
     assert "function pollInitializationStatus(options = {})" in frontend
