@@ -334,6 +334,18 @@ class IDEServices(Protocol):
         payload: object,
     ) -> dict[str, object]: ...
 
+    def attach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
+
+    def detach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
+
 
 @dataclass(frozen=True)
 class ServiceServices:
@@ -641,6 +653,18 @@ class ServiceRuntimeBackend(Protocol):
     def ide_diagnostics(self, context_id: str) -> dict[str, object]: ...
 
     def record_ide_csp_violation(self, payload: object) -> dict[str, object]: ...
+
+    def attach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
+
+    def detach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
 
 
 @dataclass(frozen=True)
@@ -1127,6 +1151,20 @@ class RuntimeIDEServices:
 
     def record_csp_violation(self, payload: object) -> dict[str, object]:
         return self.runtime.record_ide_csp_violation(payload)
+
+    def attach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        return self.runtime.attach_ide_view(context_id, view_id)
+
+    def detach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        return self.runtime.detach_ide_view(context_id, view_id)
 
 
 def build_service_services(

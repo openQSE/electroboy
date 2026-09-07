@@ -408,6 +408,23 @@
       "scratch",
       "status",
     ]);
+    for (const module of window.ElectroBoyFrontend?.listModules?.() || []) {
+      for (const pane of Array.isArray(module.panes) ? module.panes : []) {
+        const kind = String(pane.id || "").trim();
+        if (!kind || PANE_LAYOUT_KINDS[kind]) {
+          continue;
+        }
+        PANE_LAYOUT_KINDS[kind] = {
+          label: String(pane.label || kind),
+          element: null,
+          moduleId: module.id,
+        };
+        if (pane.instance !== false) INSTANCE_PANE_LAYOUT_KINDS.add(kind);
+        if (pane.workspaceInstance) WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS.add(kind);
+        if (pane.singleton) SINGLETON_PANE_LAYOUT_KINDS.add(kind);
+        if (pane.restorable !== false) RESTORABLE_PANE_LAYOUT_KINDS.add(kind);
+      }
+    }
 
     function newPaneLayoutId(prefix = "pane") {
       paneLayoutIdSequence += 1;
@@ -2039,6 +2056,10 @@
       }
       if (kind === "mind-map") {
         return Boolean(window.ElectroBoyFrontend?.module("mind_map"));
+      }
+      const definition = PANE_LAYOUT_KINDS[kind];
+      if (definition?.moduleId) {
+        return Boolean(window.ElectroBoyFrontend?.module(definition.moduleId));
       }
       return true;
     }

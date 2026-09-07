@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .artifacts import load_runtime_manifest
 from .domain import (
+    IDEEndpoint,
     IDEError,
     IDEErrorCategory,
     IDEInstanceStatus,
@@ -18,6 +21,7 @@ from .domain import (
 from .installer import ManagedRuntimeInstaller
 from .manager import IDEInstanceManager
 from .openvscode import OpenVSCodeProvider
+from .proxy import IDEProxySessionStore, IDEUnixProxy
 from .resolver import OpenVSCodeRuntimeResolver
 from .sandbox import (
     CSPViolationStore,
@@ -36,6 +40,7 @@ class IDEConfiguration:
     system_executable: Path | None = None
     egress_mode: IDEEgressMode = IDEEgressMode.DENY
     maximum_instances: int = 2
+    maximum_views_per_instance: int = 2
     idle_timeout: float = 900
     startup_timeout: float = 30
 
@@ -59,6 +64,10 @@ class IDEConfiguration:
             maximum_instances=max(
                 1,
                 int(os.environ.get("ELECTROBOY_IDE_MAX_INSTANCES", "2")),
+            ),
+            maximum_views_per_instance=max(
+                1,
+                int(os.environ.get("ELECTROBOY_IDE_MAX_VIEWS", "2")),
             ),
             idle_timeout=max(
                 0,
@@ -99,6 +108,11 @@ class IDEService:
             startup_timeout=self.configuration.startup_timeout,
         )
         self.csp_violations = CSPViolationStore()
+        self.proxy_sessions = IDEProxySessionStore()
+        self.proxy = IDEUnixProxy(self.configuration.egress_mode)
+        self._views: dict[str, dict[str, float]] = {}
+        self._view_lock = threading.RLock()
+        self._view_timeout = 45.0
 
     def runtime_status(self) -> dict[str, object]:
         try:
@@ -148,6 +162,9 @@ class IDEService:
 
     def stop(self, workspace_id: str, reason: str = "requested") -> dict[str, object]:
         instance = self.manager.stop(workspace_id, reason)
+        self.proxy_sessions.revoke_workspace(workspace_id)
+        with self._view_lock:
+            self._views.pop(workspace_id, None)
         return {
             "status": "stopped",
             "instance": instance.public_payload() if instance else None,
@@ -172,6 +189,12 @@ class IDEService:
     def diagnostics(self, workspace_id: str) -> dict[str, object]:
         instance = self.manager.status(workspace_id)
         return {
+            "configuration": {
+                "runtime_mode": self.configuration.runtime_mode.value,
+                "egress_mode": self.configuration.egress_mode.value,
+                "managed_profile": True,
+                "theme": "ElectroBoy",
+            },
             "runtime": self.resolver.diagnostics(),
             "instance": instance.public_payload() if instance else None,
             "provider_output": (
@@ -186,13 +209,77 @@ class IDEService:
             "csp_violations": self.csp_violations.events(),
             "limits": {
                 "maximum_instances": self.configuration.maximum_instances,
+                "maximum_views_per_instance": (
+                    self.configuration.maximum_views_per_instance
+                ),
                 "idle_timeout": self.configuration.idle_timeout,
             },
+            "view_count": self._view_count(workspace_id),
         }
 
     def record_csp_violation(self, payload: object) -> dict[str, object]:
         event = self.csp_violations.record(payload)
         return {"status": "recorded" if event else "ignored"}
+
+    def proxy_endpoint(self, workspace_id: str) -> IDEEndpoint:
+        instance = self.manager.status(workspace_id)
+        if instance is None or instance.status is not IDEInstanceStatus.READY:
+            raise IDEError(
+                IDEErrorCategory.NOT_READY,
+                "IDE instance is not ready",
+                recoverable=True,
+            )
+        return self.provider.endpoint(instance)
+
+    def attach_view(self, workspace_id: str, view_id: str) -> dict[str, object]:
+        requested = view_id.strip()
+        if not requested:
+            raise ValueError("IDE view ID is required")
+        instance = self.manager.status(workspace_id)
+        if instance is None or instance.status is not IDEInstanceStatus.READY:
+            raise IDEError(
+                IDEErrorCategory.NOT_READY,
+                "IDE instance is not ready",
+                recoverable=True,
+            )
+        now = time.monotonic()
+        with self._view_lock:
+            views = self._views.setdefault(workspace_id, {})
+            self._prune_views(views, now)
+            if (
+                requested not in views
+                and len(views) >= self.configuration.maximum_views_per_instance
+            ):
+                raise IDEError(
+                    IDEErrorCategory.INSTANCE_LIMIT,
+                    "maximum IDE view count reached for this workspace",
+                    recoverable=True,
+                )
+            views[requested] = now
+            count = len(views)
+        self.manager.touch(workspace_id)
+        return {"status": "attached", "view_id": requested, "view_count": count}
+
+    def detach_view(self, workspace_id: str, view_id: str) -> dict[str, object]:
+        with self._view_lock:
+            views = self._views.get(workspace_id, {})
+            views.pop(view_id.strip(), None)
+            if not views:
+                self._views.pop(workspace_id, None)
+            count = len(views)
+        return {"status": "detached", "view_count": count}
+
+    def _view_count(self, workspace_id: str) -> int:
+        now = time.monotonic()
+        with self._view_lock:
+            views = self._views.get(workspace_id, {})
+            self._prune_views(views, now)
+            return len(views)
+
+    def _prune_views(self, views: dict[str, float], now: float) -> None:
+        for view_id, seen_at in list(views.items()):
+            if now - seen_at >= self._view_timeout:
+                views.pop(view_id, None)
 
     def close(self) -> None:
         self.manager.stop_all()

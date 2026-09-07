@@ -1,0 +1,82 @@
+{
+  "$schema": "vscode://schemas/color-theme",
+  "name": "ElectroBoy",
+  "type": "dark",
+  "colors": {
+    "activityBar.background": "#151B29",
+    "activityBar.foreground": "#E7EDF7",
+    "activityBar.inactiveForeground": "#8290A8",
+    "activityBarBadge.background": "#0F766E",
+    "activityBarBadge.foreground": "#FFFFFF",
+    "badge.background": "#0F766E",
+    "badge.foreground": "#FFFFFF",
+    "button.background": "#0F766E",
+    "button.foreground": "#FFFFFF",
+    "button.hoverBackground": "#12877E",
+    "descriptionForeground": "#AAB8CF",
+    "dropdown.background": "#1D2638",
+    "dropdown.border": "#364156",
+    "editor.background": "#10141F",
+    "editor.foreground": "#E7EDF7",
+    "editor.selectionBackground": "#234B61",
+    "editor.inactiveSelectionBackground": "#1B3548",
+    "editorCursor.foreground": "#66D9E8",
+    "editorGroup.border": "#364156",
+    "editorLineNumber.foreground": "#68758A",
+    "editorLineNumber.activeForeground": "#C7D2E3",
+    "editorWidget.background": "#151B29",
+    "focusBorder": "#66D9E8",
+    "input.background": "#10141F",
+    "input.border": "#364156",
+    "input.foreground": "#E7EDF7",
+    "list.activeSelectionBackground": "#0F766E",
+    "list.activeSelectionForeground": "#FFFFFF",
+    "list.hoverBackground": "#1D3041",
+    "menu.background": "#151B29",
+    "menu.foreground": "#E7EDF7",
+    "panel.background": "#10141F",
+    "panel.border": "#364156",
+    "sideBar.background": "#151B29",
+    "sideBar.foreground": "#C7D2E3",
+    "sideBarSectionHeader.background": "#1D2638",
+    "statusBar.background": "#0F766E",
+    "statusBar.foreground": "#FFFFFF",
+    "statusBar.noFolderBackground": "#364156",
+    "tab.activeBackground": "#10141F",
+    "tab.activeBorderTop": "#66D9E8",
+    "tab.activeForeground": "#FFFFFF",
+    "tab.border": "#364156",
+    "tab.inactiveBackground": "#151B29",
+    "tab.inactiveForeground": "#AAB8CF",
+    "terminal.background": "#10141F",
+    "terminal.foreground": "#E7EDF7",
+    "titleBar.activeBackground": "#151B29",
+    "titleBar.activeForeground": "#E7EDF7"
+  },
+  "tokenColors": [
+    {
+      "scope": ["comment", "punctuation.definition.comment"],
+      "settings": {"foreground": "#8290A8", "fontStyle": "italic"}
+    },
+    {
+      "scope": ["keyword", "storage.type", "storage.modifier"],
+      "settings": {"foreground": "#66D9E8"}
+    },
+    {
+      "scope": ["string", "constant.other.symbol"],
+      "settings": {"foreground": "#A7D7A9"}
+    },
+    {
+      "scope": ["entity.name.function", "support.function"],
+      "settings": {"foreground": "#F0C674"}
+    },
+    {
+      "scope": ["variable", "meta.definition.variable.name"],
+      "settings": {"foreground": "#E7EDF7"}
+    },
+    {
+      "scope": ["constant.numeric", "constant.language"],
+      "settings": {"foreground": "#D7A7E8"}
+    }
+  ]
+}

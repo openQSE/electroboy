@@ -136,6 +136,8 @@ class OpenVSCodeProvider:
             token,
             "--telemetry-level",
             "off",
+            "--server-base-path",
+            f"/ide/{workspace.workspace_id}",
             "--user-data-dir",
             str(profile.user_data),
             "--extensions-dir",

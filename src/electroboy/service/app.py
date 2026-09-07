@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import __version__
 from ..ide import IDELocation
@@ -823,6 +823,24 @@ class ServiceState:
 
     def record_ide_csp_violation(self, payload: object) -> dict[str, object]:
         return self.ide_service.record_csp_violation(payload)
+
+    def attach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.attach_view(context_id, view_id)
+
+    def detach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.detach_view(context_id, view_id)
 
     def start_requirements_agent(
         self,
@@ -2517,6 +2535,7 @@ def _handler_for(
 
     class ElectroBoyRequestHandler(BaseHTTPRequestHandler):
         server_version = "ElectroBoyService/0.1"
+        protocol_version = "HTTP/1.1"
 
         def _record_frontend_debug_response(
             self,
@@ -2640,6 +2659,9 @@ def _handler_for(
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
+            if path.startswith("/ide/"):
+                self._proxy_ide_request(path, parsed.query)
+                return
             if self._dispatch_registered_route("GET", path, parsed.query):
                 return
             if path == SPLASH_IMAGE_ROUTE:
@@ -2662,6 +2684,9 @@ def _handler_for(
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
+            if path.startswith("/ide/"):
+                self._proxy_ide_request(path, parsed.query)
+                return
             if self._dispatch_registered_route("POST", path, parsed.query):
                 return
             self._send_json(
@@ -2669,8 +2694,24 @@ def _handler_for(
                 status=HTTPStatus.NOT_FOUND,
             )
 
+        def do_PUT(self) -> None:
+            self._proxy_ide_method()
+
+        def do_PATCH(self) -> None:
+            self._proxy_ide_method()
+
+        def do_DELETE(self) -> None:
+            self._proxy_ide_method()
+
+        def do_OPTIONS(self) -> None:
+            self._proxy_ide_method()
+
         def do_HEAD(self) -> None:
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
+            if path.startswith("/ide/"):
+                self._proxy_ide_request(path, parsed.query)
+                return
             if path in {"/", "/index.html"}:
                 self._send_headers(
                     HTTPStatus.OK,
@@ -2715,6 +2756,71 @@ def _handler_for(
 
         def log_message(self, format: str, *args: Any) -> None:
             return
+
+        def _proxy_ide_method(self) -> None:
+            parsed = urlparse(self.path)
+            if not parsed.path.startswith("/ide/"):
+                self._send_json(
+                    {"error": "not found"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._proxy_ide_request(parsed.path, parsed.query)
+
+        def _proxy_ide_request(self, path: str, query: str) -> None:
+            parts = path.split("/", 3)
+            workspace_id = unquote(parts[2]) if len(parts) > 2 else ""
+            if not workspace_id:
+                self._send_json(
+                    {"error": "IDE workspace is required"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            cookie_header = self.headers.get("Cookie", "")
+            set_cookie = None
+            if not state.ide_service.proxy_sessions.authorize(
+                cookie_header,
+                workspace_id,
+            ):
+                params = parse_qs(query)
+                requested_workspace = str(
+                    (
+                        params.get("workspace_id")
+                        or params.get("context_id")
+                        or [""]
+                    )[0]
+                )
+                try:
+                    if requested_workspace != workspace_id:
+                        raise StateError("IDE workspace does not match its lease")
+                    state.workspace_registry.validate(
+                        workspace_id,
+                        str((params.get("connection_id") or [""])[0]),
+                        str((params.get("lease_token") or [""])[0]),
+                    )
+                    session = state.ide_service.proxy_sessions.create(workspace_id)
+                    set_cookie = state.ide_service.proxy_sessions.cookie(
+                        session,
+                        workspace_id,
+                    )
+                except Exception as error:
+                    self._send_json(
+                        {"error": str(error)},
+                        status=HTTPStatus.CONFLICT,
+                    )
+                    return
+            try:
+                endpoint = state.ide_service.proxy_endpoint(workspace_id)
+                state.ide_service.proxy.relay(
+                    self,
+                    endpoint,
+                    set_cookie=set_cookie,
+                )
+            except Exception as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
 
         def _dispatch_registered_route(
             self,
@@ -2801,6 +2907,7 @@ def _handler_for(
                 "artifact",
                 "calendar",
                 "code-learner",
+                "ide",
                 "mind-map",
                 "progress",
                 "scratch",

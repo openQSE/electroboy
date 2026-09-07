@@ -995,6 +995,7 @@
       "electroboy-mind-map-action",
     ]);
     let codeLearnerPane = null;
+    let idePane = null;
     let artifactZoom = clampArtifactZoom(Number(params.get("document_zoom") || "100"));
     const SCRATCH_PAD_STORAGE_KEY = "electroboy.scratchPad";
     const paneTitle = document.getElementById("paneTitle");
@@ -1270,6 +1271,7 @@
       if (kind === "assignments") return "Assignments";
       if (kind === "calendar") return "Calendar";
       if (kind === "code-learner") return "Code Learner";
+      if (kind === "ide") return "IDE";
       if (kind === "mind-map") return "Mind Map";
       if (kind === "progress") return "Progress";
       if (kind === "scratch") return "Scratch pad";
@@ -4166,6 +4168,11 @@
           { id: "scratch", label: "Scratch" },
           { id: "status", label: "Status" },
           { id: "input", label: "Agent input" },
+          ...(window.ElectroBoyFrontend?.listModules?.() || []).flatMap(
+            (module) => (Array.isArray(module.panes) ? module.panes : []).map(
+              (pane) => ({ id: pane.id, label: pane.label || pane.id }),
+            ),
+          ),
         ],
         paneUrl: workspacePaneUrl,
         onChange(layout, paneLeaves) {
@@ -4309,6 +4316,9 @@
         applyPaneConnectionContext(data);
         if (PANE_KIND === "code-learner" && codeLearnerPane) {
           codeLearnerPane.refresh();
+        }
+        if (PANE_KIND === "ide" && idePane) {
+          idePane.refresh();
         }
         return;
       }
@@ -4603,6 +4613,21 @@
         },
       });
     }
+    else if (PANE_KIND === "ide" && window.ElectroBoyIDEPane) {
+      paneToolsTitle.textContent = "IDE tools";
+      idePane = window.ElectroBoyIDEPane.mount({
+        host: paneContentSurface,
+        toolbarHost: paneActions,
+        toolsController: paneToolsController,
+        contextUrl,
+        paneInstanceId,
+        canPop: EMBEDDED_PANE && params.get("popped") !== "1",
+        popOut: requestCurrentPanePopOut,
+        setTitle: (title) => {
+          paneTitle.textContent = title;
+        },
+      });
+    }
 
     window.addEventListener("beforeunload", () => {
       stopDisposableShell();
@@ -4613,6 +4638,7 @@
       clearTerminalOutputQueue();
       if (statusTimer) window.clearInterval(statusTimer);
       if (contentRefreshTimer) window.clearInterval(contentRefreshTimer);
+      if (idePane) idePane.dispose();
     });
     }
 

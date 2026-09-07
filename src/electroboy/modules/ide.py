@@ -74,6 +74,28 @@ def _csp_report(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _attach_view(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.attach_view(
+            request.context_id,
+            str(request.body().get("view_id") or ""),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
+def _detach_view(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.detach_view(
+            request.context_id,
+            str(request.body().get("view_id") or ""),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
 _HANDLERS = {
     "runtime": _runtime,
     "install": _install,
@@ -83,6 +105,8 @@ _HANDLERS = {
     "open": _open,
     "diagnostics": _diagnostics,
     "csp_report": _csp_report,
+    "attach_view": _attach_view,
+    "detach_view": _detach_view,
 }
 
 
@@ -99,8 +123,12 @@ def module() -> ServiceModule:
             route("POST", "/api/ide/open", "ide", "open"),
             route("GET", "/api/ide/diagnostics", "ide", "diagnostics"),
             route("POST", "/api/ide/csp-report", "ide", "csp_report"),
+            route("POST", "/api/ide/views/attach", "ide", "attach_view"),
+            route("POST", "/api/ide/views/detach", "ide", "detach_view"),
         ),
         handlers=_HANDLERS,
+        assets=("ide.css", "ide.js"),
+        asset_package="electroboy.modules",
         capabilities=frozenset({"ide", "editor", "navigation"}),
         state_namespace="ide",
     )

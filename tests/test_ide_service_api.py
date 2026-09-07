@@ -56,6 +56,14 @@ class FakeIDEService:
         self.calls.append(("csp", payload))
         return {"status": "recorded"}
 
+    def attach_view(self, workspace_id, view_id):
+        self.calls.append(("attach_view", (workspace_id, view_id)))
+        return {"status": "attached", "view_id": view_id, "view_count": 1}
+
+    def detach_view(self, workspace_id, view_id):
+        self.calls.append(("detach_view", (workspace_id, view_id)))
+        return {"status": "detached", "view_count": 0}
+
     def close(self):
         self.closed = True
 
@@ -147,6 +155,21 @@ class IDEServiceAPITests(unittest.TestCase):
         self.assertEqual(payload["location"]["path"], "src/main.py")
         location = self.ide.calls[-1][1][1]
         self.assertEqual(location.line, 12)
+
+    def test_view_routes_share_workspace_instance_capacity(self) -> None:
+        attached = self.request(
+            "POST",
+            "/api/ide/views/attach",
+            {"view_id": "pane-1"},
+        )
+        detached = self.request(
+            "POST",
+            "/api/ide/views/detach",
+            {"view_id": "pane-1"},
+        )
+
+        self.assertEqual(attached[1]["view_count"], 1)
+        self.assertEqual(detached[1]["view_count"], 0)
 
     def test_routes_reject_wrong_workspace_lease(self) -> None:
         host, port = self.server.server_address[:2]

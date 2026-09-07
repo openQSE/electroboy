@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
+from importlib.resources import as_file, files
+from pathlib import Path
 
 from .domain import IDEProfile
 
@@ -14,6 +17,7 @@ MANAGED_IDE_SETTINGS: dict[str, object] = {
     "extensions.autoUpdate": False,
     "extensions.ignoreRecommendations": True,
     "extensions.showRecommendationsOnlyOnDemand": True,
+    "workbench.colorTheme": "ElectroBoy",
 }
 
 
@@ -35,3 +39,20 @@ def configure_managed_profile(profile: IDEProfile) -> None:
         json.dumps(existing, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    _install_bundled_extensions(profile.extensions)
+
+
+def _install_bundled_extensions(extensions_directory: Path) -> None:
+    source_root = files("electroboy.ide").joinpath("extensions")
+    extensions_directory.mkdir(parents=True, exist_ok=True)
+    for source in source_root.iterdir():
+        if not source.is_dir():
+            continue
+        destination = extensions_directory / source.name
+        staging = extensions_directory / f".{source.name}.staging"
+        shutil.rmtree(staging, ignore_errors=True)
+        with as_file(source) as source_path:
+            shutil.copytree(source_path, staging)
+        if destination.exists():
+            shutil.rmtree(destination)
+        staging.replace(destination)

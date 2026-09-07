@@ -742,23 +742,23 @@ Commit boundary: IDE service API.
 
 ### 8. Add the IDE Pane
 
-- [ ] Register `IDE` as a reusable pane type.
-- [ ] Add installation, starting, ready, stopped, and failure views.
-- [ ] Embed the authenticated IDE using the routing decision from the spike.
-- [ ] Preserve pane resizing, moving, closing, docking, and pop-out behavior.
-- [ ] Match existing ElectroBoy pane colors, typography, spacing, borders,
+- [x] Register `IDE` as a reusable pane type.
+- [x] Add installation, starting, ready, stopped, and failure views.
+- [x] Embed the authenticated IDE using the routing decision from the spike.
+- [x] Preserve pane resizing, moving, closing, docking, and pop-out behavior.
+- [x] Match existing ElectroBoy pane colors, typography, spacing, borders,
       selection states, icons, menus, loading states, and error presentation.
-- [ ] Add and apply an OpenVSCode theme derived from ElectroBoy design tokens.
+- [x] Add and apply an OpenVSCode theme derived from ElectroBoy design tokens.
 - [ ] Verify workbench, editor, tabs, sidebars, menus, selections, and status bar
       remain visually consistent in every ElectroBoy-supported color mode.
-- [ ] Add the standard ElectroBoy context menu to the IDE pane.
+- [x] Add the standard ElectroBoy context menu to the IDE pane.
 - [ ] Put IDE configuration, Neovim settings, diagnostics, restart, and stop
       actions in the IDE pane context menu.
-- [ ] Reuse one instance across multiple views.
-- [ ] Clear and disable the pane when its project is deactivated.
-- [ ] Add retry and explicit stop actions.
+- [x] Reuse one instance across multiple views.
+- [x] Clear and disable the pane when its project is deactivated.
+- [x] Add retry and explicit stop actions.
 - [ ] Verify desktop and constrained pane layouts visually.
-- [ ] Add pane registration, state, and interaction tests.
+- [x] Add pane registration, state, and interaction tests.
 
 Commit boundary: IDE pane presentation.
 
