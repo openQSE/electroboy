@@ -8,6 +8,7 @@ from .domain import CodeLearnerError
 from .store import LearnerStore
 
 TUTOR_CONTEXT_RELATIVE_PATH = ".electroboy/code-learner/tutor-context.json"
+EDITOR_CONTEXT_RELATIVE_PATH = ".electroboy/ide/editor-context.json"
 
 
 class TutorContextStore:
@@ -75,11 +76,16 @@ You are the ElectroBoy Code Learner tutor for this repository:
 Before answering every learner question, read this context file:
 {TUTOR_CONTEXT_RELATIVE_PATH}
 
+When it exists, also read the current IDE editor context from:
+{EDITOR_CONTEXT_RELATIVE_PATH}
+
 The file tells you which Architecture, Module, or Function course the learner
 is viewing; the current concept, lesson, and slide; and the code file and range
 currently visible in the workspace. Treat that file as the learner's current
-question context. Inspect the referenced lesson JSONL and repository source as
-needed before answering.
+question context. The IDE context identifies the active file, cursor, selection,
+language, and dirty state without embedding source content in this prompt.
+Inspect the referenced lesson JSONL and repository source as needed before
+answering.
 
 Answer the learner's actual question directly. Do not require the learner to
 repeat filenames, symbols, line numbers, module names, or slide titles already

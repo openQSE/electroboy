@@ -35,7 +35,7 @@ class IDEBridgeRegistration:
 class IDEBridge:
     """Exchange authenticated context and commands through an isolated profile."""
 
-    def __init__(self, *, response_timeout: float = 3.0) -> None:
+    def __init__(self, *, response_timeout: float = 10.0) -> None:
         self.response_timeout = max(0.1, response_timeout)
         self._registrations: dict[str, IDEBridgeRegistration] = {}
         self._locks: dict[str, threading.Lock] = {}

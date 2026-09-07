@@ -3159,6 +3159,13 @@
       if (!message) {
         return;
       }
+      if (message.type === "electroboy:pane-open-kind") {
+        const requestedKind = String(message.kind || "");
+        if (paneLayoutKindAvailable(requestedKind)) {
+          ensurePaneInLayout(requestedKind, "agent", "row");
+        }
+        return;
+      }
       const leaf = paneLayoutLeafById(String(message.paneInstanceId || ""));
       if (!leaf) {
         return;

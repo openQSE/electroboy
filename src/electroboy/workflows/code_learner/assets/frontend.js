@@ -2187,12 +2187,17 @@
           const key = referenceKey(reference);
           const detail = String(reference.label || reference.symbol || "").trim();
           return `
-            <button class="code-learner-reference${key === activeKey ? " active" : ""}"
-                    type="button" aria-pressed="${key === activeKey}"
-                    data-code-learner-source-reference="${index}"
-                    title="${escapeHtml(detail || referenceLabel(reference))}">
-              ${escapeHtml(referenceLabel(reference))}
-            </button>
+            <span class="code-learner-reference-group">
+              <button class="code-learner-reference${key === activeKey ? " active" : ""}"
+                      type="button" aria-pressed="${key === activeKey}"
+                      data-code-learner-source-reference="${index}"
+                      title="${escapeHtml(detail || referenceLabel(reference))}">
+                ${escapeHtml(referenceLabel(reference))}
+              </button>
+              <button class="code-learner-reference-ide" type="button"
+                      data-code-learner-open-ide="${index}"
+                      title="Open in IDE" aria-label="Open ${escapeHtml(referenceLabel(reference))} in IDE">↗</button>
+            </span>
           `;
         }).join("")}
       </div>
@@ -2250,6 +2255,38 @@
         });
       },
     );
+    state.host.querySelectorAll("[data-code-learner-open-ide]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const references = sourceReferences(currentPaneStep(state));
+        const reference = references[
+          Number(button.dataset.codeLearnerOpenIde || "0")
+        ];
+        if (!reference || !window.ElectroBoyIDE) return;
+        button.disabled = true;
+        try {
+          await window.ElectroBoyIDE.openLocation(
+            state.contextUrl,
+            {
+              path: reference.file_path,
+              line: reference.start_line,
+              end_line: reference.end_line,
+              symbol: reference.symbol || null,
+            },
+            {
+              openPane: () => state.postMessage?.({
+                type: "electroboy:pane-open-kind",
+                kind: "ide",
+              }),
+            },
+          );
+        } catch (error) {
+          state.error = error.message || String(error);
+          renderPane(state);
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
     state.host.querySelectorAll("[data-code-learner-deep-dive]").forEach((button) => {
       button.addEventListener("click", () => {
         navigatePaneCourse(

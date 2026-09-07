@@ -21,6 +21,7 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("options.popOut?.()", script)
         self.assertIn("/api/ide/views/attach", script)
         self.assertIn("/api/ide/views/detach", script)
+        self.assertIn("window.ElectroBoyIDE = { openLocation }", script)
 
     def test_core_discovers_contributed_panes_and_mounts_ide(self) -> None:
         modules = build_module_registry()
@@ -32,6 +33,7 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("PANE_LAYOUT_KINDS[kind]", runtime)
         self.assertIn('PANE_KIND === "ide"', pane_window)
         self.assertIn("window.ElectroBoyIDEPane.mount", pane_window)
+        self.assertIn('message.type === "electroboy:pane-open-kind"', runtime)
 
     def test_pane_has_explicit_lifecycle_and_context_controls(self) -> None:
         script = files("electroboy.modules").joinpath("assets", "ide.js").read_text()
@@ -45,6 +47,22 @@ class IDEPaneAssetTests(unittest.TestCase):
             self.assertIn(action, script)
         self.assertIn(".ide-frame", stylesheet)
         self.assertIn(".ide-context-menu", stylesheet)
+
+    def test_file_and_learner_panes_use_shared_ide_navigation(self) -> None:
+        file_tools = (
+            files("electroboy.modules")
+            .joinpath("assets", "file-pane-tools.js")
+            .read_text()
+        )
+        learner = (
+            files("electroboy.workflows.code_learner")
+            .joinpath("assets", "frontend.js")
+            .read_text()
+        )
+
+        self.assertIn("window.ElectroBoyIDE.openLocation", file_tools)
+        self.assertIn("window.ElectroBoyIDE.openLocation", learner)
+        self.assertIn("data-code-learner-open-ide", learner)
 
 
 if __name__ == "__main__":

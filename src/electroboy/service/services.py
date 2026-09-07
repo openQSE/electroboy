@@ -329,6 +329,8 @@ class IDEServices(Protocol):
 
     def diagnostics(self, context_id: str) -> dict[str, object]: ...
 
+    def editor_context(self, context_id: str) -> dict[str, object] | None: ...
+
     def record_csp_violation(
         self,
         payload: object,
@@ -653,6 +655,8 @@ class ServiceRuntimeBackend(Protocol):
     def ide_diagnostics(self, context_id: str) -> dict[str, object]: ...
 
     def record_ide_csp_violation(self, payload: object) -> dict[str, object]: ...
+
+    def ide_editor_context(self, context_id: str) -> dict[str, object] | None: ...
 
     def attach_ide_view(
         self,
@@ -1148,6 +1152,9 @@ class RuntimeIDEServices:
 
     def diagnostics(self, context_id: str) -> dict[str, object]:
         return self.runtime.ide_diagnostics(context_id)
+
+    def editor_context(self, context_id: str) -> dict[str, object] | None:
+        return self.runtime.ide_editor_context(context_id)
 
     def record_csp_violation(self, payload: object) -> dict[str, object]:
         return self.runtime.record_ide_csp_violation(payload)

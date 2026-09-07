@@ -5,6 +5,7 @@ from pathlib import Path
 
 from electroboy.workflows.code_learner.store import LearnerStore
 from electroboy.workflows.code_learner.tutor_context import (
+    EDITOR_CONTEXT_RELATIVE_PATH,
     TUTOR_CONTEXT_RELATIVE_PATH,
     TutorContextStore,
     tutor_bootstrap_prompt,
@@ -59,5 +60,6 @@ def test_tutor_prompt_receives_context_path_once(tmp_path: Path) -> None:
     prompt = tutor_bootstrap_prompt(tmp_path)
 
     assert prompt.count(TUTOR_CONTEXT_RELATIVE_PATH) == 1
+    assert prompt.count(EDITOR_CONTEXT_RELATIVE_PATH) == 1
     assert "Before answering every learner question" in prompt
     assert "current concept, lesson, and slide" in prompt

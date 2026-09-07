@@ -561,6 +561,11 @@
   gap: 6px;
 }
 
+.code-learner-reference-group {
+  display: inline-flex;
+  min-width: 0;
+}
+
 .code-learner-reference {
   max-width: 100%;
   overflow: hidden;
@@ -586,6 +591,28 @@
   border-color: #72c9bc;
   background: #1b2b2a;
   color: #e4f5f1;
+}
+
+.code-learner-reference-ide {
+  width: 30px;
+  min-width: 30px;
+  border: 1px solid #303946;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: #101419;
+  color: #aebbc6;
+  cursor: pointer;
+}
+
+.code-learner-reference-group .code-learner-reference {
+  border-radius: 6px 0 0 6px;
+}
+
+.code-learner-reference-ide:hover,
+.code-learner-reference-ide:focus-visible {
+  border-color: #5ab8ab;
+  color: #e4f5f1;
+  outline: none;
 }
 
 .code-learner-deep-dives {

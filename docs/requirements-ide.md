@@ -780,14 +780,14 @@ Commit boundary: ElectroBoy IDE bridge.
 
 ### 10. Integrate Editor Context Across ElectroBoy
 
-- [ ] Add current IDE context to the shared workspace context model.
-- [ ] Update context from bridge events with rate limiting.
-- [ ] Let File, Code Learner, review, and agent surfaces open IDE locations
+- [x] Add current IDE context to the shared workspace context model.
+- [x] Update context from bridge events with rate limiting.
+- [x] Let File, Code Learner, review, and agent surfaces open IDE locations
       through one shared action.
-- [ ] Let agent and tutor prompts reference the current editor context without
+- [x] Let agent and tutor prompts reference the current editor context without
       embedding unnecessary source content.
-- [ ] Reset context on editor close, project switch, and deactivation.
-- [ ] Add cross-workflow context and navigation tests.
+- [x] Reset context on editor close, project switch, and deactivation.
+- [x] Add cross-workflow context and navigation tests.
 
 Commit boundary: shared IDE navigation and context.
 

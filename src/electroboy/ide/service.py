@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from .artifacts import load_runtime_manifest
+from .bridge import IDEBridge
 from .domain import (
+    IDEEditorContext,
     IDEEndpoint,
     IDEError,
     IDEErrorCategory,
@@ -83,7 +86,12 @@ class IDEConfiguration:
 class IDEService:
     """Coordinate runtime, process, policy, and public IDE operations."""
 
-    def __init__(self, configuration: IDEConfiguration | None = None) -> None:
+    def __init__(
+        self,
+        configuration: IDEConfiguration | None = None,
+        *,
+        context_callback: Callable[[str, IDEEditorContext | None], None] | None = None,
+    ) -> None:
         self.configuration = configuration or IDEConfiguration.from_environment()
         manifest = load_runtime_manifest()
         self.resolver = OpenVSCodeRuntimeResolver(
@@ -97,7 +105,11 @@ class IDEService:
             is IDEEgressMode.AUDIT,
         )
         self.sandbox = LinuxNetworkSandbox(policy)
-        self.provider = OpenVSCodeProvider(process_launcher=self.sandbox)
+        self.bridge = IDEBridge()
+        self.provider = OpenVSCodeProvider(
+            process_launcher=self.sandbox,
+            bridge=self.bridge,
+        )
         self.manager = IDEInstanceManager(
             self.provider,
             self.resolver,
@@ -113,6 +125,11 @@ class IDEService:
         self._views: dict[str, dict[str, float]] = {}
         self._view_lock = threading.RLock()
         self._view_timeout = 45.0
+        self._context_callback = context_callback
+        self._context_revisions: dict[str, int] = {}
+        self._context_lock = threading.RLock()
+        self._context_stop = threading.Event()
+        self._context_thread: threading.Thread | None = None
 
     def runtime_status(self) -> dict[str, object]:
         try:
@@ -145,14 +162,26 @@ class IDEService:
             mode=self.configuration.runtime_mode,
             system_executable=self.configuration.system_executable,
         )
+        self._ensure_context_monitor()
         return {
             "status": "started" if started else "already_running",
             "instance": instance.public_payload(),
             "view_path": f"/ide/{workspace_id}/",
         }
 
-    def status(self, workspace_id: str) -> dict[str, object]:
+    def status(
+        self,
+        workspace_id: str,
+        project_root: Path | None = None,
+    ) -> dict[str, object]:
         instance = self.manager.status(workspace_id)
+        if (
+            instance is not None
+            and project_root is not None
+            and instance.workspace.project_root != project_root.resolve()
+        ):
+            self.stop(workspace_id, "active project changed")
+            instance = None
         return {
             "status": instance.status.value if instance else "stopped",
             "instance": instance.public_payload() if instance else None,
@@ -165,6 +194,9 @@ class IDEService:
         self.proxy_sessions.revoke_workspace(workspace_id)
         with self._view_lock:
             self._views.pop(workspace_id, None)
+        with self._context_lock:
+            self._context_revisions.pop(workspace_id, None)
+        self._publish_context(workspace_id, None)
         return {
             "status": "stopped",
             "instance": instance.public_payload() if instance else None,
@@ -215,7 +247,17 @@ class IDEService:
                 "idle_timeout": self.configuration.idle_timeout,
             },
             "view_count": self._view_count(workspace_id),
+            "editor_context": self.editor_context(workspace_id),
         }
+
+    def editor_context(self, workspace_id: str) -> dict[str, object] | None:
+        instance = self.manager.status(workspace_id)
+        if instance is None or instance.status is not IDEInstanceStatus.READY:
+            return None
+        context = self.bridge.context(instance)
+        if context is not None:
+            self._accept_context(context)
+        return context.payload() if context else None
 
     def record_csp_violation(self, payload: object) -> dict[str, object]:
         event = self.csp_violations.record(payload)
@@ -282,7 +324,50 @@ class IDEService:
                 views.pop(view_id, None)
 
     def close(self) -> None:
+        self._context_stop.set()
+        if self._context_thread is not None:
+            self._context_thread.join(timeout=2)
         self.manager.stop_all()
+
+    def _ensure_context_monitor(self) -> None:
+        if self._context_thread is not None and self._context_thread.is_alive():
+            return
+        self._context_stop.clear()
+        self._context_thread = threading.Thread(
+            target=self._monitor_context,
+            name="electroboy-ide-context",
+            daemon=True,
+        )
+        self._context_thread.start()
+
+    def _monitor_context(self) -> None:
+        while not self._context_stop.wait(0.2):
+            for instance in self.manager.registry.values():
+                try:
+                    context = self.bridge.context(instance)
+                    if context is not None:
+                        self._accept_context(context)
+                except Exception:
+                    continue
+
+    def _accept_context(self, context: IDEEditorContext) -> None:
+        with self._context_lock:
+            previous = self._context_revisions.get(context.workspace_id, -1)
+            if context.revision <= previous:
+                return
+            self._context_revisions[context.workspace_id] = context.revision
+        self._publish_context(
+            context.workspace_id,
+            context if context.path else None,
+        )
+
+    def _publish_context(
+        self,
+        workspace_id: str,
+        context: IDEEditorContext | None,
+    ) -> None:
+        if self._context_callback is not None:
+            self._context_callback(workspace_id, context)
 
 
 def _ide_data_root() -> Path:

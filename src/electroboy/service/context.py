@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypeVar, cast
 from uuid import uuid4
 
+from ..ide import IDEEditorContext
 from .sessions import AgentSession
 
 T = TypeVar("T")
@@ -26,6 +27,7 @@ class BrowserContext:
     active_repository_name: str | None = None
     registered_repositories: list[dict[str, object]] = field(default_factory=list)
     selected_session_id: str | None = None
+    editor_context: IDEEditorContext | None = None
     workflow_state: dict[str, dict[str, object]] = field(default_factory=dict)
     module_state: dict[str, dict[str, object]] = field(default_factory=dict)
 
@@ -59,6 +61,7 @@ class BrowserContext:
         self.active_repository_name = active_repository_name
         self.registered_repositories = list(registered_repositories or [])
         self.selected_session_id = None
+        self.editor_context = None
         self.workflow_state.clear()
         self.module_state.clear()
         self.workflow_stage = workflow_stage

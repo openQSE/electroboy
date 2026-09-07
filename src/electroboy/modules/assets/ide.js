@@ -8,6 +8,25 @@
     return node;
   }
 
+  async function openLocation(contextUrl, location, options = {}) {
+    const request = async (path, body) => {
+      const response = await fetch(contextUrl(path), {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      const payload = await response.json().catch(() => ({ error: "request failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || `IDE request failed (${response.status})`);
+      }
+      return payload;
+    };
+    options.openPane?.();
+    await request("/api/ide/start", {});
+    return request("/api/ide/open", location);
+  }
+
   function mount(options) {
     const host = options.host;
     const contextUrl = options.contextUrl;
@@ -287,6 +306,7 @@
     return { dispose, refresh, restart: restartIDE, stop: stopIDE };
   }
 
+  window.ElectroBoyIDE = { openLocation };
   window.ElectroBoyIDEPane = { mount };
   window.ElectroBoyFrontend.registerModule({
     id: "ide",

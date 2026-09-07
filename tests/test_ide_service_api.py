@@ -36,8 +36,8 @@ class FakeIDEService:
             "view_path": f"/ide/{workspace_id}/",
         }
 
-    def status(self, workspace_id):
-        self.calls.append(("status", workspace_id))
+    def status(self, workspace_id, project_root=None):
+        self.calls.append(("status", (workspace_id, project_root)))
         return {"status": "ready", "instance": {"workspace_id": workspace_id}}
 
     def stop(self, workspace_id, reason="requested"):
@@ -51,6 +51,10 @@ class FakeIDEService:
     def diagnostics(self, workspace_id):
         self.calls.append(("diagnostics", workspace_id))
         return {"instance": None, "provider_output": []}
+
+    def editor_context(self, workspace_id):
+        self.calls.append(("editor_context", workspace_id))
+        return {"workspace_id": workspace_id, "path": "src/main.py"}
 
     def record_csp_violation(self, payload):
         self.calls.append(("csp", payload))
@@ -170,6 +174,12 @@ class IDEServiceAPITests(unittest.TestCase):
 
         self.assertEqual(attached[1]["view_count"], 1)
         self.assertEqual(detached[1]["view_count"], 0)
+
+    def test_editor_context_route_returns_provider_neutral_context(self) -> None:
+        response = self.request("GET", "/api/ide/context")
+
+        self.assertEqual(response[0], 200)
+        self.assertEqual(response[1]["editor_context"]["path"], "src/main.py")
 
     def test_routes_reject_wrong_workspace_lease(self) -> None:
         host, port = self.server.server_address[:2]

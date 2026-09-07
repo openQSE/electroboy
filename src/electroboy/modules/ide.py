@@ -66,6 +66,14 @@ def _diagnostics(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _editor_context(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.editor_context(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse({"editor_context": payload})
+
+
 def _csp_report(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.services.ide.record_csp_violation(request.body())
@@ -104,6 +112,7 @@ _HANDLERS = {
     "stop": _stop,
     "open": _open,
     "diagnostics": _diagnostics,
+    "editor_context": _editor_context,
     "csp_report": _csp_report,
     "attach_view": _attach_view,
     "detach_view": _detach_view,
@@ -122,6 +131,7 @@ def module() -> ServiceModule:
             route("POST", "/api/ide/stop", "ide", "stop"),
             route("POST", "/api/ide/open", "ide", "open"),
             route("GET", "/api/ide/diagnostics", "ide", "diagnostics"),
+            route("GET", "/api/ide/context", "ide", "editor_context"),
             route("POST", "/api/ide/csp-report", "ide", "csp_report"),
             route("POST", "/api/ide/views/attach", "ide", "attach_view"),
             route("POST", "/api/ide/views/detach", "ide", "detach_view"),

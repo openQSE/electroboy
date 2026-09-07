@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import __version__
-from ..ide import IDELocation
+from ..ide import IDEEditorContext, IDELocation
 from ..ide.service import IDEService
 from ..models import utc_now
 from ..state_store import StateError
@@ -173,6 +173,28 @@ def _ide_optional_int(value: object) -> int | None:
     return int(value)
 
 
+def _write_editor_context(
+    project_root: Path,
+    editor_context: IDEEditorContext | None,
+) -> None:
+    path = project_root / ".electroboy" / "ide" / "editor-context.json"
+    if editor_context is None:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(
+            {"schema_version": 1, **editor_context.payload()},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
 @dataclass
 class ServiceState:
     root: Path
@@ -202,7 +224,7 @@ class ServiceState:
             self.state_root,
             self.context_store,
         )
-        self.ide_service = IDEService()
+        self.ide_service = IDEService(context_callback=self._record_ide_context)
         self.session_backend = _normalize_session_backend(self.session_backend)
         if self.workflow_registry is None:
             module_registry = build_module_registry()
@@ -785,8 +807,9 @@ class ServiceState:
 
     def ide_status(self, context_id: str) -> dict[str, object]:
         with self.lock:
-            self._context_locked(context_id)
-        return self.ide_service.status(context_id)
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+        return self.ide_service.status(context_id, project_root)
 
     def stop_ide(
         self,
@@ -823,6 +846,25 @@ class ServiceState:
 
     def record_ide_csp_violation(self, payload: object) -> dict[str, object]:
         return self.ide_service.record_csp_violation(payload)
+
+    def ide_editor_context(self, context_id: str) -> dict[str, object] | None:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.editor_context(context_id)
+
+    def _record_ide_context(
+        self,
+        context_id: str,
+        editor_context: IDEEditorContext | None,
+    ) -> None:
+        with self.lock:
+            context = self.contexts.get(context_id)
+            if context is None:
+                return
+            context.editor_context = editor_context
+            project_root = context.active_project_root
+        if project_root is not None:
+            _write_editor_context(project_root, editor_context)
 
     def attach_ide_view(
         self,
@@ -2121,6 +2163,9 @@ def project_payload(
         "active_project_root": str(active_root) if active_root else None,
         "active_repository_name": context.active_repository_name,
         "registered_repositories": context.registered_repositories,
+        "editor_context": (
+            context.editor_context.payload() if context.editor_context else None
+        ),
         "workflow_stage": workflow_stage,
         "documentation_running": documentation_running,
         "creative_writing_running": creative_running,

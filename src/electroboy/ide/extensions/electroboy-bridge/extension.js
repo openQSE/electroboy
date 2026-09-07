@@ -16,6 +16,7 @@ let bridgeDirectory = "";
 let processing = new Set();
 
 function activate(context) {
+  revision = Date.now() * 1000;
   bridgeDirectory = String(
     vscode.workspace.getConfiguration("electroboy.bridge").get("directory", ""),
   ).trim();
