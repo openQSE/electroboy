@@ -39,6 +39,28 @@
     let heartbeat = null;
     let currentStatus = null;
     let recoveryRequested = false;
+    const telemetry = options.telemetry || null;
+
+    function report(stage, details = {}) {
+      if (!telemetry) return;
+      const payload = {
+        reason: "ide-startup",
+        stage,
+        page_id: String(telemetry.pageId || ""),
+        tab_id: String(telemetry.tabId || ""),
+        workspace_id: workspaceId,
+        pane_id: viewId,
+        occurred_at: new Date().toISOString(),
+        ...details,
+      };
+      fetch("/api/frontend/debug", {
+        method: "POST",
+        cache: "no-store",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    }
 
     const root = element("div", "ide-pane");
     const frame = element("iframe", "ide-frame");
@@ -88,15 +110,35 @@
     }
 
     async function request(path, init = {}) {
-      const response = await fetch(contextUrl(path), {
-        cache: "no-store",
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          ...(init.headers || {}),
-        },
-      });
+      const method = String(init.method || "GET").toUpperCase();
+      report("request-start", { method, request_path: path });
+      let response;
+      try {
+        response = await fetch(contextUrl(path), {
+          cache: "no-store",
+          ...init,
+          headers: {
+            "Content-Type": "application/json",
+            ...(init.headers || {}),
+          },
+        });
+      } catch (error) {
+        report("request-network-error", {
+          method,
+          request_path: path,
+          message: String(error.message || error),
+        });
+        throw error;
+      }
       const payload = await response.json().catch(() => ({ error: "request failed" }));
+      report("request-response", {
+        method,
+        request_path: path,
+        status: response.status,
+        ok: response.ok,
+        response_status: String(payload.status || ""),
+        error: response.ok ? "" : String(payload.error || ""),
+      });
       if (!response.ok) {
         const error = new Error(
           payload.error || `IDE request failed (${response.status})`,
@@ -135,6 +177,7 @@
 
     async function start() {
       if (disposed) return;
+      report("start-entered");
       setState("starting", "Starting IDE", "Resolving the managed editor runtime");
       try {
         const project = await request("/api/project");
@@ -143,6 +186,10 @@
           project.active_project_root || project.activation_root || "",
         );
         if (!workspaceId || !projectRoot || project.project_mode === "none") {
+          report("project-inactive", {
+            project_mode: String(project.project_mode || ""),
+            has_project_root: Boolean(projectRoot),
+          });
           currentStatus = { status: "inactive" };
           setState("stopped", "IDE unavailable", "Activate a project to open the IDE");
           retry.hidden = true;
@@ -152,9 +199,18 @@
           method: "POST",
           body: "{}",
         });
+        report("provider-started", {
+          response_status: String(payload.status || ""),
+          instance_status: String(payload.instance?.status || ""),
+          has_view_path: Boolean(payload.view_path),
+        });
         currentStatus = payload;
         await attachView();
+        report("view-attached");
         frame.src = contextUrl(String(payload.view_path || `/ide/${workspaceId}/`));
+        report("frame-navigation-started", {
+          frame_path: new URL(frame.src, window.location.origin).pathname,
+        });
         frame.hidden = false;
         const neovim = payload.neovim || {};
         const detail = neovim.status === "enabled"
@@ -165,6 +221,10 @@
         options.setTitle?.("IDE");
       } catch (error) {
         if (error.workspaceRecoveryRequested) return;
+        report("start-failed", {
+          message: String(error.message || error),
+          stack: String(error.stack || "").slice(0, 2000),
+        });
         currentStatus = { status: "failed", error: String(error.message || error) };
         setState("failed", "IDE failed to start", error.message || String(error));
       }
@@ -498,9 +558,17 @@
     retry.addEventListener("click", start);
     stop.addEventListener("click", stopIDE);
     frame.addEventListener("load", () => {
+      report("frame-loaded", {
+        frame_path: new URL(frame.src, window.location.origin).pathname,
+      });
       if (root.dataset.state === "ready" && frame.src !== "about:blank") {
         state.hidden = true;
       }
+    });
+    frame.addEventListener("error", () => {
+      report("frame-load-error", {
+        frame_path: new URL(frame.src, window.location.origin).pathname,
+      });
     });
     root.addEventListener("contextmenu", openContextMenu);
     document.addEventListener("pointerdown", (event) => {

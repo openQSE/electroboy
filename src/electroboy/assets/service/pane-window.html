@@ -4633,6 +4633,10 @@
             window.opener.postMessage(message, window.location.origin);
           }
         },
+        telemetry: telemetryPageId ? {
+          pageId: telemetryPageId,
+          tabId: telemetryTabId,
+        } : null,
       });
     }
 

@@ -24,6 +24,10 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("/api/ide/views/detach", script)
         self.assertIn("window.ElectroBoyIDE = { openLocation }", script)
         self.assertIn('type: "electroboy:pane-recover-workspace"', script)
+        self.assertIn('reason: "ide-startup"', script)
+        self.assertIn('report("request-start"', script)
+        self.assertIn('report("request-response"', script)
+        self.assertIn('report("start-failed"', script)
 
     def test_core_discovers_contributed_panes_and_mounts_ide(self) -> None:
         modules = build_module_registry()
