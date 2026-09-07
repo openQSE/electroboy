@@ -2,7 +2,7 @@
   "name": "electroboy-bridge",
   "displayName": "ElectroBoy IDE Bridge",
   "description": "Workspace context and navigation bridge for ElectroBoy.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "electroboy",
   "engines": {
     "vscode": "^1.109.0"
@@ -18,38 +18,6 @@
   ],
   "main": "./extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "electroboy.neovim.sendKey",
-        "title": "ElectroBoy: Send Key to Neovim"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "electroboy.neovim.sendKey",
-        "key": "up",
-        "when": "editorTextFocus && neovim.init && neovim.mode != insert",
-        "args": "<up>"
-      },
-      {
-        "command": "electroboy.neovim.sendKey",
-        "key": "down",
-        "when": "editorTextFocus && neovim.init && neovim.mode != insert",
-        "args": "<down>"
-      },
-      {
-        "command": "electroboy.neovim.sendKey",
-        "key": "left",
-        "when": "editorTextFocus && neovim.init && neovim.mode != insert",
-        "args": "<left>"
-      },
-      {
-        "command": "electroboy.neovim.sendKey",
-        "key": "right",
-        "when": "editorTextFocus && neovim.init && neovim.mode != insert",
-        "args": "<right>"
-      }
-    ],
     "configuration": {
       "title": "ElectroBoy IDE Bridge",
       "properties": {

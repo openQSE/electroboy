@@ -192,33 +192,22 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertIn('recordInputEffect("selection-change"', source)
         self.assertIn('recordInputEffect("document-change"', source)
         self.assertIn("event.contentChanges.length", source)
-        self.assertIn('executeCommand("workbench.action.focusActiveEditorGroup")', source)
+        self.assertIn(
+            'executeCommand("workbench.action.focusActiveEditorGroup")', source
+        )
         self.assertIn('executeCommand("_getNeovimClient")', source)
         self.assertIn('recordInputEffect("neovim-state"', source)
         self.assertNotIn("contentChange.text", source)
 
-    def test_extension_owns_observable_neovim_arrow_dispatch(self) -> None:
+    def test_extension_does_not_compete_with_neovim_keybindings(self) -> None:
         extension_root = (
             Path(__file__).resolve().parents[1]
             / "src/electroboy/ide/extensions/electroboy-bridge"
         )
         package = json.loads(extension_root.joinpath("package.json").read_text())
-        bindings = package["contributes"]["keybindings"]
-
-        self.assertEqual(
-            {binding["key"] for binding in bindings},
-            {"up", "down", "left", "right"},
-        )
-        self.assertTrue(
-            all(
-                binding["command"] == "electroboy.neovim.sendKey"
-                for binding in bindings
-            )
-        )
+        self.assertNotIn("keybindings", package["contributes"])
         source = extension_root.joinpath("extension.js").read_text()
-        self.assertIn('registerCommand(\n      "electroboy.neovim.sendKey"', source)
-        self.assertIn('recordInputEffect("neovim-keybinding-invoked"', source)
-        self.assertIn('recordInputEffect("neovim-keybinding-forwarded"', source)
+        self.assertNotIn("electroboy.neovim.sendKey", source)
 
     def envelope(self, payload: dict[str, object]) -> dict[str, object]:
         return {

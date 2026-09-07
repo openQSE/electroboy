@@ -57,10 +57,6 @@ async function activate(context) {
     scheduleContextUpdate();
   };
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "electroboy.neovim.sendKey",
-      forwardNeovimKey,
-    ),
     vscode.window.onDidChangeActiveTextEditor(activeEditorChanged),
     vscode.window.onDidChangeTextEditorSelection(selectionChanged),
     vscode.workspace.onDidChangeTextDocument(documentChanged),
@@ -208,34 +204,6 @@ async function probeNeovimCommand(key) {
   });
   await new Promise((resolve) => setTimeout(resolve, NEOVIM_STATE_DELAY_MS));
   await recordNeovimState("command-after", null);
-}
-
-async function forwardNeovimKey(key) {
-  const normalized = String(key || "").toLowerCase();
-  if (!NEOVIM_PROBE_KEYS.has(normalized)) {
-    recordInputEffect("neovim-keybinding-rejected", { key: normalized });
-    return;
-  }
-  const startedAt = Date.now();
-  recordInputEffect("neovim-keybinding-invoked", { key: normalized });
-  try {
-    await vscode.commands.executeCommand("vscode-neovim.send", normalized);
-    recordInputEffect("neovim-keybinding-forwarded", {
-      key: normalized,
-      duration_ms: Date.now() - startedAt,
-    });
-    if (neovimStateTimer) clearTimeout(neovimStateTimer);
-    neovimStateTimer = setTimeout(() => {
-      neovimStateTimer = null;
-      recordNeovimState("managed-keybinding", lastBrowserInputSequence);
-    }, NEOVIM_STATE_DELAY_MS);
-  } catch (error) {
-    recordInputEffect("neovim-keybinding-error", {
-      key: normalized,
-      error: String(error.message || error).slice(0, 240),
-    });
-    throw error;
-  }
 }
 
 async function recordNeovimState(reason, browserSequence) {

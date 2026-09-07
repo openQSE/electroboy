@@ -15,6 +15,7 @@ from electroboy.ide import IDEProfile
 from electroboy.ide.artifacts import RuntimeArtifact, RuntimeArtifactManifest
 from electroboy.ide.downloads import AuditedDownloadClient
 from electroboy.ide.neovim import NeovimProfileManager
+from electroboy.ide.neovim_telemetry import TRACE_PREFIX, instrument_neovim_extension
 
 
 class Response(io.BytesIO):
@@ -38,8 +39,21 @@ def extension_archive() -> bytes:
                 }
             ),
         )
-        archive.writestr("extension/dist/extension.js", "module.exports = {};\n")
+        archive.writestr("extension/dist/extension.js", instrumentable_bundle())
     return output.getvalue()
+
+
+def instrumentable_bundle() -> str:
+    return "\n".join(
+        (
+            "if(_e.debug(`Send for: ${t}`),this.main.cursorManager",
+            'this.pendingKeysAfterExit="",yield this.client.input(`${t}${n}`)}'
+            "else this.isExitingInsertMode=!1,"
+            "yield this.client.input(`${t}`)}",
+            "A.debug(`Received cursor update from neovim, gridId: ${e}`);",
+            "&&(t.selections=c),this.neovimCursorPosition.set(t,c[0])",
+        )
+    )
 
 
 def fake_nvim(path: Path, version: str) -> None:
@@ -101,6 +115,14 @@ class IDENeovimTests(unittest.TestCase):
         self.assertTrue(status["installed"])
         extension = self.profile.extensions / self.manager.extension_directory_name
         self.assertTrue((extension / "package.json").is_file())
+        instrumented = extension.joinpath("dist/extension.js").read_text()
+        self.assertIn(f"{TRACE_PREFIX} vscode-neovim.send invoked", instrumented)
+        self.assertIn(f"{TRACE_PREFIX} Neovim RPC request sent", instrumented)
+        self.assertIn(f"{TRACE_PREFIX} Neovim cursor update received", instrumented)
+        self.assertIn(f"{TRACE_PREFIX} Monaco cursor synchronized", instrumented)
+        self.assertTrue(
+            extension.joinpath(".electroboy-input-telemetry.json").is_file()
+        )
         registry = json.loads(
             (self.profile.extensions / "extensions.json").read_text()
         )
@@ -174,6 +196,14 @@ class IDENeovimTests(unittest.TestCase):
         self.assertEqual(user_config.read_text(), "-- user config\n")
         stored = json.loads(self.manager.config_path.read_text())
         self.assertEqual(stored["executable"], "/custom/nvim")
+
+    def test_input_telemetry_rejects_an_unknown_extension_bundle(self) -> None:
+        extension = self.root / "unsupported"
+        extension.joinpath("dist").mkdir(parents=True)
+        extension.joinpath("dist/extension.js").write_text("module.exports = {};\n")
+
+        with self.assertRaisesRegex(ValueError, "telemetry contract mismatch"):
+            instrument_neovim_extension(extension)
 
     def test_prepare_installs_managed_neovim_when_system_runtime_is_missing(
         self,

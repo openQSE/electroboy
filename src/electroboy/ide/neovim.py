@@ -18,6 +18,7 @@ from .artifacts import RuntimeArtifactManifest, load_runtime_manifest
 from .domain import IDEProfile
 from .downloads import AuditedDownloadClient
 from .installer import ManagedRuntimeInstaller
+from .neovim_telemetry import instrument_neovim_extension
 from .profile import (
     configure_managed_profile,
     register_managed_extension,
@@ -132,6 +133,7 @@ class NeovimProfileManager:
             staging = profile.extensions / f".{destination.name}.staging"
             shutil.rmtree(staging, ignore_errors=True)
             shutil.copytree(extension, staging)
+            instrument_neovim_extension(staging)
             shutil.rmtree(destination, ignore_errors=True)
             staging.replace(destination)
             register_managed_extension(destination)
