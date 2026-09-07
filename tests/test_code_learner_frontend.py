@@ -203,6 +203,18 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "function startPaneSplitResize" in frontend
     assert "function resizePaneSplitWithKeyboard" in frontend
     assert "PANE_SPLIT_STORAGE_KEY" in frontend
+    learner_state_source = frontend[
+        frontend.index("function emptyLearnerState") : frontend.index(
+            "function bindRuntime"
+        )
+    ]
+    pane_state_source = frontend[
+        frontend.index("function mountPane") : frontend.index(
+            "function mountPaneToolbar"
+        )
+    ]
+    assert "loadPaneSplitRatio()" not in learner_state_source
+    assert "splitRatio: loadPaneSplitRatio()," in pane_state_source
     assert "--code-learner-pane-split" in stylesheet
     assert "cursor: col-resize;" in stylesheet
     assert "cursor: row-resize;" in stylesheet

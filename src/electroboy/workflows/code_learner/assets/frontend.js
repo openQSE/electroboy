@@ -76,7 +76,6 @@
       courseArtifact: null,
       courseNavigation: null,
       loadSequence: 0,
-      splitRatio: loadPaneSplitRatio(),
     };
   }
 
@@ -1701,6 +1700,7 @@
       courseArtifact: null,
       courseNavigation: null,
       loadSequence: 0,
+      splitRatio: loadPaneSplitRatio(),
     };
 
     host.classList.add("code-learner-pane-host");
