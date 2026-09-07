@@ -188,6 +188,9 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertIn('recordInputEffect("selection-change"', source)
         self.assertIn('recordInputEffect("document-change"', source)
         self.assertIn("event.contentChanges.length", source)
+        self.assertIn('executeCommand("workbench.action.focusActiveEditorGroup")', source)
+        self.assertIn('executeCommand("_getNeovimClient")', source)
+        self.assertIn('recordInputEffect("neovim-state"', source)
         self.assertNotIn("contentChange.text", source)
 
     def envelope(self, payload: dict[str, object]) -> dict[str, object]:

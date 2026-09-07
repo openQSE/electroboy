@@ -7,7 +7,9 @@ const vscode = require("vscode");
 const PROTOCOL_VERSION = 1;
 const POLL_INTERVAL_MS = 250;
 const CONTEXT_DELAY_MS = 100;
+const NEOVIM_STATE_DELAY_MS = 100;
 const INPUT_EVENT_LIMIT = 500;
+const NEOVIM_PROBE_KEYS = new Set(["<up>", "<down>", "<left>", "<right>"]);
 
 let pollingTimer = null;
 let contextTimer = null;
@@ -16,6 +18,8 @@ let registration = null;
 let bridgeDirectory = "";
 let processing = new Set();
 let inputSequence = 0;
+let lastBrowserInputSequence = 0;
+let neovimStateTimer = null;
 
 async function activate(context) {
   await applyManagedWorkbenchSettings();
@@ -67,10 +71,27 @@ async function activate(context) {
       vscode.extensions.getExtension("asvetliakov.vscode-neovim"),
     ),
   });
+  focusNeovimEditor();
   scheduleContextUpdate();
   pollCommands();
   pollingTimer = setInterval(pollCommands, POLL_INTERVAL_MS);
   context.subscriptions.push({ dispose: deactivate });
+}
+
+async function focusNeovimEditor() {
+  const extension = vscode.extensions.getExtension("asvetliakov.vscode-neovim");
+  if (!extension) return;
+  try {
+    await extension.activate();
+    await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
+    recordInputEffect("editor-focus-request", {
+      active_editor: Boolean(vscode.window.activeTextEditor),
+    });
+  } catch (error) {
+    recordInputEffect("editor-focus-error", {
+      error: String(error.message || error).slice(0, 240),
+    });
+  }
 }
 
 async function applyManagedWorkbenchSettings() {
@@ -87,8 +108,10 @@ async function applyManagedWorkbenchSettings() {
 function deactivate() {
   if (pollingTimer) clearInterval(pollingTimer);
   if (contextTimer) clearTimeout(contextTimer);
+  if (neovimStateTimer) clearTimeout(neovimStateTimer);
   pollingTimer = null;
   contextTimer = null;
+  neovimStateTimer = null;
   processing.clear();
 }
 
@@ -119,6 +142,7 @@ function writeEditorContext() {
 
 async function pollCommands() {
   if (!registration) return;
+  pollBrowserInputState();
   const completed = new Set(
     readJsonl(path.join(bridgeDirectory, "responses.jsonl"))
       .filter(authenticated)
@@ -137,10 +161,13 @@ async function pollCommands() {
     }
     processing.add(requestId);
     try {
-      if (command.command !== "open_location") {
+      if (command.command === "open_location") {
+        await openLocation(command.location || {});
+      } else if (command.command === "probe_neovim") {
+        await probeNeovimCommand(String(command.key || ""));
+      } else {
         throw new Error(`unsupported bridge command: ${command.command}`);
       }
-      await openLocation(command.location || {});
       appendResponse(requestId, true, null);
     } catch (error) {
       appendResponse(requestId, false, String(error.message || error));
@@ -148,6 +175,67 @@ async function pollCommands() {
       processing.delete(requestId);
     }
   }
+}
+
+function pollBrowserInputState() {
+  const latestKey = readJsonl(path.join(bridgeDirectory, "input-events.jsonl"))
+    .filter((event) => event.source === "browser" && event.event_type === "keydown")
+    .at(-1);
+  const sequence = Number(latestKey?.sequence || 0);
+  if (sequence <= lastBrowserInputSequence) return;
+  lastBrowserInputSequence = sequence;
+  if (neovimStateTimer) clearTimeout(neovimStateTimer);
+  neovimStateTimer = setTimeout(() => {
+    neovimStateTimer = null;
+    recordNeovimState("browser-keydown", sequence);
+  }, NEOVIM_STATE_DELAY_MS);
+}
+
+async function probeNeovimCommand(key) {
+  if (!NEOVIM_PROBE_KEYS.has(key)) {
+    throw new Error(`unsupported Neovim probe key: ${key}`);
+  }
+  await recordNeovimState("command-before", null);
+  const startedAt = Date.now();
+  await vscode.commands.executeCommand("vscode-neovim.send", key);
+  recordInputEffect("neovim-command-result", {
+    key,
+    duration_ms: Date.now() - startedAt,
+  });
+  await new Promise((resolve) => setTimeout(resolve, NEOVIM_STATE_DELAY_MS));
+  await recordNeovimState("command-after", null);
+}
+
+async function recordNeovimState(reason, browserSequence) {
+  try {
+    const client = await vscode.commands.executeCommand("_getNeovimClient");
+    if (!client) throw new Error("Neovim client is unavailable");
+    const rawState = await client.eval(
+      "json_encode({'mode': mode(1), 'cursor': getcurpos()[1:2], 'buffer': bufnr('%')})",
+    );
+    const state = JSON.parse(String(rawState || "{}"));
+    const editor = vscode.window.activeTextEditor;
+    recordInputEffect("neovim-state", {
+      reason,
+      browser_sequence: browserSequence,
+      mode: String(state.mode || ""),
+      neovim_cursor: arrayPosition(state.cursor),
+      neovim_buffer: Number(state.buffer || 0),
+      vscode_cursor: editor ? position(editor.selection.active) : null,
+      vscode_path: editor ? repositoryPath(editor.document.uri.fsPath) : null,
+    });
+  } catch (error) {
+    recordInputEffect("neovim-state-error", {
+      reason,
+      browser_sequence: browserSequence,
+      error: String(error.message || error).slice(0, 240),
+    });
+  }
+}
+
+function arrayPosition(value) {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  return { line: Number(value[0] || 0), column: Number(value[1] || 0) };
 }
 
 async function openLocation(location) {
