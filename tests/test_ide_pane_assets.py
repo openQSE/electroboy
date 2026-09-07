@@ -72,11 +72,21 @@ class IDEPaneAssetTests(unittest.TestCase):
         for action in ("IDE configuration", "Diagnostics", "Restart IDE", "Stop IDE"):
             self.assertIn(action, script)
         self.assertIn("Network access", script)
+        self.assertIn('"ide-configuration"', script)
+        self.assertIn('"ide-neovim"', script)
+        self.assertIn('"ide-view"', script)
+        self.assertIn('"/api/ide/configuration"', script)
+        self.assertIn('"/api/ide/configure"', script)
+        self.assertIn('"Open IDE tools menu"', script)
+        self.assertIn("applyZoom", script)
+        self.assertIn("Pop out", script)
+        self.assertIn("VSCode Neovim", script)
         self.assertIn("/api/ide/network/configure", script)
         self.assertIn("/api/ide/network/events/clear", script)
         self.assertIn("Audit mode permits", script)
         self.assertIn(".ide-frame", stylesheet)
         self.assertIn(".ide-context-menu", stylesheet)
+        self.assertIn(".ide-zoom-row", stylesheet)
 
     def test_file_and_learner_panes_use_shared_ide_navigation(self) -> None:
         file_tools = (

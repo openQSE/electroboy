@@ -27,7 +27,13 @@ def configure_managed_profile(
 ) -> None:
     """Apply privacy-preserving defaults without reading user VS Code state."""
 
-    settings_path = profile.user_data / "User" / "settings.json"
+    settings = {**MANAGED_IDE_SETTINGS, **(additional_settings or {})}
+    _merge_settings(profile.user_data / "User" / "settings.json", settings)
+    _merge_settings(profile.user_data / "Machine" / "settings.json", settings)
+    _install_bundled_extensions(profile.extensions)
+
+
+def _merge_settings(settings_path: Path, settings: dict[str, object]) -> None:
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     existing: dict[str, object] = {}
     if settings_path.is_file():
@@ -37,13 +43,11 @@ def configure_managed_profile(
                 existing = value
         except (OSError, json.JSONDecodeError):
             existing = {}
-    existing.update(MANAGED_IDE_SETTINGS)
-    existing.update(additional_settings or {})
+    existing.update(settings)
     settings_path.write_text(
         json.dumps(existing, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    _install_bundled_extensions(profile.extensions)
 
 
 def _install_bundled_extensions(extensions_directory: Path) -> None:

@@ -17,6 +17,7 @@
   min-height: 0;
   border: 0;
   background: var(--terminal, #10141f);
+  transform-origin: top left;
 }
 
 .ide-state {
@@ -97,6 +98,12 @@
   font-size: 17px;
 }
 
+.ide-toolbar-command.ide-toolbar-tools {
+  width: auto;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
 .ide-context-menu {
   position: fixed;
   z-index: 3000;
@@ -135,6 +142,19 @@
   word-break: break-word;
 }
 
+.ide-zoom-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 4px;
+}
+
+.ide-zoom-level {
+  color: #66d9e8;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .ide-setting-row,
 .ide-setting-field {
   display: grid;
@@ -160,6 +180,15 @@
   color: #e7edf7;
   padding: 0 8px;
   font: inherit;
+}
+
+.ide-setting-summary {
+  border: 1px solid #364156;
+  border-radius: 4px;
+  background: #10141f;
+  color: #c7d2e3;
+  padding: 8px;
+  font-size: 12px;
 }
 
 .ide-setting-field textarea {

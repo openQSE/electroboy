@@ -15,7 +15,8 @@ let registration = null;
 let bridgeDirectory = "";
 let processing = new Set();
 
-function activate(context) {
+async function activate(context) {
+  await applyManagedWorkbenchSettings();
   revision = Date.now() * 1000;
   bridgeDirectory = String(
     vscode.workspace.getConfiguration("electroboy.bridge").get("directory", ""),
@@ -37,6 +38,17 @@ function activate(context) {
   pollCommands();
   pollingTimer = setInterval(pollCommands, POLL_INTERVAL_MS);
   context.subscriptions.push({ dispose: deactivate });
+}
+
+async function applyManagedWorkbenchSettings() {
+  const workbench = vscode.workspace.getConfiguration("workbench");
+  if (workbench.get("colorTheme") !== "ElectroBoy") {
+    await workbench.update(
+      "colorTheme",
+      "ElectroBoy",
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 }
 
 function deactivate() {
@@ -237,6 +249,7 @@ function writeJsonAtomic(filePath, payload) {
 
 module.exports = {
   activate,
+  applyManagedWorkbenchSettings,
   deactivate,
   findSymbol,
   validRegistration,

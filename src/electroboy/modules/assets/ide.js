@@ -39,7 +39,20 @@
     let heartbeat = null;
     let currentStatus = null;
     let recoveryRequested = false;
+    let zoomPercent = 100;
     const telemetry = options.telemetry || null;
+
+    try {
+      const storedValue = window.localStorage.getItem("electroboy.ide.zoom");
+      if (storedValue !== null) {
+        const storedZoom = Number(storedValue);
+        if (Number.isFinite(storedZoom)) {
+          zoomPercent = Math.max(75, Math.min(200, storedZoom));
+        }
+      }
+    } catch (_error) {
+      // Zoom remains available when browser storage is unavailable.
+    }
 
     function report(stage, details = {}) {
       if (!telemetry) return;
@@ -80,6 +93,7 @@
         "allow-scripts",
       ].join(" "),
     );
+    frame.style.transformOrigin = "top left";
     const state = element("div", "ide-state");
     const stateTitle = element("strong", "ide-state-title", "IDE");
     const stateDetail = element("span", "ide-state-detail", "Checking project state");
@@ -98,6 +112,24 @@
     contextMenu.hidden = true;
     contextMenu.setAttribute("role", "menu");
     document.body.append(contextMenu);
+
+    function applyZoom(nextZoom) {
+      zoomPercent = Math.max(75, Math.min(200, Number(nextZoom) || 100));
+      const scale = zoomPercent / 100;
+      frame.style.transform = `scale(${scale})`;
+      frame.style.width = `${100 / scale}%`;
+      frame.style.height = `${100 / scale}%`;
+      if (zoomLevel) zoomLevel.textContent = `${zoomPercent}%`;
+      try {
+        window.localStorage.setItem("electroboy.ide.zoom", String(zoomPercent));
+      } catch (_error) {
+        // Zoom persistence is optional.
+      }
+    }
+
+    function changeZoom(delta) {
+      applyZoom(zoomPercent + delta);
+    }
 
     function setState(kind, title, detail) {
       root.dataset.state = kind;
@@ -161,6 +193,61 @@
       recoveryRequested = false;
       return payload;
     }
+
+    function toolButton(label, action, className = "") {
+      const button = element("button", className, label);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        Promise.resolve(action()).catch((error) => {
+          setState("failed", "IDE action failed", error.message || String(error));
+        });
+      });
+      return button;
+    }
+
+    function toolSection(id, label, open = false) {
+      return options.toolsController
+        ? options.toolsController.addSection(id, label, { open })
+        : element("div");
+    }
+
+    const viewSection = toolSection("ide-view", "View", true);
+    const zoomRow = element("div", "ide-zoom-row");
+    const zoomOut = toolButton("−", () => changeZoom(-10));
+    zoomOut.title = "Zoom IDE out";
+    zoomOut.setAttribute("aria-label", "Zoom IDE out");
+    const zoomLevel = element("button", "ide-zoom-level", `${zoomPercent}%`);
+    zoomLevel.type = "button";
+    zoomLevel.title = "Reset IDE zoom";
+    zoomLevel.addEventListener("click", () => applyZoom(100));
+    const zoomIn = toolButton("+", () => changeZoom(10));
+    zoomIn.title = "Zoom IDE in";
+    zoomIn.setAttribute("aria-label", "Zoom IDE in");
+    zoomRow.append(zoomOut, zoomLevel, zoomIn);
+    viewSection.append(zoomRow);
+
+    const configurationSection = toolSection(
+      "ide-configuration",
+      "Configuration",
+      true,
+    );
+    const neovimSection = toolSection("ide-neovim", "VSCode Neovim");
+    const networkSection = toolSection("ide-network", "Network access");
+    const diagnosticsSection = toolSection("ide-diagnostics", "Diagnostics");
+    const actionsSection = toolSection("ide-actions", "Actions", true);
+    const popAction = toolButton("Pop out", () => options.popOut?.());
+    popAction.hidden = !options.canPop;
+    actionsSection.append(
+      toolButton("Restart IDE", restartIDE),
+      toolButton("Stop IDE", stopIDE, "danger"),
+      popAction,
+    );
+
+    configurationSection.textContent = "Loading configuration";
+    neovimSection.textContent = "Loading VSCode Neovim status";
+    networkSection.append(toolButton("Open network settings", showNetworkSettings));
+    diagnosticsSection.append(toolButton("Refresh diagnostics", showDiagnostics));
+    applyZoom(zoomPercent);
 
     async function attachView() {
       const payload = await request("/api/ide/views/attach", {
@@ -283,10 +370,10 @@
       await start();
     }
 
-    async function showDiagnostics() {
-      const section = toolsSection;
+    async function showDiagnostics(openTools = true) {
+      const section = diagnosticsSection;
       section.textContent = "Loading diagnostics";
-      options.toolsController?.open("ide-diagnostics");
+      if (openTools) options.toolsController?.open("ide-diagnostics");
       try {
         const payload = await request("/api/ide/diagnostics");
         section.textContent = JSON.stringify(payload, null, 2);
@@ -295,30 +382,113 @@
       }
     }
 
-    async function showConfiguration() {
-      const section = toolsSection;
+    function settingField(label, control) {
+      const field = element("label", "ide-setting-field");
+      field.append(element("span", "", label), control);
+      return field;
+    }
+
+    function numberInput(value, minimum, maximum) {
+      const input = element("input");
+      input.type = "number";
+      input.value = String(value);
+      input.min = String(minimum);
+      input.max = String(maximum);
+      input.step = "1";
+      return input;
+    }
+
+    async function showConfiguration(openTools = true) {
+      const section = configurationSection;
       section.textContent = "Loading IDE configuration";
-      options.toolsController?.open("ide-diagnostics");
+      if (openTools) options.toolsController?.open("ide-configuration");
       try {
-        const payload = await request("/api/ide/diagnostics");
-        section.textContent = JSON.stringify(
-          {
-            configuration: payload.configuration,
-            limits: payload.limits,
-            sandbox: payload.sandbox,
-          },
-          null,
-          2,
+        const payload = await request("/api/ide/configuration");
+        const configuration = payload.configuration || {};
+        const runtime = payload.runtime?.runtime || {};
+        const provider = element(
+          "div",
+          "ide-setting-summary",
+          `OpenVSCode ${runtime.version || "runtime not resolved"}`,
+        );
+        const runtimeMode = element("select");
+        ["auto", "managed", "system", "disabled"].forEach((value) => {
+          const option = element("option", "", value);
+          option.value = value;
+          option.selected = configuration.runtime_mode === value;
+          runtimeMode.append(option);
+        });
+        const executable = element("input");
+        executable.type = "text";
+        executable.value = String(configuration.system_executable || "");
+        executable.placeholder = "Auto-detect OpenVSCode executable";
+        const maximumInstances = numberInput(
+          configuration.maximum_instances,
+          1,
+          8,
+        );
+        const maximumViews = numberInput(
+          configuration.maximum_views_per_instance,
+          1,
+          8,
+        );
+        const idleTimeout = numberInput(configuration.idle_timeout, 0, 86400);
+        const startupTimeout = numberInput(configuration.startup_timeout, 1, 300);
+        const updateExecutableState = () => {
+          executable.disabled = runtimeMode.value !== "system";
+        };
+        runtimeMode.addEventListener("change", updateExecutableState);
+        updateExecutableState();
+
+        const result = element("div", "ide-setting-result");
+        const restart = toolButton("Restart now", restartIDE);
+        restart.hidden = !payload.restart_required;
+        const apply = toolButton("Apply configuration", async () => {
+          apply.disabled = true;
+          result.textContent = "Saving configuration";
+          try {
+            const updated = await request("/api/ide/configure", {
+              method: "POST",
+              body: JSON.stringify({
+                runtime_mode: runtimeMode.value,
+                system_executable: executable.value.trim(),
+                maximum_instances: Number(maximumInstances.value),
+                maximum_views_per_instance: Number(maximumViews.value),
+                idle_timeout: Number(idleTimeout.value),
+                startup_timeout: Number(startupTimeout.value),
+              }),
+            });
+            result.textContent = updated.restart_required
+              ? "Saved. Restart the IDE to apply provider changes."
+              : "Saved.";
+            restart.hidden = !updated.restart_required;
+          } catch (error) {
+            result.textContent = error.message || String(error);
+          } finally {
+            apply.disabled = false;
+          }
+        }, "primary");
+        section.replaceChildren(
+          provider,
+          settingField("Runtime mode", runtimeMode),
+          settingField("System executable", executable),
+          settingField("Maximum IDE instances", maximumInstances),
+          settingField("Maximum views per IDE", maximumViews),
+          settingField("Idle timeout (seconds)", idleTimeout),
+          settingField("Startup timeout (seconds)", startupTimeout),
+          apply,
+          restart,
+          result,
         );
       } catch (error) {
         section.textContent = error.message || String(error);
       }
     }
 
-    async function showNeovimSettings() {
-      const section = toolsSection;
+    async function showNeovimSettings(openTools = true) {
+      const section = neovimSection;
       section.replaceChildren();
-      options.toolsController?.open("ide-diagnostics");
+      if (openTools) options.toolsController?.open("ide-neovim");
       try {
         const payload = await request("/api/ide/neovim");
         const status = element(
@@ -338,14 +508,14 @@
         executable.value = String(payload.configured_executable || "");
         executable.placeholder = String(payload.executable || "Auto-detect nvim");
         pathLabel.append(executable);
-        const apply = element("button", "ide-command", "Apply");
-        apply.type = "button";
         const result = element(
           "div",
           "ide-setting-result",
           String(payload.reason || `Extension ${payload.extension?.version || ""}`),
         );
-        apply.addEventListener("click", async () => {
+        const restart = toolButton("Restart now", restartIDE);
+        restart.hidden = !payload.restart_required;
+        const apply = toolButton("Apply VSCode Neovim", async () => {
           apply.disabled = true;
           try {
             const updated = await request("/api/ide/neovim/configure", {
@@ -358,13 +528,14 @@
             result.textContent = updated.restart_required
               ? "Saved. Restart the IDE to apply this setting."
               : "Saved.";
+            restart.hidden = !updated.restart_required;
           } catch (error) {
             result.textContent = error.message || String(error);
           } finally {
             apply.disabled = false;
           }
-        });
-        section.append(status, enabledLabel, pathLabel, apply, result);
+        }, "primary");
+        section.append(status, enabledLabel, pathLabel, apply, restart, result);
       } catch (error) {
         section.textContent = error.message || String(error);
       }
@@ -392,10 +563,10 @@
         });
     }
 
-    async function showNetworkSettings() {
-      const section = toolsSection;
+    async function showNetworkSettings(openTools = true) {
+      const section = networkSection;
       section.replaceChildren();
-      options.toolsController?.open("ide-diagnostics");
+      if (openTools) options.toolsController?.open("ide-network");
       try {
         const payload = await request("/api/ide/network");
         const modeLabel = element("label", "ide-setting-field");
@@ -527,33 +698,44 @@
 
     function openContextMenu(event) {
       event.preventDefault();
+      showContextMenu(event.clientX, event.clientY);
+    }
+
+    function showContextMenu(clientX, clientY) {
       contextMenu.replaceChildren(
         menuButton("IDE configuration", showConfiguration),
-        menuButton("Neovim settings", showNeovimSettings),
+        menuButton("VSCode Neovim", showNeovimSettings),
         menuButton("Network access", showNetworkSettings),
         menuButton("Diagnostics", showDiagnostics),
+        menuButton("Zoom out", () => changeZoom(-10)),
+        menuButton(`Reset zoom (${zoomPercent}%)`, () => applyZoom(100)),
+        menuButton("Zoom in", () => changeZoom(10)),
         menuButton("Restart IDE", restartIDE, !workspaceId),
         menuButton("Stop IDE", stopIDE, currentStatus?.status === "stopped"),
         menuButton("Pop out", () => options.popOut?.(), !options.canPop),
       );
-      contextMenu.style.left = `${Math.min(event.clientX, window.innerWidth - 180)}px`;
-      contextMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 250)}px`;
+      contextMenu.style.left = `${Math.max(4, Math.min(clientX, window.innerWidth - 180))}px`;
+      contextMenu.style.top = `${Math.max(4, Math.min(clientY, window.innerHeight - 330))}px`;
       contextMenu.hidden = false;
       contextMenu.querySelector("button:not(:disabled)")?.focus();
     }
 
-    const toolsSection = options.toolsController
-      ? options.toolsController.addSection("ide-diagnostics", "Diagnostics")
-      : element("pre");
-    toolsSection.classList.add("ide-diagnostics");
-    toolsSection.textContent = "Open the IDE context menu to refresh diagnostics.";
+    diagnosticsSection.classList.add("ide-diagnostics");
 
     const toolbarRefresh = element("button", "ide-toolbar-command", "↻");
     toolbarRefresh.type = "button";
     toolbarRefresh.title = "Restart IDE";
     toolbarRefresh.setAttribute("aria-label", "Restart IDE");
     toolbarRefresh.addEventListener("click", () => restartIDE());
-    options.toolbarHost?.append(toolbarRefresh);
+    const toolbarTools = element("button", "ide-toolbar-command ide-toolbar-tools", "Tools");
+    toolbarTools.type = "button";
+    toolbarTools.title = "Open IDE tools menu";
+    toolbarTools.setAttribute("aria-label", "Open IDE tools menu");
+    toolbarTools.addEventListener("click", (event) => {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      showContextMenu(bounds.right - 172, bounds.bottom + 4);
+    });
+    options.toolbarHost?.append(toolbarRefresh, toolbarTools);
 
     retry.addEventListener("click", start);
     stop.addEventListener("click", stopIDE);
@@ -574,6 +756,8 @@
     document.addEventListener("pointerdown", (event) => {
       if (!contextMenu.contains(event.target)) contextMenu.hidden = true;
     });
+    showConfiguration(false);
+    showNeovimSettings(false);
     start();
 
     function dispose() {
@@ -582,6 +766,7 @@
       if (heartbeat) window.clearInterval(heartbeat);
       contextMenu.remove();
       toolbarRefresh.remove();
+      toolbarTools.remove();
       frame.src = "about:blank";
       if (attached) {
         fetch(contextUrl("/api/ide/views/detach"), {

@@ -136,6 +136,17 @@ class IDEBridgeTests(unittest.TestCase):
             self.assertIn("extension/extension.js", archive.namelist())
             self.assertIn("extension.vsixmanifest", archive.namelist())
 
+    def test_extension_applies_managed_theme_through_vscode_api(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src/electroboy/ide/extensions/electroboy-bridge/extension.js"
+        ).read_text()
+
+        self.assertIn("async function activate(context)", source)
+        self.assertIn("await applyManagedWorkbenchSettings()", source)
+        self.assertIn('workbench.get("colorTheme")', source)
+        self.assertIn("vscode.ConfigurationTarget.Global", source)
+
     def envelope(self, payload: dict[str, object]) -> dict[str, object]:
         return {
             "protocol_version": BRIDGE_PROTOCOL_VERSION,

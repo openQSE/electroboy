@@ -21,10 +21,16 @@ class IDEProfileTests(unittest.TestCase):
                 logs=root / "logs",
             )
 
-            configure_managed_profile(profile)
+            configure_managed_profile(
+                profile,
+                {"electroboy.bridge.directory": "/tmp/bridge"},
+            )
 
             settings = json.loads(
                 (profile.user_data / "User" / "settings.json").read_text()
+            )
+            machine_settings = json.loads(
+                (profile.user_data / "Machine" / "settings.json").read_text()
             )
             package = json.loads(
                 (
@@ -34,7 +40,17 @@ class IDEProfileTests(unittest.TestCase):
                 ).read_text()
             )
             self.assertEqual(settings["workbench.colorTheme"], "ElectroBoy")
+            self.assertEqual(
+                machine_settings["workbench.colorTheme"],
+                "ElectroBoy",
+            )
+            self.assertEqual(settings["electroboy.bridge.directory"], "/tmp/bridge")
+            self.assertEqual(
+                machine_settings["electroboy.bridge.directory"],
+                "/tmp/bridge",
+            )
             self.assertEqual(package["displayName"], "ElectroBoy Theme")
+            self.assertEqual(package["version"], "1.1.0")
             self.assertTrue(
                 (
                     profile.extensions
@@ -42,6 +58,20 @@ class IDEProfileTests(unittest.TestCase):
                     / "themes"
                     / "electroboy-color-theme.json"
                 ).is_file()
+            )
+            theme = json.loads(
+                (
+                    profile.extensions
+                    / "electroboy-theme"
+                    / "themes"
+                    / "electroboy-color-theme.json"
+                ).read_text()
+            )
+            self.assertEqual(theme["colors"]["editor.background"], "#10141F")
+            self.assertEqual(theme["colors"]["focusBorder"], "#66D9E8")
+            self.assertEqual(
+                theme["colors"]["quickInputList.focusBackground"],
+                "#1F6F8B",
             )
 
 
