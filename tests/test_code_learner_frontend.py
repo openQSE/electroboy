@@ -238,6 +238,9 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "cursor: zoom-in;" in stylesheet
     assert ".code-learner-slide-body table" in stylesheet
     assert "function renderSourceReferences(state, step)" in frontend
+    assert "function courseLocationLabel(step)" in frontend
+    assert "courseLocationLabel(step)" in frontend
+    assert ".code-learner-slide-location" in stylesheet
     assert "function selectPaneReference(state, referenceIndex)" in frontend
     assert "data-code-learner-source-reference" in frontend
     assert (

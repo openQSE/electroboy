@@ -2022,6 +2022,9 @@
           ${escapeHtml(currentStepPosition(state.walkthrough, step.id))}
           ${escapeHtml(modeLabel(state.walkthrough.learning_mode))}
         </div>
+        <div class="code-learner-slide-location">
+          ${escapeHtml(courseLocationLabel(step))}
+        </div>
         <h1>${escapeHtml(step.title || "Step")}</h1>
         <div class="code-learner-slide-body">
           ${step.explanation_html || ""}
@@ -2037,6 +2040,12 @@
       return;
     }
     window.ElectroBoyMermaid.render(host);
+  }
+
+  function courseLocationLabel(step) {
+    const concept = String(step && step.concept_title || "").trim();
+    const lesson = String(step && step.lesson_title || "").trim();
+    return [concept, lesson].filter(Boolean).join(": ");
   }
 
   function sourceReferences(step) {
