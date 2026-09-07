@@ -659,15 +659,15 @@ Commit boundary: IDE runtime resolution.
 
 ### 4. Implement Managed Runtime Installation
 
-- [ ] Download the pinned release archive into a staging directory.
-- [ ] Report download and extraction progress.
-- [ ] Verify the pinned SHA-256 digest before extraction.
-- [ ] Reject escaping archive entries.
-- [ ] Publish verified installations atomically.
-- [ ] Guard concurrent installation attempts.
-- [ ] Reuse existing verified installations.
-- [ ] Support cleanup of unused versions.
-- [ ] Add interrupted download, checksum mismatch, extraction failure, and
+- [x] Download the pinned release archive into a staging directory.
+- [x] Report download and extraction progress.
+- [x] Verify the pinned SHA-256 digest before extraction.
+- [x] Reject escaping archive entries.
+- [x] Publish verified installations atomically.
+- [x] Guard concurrent installation attempts.
+- [x] Reuse existing verified installations.
+- [x] Support cleanup of unused versions.
+- [x] Add interrupted download, checksum mismatch, extraction failure, and
       concurrent install tests.
 
 Commit boundary: managed OpenVSCode runtime installer.
