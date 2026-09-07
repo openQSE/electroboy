@@ -173,7 +173,7 @@ class IDEUnixProxy:
         endpoint: IDEEndpoint,
         websocket: bool,
     ) -> bytes:
-        path = _provider_path(handler.path, endpoint.connection_token)
+        path = _provider_path(handler.path)
         lines = [f"{handler.command} {path} HTTP/1.1"]
         for name, value in handler.headers.items():
             lower = name.lower()
@@ -183,6 +183,7 @@ class IDEUnixProxy:
                 continue
             lines.append(f"{name}: {value}")
         lines.append("Host: localhost")
+        lines.append(f"Cookie: vscode-tkn={endpoint.connection_token}")
         if not websocket:
             lines.append("Connection: close")
         lines.extend(("", ""))
@@ -255,14 +256,13 @@ class IDEUnixProxy:
                 target.sendall(data)
 
 
-def _provider_path(path: str, provider_token: str) -> str:
+def _provider_path(path: str) -> str:
     parsed = urlsplit(path)
     query = [
         (key, value)
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
         if key not in _PRIVATE_QUERY_KEYS
     ]
-    query.append(("tkn", provider_token))
     return urlunsplit(("", "", parsed.path, urlencode(query), ""))
 
 

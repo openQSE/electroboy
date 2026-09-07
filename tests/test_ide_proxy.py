@@ -139,7 +139,8 @@ class IDEProxyTests(unittest.TestCase):
         self.assertNotIn(b"provider_token", response)
         self.assertNotIn(b"provider-secret", response)
         backend_request = self.provider.requests[-1]
-        self.assertIn(b"tkn=provider-secret", backend_request)
+        self.assertIn(b"Cookie: vscode-tkn=provider-secret", backend_request)
+        self.assertNotIn(b"tkn=provider-secret", backend_request.split(b"\r\n", 1)[0])
         self.assertNotIn(b"lease_token", backend_request)
 
     def test_session_cookie_authorizes_subresources_without_lease_query(self) -> None:
