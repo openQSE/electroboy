@@ -183,7 +183,8 @@ class IDEUnixProxy:
                 continue
             lines.append(f"{name}: {value}")
         lines.append("Host: localhost")
-        lines.append(f"Cookie: vscode-tkn={endpoint.connection_token}")
+        if endpoint.connection_token:
+            lines.append(f"Cookie: vscode-tkn={endpoint.connection_token}")
         if not websocket:
             lines.append("Connection: close")
         lines.extend(("", ""))

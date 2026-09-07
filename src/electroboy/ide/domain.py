@@ -98,11 +98,11 @@ class IDERuntime:
 
 @dataclass(frozen=True)
 class IDEEndpoint:
-    """Private provider endpoint; public payloads never expose its credential."""
+    """Private provider endpoint with an optional provider credential."""
 
     transport: str
     address: str
-    connection_token: str = field(repr=False, compare=False)
+    connection_token: str | None = field(default=None, repr=False, compare=False)
 
     def public_payload(self) -> dict[str, str]:
         return {

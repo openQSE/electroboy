@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import secrets
 import signal
 import socket
 import subprocess
@@ -37,12 +36,10 @@ _QUERY_VALUE = re.compile(r"([?&][^=\s]+)=([^&\s]+)")
 @dataclass
 class _ProviderProcess:
     launch: IDEProcessLaunch
-    token: str
     socket_path: Path
     output: deque[str]
     reader: threading.Thread
     marker_path: Path
-    token_path: Path
     stopped: bool = False
 
 
@@ -81,12 +78,9 @@ class OpenVSCodeProvider:
             path.chmod(0o700)
         socket_path = profile.root / "openvscode.sock"
         marker_path = profile.root / "provider-process.json"
-        token_path = profile.root / "provider-token"
         _terminate_stale_process(marker_path, socket_path, runtime.executable)
         socket_path.unlink(missing_ok=True)
-        token = secrets.token_urlsafe(32)
-        token_path.write_text(token + "\n", encoding="utf-8")
-        token_path.chmod(0o600)
+        (profile.root / "provider-token").unlink(missing_ok=True)
         instance_id = f"ide-{uuid.uuid4().hex}"
         registration = self.bridge.prepare(profile, workspace, instance_id)
         configure_managed_profile(profile, self.bridge.settings(registration))
@@ -95,7 +89,6 @@ class OpenVSCodeProvider:
             runtime,
             profile,
             socket_path=socket_path,
-            token_path=token_path,
         )
         try:
             launch = self.process_launcher.launch(
@@ -104,19 +97,15 @@ class OpenVSCodeProvider:
                 profile=profile,
             )
         except OSError as error:
-            token_path.unlink(missing_ok=True)
             raise IDEError(
                 IDEErrorCategory.START_FAILED,
                 f"could not start {self.provider_id}: {error}",
                 recoverable=True,
             ) from error
-        except Exception:
-            token_path.unlink(missing_ok=True)
-            raise
         output: deque[str] = deque(maxlen=self.diagnostic_limit)
         reader = threading.Thread(
             target=self._read_output,
-            args=(launch, output, token),
+            args=(launch, output),
             name=f"{instance_id}-output",
             daemon=True,
         )
@@ -134,16 +123,13 @@ class OpenVSCodeProvider:
                 os.killpg(launch.process.pid, signal.SIGKILL)
                 launch.process.wait(timeout=2)
             launch.cleanup()
-            token_path.unlink(missing_ok=True)
             raise
         state = _ProviderProcess(
             launch,
-            token,
             socket_path,
             output,
             reader,
             marker_path,
-            token_path,
         )
         with self._lock:
             self._processes[instance_id] = state
@@ -155,7 +141,7 @@ class OpenVSCodeProvider:
             runtime=runtime,
             profile=profile,
             status=IDEInstanceStatus.STARTING,
-            endpoint=IDEEndpoint("unix", str(socket_path), token),
+            endpoint=IDEEndpoint("unix", str(socket_path)),
             process_id=launch.process.pid,
             started_at=time.time(),
         )
@@ -167,14 +153,12 @@ class OpenVSCodeProvider:
         profile: IDEProfile,
         *,
         socket_path: Path,
-        token_path: Path,
     ) -> list[str]:
         return [
             str(runtime.executable),
             "--socket-path",
             str(socket_path),
-            "--connection-token-file",
-            str(token_path),
+            "--without-connection-token",
             "--telemetry-level",
             "off",
             "--server-base-path",
@@ -307,20 +291,18 @@ class OpenVSCodeProvider:
         state.launch.cleanup()
         state.socket_path.unlink(missing_ok=True)
         state.marker_path.unlink(missing_ok=True)
-        state.token_path.unlink(missing_ok=True)
 
     @staticmethod
     def _read_output(
         launch: IDEProcessLaunch,
         output: deque[str],
-        token: str,
     ) -> None:
         process = launch.process
         if process.stdout is None:
             return
         for line in process.stdout:
             launch.line_observer(line)
-            sanitized = line.strip().replace(token, "[REDACTED]")
+            sanitized = line.strip()
             sanitized = _QUERY_VALUE.sub(r"\1=[REDACTED]", sanitized)
             if sanitized:
                 output.append(sanitized[:1000])

@@ -162,6 +162,19 @@ class IDEProxyTests(unittest.TestCase):
         self.assertIn(b"200 OK", second)
         self.assertIn(b"/ide/", self.provider.requests[-1])
 
+    def test_credential_free_endpoint_does_not_inject_provider_cookie(self) -> None:
+        self.state.ide_service.endpoint = IDEEndpoint(
+            "unix",
+            str(self.provider.path),
+        )
+
+        response = self.http_request(f"/ide/{self.workspace_id}/?{self.query}")
+
+        self.assertIn(b"200 OK", response)
+        backend_request = self.provider.requests[-1]
+        self.assertNotIn(b"Cookie:", backend_request)
+        self.assertNotIn(b"vscode-tkn", backend_request)
+
     def test_missing_lease_and_cookie_is_rejected(self) -> None:
         response = self.http_request(f"/ide/{self.workspace_id}/")
         self.assertIn(b"409 Conflict", response)

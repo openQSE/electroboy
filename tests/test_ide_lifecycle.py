@@ -85,11 +85,11 @@ import sys
 
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('--socket-path')
-parser.add_argument('--connection-token')
-parser.add_argument('--connection-token-file')
+parser.add_argument('--without-connection-token', action='store_true')
 options, rest = parser.parse_known_args()
-token = options.connection_token or open(options.connection_token_file).read().strip()
-print('provider token=' + token + ' ?secret=value', flush=True)
+if not options.without_connection_token:
+    raise SystemExit('provider authentication was not disabled')
+print('provider ready ?secret=value', flush=True)
 server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(options.socket_path)
 server.listen()
@@ -175,7 +175,7 @@ class IDELifecycleTests(unittest.TestCase):
         self.assertEqual(expired, ["workspace-1"])
         manager.start(IDEWorkspace("workspace-2", self.root / "second"))
 
-    def test_openvscode_adapter_starts_redacts_and_stops_process(self) -> None:
+    def test_openvscode_adapter_starts_without_provider_authentication(self) -> None:
         provider = OpenVSCodeProvider()
         manager = self.manager(provider, startup_timeout=3)
         instance, started = manager.start(
@@ -187,11 +187,12 @@ class IDELifecycleTests(unittest.TestCase):
         self.assertEqual(instance.status, IDEInstanceStatus.READY)
         self.assertTrue(Path(instance.endpoint.address).exists())
         token_path = instance.profile.root / "provider-token"
-        self.assertTrue(token_path.is_file())
-        self.assertEqual(token_path.stat().st_mode & 0o777, 0o600)
+        self.assertFalse(token_path.exists())
         self.assertEqual(instance.profile.root.stat().st_mode & 0o777, 0o700)
         command_line = Path(f"/proc/{instance.process_id}/cmdline").read_bytes()
-        self.assertNotIn(instance.endpoint.connection_token.encode(), command_line)
+        self.assertIn(b"--without-connection-token", command_line)
+        self.assertNotIn(b"--connection-token-file", command_line)
+        self.assertIsNone(instance.endpoint.connection_token)
         self.assertTrue(
             (
                 instance.profile.extensions
@@ -201,8 +202,7 @@ class IDELifecycleTests(unittest.TestCase):
         )
         time.sleep(0.05)
         diagnostics = provider.diagnostics(instance.instance_id)
-        self.assertIn("[REDACTED]", diagnostics[0])
-        self.assertNotIn(instance.endpoint.connection_token, diagnostics[0])
+        self.assertEqual(diagnostics[0], "provider ready ?secret=[REDACTED]")
         process_id = instance.process_id
 
         manager.stop_all()
