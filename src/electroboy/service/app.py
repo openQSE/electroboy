@@ -913,6 +913,11 @@ class ServiceState:
             self._context_locked(context_id)
         return self.ide_service.neovim_status()
 
+    def launch_ide_neovim(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.launch_neovim(context_id)
+
     def configure_ide_neovim(
         self,
         context_id: str,

@@ -83,6 +83,8 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("applyZoom", script)
         self.assertIn("Pop out", script)
         self.assertIn("VSCode Neovim", script)
+        self.assertIn("Launch with VSCode Neovim", script)
+        self.assertIn("/api/ide/neovim/launch", script)
         self.assertIn("/api/ide/network/configure", script)
         self.assertIn("/api/ide/network/events/clear", script)
         self.assertIn("Audit mode permits", script)

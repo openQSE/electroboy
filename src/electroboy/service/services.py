@@ -355,6 +355,8 @@ class IDEServices(Protocol):
 
     def neovim_status(self, context_id: str) -> dict[str, object]: ...
 
+    def launch_neovim(self, context_id: str) -> dict[str, object]: ...
+
     def configure_neovim(
         self,
         context_id: str,
@@ -718,6 +720,8 @@ class ServiceRuntimeBackend(Protocol):
     def ide_editor_context(self, context_id: str) -> dict[str, object] | None: ...
 
     def ide_neovim_status(self, context_id: str) -> dict[str, object]: ...
+
+    def launch_ide_neovim(self, context_id: str) -> dict[str, object]: ...
 
     def configure_ide_neovim(
         self,
@@ -1260,6 +1264,9 @@ class RuntimeIDEServices:
 
     def neovim_status(self, context_id: str) -> dict[str, object]:
         return self.runtime.ide_neovim_status(context_id)
+
+    def launch_neovim(self, context_id: str) -> dict[str, object]:
+        return self.runtime.launch_ide_neovim(context_id)
 
     def configure_neovim(
         self,

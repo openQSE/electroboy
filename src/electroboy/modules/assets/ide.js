@@ -544,6 +544,35 @@
       }
     }
 
+    async function launchNeovim() {
+      if (!workspaceId) return;
+      neovimSection.textContent = "Installing VSCode Neovim";
+      options.toolsController?.open("ide-neovim");
+      setState(
+        "starting",
+        "Launching VSCode Neovim",
+        "Preparing the managed Neovim runtime and extension",
+      );
+      try {
+        const payload = await request("/api/ide/neovim/launch", {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        if (payload.status !== "enabled") {
+          throw new Error(payload.reason || "VSCode Neovim is unavailable");
+        }
+        await restartIDE();
+        await showNeovimSettings(false);
+      } catch (error) {
+        await showNeovimSettings(false);
+        setState(
+          "failed",
+          "VSCode Neovim could not launch",
+          error.message || String(error),
+        );
+      }
+    }
+
     function formatEgressRules(rules) {
       return (rules || []).map((rule) => [
         String(rule.destination || ""),
@@ -707,6 +736,7 @@
     function showContextMenu(clientX, clientY) {
       contextMenu.replaceChildren(
         menuButton("IDE configuration", showConfiguration),
+        menuButton("Launch with VSCode Neovim", launchNeovim, !workspaceId),
         menuButton("VSCode Neovim", showNeovimSettings),
         menuButton("Network access", showNetworkSettings),
         menuButton("Diagnostics", showDiagnostics),
@@ -718,8 +748,11 @@
         menuButton("Pop out", () => options.popOut?.(), !options.canPop),
       );
       contextMenu.style.left = `${Math.max(4, Math.min(clientX, window.innerWidth - 180))}px`;
-      contextMenu.style.top = `${Math.max(4, Math.min(clientY, window.innerHeight - 330))}px`;
       contextMenu.hidden = false;
+      contextMenu.style.top = `${Math.max(4, Math.min(
+        clientY,
+        window.innerHeight - contextMenu.offsetHeight - 4,
+      ))}px`;
       contextMenu.querySelector("button:not(:disabled)")?.focus();
     }
 

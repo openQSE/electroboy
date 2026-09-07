@@ -113,6 +113,10 @@ class FakeIDEService:
         self.calls.append(("neovim_status", None))
         return {"status": "enabled", "enabled": True}
 
+    def launch_neovim(self, workspace_id):
+        self.calls.append(("launch_neovim", workspace_id))
+        return {"status": "enabled", "enabled": True, "restart_required": True}
+
     def configure_neovim(self, *, enabled, executable=""):
         self.calls.append(("configure_neovim", (enabled, executable)))
         return {"status": "enabled" if enabled else "disabled", "enabled": enabled}
@@ -283,6 +287,7 @@ class IDEServiceAPITests(unittest.TestCase):
 
     def test_neovim_status_and_configuration_routes(self) -> None:
         status = self.request("GET", "/api/ide/neovim")
+        launched = self.request("POST", "/api/ide/neovim/launch", {})
         configured = self.request(
             "POST",
             "/api/ide/neovim/configure",
@@ -290,6 +295,7 @@ class IDEServiceAPITests(unittest.TestCase):
         )
 
         self.assertEqual(status[1]["status"], "enabled")
+        self.assertTrue(launched[1]["restart_required"])
         self.assertEqual(configured[1]["status"], "disabled")
         self.assertEqual(
             self.ide.calls[-1],

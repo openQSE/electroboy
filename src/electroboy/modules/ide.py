@@ -135,6 +135,15 @@ def _neovim_status(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _launch_neovim(request: RouteRequest) -> ServiceResponse:
+    try:
+        request.body()
+        payload = request.services.ide.launch_neovim(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
 def _configure_neovim(request: RouteRequest) -> ServiceResponse:
     try:
         body = request.body()
@@ -196,6 +205,7 @@ _HANDLERS = {
     "clear_network_events": _clear_network_events,
     "editor_context": _editor_context,
     "neovim_status": _neovim_status,
+    "launch_neovim": _launch_neovim,
     "configure_neovim": _configure_neovim,
     "csp_report": _csp_report,
     "attach_view": _attach_view,
@@ -232,6 +242,12 @@ def module() -> ServiceModule:
             ),
             route("GET", "/api/ide/context", "ide", "editor_context"),
             route("GET", "/api/ide/neovim", "ide", "neovim_status"),
+            route(
+                "POST",
+                "/api/ide/neovim/launch",
+                "ide",
+                "launch_neovim",
+            ),
             route(
                 "POST",
                 "/api/ide/neovim/configure",
