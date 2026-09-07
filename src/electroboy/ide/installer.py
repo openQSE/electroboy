@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
 import shutil
 import tarfile
 import tempfile
 import threading
-import urllib.request
-from collections.abc import Callable
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO
 
 from .contracts import ProgressCallback
 from .domain import IDEError, IDEErrorCategory, IDERuntime, IDERuntimeMode
+from .downloads import AuditedDownloadClient, OpenURL
 from .resolver import OpenVSCodeRuntimeResolver
 
 try:
@@ -24,7 +21,6 @@ try:
 except ImportError:  # pragma: no cover - exercised on non-POSIX hosts
     fcntl = None  # type: ignore[assignment]
 
-OpenURL = Callable[..., BinaryIO]
 _LOCKS: dict[Path, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 
@@ -36,10 +32,13 @@ class ManagedRuntimeInstaller:
         self,
         resolver: OpenVSCodeRuntimeResolver,
         *,
-        open_url: OpenURL = urllib.request.urlopen,
+        open_url: OpenURL | None = None,
+        download_client: AuditedDownloadClient | None = None,
     ) -> None:
         self.resolver = resolver
-        self.open_url = open_url
+        self.download_client = download_client or AuditedDownloadClient(
+            **({"open_url": open_url} if open_url is not None else {})
+        )
 
     def install(self, progress: ProgressCallback | None = None) -> IDERuntime:
         target = self.resolver.managed_install_root()
@@ -103,23 +102,21 @@ class ManagedRuntimeInstaller:
         archive = staging / "runtime.tar.gz"
         try:
             _report(progress, "Downloading managed IDE runtime", 0)
-            digest, size = self._download(
-                artifact.url,
-                archive,
-                artifact.size,
-                progress,
+            self.download_client.download(
+                artifact_id=(
+                    f"{self.resolver.manifest.provider}-"
+                    f"{self.resolver.manifest.version}"
+                ),
+                url=artifact.url,
+                destination=archive,
+                sha256=artifact.sha256,
+                size=artifact.size,
+                progress=lambda downloaded, expected: _report(
+                    progress,
+                    "Downloading managed IDE runtime",
+                    min(90, int(downloaded * 90 / expected)),
+                ),
             )
-            if size != artifact.size:
-                raise IDEError(
-                    IDEErrorCategory.INSTALLATION_FAILED,
-                    "runtime archive size mismatch: "
-                    f"expected {artifact.size}, got {size}",
-                )
-            if digest != artifact.sha256:
-                raise IDEError(
-                    IDEErrorCategory.INSTALLATION_FAILED,
-                    "runtime archive checksum does not match the pinned digest",
-                )
             _report(progress, "Extracting managed IDE runtime", 92)
             extraction = staging / "extracted"
             extraction.mkdir()
@@ -162,29 +159,6 @@ class ManagedRuntimeInstaller:
             ) from error
         finally:
             shutil.rmtree(staging, ignore_errors=True)
-
-    def _download(
-        self,
-        url: str,
-        destination: Path,
-        expected_size: int,
-        progress: ProgressCallback | None,
-    ) -> tuple[str, int]:
-        request = urllib.request.Request(
-            url,
-            headers={"User-Agent": "ElectroBoy IDE runtime installer"},
-        )
-        digest = hashlib.sha256()
-        downloaded = 0
-        with self.open_url(request, timeout=30) as response:
-            with destination.open("wb") as output:
-                while chunk := response.read(1024 * 1024):
-                    output.write(chunk)
-                    digest.update(chunk)
-                    downloaded += len(chunk)
-                    percentage = min(90, int(downloaded * 90 / expected_size))
-                    _report(progress, "Downloading managed IDE runtime", percentage)
-        return digest.hexdigest(), downloaded
 
     @staticmethod
     def _extract(archive: Path, destination: Path) -> None:

@@ -331,6 +331,16 @@ class IDEServices(Protocol):
 
     def editor_context(self, context_id: str) -> dict[str, object] | None: ...
 
+    def neovim_status(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]: ...
+
     def record_csp_violation(
         self,
         payload: object,
@@ -657,6 +667,16 @@ class ServiceRuntimeBackend(Protocol):
     def record_ide_csp_violation(self, payload: object) -> dict[str, object]: ...
 
     def ide_editor_context(self, context_id: str) -> dict[str, object] | None: ...
+
+    def ide_neovim_status(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_ide_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]: ...
 
     def attach_ide_view(
         self,
@@ -1155,6 +1175,22 @@ class RuntimeIDEServices:
 
     def editor_context(self, context_id: str) -> dict[str, object] | None:
         return self.runtime.ide_editor_context(context_id)
+
+    def neovim_status(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_neovim_status(context_id)
+
+    def configure_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]:
+        return self.runtime.configure_ide_neovim(
+            context_id,
+            enabled=enabled,
+            executable=executable,
+        )
 
     def record_csp_violation(self, payload: object) -> dict[str, object]:
         return self.runtime.record_ide_csp_violation(payload)

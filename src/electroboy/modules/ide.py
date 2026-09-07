@@ -74,6 +74,27 @@ def _editor_context(request: RouteRequest) -> ServiceResponse:
     return JsonResponse({"editor_context": payload})
 
 
+def _neovim_status(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.neovim_status(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
+def _configure_neovim(request: RouteRequest) -> ServiceResponse:
+    try:
+        body = request.body()
+        payload = request.services.ide.configure_neovim(
+            request.context_id,
+            enabled=bool(body.get("enabled", True)),
+            executable=str(body.get("executable") or ""),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
 def _csp_report(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.services.ide.record_csp_violation(request.body())
@@ -113,6 +134,8 @@ _HANDLERS = {
     "open": _open,
     "diagnostics": _diagnostics,
     "editor_context": _editor_context,
+    "neovim_status": _neovim_status,
+    "configure_neovim": _configure_neovim,
     "csp_report": _csp_report,
     "attach_view": _attach_view,
     "detach_view": _detach_view,
@@ -132,6 +155,13 @@ def module() -> ServiceModule:
             route("POST", "/api/ide/open", "ide", "open"),
             route("GET", "/api/ide/diagnostics", "ide", "diagnostics"),
             route("GET", "/api/ide/context", "ide", "editor_context"),
+            route("GET", "/api/ide/neovim", "ide", "neovim_status"),
+            route(
+                "POST",
+                "/api/ide/neovim/configure",
+                "ide",
+                "configure_neovim",
+            ),
             route("POST", "/api/ide/csp-report", "ide", "csp_report"),
             route("POST", "/api/ide/views/attach", "ide", "attach_view"),
             route("POST", "/api/ide/views/detach", "ide", "detach_view"),

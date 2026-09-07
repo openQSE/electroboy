@@ -474,6 +474,13 @@ OpenVSCode and VSCode Neovim compatibility must be tested as a version pair.
 Updating either side requires rerunning editor input, command, selection,
 extension-host, and reconnection tests.
 
+The initial managed pair is OpenVSCode Server `1.109.5` and VSCode Neovim
+`1.19.0`. ElectroBoy downloads `asvetliakov.vscode-neovim` from the Open VSX
+1.19.0 release endpoint. The expected VSIX size is 793,226 bytes and its
+SHA-256 digest is
+`0d62bb75ac478c738a63b1c709e23cf5e59361a20f0762d0fc2d55767c88aaef`.
+This profile requires Neovim `0.10.0` or newer.
+
 ### Other Extensions
 
 The managed profile may install additional pinned extensions later. The first
@@ -710,11 +717,11 @@ Commit boundary: OpenVSCode instance lifecycle.
       service workers, and extension browser code.
 - [ ] Apply the equivalent report-only CSP and proxy logging in `audit` mode.
 - [x] Collect and sanitize browser CSP violation reports.
-- [ ] Package required browser assets locally or route them through explicit,
+- [x] Package required browser assets locally or route them through explicit,
       logged broker rules.
 - [x] Disable product telemetry, feedback prompts, automatic update checks, and
       automatic extension updates in the managed profile.
-- [ ] Route ElectroBoy-managed runtime and extension downloads through the
+- [x] Route ElectroBoy-managed runtime and extension downloads through the
       shared audited download client.
 - [ ] Expose mode, enforcement status, recent events, rule management, temporary
       exceptions, and log clearing through the IDE pane context menu.
@@ -752,7 +759,7 @@ Commit boundary: IDE service API.
 - [ ] Verify workbench, editor, tabs, sidebars, menus, selections, and status bar
       remain visually consistent in every ElectroBoy-supported color mode.
 - [x] Add the standard ElectroBoy context menu to the IDE pane.
-- [ ] Put IDE configuration, Neovim settings, diagnostics, restart, and stop
+- [x] Put IDE configuration, Neovim settings, diagnostics, restart, and stop
       actions in the IDE pane context menu.
 - [x] Reuse one instance across multiple views.
 - [x] Clear and disable the pane when its project is deactivated.
@@ -793,21 +800,21 @@ Commit boundary: shared IDE navigation and context.
 
 ### 11. Add the Default VSCode Neovim Profile
 
-- [ ] Select and pin a tested `vscode-neovim` version.
-- [ ] Record a verified VSIX or Open VSX installation source.
-- [ ] Detect the required Neovim version and executable path.
-- [ ] Keep VS Code-specific settings isolated from normal Neovim use.
-- [ ] Do not modify user Neovim configuration files.
-- [ ] Install and enable VSCode Neovim in the default managed IDE profile.
-- [ ] Expose enablement and Neovim executable selection through the IDE pane
+- [x] Select and pin a tested `vscode-neovim` version.
+- [x] Record a verified VSIX or Open VSX installation source.
+- [x] Detect the required Neovim version and executable path.
+- [x] Keep VS Code-specific settings isolated from normal Neovim use.
+- [x] Do not modify user Neovim configuration files.
+- [x] Install and enable VSCode Neovim in the default managed IDE profile.
+- [x] Expose enablement and Neovim executable selection through the IDE pane
       context menu.
-- [ ] Keep the IDE operational in a clear degraded state when Neovim is absent
+- [x] Keep the IDE operational in a clear degraded state when Neovim is absent
       or incompatible.
-- [ ] Expose enabled, unavailable, incompatible, and disabled states.
+- [x] Expose enabled, unavailable, incompatible, and disabled states.
 - [ ] Verify insert, normal, visual, command, selection, clipboard, and
       reconnection behavior.
 - [ ] Verify the bridge extension remains functional with Neovim enabled.
-- [ ] Add profile installation and compatibility tests.
+- [x] Add profile installation and compatibility tests.
 
 Commit boundary: default Neovim IDE profile and configuration controls.
 

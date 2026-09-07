@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "extensions": [
+    {
+      "id": "asvetliakov.vscode-neovim",
+      "version": "1.19.0",
+      "source": "Open VSX",
+      "url": "https://open-vsx.org/api/asvetliakov/vscode-neovim/1.19.0/file/asvetliakov.vscode-neovim-1.19.0.vsix",
+      "sha256": "0d62bb75ac478c738a63b1c709e23cf5e59361a20f0762d0fc2d55767c88aaef",
+      "size": 793226,
+      "minimum_ide_version": "1.90.0",
+      "minimum_neovim_version": "0.10.0"
+    }
+  ]
+}

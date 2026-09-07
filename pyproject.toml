@@ -62,6 +62,7 @@ electroboy = [
 "electroboy.modules" = ["assets/*.js", "assets/*.css"]
 "electroboy.ide" = [
   "runtime-artifacts.json",
+  "extension-artifacts.json",
   "extensions/*/*.json",
   "extensions/*/*/*.json",
   "extensions/*/*.js",

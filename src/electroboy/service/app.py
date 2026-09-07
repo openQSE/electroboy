@@ -852,6 +852,25 @@ class ServiceState:
             self._context_locked(context_id)
         return self.ide_service.editor_context(context_id)
 
+    def ide_neovim_status(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.neovim_status()
+
+    def configure_ide_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configure_neovim(
+            enabled=enabled,
+            executable=executable,
+        )
+
     def _record_ide_context(
         self,
         context_id: str,

@@ -21,8 +21,10 @@ from .domain import (
     IDERuntimeMode,
     IDEWorkspace,
 )
+from .downloads import AuditedDownloadClient
 from .installer import ManagedRuntimeInstaller
 from .manager import IDEInstanceManager
+from .neovim import NeovimProfileManager
 from .openvscode import OpenVSCodeProvider
 from .proxy import IDEProxySessionStore, IDEUnixProxy
 from .resolver import OpenVSCodeRuntimeResolver
@@ -98,7 +100,16 @@ class IDEService:
             manifest,
             self.configuration.data_root,
         )
-        self.installer = ManagedRuntimeInstaller(self.resolver)
+        self.download_client = AuditedDownloadClient()
+        self.installer = ManagedRuntimeInstaller(
+            self.resolver,
+            download_client=self.download_client,
+        )
+        self.neovim = NeovimProfileManager(
+            self.configuration.data_root,
+            self.download_client,
+            platform=self.resolver.platform,
+        )
         policy = IDEEgressPolicy(
             self.configuration.egress_mode,
             audit_acknowledged=self.configuration.egress_mode
@@ -157,6 +168,9 @@ class IDEService:
         return {"status": "ready", "runtime": runtime.payload()}
 
     def start(self, workspace_id: str, project_root: Path) -> dict[str, object]:
+        current = self.manager.status(workspace_id)
+        if current is None or current.workspace.project_root != project_root.resolve():
+            self.neovim.prepare(self.manager.profile_for(workspace_id))
         instance, started = self.manager.start(
             IDEWorkspace(workspace_id, project_root.resolve()),
             mode=self.configuration.runtime_mode,
@@ -167,6 +181,7 @@ class IDEService:
             "status": "started" if started else "already_running",
             "instance": instance.public_payload(),
             "view_path": f"/ide/{workspace_id}/",
+            "neovim": self.neovim.diagnostics(),
         }
 
     def status(
@@ -248,7 +263,20 @@ class IDEService:
             },
             "view_count": self._view_count(workspace_id),
             "editor_context": self.editor_context(workspace_id),
+            "neovim": self.neovim.diagnostics(),
+            "managed_downloads": self.download_client.events(),
         }
+
+    def neovim_status(self) -> dict[str, object]:
+        return self.neovim.status()
+
+    def configure_neovim(
+        self,
+        *,
+        enabled: bool,
+        executable: str = "",
+    ) -> dict[str, object]:
+        return self.neovim.configure(enabled=enabled, executable=executable)
 
     def editor_context(self, workspace_id: str) -> dict[str, object] | None:
         instance = self.manager.status(workspace_id)

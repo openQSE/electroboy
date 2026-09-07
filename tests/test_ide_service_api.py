@@ -56,6 +56,14 @@ class FakeIDEService:
         self.calls.append(("editor_context", workspace_id))
         return {"workspace_id": workspace_id, "path": "src/main.py"}
 
+    def neovim_status(self):
+        self.calls.append(("neovim_status", None))
+        return {"status": "enabled", "enabled": True}
+
+    def configure_neovim(self, *, enabled, executable=""):
+        self.calls.append(("configure_neovim", (enabled, executable)))
+        return {"status": "enabled" if enabled else "disabled", "enabled": enabled}
+
     def record_csp_violation(self, payload):
         self.calls.append(("csp", payload))
         return {"status": "recorded"}
@@ -180,6 +188,21 @@ class IDEServiceAPITests(unittest.TestCase):
 
         self.assertEqual(response[0], 200)
         self.assertEqual(response[1]["editor_context"]["path"], "src/main.py")
+
+    def test_neovim_status_and_configuration_routes(self) -> None:
+        status = self.request("GET", "/api/ide/neovim")
+        configured = self.request(
+            "POST",
+            "/api/ide/neovim/configure",
+            {"enabled": False, "executable": "/usr/bin/nvim"},
+        )
+
+        self.assertEqual(status[1]["status"], "enabled")
+        self.assertEqual(configured[1]["status"], "disabled")
+        self.assertEqual(
+            self.ide.calls[-1],
+            ("configure_neovim", (False, "/usr/bin/nvim")),
+        )
 
     def test_routes_reject_wrong_workspace_lease(self) -> None:
         host, port = self.server.server_address[:2]

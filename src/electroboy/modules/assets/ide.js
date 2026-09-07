@@ -138,7 +138,11 @@
         await attachView();
         frame.src = contextUrl(String(payload.view_path || `/ide/${workspaceId}/`));
         frame.hidden = false;
-        setState("ready", "IDE ready", "Loading the editor workbench");
+        const neovim = payload.neovim || {};
+        const detail = neovim.status === "enabled"
+          ? "Loading the editor workbench with VSCode Neovim"
+          : `Loading the editor workbench; Neovim ${neovim.status || "unavailable"}`;
+        setState("ready", "IDE ready", detail);
         stop.hidden = false;
         options.setTitle?.("IDE");
       } catch (error) {
@@ -231,6 +235,61 @@
       }
     }
 
+    async function showNeovimSettings() {
+      const section = toolsSection;
+      section.replaceChildren();
+      options.toolsController?.open("ide-diagnostics");
+      try {
+        const payload = await request("/api/ide/neovim");
+        const status = element(
+          "div",
+          `ide-neovim-status ${payload.status || "unavailable"}`,
+          `Status: ${payload.status || "unavailable"}`,
+        );
+        const enabledLabel = element("label", "ide-setting-row");
+        const enabled = element("input");
+        enabled.type = "checkbox";
+        enabled.checked = Boolean(payload.enabled);
+        enabledLabel.append(enabled, document.createTextNode(" Enable VSCode Neovim"));
+        const pathLabel = element("label", "ide-setting-field");
+        pathLabel.append(element("span", "", "Neovim executable"));
+        const executable = element("input");
+        executable.type = "text";
+        executable.value = String(payload.configured_executable || "");
+        executable.placeholder = String(payload.executable || "Auto-detect nvim");
+        pathLabel.append(executable);
+        const apply = element("button", "ide-command", "Apply");
+        apply.type = "button";
+        const result = element(
+          "div",
+          "ide-setting-result",
+          String(payload.reason || `Extension ${payload.extension?.version || ""}`),
+        );
+        apply.addEventListener("click", async () => {
+          apply.disabled = true;
+          try {
+            const updated = await request("/api/ide/neovim/configure", {
+              method: "POST",
+              body: JSON.stringify({
+                enabled: enabled.checked,
+                executable: executable.value.trim(),
+              }),
+            });
+            result.textContent = updated.restart_required
+              ? "Saved. Restart the IDE to apply this setting."
+              : "Saved.";
+          } catch (error) {
+            result.textContent = error.message || String(error);
+          } finally {
+            apply.disabled = false;
+          }
+        });
+        section.append(status, enabledLabel, pathLabel, apply, result);
+      } catch (error) {
+        section.textContent = error.message || String(error);
+      }
+    }
+
     function menuButton(label, action, disabled = false) {
       const button = element("button", "ide-menu-item", label);
       button.type = "button";
@@ -249,13 +308,14 @@
       event.preventDefault();
       contextMenu.replaceChildren(
         menuButton("IDE configuration", showConfiguration),
+        menuButton("Neovim settings", showNeovimSettings),
         menuButton("Diagnostics", showDiagnostics),
         menuButton("Restart IDE", restartIDE, !workspaceId),
         menuButton("Stop IDE", stopIDE, currentStatus?.status === "stopped"),
         menuButton("Pop out", () => options.popOut?.(), !options.canPop),
       );
       contextMenu.style.left = `${Math.min(event.clientX, window.innerWidth - 180)}px`;
-      contextMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 210)}px`;
+      contextMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 250)}px`;
       contextMenu.hidden = false;
       contextMenu.querySelector("button:not(:disabled)")?.focus();
     }
