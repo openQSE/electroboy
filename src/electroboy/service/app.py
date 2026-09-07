@@ -145,7 +145,14 @@ def pane_window_html(
     kind: str,
     workflow_registry: WorkflowRegistry | None = None,
 ) -> str:
-    page = render_service_index(PANE_WINDOW_HTML, None, workflow_registry)
+    module_registry = (
+        workflow_registry.modules if workflow_registry is not None else None
+    )
+    page = render_service_index(
+        PANE_WINDOW_HTML,
+        module_registry,
+        workflow_registry,
+    )
     return page.replace("__PANE_KIND__", json.dumps(kind))
 
 

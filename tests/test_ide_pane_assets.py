@@ -4,6 +4,7 @@ import unittest
 from importlib.resources import files
 
 from electroboy.modules.ide import module
+from electroboy.service.app import pane_window_html
 from electroboy.service.frontend import read_service_text_asset
 from electroboy.service.registry import build_module_registry, build_workflow_registry
 
@@ -34,6 +35,18 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn('PANE_KIND === "ide"', pane_window)
         self.assertIn("window.ElectroBoyIDEPane.mount", pane_window)
         self.assertIn('message.type === "electroboy:pane-open-kind"', runtime)
+
+    def test_rendered_ide_pane_loads_contributed_module_assets(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+
+        pane_window = pane_window_html("ide", workflows)
+
+        self.assertIn(
+            '<link rel="stylesheet" href="/assets/service/ide.css">',
+            pane_window,
+        )
+        self.assertIn('<script src="/assets/service/ide.js"></script>', pane_window)
 
     def test_pane_has_explicit_lifecycle_and_context_controls(self) -> None:
         script = files("electroboy.modules").joinpath("assets", "ide.js").read_text()
