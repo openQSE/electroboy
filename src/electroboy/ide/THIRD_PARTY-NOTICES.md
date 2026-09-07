@@ -70,7 +70,7 @@ SOFTWARE.
 
 Project: Neovim
 
-Version: 0.10.4
+Version: 0.12.5
 
 Source: https://github.com/neovim/neovim
 

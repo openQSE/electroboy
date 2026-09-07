@@ -9,7 +9,7 @@
       "sha256": "0d62bb75ac478c738a63b1c709e23cf5e59361a20f0762d0fc2d55767c88aaef",
       "size": 793226,
       "minimum_ide_version": "1.90.0",
-      "minimum_neovim_version": "0.10.0"
+      "minimum_neovim_version": "0.11.3"
     }
   ]
 }

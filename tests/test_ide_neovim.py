@@ -47,7 +47,7 @@ def fake_nvim(path: Path, version: str) -> None:
     path.chmod(0o755)
 
 
-def neovim_archive(version: str = "0.10.4") -> bytes:
+def neovim_archive(version: str = "0.12.5") -> bytes:
     output = io.BytesIO()
     content = f"#!/bin/sh\nprintf 'NVIM v{version}\\n'\n".encode()
     with tarfile.open(fileobj=output, mode="w:gz") as bundle:
@@ -86,7 +86,7 @@ class IDENeovimTests(unittest.TestCase):
 
     def test_compatible_neovim_installs_verified_default_profile(self) -> None:
         executable = self.root / "nvim"
-        fake_nvim(executable, "0.10.4")
+        fake_nvim(executable, "0.12.5")
         self.manager.configure(enabled=True, executable=str(executable))
         self.profile.extensions.mkdir(parents=True)
         obsolete = self.profile.extensions / ".obsolete"
@@ -137,7 +137,7 @@ class IDENeovimTests(unittest.TestCase):
 
     def test_disabling_neovim_removes_its_profile_registration(self) -> None:
         executable = self.root / "nvim"
-        fake_nvim(executable, "0.10.4")
+        fake_nvim(executable, "0.12.5")
         self.manager.configure(enabled=True, executable=str(executable))
         self.manager.prepare(self.profile)
         obsolete = self.profile.extensions / ".obsolete"
@@ -187,7 +187,7 @@ class IDENeovimTests(unittest.TestCase):
         manifest = RuntimeArtifactManifest(
             1,
             "neovim",
-            "0.10.4",
+            "0.12.5",
             (runtime_artifact,),
         )
 
@@ -241,7 +241,7 @@ class IDENeovimTests(unittest.TestCase):
             runtime_manifest=RuntimeArtifactManifest(
                 1,
                 "neovim",
-                "0.10.4",
+                "0.12.5",
                 (artifact,),
             ),
         )
@@ -262,7 +262,7 @@ class IDENeovimNetworkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             executable = root / "nvim"
-            fake_nvim(executable, "0.10.4")
+            fake_nvim(executable, "0.12.5")
             manager = NeovimProfileManager(root, AuditedDownloadClient())
             manager.configure(enabled=True, executable=str(executable))
             profile = IDEProfile(
