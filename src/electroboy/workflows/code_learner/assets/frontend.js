@@ -47,6 +47,8 @@
   let initializationPollTimer = null;
   let initializationChoiceDialog = null;
   const INITIALIZATION_POLL_INTERVAL_MS = 1500;
+  const PANE_SPLIT_STORAGE_KEY = "electroboy.code-learner.pane-split";
+  const DEFAULT_PANE_SPLIT_RATIO = 0.64;
   const navigationExpanded = {
     project: true,
     learn: true,
@@ -74,6 +76,7 @@
       courseArtifact: null,
       courseNavigation: null,
       loadSequence: 0,
+      splitRatio: loadPaneSplitRatio(),
     };
   }
 
@@ -1908,12 +1911,16 @@
           <section class="code-learner-code-surface">
             ${renderPaneSource(state)}
           </section>
+          <div class="code-learner-pane-divider" role="separator" tabindex="0"
+               aria-label="Resize code and lesson panes"
+               data-code-learner-pane-divider></div>
           <section class="code-learner-slide">
             ${renderPaneSlide(state, step)}
           </section>
         </div>
       </article>
     `;
+    applyPaneSplit(state);
     bindPaneEvents(state);
     updatePaneToolbar(state);
     scrollToActivePaneLine(state);
@@ -2092,6 +2099,18 @@
   }
 
   function bindPaneEvents(state) {
+    const divider = state.host.querySelector("[data-code-learner-pane-divider]");
+    if (divider) {
+      divider.addEventListener("pointerdown", (event) => {
+        startPaneSplitResize(state, divider, event);
+      });
+      divider.addEventListener("keydown", (event) => {
+        resizePaneSplitWithKeyboard(state, event);
+      });
+      divider.addEventListener("dblclick", () => {
+        setPaneSplitRatio(state, DEFAULT_PANE_SPLIT_RATIO, true);
+      });
+    }
     state.host.querySelectorAll(".code-learner-code-line").forEach((line) => {
       line.addEventListener("click", (event) => {
         selectPaneLine(state, Number(line.dataset.line || "0"), event.shiftKey);
@@ -2106,6 +2125,117 @@
         );
       });
     });
+  }
+
+  function loadPaneSplitRatio() {
+    try {
+      const stored = Number(window.localStorage.getItem(PANE_SPLIT_STORAGE_KEY));
+      return Number.isFinite(stored)
+        ? clampPaneSplitRatio(stored)
+        : DEFAULT_PANE_SPLIT_RATIO;
+    } catch (_error) {
+      return DEFAULT_PANE_SPLIT_RATIO;
+    }
+  }
+
+  function savePaneSplitRatio(ratio) {
+    try {
+      window.localStorage.setItem(PANE_SPLIT_STORAGE_KEY, String(ratio));
+    } catch (_error) {
+      // Storage may be unavailable in private or embedded browser contexts.
+    }
+  }
+
+  function clampPaneSplitRatio(value) {
+    return Math.max(0.2, Math.min(0.8, Number(value) || DEFAULT_PANE_SPLIT_RATIO));
+  }
+
+  function paneSplitIsHorizontal() {
+    return window.matchMedia("(max-width: 860px)").matches;
+  }
+
+  function applyPaneSplit(state) {
+    const grid = state.host.querySelector(".code-learner-pane-grid");
+    const divider = state.host.querySelector("[data-code-learner-pane-divider]");
+    if (!grid || !divider) {
+      return;
+    }
+    const ratio = clampPaneSplitRatio(state.splitRatio);
+    state.splitRatio = ratio;
+    grid.style.setProperty("--code-learner-pane-split", `${ratio * 100}%`);
+    divider.setAttribute(
+      "aria-orientation",
+      paneSplitIsHorizontal() ? "horizontal" : "vertical",
+    );
+    divider.setAttribute("aria-valuemin", "20");
+    divider.setAttribute("aria-valuemax", "80");
+    divider.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+  }
+
+  function setPaneSplitRatio(state, ratio, persist = false) {
+    state.splitRatio = clampPaneSplitRatio(ratio);
+    applyPaneSplit(state);
+    if (persist) {
+      savePaneSplitRatio(state.splitRatio);
+    }
+  }
+
+  function startPaneSplitResize(state, divider, event) {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    const grid = divider.parentElement;
+    divider.setPointerCapture(pointerId);
+    divider.classList.add("resizing");
+    const update = (moveEvent) => {
+      const rect = grid.getBoundingClientRect();
+      const horizontal = paneSplitIsHorizontal();
+      const size = horizontal ? rect.height : rect.width;
+      if (size <= 0) {
+        return;
+      }
+      const position = horizontal
+        ? moveEvent.clientY - rect.top
+        : moveEvent.clientX - rect.left;
+      setPaneSplitRatio(state, position / size);
+    };
+    const finish = () => {
+      divider.classList.remove("resizing");
+      divider.removeEventListener("pointermove", update);
+      divider.removeEventListener("pointerup", finish);
+      divider.removeEventListener("pointercancel", finish);
+      try {
+        divider.releasePointerCapture(pointerId);
+      } catch (_error) {
+        // Pointer capture may already have been released by the browser.
+      }
+      savePaneSplitRatio(state.splitRatio);
+    };
+    divider.addEventListener("pointermove", update);
+    divider.addEventListener("pointerup", finish);
+    divider.addEventListener("pointercancel", finish);
+  }
+
+  function resizePaneSplitWithKeyboard(state, event) {
+    const horizontal = paneSplitIsHorizontal();
+    const decrease = horizontal ? event.key === "ArrowUp" : event.key === "ArrowLeft";
+    const increase = horizontal ? event.key === "ArrowDown" : event.key === "ArrowRight";
+    let ratio = state.splitRatio;
+    if (decrease) {
+      ratio -= 0.05;
+    } else if (increase) {
+      ratio += 0.05;
+    } else if (event.key === "Home") {
+      ratio = 0.2;
+    } else if (event.key === "End") {
+      ratio = 0.8;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setPaneSplitRatio(state, ratio, true);
   }
 
   function selectPaneLine(state, lineNumber, extending) {

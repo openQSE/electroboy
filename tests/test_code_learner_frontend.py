@@ -198,6 +198,14 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
         'activeLine.scrollIntoView({ block: "center", inline: "nearest" });' in frontend
     )
     assert ".code-learner-pane-grid" in stylesheet
+    assert 'data-code-learner-pane-divider' in frontend
+    assert 'role="separator"' in frontend
+    assert "function startPaneSplitResize" in frontend
+    assert "function resizePaneSplitWithKeyboard" in frontend
+    assert "PANE_SPLIT_STORAGE_KEY" in frontend
+    assert "--code-learner-pane-split" in stylesheet
+    assert "cursor: col-resize;" in stylesheet
+    assert "cursor: row-resize;" in stylesheet
     assert ".code-learner-progress-fill" in stylesheet
     assert ".tok-keyword" in stylesheet
     assert 'data-kind="resolving"' in stylesheet

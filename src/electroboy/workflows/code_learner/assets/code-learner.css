@@ -260,9 +260,44 @@
 
 .code-learner-pane-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 1.45fr) minmax(280px, 0.8fr);
+  grid-template-columns:
+    minmax(240px, var(--code-learner-pane-split, 64%))
+    8px
+    minmax(240px, 1fr);
   min-width: 0;
   min-height: 0;
+}
+
+.code-learner-pane-divider {
+  position: relative;
+  z-index: 2;
+  min-width: 8px;
+  min-height: 0;
+  border: 0;
+  background: #181e25;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.code-learner-pane-divider::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: #3a4652;
+  content: "";
+}
+
+.code-learner-pane-divider:hover::after,
+.code-learner-pane-divider:focus-visible::after,
+.code-learner-pane-divider.resizing::after {
+  background: #5ab8ab;
+}
+
+.code-learner-pane-divider:focus-visible {
+  outline: 1px solid #72c9bc;
+  outline-offset: -1px;
 }
 
 .code-learner-code-surface,
@@ -274,7 +309,6 @@
 .code-learner-code-surface {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border-right: 1px solid #303946;
   background: #0d1116;
 }
 
@@ -544,12 +578,25 @@
 @media (max-width: 860px) {
   .code-learner-pane-grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(280px, 1fr) minmax(260px, auto);
+    grid-template-rows:
+      minmax(160px, var(--code-learner-pane-split, 64%))
+      8px
+      minmax(160px, 1fr);
   }
 
-  .code-learner-code-surface {
-    border-right: 0;
-    border-bottom: 1px solid #303946;
+  .code-learner-pane-divider {
+    min-width: 0;
+    min-height: 8px;
+    cursor: row-resize;
+  }
+
+  .code-learner-pane-divider::after {
+    top: 3px;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    width: auto;
+    height: 2px;
   }
 
 }
