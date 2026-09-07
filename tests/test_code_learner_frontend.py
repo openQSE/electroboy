@@ -237,8 +237,16 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert ".code-learner-slide-body .mermaid" in stylesheet
     assert "cursor: zoom-in;" in stylesheet
     assert ".code-learner-slide-body table" in stylesheet
-    assert "const referenceText = referenceLabel(reference);" in frontend
-    assert "referenceText ?" in frontend
+    assert "function renderSourceReferences(state, step)" in frontend
+    assert "function selectPaneReference(state, referenceIndex)" in frontend
+    assert "data-code-learner-source-reference" in frontend
+    assert (
+        'state.contextUrl(`/api/code-learner/source?${query.toString()}`)'
+        in frontend
+    )
+    assert "activePaneReference(state, step)" in frontend
+    assert "selected_file_path: path," in frontend
+    assert ".code-learner-reference.active" in stylesheet
     assert '${reference.file_path || ""}:${reference.start_line || 1}' not in frontend
     assert "markdown_path" not in frontend
     assert "--code-learner-code-font-size: calc(var(--font-size) - 2px);" in stylesheet

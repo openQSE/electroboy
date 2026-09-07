@@ -181,4 +181,43 @@ def test_navigation_projects_all_ai_source_references_without_validation(
         "label": "Request Parser entry point",
         "kind": "source",
     }
+    assert len(step["source_references"]) == 2
+    assert step["source_references"][0] == step["primary_reference"]
+    assert step["source_references"][1]["file_path"] == "tests/test_parser.py"
     assert step["secondary_references"][0]["file_path"] == "tests/test_parser.py"
+
+
+def test_selecting_another_slide_clears_the_prior_code_view(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    store = _write_course(root)
+    lesson = store.architecture_root / "01.Context" / "01.Overview.jsonl"
+    records = store.read_lesson(lesson)
+    records.append(
+        {
+            "record_type": "section",
+            "id": "architecture-runtime-flow",
+            "parent_id": "architecture-overview",
+            "order": 20,
+            "title": "Runtime flow",
+            "body": "Runtime details.",
+            "source_refs": [],
+        }
+    )
+    lesson.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    navigator = CourseNavigator(root)
+    navigator.open("architecture")
+    navigator.update_code_view(
+        {
+            "path": "src/parser.py",
+            "selected_start_line": 4,
+            "selected_end_line": 12,
+        }
+    )
+
+    view = navigator.select("architecture-runtime-flow")
+
+    assert view["navigation"]["code_view"] == {}

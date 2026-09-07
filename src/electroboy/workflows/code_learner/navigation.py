@@ -51,6 +51,7 @@ class CourseNavigator:
         for index, slide in enumerate(slides):
             if str(slide.get("id") or "") == section_id:
                 state["position"] = index
+                state["code_view"] = {}
                 self.store.write_state(self.store.navigation_path, state)
                 return self._view(state, slides)
         raise CodeLearnerError(f"unknown course section: {section_id}")
@@ -63,6 +64,7 @@ class CourseNavigator:
             0,
             min(len(slides) - 1, int(state.get("position") or 0) + delta),
         )
+        state["code_view"] = {}
         self.store.write_state(self.store.navigation_path, state)
         return self._view(state, slides)
 
@@ -197,6 +199,7 @@ class CourseNavigator:
             "title": str(slide.get("title") or "Slide"),
             "explanation": str(slide.get("body") or ""),
             "explanation_html": render_markdown(str(slide.get("body") or "")),
+            "source_references": projected,
             "primary_reference": projected[0] if projected else {},
             "secondary_references": projected[1:],
             "prerequisites": [],

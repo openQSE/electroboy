@@ -1695,6 +1695,7 @@
       selectedEndLine: null,
       lastSelectedLine: null,
       pendingActiveScroll: false,
+      activeReferenceKey: "",
       toolbarControls: null,
       toolControls: null,
       courseArtifact: null,
@@ -1725,6 +1726,7 @@
     state.selectedEndLine = null;
     state.lastSelectedLine = null;
     state.pendingActiveScroll = false;
+    state.activeReferenceKey = "";
     state.busy = false;
     state.error = "";
     renderPane(state);
@@ -1899,6 +1901,13 @@
     if (Object.hasOwn(payload, "course_navigation")) {
       state.courseNavigation = payload.course_navigation || null;
     }
+    if (
+      Object.hasOwn(payload, "walkthrough") ||
+      Object.hasOwn(payload, "current_walkthrough") ||
+      Object.hasOwn(payload, "source")
+    ) {
+      syncActivePaneReference(state);
+    }
   }
 
   function renderPane(state) {
@@ -2007,8 +2016,6 @@
         </div>
       `;
     }
-    const reference = step.primary_reference || {};
-    const referenceText = referenceLabel(reference);
     return `
       <div class="code-learner-slide-copy">
         <div class="code-learner-slide-kicker">
@@ -2019,12 +2026,7 @@
         <div class="code-learner-slide-body">
           ${step.explanation_html || ""}
         </div>
-        ${referenceText ? `
-          <div class="code-learner-reference">
-            ${escapeHtml(referenceText)}
-          </div>
-        ` : ""}
-        ${renderRelatedReferences(step)}
+        ${renderSourceReferences(state, step)}
         ${renderDeepDiveActions(step)}
       </div>
     `;
@@ -2037,19 +2039,81 @@
     window.ElectroBoyMermaid.render(host);
   }
 
-  function renderRelatedReferences(step) {
-    const references = Array.isArray(step.secondary_references)
-      ? step.secondary_references
-      : [];
-    const labels = references.map(referenceLabel).filter(Boolean).slice(0, 6);
-    if (!labels.length) {
+  function sourceReferences(step) {
+    if (step && Array.isArray(step.source_references)) {
+      return step.source_references.filter((reference) => referenceLabel(reference));
+    }
+    if (!step) {
+      return [];
+    }
+    return [
+      step.primary_reference,
+      ...(Array.isArray(step.secondary_references) ? step.secondary_references : []),
+    ].filter((reference) => referenceLabel(reference));
+  }
+
+  function referenceKey(reference) {
+    if (!referenceLabel(reference)) {
       return "";
     }
+    return [
+      reference.file_path || "",
+      reference.start_line ?? "",
+      reference.end_line ?? "",
+      reference.symbol || "",
+    ].join(":");
+  }
+
+  function referenceMatchesSource(reference, source) {
+    if (!reference || !source || reference.file_path !== source.path) {
+      return false;
+    }
+    const sourceStart = Number(source.active_start_line || 0);
+    const sourceEnd = Number(source.active_end_line || sourceStart);
+    const referenceStart = Number(reference.start_line || 0);
+    const referenceEnd = Number(reference.end_line || referenceStart);
+    return !sourceStart || (
+      sourceStart === referenceStart && sourceEnd === referenceEnd
+    );
+  }
+
+  function syncActivePaneReference(state) {
+    const references = sourceReferences(currentPaneStep(state));
+    const match = references.find((reference) => (
+      referenceMatchesSource(reference, state.source)
+    ));
+    state.activeReferenceKey = referenceKey(match || references[0] || {});
+  }
+
+  function activePaneReference(state, step) {
+    const references = sourceReferences(step);
+    return references.find((reference) => (
+      referenceKey(reference) === state.activeReferenceKey
+    )) || references.find((reference) => (
+      referenceMatchesSource(reference, state.source)
+    )) || references[0] || {};
+  }
+
+  function renderSourceReferences(state, step) {
+    const references = sourceReferences(step);
+    if (!references.length) {
+      return "";
+    }
+    const activeKey = referenceKey(activePaneReference(state, step));
     return `
-      <div class="code-learner-related">
-        ${labels.map((label) => (
-          `<span>${escapeHtml(label)}</span>`
-        )).join("")}
+      <div class="code-learner-references" role="group" aria-label="Slide sources">
+        ${references.map((reference, index) => {
+          const key = referenceKey(reference);
+          const detail = String(reference.label || reference.symbol || "").trim();
+          return `
+            <button class="code-learner-reference${key === activeKey ? " active" : ""}"
+                    type="button" aria-pressed="${key === activeKey}"
+                    data-code-learner-source-reference="${index}"
+                    title="${escapeHtml(detail || referenceLabel(reference))}">
+              ${escapeHtml(referenceLabel(reference))}
+            </button>
+          `;
+        }).join("")}
       </div>
     `;
   }
@@ -2095,6 +2159,16 @@
         selectPaneLine(state, Number(line.dataset.line || "0"), event.shiftKey);
       });
     });
+    state.host.querySelectorAll("[data-code-learner-source-reference]").forEach(
+      (button) => {
+        button.addEventListener("click", () => {
+          selectPaneReference(
+            state,
+            Number(button.dataset.codeLearnerSourceReference || "0"),
+          );
+        });
+      },
+    );
     state.host.querySelectorAll("[data-code-learner-deep-dive]").forEach((button) => {
       button.addEventListener("click", () => {
         navigatePaneCourse(
@@ -2231,6 +2305,42 @@
     }
     renderPane(state);
     notifyPaneContext(state);
+  }
+
+  async function selectPaneReference(state, referenceIndex) {
+    const step = currentPaneStep(state);
+    const reference = sourceReferences(step)[referenceIndex];
+    if (!reference || state.busy) {
+      return;
+    }
+    const query = new URLSearchParams({ path: reference.file_path });
+    if (reference.start_line !== null && reference.start_line !== undefined) {
+      query.set("start_line", String(reference.start_line));
+    }
+    if (reference.end_line !== null && reference.end_line !== undefined) {
+      query.set("end_line", String(reference.end_line));
+    }
+    state.activeReferenceKey = referenceKey(reference);
+    state.busy = true;
+    state.error = "";
+    renderPane(state);
+    try {
+      const response = await fetch(
+        state.contextUrl(`/api/code-learner/source?${query.toString()}`),
+        { cache: "no-store" },
+      );
+      const payload = await response.json().catch(() => ({ error: "source failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || "source failed");
+      }
+      applyPanePayload(state, payload);
+      notifyPaneContext(state);
+    } catch (error) {
+      state.error = error.message || String(error);
+    } finally {
+      state.busy = false;
+      renderPane(state);
+    }
   }
 
   async function selectPaneStep(state, stepId) {
@@ -2373,7 +2483,7 @@
     if (!walkthrough || !step) {
       return null;
     }
-    const reference = step.primary_reference || {};
+    const reference = activePaneReference(state, step);
     const hasSelection = state.selectedStartLine !== null;
     const start = hasSelection
       ? state.selectedStartLine
@@ -2395,9 +2505,9 @@
       end_line: end,
       symbol: reference.symbol || "",
       selection_active: hasSelection,
-      selected_file_path: hasSelection ? path : "",
-      selected_start_line: hasSelection ? start : null,
-      selected_end_line: hasSelection ? end : null,
+      selected_file_path: path,
+      selected_start_line: start,
+      selected_end_line: end,
       visible_start_line: source.window_start_line || null,
       visible_end_line: source.window_end_line || null,
       source_excerpt: excerptFromSource(source, start, end),

@@ -425,7 +425,6 @@
 
 .code-learner-slide-kicker,
 .code-learner-reference,
-.code-learner-related span,
 .code-learner-pane-status {
   color: #9facb8;
   font-size: var(--code-learner-small-font-size);
@@ -523,27 +522,37 @@
   height: auto;
 }
 
-.code-learner-reference {
-  overflow-wrap: anywhere;
-  border-left: 3px solid #5ab8ab;
-  padding-left: 10px;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-}
-
-.code-learner-related {
+.code-learner-references {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.code-learner-related span {
+.code-learner-reference {
   max-width: 100%;
   overflow: hidden;
   border: 1px solid #303946;
   border-radius: 6px;
-  padding: 4px 8px;
+  background: #101419;
+  color: #aebbc6;
+  cursor: pointer;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  padding: 5px 8px;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.code-learner-reference:hover,
+.code-learner-reference:focus-visible {
+  border-color: #5ab8ab;
+  outline: none;
+}
+
+.code-learner-reference.active {
+  border-color: #72c9bc;
+  background: #1b2b2a;
+  color: #e4f5f1;
 }
 
 .code-learner-deep-dives {
