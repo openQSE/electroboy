@@ -11,6 +11,8 @@ from pathlib import Path
 from .domain import IDEProfile
 
 MANAGED_IDE_SETTINGS: dict[str, object] = {
+    # vscode-neovim 1.19 requires Monaco's textarea input path for key dispatch.
+    "editor.editContext": False,
     "telemetry.telemetryLevel": "off",
     "workbench.enableExperiments": False,
     "update.mode": "none",

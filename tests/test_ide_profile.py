@@ -40,10 +40,12 @@ class IDEProfileTests(unittest.TestCase):
                 ).read_text()
             )
             self.assertEqual(settings["workbench.colorTheme"], "ElectroBoy")
+            self.assertFalse(settings["editor.editContext"])
             self.assertEqual(
                 machine_settings["workbench.colorTheme"],
                 "ElectroBoy",
             )
+            self.assertFalse(machine_settings["editor.editContext"])
             self.assertEqual(settings["electroboy.bridge.directory"], "/tmp/bridge")
             self.assertEqual(
                 machine_settings["electroboy.bridge.directory"],

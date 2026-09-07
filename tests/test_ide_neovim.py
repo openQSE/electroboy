@@ -124,6 +124,7 @@ class IDENeovimTests(unittest.TestCase):
             {"asvetliakov.vscode-neovim": 1},
         )
         self.assertTrue(settings["vscode-neovim.neovimClean"])
+        self.assertFalse(settings["editor.editContext"])
         self.assertEqual(self.downloads.events()[-1]["status"], "verified")
 
     def test_missing_old_and_disabled_states_do_not_block_profile(self) -> None:
