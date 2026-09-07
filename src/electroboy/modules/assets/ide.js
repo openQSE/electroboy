@@ -41,6 +41,8 @@
     let currentNeovim = null;
     let recoveryRequested = false;
     let zoomPercent = 100;
+    let inputSequence = 0;
+    let inputTelemetryCleanup = null;
     const telemetry = options.telemetry || null;
 
     try {
@@ -74,6 +76,85 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }).catch(() => {});
+    }
+
+    function inputKeyGroup(key) {
+      if (/^(Arrow|Page)/.test(key) || ["Home", "End"].includes(key)) {
+        return "navigation";
+      }
+      if (["Backspace", "Delete", "Enter", "Escape", "Insert", "Tab"].includes(key)) {
+        return "editing";
+      }
+      if (["Alt", "AltGraph", "Control", "Meta", "Shift"].includes(key)) {
+        return "modifier";
+      }
+      if (/^F\d{1,2}$/.test(key)) return "function";
+      if (key.length === 1) return "printable";
+      return "other";
+    }
+
+    function recordInputEvent(eventType, event = null) {
+      if (!telemetry || !workspaceId || disposed) return;
+      const key = String(event?.key || "");
+      const targetKind = String(event?.target?.tagName || "").toLowerCase();
+      inputSequence += 1;
+      const payload = {
+        event_type: eventType,
+        sequence: inputSequence,
+        occurred_at: new Date().toISOString(),
+        editor_mode: currentNeovim?.enabled ? "neovim" : "standard",
+        key_group: key ? inputKeyGroup(key) : null,
+        named_key: key.length > 1 ? key : null,
+        vim_motion: key.length === 1 && "hjkl".includes(key.toLowerCase()),
+        repeat: Boolean(event?.repeat),
+        default_prevented: Boolean(event?.defaultPrevented),
+        frame_has_focus: Boolean(frame.contentDocument?.hasFocus()),
+        target_kind: targetKind || null,
+        modifiers: {
+          alt: Boolean(event?.altKey),
+          control: Boolean(event?.ctrlKey),
+          meta: Boolean(event?.metaKey),
+          shift: Boolean(event?.shiftKey),
+        },
+      };
+      fetch(contextUrl("/api/ide/input-events"), {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    }
+
+    function installInputTelemetry() {
+      inputTelemetryCleanup?.();
+      inputTelemetryCleanup = null;
+      if (!telemetry || frame.src === "about:blank") return;
+      try {
+        const targetWindow = frame.contentWindow;
+        if (!targetWindow) return;
+        const keyEvent = (event) => {
+          window.setTimeout(() => recordInputEvent(event.type, event), 0);
+        };
+        const pointerEvent = (event) => recordInputEvent("pointerdown", event);
+        const focused = () => recordInputEvent("frame-focus");
+        const blurred = () => recordInputEvent("frame-blur");
+        targetWindow.addEventListener("keydown", keyEvent, true);
+        targetWindow.addEventListener("keyup", keyEvent, true);
+        targetWindow.addEventListener("pointerdown", pointerEvent, true);
+        targetWindow.addEventListener("focus", focused, true);
+        targetWindow.addEventListener("blur", blurred, true);
+        inputTelemetryCleanup = () => {
+          targetWindow.removeEventListener("keydown", keyEvent, true);
+          targetWindow.removeEventListener("keyup", keyEvent, true);
+          targetWindow.removeEventListener("pointerdown", pointerEvent, true);
+          targetWindow.removeEventListener("focus", focused, true);
+          targetWindow.removeEventListener("blur", blurred, true);
+        };
+      } catch (error) {
+        report("input-telemetry-unavailable", {
+          message: String(error.message || error),
+        });
+      }
     }
 
     const root = element("div", "ide-pane");
@@ -830,6 +911,7 @@
       if (root.dataset.state === "ready" && frame.src !== "about:blank") {
         state.hidden = true;
       }
+      installInputTelemetry();
     });
     frame.addEventListener("error", () => {
       report("frame-load-error", {
@@ -849,6 +931,8 @@
       if (disposed) return;
       disposed = true;
       if (heartbeat) window.clearInterval(heartbeat);
+      inputTelemetryCleanup?.();
+      inputTelemetryCleanup = null;
       contextMenu.remove();
       toolbarRefresh.remove();
       frame.src = "about:blank";

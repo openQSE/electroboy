@@ -321,6 +321,21 @@ class IDEService:
             "managed_downloads": self.download_client.events(),
         }
 
+    def record_input_event(
+        self,
+        workspace_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        instance = self.manager.status(workspace_id)
+        if instance is None or instance.status is not IDEInstanceStatus.READY:
+            raise IDEError(
+                IDEErrorCategory.NOT_READY,
+                "the workspace IDE is not ready for input telemetry",
+                recoverable=True,
+            )
+        event = self.bridge.record_input_event(instance, payload)
+        return {"status": "recorded", "event": event}
+
     def configuration_status(self, workspace_id: str) -> dict[str, object]:
         return {
             "status": "ready",

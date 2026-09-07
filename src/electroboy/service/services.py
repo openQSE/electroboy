@@ -329,6 +329,12 @@ class IDEServices(Protocol):
 
     def diagnostics(self, context_id: str) -> dict[str, object]: ...
 
+    def record_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]: ...
+
     def configuration(self, context_id: str) -> dict[str, object]: ...
 
     def configure(
@@ -688,6 +694,12 @@ class ServiceRuntimeBackend(Protocol):
     ) -> dict[str, object]: ...
 
     def ide_diagnostics(self, context_id: str) -> dict[str, object]: ...
+
+    def record_ide_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]: ...
 
     def ide_configuration(self, context_id: str) -> dict[str, object]: ...
 
@@ -1225,6 +1237,13 @@ class RuntimeIDEServices:
 
     def diagnostics(self, context_id: str) -> dict[str, object]:
         return self.runtime.ide_diagnostics(context_id)
+
+    def record_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return self.runtime.record_ide_input_event(context_id, payload)
 
     def configuration(self, context_id: str) -> dict[str, object]:
         return self.runtime.ide_configuration(context_id)

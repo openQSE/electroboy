@@ -28,6 +28,10 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn('report("request-start"', script)
         self.assertIn('report("request-response"', script)
         self.assertIn('report("start-failed"', script)
+        self.assertIn('contextUrl("/api/ide/input-events")', script)
+        self.assertIn("function installInputTelemetry()", script)
+        self.assertIn('targetWindow.addEventListener("keydown"', script)
+        self.assertIn('key.length > 1 ? key : null', script)
 
     def test_core_discovers_contributed_panes_and_mounts_ide(self) -> None:
         modules = build_module_registry()

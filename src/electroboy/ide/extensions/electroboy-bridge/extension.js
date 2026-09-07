@@ -7,6 +7,7 @@ const vscode = require("vscode");
 const PROTOCOL_VERSION = 1;
 const POLL_INTERVAL_MS = 250;
 const CONTEXT_DELAY_MS = 100;
+const INPUT_EVENT_LIMIT = 500;
 
 let pollingTimer = null;
 let contextTimer = null;
@@ -14,6 +15,7 @@ let revision = 0;
 let registration = null;
 let bridgeDirectory = "";
 let processing = new Set();
+let inputSequence = 0;
 
 async function activate(context) {
   await applyManagedWorkbenchSettings();
@@ -24,16 +26,47 @@ async function activate(context) {
   registration = readJson(path.join(bridgeDirectory, "registration.json"));
   if (!validRegistration(registration)) return;
 
-  const update = () => scheduleContextUpdate();
+  const activeEditorChanged = (editor) => {
+    recordInputEffect("active-editor", {
+      language: editor?.document.languageId || null,
+      path: editor ? repositoryPath(editor.document.uri.fsPath) : null,
+    });
+    scheduleContextUpdate();
+  };
+  const selectionChanged = (event) => {
+    const selection = event.selections[0];
+    recordInputEffect("selection-change", {
+      cause: selectionChangeKind(event.kind),
+      cursor: selection ? position(selection.active) : null,
+      selection_count: event.selections.length,
+      document_version: event.textEditor.document.version,
+    });
+    scheduleContextUpdate();
+  };
+  const documentChanged = (event) => {
+    if (event.document !== vscode.window.activeTextEditor?.document) return;
+    recordInputEffect("document-change", {
+      change_count: event.contentChanges.length,
+      document_version: event.document.version,
+      dirty: event.document.isDirty,
+    });
+    scheduleContextUpdate();
+  };
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(update),
-    vscode.window.onDidChangeTextEditorSelection(update),
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document === vscode.window.activeTextEditor?.document) update();
+    vscode.window.onDidChangeActiveTextEditor(activeEditorChanged),
+    vscode.window.onDidChangeTextEditorSelection(selectionChanged),
+    vscode.workspace.onDidChangeTextDocument(documentChanged),
+    vscode.window.onDidChangeWindowState((event) => {
+      recordInputEffect("window-focus", { focused: event.focused });
     }),
-    vscode.workspace.onDidSaveTextDocument(update),
-    vscode.workspace.onDidCloseTextDocument(update),
+    vscode.workspace.onDidSaveTextDocument(scheduleContextUpdate),
+    vscode.workspace.onDidCloseTextDocument(scheduleContextUpdate),
   );
+  recordInputEffect("bridge-ready", {
+    neovim_extension_present: Boolean(
+      vscode.extensions.getExtension("asvetliakov.vscode-neovim"),
+    ),
+  });
   scheduleContextUpdate();
   pollCommands();
   pollingTimer = setInterval(pollCommands, POLL_INTERVAL_MS);
@@ -165,6 +198,46 @@ function appendResponse(requestId, ok, error) {
   );
 }
 
+function recordInputEffect(eventType, details = {}) {
+  if (!registration) return;
+  inputSequence += 1;
+  appendBoundedJsonl(
+    path.join(bridgeDirectory, "input-events.jsonl"),
+    envelope({
+      source: "vscode",
+      event_type: eventType,
+      sequence: inputSequence,
+      occurred_at: new Date().toISOString(),
+      ...details,
+    }),
+    INPUT_EVENT_LIMIT,
+  );
+}
+
+function selectionChangeKind(kind) {
+  if (kind === vscode.TextEditorSelectionChangeKind.Keyboard) return "keyboard";
+  if (kind === vscode.TextEditorSelectionChangeKind.Mouse) return "mouse";
+  if (kind === vscode.TextEditorSelectionChangeKind.Command) return "command";
+  return "unknown";
+}
+
+function appendBoundedJsonl(filePath, payload, limit) {
+  fs.appendFileSync(
+    filePath,
+    `${JSON.stringify(payload)}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  if (fs.statSync(filePath).size <= 500000) return;
+  const retained = readJsonl(filePath).slice(-limit);
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(
+    temporary,
+    `${retained.map((record) => JSON.stringify(record)).join("\n")}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  fs.renameSync(temporary, filePath);
+}
+
 function envelope(payload) {
   return {
     protocol_version: PROTOCOL_VERSION,
@@ -252,5 +325,6 @@ module.exports = {
   applyManagedWorkbenchSettings,
   deactivate,
   findSymbol,
+  selectionChangeKind,
   validRegistration,
 };

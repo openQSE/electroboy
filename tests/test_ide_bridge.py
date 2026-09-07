@@ -69,6 +69,9 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertEqual(payload["workspace_id"], "workspace-1")
         self.assertEqual(payload["instance_id"], "instance-1")
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        input_events = self.registration.directory / "input-events.jsonl"
+        self.assertTrue(input_events.is_file())
+        self.assertEqual(input_events.stat().st_mode & 0o777, 0o600)
 
     def test_context_requires_current_authenticated_registration(self) -> None:
         payload = self.envelope(
@@ -116,6 +119,34 @@ class IDEBridgeTests(unittest.TestCase):
         diagnostics = self.bridge.diagnostics(self.instance)
         self.assertEqual(diagnostics["pending_command_count"], 1)
 
+    def test_input_diagnostics_are_sanitized_and_exposed(self) -> None:
+        event = self.bridge.record_input_event(
+            self.instance,
+            {
+                "event_type": "keydown",
+                "sequence": 8,
+                "occurred_at": "2026-09-07T16:00:00.000Z",
+                "editor_mode": "neovim",
+                "key_group": "printable",
+                "named_key": "x",
+                "vim_motion": False,
+                "frame_has_focus": True,
+                "target_kind": "textarea",
+                "modifiers": {"control": True},
+                "source_text": "must not be retained",
+            },
+        )
+
+        diagnostics = self.bridge.diagnostics(self.instance)
+
+        self.assertEqual(event["source"], "browser")
+        self.assertIsNone(event["named_key"])
+        self.assertEqual(event["modifiers"]["control"], True)
+        self.assertNotIn("source_text", event)
+        self.assertNotIn("auth", event)
+        self.assertEqual(diagnostics["input_event_count"], 1)
+        self.assertEqual(diagnostics["recent_input_events"], [event])
+
     def test_vsix_build_is_reproducible_and_contains_extension(self) -> None:
         source = (
             Path(__file__).resolve().parents[1]
@@ -146,6 +177,18 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertIn("await applyManagedWorkbenchSettings()", source)
         self.assertIn('workbench.get("colorTheme")', source)
         self.assertIn("vscode.ConfigurationTarget.Global", source)
+
+    def test_extension_records_editor_effects_without_document_text(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src/electroboy/ide/extensions/electroboy-bridge/extension.js"
+        ).read_text()
+
+        self.assertIn("onDidChangeTextEditorSelection(selectionChanged)", source)
+        self.assertIn('recordInputEffect("selection-change"', source)
+        self.assertIn('recordInputEffect("document-change"', source)
+        self.assertIn("event.contentChanges.length", source)
+        self.assertNotIn("contentChange.text", source)
 
     def envelope(self, payload: dict[str, object]) -> dict[str, object]:
         return {

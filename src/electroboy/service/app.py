@@ -851,6 +851,15 @@ class ServiceState:
             self._context_locked(context_id)
         return self.ide_service.diagnostics(context_id)
 
+    def record_ide_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.record_input_event(context_id, payload)
+
     def ide_configuration(self, context_id: str) -> dict[str, object]:
         with self.lock:
             self._context_locked(context_id)

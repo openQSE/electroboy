@@ -65,7 +65,7 @@ class IDEBridge:
                 "secret": registration.secret,
             },
         )
-        for name in ("commands.jsonl", "responses.jsonl"):
+        for name in ("commands.jsonl", "responses.jsonl", "input-events.jsonl"):
             (directory / name).write_text("", encoding="utf-8")
             (directory / name).chmod(0o600)
         (directory / "context.json").unlink(missing_ok=True)
@@ -115,6 +115,13 @@ class IDEBridge:
         completed = {
             str(response.get("request_id") or "") for response in responses
         }
+        input_events = [
+            _public_input_event(record)
+            for record in _read_jsonl(
+                registration.directory / "input-events.jsonl"
+            )
+            if self._authenticated(record, registration)
+        ]
         return {
             "protocol_version": registration.protocol_version,
             "registered": True,
@@ -132,7 +139,29 @@ class IDEBridge:
                 }
                 for response in responses[-10:]
             ],
+            "input_event_count": len(input_events),
+            "recent_input_events": input_events[-100:],
         }
+
+    def record_input_event(
+        self,
+        instance: IDEInstance,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        """Record sanitized browser-side input metadata for correlation."""
+
+        registration = self._registration(instance)
+        event = {
+            **self._envelope(registration),
+            **_sanitize_browser_input_event(payload),
+        }
+        lock = self._locks[instance.instance_id]
+        with lock:
+            _append_bounded_jsonl(
+                registration.directory / "input-events.jsonl",
+                event,
+            )
+        return _public_input_event(event)
 
     def context(self, instance: IDEInstance) -> IDEEditorContext | None:
         registration = self._registration(instance)
@@ -230,6 +259,28 @@ def _append_jsonl(path: Path, payload: dict[str, object]) -> None:
         stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
 
 
+def _append_bounded_jsonl(
+    path: Path,
+    payload: dict[str, object],
+    *,
+    maximum_records: int = 500,
+) -> None:
+    _append_jsonl(path, payload)
+    if path.stat().st_size <= 500_000:
+        return
+    retained = _read_jsonl(path)[-maximum_records:]
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary.write_text(
+        "".join(
+            f"{json.dumps(record, separators=(',', ':'))}\n"
+            for record in retained
+        ),
+        encoding="utf-8",
+    )
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
 def _read_json(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -252,6 +303,49 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
         if isinstance(payload, dict):
             records.append(payload)
     return records
+
+
+def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, object]:
+    event_type = str(payload.get("event_type") or "unknown")
+    if event_type not in {"frame-focus", "frame-blur", "keydown", "keyup", "pointerdown"}:
+        event_type = "unknown"
+    key_group = str(payload.get("key_group") or "")
+    if key_group not in {"navigation", "editing", "modifier", "function", "printable", "other"}:
+        key_group = ""
+    named_key = str(payload.get("named_key") or "")
+    if len(named_key) > 24 or len(named_key) == 1:
+        named_key = ""
+    modifiers = payload.get("modifiers")
+    if not isinstance(modifiers, dict):
+        modifiers = {}
+    return {
+        "source": "browser",
+        "event_type": event_type,
+        "sequence": max(0, _optional_int(payload.get("sequence")) or 0),
+        "occurred_at": str(payload.get("occurred_at") or "")[:40],
+        "editor_mode": (
+            "neovim" if payload.get("editor_mode") == "neovim" else "standard"
+        ),
+        "key_group": key_group or None,
+        "named_key": named_key or None,
+        "vim_motion": bool(payload.get("vim_motion")),
+        "repeat": bool(payload.get("repeat")),
+        "default_prevented": bool(payload.get("default_prevented")),
+        "frame_has_focus": bool(payload.get("frame_has_focus")),
+        "target_kind": str(payload.get("target_kind") or "")[:24] or None,
+        "modifiers": {
+            name: bool(modifiers.get(name))
+            for name in ("alt", "control", "meta", "shift")
+        },
+    }
+
+
+def _public_input_event(payload: dict[str, object]) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if key not in {"auth", "workspace_id", "instance_id", "protocol_version"}
+    }
 
 
 def _optional_text(value: object) -> str | None:

@@ -54,6 +54,10 @@ class FakeIDEService:
         self.calls.append(("diagnostics", workspace_id))
         return {"instance": None, "provider_output": []}
 
+    def record_input_event(self, workspace_id, payload):
+        self.calls.append(("record_input_event", (workspace_id, payload)))
+        return {"status": "recorded", "event": payload}
+
     def configuration_status(self, workspace_id):
         self.calls.append(("configuration", workspace_id))
         return {
@@ -323,6 +327,17 @@ class IDEServiceAPITests(unittest.TestCase):
             [call[0] for call in self.ide.calls[-2:]],
             ["configuration", "configure"],
         )
+
+    def test_input_event_route_records_sanitized_diagnostics(self) -> None:
+        status, payload = self.request(
+            "POST",
+            "/api/ide/input-events",
+            {"event_type": "keydown", "key_group": "navigation"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "recorded")
+        self.assertEqual(self.ide.calls[-1][0], "record_input_event")
 
     def test_network_policy_configuration_and_clear_routes(self) -> None:
         status = self.request("GET", "/api/ide/network")
