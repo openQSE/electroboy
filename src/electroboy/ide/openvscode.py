@@ -83,7 +83,13 @@ class OpenVSCodeProvider:
         (profile.root / "provider-token").unlink(missing_ok=True)
         instance_id = f"ide-{uuid.uuid4().hex}"
         registration = self.bridge.prepare(profile, workspace, instance_id)
-        configure_managed_profile(profile, self.bridge.settings(registration))
+        configure_managed_profile(
+            profile,
+            {
+                **self.bridge.settings(registration),
+                "files.dialog.defaultPath": str(workspace.project_root),
+            },
+        )
         arguments = self.command(
             workspace,
             runtime,

@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from urllib.parse import urlencode
 
 from .artifacts import load_runtime_manifest
 from .bridge import IDEBridge
@@ -218,7 +219,7 @@ class IDEService:
         return {
             "status": "started" if started else "already_running",
             "instance": instance.public_payload(),
-            "view_path": f"/ide/{workspace_id}/",
+            "view_path": _ide_view_path(instance.workspace),
             "neovim": self.neovim.diagnostics(),
         }
 
@@ -238,12 +239,12 @@ class IDEService:
         return {
             "status": instance.status.value if instance else "stopped",
             "instance": instance.public_payload() if instance else None,
+            "view_path": _ide_view_path(instance.workspace) if instance else None,
             "runtime": self.runtime_status(),
             "sandbox": self.sandbox.availability(
                 self.manager.profile_for(workspace_id)
             ),
         }
-
     def stop(self, workspace_id: str, reason: str = "requested") -> dict[str, object]:
         instance = self.manager.stop(workspace_id, reason)
         self.proxy_sessions.revoke_workspace(workspace_id)
@@ -559,6 +560,11 @@ class IDEService:
     ) -> None:
         if self._context_callback is not None:
             self._context_callback(workspace_id, context)
+
+
+def _ide_view_path(workspace: IDEWorkspace) -> str:
+    query = urlencode({"folder": str(workspace.project_root)})
+    return f"/ide/{workspace.workspace_id}/?{query}"
 
 
 def _ide_data_root() -> Path:

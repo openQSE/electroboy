@@ -337,7 +337,10 @@
           await attachView();
           if (!frame.src || frame.src === "about:blank") {
             workspaceId = String(project.workspace_id || project.context_id || "");
-            frame.src = contextUrl(`/ide/${workspaceId}/`);
+            frame.src = contextUrl(String(
+              payload.view_path ||
+              `/ide/${workspaceId}/?folder=${encodeURIComponent(active)}`
+            ));
           }
           frame.hidden = false;
           setState("ready", "IDE ready", "Loading the editor workbench");

@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from urllib.parse import urlencode
 
+from electroboy.ide import IDEWorkspace
+from electroboy.ide.service import _ide_view_path
 from electroboy.service import create_server
 
 
@@ -206,6 +208,17 @@ class IDEServiceAPITests(unittest.TestCase):
             stopped,
         )))
         self.assertNotIn("token", json.dumps(started[1]))
+
+    def test_ide_view_path_opens_the_active_project_folder(self) -> None:
+        workspace = IDEWorkspace(
+            "workspace-1",
+            Path("/tmp/project with spaces"),
+        )
+
+        self.assertEqual(
+            _ide_view_path(workspace),
+            "/ide/workspace-1/?folder=%2Ftmp%2Fproject+with+spaces",
+        )
 
     def test_start_consumes_body_before_next_keep_alive_request(self) -> None:
         host, port = self.server.server_address[:2]

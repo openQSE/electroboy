@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import threading
@@ -200,6 +201,10 @@ class IDELifecycleTests(unittest.TestCase):
                 / "extension.js"
             ).is_file()
         )
+        settings = json.loads(
+            (instance.profile.user_data / "Machine/settings.json").read_text()
+        )
+        self.assertEqual(settings["files.dialog.defaultPath"], str(self.root))
         time.sleep(0.05)
         diagnostics = provider.diagnostics(instance.instance_id)
         self.assertEqual(diagnostics[0], "provider ready ?secret=[REDACTED]")
