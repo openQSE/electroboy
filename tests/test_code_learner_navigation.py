@@ -133,6 +133,52 @@ def test_navigation_projects_markdown_sections_without_companion(
     assert "<strong>Purpose</strong>" in step["explanation_html"]
     assert "mod-001" not in step["explanation_html"]
     assert "comp-001" not in step["explanation_html"]
+    assert step["primary_reference"] == {}
+    assert step["secondary_references"] == []
     assert artifact["jsonl_path"].endswith("01.Overview.jsonl")
     assert "markdown_path" not in artifact
     assert not list(root.rglob("*.md"))
+
+
+def test_navigation_projects_all_ai_source_references_without_validation(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    store = _write_course(root)
+    lesson = store.architecture_root / "01.Context" / "01.Overview.jsonl"
+    records = store.read_lesson(lesson)
+    records[1]["source_refs"] = [
+        {
+            "path": "src/parser.py",
+            "start_line": 4,
+            "end_line": 12,
+            "symbol": "parse",
+            "reason": "comp-001 entry point",
+        },
+        {
+            "path": "tests/test_parser.py",
+            "start_line": 20,
+            "end_line": 20,
+            "symbol": "test_parse",
+            "reason": "Observed behavior",
+        },
+    ]
+    lesson.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+    step = CourseNavigator(root).walkthrough(
+        CourseNavigator(root).open("architecture")
+    )["steps"][0]
+
+    assert step["primary_reference"] == {
+        "file_path": "src/parser.py",
+        "start_line": 4,
+        "end_line": 12,
+        "symbol": "parse",
+        "label": "Request Parser entry point",
+        "kind": "source",
+    }
+    assert step["secondary_references"][0]["file_path"] == "tests/test_parser.py"

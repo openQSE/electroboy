@@ -186,30 +186,36 @@ class CourseNavigator:
 
     def _step(self, slide: dict[str, Any]) -> dict[str, object]:
         references = slide.get("source_refs")
-        first = references[0] if isinstance(references, list) and references else {}
-        first = first if isinstance(first, dict) else {}
-        path = str(first.get("path") or first.get("file_path") or "")
-        start = _integer(first.get("start_line"), 1)
-        end = _integer(first.get("end_line"), start)
+        references = references if isinstance(references, list) else []
+        projected = [
+            self._reference(reference)
+            for reference in references
+            if isinstance(reference, dict)
+        ]
         return {
             "id": str(slide.get("id") or ""),
             "title": str(slide.get("title") or "Slide"),
             "explanation": str(slide.get("body") or ""),
             "explanation_html": render_markdown(str(slide.get("body") or "")),
-            "primary_reference": {
-                "file_path": path,
-                "start_line": start,
-                "end_line": end,
-                "symbol": str(first.get("symbol") or ""),
-                "label": str(first.get("reason") or ""),
-                "kind": "source",
-            },
-            "secondary_references": [],
+            "primary_reference": projected[0] if projected else {},
+            "secondary_references": projected[1:],
             "prerequisites": [],
             "followups": [],
             "review_status": "generated",
             "concept_title": str(slide.get("concept_title") or ""),
             "lesson_title": str(slide.get("lesson_title") or ""),
+        }
+
+    def _reference(self, reference: dict[str, Any]) -> dict[str, object]:
+        return {
+            "file_path": str(
+                reference.get("path") or reference.get("file_path") or ""
+            ),
+            "start_line": reference.get("start_line"),
+            "end_line": reference.get("end_line"),
+            "symbol": str(reference.get("symbol") or ""),
+            "label": self.presentation.text(reference.get("reason")),
+            "kind": "source",
         }
 
 

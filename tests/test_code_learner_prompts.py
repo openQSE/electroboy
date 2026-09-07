@@ -73,3 +73,11 @@ def test_course_prompts_use_raw_knowledge_and_markdown_body_fields() -> None:
         assert "Markdown" in prompt
         assert "`body` field" in prompt
         assert "Approximately every ten" in prompt
+        assert '"source_refs": [' in prompt
+        assert '"path": "repository-relative/source/file.ext"' in prompt
+        assert '"start_line": 40' in prompt
+        assert '"end_line": 95' in prompt
+        assert '"symbol": "important_symbol"' in prompt
+        assert '"reason": "Why this source range supports the slide"' in prompt
+        assert "always write every section as exactly that\nform of JSON object" in prompt
+        assert "Do not omit, rename, or alias `source_refs`" in prompt

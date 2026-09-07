@@ -198,13 +198,31 @@ Every remaining line is one GUI slide and must be a section record:
   "heading_level": 2,
   "title": "Slide title",
   "body": "Markdown slide content",
+  "source_refs": [
+    {
+      "path": "repository-relative/source/file.ext",
+      "start_line": 40,
+      "end_line": 95,
+      "symbol": "important_symbol",
+      "reason": "Why this source range supports the slide"
+    }
+  ],
   "status": "draft"
 }
 
+For every course-generation turn, always write every section as exactly that
+form of JSON object. Do not omit, rename, or alias `source_refs` or any of its
+fields. Every implementation-backed slide must include one or more source
+references, ordered with the best code-pane range first. Paths must be relative
+to the repository root, and line numbers must identify the exact range being
+discussed. Use an empty `source_refs` array only when a genuinely conceptual
+slide has no specific supporting source range.
+
 Write the complete instructional content for every slide as Markdown in that
 section record's `body` field. Put explanatory prose, lists, tables, code blocks,
-source paths, symbol references, and fenced Mermaid diagrams in `body`; do not
-leave lesson details only in titles, metadata, or the course index.
+symbol references, and fenced Mermaid diagrams in `body`; put structured source
+locations in `source_refs`. Do not leave lesson details only in titles,
+metadata, or the course index.
 """.strip()
 
 

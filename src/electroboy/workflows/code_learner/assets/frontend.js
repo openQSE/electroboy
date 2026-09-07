@@ -1597,10 +1597,19 @@
   }
 
   function referenceLabel(reference) {
-    if (!reference) {
+    const path = String(reference && reference.file_path || "").trim();
+    if (!path) {
       return "";
     }
-    return `${reference.file_path || ""}:${reference.start_line || 1}-${reference.end_line || 1}`;
+    const start = reference.start_line;
+    const end = reference.end_line;
+    if (start === null || start === undefined || start === "") {
+      return path;
+    }
+    if (end === null || end === undefined || end === "" || end === start) {
+      return `${path}:${start}`;
+    }
+    return `${path}:${start}-${end}`;
   }
 
   function excerptFromSource(source, startLine, endLine) {
@@ -1992,6 +2001,7 @@
       `;
     }
     const reference = step.primary_reference || {};
+    const referenceText = referenceLabel(reference);
     return `
       <div class="code-learner-slide-copy">
         <div class="code-learner-slide-kicker">
@@ -2002,9 +2012,11 @@
         <div class="code-learner-slide-body">
           ${step.explanation_html || ""}
         </div>
-        <div class="code-learner-reference">
-          ${escapeHtml(referenceLabel(reference))}
-        </div>
+        ${referenceText ? `
+          <div class="code-learner-reference">
+            ${escapeHtml(referenceText)}
+          </div>
+        ` : ""}
         ${renderRelatedReferences(step)}
         ${renderDeepDiveActions(step)}
       </div>
@@ -2043,13 +2055,14 @@
     const references = Array.isArray(step.secondary_references)
       ? step.secondary_references
       : [];
-    if (!references.length) {
+    const labels = references.map(referenceLabel).filter(Boolean).slice(0, 6);
+    if (!labels.length) {
       return "";
     }
     return `
       <div class="code-learner-related">
-        ${references.slice(0, 6).map((reference) => (
-          `<span>${escapeHtml(referenceLabel(reference))}</span>`
+        ${labels.map((label) => (
+          `<span>${escapeHtml(label)}</span>`
         )).join("")}
       </div>
     `;
