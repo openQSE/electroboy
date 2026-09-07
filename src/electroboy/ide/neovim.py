@@ -18,7 +18,11 @@ from .artifacts import RuntimeArtifactManifest, load_runtime_manifest
 from .domain import IDEProfile
 from .downloads import AuditedDownloadClient
 from .installer import ManagedRuntimeInstaller
-from .profile import configure_managed_profile
+from .profile import (
+    configure_managed_profile,
+    register_managed_extension,
+    unregister_managed_extension,
+)
 from .resolver import ManagedRuntimeResolver
 
 _VERSION = re.compile(r"NVIM\s+v?(\d+)\.(\d+)\.(\d+)", re.IGNORECASE)
@@ -119,6 +123,7 @@ class NeovimProfileManager:
                 }
         if status["status"] != "enabled":
             shutil.rmtree(destination, ignore_errors=True)
+            unregister_managed_extension(profile.extensions, self.artifact.id)
             self._last_status = status
             return status
         try:
@@ -129,6 +134,7 @@ class NeovimProfileManager:
             shutil.copytree(extension, staging)
             shutil.rmtree(destination, ignore_errors=True)
             staging.replace(destination)
+            register_managed_extension(destination)
         except Exception as error:
             status = {
                 **status,

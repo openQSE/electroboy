@@ -51,6 +51,20 @@ class IDEProfileTests(unittest.TestCase):
             )
             self.assertEqual(package["displayName"], "ElectroBoy Theme")
             self.assertEqual(package["version"], "1.1.0")
+            registry = json.loads(
+                (profile.extensions / "extensions.json").read_text()
+            )
+            registered = {
+                entry["identifier"]["id"]: entry for entry in registry
+            }
+            self.assertEqual(
+                registered["electroboy.electroboy-theme"]["version"],
+                "1.1.0",
+            )
+            self.assertEqual(
+                registered["electroboy.electroboy-bridge"]["version"],
+                "1.1.0",
+            )
             self.assertTrue(
                 (
                     profile.extensions

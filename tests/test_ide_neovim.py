@@ -88,6 +88,12 @@ class IDENeovimTests(unittest.TestCase):
         executable = self.root / "nvim"
         fake_nvim(executable, "0.10.4")
         self.manager.configure(enabled=True, executable=str(executable))
+        self.profile.extensions.mkdir(parents=True)
+        obsolete = self.profile.extensions / ".obsolete"
+        obsolete.write_text(
+            json.dumps({"asvetliakov.vscode-neovim-1.19.0": True}),
+            encoding="utf-8",
+        )
 
         status = self.manager.prepare(self.profile)
 
@@ -95,6 +101,14 @@ class IDENeovimTests(unittest.TestCase):
         self.assertTrue(status["installed"])
         extension = self.profile.extensions / self.manager.extension_directory_name
         self.assertTrue((extension / "package.json").is_file())
+        registry = json.loads(
+            (self.profile.extensions / "extensions.json").read_text()
+        )
+        self.assertIn(
+            "asvetliakov.vscode-neovim",
+            {entry["identifier"]["id"] for entry in registry},
+        )
+        self.assertEqual(json.loads(obsolete.read_text()), {})
         self.assertTrue(
             (self.profile.extensions / "electroboy-bridge" / "extension.js").is_file()
         )
@@ -120,6 +134,30 @@ class IDENeovimTests(unittest.TestCase):
         self.assertEqual(incompatible["status"], "incompatible")
         self.assertEqual(disabled["status"], "disabled")
         self.assertEqual(self.downloads.events(), [])
+
+    def test_disabling_neovim_removes_its_profile_registration(self) -> None:
+        executable = self.root / "nvim"
+        fake_nvim(executable, "0.10.4")
+        self.manager.configure(enabled=True, executable=str(executable))
+        self.manager.prepare(self.profile)
+        obsolete = self.profile.extensions / ".obsolete"
+        obsolete.write_text(
+            json.dumps({"asvetliakov.vscode-neovim-1.19.0": True}),
+            encoding="utf-8",
+        )
+
+        self.manager.configure(enabled=False, executable=str(executable))
+        status = self.manager.prepare(self.profile)
+
+        registry = json.loads(
+            (self.profile.extensions / "extensions.json").read_text()
+        )
+        self.assertEqual(status["status"], "disabled")
+        self.assertNotIn(
+            "asvetliakov.vscode-neovim",
+            {entry["identifier"]["id"] for entry in registry},
+        )
+        self.assertEqual(json.loads(obsolete.read_text()), {})
 
     def test_configuration_does_not_touch_user_neovim_files(self) -> None:
         user_config = self.root / "home/.config/nvim/init.lua"
