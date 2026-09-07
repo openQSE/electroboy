@@ -161,6 +161,7 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     )
     assert "nav.outlineMenu.disabled = !Boolean(walkthrough);" in frontend
     assert "function appendOutlineLessonHeading(" in frontend
+    assert "if (!isOverviewLesson(lessonTitle))" in frontend
     assert 'separator.setAttribute("role", "separator");' in frontend
     assert ".code-learner-outline-separator" in stylesheet
     assert ".code-learner-outline-concept" in stylesheet
@@ -245,6 +246,8 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "function renderSourceReferences(state, step)" in frontend
     assert "function courseLocationLabel(step)" in frontend
     assert "courseLocationLabel(step)" in frontend
+    assert "if (isOverviewLesson(lesson))" in frontend
+    assert "function isOverviewLesson(title)" in frontend
     assert ".code-learner-slide-location" in stylesheet
     assert "function selectPaneReference(state, referenceIndex)" in frontend
     assert "data-code-learner-source-reference" in frontend

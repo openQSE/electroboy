@@ -766,7 +766,10 @@
     const lesson = document.createElement("div");
     lesson.className = "code-learner-outline-lesson";
     lesson.textContent = lessonTitle;
-    container.append(concept, lesson);
+    container.append(concept);
+    if (!isOverviewLesson(lessonTitle)) {
+      container.append(lesson);
+    }
   }
 
   function renderModuleOptions(modules, initialized) {
@@ -2072,7 +2075,14 @@
   function courseLocationLabel(step) {
     const concept = String(step && step.concept_title || "").trim();
     const lesson = String(step && step.lesson_title || "").trim();
+    if (isOverviewLesson(lesson)) {
+      return concept;
+    }
     return [concept, lesson].filter(Boolean).join(": ");
+  }
+
+  function isOverviewLesson(title) {
+    return String(title || "").trim().toLowerCase() === "overview";
   }
 
   function sourceReferences(step) {
