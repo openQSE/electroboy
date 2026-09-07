@@ -290,5 +290,7 @@ def _extract_vsix(archive: Path, destination: Path) -> None:
         for member in bundle.infolist():
             path = PurePosixPath(member.filename)
             if path.is_absolute() or ".." in path.parts:
-                raise ValueError(f"VSIX entry escapes extraction root: {member.filename}")
+                raise ValueError(
+                    f"VSIX entry escapes extraction root: {member.filename}"
+                )
         bundle.extractall(destination)

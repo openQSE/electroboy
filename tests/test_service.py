@@ -14,8 +14,8 @@ import unittest
 from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
-from urllib.parse import urlencode
 from unittest import mock
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))

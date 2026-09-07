@@ -26,6 +26,7 @@ package-dir = { "" = "../../src" }
 packages = [
   "electroboy",
   "electroboy.adapters",
+  "electroboy.ide",
   "electroboy.prompts",
   "electroboy.service",
   "electroboy.workflows",
@@ -38,4 +39,12 @@ electroboy = [
   "assets/service/*.html",
   "assets/service/css/*.css",
   "assets/service/js/core/*.js",
+]
+"electroboy.ide" = [
+  "THIRD_PARTY-NOTICES.md",
+  "runtime-artifacts.json",
+  "extension-artifacts.json",
+  "extensions/*/*.json",
+  "extensions/*/*/*.json",
+  "extensions/*/*.js",
 ]

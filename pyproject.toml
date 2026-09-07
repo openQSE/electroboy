@@ -61,6 +61,7 @@ electroboy = [
 ]
 "electroboy.modules" = ["assets/*.js", "assets/*.css"]
 "electroboy.ide" = [
+  "THIRD_PARTY-NOTICES.md",
   "runtime-artifacts.json",
   "extension-artifacts.json",
   "extensions/*/*.json",

@@ -572,6 +572,20 @@ interaction during service shutdown, ElectroBoy must allow a bounded graceful
 shutdown interval before terminating the process and report that unsaved editor
 state may remain in provider backup storage.
 
+### Runtime Pin Upgrades and Rollback
+
+Runtime and extension upgrades are source-controlled changes. Update the
+version, URL, expected size, and SHA-256 digest in `runtime-artifacts.json` or
+`extension-artifacts.json`, update the matching notice, and run the installer,
+profile, bridge, sandbox, distribution, and end-to-end tests before committing
+the pin. Never replace an installed version in place: managed runtime versions
+use separate directories, and extension downloads use versioned cache names.
+
+Rollback reverts the pin commit and restarts the IDE. The resolver then selects
+the prior versioned installation when it remains present, or downloads that
+verified artifact again. Cleanup of old runtime versions is an explicit
+maintenance operation and must not run as part of an upgrade or rollback.
+
 ## Configuration
 
 The detailed design must define stable configuration for at least:
@@ -830,14 +844,14 @@ Commit boundary: terminal editing regression protection.
 
 ### 13. Package and Release
 
-- [ ] Add pinned artifact metadata for every supported platform and architecture.
-- [ ] Verify managed installation from a clean ElectroBoy environment.
-- [ ] Verify system executable mode.
-- [ ] Verify offline and disabled behavior.
-- [ ] Include required OpenVSCode and extension license notices.
-- [ ] Define the upgrade and rollback process for runtime and extension pins.
-- [ ] Confirm no OpenVSCode or VS Code Git submodule exists.
-- [ ] Confirm normal installation does not compile OpenVSCode Server.
+- [x] Add pinned artifact metadata for every supported platform and architecture.
+- [x] Verify managed installation from a clean ElectroBoy environment.
+- [x] Verify system executable mode.
+- [x] Verify offline and disabled behavior.
+- [x] Include required OpenVSCode and extension license notices.
+- [x] Define the upgrade and rollback process for runtime and extension pins.
+- [x] Confirm no OpenVSCode or VS Code Git submodule exists.
+- [x] Confirm normal installation does not compile OpenVSCode Server.
 - [ ] Run the complete ElectroBoy test suite.
 
 Commit boundary: IDE packaging and release readiness.

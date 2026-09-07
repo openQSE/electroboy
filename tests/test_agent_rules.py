@@ -45,6 +45,7 @@ class AgentRulesTests(unittest.TestCase):
                 "structured-documents.source-of-truth",
                 "software.structured-artifacts",
                 "software.general-documents",
+                "software.editor-context",
             ],
         )
 

@@ -160,6 +160,7 @@ finally:
                     "corkboard",
                     "core",
                     "file_browser",
+                    "ide",
                     "markdown_documents",
                     "mind_map",
                     "progress",
