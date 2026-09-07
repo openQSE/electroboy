@@ -52,6 +52,21 @@ class FakeIDEService:
         self.calls.append(("diagnostics", workspace_id))
         return {"instance": None, "provider_output": []}
 
+    def configuration_status(self, workspace_id):
+        self.calls.append(("configuration", workspace_id))
+        return {
+            "status": "ready",
+            "configuration": {"runtime_mode": "auto"},
+        }
+
+    def configure(self, workspace_id, values):
+        self.calls.append(("configure", (workspace_id, values)))
+        return {
+            "status": "configured",
+            "configuration": values,
+            "restart_required": True,
+        }
+
     def network_status(self, workspace_id):
         self.calls.append(("network_status", workspace_id))
         return {
@@ -238,6 +253,28 @@ class IDEServiceAPITests(unittest.TestCase):
         self.assertEqual(
             self.ide.calls[-1],
             ("configure_neovim", (False, "/usr/bin/nvim")),
+        )
+
+    def test_ide_configuration_routes(self) -> None:
+        status = self.request("GET", "/api/ide/configuration")
+        configured = self.request(
+            "POST",
+            "/api/ide/configure",
+            {
+                "runtime_mode": "managed",
+                "system_executable": "",
+                "maximum_instances": 3,
+                "maximum_views_per_instance": 2,
+                "idle_timeout": 1200,
+                "startup_timeout": 45,
+            },
+        )
+
+        self.assertEqual(status[1]["configuration"]["runtime_mode"], "auto")
+        self.assertEqual(configured[1]["status"], "configured")
+        self.assertEqual(
+            [call[0] for call in self.ide.calls[-2:]],
+            ["configuration", "configure"],
         )
 
     def test_network_policy_configuration_and_clear_routes(self) -> None:

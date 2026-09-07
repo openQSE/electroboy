@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from .artifacts import load_runtime_manifest
@@ -53,10 +54,17 @@ class IDEConfiguration:
     @classmethod
     def from_environment(cls) -> IDEConfiguration:
         data_root = _ide_data_root()
+        saved = _load_configuration(data_root)
         mode = IDERuntimeMode(
-            os.environ.get("ELECTROBOY_IDE_RUNTIME_MODE", "auto").strip().lower()
+            os.environ.get(
+                "ELECTROBOY_IDE_RUNTIME_MODE",
+                str(saved.get("runtime_mode") or "auto"),
+            ).strip().lower()
         )
-        executable_text = os.environ.get("ELECTROBOY_IDE_EXECUTABLE", "").strip()
+        executable_text = os.environ.get(
+            "ELECTROBOY_IDE_EXECUTABLE",
+            str(saved.get("system_executable") or ""),
+        ).strip()
         egress_mode = IDEEgressMode(
             os.environ.get("ELECTROBOY_IDE_EGRESS_MODE", "deny").strip().lower()
         )
@@ -69,19 +77,39 @@ class IDEConfiguration:
             egress_mode=egress_mode,
             maximum_instances=max(
                 1,
-                int(os.environ.get("ELECTROBOY_IDE_MAX_INSTANCES", "2")),
+                int(
+                    os.environ.get(
+                        "ELECTROBOY_IDE_MAX_INSTANCES",
+                        str(saved.get("maximum_instances") or 2),
+                    )
+                ),
             ),
             maximum_views_per_instance=max(
                 1,
-                int(os.environ.get("ELECTROBOY_IDE_MAX_VIEWS", "2")),
+                int(
+                    os.environ.get(
+                        "ELECTROBOY_IDE_MAX_VIEWS",
+                        str(saved.get("maximum_views_per_instance") or 2),
+                    )
+                ),
             ),
             idle_timeout=max(
                 0,
-                float(os.environ.get("ELECTROBOY_IDE_IDLE_TIMEOUT", "900")),
+                float(
+                    os.environ.get(
+                        "ELECTROBOY_IDE_IDLE_TIMEOUT",
+                        str(saved.get("idle_timeout", 900)),
+                    )
+                ),
             ),
             startup_timeout=max(
                 1,
-                float(os.environ.get("ELECTROBOY_IDE_STARTUP_TIMEOUT", "30")),
+                float(
+                    os.environ.get(
+                        "ELECTROBOY_IDE_STARTUP_TIMEOUT",
+                        str(saved.get("startup_timeout") or 30),
+                    )
+                ),
             ),
         )
 
@@ -291,6 +319,68 @@ class IDEService:
             "managed_downloads": self.download_client.events(),
         }
 
+    def configuration_status(self, workspace_id: str) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "provider": "openvscode",
+            "configuration": _configuration_payload(self.configuration),
+            "runtime": self.runtime_status(),
+            "restart_required": self.manager.status(workspace_id) is not None,
+        }
+
+    def configure(
+        self,
+        workspace_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        runtime_mode = IDERuntimeMode(
+            str(values.get("runtime_mode") or self.configuration.runtime_mode.value)
+        )
+        executable_text = str(values.get("system_executable") or "").strip()
+        maximum_instances = _bounded_int(
+            values.get("maximum_instances"),
+            "maximum_instances",
+            minimum=1,
+            maximum=8,
+        )
+        maximum_views = _bounded_int(
+            values.get("maximum_views_per_instance"),
+            "maximum_views_per_instance",
+            minimum=1,
+            maximum=8,
+        )
+        idle_timeout = _bounded_float(
+            values.get("idle_timeout"),
+            "idle_timeout",
+            minimum=0,
+            maximum=86400,
+        )
+        startup_timeout = _bounded_float(
+            values.get("startup_timeout"),
+            "startup_timeout",
+            minimum=1,
+            maximum=300,
+        )
+        self.configuration = replace(
+            self.configuration,
+            runtime_mode=runtime_mode,
+            system_executable=(
+                Path(executable_text).expanduser() if executable_text else None
+            ),
+            maximum_instances=maximum_instances,
+            maximum_views_per_instance=maximum_views,
+            idle_timeout=idle_timeout,
+            startup_timeout=startup_timeout,
+        )
+        self.manager.maximum_instances = maximum_instances
+        self.manager.idle_timeout = idle_timeout
+        self.manager.startup_timeout = startup_timeout
+        _save_configuration(self.configuration)
+        return {
+            **self.configuration_status(workspace_id),
+            "status": "configured",
+        }
+
     def network_status(self, workspace_id: str) -> dict[str, object]:
         instance = self.manager.status(workspace_id)
         profile = self.manager.profile_for(workspace_id)
@@ -478,3 +568,74 @@ def _ide_data_root() -> Path:
     xdg_data = os.environ.get("XDG_DATA_HOME", "").strip()
     base = Path(xdg_data).expanduser() if xdg_data else Path.home() / ".local/share"
     return (base / "electroboy").resolve()
+
+
+def _configuration_path(data_root: Path) -> Path:
+    return data_root / "ide" / "configuration.json"
+
+
+def _load_configuration(data_root: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(_configuration_path(data_root).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _configuration_payload(configuration: IDEConfiguration) -> dict[str, object]:
+    payload = asdict(configuration)
+    payload.pop("data_root", None)
+    payload["runtime_mode"] = configuration.runtime_mode.value
+    payload["system_executable"] = (
+        str(configuration.system_executable) if configuration.system_executable else ""
+    )
+    payload["egress_mode"] = configuration.egress_mode.value
+    return payload
+
+
+def _save_configuration(configuration: IDEConfiguration) -> None:
+    path = _configuration_path(configuration.data_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    serialized = json.dumps(
+        _configuration_payload(configuration),
+        indent=2,
+        sort_keys=True,
+    )
+    temporary.write_text(
+        serialized + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _bounded_int(
+    value: object,
+    name: str,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be an integer") from error
+    if not minimum <= parsed <= maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return parsed
+
+
+def _bounded_float(
+    value: object,
+    name: str,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        parsed = float(str(value))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a number") from error
+    if not minimum <= parsed <= maximum:
+        raise ValueError(f"{name} must be between {minimum:g} and {maximum:g}")
+    return parsed

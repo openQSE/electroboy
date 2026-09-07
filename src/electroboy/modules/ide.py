@@ -66,6 +66,25 @@ def _diagnostics(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _configuration(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.configuration(request.context_id)
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
+def _configure(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.configure(
+            request.context_id,
+            request.body(),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
 def _network_status(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.services.ide.network_status(request.context_id)
@@ -167,6 +186,8 @@ _HANDLERS = {
     "stop": _stop,
     "open": _open,
     "diagnostics": _diagnostics,
+    "configuration": _configuration,
+    "configure": _configure,
     "network_status": _network_status,
     "configure_network": _configure_network,
     "clear_network_events": _clear_network_events,
@@ -191,6 +212,8 @@ def module() -> ServiceModule:
             route("POST", "/api/ide/stop", "ide", "stop"),
             route("POST", "/api/ide/open", "ide", "open"),
             route("GET", "/api/ide/diagnostics", "ide", "diagnostics"),
+            route("GET", "/api/ide/configuration", "ide", "configuration"),
+            route("POST", "/api/ide/configure", "ide", "configure"),
             route("GET", "/api/ide/network", "ide", "network_status"),
             route(
                 "POST",

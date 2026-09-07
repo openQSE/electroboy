@@ -851,6 +851,20 @@ class ServiceState:
             self._context_locked(context_id)
         return self.ide_service.diagnostics(context_id)
 
+    def ide_configuration(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configuration_status(context_id)
+
+    def configure_ide(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configure(context_id, values)
+
     def ide_network_status(self, context_id: str) -> dict[str, object]:
         with self.lock:
             self._context_locked(context_id)

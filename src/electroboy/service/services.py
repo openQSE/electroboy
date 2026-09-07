@@ -329,6 +329,14 @@ class IDEServices(Protocol):
 
     def diagnostics(self, context_id: str) -> dict[str, object]: ...
 
+    def configuration(self, context_id: str) -> dict[str, object]: ...
+
+    def configure(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]: ...
+
     def network_status(self, context_id: str) -> dict[str, object]: ...
 
     def configure_network(
@@ -678,6 +686,14 @@ class ServiceRuntimeBackend(Protocol):
     ) -> dict[str, object]: ...
 
     def ide_diagnostics(self, context_id: str) -> dict[str, object]: ...
+
+    def ide_configuration(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_ide(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]: ...
 
     def ide_network_status(self, context_id: str) -> dict[str, object]: ...
 
@@ -1205,6 +1221,16 @@ class RuntimeIDEServices:
 
     def diagnostics(self, context_id: str) -> dict[str, object]:
         return self.runtime.ide_diagnostics(context_id)
+
+    def configuration(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_configuration(context_id)
+
+    def configure(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        return self.runtime.configure_ide(context_id, values)
 
     def network_status(self, context_id: str) -> dict[str, object]:
         return self.runtime.ide_network_status(context_id)
