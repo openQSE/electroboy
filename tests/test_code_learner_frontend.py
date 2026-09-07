@@ -232,7 +232,10 @@ def test_code_learner_frontend_registers_workflow_and_pane_renderer() -> None:
     assert "function renderSlideMarkdown(markdown)" not in frontend
     assert "step.explanation_html" in frontend
     assert "renderMermaidDiagrams(state.host);" in frontend
+    assert "window.ElectroBoyMermaid.render(host);" in frontend
+    assert "function loadMermaid()" not in frontend
     assert ".code-learner-slide-body .mermaid" in stylesheet
+    assert "cursor: zoom-in;" in stylesheet
     assert ".code-learner-slide-body table" in stylesheet
     assert "const referenceText = referenceLabel(reference);" in frontend
     assert "referenceText ?" in frontend

@@ -2031,31 +2031,10 @@
   }
 
   function renderMermaidDiagrams(host) {
-    const diagrams = host.querySelectorAll(".mermaid");
-    if (!diagrams.length) {
+    if (!window.ElectroBoyMermaid) {
       return;
     }
-    loadMermaid().then(() => {
-      window.mermaid.initialize({ startOnLoad: false, theme: "dark" });
-      window.mermaid.run({ nodes: Array.from(diagrams) }).catch(() => {});
-    }).catch(() => {});
-  }
-
-  function loadMermaid() {
-    if (window.mermaid) {
-      return Promise.resolve(window.mermaid);
-    }
-    if (window.__electroboyCodeLearnerMermaid) {
-      return window.__electroboyCodeLearnerMermaid;
-    }
-    window.__electroboyCodeLearnerMermaid = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
-      script.onload = () => resolve(window.mermaid);
-      script.onerror = reject;
-      document.head.append(script);
-    });
-    return window.__electroboyCodeLearnerMermaid;
+    window.ElectroBoyMermaid.render(host);
   }
 
   function renderRelatedReferences(step) {

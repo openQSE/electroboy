@@ -602,6 +602,10 @@ class ServiceTests(unittest.TestCase):
             "js/core/terminal-behavior.js",
             frontend_bundles["core-shell"]["assets"],
         )
+        self.assertIn(
+            "js/core/mermaid.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
         self.assertIn("code-learner-workflow", frontend_bundles)
@@ -645,6 +649,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn(
             "js/core/terminal-behavior.js",
+            frontend_bundles["pane-window"]["assets"],
+        )
+        self.assertIn(
+            "js/core/mermaid.js",
             frontend_bundles["pane-window"]["assets"],
         )
         self.assertIn(
@@ -2358,6 +2366,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/assets/service/js/core/pane-sync.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-tools.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/terminal-behavior.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/mermaid.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
         self.assertIn('id="artifactPaneToolsToggle"', INDEX_HTML)
         self.assertIn('id="artifactPaneToolsShelf"', INDEX_HTML)
@@ -2428,6 +2437,10 @@ class ServiceTests(unittest.TestCase):
                 ) = request_bytes(
                     server,
                     "/assets/service/js/core/terminal-behavior.js",
+                )
+                mermaid_status, mermaid_body, mermaid_type, _ = request_bytes(
+                    server,
+                    "/assets/service/js/core/mermaid.js",
                 )
                 file_tools_status, file_tools_body, file_tools_type, _ = request_bytes(
                     server,
@@ -2545,6 +2558,10 @@ class ServiceTests(unittest.TestCase):
             "application/javascript; charset=utf-8",
         )
         self.assertIn(b"window.ElectroBoyTerminalBehavior", terminal_behavior_body)
+        self.assertEqual(mermaid_status, 200)
+        self.assertEqual(mermaid_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"window.ElectroBoyMermaid", mermaid_body)
+        self.assertIn(b"function openMermaidPopup(diagram)", mermaid_body)
         self.assertEqual(file_tools_status, 200)
         self.assertEqual(file_tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyFilePaneTools", file_tools_body)
@@ -3461,62 +3478,69 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('<pre><code class="language-bash">mkdir -p qhpc', page)
         self.assertIn('<div class="mermaid">sequenceDiagram', page)
-        self.assertIn("mermaid@10", page)
-        self.assertIn("function openMermaidPopup(diagram)", page)
-        self.assertIn("URL.createObjectURL(new Blob", page)
-        self.assertIn("function diagramMarkup(diagram)", page)
-        self.assertIn("function initializeDiagramPopup(title)", page)
-        self.assertIn("function contentBox(svg)", page)
-        self.assertIn("function updateBaseSize()", page)
-        self.assertIn("availableWidth / naturalWidth", page)
-        self.assertIn(r".split(/\\s+/)", page)
-        self.assertIn('"viewBox"', page)
-        self.assertIn('"preserveAspectRatio"', page)
-        self.assertIn('id="sequenceHeader"', page)
-        self.assertIn("function isSequenceDiagram(svg)", page)
-        self.assertIn("function buildSequenceHeader()", page)
-        self.assertIn("function syncSequenceHeader()", page)
-        self.assertIn('svg.querySelector("text.actor")', page)
-        self.assertIn('svg.querySelector(".actor-line")', page)
-        self.assertIn('querySelectorAll("text.actor, .actor text")', page)
-        self.assertIn('className = "sequence-header-actor"', page)
-        self.assertIn(r'return text.replace(/\\s+/g, " ");', page)
-        self.assertIn("overflow-wrap: anywhere;", page)
-        self.assertIn("white-space: normal;", page)
-        self.assertIn('candidate.matches?.("rect.actor")', page)
-        self.assertIn("function sequenceDiagramScale(svg)", page)
-        self.assertIn("rect.width / naturalWidth", page)
-        self.assertIn("function sequenceHeaderMetrics(", page)
-        self.assertIn("fontSize: Math.max(1, fontSize * scale),", page)
-        self.assertIn("headerHeight: renderedHeight + 14 * scale,", page)
+        self.assertIn(
+            '<script src="/assets/service/js/core/mermaid.js"></script>',
+            page,
+        )
+        self.assertIn("window.ElectroBoyMermaid.render(document);", page)
+        self.assertNotIn("function openMermaidPopup(diagram)", page)
+        mermaid = read_service_text_asset("js/core/mermaid.js")
+        self.assertIn("mermaid@10", mermaid)
+        self.assertIn("function openMermaidPopup(diagram)", mermaid)
+        self.assertIn("URL.createObjectURL(new Blob", mermaid)
+        self.assertIn("function diagramMarkup(diagram)", mermaid)
+        self.assertIn("function initializeDiagramPopup(title)", mermaid)
+        self.assertIn("function contentBox(svg)", mermaid)
+        self.assertIn("function updateBaseSize()", mermaid)
+        self.assertIn("availableWidth / naturalWidth", mermaid)
+        self.assertIn(r".split(/\\s+/)", mermaid)
+        self.assertIn('"viewBox"', mermaid)
+        self.assertIn('"preserveAspectRatio"', mermaid)
+        self.assertIn('id="sequenceHeader"', mermaid)
+        self.assertIn("function isSequenceDiagram(svg)", mermaid)
+        self.assertIn("function buildSequenceHeader()", mermaid)
+        self.assertIn("function syncSequenceHeader()", mermaid)
+        self.assertIn('svg.querySelector("text.actor")', mermaid)
+        self.assertIn('svg.querySelector(".actor-line")', mermaid)
+        self.assertIn('querySelectorAll("text.actor, .actor text")', mermaid)
+        self.assertIn('className = "sequence-header-actor"', mermaid)
+        self.assertIn(r'return text.replace(/\\s+/g, " ");', mermaid)
+        self.assertIn("overflow-wrap: anywhere;", mermaid)
+        self.assertIn("white-space: normal;", mermaid)
+        self.assertIn('candidate.matches?.("rect.actor")', mermaid)
+        self.assertIn("function sequenceDiagramScale(svg)", mermaid)
+        self.assertIn("rect.width / naturalWidth", mermaid)
+        self.assertIn("function sequenceHeaderMetrics(", mermaid)
+        self.assertIn("fontSize: Math.max(1, fontSize * scale),", mermaid)
+        self.assertIn("headerHeight: renderedHeight + 14 * scale,", mermaid)
         self.assertIn(
             "const boxRect = actor.sourceBox?.getBoundingClientRect();",
-            page,
+            mermaid,
         )
         self.assertIn(
             'sequenceHeader.style.height = headerHeight + "px";',
-            page,
+            mermaid,
         )
-        self.assertIn('actor.label.style.left = centerX + "px";', page)
-        self.assertIn('actor.label.style.fontSize = metrics.fontSize + "px";', page)
-        self.assertIn('actor.label.style.width = metrics.width + "px";', page)
-        self.assertIn("window.requestAnimationFrame", page)
-        self.assertIn("const wheelZoomFactor = 1.1;", page)
-        self.assertIn("function zoomTo(nextZoom, clientX = null, clientY = null)", page)
-        self.assertIn("viewport.scrollLeft += rect.left", page)
-        self.assertIn("function handleWheelZoom(event)", page)
-        self.assertIn("function startPan(event)", page)
-        self.assertIn("event.button !== 1", page)
-        self.assertIn("viewport.scrollLeft", page)
+        self.assertIn('actor.label.style.left = centerX + "px";', mermaid)
+        self.assertIn('actor.label.style.fontSize = metrics.fontSize + "px";', mermaid)
+        self.assertIn('actor.label.style.width = metrics.width + "px";', mermaid)
+        self.assertIn("window.requestAnimationFrame", mermaid)
+        self.assertIn("const wheelZoomFactor = 1.1;", mermaid)
+        self.assertIn("function zoomTo(nextZoom, clientX = null, clientY = null)", mermaid)
+        self.assertIn("viewport.scrollLeft += rect.left", mermaid)
+        self.assertIn("function handleWheelZoom(event)", mermaid)
+        self.assertIn("function startPan(event)", mermaid)
+        self.assertIn("event.button !== 1", mermaid)
+        self.assertIn("viewport.scrollLeft", mermaid)
         self.assertIn(
             'viewport.addEventListener("wheel", handleWheelZoom, { passive: false });',
-            page,
+            mermaid,
         )
-        self.assertIn('viewport.addEventListener("scroll", syncSequenceHeader);', page)
-        self.assertIn('viewport.addEventListener("pointerdown", startPan);', page)
-        self.assertIn('viewport.addEventListener("auxclick", (event) => {', page)
-        self.assertIn('securityLevel: "strict"', page)
-        self.assertIn('querySelector: ".mermaid"', page)
+        self.assertIn('viewport.addEventListener("scroll", syncSequenceHeader);', mermaid)
+        self.assertIn('viewport.addEventListener("pointerdown", startPan);', mermaid)
+        self.assertIn('viewport.addEventListener("auxclick", (event) => {', mermaid)
+        self.assertIn('securityLevel: "strict"', mermaid)
+        self.assertIn("await mermaid.run({ nodes: pending });", mermaid)
 
     def test_document_target_renderer_renders_markdown_inside_details(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

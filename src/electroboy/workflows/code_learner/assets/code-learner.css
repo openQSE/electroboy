@@ -503,7 +503,15 @@
   border: 1px solid #303946;
   border-radius: 6px;
   background: #101419;
+  cursor: zoom-in;
   padding: 12px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.code-learner-slide-body .mermaid:hover,
+.code-learner-slide-body .mermaid:focus-visible {
+  border-color: #5ab8ab;
+  outline: none;
 }
 
 .code-learner-slide-body code {
