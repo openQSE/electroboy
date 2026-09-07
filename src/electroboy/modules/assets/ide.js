@@ -38,6 +38,7 @@
     let disposed = false;
     let heartbeat = null;
     let currentStatus = null;
+    let recoveryRequested = false;
 
     const root = element("div", "ide-pane");
     const frame = element("iframe", "ide-frame");
@@ -97,8 +98,25 @@
       });
       const payload = await response.json().catch(() => ({ error: "request failed" }));
       if (!response.ok) {
-        throw new Error(payload.error || `IDE request failed (${response.status})`);
+        const error = new Error(
+          payload.error || `IDE request failed (${response.status})`,
+        );
+        if (response.status === 409 && !recoveryRequested && !disposed) {
+          recoveryRequested = true;
+          error.workspaceRecoveryRequested = true;
+          setState(
+            "starting",
+            "Reconnecting IDE",
+            "Restoring the workspace connection",
+          );
+          options.postMessage?.({
+            type: "electroboy:pane-recover-workspace",
+            paneInstanceId: viewId,
+          });
+        }
+        throw error;
       }
+      recoveryRequested = false;
       return payload;
     }
 
@@ -146,6 +164,7 @@
         stop.hidden = false;
         options.setTitle?.("IDE");
       } catch (error) {
+        if (error.workspaceRecoveryRequested) return;
         currentStatus = { status: "failed", error: String(error.message || error) };
         setState("failed", "IDE failed to start", error.message || String(error));
       }
@@ -179,6 +198,7 @@
         }
         await start();
       } catch (error) {
+        if (error.workspaceRecoveryRequested) return;
         setState("failed", "IDE status unavailable", error.message || String(error));
       }
     }

@@ -23,6 +23,7 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn("/api/ide/views/attach", script)
         self.assertIn("/api/ide/views/detach", script)
         self.assertIn("window.ElectroBoyIDE = { openLocation }", script)
+        self.assertIn('type: "electroboy:pane-recover-workspace"', script)
 
     def test_core_discovers_contributed_panes_and_mounts_ide(self) -> None:
         modules = build_module_registry()
@@ -35,6 +36,14 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn('PANE_KIND === "ide"', pane_window)
         self.assertIn("window.ElectroBoyIDEPane.mount", pane_window)
         self.assertIn('message.type === "electroboy:pane-open-kind"', runtime)
+        self.assertIn(
+            'message.type === "electroboy:pane-recover-workspace"',
+            runtime,
+        )
+        self.assertIn(
+            'refreshPaneLayoutInstanceFrames("workspace-recovered")',
+            runtime,
+        )
 
     def test_rendered_ide_pane_loads_contributed_module_assets(self) -> None:
         modules = build_module_registry()

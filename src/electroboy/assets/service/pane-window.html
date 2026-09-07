@@ -4626,6 +4626,13 @@
         setTitle: (title) => {
           paneTitle.textContent = title;
         },
+        postMessage: (message) => {
+          if (window.parent !== window) {
+            window.parent.postMessage(message, window.location.origin);
+          } else if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(message, window.location.origin);
+          }
+        },
       });
     }
 

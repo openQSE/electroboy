@@ -3170,6 +3170,19 @@
       if (!leaf) {
         return;
       }
+      if (
+        message.type === "electroboy:pane-recover-workspace" &&
+        leaf.kind === "ide"
+      ) {
+        recoverWorkspaceAttachment().then((recovered) => {
+          if (!recovered) {
+            window.location.reload();
+            return;
+          }
+          refreshPaneLayoutInstanceFrames("workspace-recovered");
+        }).catch(() => window.location.reload());
+        return;
+      }
       if (message.type === "electroboy:pane-activate") {
         setActivePaneLayoutLeaf(leaf.id);
         return;
