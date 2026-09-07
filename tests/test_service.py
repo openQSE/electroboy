@@ -3485,7 +3485,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("window.ElectroBoyMermaid.render(document);", page)
         self.assertNotIn("function openMermaidPopup(diagram)", page)
         mermaid = read_service_text_asset("js/core/mermaid.js")
-        self.assertIn("mermaid@10", mermaid)
+        self.assertIn("mermaid@11", mermaid)
         self.assertIn("function openMermaidPopup(diagram)", mermaid)
         self.assertIn("URL.createObjectURL(new Blob", mermaid)
         self.assertIn("function diagramMarkup(diagram)", mermaid)

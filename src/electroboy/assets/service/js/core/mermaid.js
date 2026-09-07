@@ -2,7 +2,7 @@
   "use strict";
 
   const MERMAID_SCRIPT_URL =
-    "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
+    "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
   const popupFeatures =
     "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
   let loader = null;
