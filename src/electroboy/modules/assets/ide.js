@@ -135,11 +135,34 @@
         resolution_kind: Number(detail.resolution_kind),
         resolved_command:
           String(detail.resolved_command || "").slice(0, 160) || null,
+        command_argument: summarizeCommandArgument(detail.command_args),
         context:
           detail.context && typeof detail.context === "object"
             ? detail.context
             : {},
       });
+    }
+
+    function recordKeybindingCommand(event) {
+      if (!telemetry || !workspaceId || disposed) return;
+      const detail = event?.detail || {};
+      inputSequence += 1;
+      submitInputEvent({
+        event_type: "keybinding-command",
+        sequence: inputSequence,
+        occurred_at: new Date().toISOString(),
+        resolved_command:
+          String(detail.resolved_command || "").slice(0, 160) || null,
+        command_argument: summarizeCommandArgument(detail.command_args),
+        command_status: String(detail.status || "").slice(0, 16) || null,
+        command_error: String(detail.error || "").slice(0, 240) || null,
+      });
+    }
+
+    function summarizeCommandArgument(value) {
+      if (typeof value === "string") return value.slice(0, 80);
+      if (value === null || value === undefined) return null;
+      return `<${typeof value}>`;
     }
 
     function submitInputEvent(payload) {
@@ -163,6 +186,7 @@
         };
         const pointerEvent = (event) => recordInputEvent("pointerdown", event);
         const keybindingEvent = (event) => recordKeybindingResolution(event);
+        const keybindingCommand = (event) => recordKeybindingCommand(event);
         const focused = () => recordInputEvent("frame-focus");
         const blurred = () => recordInputEvent("frame-blur");
         targetWindow.addEventListener("keydown", keyEvent, true);
@@ -171,6 +195,10 @@
         targetWindow.addEventListener(
           "electroboy-keybinding-resolution",
           keybindingEvent,
+        );
+        targetWindow.addEventListener(
+          "electroboy-keybinding-command",
+          keybindingCommand,
         );
         targetWindow.addEventListener("focus", focused, true);
         targetWindow.addEventListener("blur", blurred, true);
@@ -181,6 +209,10 @@
           targetWindow.removeEventListener(
             "electroboy-keybinding-resolution",
             keybindingEvent,
+          );
+          targetWindow.removeEventListener(
+            "electroboy-keybinding-command",
+            keybindingCommand,
           );
           targetWindow.removeEventListener("focus", focused, true);
           targetWindow.removeEventListener("blur", blurred, true);

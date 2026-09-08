@@ -52,6 +52,7 @@ def instrumentable_bundle() -> str:
             "yield this.client.input(`${t}`)}",
             "A.debug(`Received cursor update from neovim, gridId: ${e}`);",
             "&&(t.selections=c),this.neovimCursorPosition.set(t,c[0])",
+            'const i=t=>n=>{if(n)return t.apply(this,[n]);{const t="message"}};',
         )
     )
 
@@ -116,7 +117,16 @@ class IDENeovimTests(unittest.TestCase):
         extension = self.profile.extensions / self.manager.extension_directory_name
         self.assertTrue((extension / "package.json").is_file())
         instrumented = extension.joinpath("dist/extension.js").read_text()
-        self.assertIn(f"{TRACE_PREFIX} vscode-neovim.send invoked", instrumented)
+        self.assertIn(
+            f"{TRACE_PREFIX} vscode-neovim.send handler entered", instrumented
+        )
+        self.assertIn(
+            f"{TRACE_PREFIX} vscode-neovim.send handler completed", instrumented
+        )
+        self.assertIn(
+            f"{TRACE_PREFIX} vscode-neovim.send implementation entered",
+            instrumented,
+        )
         self.assertIn(f"{TRACE_PREFIX} Neovim RPC request sent", instrumented)
         self.assertIn(f"{TRACE_PREFIX} Neovim cursor update received", instrumented)
         self.assertIn(f"{TRACE_PREFIX} Monaco cursor synchronized", instrumented)

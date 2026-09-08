@@ -6,6 +6,7 @@ from pathlib import Path
 
 from electroboy.ide.domain import IDERuntime, IDERuntimeOrigin
 from electroboy.ide.keybinding_telemetry import (
+    COMMAND_EVENT,
     RESOLUTION_EVENT,
     instrument_keybinding_resolver,
 )
@@ -44,7 +45,10 @@ class IDEKeybindingTelemetryTests(unittest.TestCase):
     def test_instruments_managed_resolver_once(self) -> None:
         self.bundle.write_text(
             "const r=this.s.getContext(e),a=s.getLabel(),"
-            "l=this.z().resolve(r,o,n);switch(l.kind){}",
+            "l=this.z().resolve(r,o,n);switch(l.kind){};"
+            'typeof l.commandArgs>"u"?this.t.executeCommand(l.commandId)'
+            ".then(void 0,c=>this.w.warn(c)):this.t.executeCommand("
+            "l.commandId,l.commandArgs).then(void 0,c=>this.w.warn(c))",
             encoding="utf-8",
         )
         runtime = self.runtime(IDERuntimeOrigin.MANAGED)
@@ -55,10 +59,12 @@ class IDEKeybindingTelemetryTests(unittest.TestCase):
 
         self.assertEqual(self.bundle.read_text(encoding="utf-8"), first)
         self.assertIn(RESOLUTION_EVENT, first)
+        self.assertIn(COMMAND_EVENT, first)
         self.assertIn("resolved_command", first)
+        self.assertIn("command_args", first)
         self.assertIn('neovim_init:$ebValue("neovim.init")', first)
         self.assertIn(
-            "workbench.js?electroboy-keybinding-telemetry=2",
+            "workbench.js?electroboy-keybinding-telemetry=3",
             self.html.read_text(encoding="utf-8"),
         )
         self.assertTrue(

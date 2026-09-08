@@ -314,6 +314,7 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
         "keyup",
         "pointerdown",
         "keybinding-resolution",
+        "keybinding-command",
     }:
         event_type = "unknown"
     key_group = str(payload.get("key_group") or "")
@@ -364,6 +365,9 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
             dispatch_chord=(str(payload.get("dispatch_chord") or "")[:64] or None),
             resolution_kind=kind if kind in {0, 1, 2} else None,
             resolved_command=(str(payload.get("resolved_command") or "")[:160] or None),
+            command_argument=(
+                str(payload.get("command_argument") or "")[:80] or None
+            ),
             context={
                 name: _sanitize_context_value(context.get(name))
                 for name in (
@@ -375,6 +379,20 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
                     "editor_language_exclusions",
                 )
             },
+        )
+    elif event_type == "keybinding-command":
+        status = str(payload.get("command_status") or "")
+        event.update(
+            resolved_command=(str(payload.get("resolved_command") or "")[:160] or None),
+            command_argument=(
+                str(payload.get("command_argument") or "")[:80] or None
+            ),
+            command_status=(
+                status if status in {"completed", "rejected"} else None
+            ),
+            command_error=(
+                str(payload.get("command_error") or "")[:240] or None
+            ),
         )
     return event
 

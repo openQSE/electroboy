@@ -161,6 +161,7 @@ class IDEBridgeTests(unittest.TestCase):
                 "dispatch_chord": "up",
                 "resolution_kind": 2,
                 "resolved_command": "vscode-neovim.send",
+                "command_argument": "<up>",
                 "context": {
                     "editor_text_focus": True,
                     "neovim_init": True,
@@ -175,9 +176,27 @@ class IDEBridgeTests(unittest.TestCase):
 
         self.assertEqual(event["event_type"], "keybinding-resolution")
         self.assertEqual(event["resolved_command"], "vscode-neovim.send")
+        self.assertEqual(event["command_argument"], "<up>")
         self.assertEqual(event["resolution_kind"], 2)
         self.assertEqual(event["context"]["neovim_mode"], "normal")
         self.assertNotIn("unrequested", event["context"])
+
+    def test_keybinding_command_outcome_is_sanitized(self) -> None:
+        event = self.bridge.record_input_event(
+            self.instance,
+            {
+                "event_type": "keybinding-command",
+                "sequence": 10,
+                "resolved_command": "vscode-neovim.send",
+                "command_argument": "<down>",
+                "command_status": "rejected",
+                "command_error": "command failed",
+            },
+        )
+
+        self.assertEqual(event["event_type"], "keybinding-command")
+        self.assertEqual(event["command_status"], "rejected")
+        self.assertEqual(event["command_error"], "command failed")
 
     def test_vsix_build_is_reproducible_and_contains_extension(self) -> None:
         source = (
